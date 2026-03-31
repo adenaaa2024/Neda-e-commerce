@@ -1,5 +1,10 @@
 "use server";
 
+import {
+  getOrganizationLogoUrlFromDb,
+  upsertOrganizationLogoUrl,
+} from "../../lib/organization-logo";
+import { normalizeTenantLogoUrl } from "../../lib/tenant-logo-url";
 import { supabaseServer } from "../../lib/supabase-server";
 import {
   DEFAULT_CLAIM_AGENT_CONFIG,
@@ -48,13 +53,17 @@ export async function getCoreSettings(): Promise<CoreSettings> {
     ...DEFAULT_CORE_SETTINGS,
     ...(ws.core_settings as CoreSettings),
   };
-  const logo =
+  const orgLogo = await getOrganizationLogoUrlFromDb();
+  const rawLogo =
+    orgLogo ||
     (typeof merged.company_logo_url === "string" && merged.company_logo_url) ||
     (typeof merged.logo_url === "string" && merged.logo_url) ||
     "";
+  const logo = normalizeTenantLogoUrl(rawLogo);
   return {
     ...merged,
     company_logo_url: logo,
+    logo_url: logo,
   };
 }
 
@@ -159,6 +168,18 @@ export async function saveCoreSettings(
   data: Partial<CoreSettings>,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
+    const hasLogoPatch =
+      Object.prototype.hasOwnProperty.call(data, "company_logo_url") ||
+      Object.prototype.hasOwnProperty.call(data, "logo_url");
+    if (hasLogoPatch) {
+      const raw =
+        (typeof data.company_logo_url === "string" ? data.company_logo_url : "") ||
+        (typeof data.logo_url === "string" ? data.logo_url : "") ||
+        "";
+      const orgRes = await upsertOrganizationLogoUrl(raw.trim() || null);
+      if (!orgRes.ok) return { ok: false, error: orgRes.error };
+    }
+
     const existing = await getWorkspaceSettings();
     const newCoreSettings: CoreSettings = {
       ...DEFAULT_CORE_SETTINGS,

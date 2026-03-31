@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Boxes, Package2, ScanLine } from "lucide-react";
+import { DatabaseTag } from "../../components/DatabaseTag";
 import { useGlobalSearch } from "../../components/GlobalSearchContext";
 import { useUserRole } from "../../components/UserRoleContext";
 import {
@@ -14,6 +15,7 @@ import {
   DEFAULT_FEFO,
   type InventoryModuleConfig,
 } from "../settings/workspace-settings-types";
+import { resolveOrganizationId } from "../../lib/organization";
 import {
   DEFAULT_ORG_SETTINGS,
   type DrawerContent, type WizardInheritedContext,
@@ -217,54 +219,63 @@ export default function ReturnsPage() {
         ) : (
           <>
             {activeTab === "items" && (
-              <ItemsDataTable
-                items={visibleReturns}
-                packages={packages}
-                pallets={pallets}
-                role={role}
-                actor={actor}
-                fefoSettings={fefoSettings}
-                externalSearch={globalSearchQuery}
-                onToast={showToast}
-                onRowClick={(r) => openDrawer({ type: "item", record: r })}
-                onRowEdit={(r)  => openDrawer({ type: "item", record: r })}
-                onBulkDeleted={bulkRemoveReturns}
-                onBulkMoved={bulkUpdateReturns}
-                onNewItem={() => openWizard()}
-              />
+              <div className="relative min-h-0">
+                <DatabaseTag table="items" />
+                <ItemsDataTable
+                  items={visibleReturns}
+                  packages={packages}
+                  pallets={pallets}
+                  role={role}
+                  actor={actor}
+                  fefoSettings={fefoSettings}
+                  externalSearch={globalSearchQuery}
+                  onToast={showToast}
+                  onRowClick={(r) => openDrawer({ type: "item", record: r })}
+                  onRowEdit={(r)  => openDrawer({ type: "item", record: r })}
+                  onBulkDeleted={bulkRemoveReturns}
+                  onBulkMoved={bulkUpdateReturns}
+                  onNewItem={() => openWizard()}
+                />
+              </div>
             )}
 
             {activeTab === "packages" && (
-              <PackagesDataTable
-                packages={packages}
-                returns={visibleReturns}
-                pallets={pallets}
-                role={role}
-                actor={actor}
-                externalSearch={globalSearchQuery}
-                onToast={showToast}
-                onRowClick={(p) => openDrawer({ type: "package", record: p })}
-                onRowEdit={(p)  => openDrawer({ type: "package", record: p })}
-                onBulkDeleted={bulkRemovePackages}
-                onBulkPackagesUpdated={bulkUpdatePackages}
-                onNewPackage={() => setCreatePackageOpen(true)}
-              />
+              <div className="relative min-h-0">
+                <DatabaseTag table="packages" />
+                <PackagesDataTable
+                  packages={packages}
+                  returns={visibleReturns}
+                  pallets={pallets}
+                  role={role}
+                  actor={actor}
+                  externalSearch={globalSearchQuery}
+                  onToast={showToast}
+                  onRowClick={(p) => openDrawer({ type: "package", record: p })}
+                  onRowEdit={(p)  => openDrawer({ type: "package", record: p })}
+                  onBulkDeleted={bulkRemovePackages}
+                  onBulkPackagesUpdated={bulkUpdatePackages}
+                  onNewPackage={() => setCreatePackageOpen(true)}
+                />
+              </div>
             )}
 
             {activeTab === "pallets" && (
-              <PalletsDataTable
-                pallets={pallets}
-                packages={packages}
-                returns={visibleReturns}
-                role={role}
-                actor={actor}
-                externalSearch={globalSearchQuery}
-                onToast={showToast}
-                onRowClick={(p) => openDrawer({ type: "pallet", record: p })}
-                onRowEdit={(p)  => openDrawer({ type: "pallet", record: p })}
-                onBulkDeleted={bulkRemovePallets}
-                onNewPallet={() => setCreatePalletOpen(true)}
-              />
+              <div className="relative min-h-0">
+                <DatabaseTag table="pallets" />
+                <PalletsDataTable
+                  pallets={pallets}
+                  packages={packages}
+                  returns={visibleReturns}
+                  role={role}
+                  actor={actor}
+                  externalSearch={globalSearchQuery}
+                  onToast={showToast}
+                  onRowClick={(p) => openDrawer({ type: "pallet", record: p })}
+                  onRowEdit={(p)  => openDrawer({ type: "pallet", record: p })}
+                  onBulkDeleted={bulkRemovePallets}
+                  onNewPallet={() => setCreatePalletOpen(true)}
+                />
+              </div>
             )}
           </>
         )}
@@ -314,6 +325,7 @@ export default function ReturnsPage() {
             pallet={activeDrawer.record}
             role={role}
             actor={actor}
+            organizationId={resolveOrganizationId()}
             packages={packages}
             onClose={closeDrawer}
             onPalletUpdated={updatePallet_}
@@ -330,6 +342,7 @@ export default function ReturnsPage() {
           onClose={() => { setWizardOpen(false); setWizardInherited(undefined); }}
           onSuccess={(r, photos) => { addReturn(r, photos); }}
           actor={actor}
+          organizationId={resolveOrganizationId()}
           openPackages={openPackages}
           openPallets={openPallets}
           onCreatePackage={() => { setWizardOpen(false); setCreatePackageOpen(true); }}
@@ -338,6 +351,7 @@ export default function ReturnsPage() {
           aiLabelEnabled={orgSettings.is_ai_label_ocr_enabled}
           onSoftPackageWarning={() => showToast("Warning: This item is not on the package's expected list.", "warning")}
           onToast={showToast}
+          onLinkedPackageUpdated={updatePackage_}
           onNavigateToPackage={(id) => {
             const p = packages.find((x) => x.id === id);
             if (p) {
@@ -364,6 +378,7 @@ export default function ReturnsPage() {
           onClose={() => setCreatePackageOpen(false)}
           onCreated={(p) => { addPackage(p); setCreatePackageOpen(false); showToast(`Package ${p.package_number} created.`); }}
           actor={actor}
+          organizationId={resolveOrganizationId()}
           openPallets={openPallets}
           aiPackingSlipEnabled={orgSettings.is_ai_packing_slip_ocr_enabled}
         />
@@ -374,6 +389,7 @@ export default function ReturnsPage() {
           onClose={() => setCreatePalletOpen(false)}
           onCreated={(p) => { addPallet(p); setCreatePalletOpen(false); showToast(`Pallet ${p.pallet_number} created.`); }}
           actor={actor}
+          organizationId={resolveOrganizationId()}
           aiManifestEnabled={orgSettings.is_ai_packing_slip_ocr_enabled}
         />
       )}

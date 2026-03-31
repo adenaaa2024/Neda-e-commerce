@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft, BadgeCheck, BarChart3, Building2, CheckCircle2, ChevronUp, CreditCard, Cpu, Crown,
+  ArrowLeft, BadgeCheck, BarChart3, Building2, CheckCircle2, CreditCard, Cpu, Crown,
   Globe, HardDrive, ImageIcon, KeyRound, Loader2, Package, PackageX, Pencil, Plus, Printer,
   RefreshCw, RotateCcw, Save, ScanLine, Settings, ShieldAlert, ShieldCheck, Store, Tag, Trash2,
   Truck, TriangleAlert, UserCog, Users, Wifi, X, Zap,
@@ -16,6 +16,10 @@ import {
   saveInventoryFefoSettings,
   saveCoreSettings,
 } from "./workspace-settings-actions";
+import { BRAND_LOGO_IMG_CLASSNAME } from "../../lib/brand-logo-classes";
+import { uploadOrganizationLogoAction } from "./upload-organization-logo-action";
+import { AgentApiKeysSection } from "./AgentApiKeysSection";
+import { RoleTagCombobox } from "./RoleTagCombobox";
 import {
   DEFAULT_CLAIM_AGENT_CONFIG,
   DEFAULT_FEFO,
@@ -38,21 +42,40 @@ import {
   setLabelPrinterInStorage,
   getDefaultStoreIdFromStorage,
   setDefaultStoreIdInStorage,
+  normalizeAIRoleTag,
   type AIConfig,
   type AIConfigStatus,
   type AIProvider,
-  type AIRole,
   type AIRoleAssignments,
   type BarcodeMode,
   type LabelPrinter,
 } from "../../lib/openai-settings";
-import { useUserRole } from "../../components/UserRoleContext";
+import { useBranding } from "../../components/BrandingContext";
+import { isAdminRole, useUserRole } from "../../components/UserRoleContext";
+import { DatabaseTag } from "../../components/DatabaseTag";
+import type { AdapterProviderKey } from "../../lib/adapters";
 import {
   listMarketplaces, listStores, insertStore, insertMarketplace,
   updateMarketplace, testConnection, deleteStore, updateStore,
+  getMarketplaceCredentialsForEdit,
+  testMarketplaceCredentials,
   type StorePublicRow,
 } from "./adapters/actions";
 import { getClaimQueueSyncStatus, syncClaimQueueNow } from "../claim-engine/logistics-sync-actions";
+import {
+  CLAIM_EVIDENCE_KEY_LABELS,
+  type ClaimEvidenceKey,
+  mergeDefaultClaimEvidence,
+  type DefaultClaimEvidence,
+} from "../claim-engine/claim-evidence-settings";
+import {
+  getOrganizationClaimEvidenceDefaults,
+  saveOrganizationClaimEvidenceDefaults,
+} from "./organization-claim-evidence-actions";
+import {
+  getOrganizationDefaultStoreId,
+  saveOrganizationDefaultStoreId,
+} from "./organization-default-store-actions";
 
 // ─── Types & Constants ────────────────────────────────────────────────────────
 
@@ -99,12 +122,8 @@ type CredField = {
 };
 
 const PLATFORM_CRED_FIELDS: Record<string, CredField[]> = {
-  amazon: [
-    { key: "sellerId",        label: "Seller ID",         type: "text",     placeholder: "e.g. A1BCDEFGHIJKL",             credKey: "seller_id"         },
-    { key: "lwaClientId",     label: "Client ID",         type: "text",     placeholder: "amzn1.application-oa2-client…",  credKey: "lwa_client_id"     },
-    { key: "lwaClientSecret", label: "Client Secret",     type: "password", placeholder: "Paste client secret",            credKey: "lwa_client_secret" },
-    { key: "refreshToken",    label: "Refresh Token",     type: "password", placeholder: "Atzr|…",                         credKey: "refresh_token"     },
-  ],
+  /** Amazon SP-API uses the dedicated form block below (all keys live in `marketplaces.credentials`). */
+  amazon: [],
   walmart: [
     { key: "clientId",     label: "Client ID",     type: "text",     placeholder: "Walmart API Client ID", credKey: "client_id"    },
     { key: "clientSecret", label: "Client Secret", type: "password", placeholder: "Paste client secret",   credKey: "client_secret" },
@@ -123,6 +142,28 @@ const PLATFORM_CRED_FIELDS: Record<string, CredField[]> = {
     { key: "apiKey", label: "API Key", type: "password", placeholder: "Your API key",            credKey: "api_key" },
   ],
 };
+
+const AMAZON_SP_API_DEFAULTS = {
+  region: "us-east-1",
+  endpoint: "https://sellingpartnerapi-na.amazon.com",
+} as const;
+
+const AMAZON_CREDENTIAL_ROWS: {
+  key: string;
+  label: string;
+  type: "text" | "password";
+  placeholder: string;
+}[] = [
+  { key: "seller_id", label: "Seller ID (Merchant Token)", type: "text", placeholder: "e.g. A1BCDEFGHIJKL" },
+  { key: "marketplace_id", label: "Marketplace ID", type: "text", placeholder: "e.g. ATVPDKIKX0DER" },
+  { key: "lwa_client_id", label: "LWA Client ID", type: "text", placeholder: "amzn1.application-oa2-client…" },
+  { key: "lwa_client_secret", label: "LWA Client Secret", type: "password", placeholder: "Paste client secret" },
+  { key: "aws_access_key", label: "AWS Access Key", type: "text", placeholder: "AKIA…" },
+  { key: "aws_secret_key", label: "AWS Secret Key", type: "password", placeholder: "••••••••" },
+  { key: "refresh_token", label: "Refresh Token", type: "password", placeholder: "Atzr|…" },
+  { key: "region", label: "Region", type: "text", placeholder: "us-east-1" },
+  { key: "endpoint", label: "SP-API Endpoint", type: "text", placeholder: "https://sellingpartnerapi-na.amazon.com" },
+];
 
 const PLATFORM_TO_PROVIDER: Record<string, string | null> = {
   amazon:  "amazon_sp_api",
@@ -146,11 +187,32 @@ const MOCK_AI_CALLS      = 450;
 const MOCK_SCANNED_ITEMS = 1_247;
 
 const SELECT_CLS =
-  "h-12 w-full rounded-xl border border-border bg-background px-4 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20";
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 const INPUT_CLS =
-  "h-12 w-full rounded-xl border border-border bg-background px-4 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20";
-const LABEL_CLS = "mb-1.5 block text-sm font-semibold";
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+const LABEL_CLS = "mb-2 block text-sm font-medium leading-none";
 const HINT_CLS  = "mb-2 text-xs text-muted-foreground";
+
+/** Reserves hint height so inputs do not shift when helper copy or warnings appear. */
+function StableField({
+  label,
+  hint,
+  children,
+}: {
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-0">
+      <div className="mb-2 block text-sm font-medium leading-none">{label}</div>
+      <div className="min-h-[2.5rem] text-xs text-muted-foreground">
+        {hint ?? <span className="invisible select-none">.</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const PROVIDER_LABELS: Record<AIProvider, string> = {
   openai: "OpenAI",
@@ -284,6 +346,7 @@ function UsageMeter({
 
 export default function SettingsPage() {
   const { role } = useUserRole();
+  const { refresh: refreshBranding } = useBranding();
 
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [mounted,   setMounted]   = useState(false);
@@ -292,7 +355,6 @@ export default function SettingsPage() {
   const [defaultStoreId,  setDefaultStoreId]  = useState<string>("");
   const [storesList,      setStoresList]      = useState<StorePublicRow[]>([]);
   const [storesListLoading, setStoresListLoading] = useState(false);
-  const [generalSaved,    setGeneralSaved]    = useState(false);
 
   // ── White-label / Tenant Customization (core_settings JSONB) ───────────────
   const [companyName,         setCompanyName]         = useState<string>("");
@@ -331,6 +393,8 @@ export default function SettingsPage() {
   const [newStoreRegion,      setNewStoreRegion]      = useState("US");
   const [newStoreCredentials, setNewStoreCredentials] = useState<Record<string, string>>({});
   const [addStoreSaving,      setAddStoreSaving]      = useState(false);
+  const [storeModalCredLoading, setStoreModalCredLoading] = useState(false);
+  const [storeModalTestLoading, setStoreModalTestLoading] = useState(false);
   const [storeTestStatus, setStoreTestStatus] = useState<Record<string, "idle" | "testing" | "ok" | "error">>({});
   const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
 
@@ -348,6 +412,12 @@ export default function SettingsPage() {
   const [claimAgentLoading, setClaimAgentLoading] = useState(false);
   const [claimAgentSaving, setClaimAgentSaving] = useState(false);
 
+  const [claimEvidenceLocal, setClaimEvidenceLocal] = useState<Record<ClaimEvidenceKey, boolean>>(() =>
+    mergeDefaultClaimEvidence(null),
+  );
+  const [claimEvidenceLoading, setClaimEvidenceLoading] = useState(false);
+  const [claimEvidenceSaving, setClaimEvidenceSaving] = useState(false);
+
   const [logisticsSyncStatus, setLogisticsSyncStatus] = useState<{
     pendingSyncCount: number;
     systemUpToDate: boolean;
@@ -358,10 +428,31 @@ export default function SettingsPage() {
 
   const [toast, setToast] = useState<ToastState>(null);
 
+  function closeAddConnectionModal() {
+    setShowForm(false);
+    setFormData(newBlankConfig());
+  }
+
+  useEffect(() => {
+    if (!showForm) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowForm(false);
+        setFormData(newBlankConfig());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [showForm]);
+
   // ── Hydrate from localStorage ──────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
-    setDefaultStoreId(getDefaultStoreIdFromStorage());
     setConfigs(getAIConfigsFromStorage());
     setAssignments(getAIRoleAssignmentsFromStorage());
     setBarcodeMode(getBarcodeModeFromStorage());
@@ -369,6 +460,24 @@ export default function SettingsPage() {
     const saved = localStorage.getItem("mock_saas_plan") as SaasPlan | null;
     if (saved && (PLANS as readonly string[]).includes(saved)) setMockPlan(saved as SaasPlan);
   }, []);
+
+  // ── Default store: organization_settings.default_store_id is canonical; localStorage is fallback ─
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    void getOrganizationDefaultStoreId().then((serverId) => {
+      if (cancelled) return;
+      if (serverId) {
+        setDefaultStoreId(serverId);
+        setDefaultStoreIdInStorage(serverId);
+      } else {
+        setDefaultStoreId(getDefaultStoreIdFromStorage());
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted]);
 
   // ── Load core_settings (white-label) from DB ──────────────────────────────
   useEffect(() => {
@@ -440,6 +549,24 @@ export default function SettingsPage() {
     };
   }, [mounted, activeTab]);
 
+  // ── Default claim evidence (organization_settings.default_claim_evidence) ─
+  useEffect(() => {
+    if (!mounted || activeTab !== "claim_engine") return;
+    let cancelled = false;
+    setClaimEvidenceLoading(true);
+    getOrganizationClaimEvidenceDefaults()
+      .then((r) => {
+        if (cancelled) return;
+        setClaimEvidenceLocal(r);
+      })
+      .finally(() => {
+        if (!cancelled) setClaimEvidenceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, activeTab]);
+
   // ── Load connected marketplace credentials ─────────────────────────────────
   useEffect(() => {
     if (!mounted) return;
@@ -480,35 +607,33 @@ export default function SettingsPage() {
   const canAddStore = planLimits.stores === Infinity || storesList.length < planLimits.stores;
 
   // ── General save ───────────────────────────────────────────────────────────
-  function handleSaveGeneral(e: React.FormEvent) {
+  async function handleSaveGeneral(e: React.FormEvent) {
     e.preventDefault();
+    const res = await saveOrganizationDefaultStoreId(defaultStoreId.trim() || null);
+    if (!res.ok) {
+      showToast(res.error ?? "Failed to save default store.", false);
+      return;
+    }
     setDefaultStoreIdInStorage(defaultStoreId);
-    setGeneralSaved(true);
-    setTimeout(() => setGeneralSaved(false), 2500);
+    void refreshBranding();
     showToast("General preferences saved.", true);
   }
 
-  // ── Logo file upload → Supabase Storage → saves URL ──────────────────────
+  // ── Logo file upload → server action (logos bucket + organization_settings) ─
   async function handleLogoFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     setLogoUploading(true);
     try {
-      const { supabase: sb } = await import("../../src/lib/supabase");
-      const ext = file.name.split(".").pop() ?? "png";
-      const path = `logos/${Date.now()}.${ext}`;
-      const { error: upErr } = await sb.storage
-        .from("workspace_logos")
-        .upload(path, file, { upsert: true, contentType: file.type });
-      if (upErr) throw new Error(upErr.message);
-      const { data: urlData } = sb.storage.from("workspace_logos").getPublicUrl(path);
-      setCompanyLogoUrl(urlData.publicUrl);
-      const res = await saveCoreSettings({
-        company_name:     companyName.trim(),
-        company_logo_url: urlData.publicUrl,
-      });
-      if (!res.ok) throw new Error(res.error ?? "Failed to save logo URL.");
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await uploadOrganizationLogoAction(fd);
+      if (!res.ok) throw new Error(res.error ?? "Logo upload failed.");
+      setCompanyLogoUrl(res.publicUrl);
+      const nameRes = await saveCoreSettings({ company_name: companyName.trim() });
+      if (!nameRes.ok) throw new Error(nameRes.error ?? "Failed to save workspace name.");
+      void refreshBranding();
       showToast("Logo uploaded and saved.", true);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Logo upload failed.", false);
@@ -521,15 +646,18 @@ export default function SettingsPage() {
   async function handleSaveWhitelabel(e: React.FormEvent) {
     e.preventDefault();
     setCoreSettingsSaving(true);
+    const url = companyLogoUrl.trim();
     const res = await saveCoreSettings({
       company_name:     companyName.trim(),
-      company_logo_url: companyLogoUrl.trim(),
+      company_logo_url: url,
+      logo_url:         url,
     });
     setCoreSettingsSaving(false);
     if (!res.ok) {
       showToast(res.error ?? "Failed to save white-label settings.", false);
       return;
     }
+    void refreshBranding();
     showToast("White-label settings saved.", true);
   }
 
@@ -613,6 +741,7 @@ export default function SettingsPage() {
       providerName: formData.providerName.trim() || PROVIDER_LABELS[formData.provider],
       apiKey:       formData.apiKey.trim(),
       baseURL:      formData.baseURL.trim(),
+      role:         normalizeAIRoleTag(formData.role),
       status:       "untested",
     };
     const updated = [...base, newCfg];
@@ -642,8 +771,9 @@ export default function SettingsPage() {
     );
   }
 
-  function handleRoleChange(id: string, newRole: AIRole) {
-    const updated = configs.map((c) => (c.id === id ? { ...c, role: newRole } : c));
+  function handleRoleChange(id: string, newRole: string) {
+    const tag = normalizeAIRoleTag(newRole);
+    const updated = configs.map((c) => (c.id === id ? { ...c, role: tag } : c));
     setConfigs(updated);
     setAIConfigsInStorage(updated);
   }
@@ -741,8 +871,6 @@ export default function SettingsPage() {
       max_auto_submit_amount_usd: maxUsd,
       autonomous_claim_submission_0_50_usd: claimAgentLocal.autonomous_claim_submission_0_50_usd ?? false,
       require_manual_approval_bulk_submission: claimAgentLocal.require_manual_approval_bulk_submission ?? true,
-      default_marketplace_adapter_store_id:
-        claimAgentLocal.default_marketplace_adapter_store_id?.trim() || null,
       logistics_background_sync_enabled: claimAgentLocal.logistics_background_sync_enabled ?? false,
       logistics_sync_interval_hours: intervalH,
     });
@@ -762,6 +890,27 @@ export default function SettingsPage() {
     showToast("Claim agent settings saved.", true);
   }
 
+  async function handleSaveClaimEvidence(e: React.FormEvent) {
+    e.preventDefault();
+    if (mockPlan === "Free Tier") {
+      showToast("Upgrade to Pro to configure default claim evidence.", false);
+      return;
+    }
+    setClaimEvidenceSaving(true);
+    const patch: DefaultClaimEvidence = {};
+    (Object.keys(CLAIM_EVIDENCE_KEY_LABELS) as ClaimEvidenceKey[]).forEach((k) => {
+      patch[k] = claimEvidenceLocal[k];
+    });
+    const res = await saveOrganizationClaimEvidenceDefaults(patch);
+    setClaimEvidenceSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Failed to save evidence defaults.", false);
+      return;
+    }
+    setClaimEvidenceLocal(mergeDefaultClaimEvidence(patch));
+    showToast("Default claim evidence saved.", true);
+  }
+
   function handleSaveHardware(e: React.FormEvent) {
     e.preventDefault();
     setBarcodeModeInStorage(barcodeMode);
@@ -771,20 +920,126 @@ export default function SettingsPage() {
     showToast("Hardware settings saved.", true);
   }
 
+  function closeAddStoreModal() {
+    setShowAddStoreModal(false);
+    setEditingStoreId(null);
+    setStoreModalCredLoading(false);
+    setStoreModalTestLoading(false);
+  }
+
+  function buildStoreCredentialsForSave(): Record<string, string> {
+    if (newStorePlatform === "amazon") {
+      const keys = [
+        "seller_id",
+        "marketplace_id",
+        "lwa_client_id",
+        "lwa_client_secret",
+        "aws_access_key",
+        "aws_secret_key",
+        "refresh_token",
+        "region",
+        "endpoint",
+      ];
+      const out: Record<string, string> = {};
+      for (const k of keys) {
+        const v = newStoreCredentials[k]?.trim();
+        if (v) out[k] = v;
+      }
+      return out;
+    }
+    const credFields = PLATFORM_CRED_FIELDS[newStorePlatform] ?? [];
+    const out: Record<string, string> = {};
+    for (const f of credFields) {
+      const v = newStoreCredentials[f.key]?.trim();
+      if (v) out[f.credKey] = v;
+    }
+    return out;
+  }
+
+  async function handleTestModalConnection() {
+    const provider = PLATFORM_TO_PROVIDER[newStorePlatform];
+    if (!provider) {
+      showToast("Connection test is not available for this platform.", false);
+      return;
+    }
+    const creds = buildStoreCredentialsForSave();
+    if (newStorePlatform === "amazon") {
+      if (!creds.lwa_client_id?.trim() || !creds.lwa_client_secret?.trim()) {
+        showToast("Enter LWA Client ID and LWA Client Secret to test.", false);
+        return;
+      }
+    } else if (newStorePlatform === "walmart") {
+      if (!creds.client_id?.trim() || !creds.client_secret?.trim()) {
+        showToast("Enter Client ID and Client Secret to test.", false);
+        return;
+      }
+    } else if (Object.keys(creds).length === 0) {
+      showToast("Enter API credentials in the form to test.", false);
+      return;
+    }
+    setStoreModalTestLoading(true);
+    const res = await testMarketplaceCredentials(provider as AdapterProviderKey, creds);
+    setStoreModalTestLoading(false);
+    showToast(
+      res.ok ? "Connection verified successfully ✓" : (res.error ?? "Connection test failed."),
+      res.ok,
+    );
+  }
+
   function openAddStoreModal() {
     setEditingStoreId(null);
-    setNewStoreName(""); setNewStorePlatform("amazon"); setNewStoreRegion("US");
-    setNewStoreCredentials({});
+    setNewStoreName("");
+    setNewStorePlatform("amazon");
+    setNewStoreRegion("US");
+    setNewStoreCredentials({
+      region: AMAZON_SP_API_DEFAULTS.region,
+      endpoint: AMAZON_SP_API_DEFAULTS.endpoint,
+    });
     setShowAddStoreModal(true);
   }
 
-  function openEditStoreModal(store: StorePublicRow) {
+  async function openEditStoreModal(store: StorePublicRow) {
     setEditingStoreId(store.id);
     setNewStoreName(store.name);
     setNewStorePlatform(store.platform);
     setNewStoreRegion("US");
     setNewStoreCredentials({});
     setShowAddStoreModal(true);
+    if (store.marketplace_id) {
+      setStoreModalCredLoading(true);
+      try {
+        const res = await getMarketplaceCredentialsForEdit(store.marketplace_id);
+        if (res.ok && res.data) {
+          if (store.platform === "amazon") {
+            setNewStoreCredentials({
+              region: AMAZON_SP_API_DEFAULTS.region,
+              endpoint: AMAZON_SP_API_DEFAULTS.endpoint,
+              ...res.data,
+            });
+          } else {
+            const mapped: Record<string, string> = {};
+            const fields = PLATFORM_CRED_FIELDS[store.platform] ?? [];
+            for (const f of fields) {
+              const v = res.data[f.credKey];
+              if (v) mapped[f.key] = v;
+            }
+            setNewStoreCredentials(mapped);
+          }
+        } else if (store.platform === "amazon") {
+          setNewStoreCredentials({
+            region: AMAZON_SP_API_DEFAULTS.region,
+            endpoint: AMAZON_SP_API_DEFAULTS.endpoint,
+          });
+        }
+      } finally {
+        setStoreModalCredLoading(false);
+      }
+    } else if (store.platform === "amazon") {
+      setNewStoreCredentials({
+        region: AMAZON_SP_API_DEFAULTS.region,
+        endpoint: AMAZON_SP_API_DEFAULTS.endpoint,
+      });
+    }
   }
 
   async function handleAddStore(e: React.FormEvent) {
@@ -792,33 +1047,42 @@ export default function SettingsPage() {
     if (!newStoreName.trim()) { showToast("Store name is required.", false); return; }
     setAddStoreSaving(true);
 
-    if (editingStoreId) {
-      // ── Edit mode ────────────────────────────────────────────────────────────
-      const res = await updateStore(editingStoreId, { name: newStoreName });
-      if (!res.ok) { setAddStoreSaving(false); showToast(res.error ?? "Failed to update store.", false); return; }
+    const creds = buildStoreCredentialsForSave();
+    const provider = PLATFORM_TO_PROVIDER[newStorePlatform];
 
-      // Update credentials if any were filled in
-      const credFields = PLATFORM_CRED_FIELDS[newStorePlatform] ?? [];
-      const creds: Record<string, string> = {};
-      for (const f of credFields) {
-        const v = newStoreCredentials[f.key]?.trim();
-        if (v) creds[f.credKey] = v;
+    if (editingStoreId) {
+      const res = await updateStore(editingStoreId, { name: newStoreName });
+      if (!res.ok) {
+        setAddStoreSaving(false);
+        showToast(res.error ?? "Failed to update store.", false);
+        return;
       }
-      if (Object.keys(creds).length > 0) {
+
+      if (Object.keys(creds).length > 0 && provider) {
         const existingStore = storesList.find((s) => s.id === editingStoreId);
         if (existingStore?.marketplace_id) {
-          await updateMarketplace(existingStore.marketplace_id, { credentials: creds });
+          const mpRes = await updateMarketplace(existingStore.marketplace_id, { credentials: creds });
+          if (!mpRes.ok) {
+            setAddStoreSaving(false);
+            showToast(mpRes.error ?? "Failed to update API credentials.", false);
+            return;
+          }
         } else {
-          const provider = PLATFORM_TO_PROVIDER[newStorePlatform];
-          if (provider) {
-            const mpRes = await insertMarketplace({
-              provider: provider as Parameters<typeof insertMarketplace>[0]["provider"],
-              nickname: newStoreName,
-              credentials: creds,
-            });
-            if (mpRes.ok && mpRes.data) {
-              // link the marketplace to the store if possible (best-effort)
-            }
+          const mpRes = await insertMarketplace({
+            provider: provider as Parameters<typeof insertMarketplace>[0]["provider"],
+            nickname: newStoreName.trim(),
+            credentials: creds,
+          });
+          if (!mpRes.ok || !mpRes.data?.id) {
+            setAddStoreSaving(false);
+            showToast(mpRes.error ?? "Failed to save API credentials.", false);
+            return;
+          }
+          const linkRes = await updateStore(editingStoreId, { marketplace_id: mpRes.data.id });
+          if (!linkRes.ok) {
+            setAddStoreSaving(false);
+            showToast(linkRes.error ?? "Failed to link credentials to store.", false);
+            return;
           }
         }
       }
@@ -826,25 +1090,15 @@ export default function SettingsPage() {
       const refreshed = await listStores();
       if (refreshed.ok && refreshed.data) setStoresList(refreshed.data);
       setAddStoreSaving(false);
-      setShowAddStoreModal(false);
-      setEditingStoreId(null);
-      showToast(`Store "${newStoreName}" updated.`, true);
+      closeAddStoreModal();
+      showToast(`Store "${newStoreName.trim()}" updated.`, true);
     } else {
-      // ── Add mode ─────────────────────────────────────────────────────────────
-      const provider = PLATFORM_TO_PROVIDER[newStorePlatform];
-      const credFields = PLATFORM_CRED_FIELDS[newStorePlatform] ?? [];
-      const credentials: Record<string, string> = {};
-      for (const f of credFields) {
-        const v = newStoreCredentials[f.key]?.trim();
-        if (v) credentials[f.credKey] = v;
-      }
-
       let marketplace_id: string | undefined;
-      if (provider && Object.keys(credentials).length > 0) {
+      if (provider && Object.keys(creds).length > 0) {
         const mpRes = await insertMarketplace({
           provider: provider as Parameters<typeof insertMarketplace>[0]["provider"],
-          nickname: newStoreName,
-          credentials,
+          nickname: newStoreName.trim(),
+          credentials: creds,
         });
         if (!mpRes.ok) {
           setAddStoreSaving(false);
@@ -855,17 +1109,24 @@ export default function SettingsPage() {
       }
 
       const res = await insertStore({
-        name: newStoreName, platform: newStorePlatform,
-        region: newStoreRegion, marketplace_id,
+        name: newStoreName,
+        platform: newStorePlatform,
+        region: newStoreRegion,
+        marketplace_id,
       });
       setAddStoreSaving(false);
       if (!res.ok) { showToast(res.error ?? "Failed to create store.", false); return; }
 
       const refreshed = await listStores();
       if (refreshed.ok && refreshed.data) setStoresList(refreshed.data);
-      setNewStoreName(""); setNewStorePlatform("amazon"); setNewStoreRegion("US");
-      setNewStoreCredentials({});
-      setShowAddStoreModal(false);
+      setNewStoreName("");
+      setNewStorePlatform("amazon");
+      setNewStoreRegion("US");
+      setNewStoreCredentials({
+        region: AMAZON_SP_API_DEFAULTS.region,
+        endpoint: AMAZON_SP_API_DEFAULTS.endpoint,
+      });
+      closeAddStoreModal();
       showToast(`Store "${res.data?.name}" created successfully.`, true);
     }
   }
@@ -877,6 +1138,11 @@ export default function SettingsPage() {
     setDeletingStoreId(null);
     if (!res.ok) { showToast(res.error ?? "Failed to delete store.", false); return; }
     setStoresList((prev) => prev.filter((s) => s.id !== store.id));
+    if (defaultStoreId === store.id) {
+      setDefaultStoreId("");
+      setDefaultStoreIdInStorage("");
+      void saveOrganizationDefaultStoreId(null);
+    }
     showToast(`Store "${store.name}" deleted.`, true);
   }
 
@@ -902,7 +1168,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (role !== "admin") return null;
+  if (!isAdminRole(role)) return null;
 
   const globalProvider = configs.find((c) => c.isGlobalOverride) ?? null;
   const isOverridden   = globalProvider !== null;
@@ -931,18 +1197,20 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Toast notification */}
+      {/* Success / error toast — fixed so it stays visible while scrolling long settings */}
       {toast && (
         <div
+          role="status"
+          aria-live="polite"
           className={[
-            "mb-6 flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-medium",
+            "fixed bottom-6 right-6 z-[80] flex max-w-md items-center gap-3 rounded-lg border px-4 py-3 text-sm font-medium shadow-lg",
             toast.ok
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300"
-              : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-700/50 dark:bg-rose-950/30 dark:text-rose-400",
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700/50 dark:bg-emerald-950/90 dark:text-emerald-200"
+              : "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-700/50 dark:bg-rose-950/90 dark:text-rose-200",
           ].join(" ")}
         >
           {toast.ok
-            ? <CheckCircle2 className="h-4 w-4 shrink-0" />
+            ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             : <ShieldAlert   className="h-4 w-4 shrink-0" />}
           {toast.msg}
         </div>
@@ -1058,9 +1326,11 @@ export default function SettingsPage() {
                           <label className={LABEL_CLS}>Company Logo</label>
                         </div>
                         <p className={HINT_CLS}>
-                          Upload your logo (PNG/SVG/WEBP recommended, min 200 px wide). Displayed on the sidebar and reports.
+                          PNG, SVG, or WebP. Stored in the public <code className="rounded bg-muted px-1 font-mono text-[10px]">logos</code> bucket
+                          and <code className="rounded bg-muted px-1 font-mono text-[10px]">organization_settings.logo_url</code>. Shown in the sidebar,
+                          settings preview, and claim PDF header (max 180×50 display).
                         </p>
-                        <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition ${logoUploading ? "border-violet-300 bg-violet-50/80 text-violet-500 dark:bg-violet-950/20" : companyLogoUrl ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-950/20 dark:text-emerald-300" : "border-violet-300 bg-violet-50 text-violet-700 hover:border-violet-400 hover:bg-violet-100 dark:border-violet-700/60 dark:bg-violet-950/30 dark:text-violet-300"}`}>
+                        <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border-2 border-dashed border-input bg-muted/30 py-3 text-sm font-medium transition hover:bg-muted/50 ${logoUploading ? "text-muted-foreground" : companyLogoUrl ? "border-emerald-500/50 text-emerald-800 dark:text-emerald-200" : "text-foreground"}`}>
                           {logoUploading
                             ? <><Loader2 className="h-4 w-4 animate-spin" />Uploading…</>
                             : companyLogoUrl
@@ -1073,14 +1343,16 @@ export default function SettingsPage() {
                   )}
 
                   {companyLogoUrl && (
-                    <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={companyLogoUrl}
-                        alt="Company logo preview"
-                        className="h-10 max-w-[120px] rounded object-contain"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-                      />
+                    <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+                      <div className="flex h-[45px] w-full max-w-[160px] shrink-0 items-center justify-start overflow-hidden">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={companyLogoUrl}
+                          alt="Company logo preview"
+                          className={BRAND_LOGO_IMG_CLASSNAME}
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                        />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold">Logo Preview</p>
                         <p className="text-[11px] text-muted-foreground truncate">Displayed on sidebar &amp; reports.</p>
@@ -1093,7 +1365,7 @@ export default function SettingsPage() {
                 <button
                   type="submit"
                   disabled={coreSettingsSaving || coreSettingsLoading}
-                  className="inline-flex min-w-[220px] items-center justify-center gap-2 rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
+                  className="inline-flex min-w-[220px] items-center justify-center gap-2 rounded-md bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-violet-700 disabled:opacity-50"
                 >
                   {coreSettingsSaving
                     ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</>
@@ -1112,12 +1384,13 @@ export default function SettingsPage() {
                   </div>
 
                   <div>
-                    <div className="mb-2 flex items-center gap-2">
+                    <div className="mb-1.5 flex items-center gap-2">
                       <Tag className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-                      <label className="text-sm font-semibold">Default Store</label>
+                      <label className={LABEL_CLS}>Default Store</label>
                     </div>
                     <p className={HINT_CLS}>
-                      Fallback store when a scanned barcode can&apos;t be matched to a parent package.
+                      Saved to <code className="rounded bg-muted px-1 font-mono text-[11px]">organization_settings.default_store_id</code>.
+                      Fallback when a scanned barcode can&apos;t be matched to a parent package.
                       Amazon FNSKUs (starting with{" "}
                       <code className="rounded bg-muted px-1 font-mono text-[11px]">X00</code> or{" "}
                       <code className="rounded bg-muted px-1 font-mono text-[11px]">B00</code>) are
@@ -1165,15 +1438,12 @@ export default function SettingsPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="submit"
-                    className="inline-flex min-w-[180px] flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-700"
+                    className="inline-flex min-w-[180px] flex-1 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow transition hover:bg-primary/90"
                   >
                     <Save className="h-4 w-4" />
                     Save General Preferences
                   </button>
                 </div>
-                {generalSaved && (
-                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Saved.</p>
-                )}
               </form>
             </div>
           )}
@@ -1229,7 +1499,7 @@ export default function SettingsPage() {
                     <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
                       You&apos;ve reached the <strong>{mockPlan}</strong> limit of{" "}
                       {planLimits.stores} store{planLimits.stores !== 1 ? "s" : ""}. Upgrade to Pro
-                      or Enterprise to connect additional channels.
+                      or Enterprise to connect additional stores.
                     </p>
                   </div>
                 )}
@@ -1245,7 +1515,7 @@ export default function SettingsPage() {
                     <Store className="mx-auto mb-3 h-9 w-9 text-muted-foreground/30" />
                     <p className="text-sm font-semibold text-muted-foreground">No stores yet.</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Click <strong>Add New Store</strong> above to connect your first channel.
+                      Click <strong>Add New Store</strong> above to connect your first marketplace store.
                     </p>
                   </div>
                 ) : (
@@ -1260,17 +1530,6 @@ export default function SettingsPage() {
                       const statusInvalid = testSt === "error";
                       const statusActive  = testSt === "ok" || (s.is_active && testSt === "idle");
 
-                      // Per-platform accent colors
-                      const platformColor: Record<string, string> = {
-                        amazon:  "bg-amber-50 border-amber-200 text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300",
-                        walmart: "bg-sky-50 border-sky-200 text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300",
-                        ebay:    "bg-red-50 border-red-200 text-red-700 dark:border-red-700/50 dark:bg-red-950/30 dark:text-red-300",
-                        shopify: "bg-emerald-50 border-emerald-200 text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300",
-                        target:  "bg-rose-50 border-rose-200 text-rose-700 dark:border-rose-700/50 dark:bg-rose-950/30 dark:text-rose-300",
-                        custom:  "bg-slate-50 border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
-                      };
-                      const platCls = platformColor[s.platform] ?? platformColor.custom;
-
                       return (
                         <div
                           key={s.id}
@@ -1281,46 +1540,40 @@ export default function SettingsPage() {
                               : "border-border bg-background hover:border-sky-200 hover:shadow-sm",
                           ].join(" ")}
                         >
-                          {/* Top row: name + badges */}
-                          <div className="flex items-start justify-between gap-2 min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${statusInvalid ? "bg-rose-400" : statusActive ? "bg-emerald-400" : "bg-slate-300 dark:bg-slate-600"}`} />
-                              <p className="text-sm font-bold truncate">{s.name}</p>
+                          <div className="flex items-start justify-between gap-3 min-w-0">
+                            <div className="min-w-0 flex-1 space-y-0.5">
+                              <p className="text-sm font-bold leading-tight truncate">{s.name}</p>
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Marketplace · {PLATFORM_LABELS[s.platform] ?? s.platform}
+                              </p>
                             </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
+                            <div className="flex shrink-0 flex-col items-end gap-1.5">
                               {isDefault && (
                                 <span className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-700 dark:border-violet-700/50 dark:bg-violet-950/40 dark:text-violet-300">
                                   ★ Default
                                 </span>
                               )}
+                              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                statusInvalid
+                                  ? "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-700/50 dark:bg-rose-950/30 dark:text-rose-400"
+                                  : statusActive
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                  : "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                              }`}>
+                                {statusInvalid ? (
+                                  <><TriangleAlert className="h-2.5 w-2.5" />Invalid</>
+                                ) : statusActive ? (
+                                  <><BadgeCheck className="h-2.5 w-2.5" />Active</>
+                                ) : (
+                                  "Inactive"
+                                )}
+                              </span>
                               {s.marketplace_id && (
                                 <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 dark:border-violet-700/50 dark:bg-violet-950/40 dark:text-violet-300">
                                   API
                                 </span>
                               )}
                             </div>
-                          </div>
-
-                          {/* Platform + Status row */}
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-bold capitalize ${platCls}`}>
-                              {PLATFORM_LABELS[s.platform] ?? s.platform}
-                            </span>
-                            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                              statusInvalid
-                                ? "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-700/50 dark:bg-rose-950/30 dark:text-rose-400"
-                                : statusActive
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                : "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
-                            }`}>
-                              {statusInvalid ? (
-                                <><TriangleAlert className="h-2.5 w-2.5" />Invalid</>
-                              ) : statusActive ? (
-                                <><BadgeCheck className="h-2.5 w-2.5" />Active</>
-                              ) : (
-                                "Inactive"
-                              )}
-                            </span>
                           </div>
 
                           {/* Store ID */}
@@ -1360,7 +1613,7 @@ export default function SettingsPage() {
                             {/* Edit */}
                             <button
                               type="button"
-                              onClick={() => openEditStoreModal(s)}
+                              onClick={() => void openEditStoreModal(s)}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition hover:border-sky-300 hover:text-sky-600"
                             >
                               <Pencil className="h-3 w-3" />
@@ -1400,9 +1653,9 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              {/* ── Available channels overview ──────────────────────────── */}
+              {/* ── Supported marketplace integrations overview ─────────── */}
               <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
-                <h3 className="text-sm font-bold">Supported Channels</h3>
+                <h3 className="text-sm font-bold">Supported Marketplaces</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {[
                     { name: "Amazon SP-API",  desc: "FBA/FBM returns, A-to-Z claims automation",    active: true  },
@@ -1435,7 +1688,8 @@ export default function SettingsPage() {
 
           {/* ══════════════ AI & OCR QUOTAS ══════════════ */}
           {activeTab === "ai_quotas" && (
-            <div className="space-y-4">
+            <div className="relative space-y-4">
+              <DatabaseTag table="organization_settings" />
 
               {isOverridden && (
                 <div className="flex items-center gap-3 rounded-2xl border-2 border-violet-300 bg-violet-50 px-4 py-3 dark:border-violet-600/50 dark:bg-violet-950/30">
@@ -1457,20 +1711,21 @@ export default function SettingsPage() {
                   <div>
                     <h2 className="text-base font-bold">API Connections</h2>
                     <p className="text-xs text-muted-foreground">
-                      Add multiple providers — assign roles below or use global override.
+                      Internal LLM routing (browser-stored keys). Add providers here, then assign roles — separate from{" "}
+                      <span className="font-medium text-foreground/80">Workspace API keys</span> at the bottom.
                     </p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowForm((v) => !v)}
+                    onClick={() => setShowForm(true)}
                     className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 transition hover:bg-sky-100 dark:border-sky-700/50 dark:bg-sky-950/40 dark:text-sky-300"
                   >
-                    {showForm ? <ChevronUp className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-                    {showForm ? "Cancel" : "Add Connection"}
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Connection
                   </button>
                 </div>
 
-                {configs.length === 0 && !showForm && (
+                {configs.length === 0 && (
                   <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border bg-muted/30 py-10 text-center">
                     <KeyRound className="h-8 w-8 text-muted-foreground/40" />
                     <p className="text-sm font-medium text-muted-foreground">No API connections saved yet.</p>
@@ -1521,15 +1776,14 @@ export default function SettingsPage() {
                               : "••••••••"}
                           </p>
                           <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <select
+                            <RoleTagCombobox
+                              id={`role-tag-${cfg.id}`}
                               value={cfg.role}
-                              onChange={(e) => handleRoleChange(cfg.id, e.target.value as AIRole)}
-                              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                              onChange={(v) => handleRoleChange(cfg.id, v)}
+                              className="min-w-[120px] max-w-[220px] rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
                               aria-label="Role tag"
-                            >
-                              <option value="default">Tag: Default</option>
-                              <option value="ocr_vision">Tag: OCR / Vision</option>
-                            </select>
+                              placeholder="Tag…"
+                            />
                             <label className="flex cursor-pointer items-center gap-1.5">
                               <input
                                 type="checkbox"
@@ -1569,143 +1823,191 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              {/* Add connection form */}
+              {/* New connection — modal (keeps LLM setup separate from Workspace keys below) */}
               {showForm && (
-                <form
-                  onSubmit={handleAddConfig}
-                  className="space-y-5 rounded-2xl border border-sky-200 bg-sky-50/40 p-6 shadow-sm dark:border-sky-700/50 dark:bg-sky-950/20"
+                <div
+                  className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="new-ai-connection-title"
                 >
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-sky-800 dark:text-sky-200">New API Connection</h3>
-                    <button
-                      type="button"
-                      onClick={() => { setShowForm(false); setFormData(newBlankConfig()); }}
-                      className="rounded-full p-1 text-muted-foreground hover:bg-accent"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  <div>
-                    <label className={LABEL_CLS}>Connection Name</label>
-                    <p className={HINT_CLS}>A label to identify this connection (e.g. &quot;Gemini Flash — Chat&quot;).</p>
-                    <input
-                      type="text"
-                      value={formData.providerName}
-                      onChange={(e) => setFormData((p) => ({ ...p, providerName: e.target.value }))}
-                      placeholder="e.g. GPT-4o Vision"
-                      className={INPUT_CLS}
-                    />
-                  </div>
-
-                  <div>
-                    <label className={LABEL_CLS}>Provider Type</label>
-                    <select
-                      value={formData.provider}
-                      onChange={(e) => handleFormProviderChange(e.target.value as AIProvider)}
-                      className={SELECT_CLS}
-                    >
-                      <option value="openai">OpenAI  (GPT-4o, o3, o4-mini…)</option>
-                      <option value="gemini">Google Gemini</option>
-                      <option value="custom">Custom / Other  (Ollama, Groq, Azure OpenAI…)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={LABEL_CLS}>
-                      <Tag className="mr-1 inline h-3.5 w-3.5" />
-                      Role Tag
-                    </label>
-                    <p className={HINT_CLS}>Tag this connection for the Role Assignment section below.</p>
-                    <select
-                      value={formData.role}
-                      onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as AIRole }))}
-                      className={SELECT_CLS}
-                    >
-                      <option value="default">Default — general AI tasks</option>
-                      <option value="ocr_vision">OCR / Vision — image analysis &amp; packing-slip scanning</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={LABEL_CLS}>Base URL</label>
-                    <p className={HINT_CLS}>Auto-filled for known providers; edit freely for custom deployments.</p>
-                    <input
-                      type="text"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={formData.baseURL}
-                      onChange={(e) => setFormData((p) => ({ ...p, baseURL: e.target.value }))}
-                      placeholder="https://api.openai.com/v1"
-                      className={`${INPUT_CLS} font-mono`}
-                    />
-                    {formData.provider === "custom" && (
-                      <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
-                        Custom providers: ensure CORS allows requests from this origin, or proxy via your backend.
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className={LABEL_CLS}>API Key</label>
-                    <p className={HINT_CLS}>Stored only in this browser&apos;s localStorage — never sent to our servers.</p>
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        value={formData.apiKey}
-                        onChange={(e) => setFormData((p) => ({ ...p, apiKey: e.target.value }))}
-                        placeholder={
-                          formData.provider === "openai" ? "sk-…"
-                          : formData.provider === "gemini" ? "AIza…"
-                          : "Your API key…"
-                        }
-                        className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => runTest(formData, null)}
-                        disabled={testingId === "__form__"}
-                        className="inline-flex h-12 shrink-0 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700/50 dark:bg-sky-950/40 dark:text-sky-300"
-                      >
-                        {testingId === "__form__"
-                          ? <Loader2 className="h-4 w-4 animate-spin" />
-                          : <Wifi    className="h-4 w-4" />}
-                        {testingId === "__form__" ? "Testing…" : "Test"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 dark:border-violet-700/40 dark:bg-violet-950/20">
-                    <label className="flex cursor-pointer items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={!!formData.isGlobalOverride}
-                        onChange={(e) => setFormData((p) => ({ ...p, isGlobalOverride: e.target.checked }))}
-                        className="mt-0.5 h-4 w-4 rounded accent-violet-600"
-                      />
-                      <div>
-                        <p className="text-sm font-bold text-violet-800 dark:text-violet-200">
-                          Use this configuration for all roles
-                        </p>
-                        <p className="mt-0.5 text-xs text-violet-700 dark:text-violet-400">
-                          When checked, this API becomes the sole provider for every task.
-                        </p>
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+                    aria-label="Close dialog"
+                    onClick={closeAddConnectionModal}
+                  />
+                  <div className="relative z-10 max-h-[min(90vh,720px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-xl">
+                    <form onSubmit={handleAddConfig} className="space-y-5">
+                      <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
+                        <div>
+                          <h3 id="new-ai-connection-title" className="text-base font-bold text-foreground">
+                            New API Connection
+                          </h3>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Browser-stored LLM credentials for routing and OCR. Separate from workspace API keys for external bots.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={closeAddConnectionModal}
+                          className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
                       </div>
-                    </label>
-                  </div>
 
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="submit"
-                      disabled={savingForm}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:opacity-50"
-                    >
-                      <Save className="h-4 w-4" />
-                      Save Connection
-                    </button>
+                      <StableField
+                        label="Connection name"
+                        hint={
+                          <>
+                            A label to identify this connection (e.g. &quot;Gemini Flash — Chat&quot;).
+                          </>
+                        }
+                      >
+                        <input
+                          type="text"
+                          value={formData.providerName}
+                          onChange={(e) => setFormData((p) => ({ ...p, providerName: e.target.value }))}
+                          placeholder="e.g. GPT-4o Vision"
+                          className={INPUT_CLS}
+                        />
+                      </StableField>
+
+                      <StableField
+                        label="Provider type"
+                        hint="Grouped by vendor. Custom covers self-hosted and compatible proxies."
+                      >
+                        <select
+                          value={formData.provider}
+                          onChange={(e) => handleFormProviderChange(e.target.value as AIProvider)}
+                          className={SELECT_CLS}
+                        >
+                          <optgroup label="OpenAI">
+                            <option value="openai">OpenAI  (GPT-4o, o3, o4-mini…)</option>
+                          </optgroup>
+                          <optgroup label="Google">
+                            <option value="gemini">Google Gemini</option>
+                          </optgroup>
+                          <optgroup label="Custom & self-hosted">
+                            <option value="custom">Custom / local  (Ollama, Groq, Azure OpenAI…)</option>
+                          </optgroup>
+                        </select>
+                      </StableField>
+
+                      <StableField
+                        label={
+                          <span className="inline-flex items-center gap-1.5">
+                            <Tag className="h-3.5 w-3.5" />
+                            Role tag
+                          </span>
+                        }
+                        hint="Used for routing presets below — choose a category or enter a custom tag."
+                      >
+                        <RoleTagCombobox
+                          id="new-connection-role-tag"
+                          value={formData.role}
+                          onChange={(v) => setFormData((p) => ({ ...p, role: v }))}
+                          className={INPUT_CLS}
+                          placeholder="default"
+                          aria-label="Role tag for new connection"
+                        />
+                      </StableField>
+
+                      <StableField
+                        label="Base URL"
+                        hint="Auto-filled for known providers; edit freely for custom deployments."
+                      >
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={formData.baseURL}
+                          onChange={(e) => setFormData((p) => ({ ...p, baseURL: e.target.value }))}
+                          placeholder="https://api.openai.com/v1"
+                          className={`${INPUT_CLS} font-mono`}
+                        />
+                        <div className="mt-1.5 min-h-[2.75rem]">
+                          {formData.provider === "custom" ? (
+                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                              Custom providers: ensure CORS allows requests from this origin, or proxy via your backend.
+                            </p>
+                          ) : (
+                            <span className="invisible select-none">.</span>
+                          )}
+                        </div>
+                      </StableField>
+
+                      <StableField
+                        label="API key"
+                        hint="Stored only in this browser&apos;s localStorage — never sent to our servers."
+                      >
+                        <div className="flex items-stretch gap-2">
+                          <input
+                            type="password"
+                            autoComplete="off"
+                            value={formData.apiKey}
+                            onChange={(e) => setFormData((p) => ({ ...p, apiKey: e.target.value }))}
+                            placeholder={
+                              formData.provider === "openai" ? "sk-…"
+                              : formData.provider === "gemini" ? "AIza…"
+                              : "Your API key…"
+                            }
+                            className={`${INPUT_CLS} min-w-0 flex-1 font-mono`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => runTest(formData, null)}
+                            disabled={testingId === "__form__"}
+                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700/50 dark:bg-sky-950/40 dark:text-sky-300"
+                          >
+                            {testingId === "__form__"
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Wifi    className="h-4 w-4" />}
+                            {testingId === "__form__" ? "Testing…" : "Test"}
+                          </button>
+                        </div>
+                      </StableField>
+
+                      <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 dark:border-violet-700/40 dark:bg-violet-950/20">
+                        <label className="flex cursor-pointer items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={!!formData.isGlobalOverride}
+                            onChange={(e) => setFormData((p) => ({ ...p, isGlobalOverride: e.target.checked }))}
+                            className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-violet-800 dark:text-violet-200">
+                              Use this configuration for all roles
+                            </p>
+                            <p className="mt-0.5 text-xs text-violet-700 dark:text-violet-400">
+                              When checked, this API becomes the sole provider for every task.
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={closeAddConnectionModal}
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm font-semibold transition hover:bg-muted"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={savingForm}
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:opacity-50"
+                        >
+                          <Save className="h-4 w-4" />
+                          Save connection
+                        </button>
+                      </div>
+                    </form>
                   </div>
-                </form>
+                </div>
               )}
 
               {/* Role Assignment */}
@@ -1800,6 +2102,13 @@ export default function SettingsPage() {
                   </button>
                 </div>
               )}
+
+              <div className="border-t border-border pt-8">
+                <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Workspace &amp; external integrations
+                </p>
+                <AgentApiKeysSection showToast={showToast} />
+              </div>
             </div>
           )}
 
@@ -2103,6 +2412,61 @@ export default function SettingsPage() {
               )}
 
               <form
+                onSubmit={handleSaveClaimEvidence}
+                className={[
+                  "space-y-6 transition-all",
+                  mockPlan === "Free Tier" ? "opacity-50 pointer-events-none select-none" : "",
+                ].join(" ")}
+              >
+                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-950/50">
+                      <ImageIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-bold text-foreground">Default Claim Evidence</h3>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Choose which inherited photos are pre-selected when generating a claim PDF. Stored in{" "}
+                        <code className="rounded bg-muted px-1 font-mono text-[10px]">organization_settings.default_claim_evidence</code> (JSONB).
+                      </p>
+                    </div>
+                  </div>
+                  {claimEvidenceLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading…
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {(Object.keys(CLAIM_EVIDENCE_KEY_LABELS) as ClaimEvidenceKey[]).map((key) => (
+                        <label key={key} className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/10 p-3">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 rounded accent-emerald-600"
+                            checked={claimEvidenceLocal[key] ?? false}
+                            onChange={(e) =>
+                              setClaimEvidenceLocal((p) => ({ ...p, [key]: e.target.checked }))
+                            }
+                          />
+                          <span className="text-sm font-medium text-foreground">{CLAIM_EVIDENCE_KEY_LABELS[key]}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+                    <button
+                      type="submit"
+                      disabled={claimEvidenceSaving || claimEvidenceLoading || mockPlan === "Free Tier"}
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      {claimEvidenceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Save evidence defaults
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              <form
                 onSubmit={handleSaveClaimAgent}
                 className={[
                   "space-y-6 transition-all",
@@ -2315,32 +2679,6 @@ export default function SettingsPage() {
                     </div>
 
                     <div>
-                      <label className={LABEL_CLS}>Default Marketplace Adapter</label>
-                      <p className={HINT_CLS}>
-                        Store used as the default routing context for claim automation (from your connected stores).
-                      </p>
-                      <select
-                        className={`${INPUT_CLS} mt-2 max-w-md`}
-                        value={claimAgentLocal.default_marketplace_adapter_store_id ?? ""}
-                        onChange={(e) =>
-                          setClaimAgentLocal((p) => ({
-                            ...p,
-                            default_marketplace_adapter_store_id: e.target.value || null,
-                          }))
-                        }
-                        disabled={storesListLoading}
-                      >
-                        <option value="">— Select store —</option>
-                        {storesList.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                            {s.platform ? ` (${s.platform})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
                       <label className={LABEL_CLS}>
                         Maximum claim amount for auto-submit (USD)
                       </label>
@@ -2510,7 +2848,7 @@ export default function SettingsPage() {
                   used={storesList.length}
                   limit={planLimits.stores}
                   color="sky"
-                  hint="Active marketplace channel integrations"
+                  hint="Active marketplace integrations"
                 />
 
                 <UsageMeter
@@ -2764,13 +3102,10 @@ export default function SettingsPage() {
         <div
           className="fixed inset-0 z-[400] flex items-end justify-center sm:items-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
           onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowAddStoreModal(false);
-              setEditingStoreId(null);
-            }
+            if (e.target === e.currentTarget) closeAddStoreModal();
           }}
         >
-          <div className="w-full sm:w-[95vw] sm:max-w-lg overflow-y-auto max-h-[92dvh] sm:max-h-[88vh] rounded-t-3xl sm:rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950 animate-in slide-in-from-bottom-4 duration-200">
+          <div className="w-full sm:w-[95vw] sm:max-w-xl overflow-y-auto max-h-[92dvh] sm:max-h-[88vh] rounded-t-3xl sm:rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950 animate-in slide-in-from-bottom-4 duration-200">
 
             {/* Modal header */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-950">
@@ -2782,7 +3117,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => { setShowAddStoreModal(false); setEditingStoreId(null); }}
+                onClick={closeAddStoreModal}
                 className="rounded-full p-2 text-slate-400 hover:bg-accent hover:text-accent-foreground transition"
               >
                 <X className="h-5 w-5" />
@@ -2790,15 +3125,23 @@ export default function SettingsPage() {
             </div>
 
             {/* Modal form */}
-            <form onSubmit={handleAddStore} className="p-5 space-y-5">
+            <form onSubmit={handleAddStore} className="relative space-y-5 p-5">
+              {storeModalCredLoading && (
+                <div
+                  className="absolute inset-0 z-20 flex items-center justify-center rounded-b-2xl bg-white/75 backdrop-blur-[1px] dark:bg-slate-950/75"
+                  aria-busy
+                >
+                  <Loader2 className="h-8 w-8 animate-spin text-sky-600 dark:text-sky-400" />
+                </div>
+              )}
 
               {/* ── Basic Info ───────────────────────────────────────────── */}
               <div className="space-y-4">
-                <div>
+                <div className="min-h-[6.5rem] space-y-1.5">
                   <label className={LABEL_CLS}>
                     Store Name <span className="text-rose-500">*</span>
                   </label>
-                  <p className={HINT_CLS}>A friendly label (e.g. &quot;My US Amazon Store&quot;).</p>
+                  <p className={`${HINT_CLS} min-h-[2.5rem]`}>A friendly label (e.g. &quot;My US Amazon Store&quot;).</p>
                   <input
                     type="text"
                     autoFocus
@@ -2806,11 +3149,11 @@ export default function SettingsPage() {
                     value={newStoreName}
                     onChange={(e) => setNewStoreName(e.target.value)}
                     placeholder="My Amazon Store…"
-                    className={INPUT_CLS}
+                    className={`${INPUT_CLS} h-10`}
                   />
                 </div>
 
-                <div>
+                <div className="min-h-[4.5rem] space-y-1.5">
                   <label className={LABEL_CLS}>
                     Platform <span className="text-rose-500">*</span>
                   </label>
@@ -2819,11 +3162,19 @@ export default function SettingsPage() {
                     value={newStorePlatform}
                     disabled={!!editingStoreId}
                     onChange={(e) => {
-                      setNewStorePlatform(e.target.value);
+                      const p = e.target.value;
+                      setNewStorePlatform(p);
                       setNewStoreRegion("US");
-                      setNewStoreCredentials({});
+                      if (p === "amazon") {
+                        setNewStoreCredentials({
+                          region: AMAZON_SP_API_DEFAULTS.region,
+                          endpoint: AMAZON_SP_API_DEFAULTS.endpoint,
+                        });
+                      } else {
+                        setNewStoreCredentials({});
+                      }
                     }}
-                    className={`${SELECT_CLS} ${editingStoreId ? "opacity-60 cursor-not-allowed" : ""}`}
+                    className={`${SELECT_CLS} h-10 ${editingStoreId ? "opacity-60 cursor-not-allowed" : ""}`}
                   >
                     <option value="amazon">Amazon</option>
                     <option value="walmart">Walmart</option>
@@ -2832,19 +3183,21 @@ export default function SettingsPage() {
                     <option value="shopify">Shopify</option>
                     <option value="custom">Custom / Other</option>
                   </select>
-                  {editingStoreId && (
-                    <p className="mt-1 text-[11px] text-muted-foreground">Platform cannot be changed after creation.</p>
-                  )}
+                  <div className="min-h-[1.25rem]">
+                    {editingStoreId && (
+                      <p className="text-[11px] text-muted-foreground">Platform cannot be changed after creation.</p>
+                    )}
+                  </div>
                 </div>
 
                 {!editingStoreId && (
-                  <div>
+                  <div className="min-h-[6.5rem] space-y-1.5">
                     <label className={LABEL_CLS}>Marketplace Region</label>
-                    <p className={HINT_CLS}>The geographic marketplace where this store operates.</p>
+                    <p className={`${HINT_CLS} min-h-[2.5rem]`}>The geographic marketplace where this store operates.</p>
                     <select
                       value={newStoreRegion}
                       onChange={(e) => setNewStoreRegion(e.target.value)}
-                      className={SELECT_CLS}
+                      className={`${SELECT_CLS} h-10`}
                     >
                       {newStorePlatform === "amazon" ? (
                         <>
@@ -2887,8 +3240,41 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              {/* ── API Credentials ──────────────────────────────────────── */}
-              {(PLATFORM_CRED_FIELDS[newStorePlatform] ?? []).length > 0 && (
+              {/* ── Amazon SP-API (credentials JSONB) ───────────────────── */}
+              {newStorePlatform === "amazon" && (
+                <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-700/50 dark:bg-sky-950/20">
+                  <div className="mb-4 flex items-start gap-2">
+                    <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
+                    <div>
+                      <p className="text-sm font-bold text-sky-800 dark:text-sky-200">Amazon SP-API</p>
+                      <p className="text-[11px] text-sky-600 dark:text-sky-400">
+                        All fields are stored in <code className="rounded bg-sky-100 px-1 font-mono text-[10px] dark:bg-sky-900/50">marketplaces.credentials</code>.
+                        {editingStoreId ? " Leave a secret blank to keep the saved value." : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {AMAZON_CREDENTIAL_ROWS.map((row) => (
+                      <div key={row.key} className="flex min-h-[5.25rem] flex-col gap-1.5">
+                        <label className="text-sm font-medium leading-none">{row.label}</label>
+                        <input
+                          type={row.type}
+                          autoComplete="off"
+                          value={newStoreCredentials[row.key] ?? ""}
+                          onChange={(e) =>
+                            setNewStoreCredentials((prev) => ({ ...prev, [row.key]: e.target.value }))
+                          }
+                          placeholder={row.placeholder}
+                          className={`${INPUT_CLS} h-10 min-h-[2.5rem] font-mono text-sm`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Other platforms: API Credentials ─────────────────────── */}
+              {newStorePlatform !== "amazon" && (PLATFORM_CRED_FIELDS[newStorePlatform] ?? []).length > 0 && (
                 <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-4 space-y-4 dark:border-sky-700/50 dark:bg-sky-950/20">
                   <div className="flex items-center gap-2">
                     <KeyRound className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0" />
@@ -2903,7 +3289,7 @@ export default function SettingsPage() {
                   </div>
 
                   {(PLATFORM_CRED_FIELDS[newStorePlatform] ?? []).map((f) => (
-                    <div key={f.key}>
+                    <div key={f.key} className="min-h-[5.25rem] space-y-1.5">
                       <label className={LABEL_CLS}>{f.label}</label>
                       <input
                         type={f.type}
@@ -2913,10 +3299,32 @@ export default function SettingsPage() {
                           setNewStoreCredentials((prev) => ({ ...prev, [f.key]: e.target.value }))
                         }
                         placeholder={f.placeholder}
-                        className={`${INPUT_CLS} font-mono`}
+                        className={`${INPUT_CLS} h-10 font-mono`}
                       />
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Test connection */}
+              {PLATFORM_TO_PROVIDER[newStorePlatform] && (
+                <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
+                  <button
+                    type="button"
+                    onClick={() => void handleTestModalConnection()}
+                    disabled={storeModalTestLoading || storeModalCredLoading}
+                    className="inline-flex h-10 min-w-[160px] items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-700/50 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/60"
+                  >
+                    {storeModalTestLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Wifi className="h-4 w-4" />
+                    )}
+                    {storeModalTestLoading ? "Testing…" : "Test Connection"}
+                  </button>
+                  <p className="text-[11px] text-muted-foreground">
+                    Uses the credentials above without saving.
+                  </p>
                 </div>
               )}
 
@@ -2924,15 +3332,15 @@ export default function SettingsPage() {
               <div className="flex gap-3 pt-1">
                 <button
                   type="button"
-                  onClick={() => { setShowAddStoreModal(false); setEditingStoreId(null); }}
-                  className="flex-1 rounded-xl border border-border bg-muted/50 py-3 text-sm font-semibold text-muted-foreground transition hover:bg-accent"
+                  onClick={closeAddStoreModal}
+                  className="flex h-11 flex-1 items-center justify-center rounded-xl border border-border bg-muted/50 text-sm font-semibold text-muted-foreground transition hover:bg-accent"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={addStoreSaving || !newStoreName.trim()}
-                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 disabled:opacity-50"
+                  disabled={addStoreSaving || !newStoreName.trim() || storeModalCredLoading}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 disabled:opacity-50"
                 >
                   {addStoreSaving ? (
                     <><Loader2 className="h-4 w-4 animate-spin" />Saving…</>

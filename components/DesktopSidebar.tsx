@@ -4,13 +4,14 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  FileText,
   LayoutDashboard,
   RotateCcw,
   ShieldAlert,
   Store,
   Settings,
 } from "lucide-react";
-import { useUserRole } from "./UserRoleContext";
+import { isAdminRole, useUserRole } from "./UserRoleContext";
 
 const NAV_SECTIONS = [
   {
@@ -19,6 +20,7 @@ const NAV_SECTIONS = [
       { label: "Dashboard",           icon: LayoutDashboard, href: "/"                  },
       { label: "Returns Processing",  icon: RotateCcw,       href: "/returns"           },
       { label: "Claim Engine",        icon: ShieldAlert,     href: "/claim-engine"  },
+      { label: "Report history",      icon: FileText,        href: "/claim-engine/report-history" },
     ],
   },
   {
@@ -95,7 +97,7 @@ export function DesktopSidebar() {
       </nav>
 
       {/* Footer — Settings link only rendered for admins */}
-      {role === "admin" && (
+      {isAdminRole(role) && (
         <div className="shrink-0 border-t border-slate-200 px-3 py-3 dark:border-slate-800">
           <Link
             href="/settings"

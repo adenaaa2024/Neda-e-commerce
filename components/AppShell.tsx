@@ -17,15 +17,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ChevronDown, ChevronRight,
+  Database,
+  FileText,
   LayoutDashboard, Menu,
   PanelLeftClose, PanelLeftOpen,
-  RotateCcw, Settings, ShieldAlert, X,
+  RotateCcw, Settings, ShieldAlert, Users, X,
 } from "lucide-react";
 import { TopHeader } from "./TopHeader";
-import { LogoMark } from "./LogoMark";
+import { BrandingProvider, useBranding } from "./BrandingContext";
+import { BrandLogoImage } from "./BrandLogoImage";
 import { GlobalSearchProvider } from "./GlobalSearchContext";
-import { UserRoleProvider, useUserRole } from "./UserRoleContext";
-import { getCoreSettings } from "../app/settings/workspace-settings-actions";
+import { isAdminRole, UserRoleProvider, useUserRole } from "./UserRoleContext";
+import { SidebarDebugToggle } from "./SidebarDebugToggle";
 
 // ─── Nav Definition ────────────────────────────────────────────────────────────
 
@@ -45,12 +48,14 @@ const NAV: NavSection[] = [
       { label: "Dashboard",          icon: LayoutDashboard, href: "/" },
       { label: "Returns Processing", icon: RotateCcw,       href: "/returns" },
       { label: "Claim Engine",       icon: ShieldAlert,     href: "/claim-engine" },
+      { label: "Report history",     icon: FileText,        href: "/claim-engine/report-history" },
     ],
   },
   {
     id: "sys",
     label: "System",
     items: [
+      { label: "Users",    icon: Users,    href: "/users" },
       { label: "Settings", icon: Settings, href: "/settings" },
     ],
   },
@@ -68,27 +73,24 @@ const CLS = {
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <BrandingProvider>
+      <AppShellInner>{children}</AppShellInner>
+    </BrandingProvider>
+  );
+}
+
+function AppShellInner({ children }: { children: React.ReactNode }) {
   const [collapsed,  setCollapsed]  = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted,    setMounted]    = useState(false);
   const [expanded,   setExpanded]   = useState<Record<string, boolean>>({});
-  const [brandName,  setBrandName]  = useState<string>("");
-  const [brandLogo,  setBrandLogo]  = useState<string>("");
+  const { companyName: brandName } = useBranding();
   const pathname = usePathname();
 
   useEffect(() => {
     setMounted(true);
     if (localStorage.getItem("sidebar_collapsed") === "true") setCollapsed(true);
-    async function loadBranding() {
-      try {
-        const cfg = await getCoreSettings();
-        setBrandName(cfg.company_name ?? "");
-        setBrandLogo(cfg.company_logo_url ?? "");
-      } catch {
-        // silently fall back to defaults
-      }
-    }
-    loadBranding();
   }, []);
 
   const toggleCollapsed = useCallback(() => {
@@ -104,8 +106,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   function isActive(href?: string) {
     if (!href || href === "#") return false;
-    if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
+    const path = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
+    if (href === "/") return path === "/";
+    // Settings hub is only active on the exact /settings page, not deeper routes like /settings/imports
+    if (href === "/settings") {
+      return path === "/settings";
+    }
+    // Claim Engine vs Report history share a prefix — use exact match for the parent, not startsWith("/claim-engine").
+    if (href === "/claim-engine") {
+      return path === "/claim-engine" || path.startsWith("/claim-engine/investigation");
+    }
+    if (href === "/claim-engine/report-history") {
+      return path === "/claim-engine/report-history" || path.startsWith("/claim-engine/report-history/");
+    }
+    return path === href || path.startsWith(`${href}/`);
   }
 
   useEffect(() => {
@@ -231,10 +245,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  function SidebarBody({ alwaysFull = false }: { alwaysFull?: boolean }) {
+  function SidebarBody({
+    alwaysFull = false,
+    collapsed: sidebarCollapsed,
+  }: {
+    alwaysFull?: boolean;
+    /** Narrow sidebar mode (desktop collapsed). Mobile drawer should pass false. */
+    collapsed: boolean;
+  }) {
     const { role } = useUserRole();
-    const showSection = alwaysFull || !collapsed;
-    const visibleNav = NAV.filter((sec) => sec.id !== "sys" || role === "admin");
+    const showSection = alwaysFull || !sidebarCollapsed;
+    const visibleNav = NAV.filter((sec) => sec.id !== "sys" || isAdminRole(role));
     return (
       <>
         {visibleNav.map((sec) => (
@@ -252,6 +273,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         ))}
+
+        {isAdminRole(role) && (
+          <div className="mb-4">
+            {showSection
+              ? <p className={CLS.section}>System Admin</p>
+              : <div className="mb-2 mx-3 h-px bg-border" />
+            }
+            <div className="space-y-0.5">
+              <NavLink
+                item={{ label: "Imports", icon: Database, href: "/settings/imports" }}
+                alwaysFull={alwaysFull}
+              />
+              <SidebarDebugToggle collapsed={sidebarCollapsed} />
+            </div>
+          </div>
+        )}
       </>
     );
   }
@@ -269,19 +306,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="fixed left-0 top-0 z-[210] flex h-full w-[280px] max-w-[85vw] flex-col border-r border-sidebar-border bg-sidebar shadow-2xl animate-drawer-slide-in-left"
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
-          <div className="flex items-center gap-2.5">
-            {brandLogo ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={brandLogo}
-                alt="Brand logo"
-                className="h-8 w-8 shrink-0 rounded-xl object-contain"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-              />
-            ) : (
-              <LogoMark />
-            )}
-            <div>
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <BrandLogoImage />
+            <div className="min-w-0">
               <p className="text-sm font-bold text-sidebar-foreground">
                 {brandName || "E-commerce OS"}
               </p>
@@ -299,7 +326,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-4">
-          <SidebarBody alwaysFull />
+          <SidebarBody alwaysFull collapsed={false} />
         </nav>
       </div>
     </>
@@ -321,20 +348,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ].join(" ")}
         >
           <div className={[
-            "flex h-14 shrink-0 items-center border-b border-sidebar-border px-4",
+            "flex h-14 shrink-0 items-center border-b border-sidebar-border px-4 min-w-0 overflow-hidden",
             collapsed ? "justify-center" : "gap-2.5",
           ].join(" ")}>
-            {brandLogo ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={brandLogo}
-                alt="Brand logo"
-                className="h-8 w-8 shrink-0 rounded-xl object-contain"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-              />
-            ) : (
-              <LogoMark />
-            )}
+            <BrandLogoImage />
             {!collapsed && (
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold text-sidebar-foreground">
@@ -346,7 +363,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-4">
-            <SidebarBody />
+            <SidebarBody collapsed={collapsed} />
           </nav>
 
           <div className="shrink-0 border-t border-sidebar-border p-2">
