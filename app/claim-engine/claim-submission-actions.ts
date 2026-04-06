@@ -18,6 +18,10 @@ import {
   CLAIM_SUBMISSIONS_TABLE,
   CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED,
 } from "./claim-submissions-constants";
+import {
+  appendClaimHistoryTimelineEntry,
+  resolveProfileDisplayName,
+} from "./claim-history-timeline-actions";
 
 const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 const BUCKET = "claim-reports";
@@ -29,7 +33,9 @@ export type ClaimSubmissionStatus =
   | "evidence_requested"
   | "investigating"
   | "accepted"
-  | "rejected";
+  | "rejected"
+  /** Terminal failure — agent or marketplace returned an unrecoverable error. Added by Neda's migration. */
+  | "failed";
 
 export type ClaimSubmissionListRow = {
   id: string;
@@ -49,6 +55,8 @@ export type ClaimSubmissionListRow = {
   asin: string | null;
   fnsku: string | null;
   sku: string | null;
+  /** UUID of the operator/agent that created the submission — links to `profiles.id`. Added by Neda's migration. */
+  created_by: string | null;
 };
 
 async function signedUrlForPath(path: string | null): Promise<string | null> {
@@ -67,6 +75,7 @@ async function signedUrlForPath(path: string | null): Promise<string | null> {
 export async function approveClaimSubmission(
   submissionId: string,
   organizationId: string = DEFAULT_ORG,
+  actorUserId?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const { error } = await supabaseServer
@@ -75,6 +84,20 @@ export async function approveClaimSubmission(
       .eq("id", submissionId)
       .eq("organization_id", organizationId);
     if (error) throw new Error(error.message);
+
+    const actorLabel = await resolveProfileDisplayName(actorUserId ?? null);
+    const log = await appendClaimHistoryTimelineEntry({
+      claimId: submissionId,
+      organizationId,
+      action: "Claim approved (status set to accepted)",
+      details: { new_status: "accepted" },
+      statusAtTime: "accepted",
+      actorLabel,
+    });
+    if (!log.ok) {
+      console.warn("[claim history]", log.error);
+    }
+
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Approve failed." };
@@ -229,6 +252,7 @@ export async function listClaimSubmissions(
         asin: (ret?.asin as string | null) ?? null,
         fnsku: (ret?.fnsku as string | null) ?? null,
         sku: resolveReturnSku(ret),
+        created_by: (r.created_by as string | null) ?? null,
       });
     }
 
@@ -253,10 +277,49 @@ export async function refreshClaimReportSignedUrl(
   }
 }
 
+/**
+ * Uploads a generated claim PDF to Storage and sets `claim_submissions.report_url` + `created_by`
+ * so the file appears on Report History with a working download.
+ */
+export async function uploadClaimPdfExport(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const file = formData.get("pdf");
+  if (!(file instanceof Blob)) return { ok: false, error: "Missing PDF." };
+  const submissionId = String(formData.get("submissionId") ?? "").trim();
+  const organizationId = String(formData.get("organizationId") ?? "").trim();
+  const actorUserIdRaw = String(formData.get("actorUserId") ?? "").trim();
+  const actorUserId = actorUserIdRaw && isUuidString(actorUserIdRaw) ? actorUserIdRaw : null;
+  if (!isUuidString(submissionId) || !organizationId) return { ok: false, error: "Invalid parameters." };
+
+  try {
+    const buf = Buffer.from(await file.arrayBuffer());
+    const path = `${organizationId}/${submissionId}/claim-export-${Date.now()}.pdf`;
+    const { error: upErr } = await supabaseServer.storage.from(BUCKET).upload(path, buf, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+    if (upErr) throw new Error(upErr.message);
+
+    const { error: dbErr } = await supabaseServer
+      .from(CLAIM_SUBMISSIONS_TABLE)
+      .update({
+        report_url: path,
+        updated_at: new Date().toISOString(),
+        ...(actorUserId ? { created_by: actorUserId } : {}),
+      })
+      .eq("id", submissionId)
+      .eq("organization_id", organizationId);
+    if (dbErr) throw new Error(dbErr.message);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Upload failed." };
+  }
+}
+
 export async function markClaimSubmissionManualSubmit(
   submissionId: string,
   marketplaceCaseId: string,
   organizationId: string = DEFAULT_ORG,
+  actorUserId?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   const id = marketplaceCaseId.trim();
   if (!id) return { ok: false, error: "Marketplace case ID is required." };
@@ -270,6 +333,20 @@ export async function markClaimSubmissionManualSubmit(
       .eq("id", submissionId)
       .eq("organization_id", organizationId);
     if (error) throw new Error(error.message);
+
+    const actorLabel = await resolveProfileDisplayName(actorUserId ?? null);
+    const log = await appendClaimHistoryTimelineEntry({
+      claimId: submissionId,
+      organizationId,
+      action: "Marked as submitted with marketplace case ID",
+      details: { new_status: "submitted", marketplace_case_id: id },
+      statusAtTime: "submitted",
+      actorLabel,
+    });
+    if (!log.ok) {
+      console.warn("[claim history]", log.error);
+    }
+
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Update failed." };
@@ -283,6 +360,7 @@ export async function markClaimSubmissionManualSubmit(
 export async function bulkSubmitClaimsToMarketplace(
   organizationId: string = DEFAULT_ORG,
   selectedSubmissionIds?: string[] | null,
+  actorUserId?: string | null,
 ): Promise<{ ok: boolean; count?: number; error?: string }> {
   const HISTORY_TABLE = "claim_history_logs";
   try {
@@ -319,14 +397,19 @@ export async function bulkSubmitClaimsToMarketplace(
     if (upErr) throw new Error(upErr.message);
 
     const msg = "Batch submission initiated by Admin.";
+    const actorLabel = await resolveProfileDisplayName(actorUserId ?? null);
     const logRows = targetIds.map((submission_id) => ({
       organization_id: organizationId,
-      submission_id,
-      actor: "human_admin" as const,
-      message_content: msg,
-      attachments: {},
-      status_at_time: "submitted",
-      message_kind: "system",
+      claim_id: submission_id,
+      action: msg,
+      details: {
+        batch: true,
+        source: "bulk_submit_to_marketplace",
+        status: "submitted",
+        message_kind: "system",
+        actor_role: "human_admin",
+      },
+      actor: actorLabel,
     }));
 
     const { error: logErr } = await supabaseServer.from(HISTORY_TABLE).insert(logRows);

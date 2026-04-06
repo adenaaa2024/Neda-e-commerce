@@ -1,21 +1,30 @@
 "use client";
 
+/**
+ * Returns Processing — Items / Packages / Pallets (route: `/returns`).
+ * Data loads via server actions in `./actions` (application layer), not inline in UI.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
-import { Boxes, Package2, ScanLine } from "lucide-react";
+import { Boxes, Package2, ScanLine, Store } from "lucide-react";
 import { DatabaseTag } from "../../components/DatabaseTag";
 import { useGlobalSearch } from "../../components/GlobalSearchContext";
 import { useUserRole } from "../../components/UserRoleContext";
-import {
-  type PackageRecord, type PalletRecord, type ReturnRecord,
-  type OrgSettings,
-  listReturns, listPackages, listPallets, getOrgSettings,
-} from "./actions";
+import { listReturns, listPackages, listPallets, getOrgSettings, countReturns } from "./actions";
+import { listStores } from "../settings/adapters/actions";
+import type { OrgSettings, PackageRecord, PalletRecord, ReturnRecord } from "./returns-action-types";
 import { getFefoSettings } from "../settings/workspace-settings-actions";
 import {
   DEFAULT_FEFO,
   type InventoryModuleConfig,
 } from "../settings/workspace-settings-types";
 import { resolveOrganizationId } from "../../lib/organization";
+import { isUuidString } from "../../lib/uuid";
+import {
+  listWorkspaceOrganizationsForAdmin,
+  type WorkspaceOrganizationOption,
+} from "../session/tenant-actions";
+import { listPlatformMarketplaceIcons } from "../(admin)/lib/platform-actions";
 import {
   DEFAULT_ORG_SETTINGS,
   type DrawerContent, type WizardInheritedContext,
@@ -40,12 +49,50 @@ export default function ReturnsPage() {
   const [fetchErrors,  setFetchErrors]  = useState<string[]>([]);
   const [orgSettings,  setOrgSettings]  = useState<OrgSettings>(DEFAULT_ORG_SETTINGS);
   const [fefoSettings, setFefoSettings] = useState<InventoryModuleConfig>(DEFAULT_FEFO);
+  /** Exact DB total (non-deleted returns) — compares to `listReturns()` row cap. */
+  const [returnsTotalCount, setReturnsTotalCount] = useState<number | null>(null);
   /** In-session File objects keyed by returnId — enables live photo gallery in the drawer. */
   const [sessionPhotos, setSessionPhotos] = useState<Map<string, Record<string, File[]>>>(new Map());
 
   // ── UI State ────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>("items");
-  const { role, actorName: actor } = useUserRole();
+  const { role, actorName: actor, actorUserId, organizationId: userOrgId } = useUserRole();
+  /** Super Admin: empty string = all tenants on lists */
+  const [superAdminListFilter, setSuperAdminListFilter] = useState("");
+  /** Super Admin: org id for new returns / packages / pallets */
+  const [superAdminCreateOrg, setSuperAdminCreateOrg] = useState<string>("");
+  const [companyOptions, setCompanyOptions] = useState<WorkspaceOrganizationOption[]>([]);
+  const [platformIconBySlug, setPlatformIconBySlug] = useState<Record<string, string>>({});
+
+  /** Store filter — applies to Items and Packages (pallets don't have store_id in list select). */
+  const [storeFilter, setStoreFilter] = useState<string>("");
+  const [storeOptions, setStoreOptions] = useState<{ id: string; name: string; platform: string }[]>([]);
+
+  const tenantQuery = useMemo(() => {
+    const filterOrg =
+      role === "super_admin"
+        ? (() => {
+            const t = superAdminListFilter.trim();
+            return t && isUuidString(t) ? t : undefined;
+          })()
+        : undefined;
+    return { actorProfileId: actorUserId, filterOrganizationId: filterOrg };
+  }, [actorUserId, role, superAdminListFilter]);
+
+  const organizationLabelById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const o of companyOptions) {
+      m[o.organization_id] = o.display_name;
+    }
+    return m;
+  }, [companyOptions]);
+
+  const effectiveWriteOrgId =
+    role === "super_admin"
+      ? (superAdminCreateOrg.trim() && isUuidString(superAdminCreateOrg.trim())
+          ? superAdminCreateOrg.trim()
+          : userOrgId ?? resolveOrganizationId())
+      : (userOrgId ?? resolveOrganizationId());
 
   // ── Drawer Stack ─────────────────────────────────────────────────────────────
   // Stack allows drilling down: Pallet → Package → Item and going back.
@@ -67,34 +114,105 @@ export default function ReturnsPage() {
   const { toasts, show: showToast } = useToast();
   const { query: globalSearchQuery } = useGlobalSearch();
 
+  useEffect(() => {
+    if (role !== "super_admin") return;
+    let cancelled = false;
+    void listWorkspaceOrganizationsForAdmin().then((res) => {
+      if (!cancelled && res.ok) setCompanyOptions(res.rows);
+    });
+    return () => { cancelled = true; };
+  }, [role]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listPlatformMarketplaceIcons().then((res) => {
+      if (!cancelled && res.ok) setPlatformIconBySlug(res.bySlug);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load stores for the store filter dropdown (scoped to the effective org automatically
+  // by the server action's RLS / tenant scope).
+  useEffect(() => {
+    let cancelled = false;
+    void listStores().then((res) => {
+      if (cancelled || !res.ok || !res.data) return;
+      setStoreOptions(
+        res.data
+          .filter((s) => s.is_active !== false)
+          .map((s) => ({ id: s.id, name: s.name, platform: s.platform })),
+      );
+    });
+    return () => { cancelled = true; };
+  }, [userOrgId]);
+
+  useEffect(() => {
+    if (userOrgId && !superAdminCreateOrg.trim()) {
+      setSuperAdminCreateOrg(userOrgId);
+    }
+  }, [userOrgId, superAdminCreateOrg]);
+
   // ── Data Loading ─────────────────────────────────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
     async function load() {
       setLoading(true);
       setFetchErrors([]);
-      const [r, p, pl, settings, fefo] = await Promise.all([
-        listReturns(), listPackages(), listPallets(), getOrgSettings(), getFefoSettings(),
-      ]);
-      const errs: string[] = [];
-      if (r.ok)  setReturns(r.data   ?? []);
-      else       errs.push(`Items: ${r.error ?? "unknown error"}`);
-      if (p.ok)  setPackages(p.data  ?? []);
-      else       errs.push(`Packages: ${p.error ?? "unknown error"}`);
-      if (pl.ok) setPallets(pl.data  ?? []);
-      else       errs.push(`Pallets: ${pl.error ?? "unknown error"}`);
-      if (errs.length) setFetchErrors(errs);
-      setOrgSettings(settings);
-      setFefoSettings(fefo);
-      setLoading(false);
+      try {
+        const settingsOrg = userOrgId ?? resolveOrganizationId();
+        const [r, p, pl, settings, fefo, retCount] = await Promise.all([
+          listReturns(tenantQuery),
+          listPackages(tenantQuery),
+          listPallets(tenantQuery),
+          getOrgSettings(settingsOrg),
+          getFefoSettings(),
+          countReturns(tenantQuery),
+        ]);
+        if (cancelled) return;
+        const errs: string[] = [];
+        if (r.ok)  setReturns(r.data   ?? []);
+        else       errs.push(`Items: ${r.error ?? "unknown error"}`);
+        if (retCount.ok) setReturnsTotalCount(retCount.count);
+        else { setReturnsTotalCount(null); console.error("[ReturnsPage] countReturns failed:", retCount.error); }
+        if (p.ok)  setPackages(p.data  ?? []);
+        else       errs.push(`Packages: ${p.error ?? "unknown error"}`);
+        if (pl.ok) setPallets(pl.data  ?? []);
+        else       errs.push(`Pallets: ${pl.error ?? "unknown error"}`);
+        if (errs.length) setFetchErrors(errs);
+        setOrgSettings(settings);
+        setFefoSettings(fefo);
+      } catch (e) {
+        if (!cancelled) {
+          setFetchErrors([`Failed to load: ${e instanceof Error ? e.message : String(e)}`]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-    load();
-  }, []);
+    void load();
+    return () => { cancelled = true; };
+  }, [tenantQuery, userOrgId]);
 
   // ── Derived helpers ──────────────────────────────────────────────────────────
   const openPackages = useMemo(() => packages.filter((p) => p.status === "open"), [packages]);
   const openPallets  = useMemo(() => pallets.filter((p)  => p.status === "open"), [pallets]);
 
-  const visibleReturns = returns;
+  /**
+   * Store-filtered views.
+   * Returns and packages both carry a `store_id` FK; pallets do not (they span stores).
+   * When `storeFilter` is empty, all rows are shown.
+   */
+  const filteredReturns  = useMemo(() =>
+    storeFilter ? returns.filter((r)  => r.store_id  === storeFilter) : returns,
+    [returns, storeFilter],
+  );
+  const filteredPackages = useMemo(() =>
+    storeFilter ? packages.filter((p) => p.store_id === storeFilter) : packages,
+    [packages, storeFilter],
+  );
+
+  /** Tab counts and Items table use this array only — loaded via `listReturns()` (no mock / no fixed length). */
+  const visibleReturns = filteredReturns;
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   function addReturn(r: ReturnRecord, photos?: Record<string, File[]>) {
@@ -138,6 +256,34 @@ export default function ReturnsPage() {
   function removePallet(id: string)      { setPallets((p) => p.filter((x) => x.id !== id)); }
   function bulkRemovePallets(ids: string[]) { const s = new Set(ids); setPallets((p) => p.filter((x) => !s.has(x.id))); }
 
+  /** Assign/move existing return to a package — sync items list + denormalized counts from live `returns` rows. */
+  function syncReturnAfterPackageAssignment(updated: ReturnRecord, prevPackageId: string | null) {
+    setReturns((prev) => {
+      const merged = prev.map((x) => (x.id === updated.id ? updated : x));
+      const affected = new Set<string>();
+      if (prevPackageId) affected.add(prevPackageId);
+      if (updated.package_id) affected.add(updated.package_id);
+      queueMicrotask(() => {
+        setPackages((pkgs) =>
+          pkgs.map((pkg) => {
+            if (!affected.has(pkg.id)) return pkg;
+            const n = merged.filter((r) => r.package_id === pkg.id).length;
+            return { ...pkg, actual_item_count: n };
+          }),
+        );
+        setDrawerStack((stack) =>
+          stack.map((d) => {
+            if (d.type !== "package") return d;
+            if (!affected.has(d.record.id)) return d;
+            const n = merged.filter((r) => r.package_id === d.record.id).length;
+            return { ...d, record: { ...d.record, actual_item_count: n } };
+          }),
+        );
+      });
+      return merged;
+    });
+  }
+
   // ── Open wizard with optional inherited context ───────────────────────────────
   function openWizard(ctx?: WizardInheritedContext) {
     setWizardInherited(ctx);
@@ -161,9 +307,25 @@ export default function ReturnsPage() {
   }
 
   // ── Tab config ───────────────────────────────────────────────────────────────
-  const tabs: { id: ActiveTab; label: string; icon: React.ElementType; count: number; accent: string }[] = [
-    { id: "items",    label: "Items",    icon: ScanLine,  count: returns.length,  accent: "text-sky-600 border-sky-500 dark:text-sky-400 dark:border-sky-400" },
-    { id: "packages", label: "Packages", icon: Package2,  count: packages.length, accent: "text-violet-600 border-violet-500 dark:text-violet-400 dark:border-violet-400" },
+  const tabs: { id: ActiveTab; label: string; icon: React.ElementType; count: number; countTitle?: string; accent: string }[] = [
+    {
+      id: "items",
+      label: "Items",
+      icon: ScanLine,
+      count: filteredReturns.length,
+      countTitle: (() => {
+        if (storeFilter) return `${filteredReturns.length} of ${returns.length} items match the selected store`;
+        if (returnsTotalCount != null && returnsTotalCount > returns.length) {
+          return `${returns.length} loaded in this session (${returnsTotalCount} total in database)`;
+        }
+        if (returns.length > 25) {
+          return `${returns.length} items — table shows 25 per page`;
+        }
+        return undefined;
+      })(),
+      accent: "text-sky-600 border-sky-500 dark:text-sky-400 dark:border-sky-400",
+    },
+    { id: "packages", label: "Packages", icon: Package2,  count: filteredPackages.length, accent: "text-violet-600 border-violet-500 dark:text-violet-400 dark:border-violet-400" },
     { id: "pallets",  label: "Pallets",  icon: Boxes,     count: pallets.length,  accent: "text-slate-700 border-slate-600 dark:text-slate-300 dark:border-slate-400" },
   ];
 
@@ -171,10 +333,63 @@ export default function ReturnsPage() {
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
       {/* Top Bar */}
       {/* Page title row — global TopHeader (theme/profile) is rendered by AppShell above */}
-      <header className="sticky top-0 z-[100] flex items-center gap-3 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-sm">
-        <div className="flex-1">
+      <header className="sticky top-0 z-[100] flex flex-wrap items-center gap-3 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-sm">
+        <div className="min-w-0 flex-1">
           <h1 className="font-bold text-foreground">Returns & Logistics</h1>
-          <p className="text-xs text-slate-400">FBA Reimbursement ERP · role toggle in top-bar</p>
+          <p className="text-xs text-slate-400">FBA Reimbursement ERP · tenant-scoped data</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Super-admin: company filter + "create as" picker */}
+          {role === "super_admin" && companyOptions.length > 0 && (
+            <>
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <span className="whitespace-nowrap">Company</span>
+                <select
+                  value={superAdminListFilter}
+                  onChange={(e) => setSuperAdminListFilter(e.target.value)}
+                  className="h-9 min-w-[150px] rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground"
+                >
+                  <option value="">All companies</option>
+                  {companyOptions.map((o) => (
+                    <option key={o.organization_id} value={o.organization_id}>{o.display_name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <span className="whitespace-nowrap">Create as</span>
+                <select
+                  value={superAdminCreateOrg}
+                  onChange={(e) => setSuperAdminCreateOrg(e.target.value)}
+                  className="h-9 min-w-[150px] rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground"
+                >
+                  {companyOptions.map((o) => (
+                    <option key={o.organization_id} value={o.organization_id}>{o.display_name}</option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+
+          {/* Store / Marketplace filter — available to all admin roles */}
+          {storeOptions.length > 0 && (
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Store className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="whitespace-nowrap">Marketplace</span>
+              <select
+                value={storeFilter}
+                onChange={(e) => setStoreFilter(e.target.value)}
+                className="h-9 min-w-[150px] rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground"
+                aria-label="Filter by store / marketplace"
+              >
+                <option value="">All stores</option>
+                {storeOptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} {s.platform ? `(${s.platform})` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </header>
 
@@ -188,7 +403,10 @@ export default function ReturnsPage() {
                 className={`flex items-center gap-2 border-b-2 px-5 py-4 text-sm font-semibold transition whitespace-nowrap ${active ? t.accent : "border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"}`}>
                 <Icon className="h-4 w-4" />
                 {t.label}
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? "bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>{t.count}</span>
+                <span
+                  title={t.countTitle}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? "bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}
+                >{t.count}</span>
               </button>
             );
           })}
@@ -227,9 +445,14 @@ export default function ReturnsPage() {
                   pallets={pallets}
                   role={role}
                   actor={actor}
+                  actorProfileId={actorUserId}
+                  showCompanyColumn={role === "super_admin"}
+                  organizationLabelById={organizationLabelById}
+                  platformIconBySlug={platformIconBySlug}
                   fefoSettings={fefoSettings}
                   externalSearch={globalSearchQuery}
                   onToast={showToast}
+                  returnsTotalInDb={returnsTotalCount}
                   onRowClick={(r) => openDrawer({ type: "item", record: r })}
                   onRowEdit={(r)  => openDrawer({ type: "item", record: r })}
                   onBulkDeleted={bulkRemoveReturns}
@@ -243,11 +466,14 @@ export default function ReturnsPage() {
               <div className="relative min-h-0">
                 <DatabaseTag table="packages" />
                 <PackagesDataTable
-                  packages={packages}
+                  packages={filteredPackages}
                   returns={visibleReturns}
                   pallets={pallets}
                   role={role}
                   actor={actor}
+                  actorProfileId={actorUserId}
+                  showCompanyColumn={role === "super_admin"}
+                  organizationLabelById={organizationLabelById}
                   externalSearch={globalSearchQuery}
                   onToast={showToast}
                   onRowClick={(p) => openDrawer({ type: "package", record: p })}
@@ -268,6 +494,9 @@ export default function ReturnsPage() {
                   returns={visibleReturns}
                   role={role}
                   actor={actor}
+                  actorProfileId={actorUserId}
+                  showCompanyColumn={role === "super_admin"}
+                  organizationLabelById={organizationLabelById}
                   externalSearch={globalSearchQuery}
                   onToast={showToast}
                   onRowClick={(p) => openDrawer({ type: "pallet", record: p })}
@@ -294,6 +523,7 @@ export default function ReturnsPage() {
             record={activeDrawer.record}
             role={role}
             actor={actor}
+            actorProfileId={actorUserId}
             packages={packages}
             pallets={pallets}
             sessionPhotos={sessionPhotos.get(activeDrawer.record.id)}
@@ -308,11 +538,14 @@ export default function ReturnsPage() {
             pkg={activeDrawer.record}
             role={role}
             actor={actor}
+            actorProfileId={actorUserId}
             openPallets={openPallets}
             allReturns={visibleReturns}
             onClose={closeDrawer}
             onPackageUpdated={(p) => { updatePackage_(p); setDrawerStack((prev) => prev.map((d) => d.type === "package" && d.record.id === p.id ? { type: "package", record: p } : d)); }}
             onItemAdded={(r) => { addReturn(r); showToast(`✓ Item logged — ${r.asin ?? r.fnsku ?? r.sku ?? r.item_name}`); }}
+            onReturnAssigned={syncReturnAfterPackageAssignment}
+            onReturnRemoved={removeReturn}
             onPackageDeleted={(id) => { removePackage(id); closeDrawer(); showToast("Package deleted.", "warning"); }}
             onOpenItem={(r) => pushDrawer({ type: "item", record: r })}
             onOpenPallet={(plt) => pushDrawer({ type: "pallet", record: plt })}
@@ -325,8 +558,10 @@ export default function ReturnsPage() {
             pallet={activeDrawer.record}
             role={role}
             actor={actor}
-            organizationId={resolveOrganizationId()}
+            actorProfileId={actorUserId}
+            organizationId={activeDrawer.record.organization_id}
             packages={packages}
+            allReturns={visibleReturns}
             onClose={closeDrawer}
             onPalletUpdated={updatePallet_}
             onPalletDeleted={(id) => { removePallet(id); closeDrawer(); showToast("Pallet deleted.", "warning"); }}
@@ -342,16 +577,17 @@ export default function ReturnsPage() {
           onClose={() => { setWizardOpen(false); setWizardInherited(undefined); }}
           onSuccess={(r, photos) => { addReturn(r, photos); }}
           actor={actor}
-          organizationId={resolveOrganizationId()}
+          organizationId={effectiveWriteOrgId}
+          actorProfileId={actorUserId}
           openPackages={openPackages}
           openPallets={openPallets}
+          existingReturns={visibleReturns}
           onCreatePackage={() => { setWizardOpen(false); setCreatePackageOpen(true); }}
           onCreatePallet={() => { setWizardOpen(false); setCreatePalletOpen(true); }}
           inheritedContext={wizardInherited}
           aiLabelEnabled={orgSettings.is_ai_label_ocr_enabled}
           onSoftPackageWarning={() => showToast("Warning: This item is not on the package's expected list.", "warning")}
           onToast={showToast}
-          onLinkedPackageUpdated={updatePackage_}
           onNavigateToPackage={(id) => {
             const p = packages.find((x) => x.id === id);
             if (p) {
@@ -378,7 +614,8 @@ export default function ReturnsPage() {
           onClose={() => setCreatePackageOpen(false)}
           onCreated={(p) => { addPackage(p); setCreatePackageOpen(false); showToast(`Package ${p.package_number} created.`); }}
           actor={actor}
-          organizationId={resolveOrganizationId()}
+          organizationId={effectiveWriteOrgId}
+          actorProfileId={actorUserId}
           openPallets={openPallets}
           aiPackingSlipEnabled={orgSettings.is_ai_packing_slip_ocr_enabled}
         />
@@ -389,7 +626,8 @@ export default function ReturnsPage() {
           onClose={() => setCreatePalletOpen(false)}
           onCreated={(p) => { addPallet(p); setCreatePalletOpen(false); showToast(`Pallet ${p.pallet_number} created.`); }}
           actor={actor}
-          organizationId={resolveOrganizationId()}
+          organizationId={effectiveWriteOrgId}
+          actorProfileId={actorUserId}
           aiManifestEnabled={orgSettings.is_ai_packing_slip_ocr_enabled}
         />
       )}

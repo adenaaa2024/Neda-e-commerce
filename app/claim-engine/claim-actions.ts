@@ -1,7 +1,7 @@
 "use server";
 
 import { supabaseServer } from "../../lib/supabase-server";
-import type { PackageRecord, PalletRecord, ReturnRecord } from "../returns/actions";
+import type { PackageRecord, PalletRecord, ReturnRecord } from "../returns/returns-action-types";
 import { listPackages, listPallets } from "../returns/actions";
 import { RETURN_SELECT } from "../returns/returns-constants";
 import { fetchClaimWorkspaceRows, mapSubmissionToClaimRecord } from "./claim-repository";
@@ -9,6 +9,10 @@ import { resolveInitialClaimAmountUsd, resolveClaimAmountFromReturnSync } from "
 import { ClaimObject } from "./claim-object";
 import { CLAIM_SUBMISSION_RETURN_ID_COLUMN, CLAIM_SUBMISSIONS_TABLE } from "./claim-submissions-constants";
 import type { ClaimRecord } from "./claim-types";
+import {
+  appendClaimHistoryTimelineEntry,
+  resolveProfileDisplayName,
+} from "./claim-history-timeline-actions";
 
 export type { ClaimRecord } from "./claim-types";
 
@@ -31,7 +35,12 @@ function normalizeReturnRow(raw: unknown): ReturnRecord {
   } else {
     stores = null;
   }
-  return { ...r, stores } as ReturnRecord;
+  return {
+    ...r,
+    stores,
+    marketplace: String((r.marketplace as string | undefined) ?? ""),
+    rma_number: (r.rma_number as string | null | undefined) ?? null,
+  } as ReturnRecord;
 }
 
 function mapBulkUiStatusToSubmission(status: string): string {
@@ -43,6 +52,7 @@ export async function bulkUpdateClaimsStatus(
   ids: string[],
   status: string,
   organizationId: string = DEFAULT_ORG,
+  actorUserId?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   if (ids.length === 0) return { ok: true };
   try {
@@ -53,6 +63,21 @@ export async function bulkUpdateClaimsStatus(
       .in("id", ids)
       .eq("organization_id", organizationId);
     if (error) throw new Error(error.message);
+
+    const actorLabel = await resolveProfileDisplayName(actorUserId ?? null);
+    for (const id of ids) {
+      const log = await appendClaimHistoryTimelineEntry({
+        claimId: id,
+        organizationId,
+        action: `Status changed to ${dbStatus}`,
+        details: { new_status: dbStatus, source: "bulk_update" },
+        statusAtTime: dbStatus,
+        actorLabel,
+      });
+      if (!log.ok) {
+        console.warn("[claim history]", log.error);
+      }
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Bulk update failed." };
@@ -120,8 +145,9 @@ export async function getClaimDetail(
       .select("*")
       .eq("id", claimId)
       .eq("organization_id", organizationId)
-      .single();
+      .maybeSingle();
     if (cErr) throw new Error(cErr.message);
+    if (!subRaw) return { ok: false, error: "Claim not found for this company." };
     const sub = subRaw as Record<string, unknown>;
 
     let returnRow: ReturnRecord | null = null;
@@ -143,12 +169,13 @@ export async function getClaimDetail(
 
     let pallet: PalletRecord | null = null;
     let pkg: PackageRecord | null = null;
+    const tenantOpts = { actorProfileId: null as string | null, filterOrganizationId: organizationId };
     if (palletId) {
-      const pr = await listPallets(organizationId);
+      const pr = await listPallets(tenantOpts);
       if (pr.ok) pallet = pr.data.find((p) => p.id === palletId) ?? null;
     }
     if (packageId) {
-      const pk = await listPackages(organizationId);
+      const pk = await listPackages(tenantOpts);
       if (pk.ok) pkg = pk.data.find((p) => p.id === packageId) ?? null;
     }
 
@@ -203,12 +230,13 @@ export async function getClaimDetailForReturn(
     const packageId = returnRow.package_id ?? null;
     let pallet: PalletRecord | null = null;
     let pkg: PackageRecord | null = null;
+    const tenantOpts = { actorProfileId: null as string | null, filterOrganizationId: organizationId };
     if (palletId) {
-      const pr = await listPallets(organizationId);
+      const pr = await listPallets(tenantOpts);
       if (pr.ok) pallet = pr.data.find((p) => p.id === palletId) ?? null;
     }
     if (packageId) {
-      const pk = await listPackages(organizationId);
+      const pk = await listPackages(tenantOpts);
       if (pk.ok) pkg = pk.data.find((p) => p.id === packageId) ?? null;
     }
 

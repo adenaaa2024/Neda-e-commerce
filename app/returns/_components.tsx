@@ -15,24 +15,40 @@ import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColum
 import { SmartCameraUpload } from "../../components/ui/SmartCameraUpload";
 import { BarcodeScannerModal } from "../../components/ui/BarcodeScannerModal";
 import {
-  type OrgSettings,
-  type ReturnRecord, type ReturnUpdatePayload,
-  type PalletRecord, type PalletStatus,
-  type PackageRecord, type PackageStatus, type ExpectedItem,
-  insertReturn, updateReturn, deleteReturn,
+  insertReturn, updateReturn, deleteReturn, bulkDeleteReturns,
   createPallet, updatePallet, updatePalletStatus, deletePallet,
   createPackage, updatePackage, closePackage, deletePackage,
-  listReturnsByPackage,
 } from "./actions";
+import { RETURN_SELECT } from "./returns-constants";
+import type {
+  ExpectedItem,
+  OrgSettings,
+  PackageRecord,
+  PackageStatus,
+  PalletRecord,
+  PalletStatus,
+  ReturnRecord,
+  ReturnUpdatePayload,
+} from "./returns-action-types";
 import { marketplaceSearchUrl as marketplaceSearchUrlLib } from "../../lib/marketplace-search-url";
 import { itemMatchesPackageExpectation } from "../../lib/package-expectations";
 import { getBarcodeModeFromStorage, getDefaultStoreIdFromStorage } from "../../lib/openai-settings";
 import { classifyProductBarcode } from "../../lib/product-barcode-classify";
 import { parseBarcodeSource } from "../../lib/utils/barcode-parser";
 import { supabase as supabaseBrowser } from "../../src/lib/supabase";
-import { uploadToStorage } from "../../lib/supabase/storage";
+import { uploadToMedia, uploadToStorage } from "../../lib/supabase/storage";
+import { MasterUploader } from "../../components/MasterUploader";
+import {
+  buildEntityPhotoEvidence,
+  buildStructuredPackagePhotoEvidence,
+  mergeEntityPhotoEvidence,
+  normalizeEntityPhotoEvidenceUrls,
+  palletPhotoEvidenceUrlsFromRow,
+  resolvePackageClaimPhotoUrls,
+} from "../../lib/entity-photo-evidence";
 import { fetchProductFromAmazon } from "../../lib/api/amazon-mock";
 import { operatorDisplayLabel } from "../../lib/operator-display";
+import { useProfileNames } from "../../hooks/useProfileNames";
 import {
   getReturnPhotoEvidenceUrls,
   mergeReturnPhotoEvidence,
@@ -45,6 +61,61 @@ import { isAdminRole, type UserRole } from "../../components/UserRoleContext";
 
 /** Seeded MVP org — use in client `stores` queries so RLS returns rows for local dev. */
 export const MVP_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001";
+
+/** Wizard / review summary — legacy TEXT columns first, then `urls` tail from `photo_evidence` JSONB. */
+function packageEvidenceGalleryUrls(pkg: PackageRecord | undefined | null): string[] {
+  if (!pkg) return [];
+  const pe = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
+  const o = pkg.photo_opened_url?.trim() || pe[0] || "";
+  const l = pkg.photo_return_label_url?.trim() || pe[1] || "";
+  const c = pkg.photo_closed_url?.trim() || pe[2] || "";
+  const u = pkg.photo_url?.trim() || pe[3] || "";
+  const head = [o, l, c, u].filter(Boolean);
+  return [...head, ...pe.slice(4)];
+}
+
+/** Pallet gallery — `pallets.manifest_photo_url`, `bol_photo_url`, `photo_url` (ordered for summary / claims). */
+function palletEvidenceValue(p: PalletRecord | null | undefined): unknown | null {
+  if (!p) return null;
+  const urls = palletPhotoEvidenceUrlsFromRow(p);
+  return urls.length ? { urls } : null;
+}
+
+function validateCreatePackageModal(input: {
+  pkgNum: string;
+  pkgStoreId: string;
+  palletId: string;
+  noBoxMode: boolean;
+  noLabel: boolean;
+  noOuterDamage: boolean;
+  noInsideInspect: boolean;
+  labelUrls: string[];
+  outerUrls: string[];
+  insideUrls: string[];
+}): { ok: boolean; error?: string } {
+  if (!input.pkgNum.trim()) {
+    return { ok: false, error: "Package number is required." };
+  }
+  if (!input.pkgStoreId.trim()) {
+    return { ok: false, error: "Select a store." };
+  }
+  const storeMsg = uuidFkInvalidMessage(input.pkgStoreId, "Store");
+  if (storeMsg) return { ok: false, error: storeMsg };
+  const pltMsg = uuidFkInvalidMessage(input.palletId, "Pallet");
+  if (pltMsg) return { ok: false, error: pltMsg };
+  if (!input.noBoxMode) {
+    if (!input.noLabel && input.labelUrls.length === 0) {
+      return { ok: false, error: "Add a shipping label photo or check “No label found”." };
+    }
+    if (!input.noOuterDamage && input.outerUrls.length === 0) {
+      return { ok: false, error: "Add an outer box photo or check “No box damage / issues”." };
+    }
+    if (!input.noInsideInspect && input.insideUrls.length === 0) {
+      return { ok: false, error: "Add an inside-content photo or check “Content cannot be inspected”." };
+    }
+  }
+  return { ok: true };
+}
 
 /** Simulated org setting: show expiry-label upload when expiration is within this many days (FEFO). */
 export const CLAIM_EXPIRY_EVIDENCE_THRESHOLD_DAYS = 90;
@@ -264,6 +335,13 @@ export const BTN_PRIMARY_INLINE = "inline-flex h-14 shrink-0 min-w-[12rem] items
 export const BTN_FOOTER_PRIMARY = "inline-flex h-10 min-w-[5.5rem] shrink-0 items-center justify-center gap-2 rounded-md bg-sky-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
 export const BTN_FOOTER_GHOST = "inline-flex h-10 min-w-[5.5rem] shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800";
 export const BTN_GHOST   = "flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800";
+
+/** Create Package / Create Pallet — equal-width footer actions (sticky bar). */
+export const MODAL_FOOTER_GRID = "grid grid-cols-2 gap-3";
+export const MODAL_FOOTER_CANCEL =
+  "flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800";
+export const MODAL_FOOTER_SUBMIT =
+  "inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
 
 /** Checkbox column — fixed width + centered so TableHead matches TableCell */
 export const TH_CHK = "w-10 min-w-[2.5rem] px-0 py-3 text-center align-middle";
@@ -529,13 +607,24 @@ export type WizardState = {
   /** When true, item has no parent package (loose/orphan flow). */
   loose_item: boolean;
   notes: string; photos: Record<string, File[]>;
-  /** Claim evidence photo URLs — uploaded to Supabase Storage during Step 2. */
+  /** Claim evidence photo URLs — merged into `photo_evidence` JSONB on submit (not standalone DB columns). */
   photo_item_url: string;
   photo_expiry_url: string;
   /** Loose-item optional return label (no package to inherit from). */
   photo_return_label_url: string;
+  /** Extra gallery URLs in `photo_evidence.urls` (`media` bucket). */
+  evidence_gallery_urls: string[];
+  /**
+   * Package-context shots captured during the item wizard — stored only on `returns.photo_evidence`
+   * (never written to `packages`).
+   */
+  wizard_outer_box_url: string;
+  wizard_opened_box_url: string;
+  wizard_pkg_return_label_url: string;
   /** Connected store UUID — links this item to a specific store account. */
   store_id: string;
+  /** Optional seller RMA — persisted on `returns.rma_number`. */
+  rma_number: string;
   /** Optional Amazon order ID — stored on `returns.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
   amazon_order_id: string;
   /** Product catalog lookup — when `unknown`, Step 1 allows Next without a resolved ASIN/UPC (manual item name). */
@@ -550,7 +639,10 @@ export const EMPTY_WIZARD: WizardState = {
   loose_item: false,
   notes: "", photos: {},
   photo_item_url: "", photo_expiry_url: "", photo_return_label_url: "",
+  evidence_gallery_urls: [],
+  wizard_outer_box_url: "", wizard_opened_box_url: "", wizard_pkg_return_label_url: "",
   store_id: "",
+  rma_number: "",
   amazon_order_id: "",
   catalog_resolution: "idle",
 };
@@ -652,6 +744,30 @@ export function SortButton({ field, label, sortField, sortAsc, onSort }: {
 }
 
 /** Display label for `returns.marketplace` (Source column / filters). */
+function resolveReturnMarketplaceIconUrl(
+  r: ReturnRecord,
+  platformIconBySlug: Record<string, string | null | undefined>,
+): string | null {
+  const fromEmb = r.marketplaces?.icon_url?.trim();
+  if (fromEmb) return fromEmb;
+  const slug = (r.marketplace ?? "").trim().toLowerCase();
+  const fromMap = platformIconBySlug[slug] ?? null;
+  const t = (fromMap ?? "").trim();
+  return t || null;
+}
+
+function MarketplaceIconCell({ r, platformIconBySlug = {} }: {
+  r: ReturnRecord;
+  platformIconBySlug?: Record<string, string | null | undefined>;
+}) {
+  const url = resolveReturnMarketplaceIconUrl(r, platformIconBySlug);
+  if (!url) return <span className="text-xs text-slate-400">—</span>;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt="" className="mx-auto h-5 w-5 object-contain" loading="lazy" title={r.marketplaces?.name ?? r.marketplace} />
+  );
+}
+
 function formatMarketplaceSource(marketplace: string): string {
   const m = marketplace?.toLowerCase();
   if (m && (MARKETPLACES as readonly string[]).includes(m)) return MP_LABELS[m as Marketplace];
@@ -816,6 +932,7 @@ function sortKeyItem(
   field: string,
   pkgMap: Map<string, PackageRecord>,
   pltMap: Map<string, PalletRecord>,
+  nameMap?: Record<string, string>,
 ): string | number {
   const linkedPkg = r.package_id ? pkgMap.get(r.package_id) : undefined;
   const linkedPlt = r.pallet_id ? pltMap.get(r.pallet_id) : undefined;
@@ -825,6 +942,7 @@ function sortKeyItem(
     case "inherited_tracking_number":
     case "tracking_effective": return trackEff.toLowerCase();
     case "lpn": return (r.lpn ?? "").toLowerCase();
+    case "rma_number": return (r.rma_number ?? "").toLowerCase();
     case "marketplace":
     case "store_name": return (r.stores?.name ?? r.marketplace ?? "").toLowerCase();
     case "item_name": return r.item_name.toLowerCase();
@@ -836,14 +954,14 @@ function sortKeyItem(
       return `${linkedPkg.package_number}\0${pltPart}`.toLowerCase();
     }
     case "expiration_date": return r.expiration_date ? r.expiration_date : "\uffff";
-    case "created_by": return operatorDisplayLabel(r).toLowerCase();
+    case "created_by": return operatorDisplayLabel(r, nameMap).toLowerCase();
     case "created_at": return new Date(r.created_at).getTime();
     default:
       return String((r as unknown as Record<string, unknown>)[field] ?? "").toLowerCase();
   }
 }
 
-function sortKeyPackage(p: PackageRecord, field: string): string | number {
+function sortKeyPackage(p: PackageRecord, field: string, nameMap?: Record<string, string>): string | number {
   switch (field) {
     case "package_number": return p.package_number.toLowerCase();
     case "carrier_name": return (p.carrier_name ?? "").toLowerCase();
@@ -854,7 +972,7 @@ function sortKeyPackage(p: PackageRecord, field: string): string | number {
     case "pkg_items_sort": return p.actual_item_count * 1_000_000 + p.expected_item_count;
     case "status": return p.status.toLowerCase();
     case "store_name": return (p.stores?.name ?? "").toLowerCase();
-    case "created_by": return operatorDisplayLabel(p).toLowerCase();
+    case "created_by": return operatorDisplayLabel(p, nameMap).toLowerCase();
     case "created_at": return new Date(p.created_at).getTime();
     default: return String((p as unknown as Record<string, unknown>)[field] ?? "").toLowerCase();
   }
@@ -862,14 +980,14 @@ function sortKeyPackage(p: PackageRecord, field: string): string | number {
 
 type PalletSortRow = PalletRecord & { _rollupPkgs: number; _rollupItems: number };
 
-function sortKeyPallet(p: PalletSortRow, field: string): string | number {
+function sortKeyPallet(p: PalletSortRow, field: string, nameMap?: Record<string, string>): string | number {
   switch (field) {
     case "pallet_number": return p.pallet_number.toLowerCase();
     case "rollup_pkgs": return p._rollupPkgs;
     case "rollup_items": return p._rollupItems;
     case "status": return p.status.toLowerCase();
     case "store_name": return (p.stores?.name ?? "").toLowerCase();
-    case "created_by": return operatorDisplayLabel(p).toLowerCase();
+    case "created_by": return operatorDisplayLabel(p, nameMap).toLowerCase();
     case "created_at": return new Date(p.created_at).getTime();
     default: return String((p as unknown as Record<string, unknown>)[field] ?? "").toLowerCase();
   }
@@ -1096,9 +1214,11 @@ export function BulkActionsBar({ count, onDelete, onMove, onAssignPallet, onClea
 
 // ─── BulkMoveModal ─────────────────────────────────────────────────────────────
 
-export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts, actor, onClose, onMoved }: {
+export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts, returns: allReturns = [], actor, actorProfileId = null, onClose, onMoved }: {
   selectedIds: string[]; packages: PackageRecord[]; pallets: PalletRecord[];
-  actor: string; onClose: () => void;
+  /** Live per-package counts (same as Packages table ITEMS column). */
+  returns?: ReturnRecord[];
+  actor: string; actorProfileId?: string | null; onClose: () => void;
   onMoved: (updated: ReturnRecord[], failed: number) => void;
 }) {
   const [targetPkgId, setTargetPkgId] = useState("");
@@ -1107,10 +1227,17 @@ export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts
   const [error,  setError]  = useState("");
   const openPkgs = allPkgs.filter((p) => p.status === "open");
   const openPlts = allPlts.filter((p) => p.status === "open");
+  const assignedByPackage = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of allReturns) {
+      if (r.package_id) m.set(r.package_id, (m.get(r.package_id) ?? 0) + 1);
+    }
+    return m;
+  }, [allReturns]);
   const pkgOpts  = openPkgs.map((p) => ({
     id: p.id,
     label: p.package_number,
-    sublabel: `${p.actual_item_count} items`,
+    sublabel: `${assignedByPackage.get(p.id) ?? 0} items`,
     tracking: p.tracking_number ?? undefined,
     rma: p.rma_number ?? undefined,
   }));
@@ -1131,7 +1258,7 @@ export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts
     }
     setMoving(true); setError("");
     const results = await Promise.all(
-      selectedIds.map((id) => updateReturn(id, { package_id: targetPkgId || undefined, pallet_id: targetPltId || undefined }, actor))
+      selectedIds.map((id) => updateReturn(id, { package_id: targetPkgId || undefined, pallet_id: targetPltId || undefined }, actor, actorProfileId))
     );
     setMoving(false);
     const succeeded = results.filter((r) => r.ok).map((r) => r.data!);
@@ -1167,9 +1294,9 @@ export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts
 
 // ─── BulkAssignPackagesModal (packages → pallet) ────────────────────────────────
 
-export function BulkAssignPackagesModal({ selectedIds, pallets: allPlts, actor, onClose, onDone }: {
+export function BulkAssignPackagesModal({ selectedIds, pallets: allPlts, actor, actorProfileId = null, onClose, onDone }: {
   selectedIds: string[]; pallets: PalletRecord[];
-  actor: string; onClose: () => void;
+  actor: string; actorProfileId?: string | null; onClose: () => void;
   onDone: (updated: PackageRecord[], failed: number) => void;
 }) {
   const [targetPalletId, setTargetPalletId] = useState("");
@@ -1189,7 +1316,7 @@ export function BulkAssignPackagesModal({ selectedIds, pallets: allPlts, actor, 
     setAssigning(true); setError("");
     const palletId = raw || null;
     const results = await Promise.all(
-      selectedIds.map((id) => updatePackage(id, { pallet_id: palletId }, actor)),
+      selectedIds.map((id) => updatePackage(id, { pallet_id: palletId }, actor, actorProfileId)),
     );
     setAssigning(false);
     const succeeded = results.filter((r) => r.ok && r.data).map((r) => r.data!);
@@ -1418,8 +1545,9 @@ export function ClaimEvidencePhotoGrid({
 
 // ─── Items Sub-Table (inside Package Drawer) ────────────────────────────────────
 
-function ItemsSubTable({ items, role, actor, onItemClick, onItemDeleted, showToast }: {
+function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick, onItemDeleted, showToast }: {
   items: ReturnRecord[]; role: UserRole; actor: string;
+  actorProfileId?: string | null;
   onItemClick: (r: ReturnRecord) => void;
   onItemDeleted: (id: string) => void;
   showToast: (msg: string, kind?: ToastKind) => void;
@@ -1430,7 +1558,7 @@ function ItemsSubTable({ items, role, actor, onItemClick, onItemDeleted, showToa
     let d = [...items];
     if (search) {
       const q = search.toLowerCase();
-      d = d.filter((r) => [r.lpn ?? "", r.item_name, r.asin ?? "", r.fnsku ?? "", r.sku ?? "", r.id].some((v) => v.toLowerCase().includes(q)));
+      d = d.filter((r) => [r.lpn ?? "", r.rma_number ?? "", r.item_name, r.asin ?? "", r.fnsku ?? "", r.sku ?? "", r.id].some((v) => String(v).toLowerCase().includes(q)));
     }
     if (statusF) d = d.filter((r) => r.status === statusF);
     return d;
@@ -1449,7 +1577,7 @@ function ItemsSubTable({ items, role, actor, onItemClick, onItemDeleted, showToa
         </select>
       </div>
       {filtered.length === 0
-        ? <p className="py-4 text-center text-xs text-slate-400">No items{search || statusF ? " match your filters" : " scanned yet"}.</p>
+        ? <p className="py-4 text-center text-xs text-slate-400">{search || statusF ? "No records match your filters." : "No data."}</p>
         : (
           <div className="rounded-xl border border-border">
             <table className="w-full text-xs">
@@ -1478,9 +1606,12 @@ function ItemsSubTable({ items, role, actor, onItemClick, onItemDeleted, showToa
                       <RowActionMenu
                         onView={() => onItemClick(r)}
                         onDelete={canDelete(role) ? async () => {
-                          const res = await deleteReturn(r.id, actor);
+                          const res = await deleteReturn(r.id, actor, actorProfileId);
                           if (res.ok) onItemDeleted(r.id);
-                          else showToast(res.error ?? "Delete failed.", "error");
+                          else {
+                            console.error("[PackageItemsSubTable] deleteReturn failed:", res.error);
+                            showToast(res.error ?? "Delete failed.", "error");
+                          }
                         } : undefined}
                       />
                     </td>
@@ -1496,10 +1627,18 @@ function ItemsSubTable({ items, role, actor, onItemClick, onItemDeleted, showToa
 
 // ─── Packages Sub-Table (inside Pallet Drawer) ─────────────────────────────────
 
-function PackagesSubTable({ palletId, packages, onPackageClick, showToast }: {
-  palletId: string; packages: PackageRecord[]; onPackageClick: (p: PackageRecord) => void;
+function PackagesSubTable({ palletId, packages, returns: returnsForCount = [], onPackageClick, showToast }: {
+  palletId: string; packages: PackageRecord[]; returns?: ReturnRecord[];
+  onPackageClick: (p: PackageRecord) => void;
   showToast?: (msg: string, kind?: ToastKind) => void;
 }) {
+  const assignedByPackage = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of returnsForCount) {
+      if (r.package_id) m.set(r.package_id, (m.get(r.package_id) ?? 0) + 1);
+    }
+    return m;
+  }, [returnsForCount]);
   const rows = useMemo(() => packages.filter((p) => p.pallet_id === palletId), [packages, palletId]);
   if (rows.length === 0) return <p className="py-4 text-center text-xs text-slate-400">No packages linked to this pallet yet.</p>;
   return (
@@ -1514,7 +1653,9 @@ function PackagesSubTable({ palletId, packages, onPackageClick, showToast }: {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-          {rows.map((p) => (
+          {rows.map((p) => {
+            const assignedCount = assignedByPackage.get(p.id) ?? 0;
+            return (
             <tr key={p.id} onClick={() => onPackageClick(p)} className="group cursor-pointer transition hover:bg-violet-50/50 dark:hover:bg-violet-950/20">
               <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-1.5 font-mono font-bold text-foreground">
@@ -1523,10 +1664,11 @@ function PackagesSubTable({ palletId, packages, onPackageClick, showToast }: {
                 </div>
               </td>
               <td className="hidden px-3 py-2.5 text-muted-foreground sm:table-cell">{p.carrier_name ?? "—"}</td>
-              <td className="px-3 py-2.5 font-bold text-slate-700 dark:text-slate-300">{p.actual_item_count}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</td>
+              <td className="px-3 py-2.5 font-bold text-slate-700 dark:text-slate-300">{assignedCount}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</td>
               <td className="px-3 py-2.5"><PkgStatusBadge status={p.status} /></td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1535,8 +1677,9 @@ function PackagesSubTable({ palletId, packages, onPackageClick, showToast }: {
 
 // ─── Item Drawer Content ───────────────────────────────────────────────────────
 
-export function ItemDrawerContent({ record, role, actor, packages, pallets, onUpdated, onDeleted, startInEditMode = false, sessionPhotos, onToast }: {
+export function ItemDrawerContent({ record, role, actor, actorProfileId = null, packages, pallets, onUpdated, onDeleted, startInEditMode = false, sessionPhotos, onToast }: {
   record: ReturnRecord; role: UserRole; actor: string;
+  actorProfileId?: string | null;
   packages: PackageRecord[]; pallets: PalletRecord[];
   onUpdated: (r: ReturnRecord) => void; onDeleted: (id: string) => void;
   startInEditMode?: boolean;
@@ -1549,12 +1692,16 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting,   setDeleting]   = useState(false);
   const [err,        setErr]        = useState("");
+  /** Resolve created_by UUID → full name (no UUID shown in UI). */
+  const itemOperatorNames = useProfileNames([record.created_by, record.updated_by]);
   const [editLpn,    setEditLpn]    = useState(record.lpn ?? "");
+  const [editRmaNumber, setEditRmaNumber] = useState(record.rma_number ?? "");
   const [editProductId, setEditProductId] = useState(record.asin ?? record.fnsku ?? record.sku ?? "");
   const [editAsin,   setEditAsin]   = useState(record.asin ?? "");
   const [editFnsku,  setEditFnsku]  = useState(record.fnsku ?? "");
   const [editSku, setEditSku] = useState(record.sku ?? "");
   const [editStoreId, setEditStoreId] = useState(record.store_id ?? "");
+  const [editPackageId, setEditPackageId] = useState(record.package_id ?? "");
   const [itemStoresList, setItemStoresList] = useState<{ id: string; name: string; platform: string }[]>([]);
   const [editItem,   setEditItem]   = useState(record.item_name);
   const [editNotes,  setEditNotes]  = useState(record.notes ?? "");
@@ -1599,11 +1746,13 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
 
   useEffect(() => {
     setEditLpn(record.lpn ?? "");
+    setEditRmaNumber(record.rma_number ?? "");
     setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
     setEditAsin(record.asin ?? "");
     setEditFnsku(record.fnsku ?? "");
     setEditSku(record.sku ?? "");
     setEditStoreId(record.store_id ?? "");
+    setEditPackageId(record.package_id ?? "");
     setEditItem(record.item_name);
     setEditNotes(record.notes ?? "");
     setEditOrderId(record.order_id ?? "");
@@ -1615,7 +1764,7 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
     setItemEditFiles([]);
     setEditCatalogStatus("idle");
     setEditCatalogPreview(null);
-  }, [record.id, record.lpn, record.asin, record.fnsku, record.sku, record.store_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
+  }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
 
   async function handleEditBarcodeLookup(barcode: string) {
     if (!barcode.trim()) { setEditCatalogStatus("idle"); return; }
@@ -1734,6 +1883,7 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
     const pickedStore = itemStoresList.find((s) => s.id === editStoreId);
     const res = await updateReturn(record.id, {
       lpn: editLpn || undefined,
+      rma_number: editRmaNumber.trim() || null,
       item_name: editItem,
       notes: editNotes || undefined,
       order_id: isLooseItem ? (editOrderId.trim() || null) : null,
@@ -1744,7 +1894,8 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
       sku: editSku.trim() || null,
       store_id: editStoreId.trim() || null,
       marketplace: pickedStore ? platformToMarketplace(pickedStore.platform) : record.marketplace,
-    }, actor);
+      package_id: editPackageId.trim() || null,
+    }, actor, actorProfileId);
     setSaving(false);
     if (res.ok && res.data) { onUpdated(res.data); setEditing(false); setEditNewPhotos({}); }
     else setErr(res.error ?? "Save failed.");
@@ -1752,9 +1903,17 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
 
   async function handleDelete() {
     setDeleting(true);
-    const res = await deleteReturn(record.id, actor);
-    if (res.ok) onDeleted(record.id);
-    else setDeleting(false);
+    try {
+      const res = await deleteReturn(record.id, actor, actorProfileId);
+      if (res.ok) {
+        onDeleted(record.id);
+      } else {
+        console.error("[ItemDrawerContent] deleteReturn failed:", res.error);
+        onToast?.(res.error ?? "Could not delete this return.", "error");
+      }
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -1877,10 +2036,29 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
                 <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">No active stores found. Add a store in Settings → Stores.</p>
               )}
             </div>
+            <div>
+              <label className={LABEL}>Assign to Package <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+              <select className={INPUT} value={editPackageId} onChange={(e) => setEditPackageId(e.target.value)}>
+                <option value="">— no package —</option>
+                {packages.filter((p) => p.status === "open").map((p) => (
+                  <option key={p.id} value={p.id}>{p.package_number}{p.carrier_name ? ` · ${p.carrier_name}` : ""}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          {!record.package_id && (
+          {!editPackageId && (
             <div><label className={LABEL}>LPN <span className="text-xs font-normal text-slate-400">(optional)</span></label><input className={INPUT} value={editLpn} onChange={(e) => setEditLpn(e.target.value)} placeholder="Orphan label scan…" /></div>
           )}
+          <div>
+            <label className={LABEL}>RMA # <span className="text-xs font-normal text-slate-400">(optional — this item)</span></label>
+            <input
+              className={`${INPUT} font-mono`}
+              value={editRmaNumber}
+              onChange={(e) => setEditRmaNumber(e.target.value)}
+              placeholder="Seller authorization…"
+              autoComplete="off"
+            />
+          </div>
           <div><label className={LABEL}>Item Name <span className="text-rose-500">*</span></label><input className={INPUT} value={editItem} onChange={(e) => setEditItem(e.target.value)} /></div>
 
           {/* ── Expiry Date (FEFO) ──────────────────────────────────────────── */}
@@ -2104,6 +2282,7 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
               onClick={() => {
                 setEditing(false);
                 setEditLpn(record.lpn ?? "");
+                setEditRmaNumber(record.rma_number ?? "");
                 setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
                 setEditAsin(record.asin ?? "");
                 setEditFnsku(record.fnsku ?? "");
@@ -2186,6 +2365,15 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
                   <p className="font-mono font-bold text-foreground">{record.lpn}</p>
                 </div>
                 <InlineCopy value={record.lpn} label="LPN" onToast={onToast} />
+              </div>
+            )}
+            {(record.rma_number?.trim() ?? "") !== "" && (
+              <div className="group flex flex-wrap items-center gap-2">
+                <div>
+                  <p className="text-xs text-slate-400">RMA #</p>
+                  <p className="font-mono font-bold text-foreground">{record.rma_number}</p>
+                </div>
+                <InlineCopy value={record.rma_number ?? ""} label="RMA #" onToast={onToast} />
               </div>
             )}
             {record.expiration_date && (
@@ -2289,7 +2477,7 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
           )}
           {record.notes && <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-300">{record.notes}</p>}
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-900/50 grid grid-cols-2 gap-3 text-xs">
-            <div><p className="text-slate-400">By</p><p className="font-semibold capitalize text-slate-700 dark:text-slate-300">{operatorDisplayLabel(record)}</p></div>
+            <div><p className="text-slate-400">By</p><p className="font-semibold capitalize text-slate-700 dark:text-slate-300">{record.created_by && isUuidString(record.created_by.trim()) ? (itemOperatorNames[record.created_by.trim()] ?? operatorDisplayLabel(record)) : operatorDisplayLabel(record)}</p></div>
             <div><p className="text-slate-400">Date</p><p className="font-semibold text-slate-700 dark:text-slate-300">{fmt(record.created_at)}</p></div>
           </div>
           <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
@@ -2317,14 +2505,15 @@ export function ItemDrawerContent({ record, role, actor, packages, pallets, onUp
 
 // ─── Assign Existing Item Modal ────────────────────────────────────────────────
 
-function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, onAssigned, onClose }: {
+function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, actorProfileId = null, onAssigned, onClose }: {
   pkg: PackageRecord; allReturns: ReturnRecord[]; currentItems: ReturnRecord[];
-  actor: string; onAssigned: (updated: ReturnRecord) => void; onClose: () => void;
+  actor: string; actorProfileId?: string | null; onAssigned: (updated: ReturnRecord, prevPackageId: string | null) => void; onClose: () => void;
 }) {
   const [search,    setSearch]    = useState("");
   const [selected,  setSelected]  = useState<ReturnRecord | null>(null);
   const [confirm,   setConfirm]   = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [assignErr, setAssignErr] = useState("");
   const currentIds = useMemo(() => new Set(currentItems.map((i) => i.id)), [currentItems]);
   const candidates = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -2336,11 +2525,19 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, onAssig
     await doAssign(item);
   }
   async function doAssign(item: ReturnRecord) {
+    const prevPackageId = item.package_id ?? null;
     setAssigning(true);
-    const res = await import("./actions").then((m) => m.updateReturn(item.id, { package_id: pkg.id }, actor));
+    setAssignErr("");
+    const res = await updateReturn(item.id, { package_id: pkg.id }, actor, actorProfileId);
     setAssigning(false);
-    if (res.ok && res.data) onAssigned(res.data);
-    else setConfirm(false);
+    if (res.ok && res.data) {
+      onAssigned(res.data, prevPackageId);
+    } else {
+      const msg = res.error ?? "Failed to assign item. Please try again.";
+      setAssignErr(msg);
+      console.error("[AssignExistingItemModal] doAssign failed:", msg);
+      setConfirm(false);
+    }
   }
 
   return (
@@ -2370,6 +2567,9 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, onAssig
               </button>
             ))}
           </div>
+          {assignErr && (
+            <p className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">{assignErr}</p>
+          )}
         </div>
       </div>
       {confirm && selected && (
@@ -2392,8 +2592,26 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, onAssig
 
 // ─── Package Drawer Content ────────────────────────────────────────────────────
 
-export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = [], allReturns = [], onClose, onPackageUpdated, onItemAdded, onPackageDeleted, onOpenItem, onOpenPallet, showToast }: {
+/** Collapse duplicate rows from PostgREST embed fan-out (same as server `dedupeReturnsById`). */
+function dedupeReturnsRowsLocal(rows: unknown[] | null | undefined): ReturnRecord[] {
+  const map = new Map<string, ReturnRecord>();
+  for (const raw of rows ?? []) {
+    const r0 = raw as ReturnRecord;
+    const r = {
+      ...r0,
+      marketplace: r0.marketplace ?? "",
+      rma_number: r0.rma_number ?? null,
+    };
+    if (r?.id && typeof r.id === "string" && !map.has(r.id)) map.set(r.id, r);
+  }
+  const out = [...map.values()];
+  out.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  return out;
+}
+
+export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId = null, openPallets = [], allReturns = [], onClose, onPackageUpdated, onItemAdded, onPackageDeleted, onOpenItem, onOpenPallet, onReturnAssigned, onReturnRemoved, showToast }: {
   pkg: PackageRecord; role: UserRole; actor: string;
+  actorProfileId?: string | null;
   openPallets?: PalletRecord[];
   /** Full returns list from page state — used for the "Assign Existing Item" flow. */
   allReturns?: ReturnRecord[];
@@ -2404,16 +2622,20 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
   onOpenItem: (r: ReturnRecord) => void;
   /** Open pallet drawer from wizard (PLT link). */
   onOpenPallet?: (pallet: PalletRecord) => void;
+  /** After assigning an existing return to this package — sync parent `returns` / package counts (accordion + table). */
+  onReturnAssigned?: (updated: ReturnRecord, prevPackageId: string | null) => void;
+  /** When an item is deleted from this package — keep page `returns` / counts in sync (no full reload). */
+  onReturnRemoved?: (id: string) => void;
   showToast: (msg: string, kind?: ToastKind) => void;
 }) {
   const [pkg,        setPkg]        = useState(initPkg);
-  const [items,      setItems]      = useState<ReturnRecord[]>([]);
-  const [loading,    setLoading]    = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [discOpen,   setDiscOpen]   = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [closing,    setClosing]    = useState(false);
   const [editing,    setEditing]    = useState(false);
+  /** Resolve created_by / updated_by UUIDs to human-readable names. */
+  const pkgOperatorNames = useProfileNames([pkg.created_by, pkg.updated_by]);
   const [editCarrier,   setEditCarrier]   = useState(initPkg.carrier_name ?? "");
   const [editTracking,  setEditTracking]  = useState(initPkg.tracking_number ?? "");
   const [editRmaNumber, setEditRmaNumber] = useState(initPkg.rma_number ?? "");
@@ -2424,9 +2646,9 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
   const [saveErr,    setSaveErr]    = useState("");
   const [saving,     setSaving]     = useState(false);
 
-  const [editPhotoClosedUrl,        setEditPhotoClosedUrl]        = useState(initPkg.photo_closed_url        ?? "");
-  const [editPhotoOpenedUrl,        setEditPhotoOpenedUrl]        = useState(initPkg.photo_opened_url        ?? "");
-  const [editPhotoReturnLabelUrl,   setEditPhotoReturnLabelUrl]   = useState(initPkg.photo_return_label_url  ?? "");
+  const [editPhotoClosedUrl,        setEditPhotoClosedUrl]        = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[2] ?? "");
+  const [editPhotoOpenedUrl,        setEditPhotoOpenedUrl]        = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[0] ?? "");
+  const [editPhotoReturnLabelUrl,   setEditPhotoReturnLabelUrl]   = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[1] ?? "");
   const [editPhotoClosedUploading,  setEditPhotoClosedUploading]  = useState(false);
   const [editPhotoOpenedUploading,  setEditPhotoOpenedUploading]  = useState(false);
   const [editPhotoReturnLabelUploading, setEditPhotoReturnLabelUploading] = useState(false);
@@ -2456,6 +2678,22 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
     return () => { cancelled = true; };
   }, [editing, editPalletId, pkg.pallet_id, pkg.id]);
 
+  /** List queries omit `photo_evidence` — load JSONB once for edit/reconciliation UI. */
+  useEffect(() => {
+    let cancelled = false;
+    void supabaseBrowser
+      .from("packages")
+      .select("photo_evidence")
+      .eq("id", initPkg.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return;
+        const pe = (data as { photo_evidence?: unknown }).photo_evidence;
+        setPkg((p) => ({ ...p, photo_evidence: pe ?? null }));
+      });
+    return () => { cancelled = true; };
+  }, [initPkg.id]);
+
   const packageLinkedToPallet = useMemo(() => {
     const raw = (editing ? editPalletId : pkg.pallet_id) ?? "";
     return Boolean(raw.trim() && isUuidString(raw.trim()));
@@ -2475,9 +2713,10 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
     setEditExpected(String(initPkg.expected_item_count));
     setEditPalletId(initPkg.pallet_id ?? "");
     setEditOrderId(initPkg.order_id ?? "");
-    setEditPhotoClosedUrl(initPkg.photo_closed_url ?? "");
-    setEditPhotoOpenedUrl(initPkg.photo_opened_url ?? "");
-    setEditPhotoReturnLabelUrl(initPkg.photo_return_label_url ?? "");
+    const pe = normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence);
+    setEditPhotoClosedUrl(pe[2] ?? "");
+    setEditPhotoOpenedUrl(pe[0] ?? "");
+    setEditPhotoReturnLabelUrl(pe[1] ?? "");
   }, [initPkg, editing]);
 
   // ── Physical scanner for the RMA field (edit mode only) ──────────────────
@@ -2518,30 +2757,49 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
   const [editManifestErr, setEditManifestErr] = useState("");
 
   const reconciliationLines = useMemo((): SlipExpectedItem[] | null => {
-    const md = pkg.manifest_data;
-    const ex = pkg.expected_items;
-    const raw =
-      md && Array.isArray(md) && md.length > 0
-        ? md
-        : ex && Array.isArray(ex) && ex.length > 0
-          ? ex
-          : null;
-    if (!raw) return null;
-    return raw.map((it) => ({
-      barcode: String(it.sku ?? "").trim(),
-      name: String(it.description ?? it.sku ?? "").trim(),
-      expected_qty: it.expected_qty ?? 1,
-    }));
-  }, [pkg.manifest_data, pkg.expected_items]);
+    return null;
+  }, []);
 
-  const mismatch   = pkg.expected_item_count > 0 && pkg.actual_item_count !== pkg.expected_item_count;
-  const pct        = pkg.expected_item_count > 0 ? Math.min(100, (pkg.actual_item_count / pkg.expected_item_count) * 100) : null;
-  const remaining  = pkg.expected_item_count > 0 ? pkg.expected_item_count - pkg.actual_item_count : null;
+  /** Same source as the Packages accordion — `listReturns()` page state (`allReturns`). */
+  const items = useMemo(
+    () => dedupeReturnsRowsLocal(allReturns.filter((r) => r.package_id === pkg.id)),
+    [allReturns, pkg.id],
+  );
+
+  /** If nothing in page state yet (e.g. race), load with `*` + store embed — avoids brittle explicit column lists on the client. */
+  const [itemsFallback, setItemsFallback] = useState<ReturnRecord[]>([]);
+  useEffect(() => {
+    if (items.length > 0) {
+      setItemsFallback([]);
+      return;
+    }
+    let cancelled = false;
+    void supabaseBrowser
+      .from("returns")
+      .select(RETURN_SELECT)
+      .eq("package_id", pkg.id)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("[PackageDrawerContent] items load:", error.message);
+          setItemsFallback([]);
+          return;
+        }
+        setItemsFallback(dedupeReturnsRowsLocal(data ?? []));
+      });
+    return () => { cancelled = true; };
+  }, [pkg.id, items.length]);
+
+  const displayItems = items.length > 0 ? items : itemsFallback;
+  const scannedCount = displayItems.length;
+
+  const mismatch   = pkg.expected_item_count > 0 && scannedCount !== pkg.expected_item_count;
+  const pct        = pkg.expected_item_count > 0 ? Math.min(100, (scannedCount / pkg.expected_item_count) * 100) : null;
+  const remaining  = pkg.expected_item_count > 0 ? pkg.expected_item_count - scannedCount : null;
   const atCapacity = remaining !== null && remaining <= 0;
 
-  useEffect(() => { listReturnsByPackage(pkg.id).then((r) => { if (r.ok) setItems(r.data); setLoading(false); }); }, [pkg.id]);
-
-  /** Manifest upload from Edit mode — persists manifest_photo_url, manifest_data, and expected_items. */
+  /** Manifest upload from Edit mode — appends slip image to `photo_evidence` and updates expected_item_count. */
   async function handleEditManifestUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -2558,20 +2816,15 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
         setEditManifestErr("No items detected on the packing slip — try a clearer photo.");
         return;
       }
-      const manifest_data: ExpectedItem[] = items.map((it) => ({
-        sku: it.barcode,
-        expected_qty: it.expected_qty ?? 1,
-        description: it.name,
-      }));
-      const expected_item_count = manifest_data.reduce((a, it) => a + (it.expected_qty ?? 1), 0);
+      const expected_item_count = items.reduce((a, it) => a + (it.expected_qty ?? 1), 0);
       const res = await updatePackage(
         pkg.id,
         {
-          manifest_photo_url: publicUrl,
-          manifest_data,
           expected_item_count,
+          photo_evidence: mergeEntityPhotoEvidence(pkg.photo_evidence, [publicUrl]) ?? undefined,
         },
         actor,
+        actorProfileId,
       );
       if (res.ok && res.data) {
         setPkg(res.data);
@@ -2587,8 +2840,8 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
     }
   }
 
-  function handleItemAdded(r: ReturnRecord) { setItems((p) => [r, ...p]); setPkg((p) => ({ ...p, actual_item_count: p.actual_item_count + 1 })); onItemAdded(r); }
-  function handleItemDeleted(id: string) { setItems((p) => p.filter((r) => r.id !== id)); setPkg((p) => ({ ...p, actual_item_count: Math.max(0, p.actual_item_count - 1) })); }
+  function handleItemAdded(r: ReturnRecord) { onItemAdded(r); }
+  function handleItemDeleted(id: string) { onReturnRemoved?.(id); }
 
   async function handleSaveEdits() {
     setSaving(true); setSaveErr("");
@@ -2598,17 +2851,24 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
     const carrierPayload = linkedPlt
       ? (carrierFromPalletFlow || undefined)
       : (editCarrier.trim() || undefined);
+    const o = editPhotoOpenedUrl.trim();
+    const l = editPhotoReturnLabelUrl.trim();
+    const c = editPhotoClosedUrl.trim();
+    const claimUrls: string[] = [];
+    if (o) claimUrls.push(o);
+    if (l) claimUrls.push(l);
+    if (c) claimUrls.push(c);
+    const tail = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).slice(3);
+    const mergedPe = buildEntityPhotoEvidence([...claimUrls, ...tail]);
     const res = await updatePackage(pkg.id, {
       carrier_name:         carrierPayload,
       tracking_number:      editTracking   || undefined,
       rma_number:           editRmaNumber  || null,
       expected_item_count:  parseInt(editExpected, 10) || 0,
       order_id:             editOrderId.trim() || null,
-      ...(editPalletId           ? { pallet_id:              editPalletId           } : {}),
-      ...(editPhotoClosedUrl      ? { photo_closed_url:       editPhotoClosedUrl      } : {}),
-      ...(editPhotoOpenedUrl      ? { photo_opened_url:       editPhotoOpenedUrl      } : {}),
-      ...(editPhotoReturnLabelUrl ? { photo_return_label_url: editPhotoReturnLabelUrl } : {}),
-    }, actor);
+      pallet_id:            editPalletId.trim() || null,
+      photo_evidence: mergedPe ?? null,
+    }, actor, actorProfileId);
     setSaving(false);
     if (res.ok && res.data) { setPkg(res.data); onPackageUpdated(res.data); setEditing(false); }
     else setSaveErr(res.error ?? "Save failed.");
@@ -2616,7 +2876,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
 
   async function handleClose(discNote?: string) {
     setClosing(true);
-    const res = await closePackage(pkg.id, { discrepancyNote: discNote, actor });
+    const res = await closePackage(pkg.id, { discrepancyNote: discNote, actor, actorProfileId });
     setClosing(false);
     if (res.ok) { setPkg((p) => ({ ...p, status: res.status! })); onPackageUpdated({ ...pkg, status: res.status! }); showToast(res.status === "suspicious" ? "Package flagged — discrepancy recorded." : "Package closed.", res.status === "suspicious" ? "warning" : "success"); setDiscOpen(false); }
     else showToast(res.error ?? "Failed.", "error");
@@ -2651,7 +2911,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
       {/* Count KPI */}
       <div className={`rounded-2xl border p-4 ${atCapacity ? "border-emerald-200 bg-emerald-50 dark:border-emerald-700/60 dark:bg-emerald-950/30" : mismatch ? "border-amber-200 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-950/30" : "border-sky-200 bg-sky-50 dark:border-sky-700/60 dark:bg-sky-950/30"}`}>
         <div className="flex items-baseline gap-2">
-          <span className={`text-4xl font-extrabold ${atCapacity ? "text-emerald-600 dark:text-emerald-400" : mismatch ? "text-amber-600 dark:text-amber-400" : "text-sky-600 dark:text-sky-400"}`}>{pkg.actual_item_count}</span>
+          <span className={`text-4xl font-extrabold ${atCapacity ? "text-emerald-600 dark:text-emerald-400" : mismatch ? "text-amber-600 dark:text-amber-400" : "text-sky-600 dark:text-sky-400"}`}>{scannedCount}</span>
           {pkg.expected_item_count > 0 && <span className="text-xl text-slate-400">/ {pkg.expected_item_count} expected</span>}
         </div>
         <p className="mt-0.5 text-sm text-muted-foreground">
@@ -2763,41 +3023,9 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
                 >
                   📸 Take photo of packing list
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void (async () => {
-                      const mockItems: SlipExpectedItem[] = [
-                        { barcode: "111", name: "Item 111", expected_qty: 1 },
-                        { barcode: "222", name: "Item 222", expected_qty: 2 },
-                      ];
-                      const manifest_data: ExpectedItem[] = mockItems.map((it) => ({
-                        sku: it.barcode,
-                        expected_qty: it.expected_qty ?? 1,
-                        description: it.name,
-                      }));
-                      const expected_item_count = manifest_data.reduce((a, it) => a + (it.expected_qty ?? 1), 0);
-                      const res = await updatePackage(
-                        pkg.id,
-                        { manifest_data, expected_item_count },
-                        actor,
-                      );
-                      if (res.ok && res.data) {
-                        setPkg(res.data);
-                        onPackageUpdated(res.data);
-                        setEditExpected(String(res.data.expected_item_count));
-                      } else {
-                        setEditManifestErr(res.error ?? "Could not save mock manifest.");
-                      }
-                    })();
-                  }}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-300 bg-white py-2.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 dark:border-violet-700/50 dark:bg-slate-900 dark:text-violet-300"
-                >
-                  🧪 Load mock manifest (test reconciliation)
-                </button>
               </div>
             )}
-            {(pkg.manifest_photo_url || reconciliationLines) && (
+            {(reconciliationLines || normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).length > 0) && (
               <button
                 type="button"
                 onClick={() => {
@@ -2805,11 +3033,10 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
                     const res = await updatePackage(
                       pkg.id,
                       {
-                        manifest_data: null,
-                        manifest_photo_url: null,
                         expected_item_count: 0,
                       },
                       actor,
+                      actorProfileId,
                     );
                     if (res.ok && res.data) {
                       setPkg(res.data);
@@ -2917,7 +3144,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
               </div>
             </div>
           )}
-          <div><p className="text-xs text-slate-400">Operator</p><p className="font-semibold capitalize text-foreground">{operatorDisplayLabel(pkg)}</p></div>
+          <div><p className="text-xs text-slate-400">Operator</p><p className="font-semibold capitalize text-foreground">{pkg.created_by && isUuidString(pkg.created_by.trim()) ? (pkgOperatorNames[pkg.created_by.trim()] ?? operatorDisplayLabel(pkg)) : operatorDisplayLabel(pkg)}</p></div>
           <div><p className="text-xs text-slate-400">Created</p><p className="font-semibold text-foreground">{fmt(pkg.created_at)}</p></div>
           {pkg.order_id?.trim() && (
             <div className="col-span-2">
@@ -2928,19 +3155,22 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
               </div>
             </div>
           )}
-          {(pkg.photo_url || pkg.photo_closed_url || pkg.photo_opened_url || pkg.photo_return_label_url) && (
-            <div className="col-span-2 space-y-2 pt-1">
-              <p className="text-xs text-slate-400">Claim evidence</p>
-              <PhotoGallery
-                photos={[
-                  ...(pkg.photo_url?.trim() ? [{ src: pkg.photo_url.trim(), label: "Outer / reference" }] : []),
-                  ...(pkg.photo_closed_url?.trim() ? [{ src: pkg.photo_closed_url.trim(), label: "Closed box" }] : []),
-                  ...(pkg.photo_opened_url?.trim() ? [{ src: pkg.photo_opened_url.trim(), label: "Opened box" }] : []),
-                  ...(pkg.photo_return_label_url?.trim() ? [{ src: pkg.photo_return_label_url.trim(), label: "Return label" }] : []),
-                ]}
-              />
-            </div>
-          )}
+          {(() => {
+            const peUrls = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
+            if (peUrls.length === 0) return null;
+            const labels = ["Opened box", "Return label", "Closed box"];
+            return (
+              <div className="col-span-2 space-y-2 pt-1">
+                <p className="text-xs text-slate-400">Claim evidence</p>
+                <PhotoGallery
+                  photos={peUrls.map((src, i) => ({
+                    src,
+                    label: labels[i] ?? (i === 3 ? "Outer / reference" : `Evidence ${i + 1}`),
+                  }))}
+                />
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -2989,7 +3219,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
               <button
                 type="button"
                 onClick={async () => {
-                  const r = await deletePackage(pkg.id, actor);
+                  const r = await deletePackage(pkg.id, actor, actorProfileId);
                   if (r.ok) {
                     onPackageDeleted(pkg.id);
                     onClose();
@@ -3006,7 +3236,21 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
       )}
 
       {/* Assign Existing Item Modal */}
-      {assignOpen && <AssignExistingItemModal pkg={pkg} allReturns={allReturns} currentItems={items} actor={actor} onAssigned={(updated) => { setItems((p) => [...p.filter((i) => i.id !== updated.id), updated]); showToast(`✓ Item assigned to ${pkg.package_number}`); setAssignOpen(false); }} onClose={() => setAssignOpen(false)} />}
+      {assignOpen && (
+        <AssignExistingItemModal
+          pkg={pkg}
+          allReturns={allReturns}
+          currentItems={displayItems}
+          actor={actor}
+          actorProfileId={actorProfileId}
+          onAssigned={(updated, prevPackageId) => {
+            onReturnAssigned?.(updated, prevPackageId);
+            showToast(`✓ Item assigned to ${pkg.package_number}`);
+            setAssignOpen(false);
+          }}
+          onClose={() => setAssignOpen(false)}
+        />
+      )}
 
       {/* ── Read-only: reconciliation from saved manifest_data (upload lives in Edit) ── */}
       <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
@@ -3018,14 +3262,14 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
               Read-only
             </span>
           </div>
-          {pkg.manifest_photo_url && (
+          {reconciliationLines && normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).length > 0 && (
             <a
-              href={pkg.manifest_photo_url}
+              href={normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).slice(-1)[0] ?? "#"}
               target="_blank"
               rel="noreferrer"
               className="text-[10px] font-semibold text-sky-600 underline hover:text-sky-700 dark:text-sky-400"
             >
-              View manifest image
+              View latest slip image
             </a>
           )}
         </div>
@@ -3034,7 +3278,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
             No manifest line items on file. Use <strong>Edit</strong> to photograph or load a packing slip — reconciliation appears here once saved.
           </p>
         )}
-        {reconciliationLines && !loading && (
+        {reconciliationLines && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reconciliation</p>
@@ -3061,7 +3305,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {reconciliationLines.map((exp, slipIdx) => {
                     const need = exp.expected_qty ?? 1;
-                    const matched = items.filter((it) => physicalItemMatchesExpectedLine(it, exp));
+                    const matched = displayItems.filter((it) => physicalItemMatchesExpectedLine(it, exp));
                     const isMatch = matched.length >= need;
                     return (
                       <tr key={`slip-${slipIdx}-${exp.barcode}`} className={isMatch ? "bg-emerald-50/70 dark:bg-emerald-950/20" : "bg-rose-50/70 dark:bg-rose-950/20"}>
@@ -3083,7 +3327,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
                       </tr>
                     );
                   })}
-                  {items
+                  {displayItems
                     .filter((it) => !reconciliationLines.some((exp) => physicalItemMatchesExpectedLine(it, exp)))
                     .map((it) => (
                       <tr key={it.id} className="bg-amber-50/70 dark:bg-amber-950/20">
@@ -3103,7 +3347,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
                     ))}
                 </tbody>
               </table>
-              {items.length === 0 && reconciliationLines.length > 0 && (
+              {displayItems.length === 0 && reconciliationLines.length > 0 && (
                 <p className="py-4 text-center text-xs text-slate-400">
                   No items scanned yet — all {reconciliationLines.length} expected line-items are missing.
                 </p>
@@ -3115,31 +3359,12 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
 
       {/* Items sub-table */}
       <div>
-        <p className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">Items ({loading ? "…" : items.length})</p>
-        {loading ? (
-          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>
-        ) : (
-          <ItemsSubTable items={items} role={role} actor={actor} onItemClick={onOpenItem} onItemDeleted={handleItemDeleted} showToast={showToast} />
-        )}
+        <p className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">Items ({displayItems.length})</p>
+        <ItemsSubTable items={displayItems} role={role} actor={actor} actorProfileId={actorProfileId} onItemClick={onOpenItem} onItemDeleted={handleItemDeleted} showToast={showToast} />
       </div>
 
       {wizardOpen && (() => {
-        // Merge saved manifest lines into the package so the wizard's
-        // itemMatchesPackageExpectation can check against the real manifest.
-        const rawManifest =
-          (pkg.manifest_data && pkg.manifest_data.length > 0
-            ? pkg.manifest_data
-            : pkg.expected_items) ?? [];
-        const pkgWithExpected: PackageRecord = {
-          ...pkg,
-          expected_items: rawManifest.length
-            ? rawManifest
-            : (reconciliationLines ?? []).map((e: SlipExpectedItem) => ({
-                sku: e.barcode,
-                expected_qty: e.expected_qty ?? 1,
-                description: e.name,
-              })),
-        };
+        const pkgWithExpected: PackageRecord = { ...pkg };
         return (
           <SingleItemWizardModal
             onClose={() => setWizardOpen(false)}
@@ -3148,12 +3373,12 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
             organizationId={pkg.organization_id}
             openPackages={[pkgWithExpected]}
             openPallets={openPallets}
+            existingReturns={allReturns}
             onCreatePackage={() => {}}
             onCreatePallet={() => {}}
             inheritedContext={{ packageId: pkg.id, packageLabel: pkg.package_number, palletId: pkg.pallet_id ?? undefined, palletLabel: openPallets.find((p) => p.id === pkg.pallet_id)?.pallet_number }}
             onSoftPackageWarning={() => showToast("⚠ This item is not on the scanned packing slip.", "warning")}
             onToast={showToast}
-            onLinkedPackageUpdated={onPackageUpdated}
             onNavigateToPackage={(id) => { if (id === pkg.id) setWizardOpen(false); }}
             onNavigateToPallet={(palletId) => {
               const plt = openPallets.find((p) => p.id === palletId);
@@ -3165,18 +3390,21 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, openPallets = 
           />
         );
       })()}
-      {discOpen && <DiscrepancyModal pkg={pkg} onConfirm={(note) => handleClose(note)} onCancel={() => setDiscOpen(false)} />}
+      {discOpen && <DiscrepancyModal pkg={pkg} scannedCount={scannedCount} onConfirm={(note) => handleClose(note)} onCancel={() => setDiscOpen(false)} />}
     </div>
   );
 }
 
 // ─── Pallet Drawer Content ─────────────────────────────────────────────────────
 
-export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_ORGANIZATION_ID, packages, onClose, onPalletUpdated, onPalletDeleted, onOpenPackage, showToast }: {
+export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null, organizationId = MVP_ORGANIZATION_ID, packages, allReturns = [], onClose, onPalletUpdated, onPalletDeleted, onOpenPackage, showToast }: {
   pallet: PalletRecord; role: UserRole; actor: string;
+  actorProfileId?: string | null;
   /** Workspace org for storage paths and `updatePallet` scoping. */
   organizationId?: string;
   packages: PackageRecord[];
+  /** For accurate per-package item counts in the sub-table. */
+  allReturns?: ReturnRecord[];
   onClose: () => void;
   onPalletUpdated: (p: PalletRecord) => void;
   onPalletDeleted: (id: string) => void;
@@ -3193,6 +3421,9 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
   const [bolUploading, setBolUploading] = useState(false);
   const [generalPhotoUploading, setGeneralPhotoUploading] = useState(false);
 
+  /** Resolve created_by / updated_by UUIDs to human-readable names (no UUID shown in UI). */
+  const palletOperatorNames = useProfileNames([plt.created_by, plt.updated_by]);
+
   useEffect(() => {
     setPlt(pallet);
     setEditStatus(pallet.status);
@@ -3201,7 +3432,7 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
   }, [pallet]);
 
   async function handleClose() {
-    const res = await updatePalletStatus(plt.id, "closed", actor);
+    const res = await updatePalletStatus(plt.id, "closed", actor, actorProfileId);
     if (res.ok) { setPlt((p) => ({ ...p, status: "closed" })); onPalletUpdated({ ...plt, status: "closed" }); showToast("Pallet closed."); }
     else showToast(res.error ?? "Failed.", "error");
   }
@@ -3217,6 +3448,7 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
       },
       actor,
       orgId,
+      actorProfileId,
     );
     setEditSaving(false);
     if (res.ok && res.data) {
@@ -3236,7 +3468,13 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
     setBolUploading(true);
     try {
       const url = await uploadToStorage(f, "pallets/bol", orgId);
-      const res = await updatePallet(plt.id, { bol_photo_url: url }, actor, orgId);
+      const res = await updatePallet(
+        plt.id,
+        { bol_photo_url: url },
+        actor,
+        orgId,
+        actorProfileId,
+      );
       if (res.ok && res.data) {
         setPlt(res.data);
         onPalletUpdated(res.data);
@@ -3258,7 +3496,13 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
     setGeneralPhotoUploading(true);
     try {
       const url = await uploadToStorage(f, "pallets", orgId);
-      const res = await updatePallet(plt.id, { photo_url: url }, actor, orgId);
+      const res = await updatePallet(
+        plt.id,
+        { photo_url: url },
+        actor,
+        orgId,
+        actorProfileId,
+      );
       if (res.ok && res.data) {
         setPlt(res.data);
         onPalletUpdated(res.data);
@@ -3280,7 +3524,14 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div><p className="text-xs text-slate-400">Total Items</p><p className="text-3xl font-extrabold text-foreground">{plt.item_count}</p></div>
-        <div><p className="text-xs text-slate-400">Operator</p><p className="font-semibold capitalize text-foreground">{operatorDisplayLabel(plt)}</p></div>
+        <div>
+          <p className="text-xs text-slate-400">Operator</p>
+          <p className="font-semibold text-foreground">
+            {plt.created_by && isUuidString(plt.created_by.trim())
+              ? (palletOperatorNames[plt.created_by.trim()] ?? operatorDisplayLabel(plt))
+              : operatorDisplayLabel(plt)}
+          </p>
+        </div>
         <div><p className="text-xs text-slate-400">Created</p><p className="font-semibold">{fmt(plt.created_at)}</p></div>
         <div><p className="text-xs text-slate-400">Updated</p><p className="font-semibold">{fmt(plt.updated_at)}</p></div>
       </div>
@@ -3291,41 +3542,22 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
         </p>
       )}
       {plt.notes && <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-300">{plt.notes}</p>}
-      {plt.photo_url && (
+      {palletPhotoEvidenceUrlsFromRow(plt).length > 0 && (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Pallet photo</p>
-          <a href={plt.photo_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
-            <div className="flex h-36 w-full items-center justify-center">
-              <img src={plt.photo_url} alt="Pallet" className="max-h-36 w-full object-contain" />
-            </div>
-          </a>
-        </div>
-      )}
-      {plt.manifest_photo_url && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Manifest</p>
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
-            <div className="flex h-36 w-full items-center justify-center">
-              <img src={plt.manifest_photo_url} alt="Manifest" className="max-h-36 w-full object-contain" />
-            </div>
-          </div>
-        </div>
-      )}
-      {plt.bol_photo_url && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Bill of Lading</p>
-          <a href={plt.bol_photo_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
-            <div className="flex h-36 w-full items-center justify-center">
-              <img src={plt.bol_photo_url} alt="BoL" className="max-h-36 w-full object-contain" />
-            </div>
-          </a>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Pallet photos</p>
+          <PhotoGallery
+            photos={palletPhotoEvidenceUrlsFromRow(plt).map((src, i) => ({
+              src,
+              label: `Photo ${i + 1}`,
+            }))}
+          />
         </div>
       )}
 
       {/* Packages sub-table */}
       <div>
         <p className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">Packages in this Pallet</p>
-        <PackagesSubTable palletId={plt.id} packages={packages} onPackageClick={onOpenPackage} showToast={showToast} />
+        <PackagesSubTable palletId={plt.id} packages={packages} returns={allReturns} onPackageClick={onOpenPackage} showToast={showToast} />
       </div>
 
       {/* Pallet info note: drill into packages above to see items */}
@@ -3354,7 +3586,7 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
           <button
             type="button"
             onClick={async () => {
-              const r = await deletePallet(plt.id, actor);
+              const r = await deletePallet(plt.id, actor, actorProfileId);
               if (r.ok) {
                 onPalletDeleted(plt.id);
                 onClose();
@@ -3396,14 +3628,18 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
                 <label className={LABEL}>Pallet photo <span className="text-xs font-normal text-slate-400">(optional)</span></label>
                 <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 py-3 text-sm font-semibold text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200 ${generalPhotoUploading ? "opacity-60" : ""}`}>
                   {generalPhotoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                  {generalPhotoUploading ? "Uploading…" : plt.photo_url ? "Replace pallet photo" : "Upload pallet photo"}
+                  {generalPhotoUploading ? "Uploading…" : plt.photo_url?.trim() ? "Replace pallet photo" : "Upload pallet photo"}
                   <input type="file" className="hidden" accept="image/*" capture="environment" onChange={handleGeneralPalletPhotoUpload} disabled={generalPhotoUploading} />
                 </label>
-                {plt.photo_url ? (
+                {plt.photo_url?.trim() ? (
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
-                    <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">Current pallet photo</p>
+                    <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">Latest uploads (see gallery above)</p>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={plt.photo_url} alt="Pallet" className="max-h-48 w-full object-contain" />
+                    <img
+                      src={plt.photo_url.trim()}
+                      alt="Pallet"
+                      className="max-h-48 w-full object-contain"
+                    />
                   </div>
                 ) : null}
               </div>
@@ -3414,12 +3650,14 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
                   {bolUploading ? "Uploading…" : "Upload or replace BoL"}
                   <input type="file" className="hidden" accept="image/*,application/pdf" onChange={handleBolUpload} disabled={bolUploading} />
                 </label>
-                {plt.bol_photo_url ? (
+                {(() => {
+                  const bol = plt.bol_photo_url?.trim() ?? "";
+                  return bol ? (
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
-                    <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">Current BoL</p>
-                    {plt.bol_photo_url.toLowerCase().includes(".pdf") ? (
+                    <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">BoL preview</p>
+                    {bol.toLowerCase().includes(".pdf") ? (
                       <a
-                        href={plt.bol_photo_url}
+                        href={bol}
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center gap-2 px-3 py-4 text-sm font-semibold text-sky-600 underline hover:text-sky-700 dark:text-sky-400"
@@ -3428,10 +3666,11 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
                       </a>
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={plt.bol_photo_url} alt="Bill of lading" className="max-h-48 w-full object-contain" />
+                      <img src={bol} alt="Bill of lading" className="max-h-48 w-full object-contain" />
                     )}
                   </div>
-                ) : null}
+                  ) : null;
+                })()}
                 <p className="mt-1 text-[10px] text-muted-foreground">Images or PDF — stored per organization.</p>
               </div>
             </div>
@@ -3458,18 +3697,22 @@ export function PalletDrawerContent({ pallet, role, actor, organizationId = MVP_
 
 // ─── DiscrepancyModal ──────────────────────────────────────────────────────────
 
-export function DiscrepancyModal({ pkg, onConfirm, onCancel }: {
-  pkg: PackageRecord; onConfirm: (note: string) => void; onCancel: () => void;
+export function DiscrepancyModal({ pkg, scannedCount, onConfirm, onCancel }: {
+  pkg: PackageRecord;
+  /** Live count from assigned returns (same as accordion / ITEMS column); falls back to `actual_item_count`. */
+  scannedCount?: number;
+  onConfirm: (note: string) => void; onCancel: () => void;
 }) {
   const [note, setNote] = useState("");
-  const diff = pkg.actual_item_count - pkg.expected_item_count;
+  const scanned = scannedCount ?? pkg.actual_item_count;
+  const diff = scanned - pkg.expected_item_count;
   return (
     <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-sm">
       <div className="w-[95vw] max-w-lg overflow-hidden rounded-2xl sm:rounded-3xl border border-amber-200 bg-white shadow-2xl dark:border-amber-700/50 dark:bg-slate-950">
         <div className="bg-amber-50 p-6 dark:bg-amber-950/40">
           <div className="flex items-center gap-3 mb-4"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/60"><AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" /></div><div><h3 className="text-lg font-bold text-foreground">Count Discrepancy</h3><p className="text-sm text-amber-700 dark:text-amber-300">Package will be flagged</p></div></div>
           <div className="grid grid-cols-3 gap-2">
-            {[["Expected", pkg.expected_item_count], ["Scanned", pkg.actual_item_count], ["Diff", diff > 0 ? `+${diff}` : diff]].map(([l, v]) => (
+            {[["Expected", pkg.expected_item_count], ["Scanned", scanned], ["Diff", diff > 0 ? `+${diff}` : diff]].map(([l, v]) => (
               <div key={String(l)} className="rounded-xl bg-white/80 p-3 text-center dark:bg-slate-900/60"><p className="text-2xl font-bold text-foreground">{v}</p><p className="text-xs text-slate-400">{l}</p></div>
             ))}
           </div>
@@ -3488,9 +3731,11 @@ export function DiscrepancyModal({ pkg, onConfirm, onCancel }: {
 
 // ─── Wizard Steps ──────────────────────────────────────────────────────────────
 
-export function WizardStep1({ state, setState, openPackages, openPallets, onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet }: {
+export function WizardStep1({ state, setState, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet }: {
   state: WizardState; setState: React.Dispatch<React.SetStateAction<WizardState>>;
   openPackages: PackageRecord[]; openPallets: PalletRecord[];
+  /** Live counts for package picker (same as Packages ITEMS column). */
+  existingReturns?: ReturnRecord[];
   onCreatePackage: () => void; onCreatePallet: () => void;
   inherited?: WizardInheritedContext;
   aiLabelEnabled?: boolean;
@@ -3500,10 +3745,17 @@ export function WizardStep1({ state, setState, openPackages, openPallets, onCrea
   onNavigateToPallet?: (palletId: string) => void;
 }) {
   const up = (k: keyof WizardState, v: unknown) => setState((p) => ({ ...p, [k]: v }));
+  const assignedByPackage = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of existingReturns) {
+      if (r.package_id) m.set(r.package_id, (m.get(r.package_id) ?? 0) + 1);
+    }
+    return m;
+  }, [existingReturns]);
   const pkgOpts = openPackages.map((p) => ({
     id: p.id,
     label: p.package_number,
-    sublabel: `${p.actual_item_count}/${p.expected_item_count > 0 ? p.expected_item_count : "?"} items`,
+    sublabel: `${assignedByPackage.get(p.id) ?? 0}/${p.expected_item_count > 0 ? p.expected_item_count : "?"} items`,
     tracking: p.tracking_number ?? undefined,
     rma: p.rma_number ?? undefined,
   }));
@@ -3556,7 +3808,6 @@ export function WizardStep1({ state, setState, openPackages, openPallets, onCrea
         .from("packages")
         .select("store_id")
         .eq("id", pkgId)
-        .eq("organization_id", MVP_ORGANIZATION_ID)
         .maybeSingle();
       if (cancelled) return;
       if (data?.store_id) {
@@ -3569,6 +3820,41 @@ export function WizardStep1({ state, setState, openPackages, openPallets, onCrea
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.package_link_id, inherited?.packageId, openPackages]);
+
+  // ── Package → Item: inherit rma_number and amazon_order_id ──────────────
+  // Only auto-fills when the target field is still empty (operator-typed values
+  // are never overwritten — no disabled or locking applied).
+  useEffect(() => {
+    const pkgId = (state.package_link_id || inherited?.packageId)?.trim();
+    if (!pkgId || !isUuidString(pkgId)) return;
+
+    let cancelled = false;
+
+    // 1. Resolve from in-memory package list first
+    const local = openPackages.find((p) => p.id === pkgId);
+    if (local) {
+      if (local.rma_number && !state.rma_number)      up("rma_number",      local.rma_number);
+      if (local.order_id   && !state.amazon_order_id) up("amazon_order_id", local.order_id);
+      return;
+    }
+
+    // 2. Fallback: fetch from DB (covers packages not in the local list)
+    void supabaseBrowser
+      .from("packages")
+      .select("rma_number, order_id")
+      .eq("id", pkgId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data?.rma_number && !state.rma_number)
+          up("rma_number", data.rma_number as string);
+        if (data?.order_id && !state.amazon_order_id)
+          up("amazon_order_id", data.order_id as string);
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.package_link_id, inherited?.packageId]);
 
   // Keep `returns.marketplace` aligned with the selected Store (fixes Next disabled when only store is set).
   useEffect(() => {
@@ -3938,6 +4224,17 @@ export function WizardStep1({ state, setState, openPackages, openPallets, onCrea
         </p>
       )}
       <div>
+        <label className={LABEL}>RMA # <span className="text-xs font-normal text-slate-400">(optional — stored on this item)</span></label>
+        <input
+          type="text"
+          className={`${INPUT} font-mono`}
+          placeholder="Seller authorization…"
+          value={state.rma_number}
+          onChange={(e) => up("rma_number", e.target.value)}
+          autoComplete="off"
+        />
+      </div>
+      <div>
         <label className={LABEL}>
           Store <span className="text-rose-500">*</span>
           {storeInherited && (
@@ -3959,7 +4256,6 @@ export function WizardStep1({ state, setState, openPackages, openPallets, onCrea
             }));
             setStoreInherited(false);
           }}
-          disabled={storeInherited}
         >
           <option value="">— Select Store —</option>
           {connectedStores.map((s) => (
@@ -3970,7 +4266,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, onCrea
         </select>
         {storeInherited && (
           <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">
-            🔒 Locked — store is inherited from the linked package.
+            ↳ Auto-filled from package — override if needed.
           </p>
         )}
         {connectedStores.length === 0 && (
@@ -4192,11 +4488,8 @@ export function WizardStep2({
   inheritedPackagePhotos,
   packageInheritsBoxPhotos,
   isLooseItem = false,
-  actor,
   linkedPackageId,
   linkedPackage,
-  onPackageUpdated,
-  onToast,
   organizationId = MVP_ORGANIZATION_ID,
 }: {
   state: WizardState;
@@ -4212,11 +4505,8 @@ export function WizardStep2({
   packageInheritsBoxPhotos: boolean;
   /** No parent box — hide package photo backfill; optional item-level return label only. */
   isLooseItem?: boolean;
-  actor: string;
   linkedPackageId?: string;
   linkedPackage?: PackageRecord | null;
-  onPackageUpdated?: (p: PackageRecord) => void;
-  onToast?: (msg: string, kind?: ToastKind) => void;
   organizationId?: string;
 }) {
   const orgId = isUuidString((organizationId ?? "").trim()) ? (organizationId ?? "").trim() : MVP_ORGANIZATION_ID;
@@ -4227,132 +4517,16 @@ export function WizardStep2({
   const labelUrl = inheritedPackagePhotos?.photo_return_label_url ?? null;
   const showExpiryPhotoSlot = shouldShowExpiryLabelPhoto(state);
 
-  const [itemPhotoFiles, setItemPhotoFiles] = useState<File[]>([]);
-  const [expiryPhotoFiles, setExpiryPhotoFiles] = useState<File[]>([]);
-  const [pkgOpenedFiles, setPkgOpenedFiles] = useState<File[]>([]);
-  const [pkgOuterBoxFiles, setPkgOuterBoxFiles] = useState<File[]>([]);
-  const [pkgLabelFiles, setPkgLabelFiles] = useState<File[]>([]);
-  const [looseReturnLabelFiles, setLooseReturnLabelFiles] = useState<File[]>([]);
-
-  const hasPkgOpenedOnly = !!linkedPackage?.photo_opened_url?.trim();
-  const hasPkgOuterPhoto = !!linkedPackage?.photo_url?.trim();
-  const hasPkgReturnLabel = !!linkedPackage?.photo_return_label_url?.trim();
+  const pkgClaimResolved = linkedPackage ? resolvePackageClaimPhotoUrls(linkedPackage) : { opened: null as string | null, label: null as string | null };
+  const hasPkgOpenedOnly = !!pkgClaimResolved.opened?.trim();
+  const pkgPe = normalizeEntityPhotoEvidenceUrls(linkedPackage?.photo_evidence);
+  const hasPkgOuterPhoto = !!(linkedPackage?.photo_url?.trim() || pkgPe[3]?.trim());
+  const hasPkgReturnLabel = !!pkgClaimResolved.label?.trim();
   const packageMissingMandatoryPhotos = !hasPkgOpenedOnly || !hasPkgReturnLabel;
   const showPackageBackfill =
     !!photoCtx?.hasPackageLink && !!linkedPackageId && packageMissingMandatoryPhotos;
   const showOptionalOuterUpload =
     !!photoCtx?.hasPackageLink && !!linkedPackageId && !hasPkgOuterPhoto;
-
-  async function onItemFilesChange(files: File[]) {
-    setItemPhotoFiles(files);
-    if (files.length === 0) {
-      setState((p) => ({ ...p, photo_item_url: "" }));
-      return;
-    }
-    try {
-      const url = await uploadToStorage(files[files.length - 1], "evidence/wizard", orgId);
-      setState((p) => ({ ...p, photo_item_url: url }));
-      setItemPhotoFiles([]);
-      onToast?.("Item photo saved.", "success");
-    } catch (e) {
-      onToast?.(e instanceof Error ? e.message : "Upload failed", "error");
-      setItemPhotoFiles([]);
-    }
-  }
-
-  async function onExpiryFilesChange(files: File[]) {
-    setExpiryPhotoFiles(files);
-    if (files.length === 0) {
-      setState((p) => ({ ...p, photo_expiry_url: "" }));
-      return;
-    }
-    try {
-      const url = await uploadToStorage(files[files.length - 1], "evidence/wizard", orgId);
-      setState((p) => ({ ...p, photo_expiry_url: url }));
-      setExpiryPhotoFiles([]);
-      onToast?.("Expiry label photo saved.", "success");
-    } catch (e) {
-      onToast?.(e instanceof Error ? e.message : "Upload failed", "error");
-      setExpiryPhotoFiles([]);
-    }
-  }
-
-  async function onPkgOuterBoxFilesChange(files: File[]) {
-    setPkgOuterBoxFiles(files);
-    if (files.length === 0 || !linkedPackageId) return;
-    try {
-      const url = await uploadToStorage(files[files.length - 1], "packages", orgId);
-      const res = await updatePackage(linkedPackageId, { photo_url: url }, actor);
-      if (res.ok && res.data) {
-        onPackageUpdated?.(res.data);
-        setPkgOuterBoxFiles([]);
-        onToast?.("Outer box photo saved on package.", "success");
-      } else {
-        onToast?.(res.error ?? "Could not update package", "error");
-        setPkgOuterBoxFiles([]);
-      }
-    } catch (e) {
-      onToast?.(e instanceof Error ? e.message : "Upload failed", "error");
-      setPkgOuterBoxFiles([]);
-    }
-  }
-
-  async function onPkgOpenedFilesChange(files: File[]) {
-    setPkgOpenedFiles(files);
-    if (files.length === 0 || !linkedPackageId) return;
-    try {
-      const url = await uploadToStorage(files[files.length - 1], "packages/claim_opened", orgId);
-      const res = await updatePackage(linkedPackageId, { photo_opened_url: url }, actor);
-      if (res.ok && res.data) {
-        onPackageUpdated?.(res.data);
-        setPkgOpenedFiles([]);
-        onToast?.("Opened box photo saved on package.", "success");
-      } else {
-        onToast?.(res.error ?? "Could not update package", "error");
-        setPkgOpenedFiles([]);
-      }
-    } catch (e) {
-      onToast?.(e instanceof Error ? e.message : "Upload failed", "error");
-      setPkgOpenedFiles([]);
-    }
-  }
-
-  async function onPkgLabelFilesChange(files: File[]) {
-    setPkgLabelFiles(files);
-    if (files.length === 0 || !linkedPackageId) return;
-    try {
-      const url = await uploadToStorage(files[files.length - 1], "packages/claim_return_label", orgId);
-      const res = await updatePackage(linkedPackageId, { photo_return_label_url: url }, actor);
-      if (res.ok && res.data) {
-        onPackageUpdated?.(res.data);
-        setPkgLabelFiles([]);
-        onToast?.("Return label photo saved on package.", "success");
-      } else {
-        onToast?.(res.error ?? "Could not update package", "error");
-        setPkgLabelFiles([]);
-      }
-    } catch (e) {
-      onToast?.(e instanceof Error ? e.message : "Upload failed", "error");
-      setPkgLabelFiles([]);
-    }
-  }
-
-  async function onLooseReturnLabelFilesChange(files: File[]) {
-    setLooseReturnLabelFiles(files);
-    if (files.length === 0) {
-      setState((p) => ({ ...p, photo_return_label_url: "" }));
-      return;
-    }
-    try {
-      const url = await uploadToStorage(files[files.length - 1], "evidence/wizard", orgId);
-      setState((p) => ({ ...p, photo_return_label_url: url }));
-      setLooseReturnLabelFiles([]);
-      onToast?.("Return label photo saved on this return.", "success");
-    } catch (e) {
-      onToast?.(e instanceof Error ? e.message : "Upload failed", "error");
-      setLooseReturnLabelFiles([]);
-    }
-  }
 
   return (
     <div className="space-y-5">
@@ -4425,16 +4599,13 @@ export function WizardStep2({
           {showOptionalOuterUpload && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Optional — outer box</p>
-              <SmartCameraUpload
+              <MasterUploader
                 label="Outer box (optional)"
-                hint="Exterior carton — stored on the linked package as photo_url."
-                required={false}
-                maxPhotos={1}
-                files={pkgOuterBoxFiles}
-                onChange={onPkgOuterBoxFilesChange}
-                accentClass="border-slate-300 dark:border-slate-700"
-                icon={Package2}
-                iconColor="text-slate-600 dark:text-slate-400"
+                hint="Exterior carton — saved on this return only (photo_evidence.urls)."
+                value={state.wizard_outer_box_url.trim() ? [state.wizard_outer_box_url.trim()] : []}
+                onChange={(urls) => setState((p) => ({ ...p, wizard_outer_box_url: urls[0] ?? "" }))}
+                organizationId={orgId}
+                maxFiles={1}
               />
             </div>
           )}
@@ -4442,36 +4613,30 @@ export function WizardStep2({
           {showPackageBackfill && (
             <div className="rounded-2xl border-2 border-dashed border-amber-300/90 bg-amber-50/90 p-4 ring-1 ring-amber-200/60 dark:border-amber-700/70 dark:bg-amber-950/35 dark:ring-amber-900/40">
               <p className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200">
-                Quick add for package
+                Package claim photos missing on file
               </p>
               <p className="mb-3 text-[11px] leading-snug text-amber-950/90 dark:text-amber-100/90">
-                This linked package is missing mandatory claim photos (opened box and/or return label). Capture them here — they are saved on the <span className="font-semibold">package record</span> only (not on this return item).
+                The linked package does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">returns.photo_evidence</span>), not on the package row.
               </p>
               <div className="space-y-4">
                 {!hasPkgOpenedOnly && (
-                  <SmartCameraUpload
+                  <MasterUploader
                     label="Opened box"
-                    hint="Interior / opened carton — stored on the linked package (photo_opened_url)."
-                    required
-                    maxPhotos={1}
-                    files={pkgOpenedFiles}
-                    onChange={onPkgOpenedFilesChange}
-                    accentClass="border-amber-200 dark:border-amber-800/50"
-                    icon={Package2}
-                    iconColor="text-amber-700 dark:text-amber-400"
+                    hint="Interior / opened carton — saved on this return (photo_evidence.urls)."
+                    value={state.wizard_opened_box_url.trim() ? [state.wizard_opened_box_url.trim()] : []}
+                    onChange={(urls) => setState((p) => ({ ...p, wizard_opened_box_url: urls[0] ?? "" }))}
+                    organizationId={orgId}
+                    maxFiles={1}
                   />
                 )}
                 {!hasPkgReturnLabel && (
-                  <SmartCameraUpload
+                  <MasterUploader
                     label="Return label"
-                    hint="Return / RMA label on the carton — stored on the linked package."
-                    required
-                    maxPhotos={1}
-                    files={pkgLabelFiles}
-                    onChange={onPkgLabelFilesChange}
-                    accentClass="border-sky-200 dark:border-sky-800/50"
-                    icon={Barcode}
-                    iconColor="text-sky-600 dark:text-sky-400"
+                    hint="Return / RMA label on the carton — saved on this return (photo_evidence.urls)."
+                    value={state.wizard_pkg_return_label_url.trim() ? [state.wizard_pkg_return_label_url.trim()] : []}
+                    onChange={(urls) => setState((p) => ({ ...p, wizard_pkg_return_label_url: urls[0] ?? "" }))}
+                    organizationId={orgId}
+                    maxFiles={1}
                   />
                 )}
               </div>
@@ -4481,86 +4646,47 @@ export function WizardStep2({
           <div className="space-y-4">
             <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Item-specific photos</p>
 
-            {!isLooseItem &&
-              (state.photo_item_url ? (
-                <SavedUrlEvidenceCard
-                  label="Item photo"
-                  hint="Overall shot of the unit (optional)."
-                  imageUrl={state.photo_item_url}
-                  onRemove={() => {
-                    setState((p) => ({ ...p, photo_item_url: "" }));
-                    setItemPhotoFiles([]);
-                  }}
-                  Icon={Camera}
-                  iconColor="text-slate-500"
-                />
-              ) : (
-                <SmartCameraUpload
-                  label="Item photo"
-                  hint="Overall shot of the product (optional)."
-                  required={false}
-                  maxPhotos={1}
-                  files={itemPhotoFiles}
-                  onChange={onItemFilesChange}
-                  accentClass="border-slate-300 dark:border-slate-700"
-                  icon={Camera}
-                  iconColor="text-slate-600 dark:text-slate-400"
-                />
-              ))}
+            {!isLooseItem && (
+              <MasterUploader
+                label="Item photo"
+                hint="Overall shot of the product (optional). Stored in photo_evidence (item_url)."
+                value={state.photo_item_url.trim() ? [state.photo_item_url.trim()] : []}
+                onChange={(urls) => setState((p) => ({ ...p, photo_item_url: urls[0] ?? "" }))}
+                organizationId={orgId}
+                maxFiles={1}
+              />
+            )}
 
-            {showExpiryPhotoSlot &&
-              (state.photo_expiry_url ? (
-                <SavedUrlEvidenceCard
-                  label="Expiry label photo"
-                  hint={ALL_PHOTO_CATEGORIES.expiry_label.hint}
-                  imageUrl={state.photo_expiry_url}
-                  onRemove={() => {
-                    setState((p) => ({ ...p, photo_expiry_url: "" }));
-                    setExpiryPhotoFiles([]);
-                  }}
-                  Icon={Calendar}
-                  iconColor="text-orange-600 dark:text-orange-400"
-                />
-              ) : (
-                <SmartCameraUpload
-                  label="Expiry label photo"
-                  hint={ALL_PHOTO_CATEGORIES.expiry_label.hint}
-                  required={showExpiryPhotoSlot}
-                  maxPhotos={1}
-                  files={expiryPhotoFiles}
-                  onChange={onExpiryFilesChange}
-                  accentClass="border-slate-300 dark:border-slate-700"
-                  icon={Calendar}
-                  iconColor="text-orange-600 dark:text-orange-400"
-                />
-              ))}
+            {showExpiryPhotoSlot && (
+              <MasterUploader
+                label="Expiry label photo"
+                hint={ALL_PHOTO_CATEGORIES.expiry_label.hint}
+                value={state.photo_expiry_url.trim() ? [state.photo_expiry_url.trim()] : []}
+                onChange={(urls) => setState((p) => ({ ...p, photo_expiry_url: urls[0] ?? "" }))}
+                organizationId={orgId}
+                maxFiles={1}
+              />
+            )}
 
-            {isLooseItem &&
-              (state.photo_return_label_url ? (
-                <SavedUrlEvidenceCard
-                  label="Return label (optional)"
-                  hint="Standalone — stored on this return only (no package)."
-                  imageUrl={state.photo_return_label_url}
-                  onRemove={() => {
-                    setState((p) => ({ ...p, photo_return_label_url: "" }));
-                    setLooseReturnLabelFiles([]);
-                  }}
-                  Icon={Barcode}
-                  iconColor="text-sky-600 dark:text-sky-400"
-                />
-              ) : (
-                <SmartCameraUpload
-                  label="Return label (optional)"
-                  hint="RMA / return label for this item — stored on this return only."
-                  required={false}
-                  maxPhotos={1}
-                  files={looseReturnLabelFiles}
-                  onChange={onLooseReturnLabelFilesChange}
-                  accentClass="border-sky-200 dark:border-sky-800/50"
-                  icon={Barcode}
-                  iconColor="text-sky-600 dark:text-sky-400"
-                />
-              ))}
+            {isLooseItem && (
+              <MasterUploader
+                label="Return label (optional)"
+                hint="RMA / return label for this item — stored on this return only (photo_evidence)."
+                value={state.photo_return_label_url.trim() ? [state.photo_return_label_url.trim()] : []}
+                onChange={(urls) => setState((p) => ({ ...p, photo_return_label_url: urls[0] ?? "" }))}
+                organizationId={orgId}
+                maxFiles={1}
+              />
+            )}
+
+            <MasterUploader
+              label="Additional evidence (gallery)"
+              hint="Optional — up to 3 images merged into photo_evidence.urls."
+              value={state.evidence_gallery_urls}
+              onChange={(urls) => setState((p) => ({ ...p, evidence_gallery_urls: urls }))}
+              organizationId={orgId}
+              maxFiles={3}
+            />
           </div>
 
           {categories.length > 0 &&
@@ -4580,6 +4706,7 @@ export function WizardStep2({
                   label={cat.label}
                   hint={cat.hint}
                   required={!cat.optional}
+                  maxPhotos={3}
                   icon={cat.icon}
                   iconColor={cat.iconColor}
                   accentClass={cat.accentClass}
@@ -4615,16 +4742,20 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
   onToast?: (msg: string, kind?: ToastKind) => void;
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
-  /** Pallet-level URLs when the linked pallet is not fully loaded in `pallets` (DB fetch in wizard). */
-  palletEvidenceFromDb?: { manifest_photo_url?: string | null; bol_photo_url?: string | null; photo_url?: string | null } | null;
-  /** Fresh package photos + pallet_id from DB when `openPackages` is stale or incomplete. */
-  packageEvidenceFromDb?: {
-    photo_opened_url?: string | null;
-    photo_closed_url?: string | null;
-    photo_return_label_url?: string | null;
+  /** Pallet photo columns when the linked pallet is not fully loaded in `pallets` (DB fetch in wizard). */
+  palletEvidenceFromDb?: {
     photo_url?: string | null;
+    bol_photo_url?: string | null;
+    manifest_photo_url?: string | null;
+  } | null;
+  /** Fresh package link + legacy photo columns from DB when `openPackages` is stale (no `packages.photo_evidence`). */
+  packageEvidenceFromDb?: {
     pallet_id?: string | null;
     order_id?: string | null;
+    photo_opened_url?: string | null;
+    photo_return_label_url?: string | null;
+    photo_closed_url?: string | null;
+    photo_url?: string | null;
   } | null;
 }) {
   const photoTotal = Object.values(state.photos).reduce((a, files) => a + files.length, 0);
@@ -4636,12 +4767,12 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
     if (pkgFromList && fromDb) {
       return {
         ...pkgFromList,
-        photo_opened_url: fromDb.photo_opened_url ?? pkgFromList.photo_opened_url,
-        photo_closed_url: fromDb.photo_closed_url ?? pkgFromList.photo_closed_url,
-        photo_return_label_url: fromDb.photo_return_label_url ?? pkgFromList.photo_return_label_url,
-        photo_url: fromDb.photo_url ?? pkgFromList.photo_url,
         pallet_id: fromDb.pallet_id ?? pkgFromList.pallet_id,
         order_id: fromDb.order_id ?? pkgFromList.order_id,
+        photo_opened_url: fromDb.photo_opened_url ?? pkgFromList.photo_opened_url,
+        photo_return_label_url: fromDb.photo_return_label_url ?? pkgFromList.photo_return_label_url,
+        photo_closed_url: fromDb.photo_closed_url ?? pkgFromList.photo_closed_url,
+        photo_url: fromDb.photo_url ?? pkgFromList.photo_url,
       };
     }
     if (pkgFromList) return pkgFromList;
@@ -4659,8 +4790,8 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         status: "open",
         discrepancy_note: null,
         photo_opened_url: fromDb.photo_opened_url ?? null,
-        photo_closed_url: fromDb.photo_closed_url ?? null,
         photo_return_label_url: fromDb.photo_return_label_url ?? null,
+        photo_closed_url: fromDb.photo_closed_url ?? null,
         photo_url: fromDb.photo_url ?? null,
         created_at: "",
         updated_at: "",
@@ -4689,51 +4820,29 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
   /** Read-only thumbnails for scan confirmation — warehouse does not filter claim evidence here. */
   const summaryPhotos = useMemo((): PhotoItem[] => {
     const lines: PhotoItem[] = [];
-    const pltManifest = (linkedPlt?.manifest_photo_url ?? palletEvidenceFromDb?.manifest_photo_url ?? "").trim();
-    const pltBol = (linkedPlt?.bol_photo_url ?? palletEvidenceFromDb?.bol_photo_url ?? "").trim();
-    const pltPhoto = (linkedPlt?.photo_url ?? palletEvidenceFromDb?.photo_url ?? "").trim();
-    if (pltManifest) {
+    const pltUrls = linkedPlt
+      ? normalizeEntityPhotoEvidenceUrls(palletEvidenceValue(linkedPlt))
+      : palletEvidenceFromDb
+        ? palletPhotoEvidenceUrlsFromRow(palletEvidenceFromDb)
+        : [];
+    const pltLabels = ["Pallet — manifest", "Pallet — BOL", "Pallet — overview"];
+    pltUrls.forEach((src, i) => {
       lines.push({
-        label: "Pallet — manifest",
-        src: pltManifest,
+        label: pltLabels[i] ?? `Pallet — evidence ${i + 1}`,
+        src,
       });
-    }
-    if (pltBol) {
-      lines.push({
-        label: "Pallet — BOL",
-        src: pltBol,
-      });
-    }
-    if (pltPhoto) {
-      lines.push({
-        label: "Pallet — photo",
-        src: pltPhoto,
-      });
-    }
-    if (linkedPkg?.photo_closed_url?.trim()) {
-      lines.push({
-        label: "Package — closed box",
-        src: linkedPkg.photo_closed_url.trim(),
-      });
-    }
-    if (linkedPkg?.photo_opened_url?.trim()) {
-      lines.push({
-        label: "Package — opened box",
-        src: linkedPkg.photo_opened_url.trim(),
-      });
-    }
-    if (linkedPkg?.photo_return_label_url?.trim()) {
-      lines.push({
-        label: "Package — return label",
-        src: linkedPkg.photo_return_label_url.trim(),
-      });
-    }
-    if (linkedPkg?.photo_url?.trim()) {
-      lines.push({
-        label: "Package — reference",
-        src: linkedPkg.photo_url.trim(),
-      });
-    }
+    });
+    const pkgUrls = packageEvidenceGalleryUrls(linkedPkg);
+    const pkgLabels = ["Package — opened box", "Package — return label", "Package — closed box"];
+    pkgUrls.forEach((src, i) => {
+      if (i <= 2) {
+        lines.push({ label: pkgLabels[i], src });
+      } else if (i === 3) {
+        lines.push({ label: "Package — reference", src });
+      } else {
+        lines.push({ label: `Package — evidence ${i + 1}`, src });
+      }
+    });
     if (state.photo_item_url?.trim()) {
       lines.push({
         label: "Item photo",
@@ -4752,6 +4861,15 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         src: state.photo_return_label_url.trim(),
       });
     }
+    if (state.wizard_outer_box_url?.trim()) {
+      lines.push({ label: "Return — outer box (item wizard)", src: state.wizard_outer_box_url.trim() });
+    }
+    if (state.wizard_opened_box_url?.trim()) {
+      lines.push({ label: "Return — opened box (item wizard)", src: state.wizard_opened_box_url.trim() });
+    }
+    if (state.wizard_pkg_return_label_url?.trim()) {
+      lines.push({ label: "Return — package return label (item wizard)", src: state.wizard_pkg_return_label_url.trim() });
+    }
     for (const [cat, files] of Object.entries(state.photos)) {
       files.forEach((f, i) => {
         const id = `cat:${cat}:${i}`;
@@ -4764,7 +4882,7 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
       });
     }
     return lines;
-  }, [linkedPlt, linkedPkg, palletEvidenceFromDb, packageEvidenceFromDb, state.loose_item, state.photo_item_url, state.photo_expiry_url, state.photo_return_label_url, state.photos, blobMap]);
+  }, [linkedPlt, linkedPkg, palletEvidenceFromDb, packageEvidenceFromDb, state.loose_item, state.photo_item_url, state.photo_expiry_url, state.photo_return_label_url, state.wizard_outer_box_url, state.wizard_opened_box_url, state.wizard_pkg_return_label_url, state.photos, blobMap]);
 
   const summaryPhotoCount = summaryPhotos.length;
   const pkgOrder = linkedPkg?.order_id?.trim() ?? "";
@@ -4920,11 +5038,13 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
 
 // ─── Single Item Wizard Modal ──────────────────────────────────────────────────
 
-export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages, openPallets, onCreatePackage, onCreatePallet, inheritedContext, aiLabelEnabled = false, onSoftPackageWarning, onToast, onNavigateToPackage, onNavigateToPallet, onLinkedPackageUpdated, organizationId = MVP_ORGANIZATION_ID }: {
+export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inheritedContext, aiLabelEnabled = false, onSoftPackageWarning, onToast, onNavigateToPackage, onNavigateToPallet, organizationId = MVP_ORGANIZATION_ID, actorProfileId = null }: {
   onClose: () => void;
   /** Called with the saved record AND the in-session photo files for gallery display. */
   onSuccess: (r: ReturnRecord, photos: Record<string, File[]>) => void;
   actor: string; openPackages: PackageRecord[]; openPallets: PalletRecord[];
+  /** Live package item counts for step-1 combobox (optional). */
+  existingReturns?: ReturnRecord[];
   onCreatePackage: () => void; onCreatePallet: () => void;
   inheritedContext?: WizardInheritedContext;
   aiLabelEnabled?: boolean;
@@ -4933,10 +5053,9 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   onToast?: (msg: string, kind?: ToastKind) => void;
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
-  /** After Step 2 uploads box/label photos to the linked package row. */
-  onLinkedPackageUpdated?: (p: PackageRecord) => void;
   /** Workspace org for `returns.organization_id` / claim_submissions (defaults to MVP seed). */
   organizationId?: string;
+  actorProfileId?: string | null;
 }) {
   const workspaceOrgId = useMemo(() => {
     const raw = (organizationId ?? "").trim();
@@ -4948,20 +5067,20 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
   const [flash, setFlash] = useState(false);
-  const [fetchedPkgPhotos, setFetchedPkgPhotos] = useState<{
-    photo_opened_url: string | null;
-    photo_closed_url: string | null;
-    photo_return_label_url: string | null;
-    photo_url?: string | null;
-    /** From DB — may be missing on stale `openPackages` rows; used for pallet gallery + inheritance. */
+  /** Fresh `order_id` / pallet link + legacy claim photo URLs from DB (no `packages.photo_evidence` read — item photos stay on `returns` only). */
+  const [fetchedPkgMeta, setFetchedPkgMeta] = useState<{
     pallet_id?: string | null;
     order_id?: string | null;
+    photo_opened_url?: string | null;
+    photo_return_label_url?: string | null;
+    photo_closed_url?: string | null;
+    photo_url?: string | null;
   } | null>(null);
-  /** Pallet BOL / manifest when package → pallet chain is resolved (matches claim payload family tree). */
+  /** Pallet photo columns when package → pallet chain is resolved (matches claim payload family tree). */
   const [fetchedPalletEvidence, setFetchedPalletEvidence] = useState<{
-    manifest_photo_url: string | null;
-    bol_photo_url: string | null;
-    photo_url: string | null;
+    photo_url?: string | null;
+    bol_photo_url?: string | null;
+    manifest_photo_url?: string | null;
   } | null>(null);
   /** Resolves `marketplace` on submit when Step 1 synced only `store_id` (same source as listStores in WizardStep1). */
   const [wizardStoresForSubmit, setWizardStoresForSubmit] = useState<{ id: string; platform: string }[]>([]);
@@ -4981,7 +5100,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
 
   useEffect(() => {
     if (!resolvedPkgId?.trim() || !isUuidString(resolvedPkgId.trim())) {
-      setFetchedPkgPhotos(null);
+      setFetchedPkgMeta(null);
       setFetchedPalletEvidence(null);
       return;
     }
@@ -4998,18 +5117,17 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
       if (localPlt) {
         if (!cancelled) {
           setFetchedPalletEvidence({
-            manifest_photo_url: localPlt.manifest_photo_url ?? null,
-            bol_photo_url: localPlt.bol_photo_url ?? null,
-            photo_url: localPlt.photo_url ?? null,
+            photo_url: localPlt.photo_url,
+            bol_photo_url: localPlt.bol_photo_url,
+            manifest_photo_url: localPlt.manifest_photo_url,
           });
         }
         return;
       }
       void supabaseBrowser
         .from("pallets")
-        .select("manifest_photo_url, bol_photo_url, photo_url")
+        .select("photo_url, bol_photo_url, manifest_photo_url")
         .eq("id", pid)
-        .eq("organization_id", workspaceOrgId)
         .maybeSingle()
         .then(({ data }) => {
           if (cancelled) return;
@@ -5017,49 +5135,128 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
             setFetchedPalletEvidence(null);
             return;
           }
+          const row = data as {
+            photo_url?: string | null;
+            bol_photo_url?: string | null;
+            manifest_photo_url?: string | null;
+          };
           setFetchedPalletEvidence({
-            manifest_photo_url: (data as { manifest_photo_url?: string | null }).manifest_photo_url ?? null,
-            bol_photo_url: (data as { bol_photo_url?: string | null }).bol_photo_url ?? null,
-            photo_url: (data as { photo_url?: string | null }).photo_url ?? null,
+            photo_url: row.photo_url ?? null,
+            bol_photo_url: row.bol_photo_url ?? null,
+            manifest_photo_url: row.manifest_photo_url ?? null,
           });
         });
     }
 
-    /** Always load from DB so pallet_id + photos are not stale vs. cached `openPackages`. */
+    /** Load pallet link + marketplace order id + legacy package photo columns only (no `photo_evidence` JSONB). */
     void supabaseBrowser
       .from("packages")
-      .select("photo_opened_url, photo_closed_url, photo_return_label_url, photo_url, order_id, pallet_id")
+      .select("order_id, pallet_id, photo_opened_url, photo_return_label_url, photo_closed_url, photo_url")
       .eq("id", pkgKey)
-      .eq("organization_id", workspaceOrgId)
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
         if (!data) {
-          setFetchedPkgPhotos(null);
+          setFetchedPkgMeta(null);
           setFetchedPalletEvidence(null);
           return;
         }
-        setFetchedPkgPhotos({
-          photo_opened_url: (data.photo_opened_url as string) ?? null,
-          photo_closed_url: (data.photo_closed_url as string) ?? null,
-          photo_return_label_url: (data.photo_return_label_url as string) ?? null,
-          photo_url: (data.photo_url as string) ?? null,
-          pallet_id: (data as { pallet_id?: string | null }).pallet_id ?? null,
-          order_id: (data as { order_id?: string | null }).order_id ?? null,
+        const row = data as {
+          order_id?: string | null;
+          pallet_id?: string | null;
+          photo_opened_url?: string | null;
+          photo_return_label_url?: string | null;
+          photo_closed_url?: string | null;
+          photo_url?: string | null;
+        };
+        setFetchedPkgMeta({
+          pallet_id: row.pallet_id ?? null,
+          order_id: row.order_id ?? null,
+          photo_opened_url: row.photo_opened_url ?? null,
+          photo_return_label_url: row.photo_return_label_url ?? null,
+          photo_closed_url: row.photo_closed_url ?? null,
+          photo_url: row.photo_url ?? null,
         });
-        const oid = (data.order_id as string | null | undefined)?.trim();
+        const oid = row.order_id?.trim();
         if (oid) setState((p) => (p.amazon_order_id.trim() ? p : { ...p, amazon_order_id: oid }));
-        applyPalletEvidence((data as { pallet_id?: string | null }).pallet_id ?? null);
+        applyPalletEvidence(row.pallet_id ?? null);
       });
     return () => { cancelled = true; };
-  }, [resolvedPkgId, openPallets, workspaceOrgId]);
+  }, [resolvedPkgId, openPallets, openPackages, workspaceOrgId]);
 
-  const inheritedPackagePhotos = fetchedPkgPhotos;
+  const inheritedPackagePhotos = useMemo(() => {
+    const id = resolvedPkgId?.trim();
+    if (!id) return null;
+    const base = openPackages.find((p) => p.id === id);
+    const meta = fetchedPkgMeta;
+    const merged = base
+      ? {
+          photo_opened_url: (meta?.photo_opened_url ?? base.photo_opened_url)?.trim() || null,
+          photo_closed_url: (meta?.photo_closed_url ?? base.photo_closed_url)?.trim() || null,
+          photo_return_label_url: (meta?.photo_return_label_url ?? base.photo_return_label_url)?.trim() || null,
+          photo_url: (meta?.photo_url ?? base.photo_url)?.trim() || null,
+        }
+      : meta
+        ? {
+            photo_opened_url: meta.photo_opened_url?.trim() || null,
+            photo_closed_url: meta.photo_closed_url?.trim() || null,
+            photo_return_label_url: meta.photo_return_label_url?.trim() || null,
+            photo_url: meta.photo_url?.trim() || null,
+          }
+        : null;
+    if (!merged) return null;
+    if (!merged.photo_opened_url && !merged.photo_closed_url && !merged.photo_return_label_url && !merged.photo_url) {
+      return null;
+    }
+    return merged;
+  }, [resolvedPkgId, openPackages, fetchedPkgMeta]);
+
   const packageInheritsBoxPhotos = !!(
     inheritedPackagePhotos &&
     inheritedPackagePhotos.photo_opened_url &&
     inheritedPackagePhotos.photo_return_label_url
   );
+
+  const linkedPackageForWizard = useMemo((): PackageRecord | undefined => {
+    const id = resolvedPkgId?.trim();
+    if (!id) return undefined;
+    const base = openPackages.find((p) => p.id === id);
+    const meta = fetchedPkgMeta;
+    if (base) {
+      if (!meta) return base;
+      return {
+        ...base,
+        order_id: meta.order_id ?? base.order_id,
+        pallet_id: meta.pallet_id ?? base.pallet_id,
+        photo_opened_url: meta.photo_opened_url ?? base.photo_opened_url,
+        photo_return_label_url: meta.photo_return_label_url ?? base.photo_return_label_url,
+        photo_closed_url: meta.photo_closed_url ?? base.photo_closed_url,
+        photo_url: meta.photo_url ?? base.photo_url,
+      };
+    }
+    if (meta) {
+      return {
+        id,
+        organization_id: workspaceOrgId,
+        package_number: "",
+        tracking_number: null,
+        carrier_name: null,
+        expected_item_count: 0,
+        actual_item_count: 0,
+        pallet_id: meta.pallet_id ?? null,
+        order_id: meta.order_id ?? null,
+        status: "open",
+        discrepancy_note: null,
+        photo_opened_url: meta.photo_opened_url ?? null,
+        photo_return_label_url: meta.photo_return_label_url ?? null,
+        photo_closed_url: meta.photo_closed_url ?? null,
+        photo_url: meta.photo_url ?? null,
+        created_at: "",
+        updated_at: "",
+      } as PackageRecord;
+    }
+    return undefined;
+  }, [resolvedPkgId, openPackages, fetchedPkgMeta, workspaceOrgId]);
 
   const conditions = conditionsFromKeys(state.condition_keys);
   const pkgIdForWarn = isLooseItem ? undefined : (inheritedContext?.packageId ?? state.package_link_id) || undefined;
@@ -5108,8 +5305,31 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
     }
     const cats = getCategoriesForConditions(conditions, photoCtxForStep2);
     const catsOk = cats.every((c) => c.optional || (state.photos[c.id]?.length ?? 0) > 0);
-    return !expiryBlocking && catsOk;
-  }, [state.condition_keys, state.expiration_date, state.photo_expiry_url, state.photos, conditions, photoCtxForStep2, isLooseItem]);
+    if (expiryBlocking || !catsOk) return false;
+
+    const pkg = linkedPackageForWizard;
+    const pid = resolvedPkgId?.trim() ?? "";
+    if (!pkg || !pid || !isUuidString(pid)) return true;
+
+    const resolved = resolvePackageClaimPhotoUrls(pkg);
+    const hasOpened = !!resolved.opened?.trim();
+    const hasLabel = !!resolved.label?.trim();
+    if (!hasOpened && !state.wizard_opened_box_url.trim()) return false;
+    if (!hasLabel && !state.wizard_pkg_return_label_url.trim()) return false;
+    return true;
+  }, [
+    state.condition_keys,
+    state.expiration_date,
+    state.photo_expiry_url,
+    state.photos,
+    state.wizard_opened_box_url,
+    state.wizard_pkg_return_label_url,
+    conditions,
+    photoCtxForStep2,
+    isLooseItem,
+    linkedPackageForWizard,
+    resolvedPkgId,
+  ]);
 
   async function handleSubmit() {
     setSubmitting(true); setSubmitErr("");
@@ -5134,11 +5354,6 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
       if (linkedPkg && !itemMatchesPackageExpectation(state.item_name, linkedPkg)) onSoftPackageWarning();
     }
     const categoryCounts = Object.fromEntries(Object.entries(state.photos).map(([k, v]) => [k, v.length])) as Record<string, number>;
-    const photoEvidence = mergeReturnPhotoEvidence(categoryCounts, {
-      item_url: state.photo_item_url,
-      expiry_url: state.photo_expiry_url,
-      return_label_url: state.photo_return_label_url,
-    });
     const orderId =
       linkedPkg?.order_id?.trim() ||
       state.amazon_order_id.trim() ||
@@ -5149,10 +5364,27 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
       const conditionCategoryUrls: string[] = [];
       for (const [, files] of Object.entries(state.photos)) {
         for (let i = 0; i < files.length; i++) {
-          const url = await uploadToStorage(files[i], "evidence/wizard", workspaceOrgId);
+          const url = await uploadToMedia(files[i], "incident", workspaceOrgId);
           conditionCategoryUrls.push(url);
         }
       }
+
+      const wizardGalleryExtras = [
+        state.wizard_outer_box_url,
+        state.wizard_opened_box_url,
+        state.wizard_pkg_return_label_url,
+      ]
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const photoEvidence = mergeReturnPhotoEvidence(
+        categoryCounts,
+        {
+          item_url: state.photo_item_url,
+          expiry_url: state.photo_expiry_url,
+          return_label_url: state.photo_return_label_url,
+        },
+        { galleryUrls: [...state.evidence_gallery_urls, ...conditionCategoryUrls, ...wizardGalleryExtras] },
+      );
 
       const storeRow = wizardStoresForSubmit.find((s) => s.id === state.store_id);
       const marketplaceResolved =
@@ -5161,7 +5393,9 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
 
       const res = await insertReturn({
         organization_id: workspaceOrgId,
+        actor_profile_id: actorProfileId,
         lpn: state.lpn || undefined,
+        rma_number: state.rma_number.trim() || undefined,
         marketplace: marketplaceResolved,
         item_name: state.item_name,
         conditions,
@@ -5228,13 +5462,14 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
           </div>
           <StepIndicator step={step} total={3} />
         </div>
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           {step === 1 && (
             <WizardStep1
               state={state}
               setState={setState}
               openPackages={openPackages}
               openPallets={openPallets}
+              existingReturns={existingReturns}
               onCreatePackage={onCreatePackage}
               onCreatePallet={onCreatePallet}
               inherited={inheritedContext}
@@ -5257,12 +5492,9 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
                 orphanLpn: !!state.lpn.trim(),
                 packageInheritsBoxPhotos,
               }}
-              actor={actor}
               organizationId={workspaceOrgId}
               linkedPackageId={resolvedPkgId || undefined}
-              linkedPackage={resolvedPkgId ? openPackages.find((p) => p.id === resolvedPkgId) : undefined}
-              onPackageUpdated={onLinkedPackageUpdated}
-              onToast={onToast}
+              linkedPackage={linkedPackageForWizard}
             />
           )}
           {step === 3 && (
@@ -5279,12 +5511,12 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
               onNavigateToPackage={onNavigateToPackage}
               onNavigateToPallet={onNavigateToPallet}
               palletEvidenceFromDb={fetchedPalletEvidence}
-              packageEvidenceFromDb={fetchedPkgPhotos}
+              packageEvidenceFromDb={fetchedPkgMeta}
             />
           )}
         </div>
         {submitErr && <p className="shrink-0 px-4 sm:px-6 pb-2 text-sm font-semibold text-rose-600 dark:text-rose-400">{submitErr}</p>}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 px-4 py-3 sm:px-6 sm:py-4 dark:border-slate-700">
+        <div className="sticky bottom-0 z-30 flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4 dark:border-slate-700 dark:bg-slate-950">
           <div className="flex min-w-0 items-center gap-2">
             {step > 1 && <button type="button" onClick={() => setStep((s) => s - 1)} className={`${BTN_FOOTER_GHOST} px-3`}><ArrowLeft className="h-4 w-4" /></button>}
           </div>
@@ -5308,29 +5540,38 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
 
 // ─── Create Package Modal ──────────────────────────────────────────────────────
 
-export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiPackingSlipEnabled = false, organizationId = MVP_ORGANIZATION_ID }: {
+export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiPackingSlipEnabled = false, organizationId = MVP_ORGANIZATION_ID, actorProfileId = null }: {
   onClose: () => void; onCreated: (p: PackageRecord) => void; actor: string; openPallets: PalletRecord[];
   aiPackingSlipEnabled?: boolean;
   organizationId?: string;
+  actorProfileId?: string | null;
 }) {
+  const pkgOrgId = useMemo(() => {
+    const raw = (organizationId ?? "").trim();
+    return isUuidString(raw) ? raw : MVP_ORGANIZATION_ID;
+  }, [organizationId]);
   const [pkgNum, setPkgNum] = useState(generatePackageNumber());
   const [tracking, setTracking] = useState(""); const [carrier, setCarrier] = useState(""); const [expected, setExpected] = useState(""); const [palletId, setPalletId] = useState("");
   const [rmaNumber, setRmaNumber] = useState("");
   const [amazonOrderId, setAmazonOrderId] = useState("");
   const [ocrFile, setOcrFile] = useState<File | null>(null); const [ocrLoad, setOcrLoad] = useState(false); const [ocrDone, setOcrDone] = useState(false);
   const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  const [photoClosedUrl, setPhotoClosedUrl] = useState<string | null>(null);
-  const [photoClosedUploading, setPhotoClosedUploading] = useState(false);
-  const [photoOpenedUrl, setPhotoOpenedUrl] = useState<string | null>(null);
-  const [photoOpenedUploading, setPhotoOpenedUploading] = useState(false);
-  const [photoReturnLabelUrl, setPhotoReturnLabelUrl] = useState<string | null>(null);
-  const [photoReturnLabelUploading, setPhotoReturnLabelUploading] = useState(false);
-  /** Persisted packing-slip image URL (saved with the package row). */
+  /** Box photos — mapped to `photo_return_label_url`, `photo_url`, `photo_opened_url`, `photo_closed_url` + structured `photo_evidence`. */
+  const [labelUrls, setLabelUrls] = useState<string[]>([]);
+  const [outerUrls, setOuterUrls] = useState<string[]>([]);
+  const [insideUrls, setInsideUrls] = useState<string[]>([]);
+  const [sealedUrls, setSealedUrls] = useState<string[]>([]);
+  const [noLabel, setNoLabel] = useState(false);
+  const [noOuterDamage, setNoOuterDamage] = useState(false);
+  const [noInsideInspect, setNoInsideInspect] = useState(false);
+  /** Poly / loose — optional reference shots only (`photo_evidence.urls`). */
+  const [extraEvidenceUrls, setExtraEvidenceUrls] = useState<string[]>([]);
+  /** Persisted packing-slip image URL → `manifest_photo_url`. */
   const [manifestPhotoUrl, setManifestPhotoUrl] = useState<string | null>(null);
-  /** Parsed manifest lines — saved as manifest_data JSONB; count rolls up to expected_item_count. */
+  /** Parsed manifest lines — count becomes expected_item_count (integer); not persisted to DB separately. */
   const [manifestParsedLines, setManifestParsedLines] = useState<ExpectedItem[] | null>(null);
   const [manifestOcrLoad, setManifestOcrLoad] = useState(false);
-  /** Poly / loose shipment — skip mandatory opened-box + return-label photos. */
+  /** Poly / loose — skip mandatory carton photos. */
   const [noBoxMode, setNoBoxMode] = useState(false);
   const manifestFileRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -5341,20 +5582,50 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
     tracking: p.tracking_number ?? undefined,
   }));
 
-  // ── Auto-fill carrier from the pallet's existing packages ─────────────────
+  // ── Pallet → Package: inherit carrier_name and amazon_order_id ───────────
+  // Priority: pallet.carrier_name  →  sibling package carrier  →  keep current value
+  // Priority: pallet.amazon_order_id  →  keep current value
+  // CRITICAL: fields are NOT locked — operators may override freely.
   useEffect(() => {
-    if (!palletId?.trim() || !isUuidString(palletId.trim())) return;
-    supabaseBrowser
-      .from("packages")
-      .select("carrier_name")
-      .eq("pallet_id", palletId)
-      .not("carrier_name", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
+    const pid = palletId?.trim();
+    if (!pid || !isUuidString(pid)) return;
+
+    let cancelled = false;
+
+    // 1. Resolve from in-memory pallet list first (zero network cost)
+    const localPallet = openPallets.find((p) => p.id === pid);
+    if (localPallet?.carrier_name)    setCarrier(localPallet.carrier_name);
+    if (localPallet?.amazon_order_id) setAmazonOrderId(localPallet.amazon_order_id);
+
+    // 2. Always confirm from DB (covers pallets not yet in the local list)
+    void supabaseBrowser
+      .from("pallets")
+      .select("carrier_name, amazon_order_id")
+      .eq("id", pid)
       .maybeSingle()
-      .then(({ data }) => {
-        if (data?.carrier_name) setCarrier(data.carrier_name as string);
+      .then(({ data: plt }) => {
+        if (cancelled) return;
+        if (plt?.carrier_name)    setCarrier(plt.carrier_name as string);
+        if (plt?.amazon_order_id) setAmazonOrderId(plt.amazon_order_id as string);
+
+        // 3. Fallback for carrier: if pallet has no carrier_name, check sibling packages
+        if (!plt?.carrier_name) {
+          void supabaseBrowser
+            .from("packages")
+            .select("carrier_name")
+            .eq("pallet_id", pid)
+            .not("carrier_name", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+            .then(({ data: pkg }) => {
+              if (!cancelled && pkg?.carrier_name) setCarrier(pkg.carrier_name as string);
+            });
+        }
       });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [palletId]);
 
   // ── Store state (Package form) ─────────────────────────────────────────────
@@ -5395,7 +5666,6 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
         .from("pallets")
         .select("store_id")
         .eq("id", palletId)
-        .eq("organization_id", MVP_ORGANIZATION_ID)
         .maybeSingle();
       if (cancelled) return;
       if (data?.store_id) {
@@ -5406,7 +5676,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
       }
     })();
     return () => { cancelled = true; };
-  }, [palletId, openPallets]);
+  }, [palletId, openPallets, pkgOrgId]);
 
   // ── Physical hardware scanner — attached only to the tracking # input ───────
   const { onKeyDown: trackingKeyDown } = usePhysicalScanner({
@@ -5417,6 +5687,34 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
   const { onKeyDown: rmaKeyDown } = usePhysicalScanner({
     onScan: (code) => setRmaNumber(code),
   });
+
+  const createPackageValidation = useMemo(
+    () =>
+      validateCreatePackageModal({
+        pkgNum,
+        pkgStoreId,
+        palletId,
+        noBoxMode,
+        noLabel,
+        noOuterDamage,
+        noInsideInspect,
+        labelUrls,
+        outerUrls,
+        insideUrls,
+      }),
+    [
+      pkgNum,
+      pkgStoreId,
+      palletId,
+      noBoxMode,
+      noLabel,
+      noOuterDamage,
+      noInsideInspect,
+      labelUrls,
+      outerUrls,
+      insideUrls,
+    ],
+  );
 
   async function handleOcr(file: File) {
     setOcrFile(file);
@@ -5459,7 +5757,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
     e.target.value = "";
   }
 
-  /** Standalone manifest capture (when AI packing slip block is off) — still saves photo + manifest_data. */
+  /** Standalone manifest capture (when AI packing slip block is off) — saves photo URL and updates expected_item_count. */
   async function handleStandaloneManifestUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -5484,101 +5782,105 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
       setManifestOcrLoad(false);
     }
   }
-  async function handleClaimPhotoCapture(
-    e: React.ChangeEvent<HTMLInputElement>,
-    field: "closed" | "opened" | "return_label",
-  ) {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f) return;
-    const setUploading = field === "closed" ? setPhotoClosedUploading
-                       : field === "opened" ? setPhotoOpenedUploading
-                       : setPhotoReturnLabelUploading;
-    const setUrl       = field === "closed" ? setPhotoClosedUrl
-                       : field === "opened" ? setPhotoOpenedUrl
-                       : setPhotoReturnLabelUrl;
-    setUploading(true);
-    try {
-      const folder =
-        field === "closed"       ? "packages/claim_closed"       :
-        field === "opened"       ? "packages/claim_opened"       :
-                                   "packages/claim_return_label";
-      const publicUrl = await uploadToStorage(f, folder, organizationId);
-      setUrl(publicUrl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Photo upload failed.");
-    } finally {
-      setUploading(false);
-    }
-  }
-
   async function handleCreate() {
-    if (!pkgNum.trim()) return;
-    if (!pkgStoreId.trim()) {
-      setError("Select a store.");
-      return;
-    }
-    const storeMsg = uuidFkInvalidMessage(pkgStoreId, "Store");
-    if (storeMsg) {
-      setError(storeMsg);
-      return;
-    }
-    const pltMsg = uuidFkInvalidMessage(palletId, "Pallet");
-    if (pltMsg) {
-      setError(pltMsg);
-      return;
-    }
-    if (!noBoxMode) {
-      if (!photoReturnLabelUrl?.trim()) {
-        setError("Upload a return label photo (required for boxed packages), or turn on “No box / poly mailer”.");
-        return;
-      }
-      if (!photoOpenedUrl?.trim()) {
-        setError("Upload an opened-box photo (required for boxed packages), or turn on “No box / poly mailer”.");
-        return;
-      }
-    }
-    setSaving(true); setError("");
-    const res = await createPackage({
-      organization_id: organizationId,
-      package_number: pkgNum.trim(),
-      tracking_number: tracking.trim() || undefined,
-      carrier_name: carrier || undefined,
-      rma_number: rmaNumber.trim() || undefined,
-      order_id: amazonOrderId.trim() || undefined,
-      expected_item_count:
-        manifestParsedLines && manifestParsedLines.length > 0
-          ? manifestParsedLines.reduce((a, it) => a + (it.expected_qty ?? 1), 0)
-          : expected
-            ? parseInt(expected, 10) || 0
-            : 0,
-      pallet_id: palletId || undefined,
-      store_id: pkgStoreId || undefined,
-      created_by: actor,
-      manifest_photo_url: manifestPhotoUrl ?? undefined,
-      ...(manifestParsedLines && manifestParsedLines.length > 0 ? { manifest_data: manifestParsedLines } : {}),
-      photo_closed_url:        photoClosedUrl         ?? undefined,
-      photo_opened_url:        photoOpenedUrl         ?? undefined,
-      photo_return_label_url:  photoReturnLabelUrl    ?? undefined,
+    const v = validateCreatePackageModal({
+      pkgNum,
+      pkgStoreId,
+      palletId,
+      noBoxMode,
+      noLabel,
+      noOuterDamage,
+      noInsideInspect,
+      labelUrls,
+      outerUrls,
+      insideUrls,
     });
-    setSaving(false);
-    if (res.ok && res.data) onCreated(res.data); else setError(res.error ?? "Failed.");
+    if (!v.ok) {
+      console.error("[CreatePackageModal] validation blocked:", v.error ?? "(no message)");
+      if (v.error) setError(v.error);
+      return;
+    }
+    setError("");
+    setSaving(true);
+    try {
+      const struct = !noBoxMode
+        ? buildStructuredPackagePhotoEvidence({
+            label_urls: labelUrls,
+            outer_box_urls: outerUrls,
+            inside_content_urls: insideUrls,
+            sealed_box_urls: sealedUrls,
+          })
+        : null;
+      const polyOnly =
+        noBoxMode && extraEvidenceUrls.length > 0 ? buildEntityPhotoEvidence(extraEvidenceUrls) : null;
+      const photo_evidence = noBoxMode
+        ? (polyOnly ?? undefined)
+        : struct
+          ? (struct as Record<string, unknown>)
+          : undefined;
+      const res = await createPackage({
+        organization_id: pkgOrgId,
+        actor_profile_id: actorProfileId,
+        package_number: pkgNum.trim(),
+        tracking_number: tracking.trim() || undefined,
+        carrier_name: carrier || undefined,
+        rma_number: rmaNumber.trim() || undefined,
+        order_id: amazonOrderId.trim() || undefined,
+        expected_item_count:
+          manifestParsedLines && manifestParsedLines.length > 0
+            ? manifestParsedLines.length
+            : expected
+              ? parseInt(expected, 10) || 0
+              : 0,
+        pallet_id: palletId || undefined,
+        store_id: pkgStoreId || undefined,
+        created_by: actor,
+        ...(manifestPhotoUrl ? { manifest_photo_url: manifestPhotoUrl } : {}),
+        ...(photo_evidence ? { photo_evidence } : {}),
+      });
+      if (res.ok && res.data) onCreated(res.data);
+      else {
+        console.error("[CreatePackageModal] createPackage failed:", res.error);
+        setError(res.error ?? "Failed.");
+      }
+    } catch (e) {
+      console.error("[CreatePackageModal] createPackage threw:", e);
+      setError(e instanceof Error ? e.message : "Failed.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-sm">
-      <div className="w-[95vw] max-w-lg overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950">
-        <div className="flex items-center justify-between border-b border-slate-200 p-4 sm:p-6 dark:border-slate-700">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Batch Flow</p>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"><ScanLine className="h-3 w-3" />Scanner-Ready</span>
+    <div
+      className="fixed inset-0 z-[300] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="flex h-[90vh] max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950 sm:rounded-3xl">
+        <div className="shrink-0 border-b border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950 sm:p-6">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Batch Flow</p>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"><ScanLine className="h-3 w-3" />Scanner-Ready</span>
+              </div>
+              <h2 className="mt-0.5 text-xl font-bold text-foreground">Create Package</h2>
             </div>
-            <h2 className="mt-0.5 text-xl font-bold text-foreground">Create Package</h2>
+            <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-accent hover:text-accent-foreground"><X className="h-5 w-5" /></button>
           </div>
-          <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-accent hover:text-accent-foreground"><X className="h-5 w-5" /></button>
         </div>
-        <div className="max-h-[78vh] sm:max-h-[70vh] overflow-y-auto p-4 sm:p-6 space-y-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+          {/* ── Link to Pallet — TOP of form for fast batch scanning ────────────── */}
+          <ComboboxField
+            label="Link to Pallet"
+            hint="(optional)"
+            icon={Boxes}
+            options={palletOptions}
+            value={palletId}
+            onChange={setPalletId}
+            onClear={() => setPalletId("")}
+            placeholder="Search pallets…"
+          />
           {aiPackingSlipEnabled && (
             <>
               <div className="flex items-center gap-2 mb-1">
@@ -5646,7 +5948,6 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
             <p className="mt-1 text-[11px] text-slate-400">Linked return items inherit this for claims.</p>
           </div>
           <div><label className={LABEL}>Expected Items</label><input type="number" min="0" className={INPUT} placeholder="0" value={expected} onChange={(e) => setExpected(e.target.value)} /></div>
-          <ComboboxField label="Link to Pallet" hint="(optional)" icon={Boxes} options={palletOptions} value={palletId} onChange={setPalletId} onClear={() => setPalletId("")} placeholder="Search pallets…" />
 
           <div>
             <label className={LABEL}>
@@ -5661,7 +5962,6 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
               className={INPUT}
               value={pkgStoreId}
               onChange={(e) => { setPkgStoreId(e.target.value); setPkgStoreInherited(false); }}
-              disabled={pkgStoreInherited}
             >
               <option value="">— Select Store —</option>
               {pkgStoresList.map((s) => (
@@ -5670,7 +5970,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
             </select>
             {pkgStoreInherited && (
               <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">
-                🔒 Locked — store is inherited from the selected pallet.
+                ↳ Auto-filled from pallet — override if needed.
               </p>
             )}
             {pkgStoresList.length === 0 && (
@@ -5680,68 +5980,57 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
             )}
           </div>
 
-          {/* ── Packing slip / manifest (when AI packing-slip block above is disabled) ── */}
-          {!aiPackingSlipEnabled && (
-            <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/80 p-4 space-y-3 dark:border-violet-800/50 dark:bg-violet-950/25">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                <p className="text-sm font-bold text-violet-800 dark:text-violet-200">Packing slip / manifest</p>
-              </div>
-              <p className="text-xs text-violet-700 dark:text-violet-300">
-                Optional — photo and parsed lines are saved on the package for reconciliation.
-              </p>
-              <input
-                ref={manifestFileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handleStandaloneManifestUpload}
-              />
-              {manifestOcrLoad ? (
-                <div className="flex items-center gap-2 rounded-xl bg-violet-100/80 px-3 py-2 dark:bg-violet-950/40">
-                  <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
-                  <span className="text-sm font-semibold text-violet-800 dark:text-violet-200">Processing manifest…</span>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => manifestFileRef.current?.click()}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700"
-                  >
-                    📸 Scan packing slip / manifest
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const lines: ExpectedItem[] = [
-                        { sku: "111", expected_qty: 1, description: "Item 111" },
-                        { sku: "222", expected_qty: 2, description: "Item 222" },
-                      ];
-                      setManifestParsedLines(lines);
-                      setExpected(String(lines.reduce((a, it) => a + (it.expected_qty ?? 1), 0)));
-                    }}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-violet-300 bg-white py-2.5 text-xs font-semibold text-violet-700 dark:border-violet-700/50 dark:bg-slate-900 dark:text-violet-300"
-                  >
-                    🧪 Load mock manifest (test)
-                  </button>
-                </div>
-              )}
-              {manifestParsedLines && manifestParsedLines.length > 0 && (
-                <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                  ✓ {manifestParsedLines.length} manifest line(s) — will save with the package.
-                </p>
-              )}
+          {/* ── Packing slip image → manifest_photo_url (always visible) ───────────── */}
+          <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/80 p-4 space-y-3 dark:border-violet-800/50 dark:bg-violet-950/25">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+              <p className="text-sm font-bold text-violet-800 dark:text-violet-200">Packing slip (OCR)</p>
             </div>
-          )}
+            <p className="text-xs text-violet-700 dark:text-violet-300">
+              Scan or photograph the packing slip — image is saved to <span className="font-mono">manifest_photo_url</span>. Parsed lines (when available) update expected counts.
+            </p>
+            <input
+              ref={manifestFileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleStandaloneManifestUpload}
+            />
+            {manifestOcrLoad ? (
+              <div className="flex items-center gap-2 rounded-xl bg-violet-100/80 px-3 py-2 dark:bg-violet-950/40">
+                <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                <span className="text-sm font-semibold text-violet-800 dark:text-violet-200">Uploading & processing…</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => manifestFileRef.current?.click()}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"
+                >
+                  📸 Scan packing slip
+                </button>
+              </div>
+            )}
+            {manifestPhotoUrl ? (
+              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                ✓ Packing slip image saved — will store on create.
+              </p>
+            ) : null}
+            {manifestParsedLines && manifestParsedLines.length > 0 && (
+              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                ✓ {manifestParsedLines.length} manifest line(s) detected.
+              </p>
+            )}
+          </div>
 
-          {/* ── Claim Evidence Photos ──────────────────────────────────────── */}
-          <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-4 space-y-3 dark:border-rose-700/50 dark:bg-rose-950/20">
+          {/* ── Box photos → packages.photo_evidence (JSONB); packing slip uses manifest_photo_url above ── */}
+          <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-4 space-y-4 dark:border-rose-700/50 dark:bg-rose-950/20">
             <div className="flex flex-wrap items-center gap-2">
               <Camera className="h-4 w-4 text-rose-600 dark:text-rose-400" />
-              <p className="text-sm font-bold text-rose-800 dark:text-rose-200">Claim Evidence Photos</p>
-              <span className="ml-auto rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600 dark:bg-rose-900/40 dark:text-rose-300">Box Level</span>
+              <p className="text-sm font-bold text-rose-800 dark:text-rose-200">Package photos</p>
+              <span className="ml-auto rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600 dark:bg-rose-900/40 dark:text-rose-300">Box level</span>
             </div>
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-rose-200 bg-white/80 p-3 dark:border-rose-800/50 dark:bg-slate-900/40">
               <input
@@ -5753,94 +6042,133 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
               <div>
                 <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">No box / poly mailer</p>
                 <p className="mt-0.5 text-[11px] text-rose-700/90 dark:text-rose-300/90">
-                  Skip required opened-box and return-label photos (e.g. loose or non-carton shipments).
+                  Skip required carton photos; use optional reference shots below.
                 </p>
               </div>
             </label>
 
-            {/* Closed box */}
-            {photoClosedUrl ? (
-              <SavedUrlEvidenceCard
-                label="Closed box"
-                hint="Optional — claim evidence for the sealed package."
-                imageUrl={photoClosedUrl}
-                onRemove={() => setPhotoClosedUrl(null)}
-                Icon={Camera}
-                iconColor="text-rose-600 dark:text-rose-400"
-                footerNote="Stored on this package"
-              />
+            {!noBoxMode ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-rose-900 dark:text-rose-100">Shipping label</span>
+                    <span className="text-rose-500">*</span>
+                    <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-medium text-rose-800 dark:text-rose-200">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
+                        checked={noLabel}
+                        onChange={(e) => {
+                          const c = e.target.checked;
+                          setNoLabel(c);
+                          if (c) setLabelUrls([]);
+                        }}
+                      />
+                      No label found
+                    </label>
+                  </div>
+                  <MasterUploader
+                    label=""
+                    hint="Up to 3 images — stored in photo_evidence.label_urls."
+                    value={labelUrls}
+                    onChange={setLabelUrls}
+                    organizationId={organizationId}
+                    maxFiles={3}
+                    disabled={noLabel}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-rose-900 dark:text-rose-100">Outer box condition</span>
+                    <span className="text-rose-500">*</span>
+                    <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-medium text-rose-800 dark:text-rose-200">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
+                        checked={noOuterDamage}
+                        onChange={(e) => {
+                          const c = e.target.checked;
+                          setNoOuterDamage(c);
+                          if (c) setOuterUrls([]);
+                        }}
+                      />
+                      No box damage / issues
+                    </label>
+                  </div>
+                  <MasterUploader
+                    label=""
+                    hint="Up to 3 images — stored in photo_evidence.outer_box_urls."
+                    value={outerUrls}
+                    onChange={setOuterUrls}
+                    organizationId={organizationId}
+                    maxFiles={3}
+                    disabled={noOuterDamage}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-rose-900 dark:text-rose-100">Inside content</span>
+                    <span className="text-rose-500">*</span>
+                    <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-medium text-rose-800 dark:text-rose-200">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
+                        checked={noInsideInspect}
+                        onChange={(e) => {
+                          const c = e.target.checked;
+                          setNoInsideInspect(c);
+                          if (c) setInsideUrls([]);
+                        }}
+                      />
+                      Content cannot be inspected
+                    </label>
+                  </div>
+                  <MasterUploader
+                    label=""
+                    hint="Up to 3 images — stored in photo_evidence.inside_content_urls."
+                    value={insideUrls}
+                    onChange={setInsideUrls}
+                    organizationId={organizationId}
+                    maxFiles={3}
+                    disabled={noInsideInspect}
+                  />
+                </div>
+                <MasterUploader
+                  label="Box sealed (optional)"
+                  hint="Up to 3 images — stored in photo_evidence.sealed_box_urls."
+                  value={sealedUrls}
+                  onChange={setSealedUrls}
+                  organizationId={organizationId}
+                  maxFiles={3}
+                />
+              </div>
             ) : (
-              <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition ${photoClosedUploading ? "border-rose-300 bg-rose-50/80 text-rose-500" : "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-700/60 dark:bg-rose-950/30 dark:text-rose-300"}`}>
-                {photoClosedUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                {photoClosedUploading ? "Uploading…" : "📸 Closed box (optional)"}
-                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={photoClosedUploading}
-                  onChange={(e) => handleClaimPhotoCapture(e, "closed")} />
-              </label>
-            )}
-
-            {/* Opened box */}
-            {photoOpenedUrl ? (
-              <SavedUrlEvidenceCard
-                label="Opened box"
-                hint="Shows contents — required unless “No box” is checked."
-                imageUrl={photoOpenedUrl}
-                onRemove={() => setPhotoOpenedUrl(null)}
-                Icon={Camera}
-                iconColor="text-amber-600 dark:text-amber-400"
-                required={!noBoxMode}
-                footerNote="Stored on this package"
+              <MasterUploader
+                label="Reference photos (optional)"
+                hint="Up to 3 images — stored in photo_evidence.urls."
+                value={extraEvidenceUrls}
+                onChange={setExtraEvidenceUrls}
+                organizationId={organizationId}
+                maxFiles={3}
               />
-            ) : (
-              <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition ${photoOpenedUploading ? "border-amber-300 bg-amber-50/80 text-amber-500" : "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300"}`}>
-                {photoOpenedUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                {photoOpenedUploading ? "Uploading…" : "📸 Opened box"}
-                {!noBoxMode ? <span className="text-rose-500">*</span> : null}
-                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={photoOpenedUploading}
-                  onChange={(e) => handleClaimPhotoCapture(e, "opened")} />
-              </label>
-            )}
-
-            {/* Return shipping label */}
-            {photoReturnLabelUrl ? (
-              <SavedUrlEvidenceCard
-                label="Return label"
-                hint="Carrier return label — required unless “No box” is checked."
-                imageUrl={photoReturnLabelUrl}
-                onRemove={() => setPhotoReturnLabelUrl(null)}
-                Icon={Camera}
-                iconColor="text-violet-600 dark:text-violet-400"
-                required={!noBoxMode}
-                footerNote="Stored on this package"
-              />
-            ) : (
-              <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition ${photoReturnLabelUploading ? "border-violet-300 bg-violet-50/80 text-violet-500" : "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-700/60 dark:bg-violet-950/30 dark:text-violet-300"}`}>
-                {photoReturnLabelUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                {photoReturnLabelUploading ? "Uploading…" : "📸 Return label"}
-                {!noBoxMode ? <span className="text-rose-500">*</span> : null}
-                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={photoReturnLabelUploading}
-                  onChange={(e) => handleClaimPhotoCapture(e, "return_label")} />
-              </label>
             )}
           </div>
 
           {error && <p className="rounded-xl bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">{error}</p>}
         </div>
-        <div className="flex flex-col gap-3 border-t border-slate-200 p-4 dark:border-slate-700">
-          <div className="flex w-full justify-end">
+        <div className="sticky bottom-0 z-20 shrink-0 border-t border-slate-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-slate-700 dark:bg-slate-950 sm:p-6">
+          <div className={MODAL_FOOTER_GRID}>
+            <button type="button" onClick={onClose} className={MODAL_FOOTER_CANCEL}>
+              Cancel
+            </button>
             <button
               type="button"
               onClick={handleCreate}
-              disabled={
-                saving ||
-                !pkgNum.trim() ||
-                !pkgStoreId.trim() ||
-                !isUuidString(pkgStoreId.trim()) ||
-                (!noBoxMode && (!photoReturnLabelUrl?.trim() || !photoOpenedUrl?.trim()))
-              }
-              className={BTN_PRIMARY}
+              disabled={saving || !createPackageValidation.ok}
+              className={MODAL_FOOTER_SUBMIT}
             >
               {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
-              {saving ? "Creating…" : "Create Package"}
+              {saving ? "Creating…" : "Create"}
             </button>
           </div>
         </div>
@@ -5851,20 +6179,25 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
 
 // ─── Create Pallet Modal ───────────────────────────────────────────────────────
 
-export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled = false, organizationId = MVP_ORGANIZATION_ID }: {
+export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled = false, organizationId = MVP_ORGANIZATION_ID, actorProfileId = null }: {
   onClose: () => void; onCreated: (p: PalletRecord) => void; actor: string;
   aiManifestEnabled?: boolean;
   organizationId?: string;
+  actorProfileId?: string | null;
 }) {
+  const pltOrgId = useMemo(() => {
+    const raw = (organizationId ?? "").trim();
+    return isUuidString(raw) ? raw : MVP_ORGANIZATION_ID;
+  }, [organizationId]);
   const [palletNum, setPalletNum] = useState(generatePalletNumber()); const [notes, setNotes] = useState(""); const [file, setFile] = useState<File | null>(null);
-  const [bolFile, setBolFile] = useState<File | null>(null);
   const [ocrLoad, setOcrLoad] = useState(false); const [ocrResult, setOcrResult] = useState<{ pallet_number: string; total_items: number; confidence: number } | null>(null);
   const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [photoUploading, setPhotoUploading] = useState(false);
-  const photoRef = useRef<HTMLInputElement>(null);
+  const [palletPhotoUrls, setPalletPhotoUrls] = useState<string[]>([]);
+  const [bolUrls, setBolUrls] = useState<string[]>([]);
+  /** Carrier and Amazon order ID — auto-inherited by child Package forms on creation. */
+  const [palletCarrier, setPalletCarrier] = useState("");
+  const [palletAmazonOrderId, setPalletAmazonOrderId] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const bolRef = useRef<HTMLInputElement>(null);
 
   // ── Store state (Pallet form — top of hierarchy) ──────────────────────────
   const [palletStoreId,  setPalletStoreId]  = useState("");
@@ -5884,20 +6217,6 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
   }, []);
 
   async function handleOcr(f: File) { setFile(f); setOcrLoad(true); const res = await mockPalletOcr(f); setOcrLoad(false); if (res.ok && res.data) { setOcrResult(res.data); setPalletNum(res.data.pallet_number); } else setError(res.error ?? "OCR failed."); }
-  async function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f) return;
-    setPhotoUploading(true);
-    try {
-      const url = await uploadToStorage(f, "pallets", organizationId);
-      setPhotoUrl(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Photo upload failed.");
-    } finally {
-      setPhotoUploading(false);
-    }
-  }
   async function handleCreate() {
     if (!palletNum.trim()) return;
     if (!palletStoreId.trim() || !isUuidString(palletStoreId.trim())) {
@@ -5906,19 +6225,20 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
     }
     setSaving(true); setError("");
     try {
-      let manifest_photo_url: string | undefined;
-      let bol_photo_url: string | undefined;
-      if (file) manifest_photo_url = await uploadToStorage(file, "pallets/manifest", organizationId);
-      if (bolFile) bol_photo_url = await uploadToStorage(bolFile, "pallets/bol", organizationId);
+      let manifestPhotoUrl: string | undefined;
+      if (file) manifestPhotoUrl = await uploadToStorage(file, "pallets/manifest", pltOrgId);
       const res = await createPallet({
-        organization_id: organizationId,
+        organization_id: pltOrgId,
+        actor_profile_id: actorProfileId,
         pallet_number: palletNum.trim(),
-        manifest_photo_url,
-        bol_photo_url,
-        photo_url: photoUrl ?? undefined,
+        photo_url: palletPhotoUrls[0]?.trim() || null,
+        bol_photo_url: bolUrls[0]?.trim() || null,
+        ...(manifestPhotoUrl ? { manifest_photo_url: manifestPhotoUrl } : {}),
         store_id: palletStoreId,
         notes,
         created_by: actor,
+        carrier_name:    palletCarrier.trim()         || null,
+        amazon_order_id: palletAmazonOrderId.trim()   || null,
       });
       setSaving(false);
       if (res.ok && res.data) onCreated(res.data); else setError(res.error ?? "Failed.");
@@ -5929,10 +6249,21 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
   }
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-sm">
-      <div className="w-[95vw] max-w-lg overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950">
-        <div className="flex items-center justify-between border-b border-slate-200 p-4 sm:p-6 dark:border-slate-700"><div><p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Pallet Flow</p><h2 className="mt-0.5 text-xl font-bold text-foreground">Create Pallet</h2></div><button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-accent hover:text-accent-foreground"><X className="h-5 w-5" /></button></div>
-        <div className="p-4 sm:p-6 space-y-4">
+    <div
+      className="fixed inset-0 z-[300] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="flex h-[90vh] max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950 sm:rounded-3xl">
+        <div className="shrink-0 border-b border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950 sm:p-6">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Pallet Flow</p>
+              <h2 className="mt-0.5 text-xl font-bold text-foreground">Create Pallet</h2>
+            </div>
+            <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-accent hover:text-accent-foreground"><X className="h-5 w-5" /></button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           {aiManifestEnabled && (
             <>
               <div className="flex items-center gap-2 mb-1">
@@ -5959,19 +6290,60 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
               />
             </div>
           </div>
-          <div>
-            <label className={LABEL}>Bill of Lading (BoL) <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-            {!bolFile ? (
-              <button type="button" onClick={() => bolRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border py-3 text-sm font-medium text-muted-foreground transition hover:bg-accent">
-                <FileText className="h-4 w-4" />Upload BoL scan
-              </button>
-            ) : (
-              <div className="flex items-center justify-between rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm">
-                <span className="truncate font-medium text-foreground">{bolFile.name}</span>
-                <button type="button" className="text-xs text-sky-600 underline dark:text-sky-400" onClick={() => setBolFile(null)}>Remove</button>
-              </div>
-            )}
-            <input ref={bolRef} type="file" className="hidden" accept="image/*,application/pdf" capture="environment" onChange={(e) => { const f = e.target.files?.[0]; if (f) setBolFile(f); e.target.value = ""; }} />
+          {/* ── Carrier + Amazon Order ID (inherited by child packages) ── */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={LABEL}>
+                <Truck className="mb-0.5 inline h-3.5 w-3.5 opacity-70" /> Carrier
+                <span className="ml-1 text-[10px] font-normal text-slate-400">(optional)</span>
+              </label>
+              <select
+                className={INPUT}
+                value={palletCarrier}
+                onChange={(e) => setPalletCarrier(e.target.value)}
+              >
+                <option value="">Select…</option>
+                {CARRIERS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <p className="mt-1 text-[10px] text-slate-400">Auto-fills child Package forms.</p>
+            </div>
+            <div>
+              <label className={LABEL}>
+                Amazon Order ID
+                <span className="ml-1 text-[10px] font-normal text-slate-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                className={INPUT}
+                value={palletAmazonOrderId}
+                onChange={(e) => setPalletAmazonOrderId(e.target.value)}
+                placeholder="114-XXXXXXX-XXXXXXX"
+              />
+              <p className="mt-1 text-[10px] text-slate-400">Inherits to packages &amp; items.</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 space-y-3 dark:border-amber-800/40 dark:bg-amber-950/20">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+              <p className="text-sm font-bold text-amber-900 dark:text-amber-100">Pallet documentation</p>
+            </div>
+            <MasterUploader
+              label="Pallet photo (optional)"
+              hint="Up to 3 images — first is saved to photo_url (extras are not stored on the pallet row)."
+              value={palletPhotoUrls}
+              onChange={setPalletPhotoUrls}
+              organizationId={organizationId}
+              maxFiles={3}
+            />
+            <MasterUploader
+              label="Bill of Lading (optional)"
+              hint="Up to 3 images — first is saved to bol_photo_url (extras are not stored on the pallet row)."
+              value={bolUrls}
+              onChange={setBolUrls}
+              organizationId={organizationId}
+              maxFiles={3}
+            />
           </div>
           <div>
             <label className={LABEL}>Store <span className="text-rose-500">*</span></label>
@@ -5996,24 +6368,23 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
             )}
           </div>
           <div><label className={LABEL}>Notes (optional)</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" /></div>
-          {/* General pallet photo */}
-          <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-dashed py-3 text-sm font-semibold transition ${photoUrl ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-950/30 dark:text-emerald-300" : "border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300"}`}>
-            {photoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-            {photoUploading ? "Uploading…" : photoUrl ? "🪣 Pallet Photo Saved ✓" : "📸 Take Photo of Pallet"}
-            <input ref={photoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoCapture} disabled={photoUploading} />
-          </label>
-          {photoUrl && <p className="truncate text-center text-[10px] text-muted-foreground">{photoUrl}</p>}
           {error && <p className="rounded-xl bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">{error}</p>}
         </div>
-        <div className="border-t border-slate-200 p-4 dark:border-slate-700">
-          <button
-            onClick={handleCreate}
-            disabled={saving || !palletNum.trim() || !palletStoreId.trim() || !isUuidString(palletStoreId.trim())}
-            className={BTN_PRIMARY}
-          >
-            {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
-            {saving ? "Creating…" : "Create Pallet"}
-          </button>
+        <div className="sticky bottom-0 z-20 shrink-0 border-t border-slate-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-slate-700 dark:bg-slate-950 sm:p-6">
+          <div className={MODAL_FOOTER_GRID}>
+            <button type="button" onClick={onClose} className={MODAL_FOOTER_CANCEL}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={saving || !palletNum.trim() || !palletStoreId.trim() || !isUuidString(palletStoreId.trim())}
+              className={MODAL_FOOTER_SUBMIT}
+            >
+              {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
+              {saving ? "Creating…" : "Create"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -6022,9 +6393,14 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
 
 // ─── Items Data Table ──────────────────────────────────────────────────────────
 
-export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, onNewItem, externalSearch = "", onToast }: {
+export function ItemsDataTable({ items, packages, pallets, role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, platformIconBySlug = {}, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, onNewItem, externalSearch = "", onToast, returnsTotalInDb = null }: {
   items: ReturnRecord[]; packages: PackageRecord[]; pallets: PalletRecord[];
   role: UserRole; actor: string;
+  actorProfileId?: string | null;
+  showCompanyColumn?: boolean;
+  organizationLabelById?: Record<string, string>;
+  /** Slug → icon URL from `marketplaces` (fallback when `marketplace_id` is unset). */
+  platformIconBySlug?: Record<string, string | null | undefined>;
   fefoSettings?: { fefo_critical_days: number; fefo_warning_days: number };
   onRowClick: (r: ReturnRecord) => void; onRowEdit: (r: ReturnRecord) => void;
   onBulkDeleted: (ids: string[]) => void;
@@ -6034,6 +6410,8 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
   externalSearch?: string;
   /** Copy-to-clipboard feedback (page-level toast). */
   onToast?: (msg: string, kind?: ToastKind) => void;
+  /** Exact DB count (when known) — shows truncation banner vs `listReturns()` limit. */
+  returnsTotalInDb?: number | null;
 }) {
   const fefo_critical = fefoSettings?.fefo_critical_days ?? 30;
   const fefo_warning  = fefoSettings?.fefo_warning_days  ?? 90;
@@ -6049,6 +6427,13 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
   const pkgMap = useMemo(() => new Map(packages.map((p) => [p.id, p])), [packages]);
   const pltMap = useMemo(() => new Map(pallets.map((p) => [p.id, p])), [pallets]);
 
+  // Resolve all created_by UUIDs to human-readable names for the Operator column.
+  const allItemCreatorIds = useMemo(
+    () => items.map((r) => r.created_by).filter((id): id is string => !!id),
+    [items],
+  );
+  const itemTableOperatorNames = useProfileNames(allItemCreatorIds);
+
   function handleSort(f: string) { if (sortField === f) setSortAsc((a) => !a); else { setSortField(f); setSortAsc(false); } setPage(1); }
 
   const filtered = useMemo(() => {
@@ -6057,12 +6442,14 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
     if (q) {
       d = d.filter((r) => {
         const pkg = r.package_id ? pkgMap.get(r.package_id) : null;
+        const plt = r.pallet_id ? pltMap.get(r.pallet_id) : null;
         const blob = [
-          r.id, r.lpn, r.item_name, r.marketplace,
+          r.id, r.lpn, r.rma_number, r.item_name, r.marketplace,
           formatMarketplaceSource(r.marketplace),
           r.inherited_tracking_number ?? "",
           r.asin ?? "", r.fnsku ?? "", r.sku ?? "",
-          pkg?.tracking_number ?? "", pkg?.package_number ?? "",
+          pkg?.tracking_number ?? "", pkg?.package_number ?? "", pkg?.carrier_name ?? "", pkg?.rma_number ?? "",
+          plt?.tracking_number ?? "", plt?.pallet_number ?? "",
         ].join(" ").toLowerCase();
         return blob.includes(q);
       });
@@ -6073,13 +6460,15 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
     if (dateTo)   d = d.filter((r) => r.created_at <= dateTo + "T23:59:59.999Z");
     d.sort((a, b) =>
       compareSortKeys(
-        sortKeyItem(a, sortField, pkgMap, pltMap),
-        sortKeyItem(b, sortField, pkgMap, pltMap),
+        sortKeyItem(a, sortField, pkgMap, pltMap, itemTableOperatorNames),
+        sortKeyItem(b, sortField, pkgMap, pltMap, itemTableOperatorNames),
         sortAsc,
       ),
     );
     return d;
-  }, [items, search, externalSearch, statusF, marketF, dateFrom, dateTo, sortField, sortAsc, pkgMap, pltMap]);
+  }, [items, search, externalSearch, statusF, marketF, dateFrom, dateTo, sortField, sortAsc, pkgMap, pltMap, itemTableOperatorNames]);
+
+  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || marketF || dateFrom || dateTo);
 
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
@@ -6088,15 +6477,33 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
   async function handleBulkDelete() {
     if (!window.confirm(`Delete ${selectedIds.size} item(s)? This cannot be undone.`)) return;
     setBulkDeleting(true);
-    await Promise.all([...selectedIds].map((id) => deleteReturn(id, actor)));
-    onBulkDeleted([...selectedIds]);
-    setSelectedIds(new Set()); setBulkDeleting(false);
+    const ids = [...selectedIds];
+    try {
+      const res = await bulkDeleteReturns(ids, actor, actorProfileId);
+      if (!res.ok) {
+        console.error("[ItemsDataTable] bulkDeleteReturns failed:", res.error);
+        onToast?.(res.error ?? "Could not delete items. Nothing was removed.", "error");
+        return;
+      }
+      onBulkDeleted(ids);
+      setSelectedIds(new Set());
+    } catch (e) {
+      console.error("[ItemsDataTable] bulkDeleteReturns threw:", e);
+      onToast?.(e instanceof Error ? e.message : "Could not delete items.", "error");
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   const INPUT_SM_DARK = `${INPUT_SM} dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500`;
 
   return (
     <div className="space-y-3">
+      {returnsTotalInDb != null && returnsTotalInDb > items.length && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-100">
+          This session loads the latest {items.length} of {returnsTotalInDb} return items in the database. The table shows {PER} rows per page; use Next / Prev below or narrow with filters.
+        </div>
+      )}
       {selectedIds.size > 0 && (
         <BulkActionsBar count={selectedIds.size} onDelete={canDelete(role) ? handleBulkDelete : undefined} onMove={() => setShowBulkMove(true)} onClear={() => setSelectedIds(new Set())} deleting={bulkDeleting} />
       )}
@@ -6117,7 +6524,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
 
       <div className="w-full overflow-x-auto rounded-2xl border border-border">
         <div className="w-full min-w-0">
-          <table className="w-full min-w-[1400px] text-sm">
+          <table className="w-full min-w-[1460px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
@@ -6125,6 +6532,10 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((r) => r.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
+                {showCompanyColumn && (
+                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
+                )}
+                <th className="w-12 px-2 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500" title="Marketplace">MP</th>
                 <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="lpn" label="LPN" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6154,6 +6565,14 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
                       <div className={CHK_FLEX}>
                         <input type="checkbox" checked={selectedIds.has(r.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(r.id) : s.delete(r.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                       </div>
+                    </td>
+                    {showCompanyColumn && (
+                      <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-medium text-muted-foreground md:table-cell" title={organizationLabelById[r.organization_id] ?? r.organization_id}>
+                        {organizationLabelById[r.organization_id] ?? `${r.organization_id.slice(0, 8)}…`}
+                      </td>
+                    )}
+                    <td className="w-12 px-2 py-3 align-middle">
+                      <MarketplaceIconCell r={r} platformIconBySlug={platformIconBySlug} />
                     </td>
                     <td className="px-4 py-3 min-w-[200px]">
                       <ReturnIdentifiersColumn
@@ -6213,7 +6632,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
                         ? <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 font-mono text-[10px] font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">📦 {linkedPkg.package_number}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
                         : <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">⚠ Orphaned / Loose</span>}
                     </td>
-                    <td className="hidden px-4 py-3 xl:table-cell text-xs text-slate-400">{operatorDisplayLabel(r)}</td>
+                    <td className="hidden px-4 py-3 xl:table-cell text-xs text-slate-400">{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
                     <td className="hidden px-4 py-3 text-xs text-slate-400 lg:table-cell">{fmt(r.created_at)}</td>
                     <td className="px-3 py-3">
                       <RowActionMenu
@@ -6221,8 +6640,12 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
                         onEdit={() => onRowEdit(r)}
                         onDelete={canDelete(role) ? async () => {
                           if (!window.confirm("Delete this return? This cannot be undone.")) return;
-                          const res = await deleteReturn(r.id, actor);
+                          const res = await deleteReturn(r.id, actor, actorProfileId);
                           if (res.ok) onBulkDeleted([r.id]);
+                          else {
+                            console.error("[ItemsDataTable] deleteReturn failed:", res.error);
+                            onToast?.(res.error ?? "Could not delete this return.", "error");
+                          }
                         } : undefined}
                       />
                     </td>
@@ -6232,13 +6655,19 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && <p className="py-10 text-center text-sm text-slate-400">No records match your filters.</p>}
+        {rows.length === 0 && (
+          <p className="py-10 text-center text-sm text-slate-400">
+            {items.length === 0 && !hasActiveFilters
+              ? "No return items yet. Scan or add an item to get started."
+              : "No records match your filters."}
+          </p>
+        )}
       </div>
 
       {total > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><p>Page {page} of {total} · {filtered.length} items</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">Next →</button></div></div>}
 
       {showBulkMove && (
-        <BulkMoveModal selectedIds={[...selectedIds]} packages={packages} pallets={pallets} actor={actor} onClose={() => setShowBulkMove(false)}
+        <BulkMoveModal selectedIds={[...selectedIds]} packages={packages} pallets={pallets} returns={items} actor={actor} actorProfileId={actorProfileId} onClose={() => setShowBulkMove(false)}
           onMoved={(updated, failed) => { onBulkMoved(updated); setSelectedIds(new Set()); setShowBulkMove(false); if (failed > 0) window.alert(`${failed} item(s) failed to move.`); }}
         />
       )}
@@ -6248,9 +6677,12 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, fefoSett
 
 // ─── Packages Data Table ───────────────────────────────────────────────────────
 
-export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, onNewPackage, externalSearch = "", onToast }: {
+export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, onNewPackage, externalSearch = "", onToast }: {
   packages: PackageRecord[]; returns?: ReturnRecord[]; pallets?: PalletRecord[];
   role: UserRole; actor: string;
+  actorProfileId?: string | null;
+  showCompanyColumn?: boolean;
+  organizationLabelById?: Record<string, string>;
   onRowClick: (p: PackageRecord) => void; onRowEdit: (p: PackageRecord) => void;
   onBulkDeleted: (ids: string[]) => void;
   /** Called after bulk assign to pallet so parent state stays in sync with DB */
@@ -6269,6 +6701,22 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const PER = 25;
 
+  /** Live assigned count per package — matches accordion rows (source of truth vs denormalized `actual_item_count`). */
+  const assignedByPackage = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of allReturns) {
+      if (r.package_id) m.set(r.package_id, (m.get(r.package_id) ?? 0) + 1);
+    }
+    return m;
+  }, [allReturns]);
+
+  // Resolve created_by UUIDs → display names for the Operator column.
+  const allPkgCreatorIds = useMemo(
+    () => packages.map((p) => p.created_by).filter((id): id is string => !!id),
+    [packages],
+  );
+  const pkgTableOperatorNames = useProfileNames(allPkgCreatorIds);
+
   function toggleExpand(id: string, e: React.MouseEvent) { e.stopPropagation(); setExpandedIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
 
   function handleSort(f: string) { if (sortField === f) setSortAsc((a) => !a); else { setSortField(f); setSortAsc(false); } setPage(1); }
@@ -6283,11 +6731,18 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     if (carrierF) d = d.filter((p) => p.carrier_name === carrierF);
     if (dateFrom) d = d.filter((p) => p.created_at >= dateFrom);
     if (dateTo)   d = d.filter((p) => p.created_at <= dateTo + "T23:59:59.999Z");
-    d.sort((a, b) =>
-      compareSortKeys(sortKeyPackage(a, sortField), sortKeyPackage(b, sortField), sortAsc),
-    );
+    d.sort((a, b) => {
+      if (sortField === "pkg_items_sort") {
+        const ca = assignedByPackage.get(a.id) ?? 0;
+        const cb = assignedByPackage.get(b.id) ?? 0;
+        return compareSortKeys(ca * 1_000_000 + a.expected_item_count, cb * 1_000_000 + b.expected_item_count, sortAsc);
+      }
+      return compareSortKeys(sortKeyPackage(a, sortField, pkgTableOperatorNames), sortKeyPackage(b, sortField, pkgTableOperatorNames), sortAsc);
+    });
     return d;
-  }, [packages, search, externalSearch, statusF, carrierF, dateFrom, dateTo, sortField, sortAsc]);
+  }, [packages, search, externalSearch, statusF, carrierF, dateFrom, dateTo, sortField, sortAsc, assignedByPackage, pkgTableOperatorNames]);
+
+  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || carrierF || dateFrom || dateTo);
 
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
@@ -6298,8 +6753,29 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   async function handleBulkDelete() {
     if (!window.confirm(`Delete ${selectedIds.size} package(s)?`)) return;
     setBulkDeleting(true);
-    await Promise.all([...selectedIds].map((id) => deletePackage(id, actor)));
-    onBulkDeleted([...selectedIds]); setSelectedIds(new Set()); setBulkDeleting(false);
+    const ids = [...selectedIds];
+    try {
+      const results = await Promise.all(ids.map((id) => deletePackage(id, actor, actorProfileId)));
+      const failed = ids.filter((_, i) => !results[i].ok);
+      const succeeded = ids.filter((_, i) => results[i].ok);
+      if (failed.length) {
+        const firstErr = results[ids.indexOf(failed[0])]?.error ?? "Unknown error";
+        console.error("[PackagesDataTable] bulk delete failed for", failed.length, "id(s):", firstErr);
+        onToast?.(
+          failed.length === ids.length
+            ? `Could not delete packages: ${firstErr}`
+            : `${failed.length} package(s) could not be deleted (${firstErr}). ${succeeded.length} removed.`,
+          "error",
+        );
+      }
+      if (succeeded.length) onBulkDeleted(succeeded);
+      setSelectedIds(new Set());
+    } catch (e) {
+      console.error("[PackagesDataTable] bulk delete threw:", e);
+      onToast?.(e instanceof Error ? e.message : "Bulk delete failed.", "error");
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   return (
@@ -6331,6 +6807,9 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
+                {showCompanyColumn && (
+                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
+                )}
                 <th className="px-4 py-3 text-left"><SortButton field="package_number" label="Package #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="carrier_tracking" label="Carrier / Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6343,7 +6822,8 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {rows.map((p) => {
-                const pct = p.expected_item_count > 0 ? Math.min(100, (p.actual_item_count / p.expected_item_count) * 100) : null;
+                const assignedCount = assignedByPackage.get(p.id) ?? 0;
+                const pct = p.expected_item_count > 0 ? Math.min(100, (assignedCount / p.expected_item_count) * 100) : null;
                 const isExpanded = expandedIds.has(p.id);
                 const pkgItems = allReturns.filter((r) => r.package_id === p.id);
                 return (
@@ -6359,6 +6839,11 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                           <input type="checkbox" checked={selectedIds.has(p.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(p.id) : s.delete(p.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                         </div>
                       </td>
+                      {showCompanyColumn && (
+                        <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-medium text-muted-foreground md:table-cell" title={organizationLabelById[p.organization_id] ?? p.organization_id}>
+                          {organizationLabelById[p.organization_id] ?? `${p.organization_id.slice(0, 8)}…`}
+                        </td>
+                      )}
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-foreground">
                           <span>{p.package_number}</span>
@@ -6388,20 +6873,20 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3"><div className="flex items-center gap-2"><span className="text-sm font-bold text-slate-700 dark:text-slate-300">{p.actual_item_count}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</span>{pct !== null && <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-muted sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-sky-500"}`} style={{ width: `${pct}%` }} /></div>}</div></td>
+                      <td className="px-4 py-3"><div className="flex items-center gap-2"><span className="text-sm font-bold text-slate-700 dark:text-slate-300">{assignedCount}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</span>{pct !== null && <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-muted sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-sky-500"}`} style={{ width: `${pct}%` }} /></div>}</div></td>
                       <td className="px-4 py-3"><PkgStatusBadge status={p.status} /></td>
-                      <td className="hidden px-4 py-3 text-xs capitalize text-slate-400 md:table-cell">{operatorDisplayLabel(p)}</td>
+                      <td className="hidden px-4 py-3 text-xs capitalize text-slate-400 md:table-cell">{operatorDisplayLabel(p, pkgTableOperatorNames)}</td>
                       <td className="hidden px-4 py-3 text-xs text-slate-400 md:table-cell">{fmt(p.created_at)}</td>
                       <td className="px-3 py-3">
                         <RowActionMenu
                           onView={() => onRowClick(p)} onEdit={() => onRowEdit(p)}
-                          onDelete={canDelete(role) ? async () => { if (!window.confirm("Delete this package?")) return; const r = await deletePackage(p.id, actor); if (r.ok) onBulkDeleted([p.id]); } : undefined}
+                          onDelete={canDelete(role) ? async () => { if (!window.confirm("Delete this package?")) return; const r = await deletePackage(p.id, actor, actorProfileId); if (r.ok) onBulkDeleted([p.id]); } : undefined}
                         />
                       </td>
                     </tr>
                     {isExpanded && (
                       <tr className="bg-violet-50/40 dark:bg-violet-950/10">
-                        <td colSpan={10} className="px-6 py-3">
+                        <td colSpan={showCompanyColumn ? 11 : 10} className="px-6 py-3">
                           {pkgItems.length === 0
                             ? <p className="py-2 text-center text-xs text-slate-400">No items scanned for this package yet.</p>
                             : (
@@ -6437,7 +6922,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                         </td>
                                         <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{r.conditions.slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                         <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
-                                        <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(r)}</td>
+                                        <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(r, pkgTableOperatorNames)}</td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -6453,7 +6938,13 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && <p className="py-10 text-center text-sm text-slate-400">No packages match your filters.</p>}
+        {rows.length === 0 && (
+          <p className="py-10 text-center text-sm text-slate-400">
+            {packages.length === 0 && !hasActiveFilters
+              ? "No data."
+              : "No packages match your filters."}
+          </p>
+        )}
       </div>
       {total > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><p>Page {page} of {total}</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">Next →</button></div></div>}
 
@@ -6462,6 +6953,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
           selectedIds={[...selectedIds]}
           pallets={pallets}
           actor={actor}
+          actorProfileId={actorProfileId}
           onClose={() => setShowBulkPallet(false)}
           onDone={(updated, failed) => {
             if (onBulkPackagesUpdated && updated.length) onBulkPackagesUpdated(updated);
@@ -6477,8 +6969,11 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
 
 // ─── Pallets Data Table ────────────────────────────────────────────────────────
 
-export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, onRowClick, onRowEdit, onBulkDeleted, onNewPallet, externalSearch = "", onToast }: {
+export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onNewPallet, externalSearch = "", onToast }: {
   pallets: PalletRecord[]; packages?: PackageRecord[]; returns?: ReturnRecord[]; role: UserRole; actor: string;
+  actorProfileId?: string | null;
+  showCompanyColumn?: boolean;
+  organizationLabelById?: Record<string, string>;
   onRowClick: (p: PalletRecord) => void; onRowEdit: (p: PalletRecord) => void;
   onBulkDeleted: (ids: string[]) => void; onNewPallet: () => void;
   externalSearch?: string;
@@ -6494,6 +6989,13 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
   /** Package rows expanded inside the pallet sub-table (second-level: items). */
   const [nestedPkgExpandedIds, setNestedPkgExpandedIds] = useState<Set<string>>(new Set());
   const PER = 25;
+
+  // Resolve created_by UUIDs → display names for the Operator column.
+  const allPltCreatorIds = useMemo(
+    () => pallets.map((p) => p.created_by).filter((id): id is string => !!id),
+    [pallets],
+  );
+  const pltTableOperatorNames = useProfileNames(allPltCreatorIds);
 
   function toggleExpand(id: string, e: React.MouseEvent) { e.stopPropagation(); setExpandedIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
 
@@ -6525,10 +7027,12 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
     if (dateFrom) d = d.filter((p) => p.created_at >= dateFrom);
     if (dateTo)   d = d.filter((p) => p.created_at <= dateTo + "T23:59:59.999Z");
     d.sort((a, b) =>
-      compareSortKeys(sortKeyPallet(a, sortField), sortKeyPallet(b, sortField), sortAsc),
+      compareSortKeys(sortKeyPallet(a, sortField, pltTableOperatorNames), sortKeyPallet(b, sortField, pltTableOperatorNames), sortAsc),
     );
     return d;
-  }, [pallets, allPackages, allReturns, search, externalSearch, statusF, dateFrom, dateTo, sortField, sortAsc]);
+  }, [pallets, allPackages, allReturns, search, externalSearch, statusF, dateFrom, dateTo, sortField, sortAsc, pltTableOperatorNames]);
+
+  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || dateFrom || dateTo);
 
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
@@ -6538,8 +7042,29 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
   async function handleBulkDelete() {
     if (!window.confirm(`Delete ${selectedIds.size} pallet(s)?`)) return;
     setBulkDeleting(true);
-    await Promise.all([...selectedIds].map((id) => deletePallet(id, actor)));
-    onBulkDeleted([...selectedIds]); setSelectedIds(new Set()); setBulkDeleting(false);
+    const ids = [...selectedIds];
+    try {
+      const results = await Promise.all(ids.map((id) => deletePallet(id, actor, actorProfileId)));
+      const failed = ids.filter((_, i) => !results[i].ok);
+      const succeeded = ids.filter((_, i) => results[i].ok);
+      if (failed.length) {
+        const firstErr = results[ids.indexOf(failed[0])]?.error ?? "Unknown error";
+        console.error("[PalletsDataTable] bulk delete failed for", failed.length, "id(s):", firstErr);
+        onToast?.(
+          failed.length === ids.length
+            ? `Could not delete pallets: ${firstErr}`
+            : `${failed.length} pallet(s) could not be deleted (${firstErr}). ${succeeded.length} removed.`,
+          "error",
+        );
+      }
+      if (succeeded.length) onBulkDeleted(succeeded);
+      setSelectedIds(new Set());
+    } catch (e) {
+      console.error("[PalletsDataTable] bulk delete threw:", e);
+      onToast?.(e instanceof Error ? e.message : "Bulk delete failed.", "error");
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   return (
@@ -6562,6 +7087,9 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
+                {showCompanyColumn && (
+                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
+                )}
                 <th className="px-4 py-3 text-left"><SortButton field="pallet_number" label="Pallet #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left">
@@ -6594,6 +7122,11 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                           <input type="checkbox" checked={selectedIds.has(p.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(p.id) : s.delete(p.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                         </div>
                       </td>
+                      {showCompanyColumn && (
+                        <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-medium text-muted-foreground md:table-cell" title={organizationLabelById[p.organization_id] ?? p.organization_id}>
+                          {organizationLabelById[p.organization_id] ?? `${p.organization_id.slice(0, 8)}…`}
+                        </td>
+                      )}
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-foreground">
                           <span>{p.pallet_number}</span>
@@ -6609,18 +7142,18 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                       </td>
                       <td className="px-4 py-3"><span className="font-bold text-slate-700 dark:text-slate-300">{p._rollupPkgs}</span><span className="mx-1 text-slate-300 dark:text-slate-600">pkgs</span><span className="font-bold text-slate-500">{p._rollupItems}</span><span className="ml-1 text-slate-300 dark:text-slate-600">items</span></td>
                       <td className="px-4 py-3"><PalletStatusBadge status={p.status} /></td>
-                      <td className="hidden px-4 py-3 text-xs capitalize text-slate-400 md:table-cell">{operatorDisplayLabel(p)}</td>
+                      <td className="hidden px-4 py-3 text-xs capitalize text-slate-400 md:table-cell">{operatorDisplayLabel(p, pltTableOperatorNames)}</td>
                       <td className="hidden px-4 py-3 text-xs text-slate-400 lg:table-cell">{fmt(p.created_at)}</td>
                       <td className="px-3 py-3">
                         <RowActionMenu
                           onView={() => onRowClick(p)} onEdit={() => onRowEdit(p)}
-                          onDelete={canDelete(role) ? async () => { if (!window.confirm("Delete this pallet?")) return; const r = await deletePallet(p.id, actor); if (r.ok) onBulkDeleted([p.id]); } : undefined}
+                          onDelete={canDelete(role) ? async () => { if (!window.confirm("Delete this pallet?")) return; const r = await deletePallet(p.id, actor, actorProfileId); if (r.ok) onBulkDeleted([p.id]); } : undefined}
                         />
                       </td>
                     </tr>
                     {isExpanded && (
                       <tr className="bg-slate-50/70 dark:bg-slate-900/50">
-                        <td colSpan={9} className="px-6 py-3">
+                        <td colSpan={showCompanyColumn ? 10 : 9} className="px-6 py-3">
                           {pltPackages.length === 0
                             ? <p className="py-2 text-center text-xs text-slate-400">No packages linked to this pallet yet.</p>
                             : (
@@ -6640,7 +7173,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                       const pkItemCount = allReturns.filter((r) => r.package_id === pk.id).length;
                                       const pkgItems = allReturns.filter((r) => r.package_id === pk.id);
                                       const nestedOpen = nestedPkgExpandedIds.has(pk.id);
-                                      const pct = pk.expected_item_count > 0 ? Math.min(100, (pk.actual_item_count / pk.expected_item_count) * 100) : null;
+                                      const pct = pk.expected_item_count > 0 ? Math.min(100, (pkItemCount / pk.expected_item_count) * 100) : null;
                                       return (
                                         <React.Fragment key={pk.id}>
                                           <tr className="group hover:bg-slate-50 dark:hover:bg-slate-800/50">
@@ -6671,7 +7204,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                               </div>
                                             </td>
                                             <td className="px-3 py-2"><PkgStatusBadge status={pk.status} /></td>
-                                            <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(pk)}</td>
+                                            <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(pk, pltTableOperatorNames)}</td>
                                           </tr>
                                           {nestedOpen && (
                                             <tr className="bg-slate-100/60 dark:bg-slate-900/40">
@@ -6711,7 +7244,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                               </td>
                                                               <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{r.conditions.slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                                               <td className="px-2 py-1.5"><StatusBadge status={r.status} /></td>
-                                                              <td className="px-2 py-1.5 capitalize text-slate-400">{operatorDisplayLabel(r)}</td>
+                                                              <td className="px-2 py-1.5 capitalize text-slate-400">{operatorDisplayLabel(r, pltTableOperatorNames)}</td>
                                                             </tr>
                                                           ))}
                                                         </tbody>
@@ -6737,7 +7270,13 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && <p className="py-10 text-center text-sm text-slate-400">No pallets match your filters.</p>}
+        {rows.length === 0 && (
+          <p className="py-10 text-center text-sm text-slate-400">
+            {pallets.length === 0 && !hasActiveFilters
+              ? "No data."
+              : "No pallets match your filters."}
+          </p>
+        )}
       </div>
       {total > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><p>Page {page} of {total}</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">Next →</button></div></div>}
     </div>

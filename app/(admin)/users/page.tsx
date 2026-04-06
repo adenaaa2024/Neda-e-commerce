@@ -5,15 +5,18 @@ import Link from "next/link";
 import {
   ArrowLeft, ImageIcon, Loader2, Pencil, Plus, Save, Trash2, UserRound, X,
 } from "lucide-react";
-import { isAdminRole, useUserRole } from "../../components/UserRoleContext";
+import { isAdminRole, useUserRole, type UserRole } from "../../../components/UserRoleContext";
 import { UserProfileAvatar } from "./UserProfileAvatar";
 import {
   createUserProfile,
   deleteUserProfile,
+  getTenantCompanyIdForUsersPage,
   listUserProfiles,
   updateUserProfile,
-  type ProfileRow,
 } from "./users-actions";
+import type { ProfileRow } from "./users-types";
+import type { CompanyOption } from "../../../lib/imports-types";
+import { listCompaniesForImports } from "../imports/companies-actions";
 import { uploadUserProfilePhotoAction } from "./upload-profile-photo-action";
 
 const INPUT =
@@ -27,7 +30,7 @@ const BTN_SECONDARY =
 type Toast = { msg: string; ok: boolean } | null;
 
 export default function UsersPage() {
-  const { role } = useUserRole();
+  const { role, actorUserId } = useUserRole();
   const [rows, setRows] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<Toast>(null);
@@ -36,9 +39,12 @@ export default function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [userRole, setUserRole] = useState<"admin" | "operator">("operator");
+  const [userRole, setUserRole] = useState<UserRole>("operator");
   const [photoUploading, setPhotoUploading] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [tenantDefaultCompanyId, setTenantDefaultCompanyId] = useState("");
+  const [createCompanyId, setCreateCompanyId] = useState("");
 
   const showToast = useCallback((msg: string, ok: boolean) => {
     setToast({ msg, ok });
@@ -60,20 +66,45 @@ export default function UsersPage() {
     if (isAdminRole(role)) void load();
   }, [role, load]);
 
+  useEffect(() => {
+    if (!isAdminRole(role)) return;
+    let cancelled = false;
+    void (async () => {
+      const [tid, coRes] = await Promise.all([
+        getTenantCompanyIdForUsersPage(),
+        listCompaniesForImports(actorUserId),
+      ]);
+      if (cancelled) return;
+      setTenantDefaultCompanyId(tid);
+      if (coRes.ok) {
+        setCompanies(coRes.rows);
+        const pick = coRes.rows.some((c) => c.id === tid) ? tid : coRes.rows[0]?.id ?? "";
+        setCreateCompanyId(pick);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [role, actorUserId]);
+
   function openCreate() {
     setEditing(null);
     setFullName("");
     setEmail("");
     setUserRole("operator");
     setPendingPhoto(null);
+    const pick =
+      companies.some((c) => c.id === tenantDefaultCompanyId) ? tenantDefaultCompanyId : companies[0]?.id ?? "";
+    setCreateCompanyId(pick);
     setModalOpen(true);
   }
 
   function openEdit(row: ProfileRow) {
     setEditing(row);
-    setFullName(row.full_name);
+    setFullName(row.full_name ?? "");
     setEmail(row.email);
-    setUserRole(row.role === "admin" ? "admin" : "operator");
+    const VALID: UserRole[] = ["super_admin", "system_employee", "admin", "employee", "operator"];
+    setUserRole(VALID.includes(row.role as UserRole) ? (row.role as UserRole) : "operator");
     setModalOpen(true);
   }
 
@@ -114,10 +145,14 @@ export default function UsersPage() {
         if (!res.ok) throw new Error(res.error ?? "Save failed.");
         showToast("User updated.", true);
       } else {
+        if (!createCompanyId.trim()) {
+          throw new Error("Select a company.");
+        }
         const res = await createUserProfile({
           full_name: fullName,
           email,
           role: userRole,
+          organization_id: createCompanyId.trim(),
         });
         if (!res.ok) throw new Error(res.error ?? "Create failed.");
         if (pendingPhoto) {
@@ -226,6 +261,7 @@ export default function UsersPage() {
                 <tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3">User</th>
                   <th className="px-4 py-3">Email</th>
+                  <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Role</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -239,7 +275,10 @@ export default function UsersPage() {
                         <span className="font-medium">{row.full_name || "—"}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.email}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{row.email || "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {row.company_name ?? "—"}
+                    </td>
                     <td className="px-4 py-3 capitalize">{row.role}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
@@ -356,17 +395,50 @@ export default function UsersPage() {
                   {editing ? "Email is fixed after the user is created." : "Used as the unique login identifier for this workspace."}
                 </p>
               </div>
+              {!editing ? (
+                <div>
+                  <label className={LABEL} htmlFor="company">
+                    Company <span className="text-destructive">*</span>
+                  </label>
+                  <select
+                    id="company"
+                    className={INPUT}
+                    value={createCompanyId}
+                    onChange={(e) => setCreateCompanyId(e.target.value)}
+                    required
+                  >
+                    {companies.length === 0 ? (
+                      <option value="">Loading companies…</option>
+                    ) : (
+                      companies.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.display_name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Saved to <code className="rounded bg-muted px-1 text-[11px]">profiles.organization_id</code>.
+                  </p>
+                </div>
+              ) : null}
               <div>
                 <label className={LABEL} htmlFor="role">Role</label>
                 <select
                   id="role"
                   className={INPUT}
                   value={userRole}
-                  onChange={(e) => setUserRole(e.target.value as "admin" | "operator")}
+                  onChange={(e) => setUserRole(e.target.value as UserRole)}
                 >
-                  <option value="operator">Operator</option>
-                  <option value="admin">Admin</option>
+                  <option value="operator">Operator — Warehouse / WMS only</option>
+                  <option value="employee">Employee — Office staff (no Settings/Users)</option>
+                  <option value="admin">Admin — Company boss (full org access)</option>
+                  <option value="system_employee">System Employee — SaaS staff (multi-org)</option>
+                  <option value="super_admin">Super Admin — God mode (platform owner)</option>
                 </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Role controls which modules and sections this user can access.
+                </p>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" className={BTN_SECONDARY} onClick={closeModal}>

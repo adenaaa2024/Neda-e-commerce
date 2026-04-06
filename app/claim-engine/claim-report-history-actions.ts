@@ -17,8 +17,8 @@ export type ClaimReportHistoryRow = {
   report_name: string;
   /** Same source as Claim Engine: `source_payload.claim_type` (adapter / case type). */
   claim_type: string | null;
-  /** Resolved from `profiles` when `created_by` is a UUID; else operator text. */
-  generated_by: string | null;
+  /** Resolved from `profiles` when `created_by` is a UUID; otherwise e.g. "System Agent". */
+  generated_by: string;
   created_at: string;
   report_url: string | null;
   status_label: ClaimReportHistoryStatusLabel;
@@ -49,6 +49,8 @@ function resolveStatusLabel(
 ): ClaimReportHistoryStatusLabel {
   const hasUrl = Boolean(reportUrl?.trim());
   const st = status ?? "";
+  /** `"failed"` is always a terminal failure regardless of whether a PDF was generated. */
+  if (st === "failed") return "Failed";
   if (!hasUrl) {
     if (st === "rejected") return "Failed";
     return "Generating...";
@@ -70,11 +72,14 @@ function buildReportName(sub: Record<string, unknown>, ret: Record<string, unkno
 async function loadProfileNames(ids: string[]): Promise<Map<string, string>> {
   const uuids = [...new Set(ids.map((x) => x.trim()).filter(isUuidString))];
   if (uuids.length === 0) return new Map();
-  const { data, error } = await supabaseServer.from("profiles").select("id, full_name").in("id", uuids);
+  const { data, error } = await supabaseServer
+    .from("profiles")
+    .select("id, full_name, name")
+    .in("id", uuids);
   if (error || !data) return new Map();
   const m = new Map<string, string>();
-  for (const row of data as { id: string; full_name?: string | null }[]) {
-    const name = (row.full_name ?? "").trim();
+  for (const row of data as { id: string; full_name?: string | null; name?: string | null }[]) {
+    const name = (row.full_name ?? row.name ?? "").trim();
     if (row.id && name) m.set(row.id, name);
   }
   return m;
@@ -129,7 +134,7 @@ export async function listClaimReportHistory(
     }
     const profileMap = await loadProfileNames(creatorCandidates);
 
-    function resolveGeneratedBy(sub: Record<string, unknown>, ret: Record<string, unknown> | null): string | null {
+    function resolveGeneratedBy(sub: Record<string, unknown>, ret: Record<string, unknown> | null): string {
       const subCb = sub.created_by as string | null | undefined;
       if (subCb && isUuidString(subCb.trim())) {
         const n = profileMap.get(subCb.trim());
@@ -145,7 +150,7 @@ export async function listClaimReportHistory(
         return t;
       }
       if (subCb && String(subCb).trim()) return String(subCb).trim();
-      return null;
+      return "System Agent";
     }
 
     const rows: ClaimReportHistoryRow[] = [];

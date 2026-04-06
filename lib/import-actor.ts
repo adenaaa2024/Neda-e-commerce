@@ -1,32 +1,37 @@
 import "server-only";
 
+import { getSessionUserIdFromCookies } from "./supabase-server-auth";
 import { supabaseServer } from "./supabase-server";
 import { resolveOrganizationId } from "./organization";
 import { isUuidString } from "./uuid";
 
 /**
  * Resolves the acting `profiles.id` for import/audit actions.
- * Priority: validated explicit id → first admin in org → any org member (silent fallback).
+ * Priority: validated explicit id → cookie session user id → first admin in org → any org member.
  */
 export async function resolveActorProfileId(
   explicitUserId?: string | null,
 ): Promise<string | null> {
-  const orgId = resolveOrganizationId();
-
-  async function verifyInOrg(id: string): Promise<boolean> {
+  async function profileExists(id: string): Promise<boolean> {
     const { data, error } = await supabaseServer
       .from("profiles")
       .select("id")
-      .eq("organization_id", orgId)
       .eq("id", id)
       .maybeSingle();
-    return !error && !!data?.id;
+    return !error && Boolean(data?.id);
   }
 
   const raw = explicitUserId?.trim();
-  if (raw && isUuidString(raw) && (await verifyInOrg(raw))) {
+  if (raw && isUuidString(raw) && (await profileExists(raw))) {
     return raw;
   }
+
+  const fromCookies = await getSessionUserIdFromCookies();
+  if (fromCookies && (await profileExists(fromCookies))) {
+    return fromCookies;
+  }
+
+  const orgId = resolveOrganizationId();
 
   const { data: superAdmin } = await supabaseServer
     .from("profiles")

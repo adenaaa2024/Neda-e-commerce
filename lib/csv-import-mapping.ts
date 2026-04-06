@@ -42,6 +42,101 @@ export const REPORT_TYPE_SPECS: Record<
     aliases: string[];
   }
 > = {
+  FBA_RETURNS: {
+    canonicalKey: "license-plate-number",
+    shortLabel: "FBA Returns (detected)",
+    description: "LPN + return reason — routed to expected returns",
+    aliases: [
+      "license-plate-number",
+      "return-reason-code",
+      "license plate number",
+      "LPN",
+      "lpn",
+    ],
+  },
+  REMOVAL_ORDER: {
+    canonicalKey: "tracking-number",
+    shortLabel: "Removal order (detected)",
+    description: "Tracking + shipment id — routed to expected packages",
+    aliases: ["tracking-number", "shipment-id", "Tracking Number", "Shipment ID"],
+  },
+  INVENTORY_LEDGER: {
+    canonicalKey: "fnsku",
+    shortLabel: "Inventory ledger (detected)",
+    description: "Date + FNSKU — routed to product catalog",
+    aliases: ["fnsku", "FNSKU", "snapshot-date", "date", "asin", "ASIN"],
+  },
+  UNKNOWN: {
+    canonicalKey: "order-id",
+    shortLabel: "Unknown / other",
+    description: "Could not classify — set type manually or re-upload",
+    aliases: ["order-id", "Order-ID", "description"],
+  },
+  REIMBURSEMENTS: {
+    canonicalKey: "reimbursement-id",
+    shortLabel: "Reimbursements (detected)",
+    description: "Reimbursement ID + qty — routed to reimbursement records",
+    aliases: [
+      "reimbursement-id",
+      "reimbursement id",
+      "approval-date",
+      "quantity-reimbursed-total",
+      "quantity reimbursed total",
+    ],
+  },
+  SETTLEMENT: {
+    canonicalKey: "settlement-id",
+    shortLabel: "Settlement (detected)",
+    description: "Settlement flat .txt (TSV) or legacy CSV — routed to amazon_settlements",
+    aliases: [
+      "settlement-id",
+      "settlement id",
+      "Settlement ID",
+      "settlement-start-date",
+      "transaction-type",
+      "transaction-status",
+      "deposit-date",
+      "total-amount",
+    ],
+  },
+  SAFET_CLAIMS: {
+    canonicalKey: "safe-t-claim-id",
+    shortLabel: "SAFE-T Claims (detected)",
+    description: "SAFE-T Claim ID + reimbursement amount — routed to claims",
+    aliases: [
+      "safe-t-claim-id",
+      "safe-t claim id",
+      "claim-id",
+      "reimbursement-amount",
+      "reimbursement amount",
+    ],
+  },
+  TRANSACTIONS: {
+    canonicalKey: "transaction-type",
+    shortLabel: "Transactions (detected)",
+    description: "Transaction type + product charges — fee / revenue breakdown",
+    aliases: [
+      "transaction-type",
+      "transaction type",
+      "total-product-charges",
+      "total product charges",
+      "posted-date",
+    ],
+  },
+  REPORTS_REPOSITORY: {
+    canonicalKey: "date/time",
+    shortLabel: "Reports Repository (transactions CSV)",
+    description: "9-line preamble; headers on row 10 — synced to amazon_reports_repository",
+    aliases: [
+      "date/time",
+      "settlement id",
+      "type",
+      "order id",
+      "sku",
+      "description",
+      "total",
+    ],
+  },
   fba_customer_returns: {
     canonicalKey: "license-plate-number",
     shortLabel: "FBA Customer Returns",
