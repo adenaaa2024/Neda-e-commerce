@@ -1,15 +1,3 @@
-# ==============================
-# SECTION: PDF GENERATION
-# ==============================
-
-# ==============================
-# SECTION: DB / SUPABASE
-# ==============================
-
-# ==============================
-# SECTION: BROWSER / SELENIUM
-# ==============================
-
 """
 Seller Central FBA Reimbursement — "My issue is not listed" flow.
 
@@ -26,12 +14,12 @@ Flow:
 """
 
 from __future__ import annotations
+
 from pathlib import Path
 from dotenv import load_dotenv
 
 import asyncio
 import datetime
-import json
 import os
 import re
 import tempfile
@@ -60,7 +48,6 @@ from reportlab.platypus import (
 _env_dir = Path(__file__).resolve().parent
 _env_file = _env_dir / ".env"
 load_dotenv(dotenv_path=_env_file)
-print("ENGINE:", os.getenv("CLAIM_BROWSER_ENGINE"))
 print(
     f"[env] Dotenv directory: {_env_dir} | loading: {_env_file} | "
     f"file exists: {_env_file.is_file()}"
@@ -87,252 +74,6 @@ from selenium.common.exceptions import (
 from webdriver_manager.chrome import ChromeDriverManager
 
 from amazon_kat_reimbursement import deep_query_all
-
-from claim_report_service import generate_claim_report, generate_bulk_report_pdf
-from claim_repository import ClaimRepository
-from selenium_case_opener import ClaimProcessorAgent as SeleniumCaseOpener
-from playwright_case_opener import PlaywrightCaseOpener
-
-# Browser engine selection: default selenium, optional playwright
-# Set env var CLAIM_BROWSER_ENGINE=playwright to activate the Playwright path.
-_CLAIM_BROWSER_ENGINE = os.getenv("CLAIM_BROWSER_ENGINE", "selenium").lower()
-
-# Amazon "What steps have you taken already?" — Playwright payload always sends non-empty text.
-_DEFAULT_AMAZON_STEPS_TEXT = (
-    "I reviewed the order, generated the attached reimbursement report, and am submitting "
-    "this claim with the supporting PDF evidence for Amazon review."
-)
-
-
-def _normalized_source_payload_dict(
-    claim_data: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    """
-    ``source_payload`` may be a dict (Supabase client) or a JSON string (exports /
-    some API paths).  Returns a dict or *None*.
-    """
-    if not claim_data:
-        return None
-    sp = claim_data.get("source_payload")
-    if sp is None:
-        return None
-    if isinstance(sp, dict):
-        return sp
-    if isinstance(sp, str):
-        raw = sp.strip()
-        if not raw:
-            return None
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
-    return None
-
-
-def _steps_text_from_claim_data(claim_data: dict[str, Any] | None) -> str:
-    """Prefer explicit steps from submission/claim row; else default reimbursement sentence."""
-    if claim_data:
-        for key in ("steps_text", "steps_taken", "steps", "issue_steps"):
-            v = claim_data.get(key)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-        sp = _normalized_source_payload_dict(claim_data)
-        if sp:
-            for key in ("steps_text", "steps_taken", "steps"):
-                v = sp.get(key)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-    return _DEFAULT_AMAZON_STEPS_TEXT
-
-
-def _asin_value_from_source_payload(claim_data: dict[str, Any] | None) -> str:
-    """Fallback ASIN from ``source_payload`` only (after ``returns.asin``)."""
-    sp = _normalized_source_payload_dict(claim_data)
-    if not sp:
-        return ""
-    for key in ("asin", "ASIN", "asin_value"):
-        v = sp.get(key)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return ""
-
-
-def _asin_from_return_row(ret: dict[str, Any] | None) -> str:
-    if not isinstance(ret, dict):
-        return ""
-    av = ret.get("asin")
-    return av.strip() if isinstance(av, str) and av.strip() else ""
-
-
-def _resolve_asin_value_for_browser_payload(
-    *,
-    repo: ClaimRepository,
-    organization_id: str,
-    submission_id: str | None,
-    claim_data: dict[str, Any] | None,
-) -> tuple[str, str]:
-    """
-    ASIN for the Playwright payload.
-
-    Priority: (1) related ``returns.asin`` via repository, (2) ``source_payload`` ASIN keys,
-    else empty.  Returns ``(asin_value, source_tag)`` where *source_tag* is
-    ``\"returns.asin\"``, ``\"source_payload.asin\"``, or ``\"missing\"``.
-    """
-    if submission_id:
-        try:
-            ret = repo.get_return_for_submission(
-                submission_id,
-                organization_id or None,
-            )
-            got = _asin_from_return_row(ret)
-            if got:
-                return got, "returns.asin"
-        except Exception as exc:
-            _log(
-                f"_resolve_asin_value_for_browser_payload: "
-                f"get_return_for_submission failed: {type(exc).__name__}: {exc}"
-            )
-
-    if claim_data:
-        rid = claim_data.get("return_id")
-        if isinstance(rid, str) and rid.strip():
-            try:
-                ret2 = repo.get_return_by_id(
-                    rid.strip(),
-                    organization_id or None,
-                )
-                got2 = _asin_from_return_row(ret2)
-                if got2:
-                    return got2, "returns.asin"
-            except Exception as exc:
-                _log(
-                    f"_resolve_asin_value_for_browser_payload: "
-                    f"get_return_by_id failed: {type(exc).__name__}: {exc}"
-                )
-
-    sp_asin = _asin_value_from_source_payload(claim_data)
-    if sp_asin:
-        return sp_asin, "source_payload.asin"
-    return "", "missing"
-
-
-if _CLAIM_BROWSER_ENGINE == "playwright":
-    # PlaywrightCaseOpener does not accept organization_id; wrap it so that
-    # existing call sites (ClaimProcessorAgent(org_id)) stay compatible.
-    class _PlaywrightAdapter(PlaywrightCaseOpener):
-        def __init__(self, organization_id: str | None = None, **kwargs):  # noqa: ANN001
-            super().__init__(**kwargs)
-            self.org_id = (organization_id or "").strip()
-            self.repo = ClaimRepository(self.org_id)
-
-        def resolve_evidence_pdf_path(self, report_url: str | None) -> str | None:  # noqa: ANN001
-            # PlaywrightCaseOpener has no Supabase Storage dependency.
-            # Return None so main.py falls through to the locally-generated PDF.
-            return None
-
-        def run_selenium_navigation(
-            self,
-            amazon_order_id: str,
-            claim_type: str,
-            evidence_pdf_path: str | None = None,
-            *,
-            submission_id: str | None = None,
-            claim_data: dict | None = None,
-        ) -> dict | None:
-            """
-            Bridge: maps the Selenium call signature used by main.py to
-            PlaywrightCaseOpener.submit_not_listed_claim().
-
-            Builds help/steps/reference for the Amazon form; steps_text is always
-            non-empty (explicit claim data or default). Supabase sync is handled
-            by the caller (main.py) using the returned dict.
-            """
-            reference_text = (amazon_order_id or "").strip()
-            steps_text = _steps_text_from_claim_data(claim_data)
-
-            explicit_help = ""
-            if claim_data:
-                for key in ("help_text", "claim_message", "message"):
-                    v = claim_data.get(key)
-                    if isinstance(v, str) and v.strip():
-                        explicit_help = v.strip()
-                        break
-
-            auto_help = ""
-            if reference_text:
-                auto_help = (
-                    f"Filing a reimbursement claim for Order ID: {reference_text}. "
-                    f"Issue type: {claim_type}. "
-                    "Please refer to the attached PDF evidence."
-                )
-            help_text = explicit_help or auto_help
-
-            asin_value, asin_source = _resolve_asin_value_for_browser_payload(
-                repo=self.repo,
-                organization_id=self.org_id,
-                submission_id=submission_id,
-                claim_data=claim_data,
-            )
-            payload: dict[str, Any] = {
-                "amazon_order_id": amazon_order_id,
-                "claim_type": claim_type,
-                "steps_text": steps_text,
-                "reference_text": reference_text,
-                "asin_value": asin_value,
-            }
-            if explicit_help:
-                payload["help_text"] = explicit_help
-
-            print(f"[claim-agent] asin_value={asin_value!r}", flush=True)
-            print(
-                f"[claim-agent] asin source={asin_source!r}",
-                flush=True,
-            )
-            print(
-                f"[claim-agent] payload help_len={len(help_text or '')} "
-                f"steps_len={len(steps_text or '')} ref_len={len(reference_text or '')}",
-                flush=True,
-            )
-
-            self.start()
-            try:
-                result = self.submit_not_listed_claim(
-                    payload=payload,
-                    pdf_path=evidence_pdf_path,
-                )
-            finally:
-                self.stop()
-            # main.py treats (outcome is not None) as success; return None whenever
-            # Playwright reports ok=False so we never mark a submission submitted on failure.
-            if not result.get("ok"):
-                return None
-
-            amazon_case_id = result.get("amazon_case_id")
-            final_status = result.get("status", "submitted")
-            print(
-                f"[claim-agent] amazon_case_id resolved: {amazon_case_id!r}",
-                flush=True,
-            )
-            if submission_id and amazon_case_id:
-                try:
-                    self.repo.update_result(submission_id, amazon_case_id, final_status)
-                    print(
-                        "[claim-agent] claim_submissions updated with amazon_case_id",
-                        flush=True,
-                    )
-                except Exception as _repo_exc:
-                    print(
-                        f"[claim-agent] repo.update_result failed: "
-                        f"{type(_repo_exc).__name__}: {_repo_exc}",
-                        flush=True,
-                    )
-
-            return result
-
-    ClaimProcessorAgent = _PlaywrightAdapter  # type: ignore[assignment]
-else:
-    ClaimProcessorAgent = SeleniumCaseOpener  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Entry URL
@@ -717,7 +458,6 @@ def _log(msg: str) -> None:
     print(f"{_LOG_PREFIX} {msg}", flush=True)
 
 
-# TODO: migrate remaining browser helper to selenium_case_opener.py
 def _safe_js(driver, label: str, script: str, *args: Any) -> Any:
     """Execute JS; log + return None on any WebDriver error."""
     try:
@@ -727,7 +467,6 @@ def _safe_js(driver, label: str, script: str, *args: Any) -> Any:
         return None
 
 
-# TODO: migrate this DB call to ClaimRepository — replace with ClaimRepository.resolve_amazon_order_id_from_row(row)
 def resolve_amazon_order_id_from_row(row: dict[str, Any]) -> str | None:
     """Resolve Amazon order ID from a claim_submissions database row."""
     payload = row.get("source_payload")
@@ -762,8 +501,6 @@ _PDF_OUTPUT_DIR: str = (
 )
 
 
-# TODO: moved to claim_report_service.py; remove after validation
-'''
 def _safe_text(val: Any, fallback: str = "N/A", max_len: int = 2000) -> str:
     """
     Convert *val* to a printable, unicode-safe string.
@@ -791,11 +528,8 @@ def _safe_text(val: Any, fallback: str = "N/A", max_len: int = 2000) -> str:
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len] + "… [truncated]"
     return cleaned
-'''
 
 
-# TODO: moved to claim_report_service.py; remove after validation
-'''
 def _flatten_claim_data_for_report(claim_data: dict[str, Any]) -> dict[str, str]:
     """
     Normalize a claim_submissions row (or any claim dict) into a flat
@@ -895,11 +629,8 @@ def _flatten_claim_data_for_report(claim_data: dict[str, Any]) -> dict[str, str]
         flat["Source Payload (excerpt)"] = _safe_text(payload, max_len=800)
 
     return flat
-'''
 
 
-# TODO: moved to claim_report_service.py; remove after validation
-'''
 def _build_claim_report_lines(flat: dict[str, str]) -> list[tuple[str, str]]:
     """
     Return an ordered list of (label, value) pairs for rendering in the PDF.
@@ -934,10 +665,8 @@ def _build_claim_report_lines(flat: dict[str, str]) -> list[tuple[str, str]]:
         if k not in seen:
             lines.append((k, v))
     return lines
-'''
 
-'''  # generate_claim_report — disabled; imported from claim_report_service
-# ===== PDF =====
+
 def generate_claim_report(
     claim_data: dict[str, Any],
     output_dir: str | None = None,
@@ -1154,7 +883,6 @@ def generate_claim_report(
 
     _log(f"Claim PDF generated at: {pdf_path}")
     return pdf_path
-'''  # end generate_claim_report — disabled
 
 
 # ---------------------------------------------------------------------------
@@ -1164,9 +892,7 @@ def generate_claim_report(
 _LOGO_BUCKET = "claim-reports"
 _LOGO_STORAGE_PATH = "files/logos/logo-amazon.jpeg"
 
-# ===== DB =====
-# TODO: moved to claim_report_service.py; remove after validation
-'''
+
 def _download_logo_from_supabase(supabase_client=None) -> str | None:
     """
     Download ``claim-reports/files/logos/logo-amazon.jpeg`` from Supabase
@@ -1212,7 +938,6 @@ def _download_logo_from_supabase(supabase_client=None) -> str | None:
     except Exception as exc:
         _log(f"Logo download failed ({_LOGO_BUCKET}/{_LOGO_STORAGE_PATH}): {exc}")
         return None
-'''
 
 
 # ---------------------------------------------------------------------------
@@ -1239,16 +964,11 @@ _HEADER_H: float = 2.8 * cm
 _FOOTER_H: float = 0.9 * cm
 
 
-# TODO: moved to claim_report_service.py; remove after validation
-'''
 def _xml_esc(text: str) -> str:
     """Escape XML entities so ReportLab Paragraph doesn't choke on raw data."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-'''
 
 
-# TODO: moved to claim_report_service.py; remove after validation
-'''
 def _extract_bulk_report_fields(claim_data: dict[str, Any]) -> dict[str, Any]:
     """
     Normalise a ``claim_submissions`` row (or equivalent dict) into a flat
@@ -1362,21 +1082,15 @@ def _extract_bulk_report_fields(claim_data: dict[str, Any]) -> dict[str, Any]:
         "notes":          notes,
         "photo_labels":   photo_labels,
     }
-'''
 
 
-# TODO: moved to claim_report_service.py; remove after validation
-'''
 def _draw_amazon_text(canvas: Any, x: float, y: float) -> None:
     """Render 'amazon' in the brand orange as a logo text-placeholder."""
     canvas.setFillColor(_C_AMZN)
     canvas.setFont("Helvetica-Bold", 12)
     canvas.drawString(x, y, "amazon")
-'''
 
 
-# TODO: moved to claim_report_service.py; remove after validation
-'''
 def _draw_bulk_report_chrome(
     canvas: Any,
     doc: Any,
@@ -1457,10 +1171,8 @@ def _draw_bulk_report_chrome(
     canvas.drawCentredString(W / 2, 0.3 * cm, footer_text)
 
     canvas.restoreState()
-'''
 
-'''  # generate_bulk_report_pdf — disabled; imported from claim_report_service
-# ===== PDF =====
+
 def generate_bulk_report_pdf(
     claim_data: dict[str, Any],
     output_dir: str | None = None,
@@ -1794,15 +1506,12 @@ def generate_bulk_report_pdf(
 
     _log(f"Bulk-report PDF generated at: {pdf_path}")
     return pdf_path
-'''  # end generate_bulk_report_pdf — disabled
 
 
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
-# TODO: moved to selenium_case_opener.py; safe to remove after validation
-# ===== BROWSER =====
-'''  # ClaimProcessorAgent — disabled; imported from selenium_case_opener
+
 class ClaimProcessorAgent:
     """
     Selenium agent that files a Seller Central help case via the
@@ -1811,9 +1520,6 @@ class ClaimProcessorAgent:
 
     def __init__(self, organization_id: str):
         self.org_id = organization_id
-        # TODO: moved to claim_repository.py; safe to remove after validation
-        # NOTE: self.supabase is kept active here because run_selenium_navigation
-        # still passes it to generate_bulk_report_pdf for logo download.
         self.supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         try:
@@ -1829,8 +1535,6 @@ class ClaimProcessorAgent:
                 print(f"[!] Supabase client could not be created: {e}")
             raise
 
-        self.repo = ClaimRepository(self.org_id)
-
         self._chrome_debugger = (os.getenv("CHROME_DEBUGGER_ADDRESS") or "").strip()
         self._mock_submit = (os.getenv("CLAIM_AGENT_MOCK_SUBMIT") or "").lower() in (
             "1",
@@ -1844,57 +1548,53 @@ class ClaimProcessorAgent:
     # PDF: Supabase Storage → local temp file
     # ------------------------------------------------------------------
 
-    # TODO: moved to claim_repository.py; safe to remove after validation
     def resolve_evidence_pdf_path(self, report_url: str | None) -> str | None:
         """
         `claim_submissions.report_url` is usually a Supabase Storage object path
         under bucket `claim-reports`.  Returns a local path for Selenium send_keys
         on <input type=file>.  Never raises — missing PDF is OK.
         """
-        # Delegated to ClaimRepository — full resolution logic lives there.
-        return self.repo.resolve_evidence_pdf_path(report_url)
-        # ── DISABLED (original body preserved below for reference) ────────────
-        # if not report_url or not str(report_url).strip():
-        #     print("[WARNING] No report_url in database; proceeding without PDF upload.", flush=True)
-        #     _log("No report_url; no PDF upload.")
-        #     return None
-        # p = str(report_url).strip()
-        # if p.lower() in ("generated_locally", "none", "null"):
-        #     _log(f"report_url is placeholder {p!r}; no PDF upload.")
-        #     return None
-        # if os.path.isfile(p):
-        #     ab = os.path.abspath(p)
-        #     _log(f"Using existing local evidence file: {ab}")
-        #     return ab
-        # if p.startswith("http://") or p.startswith("https://"):
-        #     try:
-        #         import urllib.request
-        #         fd, tmp = tempfile.mkstemp(suffix=".pdf", prefix="claim_evidence_")
-        #         os.close(fd)
-        #         _log("Downloading evidence PDF from URL…")
-        #         urllib.request.urlretrieve(p, tmp)
-        #         _log(f"Evidence saved to {tmp}")
-        #         return tmp
-        #     except Exception as e:
-        #         print(f"[WARNING] Failed to download report URL (continuing without PDF): {e}", flush=True)
-        #         _log(f"URL download failed: {e}")
-        #         return None
-        # bucket = (os.getenv("SUPABASE_REPORTS_BUCKET") or "claim-reports").strip()
-        # try:
-        #     data = self.supabase.storage.from_(bucket).download(p)
-        #     if not data:
-        #         _log(f"Storage download empty for {bucket!r}/{p!r}")
-        #         return None
-        #     fd, tmp = tempfile.mkstemp(suffix=".pdf", prefix="claim_evidence_")
-        #     os.close(fd)
-        #     with open(tmp, "wb") as f:
-        #         f.write(data)
-        #     _log(f"Downloaded evidence from storage {bucket!r}/{p!r} → {tmp}")
-        #     return tmp
-        # except Exception as e:
-        #     print(f"[WARNING] Storage PDF download failed (continuing without PDF): {e}", flush=True)
-        #     _log(f"Storage download failed ({bucket!r}/{p!r}): {e}")
-        #     return None
+        if not report_url or not str(report_url).strip():
+            print("[WARNING] No report_url in database; proceeding without PDF upload.", flush=True)
+            _log("No report_url; no PDF upload.")
+            return None
+        p = str(report_url).strip()
+        if p.lower() in ("generated_locally", "none", "null"):
+            _log(f"report_url is placeholder {p!r}; no PDF upload.")
+            return None
+        if os.path.isfile(p):
+            ab = os.path.abspath(p)
+            _log(f"Using existing local evidence file: {ab}")
+            return ab
+        if p.startswith("http://") or p.startswith("https://"):
+            try:
+                import urllib.request
+                fd, tmp = tempfile.mkstemp(suffix=".pdf", prefix="claim_evidence_")
+                os.close(fd)
+                _log("Downloading evidence PDF from URL…")
+                urllib.request.urlretrieve(p, tmp)
+                _log(f"Evidence saved to {tmp}")
+                return tmp
+            except Exception as e:
+                print(f"[WARNING] Failed to download report URL (continuing without PDF): {e}", flush=True)
+                _log(f"URL download failed: {e}")
+                return None
+        bucket = (os.getenv("SUPABASE_REPORTS_BUCKET") or "claim-reports").strip()
+        try:
+            data = self.supabase.storage.from_(bucket).download(p)
+            if not data:
+                _log(f"Storage download empty for {bucket!r}/{p!r}")
+                return None
+            fd, tmp = tempfile.mkstemp(suffix=".pdf", prefix="claim_evidence_")
+            os.close(fd)
+            with open(tmp, "wb") as f:
+                f.write(data)
+            _log(f"Downloaded evidence from storage {bucket!r}/{p!r} → {tmp}")
+            return tmp
+        except Exception as e:
+            print(f"[WARNING] Storage PDF download failed (continuing without PDF): {e}", flush=True)
+            _log(f"Storage download failed ({bucket!r}/{p!r}): {e}")
+            return None
 
     # ------------------------------------------------------------------
     # Driver
@@ -2722,7 +2422,6 @@ class ClaimProcessorAgent:
             return m.group(1)
         return None
 
-    # TODO: moved to claim_repository.py; safe to remove after validation
     def _sync_case_result(
         self,
         submission_id: str,
@@ -2733,20 +2432,19 @@ class ClaimProcessorAgent:
         Write the final case status (and case ID when found) to claim_submissions
         using the submission_id as the primary key filter.
         """
-        # DISABLED — replaced by self.repo.update_result(); body preserved below for reference.
-        # update_payload: dict[str, Any] = {"status": status}
-        # if amazon_case_id:
-        #     update_payload["amazon_case_id"] = amazon_case_id
-        # try:
-        #     self.supabase.table("claim_submissions").update(update_payload).eq(
-        #         "id", submission_id
-        #     ).execute()
-        #     _log(
-        #         f"Supabase synced — submission_id={submission_id!r} "
-        #         f"status={status!r} amazon_case_id={amazon_case_id!r}"
-        #     )
-        # except Exception as e:
-        #     _log(f"Supabase sync failed for submission_id={submission_id!r}: {type(e).__name__}: {e}")
+        update_payload: dict[str, Any] = {"status": status}
+        if amazon_case_id:
+            update_payload["amazon_case_id"] = amazon_case_id
+        try:
+            self.supabase.table("claim_submissions").update(update_payload).eq(
+                "id", submission_id
+            ).execute()
+            _log(
+                f"Supabase synced — submission_id={submission_id!r} "
+                f"status={status!r} amazon_case_id={amazon_case_id!r}"
+            )
+        except Exception as e:
+            _log(f"Supabase sync failed for submission_id={submission_id!r}: {type(e).__name__}: {e}")
 
     # ------------------------------------------------------------------
     # Main navigation flow
@@ -3022,7 +2720,7 @@ class ClaimProcessorAgent:
                     f"(submission_id={submission_id!r} status={final_status!r} "
                     f"amazon_case_id={amazon_case_id!r})."
                 )
-                self.repo.update_result(submission_id, amazon_case_id, final_status)
+                self._sync_case_result(submission_id, amazon_case_id, final_status)
             else:
                 _log("Step 9: no submission_id supplied — Supabase sync skipped.")
 
@@ -3071,14 +2769,12 @@ class ClaimProcessorAgent:
             submission_id=submission_id,
             claim_data=claim_data,
         )
-'''  # end ClaimProcessorAgent — disabled
 
 
 # ---------------------------------------------------------------------------
 # Module-level orchestration (no Supabase dependency — pure Selenium)
 # ---------------------------------------------------------------------------
 
-# TODO: migrate remaining browser helper to selenium_case_opener.py
 def build_driver(debugger_address: str = "127.0.0.1:9222") -> Any:
     """
     Attach to an existing Chrome instance via remote debugging port.
@@ -3093,7 +2789,6 @@ def build_driver(debugger_address: str = "127.0.0.1:9222") -> Any:
     return driver
 
 
-# TODO: migrate remaining browser helper to selenium_case_opener.py
 def submit_not_listed_issue(
     driver: Any,
     help_text: str,
@@ -3219,7 +2914,6 @@ def submit_not_listed_issue(
         return {"ok": False, "step_failed": f"exception:{type(exc).__name__}", "error": str(exc)}
 
 
-# TODO: migrate remaining browser helper to selenium_case_opener.py
 def safe_submit_not_listed_issue(
     driver: Any,
     help_text: str,
