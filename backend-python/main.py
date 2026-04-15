@@ -11,9 +11,10 @@ from dotenv import load_dotenv
 
 from claim_agent import (
     ClaimProcessorAgent,
-    generate_bulk_report_pdf,
     resolve_amazon_order_id_from_row,
 )
+
+from claim_report_service import generate_claim_evidence_pdf
 
 # Always load backend-python/.env (not the shell's current working directory).
 _env_dir = Path(__file__).resolve().parent
@@ -221,14 +222,22 @@ async def process_ready_claims(
         # the evidence document; storage download is only a fallback.
         pdf_path: str | None = None
         try:
-            pdf_path = generate_bulk_report_pdf(row, supabase_client=supabase)
+            pdf_result = generate_claim_evidence_pdf(
+                organization_id=str(row_org),
+                submission_id=str(row.get("id")),
+                claim_data=row,
+                upload_to_storage=True,
+            )
+            pdf_path = pdf_result.get("local_pdf_path")
+            if not pdf_result.get("ok") or not pdf_path:
+                raise RuntimeError(pdf_result.get("error") or "generate_claim_evidence_pdf failed")
             print(
-                f"[claim-agent] Bulk-report PDF generated at: {pdf_path}",
+                f"[claim-agent] generate_claim_evidence_pdf succeeded — PDF at: {pdf_path}",
                 flush=True,
             )
         except Exception as _pdf_err:
             print(
-                f"[WARNING] generate_claim_report failed: {_pdf_err} — "
+                f"[WARNING] generate_claim_evidence_pdf failed: {_pdf_err} — "
                 "attempting Supabase storage fallback.",
                 flush=True,
             )
