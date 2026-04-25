@@ -8,7 +8,9 @@ import {
   isSuperAdminRole,
   loadTenantProfile,
   resolveTenantListScope,
+  resolveTenantSettingsUsersListScope,
 } from "../../../lib/server-tenant";
+import { isSystemSettingsUsersMutatorRoleKey } from "../../../lib/tenant-branding-permissions";
 import { isUuidString } from "../../../lib/uuid";
 import type { OrgGroupRow, ProfileRow, UserGroupAssignment } from "./users-types";
 
@@ -231,10 +233,15 @@ export async function listGroupsForOrganization(
   const actorId = await resolveActorProfileId(ctx);
   if (!actorId) return { ok: false, error: "Not authenticated." };
 
-  const scope = await resolveTenantListScope({
-    actorProfileId: actorId,
-    filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
-  });
+  const scope = ctx?.platformUserDirectoryBypass
+    ? await resolveTenantListScope({
+        actorProfileId: actorId,
+        filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
+      })
+    : await resolveTenantSettingsUsersListScope({
+        actorProfileId: actorId,
+        filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
+      });
   if (scope.mode === "single" && oid !== scope.organizationId) {
     if (!ctx?.platformUserDirectoryBypass) {
       return { ok: false, error: "Forbidden: organization mismatch." };
@@ -279,7 +286,7 @@ export async function listOrganizationGroupsForUsers(
 ): Promise<{ ok: true; rows: OrgGroupRow[] } | { ok: false; error: string }> {
   const actorId = await resolveActorProfileId(ctx);
   if (!actorId) return { ok: false, error: "Not authenticated." };
-  const scope = await resolveTenantListScope({
+  const scope = await resolveTenantSettingsUsersListScope({
     actorProfileId: actorId,
     filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
   });
@@ -303,10 +310,15 @@ export async function listUserGroupAssignmentsForProfiles(
     return { ok: true, byProfileId: {} };
   }
 
-  const scope = await resolveTenantListScope({
-    actorProfileId: actorId,
-    filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
-  });
+  const scope = ctx?.platformUserDirectoryBypass
+    ? await resolveTenantListScope({
+        actorProfileId: actorId,
+        filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
+      })
+    : await resolveTenantSettingsUsersListScope({
+        actorProfileId: actorId,
+        filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
+      });
 
   try {
     const { data: profileRows, error: pe } = await supabaseServer
@@ -403,10 +415,15 @@ async function assertUserGroupMutationAllowed(
     return { ok: false, error: "Group belongs to a different organization than this user." };
   }
 
-  const scope = await resolveTenantListScope({
-    actorProfileId: actorId,
-    filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
-  });
+  const scope = ctx?.platformUserDirectoryBypass
+    ? await resolveTenantListScope({
+        actorProfileId: actorId,
+        filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
+      })
+    : await resolveTenantSettingsUsersListScope({
+        actorProfileId: actorId,
+        filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
+      });
   const actorProfile = await loadTenantProfile(actorId);
   const platformDir = actorProfile && isSuperAdminRole(actorProfile.role);
 
@@ -420,6 +437,12 @@ async function assertUserGroupMutationAllowed(
       return { ok: false, error: "Forbidden." };
     }
   }
+
+    if (!ctx?.platformUserDirectoryBypass) {
+      if (!actorProfile || !isSystemSettingsUsersMutatorRoleKey(actorProfile.role)) {
+        return { ok: false, error: "Forbidden." };
+      }
+    }
 
   return { ok: true, profileOrg, groupOrg };
 }
@@ -540,7 +563,8 @@ export async function listUserProfiles(ctx?: {
   /** Effective tenant (super_admin workspace); ignored for non–super-admins server-side. */
   filterOrganizationId?: string | null;
 } | null): Promise<
-  { ok: true; rows: ProfileRow[] } | { ok: false; error: string }
+  | { ok: true; rows: ProfileRow[]; settingsUsersOrgType: "tenant" | "internal" }
+  | { ok: false; error: string }
 > {
   try {
     let actorId = ctx?.actorProfileId?.trim() ?? null;
@@ -552,27 +576,49 @@ export async function listUserProfiles(ctx?: {
       return { ok: false, error: "Not authenticated." };
     }
 
-    const scope = await resolveTenantListScope({
+    const scope = await resolveTenantSettingsUsersListScope({
       actorProfileId: actorId,
       filterOrganizationId: ctx?.filterOrganizationId?.trim() ?? null,
     });
 
-    let query = supabaseServer
+    if (scope.mode === "all") {
+      return {
+        ok: false,
+        error:
+          "No organization context for this user list. Select a company in the workspace or assign your profile to an organization.",
+      };
+    }
+
+    const oid = String(scope.organizationId ?? "").trim();
+    if (!oid || !isUuidString(oid)) {
+      return {
+        ok: false,
+        error:
+          "Your profile has no valid organization — assign `profiles.organization_id` or pick a workspace company.",
+      };
+    }
+
+    /** System Settings → Users is for `tenant` orgs only; hide internal (platform) company users. */
+    const { data: orgRow, error: orgError } = await supabaseServer
+      .from("organizations")
+      .select("type")
+      .eq("id", oid)
+      .maybeSingle();
+    if (orgError) return { ok: false, error: orgError.message };
+    const typeRaw = String(
+      (orgRow as { type?: string | null } | null)?.type ?? "",
+    )
+      .trim()
+      .toLowerCase();
+    if (typeRaw === "internal") {
+      return { ok: true, rows: [], settingsUsersOrgType: "internal" };
+    }
+
+    const query = supabaseServer
       .from("profiles")
       .select(PROFILE_LIST_SELECT)
+      .eq("organization_id", oid)
       .order("full_name", { ascending: true });
-
-    if (scope.mode === "single") {
-      const oid = String(scope.organizationId ?? "").trim();
-      if (!oid || !isUuidString(oid)) {
-        return {
-          ok: false,
-          error:
-            "Your profile has no valid organization — assign `profiles.organization_id` or pick a workspace company.",
-        };
-      }
-      query = query.eq("organization_id", oid);
-    }
 
     const { data, error } = await query;
     if (error) return { ok: false, error: error.message };
@@ -580,7 +626,7 @@ export async function listUserProfiles(ctx?: {
     const rawRows = (data ?? []) as Record<string, unknown>[];
     const rows = await mapRawProfileRowsToProfileRows(rawRows);
 
-    return { ok: true, rows };
+    return { ok: true, rows, settingsUsersOrgType: "tenant" };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to load users." };
   }
@@ -619,17 +665,58 @@ export async function listAllUserProfilesForPlatformDirectory(): Promise<
   }
 }
 
-export async function createUserProfile(input: {
-  full_name: string;
-  email: string;
-  role: string;
-  /** Target tenant — stored on `profiles.organization_id`. */
-  organization_id: string;
-}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+export async function createUserProfile(
+  input: {
+    full_name: string;
+    email: string;
+    role: string;
+    /** Target tenant — stored on `profiles.organization_id`. */
+    organization_id: string;
+  },
+  options?: { forPlatformDirectory?: boolean },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const forPlatform = options?.forPlatformDirectory === true;
+  const rawSession = await getSessionUserIdFromCookies();
+  const actorId =
+    rawSession && isUuidString(rawSession) ? rawSession : null;
+  if (!actorId) return { ok: false, error: "Not authenticated." };
+  const actor = await loadTenantProfile(actorId);
+  if (forPlatform) {
+    if (!actor || !isSuperAdminRole(actor.role)) {
+      return { ok: false, error: "Forbidden." };
+    }
+  } else {
+    if (!actor || !isSystemSettingsUsersMutatorRoleKey(actor.role)) {
+      return { ok: false, error: "Forbidden." };
+    }
+  }
+
   const email = input.email.trim().toLowerCase();
   if (!email) return { ok: false, error: "Email is required." };
   const cid = input.organization_id.trim();
   if (!isUuidString(cid)) return { ok: false, error: "Select a valid company." };
+  if (!forPlatform && !isSuperAdminRole(actor.role)) {
+    if ((actor.organization_id ?? "").trim() !== cid) {
+      return { ok: false, error: "You can only add users to your own organization." };
+    }
+  }
+  if (!forPlatform) {
+    const { data: orgCheck } = await supabaseServer
+      .from("organizations")
+      .select("type")
+      .eq("id", cid)
+      .maybeSingle();
+    if (
+      String((orgCheck as { type?: string | null } | null)?.type ?? "")
+        .trim()
+        .toLowerCase() === "internal"
+    ) {
+      return {
+        ok: false,
+        error: "System Settings users are for tenant (customer) companies only, not internal organizations.",
+      };
+    }
+  }
   const fullName = input.full_name.trim();
   const roleKey = input.role.trim().toLowerCase();
   const okKey = await assertAssignableRoleKey(roleKey);
@@ -673,11 +760,61 @@ export async function createUserProfile(input: {
   }
 }
 
+const SIMPLE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function updateUserProfile(
   id: string,
-  patch: { full_name?: string; role?: string; photo_url?: string | null },
+  patch: { full_name?: string; role?: string; photo_url?: string | null; email?: string },
+  options?: { forPlatformDirectory?: boolean },
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isUuidString(id)) return { ok: false, error: "Invalid user id." };
+  const forPlatform = options?.forPlatformDirectory === true;
+  const rawSession = await getSessionUserIdFromCookies();
+  const actorId =
+    rawSession && isUuidString(rawSession) ? rawSession : null;
+  if (!actorId) return { ok: false, error: "Not authenticated." };
+  const actor = await loadTenantProfile(actorId);
+  if (forPlatform) {
+    if (!actor || !isSuperAdminRole(actor.role)) {
+      return { ok: false, error: "Forbidden." };
+    }
+  } else {
+    if (!actor || !isSystemSettingsUsersMutatorRoleKey(actor.role)) {
+      return { ok: false, error: "Forbidden." };
+    }
+    const { data: target, error: tErr } = await supabaseServer
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (tErr) return { ok: false, error: tErr.message };
+    const tOrg = String(target?.organization_id ?? "").trim();
+    const aOrg = (actor.organization_id ?? "").trim();
+    if (!isSuperAdminRole(actor.role) && tOrg !== aOrg) {
+      return { ok: false, error: "Forbidden." };
+    }
+  }
+
+  if (typeof patch.email === "string") {
+    const newEmail = patch.email.trim().toLowerCase();
+    if (!newEmail) {
+      return { ok: false, error: "Email is required." };
+    }
+    if (!SIMPLE_EMAIL.test(newEmail)) {
+      return { ok: false, error: "Invalid email address." };
+    }
+    const { data: uData, error: getErr } = await supabaseServer.auth.admin.getUserById(id);
+    if (getErr) return { ok: false, error: getErr.message };
+    const current = (uData.user?.email ?? "").trim().toLowerCase();
+    if (newEmail !== current) {
+      const { error: eErr } = await supabaseServer.auth.admin.updateUserById(id, {
+        email: newEmail,
+        email_confirm: true,
+      });
+      if (eErr) return { ok: false, error: eErr.message };
+    }
+  }
+
   const row: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -700,8 +837,37 @@ export async function updateUserProfile(
   }
 }
 
-export async function deleteUserProfile(id: string): Promise<{ ok: boolean; error?: string }> {
+export async function deleteUserProfile(
+  id: string,
+  options?: { forPlatformDirectory?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
   if (!isUuidString(id)) return { ok: false, error: "Invalid user id." };
+  const forPlatform = options?.forPlatformDirectory === true;
+  const rawSession = await getSessionUserIdFromCookies();
+  const actorId =
+    rawSession && isUuidString(rawSession) ? rawSession : null;
+  if (!actorId) return { ok: false, error: "Not authenticated." };
+  const actor = await loadTenantProfile(actorId);
+  if (forPlatform) {
+    if (!actor || !isSuperAdminRole(actor.role)) {
+      return { ok: false, error: "Forbidden." };
+    }
+  } else {
+    if (!actor || !isSystemSettingsUsersMutatorRoleKey(actor.role)) {
+      return { ok: false, error: "Forbidden." };
+    }
+    const { data: target, error: tErr } = await supabaseServer
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (tErr) return { ok: false, error: tErr.message };
+    const tOrg = String(target?.organization_id ?? "").trim();
+    const aOrg = (actor.organization_id ?? "").trim();
+    if (!isSuperAdminRole(actor.role) && tOrg !== aOrg) {
+      return { ok: false, error: "Forbidden." };
+    }
+  }
   try {
     const { error } = await supabaseServer.from("profiles").delete().eq("id", id);
     if (error) return { ok: false, error: error.message };

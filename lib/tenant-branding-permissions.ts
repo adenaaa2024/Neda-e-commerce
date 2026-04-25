@@ -45,3 +45,30 @@ export function canPickWorkspaceOrganizationForTenantBranding(
   const k = normalizeRoleKeyForBranding(roleKey);
   return WORKSPACE_ORGANIZATION_PICKER_ROLE_KEYS.has(k);
 }
+
+/**
+ * System Settings → Users (`/users`): who may create/edit/delete users and manage groups.
+ * Canonical `tenant_admin` plus legacy `profiles.role` text `admin`.
+ */
+export function isTenantDirectoryAdminRoleKey(roleKey: string | null | undefined): boolean {
+  const k = normalizeRoleKeyForBranding(roleKey);
+  return k === "tenant_admin" || k === "admin";
+}
+
+const SYSTEM_SETTINGS_USERS_MUTATOR_KEYS = new Set([
+  "tenant_admin",
+  "admin",
+  "super_admin",
+  "system_employee",
+  "system_admin",
+  "programmer",
+  "customer_service",
+]);
+
+/**
+ * Who may use System Settings → Users (same idea as `isAdminRole` in UserRoleContext: not operator/employee).
+ */
+export function isSystemSettingsUsersMutatorRoleKey(roleKey: string | null | undefined): boolean {
+  const k = normalizeRoleKeyForBranding(roleKey);
+  return k.length > 0 && SYSTEM_SETTINGS_USERS_MUTATOR_KEYS.has(k);
+}

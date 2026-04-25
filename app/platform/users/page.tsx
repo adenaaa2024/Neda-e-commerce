@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft, Loader2, Pencil, Plus, Save, Tag, Trash2, UserRound, X,
+  ArrowLeft, KeyRound, Loader2, Pencil, Plus, Save, Tag, Trash2, UserRound, X,
 } from "lucide-react";
 import { useUserRole } from "../../../components/UserRoleContext";
 import { useRbacPermissions } from "../../../hooks/useRbacPermissions";
@@ -39,6 +39,7 @@ const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium transition hover:bg-accent";
 
 type Toast = { msg: string; ok: boolean } | null;
+const MIN_RESET_PASSWORD_LENGTH = 8;
 
 function humanizeRoleKey(k: string | null | undefined): string {
   const s = (k ?? "").trim().toLowerCase();
@@ -107,11 +108,68 @@ export default function PlatformUsersPage() {
     Pick<UserGroupAssignment, "group_id" | "key" | "name">[]
   >([]);
   const editLoadSeq = useRef(0);
+  const [resetTarget, setResetTarget] = useState<ProfileRow | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   const showToast = useCallback((msg: string, ok: boolean) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 4200);
   }, []);
+
+  function openPlatformResetPassword(row: ProfileRow) {
+    setResetTarget(row);
+    setNewPassword("");
+    setConfirmPassword("");
+    setResetOpen(true);
+  }
+
+  function closePlatformResetPassword() {
+    setResetOpen(false);
+    setResetTarget(null);
+    setNewPassword("");
+    setConfirmPassword("");
+    setResettingPassword(false);
+  }
+
+  async function handlePlatformResetPasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resetTarget) return;
+    if (newPassword !== confirmPassword) {
+      showToast("New password and confirm password must match.", false);
+      return;
+    }
+    if (newPassword.length < MIN_RESET_PASSWORD_LENGTH) {
+      showToast(
+        `Password must be at least ${MIN_RESET_PASSWORD_LENGTH} characters.`,
+        false,
+      );
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      const response = await fetch("/api/admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: resetTarget.id,
+          newPassword,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Password reset failed.");
+      }
+      showToast(`Password reset for ${resetTarget.email || "user"}.`, true);
+      closePlatformResetPassword();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Password reset failed.", false);
+    } finally {
+      setResettingPassword(false);
+    }
+  }
 
   useEffect(() => {
     if (!modalOpen || assignableRoles.length === 0) return;
@@ -384,6 +442,7 @@ export default function PlatformUsersPage() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("profile_id", profileId);
+      fd.append("for_platform_directory", "1");
       const res = await uploadUserProfilePhotoAction(fd);
       if (!res.ok) throw new Error(res.error);
       showToast("Profile photo updated.", true);
@@ -413,18 +472,22 @@ export default function PlatformUsersPage() {
         const res = await updatePlatformUserProfile(editing.id, {
           full_name: fullName,
           role: userRole,
+          email: email.trim().toLowerCase(),
           organization_id: editCompanyId.trim(),
           organization_type: editOrganizationType,
         });
         if (!res.ok) throw new Error(res.error ?? "Save failed.");
         showToast("User updated.", true);
       } else {
-        const res = await createUserProfile({
-          full_name: fullName,
-          email: email.trim().toLowerCase(),
-          role: userRole,
-          organization_id: editCompanyId.trim(),
-        });
+        const res = await createUserProfile(
+          {
+            full_name: fullName,
+            email: email.trim().toLowerCase(),
+            role: userRole,
+            organization_id: editCompanyId.trim(),
+          },
+          { forPlatformDirectory: true },
+        );
         if (!res.ok) throw new Error(res.error ?? "Create failed.");
         const syncOrg = await updatePlatformUserProfile(res.id, {
           organization_id: editCompanyId.trim(),
@@ -436,6 +499,7 @@ export default function PlatformUsersPage() {
           const fd = new FormData();
           fd.append("file", pendingPhoto);
           fd.append("profile_id", res.id);
+          fd.append("for_platform_directory", "1");
           const up = await uploadUserProfilePhotoAction(fd);
           setPhotoUploading(false);
           if (!up.ok) throw new Error(up.error);
@@ -465,7 +529,7 @@ export default function PlatformUsersPage() {
     if (!window.confirm("Remove this user from the directory? This cannot be undone.")) return;
     setDeleting(true);
     try {
-      const res = await deleteUserProfile(editing.id);
+      const res = await deleteUserProfile(editing.id, { forPlatformDirectory: true });
       if (!res.ok) {
         showToast(res.error ?? "Delete failed.", false);
         return;
@@ -780,15 +844,26 @@ export default function PlatformUsersPage() {
                       {formatCreatedAt(row.created_at)}
                     </td>
                     <td className="px-1 py-2 align-middle text-right sm:px-2">
-                      <button
-                        type="button"
-                        className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        onClick={() => openEdit(row)}
-                        aria-label="Edit"
-                        title="Edit user"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      <div className="flex justify-end gap-0">
+                        <button
+                          type="button"
+                          className="rounded-md p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                          onClick={() => openPlatformResetPassword(row)}
+                          aria-label="Set password"
+                          title="Set password (super admin)"
+                        >
+                          <KeyRound className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={() => openEdit(row)}
+                          aria-label="Edit"
+                          title="Edit user"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -866,16 +941,14 @@ export default function PlatformUsersPage() {
                   type="email"
                   className={INPUT}
                   value={email}
-                  readOnly={isEditMode}
-                  disabled={isEditMode}
                   onChange={(e) => setEmail(e.target.value)}
-                  required={!isEditMode}
+                  required
                   autoComplete="email"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
                   {isEditMode
-                    ? "Email is fixed after the user is created."
-                    : "Used as the unique login identifier."}
+                    ? "This updates the account’s sign-in email in Auth (must stay unique in the project)."
+                    : "Used as the unique login identifier when the account is created."}
                 </p>
               </div>
               <div>
@@ -1084,6 +1157,86 @@ export default function PlatformUsersPage() {
                     {isEditMode ? "Save changes" : "Create user"}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {resetOpen && resetTarget && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="platform-reset-password-title"
+            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 id="platform-reset-password-title" className="text-lg font-bold">
+                Set password
+              </h2>
+              <button
+                type="button"
+                onClick={closePlatformResetPassword}
+                className="rounded-md p-1 hover:bg-accent"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground">
+              <KeyRound className="inline-block h-3.5 w-3.5 align-[-2px] text-amber-600" />
+              {` `}Super admin: set a new sign-in password for{" "}
+              <span className="font-medium text-foreground">
+                {resetTarget.email || resetTarget.id}
+              </span>
+              .
+            </p>
+            <form
+              onSubmit={(e) => void handlePlatformResetPasswordSubmit(e)}
+              className="space-y-4"
+            >
+              <div>
+                <label className={LABEL} htmlFor="platformNewPassword">New password</label>
+                <input
+                  id="platformNewPassword"
+                  type="password"
+                  className={INPUT}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  minLength={MIN_RESET_PASSWORD_LENGTH}
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="platformConfirmPassword">Confirm password</label>
+                <input
+                  id="platformConfirmPassword"
+                  type="password"
+                  className={INPUT}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  minLength={MIN_RESET_PASSWORD_LENGTH}
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Minimum length: {MIN_RESET_PASSWORD_LENGTH} characters.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" className={BTN_SECONDARY} onClick={closePlatformResetPassword}>
+                  Cancel
+                </button>
+                <button type="submit" className={BTN_PRIMARY} disabled={resettingPassword}>
+                  {resettingPassword ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <KeyRound className="h-4 w-4" />
+                  )}
+                  Set password
+                </button>
               </div>
             </form>
           </div>

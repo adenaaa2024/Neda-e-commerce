@@ -77,6 +77,8 @@ export async function updatePlatformUserProfile(
   patch: {
     full_name?: string;
     role?: string;
+    /** Updates `auth.users.email` (via `updateUserProfile` → GoTrue). */
+    email?: string;
     organization_id?: string;
     /** Writes `public.organizations.type` for the organization in `organization_id`. */
     organization_type?: string | null;
@@ -109,11 +111,17 @@ export async function updatePlatformUserProfile(
   if (
     typeof patch.full_name === "string"
     || typeof patch.role === "string"
+    || typeof patch.email === "string"
   ) {
-    const res = await updateUserProfile(id, {
-      full_name: patch.full_name,
-      role: patch.role,
-    });
+    const res = await updateUserProfile(
+      id,
+      {
+        full_name: typeof patch.full_name === "string" ? patch.full_name : undefined,
+        role: typeof patch.role === "string" ? patch.role : undefined,
+        email: typeof patch.email === "string" ? patch.email : undefined,
+      },
+      { forPlatformDirectory: true },
+    );
     if (!res.ok) return res;
   }
 

@@ -199,6 +199,39 @@ export async function resolveTenantListScope(
 }
 
 /**
+ * System Settings → Users directory: never list every organization at once.
+ * Prefer the workspace org (`filterOrganizationId`); else the actor's home org.
+ * (Super Admins no longer get `mode: "all"` on this screen — they use `/platform/users` for global.)
+ */
+export async function resolveTenantSettingsUsersListScope(
+  opts: TenantQueryOpts | undefined,
+): Promise<TenantListScope> {
+  const base = await resolveTenantListScope(opts);
+  if (base.mode === "single") return base;
+
+  const forced =
+    opts?.filterOrganizationId?.trim() ?? opts?.filterCompanyId?.trim();
+  const forcedOk = forced && isUuidString(forced) ? forced : null;
+  if (forcedOk) return { mode: "single", organizationId: forcedOk };
+
+  const aid = opts?.actorProfileId?.trim() ?? null;
+  if (aid && isUuidString(aid)) {
+    const profile = await loadTenantProfile(aid);
+    const oid = (profile?.organization_id ?? "").trim();
+    if (oid && isUuidString(oid)) {
+      return { mode: "single", organizationId: oid };
+    }
+  }
+
+  const fallback = DEFAULT_ORG.trim();
+  if (fallback && isUuidString(fallback)) {
+    return { mode: "single", organizationId: fallback };
+  }
+
+  return { mode: "all" };
+}
+
+/**
  * Writes: non–super-admins always use their profile `organization_id`.
  * Super Admins may set `requestedOrganizationId` to create data for a chosen tenant.
  *

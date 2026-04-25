@@ -10,12 +10,15 @@ function mapOrgSettingsRow(r: Record<string, unknown>): CompanyOption {
   const id = String(r.organization_id ?? "");
   // Prefer organization_settings.company_display_name, then fall back to
   // the joined organizations.name, and only then show the raw UUID.
-  const orgJoin = r.organizations as { name?: string | null } | null;
+  const orgJoin = r.organizations as { name?: string | null; type?: string | null } | null;
+  const typeRaw = orgJoin?.type != null ? String(orgJoin.type).trim().toLowerCase() : "";
+  const organization_type: "tenant" | "internal" | undefined =
+    typeRaw === "internal" ? "internal" : typeRaw === "tenant" ? "tenant" : undefined;
   const display_name =
     (typeof r.company_display_name === "string" && r.company_display_name.trim()) ||
     (typeof orgJoin?.name === "string" && orgJoin.name.trim()) ||
     id;
-  return { id, display_name };
+  return { id, display_name, organization_type };
 }
 
 function formatStoreDisplayName(row: Record<string, unknown>): string {
@@ -113,7 +116,7 @@ export async function listCompaniesForImports(
     async function fetchAllOrganizations(): Promise<{ ok: true; rows: CompanyOption[] } | { ok: false; error: string }> {
       const { data, error } = await supabaseServer
         .from(DB_TABLES.organizationSettings)
-        .select("organization_id, company_display_name, organizations(name)")
+        .select("organization_id, company_display_name, organizations(name, type)")
         .order("organization_id", { ascending: true });
 
       if (error) return { ok: false, error: error.message };
@@ -144,7 +147,7 @@ export async function listCompaniesForImports(
 
     const { data, error } = await supabaseServer
       .from(DB_TABLES.organizationSettings)
-      .select("organization_id, company_display_name, organizations(name)")
+      .select("organization_id, company_display_name, organizations(name, type)")
       .eq("organization_id", cid)
       .maybeSingle();
 

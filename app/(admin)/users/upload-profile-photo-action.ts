@@ -1,6 +1,8 @@
 "use server";
 
 import { supabaseServer } from "../../../lib/supabase-server";
+import { getSessionUserIdFromCookies } from "../../../lib/supabase-server-auth";
+import { isSuperAdminRole, loadTenantProfile } from "../../../lib/server-tenant";
 import { resolveOrganizationId } from "../../../lib/organization";
 import { isUuidString } from "../../../lib/uuid";
 import { updateUserProfile } from "./users-actions";
@@ -57,7 +59,16 @@ export async function uploadUserProfilePhotoAction(
   const { data: urlData } = supabaseServer.storage.from(BUCKET).getPublicUrl(path);
   const publicUrl = urlData.publicUrl;
 
-  const upd = await updateUserProfile(profileIdRaw, { photo_url: publicUrl });
+  const sessionId = await getSessionUserIdFromCookies();
+  const actor =
+    sessionId && isUuidString(sessionId) ? await loadTenantProfile(sessionId) : null;
+  const fromPlatform = formData.get("for_platform_directory") === "1";
+  const forPlatform = fromPlatform && Boolean(actor && isSuperAdminRole(actor.role));
+  const upd = await updateUserProfile(
+    profileIdRaw,
+    { photo_url: publicUrl },
+    { forPlatformDirectory: forPlatform },
+  );
   if (!upd.ok) {
     return { ok: false, error: upd.error ?? "Failed to save photo URL." };
   }

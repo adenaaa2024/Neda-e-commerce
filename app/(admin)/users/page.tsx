@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft, KeyRound, Loader2, Pencil, Plus, Save, Tag, Trash2, UserRound, X,
+  ArrowLeft, KeyRound, Loader2, Pencil, Plus, Save, Search, Tag, Trash2, UserRound, X,
 } from "lucide-react";
 import { isAdminRole, useUserRole } from "../../../components/UserRoleContext";
 import { useRbacPermissions } from "../../../hooks/useRbacPermissions";
@@ -95,16 +95,38 @@ export default function UsersPage() {
   const [groupPickId, setGroupPickId] = useState("");
   const [groupBusy, setGroupBusy] = useState(false);
   const [roleApplyBusy, setRoleApplyBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   /** Group memberships to apply after create (same org as {@link createCompanyId}). */
   const [pendingCreateGroups, setPendingCreateGroups] = useState<
     Pick<UserGroupAssignment, "group_id" | "key" | "name">[]
   >([]);
   const editLoadSeq = useRef(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [settingsUsersOrgType, setSettingsUsersOrgType] = useState<"tenant" | "internal" | null>(null);
 
   const isEditMode = Boolean(editing);
   const effectiveOrgForGroups = (
     editing ? (editing.organization_id ?? "").trim() : createCompanyId.trim()
   );
+  /** Same as page access: admin-tier roles can manage (not operator/employee). */
+  const canUseTenantUserActions = isAdminRole(role) && settingsUsersOrgType === "tenant";
+  const visibleRows = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const hay = [
+        r.full_name,
+        r.email,
+        r.company_name,
+        r.role,
+        r.role_display_name,
+        ...(r.assigned_groups ?? []).map((g) => `${g.name} ${g.key}`),
+      ]
+        .map((x) => (x ?? "").toString().toLowerCase())
+        .join(" ");
+      return hay.includes(q);
+    });
+  }, [rows, searchQuery]);
 
   const showToast = useCallback((msg: string, ok: boolean) => {
     setToast({ msg, ok });
@@ -118,9 +140,16 @@ export default function UsersPage() {
       filterOrganizationId: organizationId,
     });
     if (!res.ok) {
+      setSettingsUsersOrgType(null);
       setLoading(false);
       showToast(res.error, false);
       return null;
+    }
+    setSettingsUsersOrgType(res.settingsUsersOrgType);
+    if (res.settingsUsersOrgType === "internal") {
+      setRows([]);
+      setLoading(false);
+      return [];
     }
     const ids = res.rows.map((r) => r.id);
     const assignRes = await listUserGroupAssignmentsForProfiles(ids, {
@@ -161,8 +190,9 @@ export default function UsersPage() {
         setAssignableRoles(rolesRes.rows);
       }
       if (coRes.ok) {
-        setCompanies(coRes.rows);
-        const pick = coRes.rows.some((c) => c.id === tid) ? tid : coRes.rows[0]?.id ?? "";
+        const tenantOnly = coRes.rows.filter((c) => c.organization_type !== "internal");
+        setCompanies(tenantOnly);
+        const pick = tenantOnly.some((c) => c.id === tid) ? tid : tenantOnly[0]?.id ?? "";
         setCreateCompanyId(pick);
       }
     })();
@@ -203,6 +233,7 @@ export default function UsersPage() {
     setGroupPickId("");
     setGroupsEditLoading(false);
     setPendingCreateGroups([]);
+    setDeleteBusy(false);
   }
 
   useEffect(() => {
@@ -298,6 +329,7 @@ export default function UsersPage() {
         const res = await updateUserProfile(editing.id, {
           full_name: fullName,
           role: userRole,
+          email: email.trim().toLowerCase(),
         });
         if (!res.ok) throw new Error(res.error ?? "Save failed.");
         showToast("User updated.", true);
@@ -341,15 +373,22 @@ export default function UsersPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!window.confirm("Remove this user from the directory?")) return;
-    const res = await deleteUserProfile(id);
-    if (!res.ok) {
-      showToast(res.error ?? "Delete failed.", false);
-      return;
+  async function handleDeleteFromEditModal() {
+    if (!editing) return;
+    if (!window.confirm("Remove this user from the directory? This cannot be undone.")) return;
+    setDeleteBusy(true);
+    try {
+      const res = await deleteUserProfile(editing.id);
+      if (!res.ok) {
+        showToast(res.error ?? "Delete failed.", false);
+        return;
+      }
+      showToast("User removed.", true);
+      closeModal();
+      await load();
+    } finally {
+      setDeleteBusy(false);
     }
-    showToast("User removed.", true);
-    await load();
   }
 
   async function handleAddGroup(pickedId?: string) {
@@ -493,22 +532,72 @@ export default function UsersPage() {
         </div>
       )}
 
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 dark:bg-violet-950/50">
-            <UserRound className="h-6 w-6 text-violet-600 dark:text-violet-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-            <p className="text-sm text-muted-foreground">
-              Directory: roles, groups, and admin password resets.
-            </p>
+      <div className="mb-6 flex flex-wrap items-start gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-100 dark:bg-violet-950/50">
+          <UserRound className="h-6 w-6 text-violet-600 dark:text-violet-400" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
+          <p className="text-sm text-muted-foreground">
+            Customer (tenant) company users only. As{" "}
+            <strong className="font-medium text-foreground">tenant admin</strong> you can add, edit, reset password,
+            and remove users. Internal (platform) staff are managed from Platform users.
+          </p>
+        </div>
+      </div>
+
+      {settingsUsersOrgType === "internal" && !loading ? (
+        <div
+          className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+          role="status"
+        >
+          The current workspace is an <strong>internal (platform)</strong> organization. This list is for{" "}
+          <strong>tenant (customer) companies</strong> only — switch the workspace to a tenant company
+          {perms.canSeePlatformUserDirectory ? (
+            <>
+              {", "}
+              or use{" "}
+              <Link href="/platform/users" className="font-medium text-primary underline">
+                Platform users
+              </Link>{" "}
+              to manage platform staff.
+            </>
+          ) : (
+            "."
+          )}
+        </div>
+      ) : null}
+
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="min-w-[200px] w-full max-w-md flex-1">
+          <label className={LABEL} htmlFor="users-search">
+            Search
+          </label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <input
+              id="users-search"
+              className={[
+                INPUT,
+                "pl-9",
+                settingsUsersOrgType === "internal" || settingsUsersOrgType === null
+                  ? " opacity-60"
+                  : "",
+              ].join(" ")}
+              placeholder="Name, email, role, or group…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              disabled={settingsUsersOrgType === "internal" || settingsUsersOrgType === null || loading}
+              autoComplete="off"
+            />
           </div>
         </div>
-        <button type="button" onClick={openCreate} className={BTN_PRIMARY}>
-          <Plus className="h-4 w-4" />
-          Add user
-        </button>
+        {canUseTenantUserActions ? (
+          <button type="button" onClick={openCreate} className={`${BTN_PRIMARY} w-full sm:w-auto`}>
+            <Plus className="h-4 w-4" />
+            New user
+          </button>
+        ) : null}
       </div>
 
       <div className="rounded-xl border border-border bg-card shadow-sm">
@@ -517,9 +606,17 @@ export default function UsersPage() {
             <Loader2 className="h-5 w-5 animate-spin" />
             Loading users…
           </div>
+        ) : settingsUsersOrgType === "internal" ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No users listed here for internal organizations.
+          </p>
         ) : rows.length === 0 ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
-            No users yet. Add someone to get started.
+            No users yet. {canUseTenantUserActions ? "Add someone to get started." : null}
+          </p>
+        ) : visibleRows.length === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            No results match your search. Try a different name, email, or role.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -535,7 +632,7 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {visibleRows.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-0">
                     <td className="px-2 py-2 align-middle sm:px-3">
                       <div className="flex min-w-0 items-center gap-2">
@@ -606,35 +703,28 @@ export default function UsersPage() {
                       )}
                     </td>
                     <td className="px-1 py-2 align-middle text-right sm:px-2">
-                      <div className="flex justify-end gap-0">
-                        <button
-                          type="button"
-                          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                          onClick={() => openResetPassword(row)}
-                          aria-label="Reset password"
-                          title="Reset password"
-                        >
-                          <KeyRound className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                          onClick={() => openEdit(row)}
-                          aria-label="Edit"
-                          title="Edit user"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                          onClick={() => void handleDelete(row.id)}
-                          aria-label="Delete"
-                          title="Remove user"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
+                      {canUseTenantUserActions ? (
+                        <div className="flex justify-end items-center gap-0.5">
+                          <button
+                            type="button"
+                            className="rounded-md p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                            onClick={() => openResetPassword(row)}
+                            aria-label="Change password"
+                            title="Change password"
+                          >
+                            <KeyRound className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                            onClick={() => openEdit(row)}
+                            aria-label="Edit"
+                            title="Edit"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -654,7 +744,7 @@ export default function UsersPage() {
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 id="user-modal-title" className="text-lg font-bold">
-                {editing ? "Edit user" : "Add user"}
+                {editing ? "Edit user" : "New user"}
               </h2>
               <button type="button" onClick={closeModal} className="rounded-md p-1 hover:bg-accent" aria-label="Close">
                 <X className="h-5 w-5" />
@@ -711,13 +801,13 @@ export default function UsersPage() {
                   className={INPUT}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  disabled={!!editing}
-                  required={!editing}
-                  readOnly={!!editing}
+                  required
                   autoComplete="email"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {editing ? "Email is fixed after the user is created." : "Used as the unique login identifier for this workspace."}
+                  {editing
+                    ? "This updates the account’s sign-in email in Auth (kept unique in the system)."
+                    : "Used as the unique login identifier when the account is created."}
                 </p>
               </div>
               {!editing ? (
@@ -871,14 +961,33 @@ export default function UsersPage() {
                   Groups require a company on the profile; this user has no organization set.
                 </p>
               ) : null}
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" className={BTN_SECONDARY} onClick={closeModal}>
-                  Cancel
-                </button>
-                <button type="submit" className={BTN_PRIMARY} disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {editing ? "Save changes" : "Create user"}
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+                <div className="min-w-0">
+                  {isEditMode && canUseTenantUserActions ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                      disabled={saving || deleteBusy}
+                      onClick={() => void handleDeleteFromEditModal()}
+                    >
+                      {deleteBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Delete user
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button type="button" className={BTN_SECONDARY} onClick={closeModal} disabled={deleteBusy}>
+                    Cancel
+                  </button>
+                  <button type="submit" className={BTN_PRIMARY} disabled={saving || deleteBusy}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {editing ? "Save changes" : "Create user"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
