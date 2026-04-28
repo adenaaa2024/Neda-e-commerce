@@ -62,7 +62,7 @@ function navChildrenForGroup(
       label: c.label,
       href: c.path,
       icon: getSidebarIcon(c.icon ?? g.icon),
-      badge: c.id === "wms_scan" ? "WMS" : undefined,
+      badge: c.id === "wms_scan" || c.id === "wms_operator_scanner" ? "WMS" : undefined,
     }));
 }
 

@@ -70,6 +70,13 @@ export const SITE_FEATURE_TREE: SiteFeatureNode[] = [
         readKeys: ["wms.scanner.use"],
         writeKeys: ["wms.scanner.use"],
       },
+      {
+        id: "wms.operator_scanner",
+        label: "Operator Scanner",
+        path: "/scanner/operator",
+        readKeys: ["wms.scanner.use"],
+        writeKeys: ["wms.scanner.use"],
+      },
     ],
   },
   {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { CheckCircle2, Package2, ScanLine, XCircle, AlertTriangle, RotateCcw } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "../../src/lib/supabase";
 
@@ -236,14 +237,21 @@ export default function ScannerPage() {
       )}
 
       {/* ── Sticky Header ─────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center gap-3">
+      <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b border-border px-3 py-3 sm:px-4 flex items-center gap-2 sm:gap-3 flex-wrap">
         <ScanLine className="w-5 h-5 text-sky-400 shrink-0" />
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold leading-tight">Warehouse Scanner</h1>
           {scannedTracking && (
             <p className="text-xs text-muted-foreground font-mono truncate">{scannedTracking}</p>
           )}
         </div>
+        <Link
+          href="/scanner/operator"
+          className="shrink-0 inline-flex h-10 min-h-[40px] items-center justify-center gap-1.5 rounded-xl border-2 border-sky-500/50 bg-sky-500/10 px-3 text-xs sm:text-sm font-semibold text-sky-800 hover:bg-sky-500/15 active:bg-sky-500/20 dark:text-sky-200 dark:hover:bg-sky-500/20"
+        >
+          <ScanLine className="h-4 w-4" aria-hidden />
+          Operator Scanner
+        </Link>
         {phase !== "idle" && (
           <button
             onClick={resetScanner}

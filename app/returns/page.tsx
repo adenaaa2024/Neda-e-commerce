@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Boxes, Package2, ScanLine, Store } from "lucide-react";
 import { DatabaseTag } from "../../components/DatabaseTag";
 import { useGlobalSearch } from "../../components/GlobalSearchContext";
@@ -377,6 +378,13 @@ export default function ReturnsPage() {
           <p className="text-xs text-slate-400">FBA Reimbursement ERP · tenant-scoped data</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/scanner/operator"
+            className="inline-flex h-10 min-h-[40px] items-center justify-center gap-1.5 rounded-lg border-2 border-sky-500/50 bg-sky-500/10 px-3 text-xs font-semibold text-sky-800 hover:bg-sky-500/15 active:bg-sky-500/20 dark:text-sky-200 dark:hover:bg-sky-500/20"
+          >
+            <ScanLine className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Operator Scanner
+          </Link>
           {/* Super-admin: company filter + "create as" picker */}
           {role === "super_admin" && companyOptions.length > 0 && (
             <>

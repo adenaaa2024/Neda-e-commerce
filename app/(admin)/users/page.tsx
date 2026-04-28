@@ -25,6 +25,7 @@ import type { OrgGroupRow, ProfileRow, UserGroupAssignment } from "./users-types
 import type { CompanyOption } from "../../../lib/imports-types";
 import { listCompaniesForImports } from "../imports/companies-actions";
 import { uploadUserProfilePhotoAction } from "./upload-profile-photo-action";
+import { PageHeaderWithInfo } from "../../platform/components/page-header-with-info";
 
 const INPUT =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
@@ -536,14 +537,17 @@ export default function UsersPage() {
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-100 dark:bg-violet-950/50">
           <UserRound className="h-6 w-6 text-violet-600 dark:text-violet-400" />
         </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-          <p className="text-sm text-muted-foreground">
+        <PageHeaderWithInfo
+          className="min-w-0 flex-1 mb-0"
+          title="Users"
+          infoAriaLabel="About this user directory"
+        >
+          <p>
             Customer (tenant) company users only. As{" "}
             <strong className="font-medium text-foreground">tenant admin</strong> you can add, edit, reset password,
             and remove users. Internal (platform) staff are managed from Platform users.
           </p>
-        </div>
+        </PageHeaderWithInfo>
       </div>
 
       {settingsUsersOrgType === "internal" && !loading ? (
