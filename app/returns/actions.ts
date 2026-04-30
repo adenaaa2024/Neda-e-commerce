@@ -429,6 +429,15 @@ export async function createPallet(
       status: "open",
       created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
     };
+    if (payload.tracking_number !== undefined) {
+      insertRow.tracking_number = String(payload.tracking_number ?? "").trim() || null;
+    }
+    if (payload.carrier_name !== undefined) {
+      insertRow.carrier_name = String(payload.carrier_name ?? "").trim() || null;
+    }
+    if (payload.amazon_order_id !== undefined) {
+      insertRow.amazon_order_id = String(payload.amazon_order_id ?? "").trim() || null;
+    }
     if (payload.photo_url !== undefined) insertRow.photo_url = String(payload.photo_url ?? "").trim() || null;
     if (payload.bol_photo_url !== undefined) insertRow.bol_photo_url = String(payload.bol_photo_url ?? "").trim() || null;
     if (payload.manifest_photo_url !== undefined) {
@@ -541,6 +550,15 @@ export async function updatePallet(
     }
     if ("tracking_number" in row && row.tracking_number !== undefined && row.tracking_number !== null) {
       row.tracking_number = String(row.tracking_number).trim() || null;
+    }
+    if ("carrier_name" in row && row.carrier_name !== undefined && row.carrier_name !== null) {
+      row.carrier_name = String(row.carrier_name).trim() || null;
+    }
+    if ("amazon_order_id" in row && row.amazon_order_id !== undefined && row.amazon_order_id !== null) {
+      row.amazon_order_id = String(row.amazon_order_id).trim() || null;
+    }
+    if ("store_id" in row && row.store_id !== undefined && row.store_id !== null) {
+      row.store_id = uuidFkOrNull(String(row.store_id), "store_id");
     }
     const { data, error } = await supabaseServer.from("pallets")
       .update(row)

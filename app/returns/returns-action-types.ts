@@ -41,6 +41,7 @@ export type PalletRecord = {
 
 export type PalletInsertPayload = {
   pallet_number: string;
+  tracking_number?: string | null;
   photo_url?: string | null;
   bol_photo_url?: string | null;
   manifest_photo_url?: string | null;
@@ -57,7 +58,7 @@ export type PalletInsertPayload = {
 
 export type PalletUpdatePayload = Partial<Pick<
   PalletRecord,
-  | "status" | "notes" | "tracking_number"
+  | "status" | "notes" | "tracking_number" | "carrier_name" | "amazon_order_id" | "store_id"
   | "photo_url" | "bol_photo_url" | "manifest_photo_url"
 >>;
 
