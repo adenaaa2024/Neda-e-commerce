@@ -17,7 +17,9 @@ async function tryOfferSavePassword(
   if (typeof globalThis === "undefined" || !globalThis.isSecureContext) return;
   if (!("PasswordCredential" in globalThis) || !navigator.credentials?.store) return;
   try {
-    const C = (globalThis as unknown as { PasswordCredential: new (d: { id: string; password: string; name: string }) => PasswordCredential }).PasswordCredential;
+    const C = (globalThis as unknown as {
+      PasswordCredential: new (d: { id: string; password: string; name: string }) => Credential;
+    }).PasswordCredential;
     const cred = new C({
       id: email,
       password,

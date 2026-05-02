@@ -114,6 +114,17 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             rbac: "always",
             order: 2,
           },
+          {
+            kind: "leaf",
+            id: "operator_mobile_scan",
+            label: "Operator Mobile Scan",
+            path: "/scanner/operator-mobile",
+            featureKey: "operations.operator_mobile_scan",
+            permissionBase: "operations.operator_mobile_scan",
+            icon: "ScanLine",
+            rbac: "canSeeWmsTools",
+            order: 3,
+          },
         ],
       },
       {

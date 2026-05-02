@@ -106,6 +106,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const [expanded,      setExpanded]      = useState<Record<string, boolean>>({});
   const pathname = usePathname();
   const isAuthRoute = pathname === "/login";
+  /** Standalone mobile scanner UI — no ERP sidebar, top search, or workspace chrome. */
+  const isOperatorMobileScanner = pathname.startsWith("/scanner/operator-mobile");
 
   useEffect(() => {
     setMounted(true);
@@ -471,6 +473,17 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       <GlobalSearchProvider>
         <MobileMenuCtx.Provider value={{ openMobileMenu: () => setMobileOpen(true) }}>
           <div className="min-h-screen bg-background">{children}</div>
+        </MobileMenuCtx.Provider>
+      </GlobalSearchProvider>
+    );
+  }
+
+  // Operator mobile scanner: outer canvas matches route layout gutter (no ERP chrome).
+  if (isOperatorMobileScanner) {
+    return (
+      <GlobalSearchProvider>
+        <MobileMenuCtx.Provider value={{ openMobileMenu: () => {} }}>
+          <div className="m-0 flex min-h-dvh w-full max-w-none flex-col bg-[#030712] p-0">{children}</div>
         </MobileMenuCtx.Provider>
       </GlobalSearchProvider>
     );
