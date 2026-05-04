@@ -109,8 +109,44 @@ const glassCard = `border shadow-[0_12px_40px_-18px_rgba(0,0,0,0.65),inset_0_1px
 const mainScrollClass =
   "[scrollbar-width:thin] [scrollbar-color:#243241_#0B1218] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#243241]/90 hover:[&::-webkit-scrollbar-thumb]:bg-[#334155]/90";
 
-/** Step indices 0–3: Parent (scan) → Review → Box Scan → Item Scan */
-const STEPPER = [{ label: "Parent" }, { label: "Review" }, { label: "Box Scan" }, { label: "Item Scan" }] as const;
+/** Single source of truth: Pallet/Parent → Confirm → Boxes → Items */
+const SCANNER_STEPS = [
+  {
+    id: 1,
+    key: "parent",
+    label: "Parent",
+    title: "Step 1: Parent Scan",
+    subtitle: "Select or scan pallet / shipment context",
+  },
+  {
+    id: 2,
+    key: "confirm",
+    label: "Confirm",
+    title: "Step 2: Confirm Context",
+    subtitle: "Confirm store, pallet, shipment, and expected quantities before scanning boxes",
+  },
+  {
+    id: 3,
+    key: "boxes",
+    label: "Boxes",
+    title: "Step 3: Box Intake",
+    subtitle: "Scan and intake boxes",
+  },
+  {
+    id: 4,
+    key: "items",
+    label: "Items",
+    title: "Step 4: Item Inspection",
+    subtitle: "Scan and inspect items",
+  },
+] as const;
+
+function hasReceivableBoxForItems(
+  itemScanPackageId: string | null,
+  activeBoxSession: { packageId: string; barcode: string } | null,
+): boolean {
+  return Boolean(String(itemScanPackageId ?? "").trim()) || Boolean(activeBoxSession?.packageId);
+}
 
 function ScanPageLoading(props: { message?: string }) {
   return (
@@ -312,6 +348,107 @@ function ScanFrameWithLaser(props: {
 
 type ExpectedInventoryAccent = "teal" | "purple" | "blue";
 
+type PalletStatGlow = "teal" | "blue" | "green" | "purple";
+
+const PALLET_STAT_GLOW: Record<
+  PalletStatGlow,
+  {
+    iconFill: string;
+    iconRing: string;
+    iconShadow: string;
+    tileBorder: string;
+    tileShadow: string;
+    innerTileGlow: string;
+    veil: string;
+  }
+> = {
+  teal: {
+    iconFill: "rgba(45, 212, 191, 0.28)",
+    iconRing: "rgba(45, 212, 191, 0.55)",
+    iconShadow:
+      "0 0 24px rgba(45, 212, 191, 0.5), 0 0 10px rgba(45, 212, 191, 0.35), inset 0 1px 0 rgba(255,255,255,0.16)",
+    tileBorder: "rgba(45, 212, 191, 0.28)",
+    tileShadow: "0 0 36px -10px rgba(45, 212, 191, 0.35), 0 14px 32px -20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
+    innerTileGlow:
+      "inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -20px 36px -8px rgba(45,212,191,0.12), inset 0 14px 32px -6px rgba(45,212,191,0.09)",
+    veil: "radial-gradient(ellipse 120% 80% at 50% 0%, rgba(45,212,191,0.14) 0%, transparent 62%)",
+  },
+  blue: {
+    iconFill: "rgba(56, 189, 248, 0.26)",
+    iconRing: "rgba(56, 189, 248, 0.52)",
+    iconShadow:
+      "0 0 24px rgba(14, 165, 233, 0.5), 0 0 10px rgba(56, 189, 248, 0.35), inset 0 1px 0 rgba(255,255,255,0.14)",
+    tileBorder: "rgba(56, 189, 248, 0.26)",
+    tileShadow: "0 0 36px -10px rgba(14, 165, 233, 0.32), 0 14px 32px -20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
+    innerTileGlow:
+      "inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -20px 36px -8px rgba(14,165,233,0.11), inset 0 14px 32px -6px rgba(56,189,248,0.08)",
+    veil: "radial-gradient(ellipse 120% 80% at 50% 0%, rgba(56,189,248,0.12) 0%, transparent 62%)",
+  },
+  green: {
+    iconFill: "rgba(52, 211, 153, 0.26)",
+    iconRing: "rgba(52, 211, 153, 0.5)",
+    iconShadow:
+      "0 0 24px rgba(52, 211, 153, 0.48), 0 0 10px rgba(52, 211, 153, 0.32), inset 0 1px 0 rgba(255,255,255,0.12)",
+    tileBorder: "rgba(52, 211, 153, 0.26)",
+    tileShadow: "0 0 36px -10px rgba(52, 211, 153, 0.28), 0 14px 32px -20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
+    innerTileGlow:
+      "inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -20px 36px -8px rgba(52,211,153,0.1), inset 0 14px 32px -6px rgba(52,211,153,0.07)",
+    veil: "radial-gradient(ellipse 120% 80% at 50% 0%, rgba(52,211,153,0.11) 0%, transparent 62%)",
+  },
+  purple: {
+    iconFill: "rgba(167, 139, 250, 0.26)",
+    iconRing: "rgba(167, 139, 250, 0.52)",
+    iconShadow:
+      "0 0 24px rgba(139, 92, 246, 0.45), 0 0 10px rgba(167, 139, 250, 0.32), inset 0 1px 0 rgba(255,255,255,0.12)",
+    tileBorder: "rgba(167, 139, 250, 0.28)",
+    tileShadow: "0 0 36px -10px rgba(139, 92, 246, 0.28), 0 14px 32px -20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
+    innerTileGlow:
+      "inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -20px 36px -8px rgba(139,92,246,0.1), inset 0 14px 32px -6px rgba(167,139,250,0.08)",
+    veil: "radial-gradient(ellipse 120% 80% at 50% 0%, rgba(167,139,250,0.12) 0%, transparent 62%)",
+  },
+};
+
+function PalletScanStatTile(props: {
+  label: string;
+  value: string;
+  icon: typeof Package;
+  glow: PalletStatGlow;
+  iconColor: string;
+  valueColor: string;
+}) {
+  const { label, value, icon: Icon, glow, iconColor, valueColor } = props;
+  const g = PALLET_STAT_GLOW[glow];
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl border px-2 pb-2.5 pt-2.5"
+      style={{
+        backgroundColor: CARD,
+        borderColor: g.tileBorder,
+        boxShadow: `${g.tileShadow}, ${g.innerTileGlow}`,
+      }}
+    >
+      <div className="pointer-events-none absolute inset-0 opacity-100" style={{ background: g.veil }} aria-hidden />
+      <div className="relative flex min-h-[5.5rem] flex-col items-center justify-center gap-1.5 text-center">
+        <div
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border"
+          style={{
+            backgroundColor: g.iconFill,
+            borderColor: g.iconRing,
+            boxShadow: g.iconShadow,
+          }}
+          aria-hidden
+        >
+          <Icon className="h-[19px] w-[19px]" strokeWidth={2.25} style={{ color: iconColor }} />
+        </div>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{label}</p>
+        <p className="-mt-0.5 text-lg font-semibold tabular-nums tracking-tight sm:text-xl" style={{ color: valueColor }}>
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function ExpectedInventoryLineRow(props: {
   line: TrackingOperatorLine;
   accent: ExpectedInventoryAccent;
@@ -321,12 +458,12 @@ function ExpectedInventoryLineRow(props: {
     accent === "teal"
       ? {
           borderColor: "rgba(45,212,191,0.35)",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 14px rgba(45,212,191,0.12)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 12px rgba(45,212,191,0.1)",
         }
       : accent === "purple"
         ? {
             borderColor: PURPLE_RING,
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 14px rgba(139,92,246,0.12)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 12px rgba(139,92,246,0.1)",
           }
         : {
             borderColor: BORDER,
@@ -335,56 +472,48 @@ function ExpectedInventoryLineRow(props: {
   const iconColor = accent === "teal" ? TEAL_STEP : accent === "purple" ? ACTION_PURPLE : "rgba(196,181,253,0.9)";
 
   return (
-    <li className="grid grid-cols-1 gap-3 border-b border-[#243241] py-4 first:pt-0 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-      <div className="flex min-w-0 gap-3">
-        <div
-          className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border ring-1"
-          style={{ backgroundColor: CARD_INNER, ...iconWrapStyle }}
-          aria-hidden
-        >
-          <PackageOpen className="h-7 w-7" strokeWidth={2} style={{ color: iconColor }} />
-        </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-[17px] font-bold leading-snug tracking-tight text-white">{line.productLabel}</p>
-          <p className="text-[11px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
-            <span className="font-mono text-[11px]" style={{ color: "rgba(148,163,184,0.95)" }}>
-              {line.asin?.trim() ? line.asin.trim() : "—"}
-            </span>
-            <span className="mx-1.5 font-normal opacity-50" aria-hidden>
-              ·
-            </span>
-            <span className="font-mono text-[11px]" style={{ color: "rgba(148,163,184,0.85)" }}>
-              {line.sku?.trim() ? line.sku.trim() : "—"}
-            </span>
-          </p>
-          <p className="text-[10px] font-semibold" style={{ color: "rgba(56,189,248,0.55)" }}>
-            FNSKU <span className="font-mono text-[11px] text-sky-200/80">{line.fnsku || "—"}</span>
-            {line.disposition ? (
+    <li className="flex items-center gap-2.5 py-2.5">
+      <div
+        className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border"
+        style={{ backgroundColor: CARD_INNER, ...iconWrapStyle }}
+        aria-hidden
+      >
+        <PackageOpen className="h-[18px] w-[18px]" strokeWidth={2} style={{ color: iconColor }} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold leading-tight tracking-tight text-white">{line.productLabel}</p>
+        <p className="mt-0.5 text-xs tabular-nums text-slate-500">
+          <span className="font-mono">{line.asin?.trim() ? line.asin.trim() : "—"}</span>
+          <span className="mx-1 font-normal text-slate-600" aria-hidden>
+            ·
+          </span>
+          <span className="font-mono">{line.sku?.trim() ? line.sku.trim() : "—"}</span>
+        </p>
+        {line.fnsku || line.disposition ? (
+          <p className="mt-0.5 text-[10px] font-medium leading-tight text-slate-600">
+            {line.fnsku ? (
               <>
-                <span className="mx-1.5 opacity-40" aria-hidden>
-                  ·
-                </span>
-                <span style={{ color: accent === "purple" ? "rgba(196,181,253,0.95)" : "rgba(45,212,191,0.85)" }}>{line.disposition}</span>
+                FNSKU <span className="font-mono text-slate-500">{line.fnsku}</span>
               </>
             ) : null}
+            {line.fnsku && line.disposition ? <span className="mx-1 text-slate-700">·</span> : null}
+            {line.disposition ? (
+              <span style={{ color: accent === "purple" ? "rgba(196,181,253,0.85)" : "rgba(45,212,191,0.75)" }}>{line.disposition}</span>
+            ) : null}
           </p>
-        </div>
+        ) : null}
       </div>
-      <div className="flex shrink-0 gap-6 sm:flex-col sm:gap-2 sm:text-right">
+      <div className="flex shrink-0 gap-4 text-right">
         <div>
-          <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-            Expected
-          </p>
-          <p className="mt-0.5 text-[20px] font-bold tabular-nums leading-none" style={{ color: ACTION_BLUE }}>
+          <p className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">Exp</p>
+          <p className="mt-0.5 text-base font-bold tabular-nums leading-none" style={{ color: ACTION_BLUE }}>
             {line.expectedQty}
           </p>
         </div>
         <div>
-          <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-            Scanned
-          </p>
+          <p className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">Scan</p>
           <p
-            className="mt-0.5 text-[20px] font-bold tabular-nums leading-none"
+            className="mt-0.5 text-base font-bold tabular-nums leading-none"
             style={{ color: line.scannedQty >= line.expectedQty && line.expectedQty > 0 ? SUCCESS : TEXT_PRIMARY }}
           >
             {line.scannedQty}
@@ -396,44 +525,54 @@ function ExpectedInventoryLineRow(props: {
 }
 
 function WarehouseBreadcrumb(props: {
+  storeLabel: string | null;
   palletLabel: string | null;
   shipmentIdLabel: string | null;
-  boxVretOrBarcode: string | null;
-  flowPhase: FlowPhase;
+  /** Shown only after a package/carton barcode is locked or an item-phase box is selected. */
+  boxBarcode: string | null;
+  className?: string;
 }) {
-  const { palletLabel, shipmentIdLabel, boxVretOrBarcode, flowPhase } = props;
+  const { storeLabel, palletLabel, shipmentIdLabel, boxBarcode, className } = props;
   const sep = (
-    <span className="mx-0.5 font-black tabular-nums" style={{ color: BORDER }}>
-      ›
+    <span className="mx-0.5 font-semibold tabular-nums text-slate-600" aria-hidden>
+      &gt;
     </span>
   );
-  const palletHot = Boolean(palletLabel) || flowPhase !== "scan";
-  const shipmentHot = Boolean(shipmentIdLabel);
-  const boxHot = flowPhase === "boxes" || flowPhase === "items";
-  const boxParen = boxVretOrBarcode?.trim() ? boxVretOrBarcode.trim() : "—";
-  const itemsHot = flowPhase === "items";
+  const boxId = boxBarcode?.trim() ?? "";
+  const boxHot = Boolean(boxId);
 
   return (
     <nav
-      className="mt-1.5 flex flex-wrap items-center justify-center gap-y-0.5 px-1 text-[11px] font-bold leading-tight"
+      className={`mt-1 flex max-w-full flex-wrap items-center justify-center gap-y-0.5 px-1 text-[10px] font-bold leading-tight tracking-tight ${className ?? ""}`}
       aria-label="Warehouse path"
     >
+      <span style={{ color: MUTED_LABEL }}>Store</span>
+      {sep}
+      <span className="max-w-[28vw] truncate sm:max-w-[140px]" style={{ color: storeLabel?.trim() ? TEAL_STEP : MUTED_LABEL }}>
+        {storeLabel?.trim() || "—"}
+      </span>
+      {sep}
       <span style={{ color: MUTED_LABEL }}>Pallet</span>
       {sep}
-      <span className="max-w-[26vw] truncate font-mono sm:max-w-[120px]" style={{ color: palletHot ? TEAL_STEP : MUTED_LABEL }}>
+      <span className="max-w-[22vw] truncate font-mono sm:max-w-[100px]" style={{ color: palletLabel?.trim() ? TEAL_STEP : MUTED_LABEL }}>
         {palletLabel ?? "—"}
       </span>
       {sep}
-      <span className="max-w-[32vw] truncate font-mono text-[11px] sm:max-w-[200px]" style={{ color: shipmentHot ? TEXT_PRIMARY : MUTED_LABEL }}>
+      <span style={{ color: MUTED_LABEL }}>Shipment</span>
+      {sep}
+      <span className="max-w-[28vw] truncate font-mono sm:max-w-[160px]" style={{ color: shipmentIdLabel?.trim() ? TEXT_PRIMARY : MUTED_LABEL }}>
         {shipmentIdLabel ?? "—"}
       </span>
-      {sep}
-      <span style={{ color: MUTED_LABEL }}>Box</span>
-      <span className="max-w-[30vw] truncate font-mono sm:max-w-[160px]" style={{ color: boxHot && boxParen !== "—" ? SUCCESS : MUTED_LABEL }}>
-        ({boxParen})
-      </span>
-      {sep}
-      <span style={{ color: itemsHot ? TEAL_STEP : MUTED_LABEL }}>Items</span>
+      {boxHot ? (
+        <>
+          {sep}
+          <span style={{ color: MUTED_LABEL }}>Box</span>
+          {sep}
+          <span className="max-w-[30vw] truncate font-mono sm:max-w-[160px]" style={{ color: SUCCESS }}>
+            {boxId}
+          </span>
+        </>
+      ) : null}
     </nav>
   );
 }
@@ -499,9 +638,16 @@ function OperatorMobileScanPageContent() {
     activeStoreLabel,
   } = useOperatorSessionStore();
   const scannerRef = useRef<HTMLInputElement>(null);
+  const physicalBoxCountInputRef = useRef<HTMLInputElement>(null);
   /** Chrome height for fixed Item-phase Active Context bar (`padding-top` under `top: 0`). */
   const scanPageHeaderRef = useRef<HTMLElement>(null);
+  const itemsContextBarRef = useRef<HTMLElement>(null);
   const [itemsContextBarInsetPx, setItemsContextBarInsetPx] = useState(0);
+  /**
+   * Items phase only: padding-top for `<main>` — fixed Active Context sits below the header (same inset as its own padding-top).
+   * Must be (fixedBar.offsetHeight − header.offsetHeight) + gap, not full bar height (main already starts below header).
+   */
+  const [itemsPhaseMainPadPx, setItemsPhaseMainPadPx] = useState(0);
   const modalOpenRef = useRef(false);
   const slip1Ref = useRef<HTMLInputElement>(null);
   const slip2Ref = useRef<HTMLInputElement>(null);
@@ -594,11 +740,20 @@ function OperatorMobileScanPageContent() {
   const [expectedPkgLines, setExpectedPkgLines] = useState<TrackingOperatorLine[]>([]);
   const [expectedPkgTotals, setExpectedPkgTotals] = useState<TrackingExpectationTotals | null>(null);
   const [expectedPkgError, setExpectedPkgError] = useState<string | null>(null);
+  /** Row count of raw `expected_packages` rows for this parent (used for box-count discrepancy vs physical). */
+  const [expectedPackagesRawRowCount, setExpectedPackagesRawRowCount] = useState<number | null>(null);
+  /** Locked when leaving Step 2 so Box Scan denominator stays stable for progress + headers. */
+  const [boxScanTargetDenominator, setBoxScanTargetDenominator] = useState<number | null>(null);
+  /** Increment to replay the physical-count shake animation. */
+  const [physicalCountShakeSeq, setPhysicalCountShakeSeq] = useState(0);
   /** Distinct `tracking_number` values present on loaded `expected_packages` rows — for carton scan match toast. */
   const [expectedPkgTrackingNumbers, setExpectedPkgTrackingNumbers] = useState<string[]>([]);
   const [intakeToast, setIntakeToast] = useState<string | null>(null);
 
-  const laserEnabled = (flowPhase === "scan" || flowPhase === "boxes" || flowPhase === "items") && !manualOpen;
+  const laserEnabled =
+    (flowPhase === "scan" || flowPhase === "boxes" || flowPhase === "items") &&
+    !manualOpen &&
+    !(flowPhase === "items" && !hasReceivableBoxForItems(itemScanPackageId, activeBoxSession));
 
   /** Keeps laser wedge wedged: items phase stays focusable during save (busy does not disable input). */
   const scannerDisabled =
@@ -636,17 +791,6 @@ function OperatorMobileScanPageContent() {
   useEffect(() => {
     scheduleFocusScanner();
   }, [scheduleFocusScanner, unknownModal, activePallet, directBox, manualOpen, flowPhase]);
-
-  useLayoutEffect(() => {
-    if (flowPhase !== "items") return;
-    const el = scanPageHeaderRef.current;
-    if (!el) return;
-    const measure = () => setItemsContextBarInsetPx(el.offsetHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [flowPhase]);
 
   const revokeSlip = useCallback((which: 1 | 2) => {
     const ref = which === 1 ? slipPhoto1UrlRef : slipPhoto2UrlRef;
@@ -718,6 +862,7 @@ function OperatorMobileScanPageContent() {
       setExpectedPkgLines([]);
       setExpectedPkgTotals(null);
       setExpectedPkgError(null);
+      setExpectedPackagesRawRowCount(null);
       setExpectedPkgTrackingNumbers([]);
       return;
     }
@@ -731,12 +876,14 @@ function OperatorMobileScanPageContent() {
               const snap = mockTrackingExpectationSnapshot(activeTracking);
               setExpectedPkgLines(snap.lines);
               setExpectedPkgTotals(snap.totals);
+              setExpectedPackagesRawRowCount(snap.rawRowCount);
               setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
               setExpectedPkgError(null);
             } else if (activePallet?.id) {
               const snap = mockPalletExpectationSnapshot();
               setExpectedPkgLines(snap.lines);
               setExpectedPkgTotals(snap.totals);
+              setExpectedPackagesRawRowCount(snap.rawRowCount);
               setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
               setExpectedPkgError(null);
             }
@@ -748,6 +895,7 @@ function OperatorMobileScanPageContent() {
           if (!cancelled) {
             setExpectedPkgLines([]);
             setExpectedPkgTotals(null);
+            setExpectedPackagesRawRowCount(null);
             setExpectedPkgTrackingNumbers([]);
             if (operatorStoresLoading) {
               setExpectedPkgError(null);
@@ -771,6 +919,7 @@ function OperatorMobileScanPageContent() {
           if (cancelled) return;
           setExpectedPkgLines(snap.lines);
           setExpectedPkgTotals(snap.totals);
+          setExpectedPackagesRawRowCount(snap.rawRowCount);
           setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
           setExpectedPkgError(
             snap.rawRowCount === 0 ? "No expected_packages rows for this tracking in the current store." : null,
@@ -783,6 +932,7 @@ function OperatorMobileScanPageContent() {
           if (cancelled) return;
           setExpectedPkgLines(snap.lines);
           setExpectedPkgTotals(snap.totals);
+          setExpectedPackagesRawRowCount(snap.rawRowCount);
           setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
           setExpectedPkgError(
             snap.rawRowCount === 0
@@ -796,6 +946,7 @@ function OperatorMobileScanPageContent() {
           setExpectedPkgError("Could not load expected_packages.");
           setExpectedPkgLines([]);
           setExpectedPkgTotals(null);
+          setExpectedPackagesRawRowCount(null);
           setExpectedPkgTrackingNumbers([]);
         }
       }
@@ -813,6 +964,12 @@ function OperatorMobileScanPageContent() {
     operatorStores.length,
     operatorStoresLoading,
   ]);
+
+  useEffect(() => {
+    if (flowPhase === "scan" || flowPhase === "review") {
+      setBoxScanTargetDenominator(null);
+    }
+  }, [flowPhase]);
 
   useEffect(() => {
     if (flowPhase !== "boxes") {
@@ -1209,6 +1366,7 @@ function OperatorMobileScanPageContent() {
     setCartonPhotoUrl(null);
     setTrackerPhotoUrl(null);
     if (activePallet?.id) void loadPalletDetail(activePallet.id);
+    setFlowPhase("items");
     scheduleFocusScanner();
   }, [activeBoxSession, activePallet?.id, loadPalletDetail, scheduleFocusScanner]);
 
@@ -1262,6 +1420,10 @@ function OperatorMobileScanPageContent() {
   const handleItemBarcodeScan = useCallback(
     async (code: string) => {
       if (busy) return;
+      if (!hasReceivableBoxForItems(itemScanPackageId, activeBoxSession)) {
+        setItemReceiveError("Select or scan a box before inspecting items.");
+        return;
+      }
       const trimmed = code.trim();
       setItemReceiveError(null);
       setItemBarcodeMiss(null);
@@ -1284,17 +1446,28 @@ function OperatorMobileScanPageContent() {
       await populateDraftFromEpRow(outcome.barcode, outcome.tier, outcome.row);
       scheduleFocusScanner();
     },
-    [busy, expectedPkgDetailRows, populateDraftFromEpRow, scheduleFocusScanner],
+    [
+      busy,
+      itemScanPackageId,
+      activeBoxSession,
+      expectedPkgDetailRows,
+      populateDraftFromEpRow,
+      scheduleFocusScanner,
+    ],
   );
 
   const beginItemPhase = useCallback(() => {
+    if (!hasReceivableBoxForItems(itemScanPackageId, activeBoxSession)) {
+      setBoxIntakeError("Select or scan a box before inspecting items.");
+      return;
+    }
     if (activeBoxSession?.packageId) {
       setItemScanPackageId(activeBoxSession.packageId);
       setItemScanPackageLabel(activeBoxSession.barcode);
     }
     setFlowPhase("items");
     scheduleFocusScanner();
-  }, [activeBoxSession, scheduleFocusScanner]);
+  }, [activeBoxSession, itemScanPackageId, scheduleFocusScanner]);
 
   const resetItemInspectionForm = useCallback(() => {
     if (itemPhotoFrontUrlRef.current) {
@@ -1528,18 +1701,11 @@ function OperatorMobileScanPageContent() {
   const stepIndex =
     flowPhase === "scan" ? 0 : flowPhase === "review" ? 1 : flowPhase === "boxes" ? 2 : 3;
 
-  const headerTitle =
-    flowPhase === "scan"
-      ? "Receiving Scan"
-      : flowPhase === "review"
-        ? trackingIdentified
-          ? "Shipment Review"
-          : "Pallet Review"
-        : flowPhase === "boxes"
-          ? "Box Scan"
-          : "Item Scan & Inspection";
+  const scanStepMeta = SCANNER_STEPS[stepIndex] ?? SCANNER_STEPS[0];
+  const headerTitle = scanStepMeta.title;
+  const headerSubtitle = scanStepMeta.subtitle;
 
-  const headerSubtitle = `Step ${stepIndex + 1} of ${STEPPER.length}`;
+  const hasItemReceivableBox = hasReceivableBoxForItems(itemScanPackageId, activeBoxSession);
 
   const expectedPkgDetailSafe = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
   const itemExpectedUnitsTotal = expectedPkgDetailSafe.reduce(
@@ -1684,18 +1850,51 @@ function OperatorMobileScanPageContent() {
     scheduleFocusScanner();
   };
 
-  const canContinueToBoxScan =
+  const isReadyForBoxScan =
     Boolean(slipPhoto1Url) &&
     typeof physicalBoxCount === "number" &&
     physicalBoxCount > 0 &&
-    parentIdentified;
+    parentIdentified &&
+    !slipVisionProcessing;
 
   const totalSkuUnits =
     expectedPkgTotals?.expectedUnits ?? expectedPkgLines.reduce((s, l) => s + l.expectedQty, 0);
 
   const expectedBoxesForProgress = Math.max(0, physicalBoxCount ?? 0);
-  /** Denominator for Box N of M — always from Review step `physicalBoxCount`. */
-  const boxIntakeDenom = Math.max(expectedBoxesForProgress, 1);
+  const physicalDenomFloor = Math.max(expectedBoxesForProgress, 1);
+  /** Denominator for Box N of M — locked at confirm from Step 2; otherwise preview from `physicalBoxCount`. */
+  const boxIntakeDenom =
+    (flowPhase === "boxes" || flowPhase === "items") && boxScanTargetDenominator != null
+      ? boxScanTargetDenominator
+      : physicalDenomFloor;
+
+  const handleConfirmStartBoxScan = useCallback(() => {
+    if (!parentIdentified || slipVisionProcessing) return;
+    if (!slipPhoto1Url) return;
+    if (typeof physicalBoxCount !== "number" || physicalBoxCount <= 0) {
+      setPhysicalCountShakeSeq((s) => s + 1);
+      return;
+    }
+    if (
+      expectedPackagesRawRowCount != null &&
+      expectedPackagesRawRowCount > 0 &&
+      physicalBoxCount !== expectedPackagesRawRowCount
+    ) {
+      console.warn("[operator-mobile] Box count vs expected_packages row count discrepancy", {
+        physicalBoxCount,
+        expectedPackagesRowCount: expectedPackagesRawRowCount,
+      });
+    }
+    setBoxScanTargetDenominator(physicalBoxCount);
+    setBoxIntakeError(null);
+    setFlowPhase("boxes");
+  }, [
+    parentIdentified,
+    slipPhoto1Url,
+    slipVisionProcessing,
+    physicalBoxCount,
+    expectedPackagesRawRowCount,
+  ]);
   const boxOrdinal = Math.min(scannedBoxesSavedCount + 1, boxIntakeDenom);
   const slipPagesCaptured = (slipPhoto1Url ? 1 : 0) + (slipPhoto2Url ? 1 : 0);
   const matchedItemsPreviewCount = aiSlipReaderPhase === "matched" ? expectedPkgLines.length : 0;
@@ -1708,8 +1907,21 @@ function OperatorMobileScanPageContent() {
   const warehousePalletLabel = activePallet?.pallet_number ?? (directBox ? "Direct" : null);
   const warehouseShipmentIdLabel =
     activeTracking?.trim() || slipBarcodeExtract?.shipmentId?.trim() || null;
-  const warehouseBoxLabel =
-    slipBarcodeExtract?.vretId ?? activeBoxSession?.barcode ?? itemScanPackageLabel ?? null;
+  const contextTrailBoxBarcode = activeBoxSession?.barcode ?? itemScanPackageLabel ?? null;
+
+  useEffect(() => {
+    if (flowPhase !== "review" || !parentIdentified) return;
+    const t = window.setTimeout(() => {
+      const el = physicalBoxCountInputRef.current;
+      if (!el) return;
+      try {
+        el.focus({ preventScroll: true });
+      } catch {
+        el.focus();
+      }
+    }, 180);
+    return () => window.clearTimeout(t);
+  }, [flowPhase, parentIdentified]);
 
   const onCartonOrTrackerFile = (which: "carton" | "tracker", file: File | undefined) => {
     if (!file?.type.startsWith("image/")) return;
@@ -1744,6 +1956,57 @@ function OperatorMobileScanPageContent() {
   };
 
   const showContextHeader = flowPhase !== "review" && flowPhase !== "boxes" && flowPhase !== "items";
+
+  useLayoutEffect(() => {
+    if (flowPhase !== "items") {
+      setItemsPhaseMainPadPx(0);
+      return;
+    }
+    const head = scanPageHeaderRef.current;
+    if (!head) return;
+    const ITEMS_FIRST_GAP_PX = 16; /* gap-4 below Active Context before first card */
+    const measure = () => {
+      const hh = head.offsetHeight;
+      setItemsContextBarInsetPx(hh);
+      const b = itemsContextBarRef.current;
+      if (b) {
+        const stripBelowHeader = Math.max(0, b.offsetHeight - hh);
+        setItemsPhaseMainPadPx(stripBelowHeader + ITEMS_FIRST_GAP_PX);
+      } else {
+        setItemsPhaseMainPadPx(ITEMS_FIRST_GAP_PX);
+      }
+    };
+    let roBar: ResizeObserver | null = null;
+    const attachBarObserver = () => {
+      const b = itemsContextBarRef.current;
+      if (!b || roBar) return;
+      roBar = new ResizeObserver(measure);
+      roBar.observe(b);
+    };
+    measure();
+    attachBarObserver();
+    const raf = window.requestAnimationFrame(() => {
+      measure();
+      attachBarObserver();
+    });
+    const roHead = new ResizeObserver(measure);
+    roHead.observe(head);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      roHead.disconnect();
+      roBar?.disconnect();
+    };
+  }, [
+    flowPhase,
+    activeStoreLabel,
+    activePallet?.pallet_number,
+    activeTracking,
+    itemScanPackageLabel,
+    activeBoxSession?.barcode,
+    itemExpectedUnitsTotal,
+    itemScannedUnitsTotal,
+    itemAggRemaining,
+  ]);
 
   const liveDb = isSupabaseConfigured();
   const allowSessionIncompleteUi =
@@ -1794,13 +2057,13 @@ function OperatorMobileScanPageContent() {
 
       <header
         ref={scanPageHeaderRef}
-        className="relative z-[110] shrink-0 border-b pt-[max(0.35rem,env(safe-area-inset-top))]"
+        className="relative z-[110] shrink-0 border-b pt-[max(0.2rem,env(safe-area-inset-top))]"
         style={{
           borderColor: BORDER,
           background: `linear-gradient(180deg, rgba(22,33,43,0.95) 0%, ${BG} 100%)`,
         }}
       >
-        <div className="flex items-start gap-1 px-3 pb-1 pt-2 sm:px-4">
+        <div className="flex items-start gap-1 px-3 pb-0.5 pt-1 sm:px-4">
           <button
             type="button"
             onClick={() => {
@@ -1809,40 +2072,40 @@ function OperatorMobileScanPageContent() {
               else if (flowPhase === "review") setFlowPhase("scan");
               else router.back();
             }}
-            className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition hover:bg-white/8 active:scale-95"
+            className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white transition hover:bg-white/8 active:scale-95"
             aria-label="Go back"
           >
             <ArrowLeft className="h-5 w-5" strokeWidth={2} />
           </button>
           <div className="min-w-0 flex-1 text-center">
-            <h1 className="text-[1.35rem] font-bold tracking-tight text-white">{headerTitle}</h1>
+            <h1 className="text-[1.2rem] font-bold leading-tight tracking-tight text-white sm:text-[1.28rem]">{headerTitle}</h1>
             <p className="mt-0.5 text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
               {headerSubtitle}
             </p>
             {showWarehouseTrail ? (
               <WarehouseBreadcrumb
+                storeLabel={activeStoreLabel}
                 palletLabel={warehousePalletLabel}
                 shipmentIdLabel={warehouseShipmentIdLabel}
-                boxVretOrBarcode={warehouseBoxLabel}
-                flowPhase={flowPhase}
+                boxBarcode={contextTrailBoxBarcode}
               />
             ) : null}
             {flowPhase === "boxes" ? (
               <p className="mt-0.5 text-[11px] font-bold tabular-nums" style={{ color: ACTION_PURPLE }}>
-                Box {boxOrdinal} of {boxIntakeDenom}
-                <span className="font-semibold text-white/45"> · Package intake</span>
+                Box {boxOrdinal} of{" "}
+                {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : boxIntakeDenom}
               </p>
             ) : null}
             {flowPhase === "items" ? (
               <p className="mt-0.5 text-[11px] font-bold tabular-nums text-white/90">
                 Item {itemProgressNumerator} of {itemProgressDenom}
-                <span className="font-normal text-white/50"> · Expected units (parent scope)</span>
+                <span className="font-normal text-white/50">{" · Box receiving progress"}</span>
               </p>
             ) : null}
           </div>
           <button
             type="button"
-            className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-amber-200/90 transition hover:bg-amber-500/15 active:scale-95"
+            className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-amber-200/90 transition hover:bg-amber-500/15 active:scale-95"
             aria-label="Hard reset session"
             title="Clear local storage and reload"
             onClick={() => {
@@ -1861,43 +2124,48 @@ function OperatorMobileScanPageContent() {
           </button>
         </div>
 
-        <div className="border-t px-2 pb-4 pt-3" style={{ borderColor: BORDER }}>
+        <div className="border-t px-2 pb-2.5 pt-2" style={{ borderColor: BORDER }}>
           <div className="flex flex-row items-start justify-center gap-0">
-            {STEPPER.map((step, index) => {
+            {SCANNER_STEPS.map((step, index) => {
               const active = index === stepIndex;
               const done = index < stepIndex;
-              const boxLane = index === 2;
-              const segmentColor =
-                index === 0
-                  ? CARD_INNER
-                  : index <= stepIndex
-                    ? index === 2
-                      ? ACTION_PURPLE
-                      : TEAL_STEP
-                    : CARD_INNER;
-              const nodeFill =
-                done || active
-                  ? boxLane
-                    ? {
-                        backgroundColor: ACTION_PURPLE,
-                        color: "#1e1b4b",
-                        boxShadow: `0 0 0 3px ${PURPLE_GLOW}`,
-                      }
-                    : {
-                        backgroundColor: TEAL_STEP,
-                        color: "#042f2e",
-                        boxShadow: `0 0 0 3px ${TEAL_STEP_MUTED}`,
-                      }
-                  : {
-                      backgroundColor: BG,
-                      color: MUTED_LABEL,
-                      border: `1px solid ${BORDER}`,
-                    };
+              const boxesStepIndex = 2;
+              const isBoxesStep = index === boxesStepIndex;
+              /** Progress connectors: teal only (never purple). */
+              const segmentFilled = index <= stepIndex;
+              const segmentColor = index === 0 ? CARD_INNER : segmentFilled ? TEAL_STEP : CARD_INNER;
+
+              const doneNode: CSSProperties = {
+                backgroundColor: TEAL_STEP,
+                color: "#042f2e",
+                boxShadow: `0 0 0 3px ${TEAL_STEP_MUTED}`,
+              };
+              const inactiveNode: CSSProperties = {
+                backgroundColor: BG,
+                color: MUTED_LABEL,
+                border: `1px solid ${BORDER}`,
+              };
+              /** Completed steps = teal check never purple. Active Step 3 (boxes) = purple; other active = teal. */
+              let nodeFill: CSSProperties;
+              if (done) {
+                nodeFill = doneNode;
+              } else if (active) {
+                nodeFill = isBoxesStep
+                  ? {
+                      backgroundColor: ACTION_PURPLE,
+                      color: "#1e1b4b",
+                      boxShadow: `0 0 0 3px ${PURPLE_GLOW}`,
+                    }
+                  : doneNode;
+              } else {
+                nodeFill = inactiveNode;
+              }
+
               return (
-                <Fragment key={`step-${index}`}>
+                <Fragment key={step.key}>
                   {index > 0 ? (
                     <div
-                      className="mx-1 mt-[18px] h-[3px] min-w-[10px] flex-1 max-w-[52px] rounded-full sm:max-w-none"
+                      className="mx-1 mt-[14px] h-[3px] min-w-[10px] flex-1 max-w-[52px] rounded-full sm:max-w-none"
                       style={{
                         backgroundColor: segmentColor,
                       }}
@@ -1905,11 +2173,11 @@ function OperatorMobileScanPageContent() {
                     />
                   ) : null}
                   <div className="flex w-[4.5rem] shrink-0 flex-col items-center sm:w-[5rem]">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold" style={nodeFill}>
-                      {done ? "✓" : index + 1}
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold" style={nodeFill}>
+                      {done ? "✓" : step.id}
                     </div>
                     <span
-                      className="mt-2 text-center text-[10px] font-bold leading-tight"
+                      className="mt-1.5 text-center text-[9px] font-bold leading-tight sm:text-[10px]"
                       style={{ color: active ? TEXT_PRIMARY : MUTED_LABEL }}
                     >
                       {step.label}
@@ -1922,31 +2190,32 @@ function OperatorMobileScanPageContent() {
         </div>
 
         {showContextHeader ? (
-          <div className="sticky top-0 z-20 px-4 pb-3">
+          <div className="sticky top-0 z-20 border-t px-2 pb-1.5 pt-0.5" style={{ borderColor: BORDER, backgroundColor: BG }}>
             <div
-              className={`rounded-[20px] border-x border-slate-500/25 border-y border-white/10 bg-slate-900/80 px-3.5 py-3.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.07)] backdrop-blur-md ${toneRing}`}
+              className={`rounded-xl border px-2 py-1.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] backdrop-blur-[2px] ${toneRing}`}
+              style={{ backgroundColor: CARD }}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <span
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1"
                   style={{
-                    backgroundColor: "rgba(56,189,248,0.12)",
+                    backgroundColor: "rgba(56,189,248,0.1)",
                     color: ACCENT_BLUE,
-                    boxShadow: "0 0 16px rgba(56,189,248,0.2)",
-                    borderColor: "rgba(56,189,248,0.25)",
+                    boxShadow: "0 0 12px rgba(56,189,248,0.2)",
+                    borderColor: "rgba(56,189,248,0.22)",
                   }}
                 >
                   {trackingIdentified ? (
-                    <ScanLine className="h-6 w-6" strokeWidth={2.25} />
+                    <ScanLine className="h-4 w-4" strokeWidth={2.25} />
                   ) : (
-                    <Warehouse className="h-6 w-6" strokeWidth={2.25} />
+                    <Warehouse className="h-4 w-4" strokeWidth={2.25} />
                   )}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-bold tracking-tight text-white">{contextHeadline}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="text-[12px] font-bold leading-tight tracking-tight text-white">{contextHeadline}</p>
                     <span
-                      className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                      className="rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide"
                       style={
                         parentIdentified
                           ? {
@@ -1964,11 +2233,11 @@ function OperatorMobileScanPageContent() {
                       {parentIdentified ? "Identified" : "Scanning"}
                     </span>
                   </div>
-                  <p className="mt-1 truncate font-mono text-base font-bold" style={{ color: ACCENT_BLUE }}>
+                  <p className="mt-0.5 truncate font-mono text-xs font-bold" style={{ color: ACCENT_BLUE }}>
                     {contextId}
                   </p>
                   {activeStoreLabel ? (
-                    <p className="mt-1.5 truncate text-[12px] font-bold" style={{ color: MUTED_LABEL }}>
+                    <p className="mt-0.5 truncate text-[10px] font-semibold" style={{ color: MUTED_LABEL }}>
                       Store · <span style={{ color: TEXT_PRIMARY }}>{activeStoreLabel}</span>
                     </p>
                   ) : null}
@@ -1984,49 +2253,52 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" ? (
         <section
+          ref={itemsContextBarRef}
           aria-label="Active context"
-          className="fixed left-1/2 top-0 z-[100] w-full max-w-[430px] -translate-x-1/2 border-b-2 border-white/20 bg-slate-950 px-4 pb-5 shadow-2xl"
-          style={{ paddingTop: itemsContextBarInsetPx }}
+          className="fixed left-1/2 top-0 z-[100] w-full max-w-[430px] -translate-x-1/2 border-b border-white/15 shadow-[0_12px_32px_rgba(0,0,0,0.55)]"
+          style={{
+            paddingTop: itemsContextBarInsetPx,
+            backgroundColor: BG,
+          }}
         >
-          <div className="flex gap-3 py-5">
-            <div className="shrink-0" aria-hidden>
-              {trackingIdentified ? <TrackingParentIcon /> : <ParentType3DIcon />}
+          <div className="flex gap-2 px-3 py-2 sm:px-4">
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-lg ring-1"
+              style={{
+                backgroundColor: "rgba(45,212,191,0.1)",
+                borderColor: "rgba(45,212,191,0.24)",
+                color: TEAL_STEP,
+                boxShadow: "0 0 10px rgba(45,212,191,0.14)",
+              }}
+              aria-hidden
+            >
+              {trackingIdentified ? <ScanLine className="h-4 w-4" strokeWidth={2.25} /> : <Warehouse className="h-4 w-4" strokeWidth={2.25} />}
             </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Active context</p>
-              {activeStoreLabel ? (
-                <p className="text-[12px] font-bold leading-snug text-white/90">
-                  Store · <span style={{ color: TEAL_STEP }}>{activeStoreLabel}</span>
-                </p>
-              ) : null}
-              <p className="font-mono text-[15px] font-bold leading-snug" style={{ color: TEAL_STEP }}>
-                {activePallet?.pallet_number
-                  ? `Pallet ${activePallet.pallet_number}`
-                  : trackingIdentified
-                    ? `Shipment ${activeTracking}`
-                    : directBox
-                      ? "Direct box"
-                      : "—"}
-                <span className="text-white/70"> · </span>
-                Box {itemScanPackageLabel ?? activeBoxSession?.barcode ?? "—"}
-              </p>
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-[12px] tabular-nums">
-                <span className="font-bold text-emerald-400/95">
-                  Slip matched: <span className="text-[13px] font-extrabold text-emerald-300">Yes</span>
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-500">Active context</p>
+              <WarehouseBreadcrumb
+                className="mt-0 justify-start px-0"
+                storeLabel={activeStoreLabel}
+                palletLabel={warehousePalletLabel}
+                shipmentIdLabel={warehouseShipmentIdLabel}
+                boxBarcode={contextTrailBoxBarcode}
+              />
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 border-t border-white/10 pt-1.5 text-[11px] tabular-nums">
+                <span
+                  className="font-bold"
+                  style={{ color: showSlipMatchedBadge ? "rgba(52,211,153,0.95)" : MUTED_LABEL }}
+                >
+                  Slip {showSlipMatchedBadge ? <span className="text-emerald-300">matched</span> : <span>pending</span>}
                 </span>
-                <span className="font-semibold text-white/75">
-                  <span className="font-extrabold text-white">Expected:</span>{" "}
-                  <span className="text-[13px] font-extrabold text-teal-300">{itemExpectedUnitsTotal}</span>
+                <span className="font-semibold text-white/70">
+                  Exp. <span className="font-extrabold text-teal-300">{itemExpectedUnitsTotal}</span>
                 </span>
-                <span className="font-semibold text-white/75">
-                  <span className="font-extrabold text-white">Scanned:</span>{" "}
-                  <span className="text-[13px] font-extrabold text-emerald-300">{itemScannedUnitsTotal}</span>
+                <span className="font-semibold text-white/70">
+                  Done <span className="font-extrabold text-emerald-300">{itemScannedUnitsTotal}</span>
                 </span>
-                <span className="font-semibold text-white/75">
-                  <span className="font-extrabold text-white">Remaining:</span>{" "}
-                  <span
-                    className={`text-[13px] font-extrabold ${itemAggRemaining > 0 ? "text-amber-300" : "text-emerald-400"}`}
-                  >
+                <span className="font-semibold text-white/70">
+                  Left{" "}
+                  <span className={`font-extrabold ${itemAggRemaining > 0 ? "text-amber-300" : "text-emerald-400"}`}>
                     {itemAggRemaining}
                   </span>
                 </span>
@@ -2036,7 +2308,10 @@ function OperatorMobileScanPageContent() {
         </section>
       ) : null}
 
-      <main className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-4 ${mainScrollClass}`}>
+      <main
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 ${flowPhase === "items" ? "" : "pt-4"} ${mainScrollClass}`}
+        style={flowPhase === "items" ? { paddingTop: itemsPhaseMainPadPx } : undefined}
+      >
         {!isSupabaseConfigured() && flowPhase === "scan" ? (
           <p
             className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
@@ -2143,88 +2418,86 @@ function OperatorMobileScanPageContent() {
               </div>
             </section>
 
-            {/* Actual boxes received — denominator for Box intake progress (must be &gt; 0 to continue) */}
+            {/* Physical box count — industrial numeric field; drives Box N of M */}
             <section className="mb-5">
-              <div className="mb-3 flex flex-col gap-1">
-                <h2 className="text-[17px] font-bold tracking-tight text-white">Actual Boxes Received</h2>
-                <p className="text-[12px] font-medium leading-relaxed" style={{ color: MUTED_LABEL }}>
-                  Count every carton you physically see on this pallet or shipment. This number drives{" "}
-                  <span className="font-semibold text-slate-300">Box N of M</span> on the next step.
-                  {!trackingIdentified ? (
-                    <>
-                      {" "}
-                      System rows on pallet: <span className="font-mono font-bold text-slate-200">{stats?.totalBoxes ?? "—"}</span>.
-                    </>
-                  ) : null}{" "}
-                  Expected units from <span className="font-mono text-[11px]">expected_packages</span>:{" "}
-                  <span className="font-bold text-slate-300">{expectedPkgTotals?.expectedUnits ?? "—"}</span>.
-                </p>
-              </div>
-
               <div
-                className="rounded-[22px] p-4 shadow-[inset_0_2px_12px_rgba(0,0,0,0.45)]"
+                className={`overflow-hidden rounded-[22px] border ${glassCard}`}
                 style={{
                   backgroundColor: CARD,
-                  border: `1px solid ${BORDER}`,
-                  boxShadow: "0 12px 32px -18px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05)",
+                  borderColor: BORDER,
+                  boxShadow: "0 16px 40px -16px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05)",
                 }}
               >
-                <div
-                  className="rounded-[18px] bg-[#090E1A] p-3 sm:p-4"
-                  style={{ border: "1px solid #243241" }}
-                >
-                  <label htmlFor={`${formId}-physical-boxes`} className="sr-only">
-                    Actual boxes received
-                  </label>
-                  <div className="flex items-stretch gap-2 sm:gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setPhysicalBoxCount((n) => Math.max(0, (n ?? 0) - 1))}
-                      className="flex h-[58px] min-h-[52px] w-[58px] min-w-[52px] shrink-0 items-center justify-center rounded-2xl border text-white transition hover:brightness-110 active:scale-95 sm:h-[64px] sm:w-[64px]"
-                      style={{
-                        borderColor: BORDER,
-                        backgroundColor: CARD_INNER,
-                        boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.35)",
-                      }}
-                      aria-label="Decrease box count"
+                <div className="px-4 pb-4 pt-3.5 sm:px-5 sm:pb-5 sm:pt-4">
+                  <h2 className="text-center text-base font-bold tracking-tight text-white sm:text-lg">
+                    Physical box intake
+                  </h2>
+                  <p className="mt-1.5 text-center text-[11px] font-medium leading-snug text-slate-400 sm:text-[12px]">
+                    Next step shows{" "}
+                    <span className="font-mono font-semibold text-slate-200">
+                      Box 1 of {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : "—"}
+                    </span>
+                    . {!trackingIdentified ? (
+                      <>
+                        {" "}
+                        System packages on pallet:{" "}
+                        <span className="font-mono font-semibold text-slate-300">{stats?.totalBoxes ?? "—"}</span>.
+                      </>
+                    ) : null}{" "}
+                    Expected units:{" "}
+                    <span className="font-semibold text-slate-300">{expectedPkgTotals?.expectedUnits ?? "—"}</span>.
+                    {expectedPackagesRawRowCount != null && expectedPackagesRawRowCount > 0 ? (
+                      <>
+                        {" "}
+                        <span className="text-slate-500">·</span> expected_packages rows:{" "}
+                        <span className="font-mono font-semibold text-slate-300">{expectedPackagesRawRowCount}</span>.
+                      </>
+                    ) : null}
+                  </p>
+                  {expectedPackagesRawRowCount != null &&
+                  expectedPackagesRawRowCount > 0 &&
+                  typeof physicalBoxCount === "number" &&
+                  physicalBoxCount > 0 &&
+                  physicalBoxCount !== expectedPackagesRawRowCount ? (
+                    <div
+                      className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-center text-[11px] font-medium leading-snug text-amber-200 backdrop-blur-sm sm:text-[12px]"
+                      role="status"
                     >
-                      <Minus className="h-8 w-8 sm:h-9 sm:w-9" strokeWidth={2.75} />
-                    </button>
+                      Note: You are receiving {physicalBoxCount} boxes, but the system expected {expectedPackagesRawRowCount}.
+                      Discrepancy will be logged.
+                    </div>
+                  ) : null}
+                  <label
+                    htmlFor={`${formId}-physical-boxes`}
+                    className="mt-4 block text-center text-[11px] font-semibold uppercase tracking-widest text-slate-400"
+                  >
+                    Total Physical Boxes Found
+                  </label>
+                  <div
+                    key={`physical-shake-${physicalCountShakeSeq}`}
+                    className={physicalCountShakeSeq > 0 ? "operator-physical-count-shake mt-2" : "mt-2"}
+                  >
                     <input
+                      ref={physicalBoxCountInputRef}
                       id={`${formId}-physical-boxes`}
-                      type="number"
+                      type="tel"
                       inputMode="numeric"
-                      min={0}
-                      className="min-h-[52px] min-w-0 flex-1 rounded-2xl bg-[#090E1A] px-2 py-3 text-center font-mono text-[30px] font-bold tabular-nums leading-none text-white outline-none ring-2 ring-transparent transition focus:ring-[rgba(14,165,233,0.5)] sm:text-[34px]"
-                      style={{
-                        border: "1px solid #334155",
-                        boxShadow: "inset 0 3px 10px rgba(0,0,0,0.55)",
-                      }}
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      enterKeyHint="done"
+                      className="mx-auto block min-h-[88px] w-full max-w-[280px] rounded-xl border-2 border-slate-600/80 bg-[#060a10] px-4 text-center font-mono text-[44px] font-black tabular-nums leading-none text-white shadow-[inset_0_4px_24px_rgba(0,0,0,0.65)] outline-none transition placeholder:text-slate-600 focus:border-teal-400/65 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(45,212,191,0.22)] sm:min-h-[96px] sm:max-w-[320px] sm:text-[52px]"
                       value={physicalBoxCount ?? ""}
                       placeholder="0"
                       onChange={(e) => {
-                        const v = e.target.value;
-                        if (v === "") setPhysicalBoxCount(null);
+                        const raw = e.target.value.replace(/\D/g, "");
+                        if (raw === "") setPhysicalBoxCount(null);
                         else {
-                          const n = Number.parseInt(v, 10);
-                          if (!Number.isNaN(n) && n >= 0) setPhysicalBoxCount(n);
+                          const n = Number.parseInt(raw, 10);
+                          if (!Number.isNaN(n)) setPhysicalBoxCount(n);
                         }
                       }}
-                      aria-label="Actual boxes received count"
+                      aria-label="Total physical boxes found"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setPhysicalBoxCount((n) => (n ?? 0) + 1)}
-                      className="flex h-[58px] min-h-[52px] w-[58px] min-w-[52px] shrink-0 items-center justify-center rounded-2xl border text-white transition hover:brightness-110 active:scale-95 sm:h-[64px] sm:w-[64px]"
-                      style={{
-                        borderColor: "rgba(14,165,233,0.5)",
-                        background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
-                        boxShadow: "0 6px 18px rgba(14,165,233,0.38), inset 0 1px 0 rgba(255,255,255,0.12)",
-                      }}
-                      aria-label="Increase box count"
-                    >
-                      <Plus className="h-8 w-8 sm:h-9 sm:w-9" strokeWidth={2.75} />
-                    </button>
                   </div>
                   <p
                     className="mt-3 text-center text-[11px] font-semibold sm:text-[12px]"
@@ -2241,16 +2514,74 @@ function OperatorMobileScanPageContent() {
                       slipPhoto1Url ? (
                         <>
                           <CheckCircle2 className="-mt-0.5 mr-1 inline-block h-3.5 w-3.5 align-middle" strokeWidth={2} />
-                          Box count set — continue to Box Scan when ready.
+                          Count set — tap Confirm & Start Box Scan when ready.
                         </>
                       ) : (
-                        <>Box count OK — capture slip photo 1 below to continue.</>
+                        <>Count set — capture slip photo 1 below, then confirm.</>
                       )
                     ) : (
-                      <>Enter a count greater than zero to unlock Continue to Box Scan.</>
+                      <>Physical box count is required (greater than zero) before you can start box scan.</>
                     )}
                   </p>
                 </div>
+              </div>
+            </section>
+
+            {/* Expected inventory summary */}
+            <section
+              className={`mb-5 rounded-[24px] p-4 ${glassCard}`}
+              style={{
+                backgroundColor: CARD,
+                borderColor: trackingIdentified ? PURPLE_RING : "rgba(45,212,191,0.35)",
+                boxShadow: trackingIdentified
+                  ? `inset 0 0 0 1px rgba(167,139,250,0.12)`
+                  : `inset 0 0 0 1px rgba(45,212,191,0.1)`,
+              }}
+            >
+              <div className="mb-3 flex flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <Package
+                    className="h-4 w-4"
+                    strokeWidth={2}
+                    style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}
+                  />
+                  <h2 className="text-sm font-bold tracking-tight text-slate-400">Expected Inventory Summary</h2>
+                </div>
+                <p className="text-[12px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
+                  From <span className="font-mono text-[11px]">expected_packages</span>, aggregated by SKU · FNSKU · disposition.
+                  Parent:{" "}
+                  <span className="font-mono font-bold" style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}>
+                    {trackingIdentified ? activeTracking : activePallet?.pallet_number}
+                  </span>
+                  {trackingIdentified ? "" : " (all package trackings on pallet)"}.
+                </p>
+              </div>
+              {expectedPkgLines.length === 0 ? (
+                <p className="text-[13px] font-medium" style={{ color: MUTED_LABEL }}>
+                  No expected_packages lines for this parent in the current store.
+                </p>
+              ) : (
+                <ul className="list-none divide-y divide-slate-700/50">
+                  {expectedPkgLines.map((line) => (
+                    <ExpectedInventoryLineRow
+                      key={line.groupKey}
+                      line={line}
+                      accent={trackingIdentified ? "purple" : "teal"}
+                    />
+                  ))}
+                </ul>
+              )}
+              <div
+                className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t pt-3 text-[11px] font-semibold sm:text-[12px]"
+                style={{
+                  borderColor: BORDER,
+                  color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP,
+                }}
+              >
+                <span className="text-center opacity-90">
+                  {expectedPkgLines.length} SKUs · {totalSkuUnits} units total
+                </span>
+                <Info className="h-3.5 w-3.5 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
               </div>
             </section>
 
@@ -2454,79 +2785,18 @@ function OperatorMobileScanPageContent() {
               </p>
             </div>
 
-            {/* Expected inventory summary */}
-            <section
-              className={`mb-5 rounded-[24px] p-4 ${glassCard}`}
-              style={{
-                backgroundColor: CARD,
-                borderColor: trackingIdentified ? PURPLE_RING : "rgba(45,212,191,0.35)",
-                boxShadow: trackingIdentified
-                  ? `inset 0 0 0 1px rgba(167,139,250,0.12)`
-                  : `inset 0 0 0 1px rgba(45,212,191,0.1)`,
-              }}
-            >
-              <div className="mb-3 flex flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  <Package
-                    className="h-4 w-4"
-                    strokeWidth={2}
-                    style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}
-                  />
-                  <h2 className="text-[15px] font-bold text-white">Expected Inventory Summary</h2>
-                </div>
-                <p className="text-[12px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
-                  From <span className="font-mono text-[11px]">expected_packages</span>, aggregated by SKU · FNSKU · disposition.
-                  Parent:{" "}
-                  <span className="font-mono font-bold" style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}>
-                    {trackingIdentified ? activeTracking : activePallet?.pallet_number}
-                  </span>
-                  {trackingIdentified ? "" : " (all package trackings on pallet)"}.
-                </p>
-              </div>
-              {expectedPkgLines.length === 0 ? (
-                <p className="text-[13px] font-medium" style={{ color: MUTED_LABEL }}>
-                  No expected_packages lines for this parent in the current store.
-                </p>
-              ) : (
-                <ul className="list-none">
-                  {expectedPkgLines.map((line) => (
-                    <ExpectedInventoryLineRow
-                      key={line.groupKey}
-                      line={line}
-                      accent={trackingIdentified ? "purple" : "teal"}
-                    />
-                  ))}
-                </ul>
-              )}
-              <div
-                className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t pt-3 text-[11px] font-semibold sm:text-[12px]"
-                style={{
-                  borderColor: BORDER,
-                  color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP,
-                }}
-              >
-                <span className="text-center opacity-90">
-                  {expectedPkgLines.length} SKUs · {totalSkuUnits} units total
-                </span>
-                <Info className="h-3.5 w-3.5 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
-              </div>
-            </section>
-
             <button
               type="button"
-              disabled={!canContinueToBoxScan}
-              onClick={() => {
-                setBoxIntakeError(null);
-                setFlowPhase("boxes");
-              }}
+              disabled={!parentIdentified || !slipPhoto1Url || slipVisionProcessing}
+              onClick={handleConfirmStartBoxScan}
               className="mb-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-[18px] text-[15px] font-bold text-white shadow-[0_8px_24px_rgba(14,165,233,0.35)] transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
               style={{
                 background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
-                boxShadow: canContinueToBoxScan ? `0 10px 28px rgba(14,165,233,0.4)` : undefined,
+                boxShadow: isReadyForBoxScan ? `0 10px 28px rgba(14,165,233,0.4)` : undefined,
               }}
             >
               <ScanLine className="h-5 w-5" strokeWidth={2.25} />
-              Continue to Box Scan
+              Confirm & Start Box Scan
             </button>
             <button
               type="button"
@@ -2542,24 +2812,24 @@ function OperatorMobileScanPageContent() {
 
         {flowPhase === "scan" ? (
           <>
-            <section className={`mb-4 rounded-[24px] p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
-              <div className="flex gap-3">
+            <section className={`mb-4 rounded-[22px] p-3 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
+              <div className="flex gap-2.5">
                 <div
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ring-1"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1"
                   style={{
-                    backgroundColor: "rgba(56,189,248,0.1)",
-                    borderColor: "rgba(56,189,248,0.2)",
-                    boxShadow: "0 0 14px rgba(56,189,248,0.18)",
+                    backgroundColor: "rgba(56,189,248,0.08)",
+                    borderColor: "rgba(56,189,248,0.18)",
+                    boxShadow: "0 0 10px rgba(56,189,248,0.12)",
                   }}
                 >
                   <div className="relative flex items-end gap-0.5 pb-0.5">
-                    <Package className="relative z-[1] h-7 w-7 drop-shadow-[0_3px_6px_rgba(37,99,235,0.45)]" style={{ color: ACCENT_BLUE }} strokeWidth={2} />
-                    <Warehouse className="-ml-2.5 h-6 w-6 opacity-90" style={{ color: ACTION_BLUE }} strokeWidth={2} />
+                    <Package className="relative z-[1] h-6 w-6 drop-shadow-[0_2px_4px_rgba(37,99,235,0.4)]" style={{ color: ACCENT_BLUE }} strokeWidth={2} />
+                    <Warehouse className="-ml-2 h-5 w-5 opacity-85" style={{ color: ACTION_BLUE }} strokeWidth={2} />
                   </div>
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
-                    <h2 className="text-[17px] font-bold tracking-tight text-white">
+                    <h2 className="text-[16px] font-bold leading-tight tracking-tight text-white">
                       {trackingIdentified ? "Tracking locked" : "Scan barcode"}
                     </h2>
                     <div className="relative shrink-0">
@@ -2568,10 +2838,9 @@ function OperatorMobileScanPageContent() {
                         aria-expanded={scanBarcodeHelpOpen}
                         aria-label="Scan instructions"
                         onClick={() => setScanBarcodeHelpOpen((o) => !o)}
-                        className="flex h-8 w-8 items-center justify-center rounded-full border transition hover:bg-white/8 active:scale-95"
-                        style={{ borderColor: "rgba(56,189,248,0.4)", color: ACCENT_BLUE, boxShadow: "0 0 12px rgba(56,189,248,0.15)" }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 text-slate-400 transition hover:border-white/15 hover:bg-white/5 hover:text-slate-300 active:scale-95"
                       >
-                        <Info className="h-4 w-4" strokeWidth={2.5} />
+                        <Info className="h-3.5 w-3.5" strokeWidth={2} />
                       </button>
                       {scanBarcodeHelpOpen ? (
                         <>
@@ -2591,7 +2860,7 @@ function OperatorMobileScanPageContent() {
                               {trackingIdentified ? (
                                 <>
                                   Expected lines come from <span className="font-mono text-[11px] text-sky-200/90">expected_packages</span>{" "}
-                                  for this tracking and store. Continue to Review for slips, then box and item scans.
+                                  for this tracking and store. Continue to Confirm for slips, then box and item scans.
                                 </>
                               ) : (
                                 <>
@@ -2613,9 +2882,9 @@ function OperatorMobileScanPageContent() {
                 </div>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-2">
                 <ScanFrameWithLaser
-                  minHeight="104px"
+                  minHeight="76px"
                   laserColor={ACCENT_BLUE}
                   cornerColor="rgba(56,189,248,0.75)"
                   cornerSize="sm"
@@ -2624,18 +2893,18 @@ function OperatorMobileScanPageContent() {
                   frameStyle={{
                     borderColor: BORDER,
                     backgroundColor: BG,
-                    boxShadow: "inset 0 2px 12px rgba(0,0,0,0.35)",
+                    boxShadow: "inset 0 2px 10px rgba(0,0,0,0.32)",
                   }}
                 >
-                  <Barcode className="h-10 w-10 opacity-45" strokeWidth={1.25} style={{ color: MUTED_LABEL }} />
+                  <Barcode className="h-8 w-8 opacity-45" strokeWidth={1.25} style={{ color: MUTED_LABEL }} />
                 </ScanFrameWithLaser>
               </div>
 
-              <div className="mt-3">
-                <label htmlFor={`${formId}-scan-manual`} className="text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: MUTED_LABEL }}>
+              <div className="mt-2">
+                <label htmlFor={`${formId}-scan-manual`} className="mb-1 block text-[9px] font-semibold uppercase tracking-widest text-slate-500">
                   Manual entry
                 </label>
-                <div className="mt-1.5 flex gap-2">
+                <div className="relative">
                   <input
                     id={`${formId}-scan-manual`}
                     value={scanLine}
@@ -2653,19 +2922,16 @@ function OperatorMobileScanPageContent() {
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    placeholder="Type barcode if scanner fails"
-                    className="h-11 min-w-0 flex-1 rounded-xl border px-3 font-mono text-[14px] text-white outline-none focus:ring-2 focus:ring-sky-500/40"
-                    style={{ borderColor: BORDER, backgroundColor: BG }}
+                    placeholder="Barcode"
+                    className="h-9 w-full rounded-lg border border-white/10 bg-white/5 py-0 pl-3 pr-[4.25rem] font-mono text-[13px] text-white outline-none transition placeholder:text-slate-600 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
                   />
                   <button
                     type="button"
                     disabled={busy || !scanLine.trim()}
                     onClick={() => void onSubmitScan()}
-                    className="h-11 shrink-0 rounded-xl px-4 text-[13px] font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="absolute right-1 top-1/2 flex h-7 min-w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-md text-[10px] font-bold text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
                     style={{
-                      background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
-                      boxShadow: "0 4px 14px rgba(14,165,233,0.3)",
-                      color: "#0f172a",
+                      color: "#99f6e4",
                     }}
                   >
                     {busy ? "…" : "Apply"}
@@ -2736,97 +3002,70 @@ function OperatorMobileScanPageContent() {
               </section>
             ) : null}
 
-            <section
-              className={`mb-4 grid gap-2.5 ${parentIdentified ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}
-            >
-              {parentIdentified
-                ? (
-                    [
-                      {
-                        label: "Expected Qty",
-                        value: expectedPkgTotals ? String(expectedPkgTotals.expectedUnits) : "—",
-                        icon: ClipboardList,
-                        ic: ACCENT_BLUE,
-                        num: ACTION_BLUE,
-                      },
-                      {
-                        label: "Scanned Qty",
-                        value: expectedPkgTotals ? String(expectedPkgTotals.scannedUnits) : "—",
-                        icon: ScanLine,
-                        ic: SUCCESS,
-                        num: SUCCESS,
-                      },
-                      {
-                        label: "Remaining",
-                        value: expectedPkgTotals ? String(expectedPkgTotals.remainingUnits) : "—",
-                        icon: Package,
-                        ic: "#c4b5fd",
-                        num: "#ddd6fe",
-                      },
-                    ] as const
-                  ).map(({ label, value, icon: Icon, ic, num }) => (
-                    <div key={label} className={`rounded-[22px] border p-3 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
-                      <div
-                        className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl ring-1"
-                        style={{ backgroundColor: CARD_INNER, borderColor: BORDER }}
-                      >
-                        <Icon className="h-5 w-5" style={{ color: ic }} strokeWidth={2.25} />
-                      </div>
-                      <p className="text-center text-[10px] font-bold uppercase tracking-[0.06em]" style={{ color: MUTED_LABEL }}>
-                        {label}
-                      </p>
-                      <p className="mt-1 text-center text-[22px] font-bold tabular-nums tracking-tight sm:text-[26px]" style={{ color: num }}>
-                        {value}
-                      </p>
-                    </div>
-                  ))
-                : (
-                    [
-                      {
-                        label: "Total Boxes",
-                        value: typeof physicalBoxCount === "number" ? String(physicalBoxCount) : "—",
-                        icon: Package,
-                        ic: trackingIdentified ? ACTION_PURPLE : TEAL_STEP,
-                        num: trackingIdentified ? ACTION_PURPLE : TEAL_STEP,
-                      },
-                      {
-                        label: "Expected Items",
-                        value: stats ? String(stats.expectedItems) : "—",
-                        icon: ClipboardList,
-                        ic: "rgba(56,189,248,0.85)",
-                        num: TEXT_PRIMARY,
-                      },
-                      {
-                        label: "Scanned",
-                        value: stats ? String(stats.scannedItems) : "—",
-                        icon: ScanLine,
-                        ic: SUCCESS,
-                        num: SUCCESS,
-                      },
-                      {
-                        label: "Remaining",
-                        value: stats ? String(stats.remainingItems) : "—",
-                        icon: Package,
-                        ic: "#c4b5fd",
-                        num: "#ddd6fe",
-                      },
-                    ] as const
-                  ).map(({ label, value, icon: Icon, ic, num }) => (
-                    <div key={label} className={`rounded-[22px] border p-3 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
-                      <div
-                        className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl ring-1"
-                        style={{ backgroundColor: CARD_INNER, borderColor: BORDER }}
-                      >
-                        <Icon className="h-5 w-5" style={{ color: ic }} strokeWidth={2.25} />
-                      </div>
-                      <p className="text-center text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: MUTED_LABEL }}>
-                        {label}
-                      </p>
-                      <p className="mt-1 text-center text-[26px] font-bold tabular-nums tracking-tight" style={{ color: num }}>
-                        {value}
-                      </p>
-                    </div>
-                  ))}
+            <section className={`mb-4 grid gap-2.5 ${parentIdentified ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}>
+              {parentIdentified ? (
+                <>
+                  <PalletScanStatTile
+                    label="Expected"
+                    value={expectedPkgTotals ? String(expectedPkgTotals.expectedUnits) : "—"}
+                    icon={ClipboardList}
+                    glow="blue"
+                    iconColor={ACCENT_BLUE}
+                    valueColor={ACTION_BLUE}
+                  />
+                  <PalletScanStatTile
+                    label="Scanned"
+                    value={expectedPkgTotals ? String(expectedPkgTotals.scannedUnits) : "—"}
+                    icon={ScanLine}
+                    glow="green"
+                    iconColor={SUCCESS}
+                    valueColor={SUCCESS}
+                  />
+                  <PalletScanStatTile
+                    label="Remaining"
+                    value={expectedPkgTotals ? String(expectedPkgTotals.remainingUnits) : "—"}
+                    icon={Package}
+                    glow="purple"
+                    iconColor={ACCENT_PURPLE}
+                    valueColor="#e9d5ff"
+                  />
+                </>
+              ) : (
+                <>
+                  <PalletScanStatTile
+                    label="Total Boxes"
+                    value={stats ? String(stats.totalBoxes) : "—"}
+                    icon={Package}
+                    glow="teal"
+                    iconColor={TEAL_STEP}
+                    valueColor={TEAL_STEP}
+                  />
+                  <PalletScanStatTile
+                    label="Expected"
+                    value={stats ? String(stats.expectedItems) : "—"}
+                    icon={ClipboardList}
+                    glow="blue"
+                    iconColor={ACCENT_BLUE}
+                    valueColor={TEXT_PRIMARY}
+                  />
+                  <PalletScanStatTile
+                    label="Scanned"
+                    value={stats ? String(stats.scannedItems) : "—"}
+                    icon={ScanLine}
+                    glow="green"
+                    iconColor={SUCCESS}
+                    valueColor={SUCCESS}
+                  />
+                  <PalletScanStatTile
+                    label="Remaining"
+                    value={stats ? String(stats.remainingItems) : "—"}
+                    icon={Package}
+                    glow="purple"
+                    iconColor={ACCENT_PURPLE}
+                    valueColor="#e9d5ff"
+                  />
+                </>
+              )}
             </section>
 
             <section
@@ -2848,7 +3087,7 @@ function OperatorMobileScanPageContent() {
                     strokeWidth={2}
                     style={{ color: trackingIdentified ? ACTION_PURPLE : parentIdentified ? TEAL_STEP : ACCENT_BLUE }}
                   />
-                  <h3 className="text-[15px] font-bold tracking-tight text-white">Expected Inventory Summary</h3>
+                  <h3 className="text-sm font-bold tracking-tight text-slate-400">Expected Inventory Summary</h3>
                 </div>
                 {parentIdentified ? (
                   <p className="text-[12px] font-semibold" style={{ color: MUTED_LABEL }}>
@@ -2875,7 +3114,7 @@ function OperatorMobileScanPageContent() {
                   No expected_packages rows for this parent (store + worklist).
                 </p>
               ) : (
-                <ul className="list-none">
+                <ul className="list-none divide-y divide-slate-700/50">
                   {expectedPkgLines.map((line) => (
                     <ExpectedInventoryLineRow
                       key={line.groupKey}
@@ -2902,7 +3141,7 @@ function OperatorMobileScanPageContent() {
                 boxShadow: parentIdentified ? "0 6px 18px rgba(14,165,233,0.28)" : undefined,
               }}
             >
-              Continue to Review
+              Continue to Confirm
             </button>
 
             <button
@@ -2914,7 +3153,8 @@ function OperatorMobileScanPageContent() {
                 setActiveSlipOrPackage(null);
                 setExpectedPkgLines([]);
                 setExpectedPkgTotals(null);
-                beginItemPhase();
+                setExpectedPackagesRawRowCount(null);
+                setFlowPhase("review");
               }}
               className="mb-4 w-full rounded-[16px] border py-3 text-[11px] font-bold uppercase tracking-wide transition hover:bg-white/5"
               style={{ borderColor: "rgba(56,189,248,0.25)", color: ACCENT_BLUE, backgroundColor: "rgba(56,189,248,0.06)" }}
@@ -2934,7 +3174,7 @@ function OperatorMobileScanPageContent() {
                 Identify a pallet or tracking parent before box intake.
               </p>
             ) : (
-              <>
+              <div className="flex flex-col gap-5">
                 {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
                   <p
                     className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
@@ -2962,7 +3202,7 @@ function OperatorMobileScanPageContent() {
                   </p>
                 ) : null}
 
-                {/* Box Scan — purple lane (package intake between Review and Item Scan) */}
+                {/* Step 3 — Box intake only (package + carton evidence). Item barcodes belong in Step 4. */}
                 <section
                   className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}
                   style={{
@@ -3022,7 +3262,8 @@ function OperatorMobileScanPageContent() {
                 </section>
 
                 <p className="mb-3 text-center text-[17px] font-black tracking-tight" style={{ color: ACCENT_PURPLE }}>
-                  Box {boxOrdinal} of {boxIntakeDenom}
+                  Box {boxOrdinal} of{" "}
+                  {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : boxIntakeDenom}
                 </p>
                 {showSlipMatchedBadge ? (
                   <div className="-mt-2 mb-3 flex justify-center">
@@ -3059,14 +3300,40 @@ function OperatorMobileScanPageContent() {
                     }}
                   >
                     <Barcode className="mb-2 h-12 w-12 opacity-50" strokeWidth={1.25} style={{ color: ACTION_PURPLE }} />
-                    <p className="text-[15px] font-bold text-white">Scan packing slip or box barcode</p>
+                    <p className="text-[15px] font-bold text-white">Scan box barcode</p>
                     <p className="mt-1 max-w-[280px] text-center text-[12px] font-medium" style={{ color: MUTED_LABEL }}>
-                      Slip barcode scans parse IDs locally. Use{" "}
-                      <span className="font-semibold text-white/85">Run slip OCR (manual)</span> on Review when you want GPT-4o Vision;
-                      then scan the carton barcode to create the <span className="font-mono text-[11px] text-white/90">packages</span>{" "}
-                      row.
+                      Lock this carton to the parent below. Product unit barcodes belong in Step 4 — Item Inspection.
                     </p>
                   </ScanFrameWithLaser>
+                  <div className="mt-3">
+                    <label htmlFor={`${formId}-box-intake-manual`} className="text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: MUTED_LABEL }}>
+                      Manual entry
+                    </label>
+                    <div className="mt-1.5 flex gap-2">
+                      <input
+                        id={`${formId}-box-intake-manual`}
+                        value={scanLine}
+                        onChange={(e) => setScanLine(e.target.value)}
+                        onFocus={() => setManualOpen(true)}
+                        onBlur={() => {
+                          window.setTimeout(() => setManualOpen(false), 120);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void onSubmitScan();
+                          }
+                        }}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        placeholder="Type box barcode if scanner fails"
+                        disabled={Boolean(activeBoxSession)}
+                        className="h-11 min-w-0 flex-1 rounded-xl border px-3 font-mono text-[14px] text-white outline-none focus:ring-2 focus:ring-violet-500/40 disabled:opacity-45"
+                        style={{ borderColor: PURPLE_RING, backgroundColor: BG }}
+                      />
+                    </div>
+                  </div>
                   <button
                     type="button"
                     disabled={busy || !scanLine.trim() || Boolean(activeBoxSession)}
@@ -3350,8 +3617,11 @@ function OperatorMobileScanPageContent() {
                     className={`mb-4 scroll-mt-4 rounded-[24px] p-4 ${glassCard}`}
                     style={{ backgroundColor: CARD, borderColor: PURPLE_RING }}
                   >
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3 className="text-[14px] font-bold text-white">Expected Items Preview</h3>
+                    <div className="mb-3 flex flex-col gap-1">
+                      <h3 className="text-[14px] font-bold text-white">Shipment lines (reference)</h3>
+                      <p className="text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
+                        For slip alignment only. Scan each product inside the carton in Step 4 — Item Inspection.
+                      </p>
                     </div>
                     <div
                       className="max-h-[min(48vh,260px)] overflow-auto rounded-xl border"
@@ -3438,17 +3708,34 @@ function OperatorMobileScanPageContent() {
                   className="mb-6 w-full rounded-[16px] border py-3 text-[12px] font-bold transition hover:bg-white/5"
                   style={{ borderColor: PURPLE_RING, color: ACCENT_PURPLE }}
                 >
-                  Continue to Item Scan →
+                  Continue to Item Inspection →
                 </button>
-              </>
+              </div>
             )}
           </>
         ) : null}
 
         {flowPhase === "items" ? (
-          <>
-            <div className="h-32 w-full shrink-0" aria-hidden />
-            {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
+          <div className="flex flex-col gap-5">
+            {!hasItemReceivableBox ? (
+              <section className={`rounded-[24px] border p-5 ${glassCard}`} style={{ borderColor: BORDER, backgroundColor: CARD }}>
+                <p className="text-[15px] font-bold leading-snug text-white">Select or scan a box before inspecting items.</p>
+                <button
+                  type="button"
+                  className="mt-4 flex h-[48px] w-full items-center justify-center gap-2 rounded-[18px] text-[14px] font-bold transition hover:brightness-110"
+                  style={{
+                    background: `linear-gradient(180deg, ${ACTION_PURPLE} 0%, ${ACTION_PURPLE_DEEP} 100%)`,
+                    color: "#1e1b4b",
+                    boxShadow: `0 6px 20px ${PURPLE_GLOW}`,
+                  }}
+                  onClick={() => setFlowPhase("boxes")}
+                >
+                  Back to Box Intake
+                </button>
+              </section>
+            ) : (
+              <>
+                {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
               <p
                 className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
@@ -3676,9 +3963,9 @@ function OperatorMobileScanPageContent() {
                 boxShadow: `inset 0 0 0 1px rgba(45,212,191,0.08)`,
               }}
             >
-              <p className="text-center text-[16px] font-bold text-white">Scan Item Barcode</p>
+              <p className="text-center text-[16px] font-bold text-white">Scan product barcode</p>
               <p className="mt-1 text-center text-[12px] font-medium" style={{ color: MUTED_LABEL }}>
-                UPC / FNSKU / ASIN / Seller SKU — smart resolver (expected lines only)
+                Step 4 — each unit inside the open carton. UPC / FNSKU / ASIN / SKU (expected lines only).
               </p>
               <div className="mt-4">
                 <ScanFrameWithLaser
@@ -3753,7 +4040,7 @@ function OperatorMobileScanPageContent() {
             </section>
 
             <section className={`mb-4 rounded-[24px] border p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
-              <h3 className="mb-3 text-[14px] font-bold text-white">Condition</h3>
+              <h3 className="mb-3 text-[14px] font-bold text-white">Item condition</h3>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {(
                   [
@@ -3887,7 +4174,7 @@ function OperatorMobileScanPageContent() {
                   background: `linear-gradient(180deg, ${TEAL_STEP} 0%, #14b8a6 55%, #0d9488 100%)`,
                 }}
               >
-                Save &amp; next item
+                Save Item &amp; Continue
                 <ChevronRight className="h-5 w-5" strokeWidth={2.5} />
               </button>
             </div>
@@ -3914,7 +4201,9 @@ function OperatorMobileScanPageContent() {
                 </ul>
               </section>
             ) : null}
-          </>
+              </>
+            )}
+          </div>
         ) : null}
       </main>
 

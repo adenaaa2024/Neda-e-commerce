@@ -214,3 +214,94 @@
   from { width: 0%;   }
   to   { width: 100%; }
 }
+
+/** Operator scan frames — vertical laser sweep */
+@keyframes operator-scan-laser-y {
+  0%,
+  100% {
+    transform: translate(-50%, -135%);
+    opacity: 0.88;
+  }
+  50% {
+    transform: translate(-50%, 135%);
+    opacity: 1;
+  }
+}
+
+.operator-scan-laser-beam {
+  animation: operator-scan-laser-y 2.6s ease-in-out infinite;
+}
+
+/* Operator handheld — red horizontal sweep inside scan bracket frame */
+@keyframes operator-red-laser-sweep {
+  0%,
+  100% {
+    top: 12%;
+  }
+  50% {
+    top: 88%;
+  }
+}
+
+.operator-handheld-red-laser {
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  height: 3px;
+  border-radius: 9999px;
+  transform: translateY(-50%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(248, 113, 113, 0.2) 12%,
+    rgba(239, 68, 68, 1) 50%,
+    rgba(248, 113, 113, 0.2) 88%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 12px rgba(239, 68, 68, 0.95),
+    0 0 28px rgba(239, 68, 68, 0.4);
+  animation: operator-red-laser-sweep 2s ease-in-out infinite;
+}
+
+@keyframes operator-scan-frame-success-overlay {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.operator-scan-frame-success-overlay {
+  animation: operator-scan-frame-success-overlay 300ms ease-out forwards;
+}
+
+@keyframes operator-physical-count-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  18% {
+    transform: translateX(-7px);
+  }
+  36% {
+    transform: translateX(7px);
+  }
+  54% {
+    transform: translateX(-5px);
+  }
+  72% {
+    transform: translateX(5px);
+  }
+  90% {
+    transform: translateX(-2px);
+  }
+}
+
+.operator-physical-count-shake {
+  animation: operator-physical-count-shake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  border-radius: 0.75rem;
+  outline: 2px solid rgba(248, 113, 113, 0.55);
+  outline-offset: 2px;
+}
