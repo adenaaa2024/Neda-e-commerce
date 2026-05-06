@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Bell, Home, ListTodo, Menu, ScanLine } from "lucide-react";
+import { operatorHapticTap } from "../_lib/operator-haptics";
 
 /** Warehouse receiving home (dashboard). */
 export const SCANNER_OPERATOR_HOME_PATH = "/scanner/operator-mobile";
@@ -33,13 +34,14 @@ function NavItem({
   badge?: number;
 }) {
   const showBadge = typeof badge === "number" && badge > 0;
-  const inactive = "text-slate-500 hover:text-slate-400";
-  const activeCls = "text-teal-400";
+  const inactive =
+    "text-zinc-500 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300";
+  const activeCls = "text-teal-600 dark:text-teal-400";
 
   const iconWrap = (
     <span className="relative flex h-7 w-7 items-center justify-center">
       <Icon
-        className={`h-6 w-6 ${active ? "drop-shadow-[0_0_10px_rgba(45,212,191,0.45)]" : ""}`}
+        className={`h-6 w-6 ${active ? "drop-shadow-[0_0_8px_rgba(13,148,136,0.4)] dark:drop-shadow-[0_0_12px_rgba(45,212,191,0.5)]" : ""}`}
         strokeWidth={active ? 2.4 : 1.9}
       />
       {showBadge ? (
@@ -53,10 +55,14 @@ function NavItem({
   const body = (
     <>
       {iconWrap}
-      <span className={`text-[11px] font-bold tracking-tight ${active ? "text-teal-400" : "text-slate-500"}`}>{label}</span>
+      <span
+        className={`text-[11px] font-bold tracking-tight ${active ? "text-teal-600 dark:text-teal-400" : "text-zinc-600 dark:text-zinc-500"}`}
+      >
+        {label}
+      </span>
       <span className="flex h-1.5 items-center justify-center" aria-hidden>
         {active ? (
-          <span className="h-1.5 w-1.5 rounded-full bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.65)]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.55)] dark:bg-teal-400 dark:shadow-[0_0_12px_rgba(45,212,191,0.65)]" />
         ) : (
           <span className="h-1.5 w-1.5 rounded-full bg-transparent" />
         )}
@@ -75,6 +81,7 @@ function NavItem({
       href={href}
       className={`flex flex-1 flex-col items-center gap-0.5 py-1.5 ${active ? activeCls : inactive}`}
       aria-current={active ? "page" : undefined}
+      onClick={() => operatorHapticTap(10)}
     >
       {body}
     </Link>
@@ -88,8 +95,12 @@ export function ScannerBottomNav({ active = "home", alertCount = 0 }: ScannerBot
   return (
     <nav
       dir="ltr"
-      className="shrink-0 border-t border-[#243241] bg-[#0B1218]/85 px-0 pt-1 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-[#0B1218]/70"
-      style={{ paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))" }}
+      className="shrink-0 border-t px-0 pt-1 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.88)] backdrop-blur-xl backdrop-saturate-150 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
+      style={{
+        paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))",
+        borderColor: "var(--scanner-border)",
+        backgroundColor: "color-mix(in srgb, var(--scanner-card) 78%, transparent)",
+      }}
       aria-label="Scanner navigation"
     >
       <div className="flex w-full flex-row">

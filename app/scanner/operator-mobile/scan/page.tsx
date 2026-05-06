@@ -11,6 +11,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
@@ -37,6 +38,7 @@ import {
   RotateCcw,
   Save,
   ScanLine,
+  Search,
   ThumbsUp,
   Warehouse,
   X,
@@ -51,6 +53,7 @@ import {
 } from "@/lib/scanner/operator-resolve-barcode";
 import {
   EP_DETAIL_SELECT,
+  fetchExpectedPackageDetailRowsByIds,
   fetchExpectedPackageDetailRowsForParent,
   fetchExpectedPackagesForTracking,
   loadPalletExpectationSnapshot,
@@ -61,6 +64,20 @@ import {
   type TrackingExpectationTotals,
   type TrackingOperatorLine,
 } from "@/lib/scanner/operator-tracking-expectations";
+import {
+  aggregateInventoryStatus,
+  fetchVInventoryItemStatusLinesExact,
+  fetchVInventoryStatusForScanCode,
+  formatInventoryProgressLabel,
+  mapInventoryViewStatusToVisual,
+  mockVInventoryItemStatusLinesForExact,
+  mockVInventoryRowsForScanCode,
+  resolveInventoryGateVisualStatus,
+  safeInventoryProgressPercent,
+  type InventoryGateVisualStatus,
+  type InventoryViewMatchField,
+  type VInventoryStatusRow,
+} from "@/lib/scanner/v-inventory-status";
 import { resolveItemBarcodeAgainstExpectedRows, type ItemResolveTier } from "@/lib/scanner/operator-item-resolve";
 import { mergeReturnPhotoEvidence } from "@/lib/return-photo-evidence";
 import { isUuidString } from "@/lib/uuid";
@@ -80,15 +97,16 @@ import type { SlipVisionExtract } from "@/lib/scanner/slip-extract-parse";
 import { attachMatchStatusToSlipItems, type SlipVisionItemRow } from "@/lib/scanner/slip-vision-match";
 import { getAIUnifiedKeyFromStorage, getOpenAIApiKeyFromStorage } from "@/lib/openai-settings";
 import { ScannerBottomNav } from "../_components/ScannerBottomNav";
+import { OperatorThemeToggle } from "../_components/OperatorThemeToggle";
 import { useOperatorSessionStore } from "../_components/OperatorSessionStoreProvider";
 
-/** Reference palette (pallet review mockup) */
-const BG = "#0B1218";
-const CARD = "#16212B";
-const CARD_INNER = "#1a2835";
-const BORDER = "#243241";
-const MUTED_LABEL = "#8ba3b8";
-const TEXT_PRIMARY = "#f1f5f9";
+/** Theme tokens — defined on `.operator-mobile-app-shell` (see globals.css). */
+const BG = "var(--scanner-bg)";
+const CARD = "var(--scanner-card)";
+const CARD_INNER = "var(--scanner-card-inner)";
+const BORDER = "var(--scanner-border)";
+const MUTED_LABEL = "var(--scanner-muted)";
+const TEXT_PRIMARY = "var(--scanner-text)";
 const ACCENT_BLUE = "#38bdf8";
 const ACTION_BLUE = "#0ea5e9";
 const ACTION_BLUE_DEEP = "#0284c7";
@@ -105,33 +123,151 @@ const PURPLE_GLOW = "rgba(139, 92, 246, 0.22)";
 const BOX_PURPLE_TRACK = "rgba(167, 139, 250, 0.45)";
 const BOX_PURPLE_SOFT_BG = "rgba(167, 139, 250, 0.18)";
 
-const glassCard = `border shadow-[0_12px_40px_-18px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.06)]`;
+const glassCard = `border-[0.5px] border-cyan-500/15 shadow-lg backdrop-blur-xl scanner-glass-surface dark:border-white/12`;
+
+const IDENTIFICATION_GATE_THEME: Record<
+  InventoryGateVisualStatus,
+  { border: string; headline: string; outerGlow: string; chipBg: string }
+> = {
+  new: {
+    border: "var(--gate-new-border)",
+    headline: "var(--gate-new-headline)",
+    outerGlow: "var(--gate-new-shadow)",
+    chipBg: "var(--gate-new-chip)",
+  },
+  manual_new: {
+    border: "var(--gate-manual-border)",
+    headline: "var(--gate-manual-headline)",
+    outerGlow: "var(--gate-manual-shadow)",
+    chipBg: "var(--gate-manual-chip)",
+  },
+  unexpected: {
+    border: "var(--gate-unexpected-border)",
+    headline: "var(--gate-unexpected-headline)",
+    outerGlow: "var(--gate-unexpected-shadow)",
+    chipBg: "var(--gate-unexpected-chip)",
+  },
+  in_progress: {
+    border: "var(--gate-progress-border)",
+    headline: "var(--gate-progress-headline)",
+    outerGlow: "var(--gate-progress-shadow)",
+    chipBg: "var(--gate-progress-chip)",
+  },
+  completed: {
+    border: "var(--gate-done-border)",
+    headline: "var(--gate-done-headline)",
+    outerGlow: "var(--gate-done-shadow)",
+    chipBg: "var(--gate-done-chip)",
+  },
+  over_scanned: {
+    border: "var(--gate-over-border)",
+    headline: "var(--gate-over-headline)",
+    outerGlow: "var(--gate-over-shadow)",
+    chipBg: "var(--gate-over-chip)",
+  },
+};
+
+function identificationGatePrimaryCta(visual: InventoryGateVisualStatus): string {
+  switch (visual) {
+    case "new":
+      return "Continue Shipment";
+    case "manual_new":
+      return "Create & Start";
+    case "unexpected":
+      return "Continue Scanning";
+    case "in_progress":
+      return "Continue Shipment";
+    case "completed":
+      return "Scan More (Extra)?";
+    case "over_scanned":
+      return "Continue Anyway";
+    default:
+      return "Continue";
+  }
+}
+
+/** Short success tone for laser / handset scanners (no asset file required). */
+function playOperatorSuccessBeep() {
+  try {
+    const AC =
+      typeof window !== "undefined"
+        ? window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        : undefined;
+    if (!AC) return;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = "sine";
+    const t0 = ctx.currentTime;
+    gain.gain.setValueAtTime(0.11, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.1);
+    osc.start(t0);
+    osc.stop(t0 + 0.1);
+    osc.onended = () => {
+      try {
+        void ctx.close();
+      } catch {
+        /* ignore */
+      }
+    };
+  } catch {
+    /* ignore */
+  }
+}
+
+function shipmentLineStatusVisual(status: string | null): InventoryGateVisualStatus {
+  return mapInventoryViewStatusToVisual(status) ?? "manual_new";
+}
+
+/** Compact label for the identify gate status pill (top-right). */
+function identifyGateStatusBadgeLabel(visual: InventoryGateVisualStatus): string {
+  switch (visual) {
+    case "new":
+      return "New";
+    case "manual_new":
+      return "Off manifest";
+    case "unexpected":
+      return "Unexpected";
+    case "in_progress":
+      return "In progress";
+    case "completed":
+      return "Complete";
+    case "over_scanned":
+      return "Over scanned";
+    default:
+      return "Status";
+  }
+}
 
 const mainScrollClass =
-  "[scrollbar-width:thin] [scrollbar-color:#243241_#0B1218] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#243241]/90 hover:[&::-webkit-scrollbar-thumb]:bg-[#334155]/90";
+  "[scrollbar-width:thin] [scrollbar-color:var(--scanner-border)_var(--scanner-bg)] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--scanner-border)]/90 hover:[&::-webkit-scrollbar-thumb]:opacity-80";
 
-/** Single source of truth: Pallet → Package → Item (operational phases map to scan / boxes / items) */
+/** Single source of truth: Pallet → Package → Item (operational phases map to scan / package_scan / items) */
 const SCANNER_STEPS = [
   {
     id: 1,
     key: "pallet",
     label: "Pallet",
     title: "Step 1: Pallet",
-    subtitle: "Lock pallet or shipment, slip capture, and counts before packages",
+    subtitle: "Slip, counts, then packages",
   },
   {
     id: 2,
     key: "package",
     label: "Package",
     title: "Step 2: Package",
-    subtitle: "Scan and intake boxes",
+    subtitle: "Box intake",
   },
   {
     id: 3,
     key: "item",
     label: "Item",
     title: "Step 3: Item",
-    subtitle: "Scan and inspect items",
+    subtitle: "Item scan",
   },
 ] as const;
 
@@ -194,6 +330,150 @@ async function fetchBlobFromObjectUrl(url: string): Promise<Blob | null> {
   } catch {
     return null;
   }
+}
+
+function stripIdentifyGateOcrEdges(s: string): string {
+  let t = s.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  const stripOnce = (x: string) =>
+    x
+      .replace(/^[\s:*|#.,;\-–—"'«»()[\]{}<>+=\\/]+/, "")
+      .replace(/[\s:*|#.,;\-–—"'«»()[\]{}<>+=\\/]+$/, "");
+  let prev = "";
+  while (prev !== t) {
+    prev = t;
+    t = stripOnce(t).trim();
+  }
+  return t;
+}
+
+function scoreIdentifyGateOcrLine(line: string): number {
+  return line.replace(/[^A-Za-z0-9]/g, "").length;
+}
+
+/**
+ * Amazon packing slips: slip / inventory id (e.g. under barcode), FNSKU-style (X00…),
+ * ASIN (B0…), and warehouse-style (ZZQ…) tokens. Picks highest-priority longest match, else best OCR line.
+ */
+const IDENTIFY_GATE_OCR_CODE_PATTERNS: { re: RegExp; tier: number }[] = [
+  { re: /\b(SD9Q[A-Z0-9]{4,})\b/gi, tier: 100 },
+  { re: /\b(X00[A-Z0-9]{6,})\b/gi, tier: 96 },
+  { re: /\b(B0[A-Z0-9]{8})\b/gi, tier: 90 },
+  { re: /\b(ZZQ[A-Z0-9]{4,})\b/gi, tier: 84 },
+];
+
+function collectIdentifyGateOcrPatternHits(text: string): { text: string; tier: number; alnumLen: number }[] {
+  const hits: { text: string; tier: number; alnumLen: number }[] = [];
+  const seen = new Set<string>();
+  const sources = [text, text.replace(/\s+/g, " ")];
+  for (const src of sources) {
+    for (const { re, tier } of IDENTIFY_GATE_OCR_CODE_PATTERNS) {
+      const r = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+      let m: RegExpExecArray | null;
+      while ((m = r.exec(src)) !== null) {
+        const cap = (m[1] ?? m[0] ?? "").trim();
+        if (!cap) continue;
+        const key = cap.toUpperCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const alnumLen = cap.replace(/[^A-Za-z0-9]/g, "").length;
+        hits.push({ text: cap, tier, alnumLen });
+      }
+    }
+  }
+  return hits;
+}
+
+function pickBestIdentifyGateOcrLine(raw: string): string {
+  const trimmedRaw = raw.trim();
+  const patternHits = collectIdentifyGateOcrPatternHits(trimmedRaw);
+  if (patternHits.length) {
+    patternHits.sort((a, b) => b.tier - a.tier || b.alnumLen - a.alnumLen || b.text.length - a.text.length);
+    return patternHits[0]!.text;
+  }
+  const lines = trimmedRaw
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return trimmedRaw;
+  let best = lines[0]!;
+  let bestScore = scoreIdentifyGateOcrLine(best);
+  for (const line of lines) {
+    const sc = scoreIdentifyGateOcrLine(line);
+    if (sc > bestScore) {
+      best = line;
+      bestScore = sc;
+    }
+  }
+  return best;
+}
+
+/** Boost small slip text: grayscale + contrast before Tesseract. */
+async function preprocessIdentifyGatePhotoForOcr(file: File): Promise<Blob | File> {
+  if (typeof createImageBitmap !== "function") return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const w = bmp.width;
+    const h = bmp.height;
+    const maxDim = 2200;
+    const scale = Math.min(1, maxDim / Math.max(w, h, 1));
+    const cw = Math.max(1, Math.round(w * scale));
+    const ch = Math.max(1, Math.round(h * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) {
+      bmp.close?.();
+      return file;
+    }
+    ctx.drawImage(bmp, 0, 0, cw, ch);
+    bmp.close?.();
+    const imgData = ctx.getImageData(0, 0, cw, ch);
+    const d = imgData.data;
+    const contrast = 1.42;
+    for (let i = 0; i < d.length; i += 4) {
+      const gray = 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!;
+      let v = (gray - 128) * contrast + 128;
+      v = Math.max(0, Math.min(255, v));
+      d[i] = v;
+      d[i + 1] = v;
+      d[i + 2] = v;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/png", 0.94));
+    return blob ?? file;
+  } catch {
+    return file;
+  }
+}
+
+function identifyGateMatchFieldUiLabel(field: InventoryViewMatchField): string {
+  switch (field) {
+    case "tracking_number":
+      return "Tracking number";
+    case "slip_code":
+      return "Slip code";
+    case "fnsku":
+      return "FNSKU";
+    case "sku":
+      return "SKU";
+    default:
+      return "Code";
+  }
+}
+
+function isIdentifyGateOcrAcceptable(confidence: number, cleaned: string): boolean {
+  const alnum = cleaned.replace(/[^A-Za-z0-9]/g, "");
+  if (alnum.length < 3 || cleaned.length < 3) return false;
+  const asinLike = /^B0[A-Z0-9]{8}$/i.test(cleaned);
+  const slipIdLike = /^SD9Q[A-Z0-9]{4,}$/i.test(cleaned);
+  const fnskuLike = /^X00[A-Z0-9]{6,}$/i.test(cleaned);
+  if (asinLike && confidence >= 12) return true;
+  if ((slipIdLike || fnskuLike) && confidence >= 14) return true;
+  if (confidence < 16) return false;
+  if (confidence < 32 && alnum.length < 10) return false;
+  if (confidence < 45 && alnum.length < 6) return false;
+  return true;
 }
 
 type InspectionCondition = "good" | "damaged" | "expired" | "open_box" | "missing_parts";
@@ -268,6 +548,23 @@ function summarizeExpectedPackageRowsForGate(rows: Record<string, unknown>[]): {
   return { productName, skuLabel, asinLabel, totalExpectedQty };
 }
 
+function pickInventoryViewHints(rows: VInventoryStatusRow[]): {
+  productName: string | null;
+  carrier: string | null;
+  slipCode: string | null;
+} {
+  let productName: string | null = null;
+  let carrier: string | null = null;
+  let slipCode: string | null = null;
+  for (const r of rows) {
+    if (!productName && r.product_name?.trim()) productName = r.product_name.trim();
+    if (!carrier && r.carrier?.trim()) carrier = r.carrier.trim();
+    if (!slipCode && r.slip_code?.trim()) slipCode = r.slip_code.trim();
+    if (productName && carrier && slipCode) break;
+  }
+  return { productName, carrier, slipCode };
+}
+
 function expectedRowValueForTier(row: Record<string, unknown>, tier: ItemResolveTier): string {
   switch (tier) {
     case "fnsku":
@@ -287,7 +584,7 @@ function normScanToken(s: string): string {
   return s.trim().toLowerCase();
 }
 
-type FlowPhase = "scan" | "boxes" | "items";
+type FlowPhase = "scan" | "package_scan" | "items";
 
 function TrackingParentIcon() {
   return (
@@ -338,6 +635,10 @@ function ScanFrameWithLaser(props: {
   cornerColor: string;
   cornerSize?: "sm" | "lg";
   dashedBorder?: boolean;
+  /** Thinner corner brackets + softer red sweep. */
+  subtleSweep?: boolean;
+  /** Cyan glowing brackets via `--scanner-bracket-glow`. */
+  bracketGlow?: boolean;
   /** Brief green success pulse on the frame (e.g. item scan saved). */
   successFlash?: boolean;
 }) {
@@ -348,24 +649,32 @@ function ScanFrameWithLaser(props: {
     cornerColor,
     cornerSize = "sm",
     dashedBorder = true,
+    subtleSweep = false,
+    bracketGlow = false,
     successFlash = false,
   } = props;
+  const cw = subtleSweep ? 2 : 3;
   const isLg = cornerSize === "lg";
   const tlCls = isLg ? "left-4 top-4 h-10 w-10 rounded-tl-[14px]" : "left-3 top-3 h-9 w-9 rounded-tl-[12px]";
   const trCls = isLg ? "right-4 top-4 h-10 w-10 rounded-tr-[14px]" : "right-3 top-3 h-9 w-9 rounded-tr-[12px]";
   const blCls = isLg ? "bottom-4 left-4 h-10 w-10 rounded-bl-[14px]" : "bottom-3 left-3 h-9 w-9 rounded-bl-[12px]";
   const brCls = isLg ? "bottom-4 right-4 h-10 w-10 rounded-br-[14px]" : "bottom-3 right-3 h-9 w-9 rounded-br-[12px]";
+  const bracketWrapStyle: CSSProperties | undefined = bracketGlow ? { filter: "var(--scanner-bracket-glow)" } : undefined;
   return (
     <div
       className={`relative flex flex-col items-center justify-center overflow-hidden rounded-[22px] border shadow-inner ${dashedBorder ? "border-dashed" : ""}`}
       style={{ ...frameStyle, minHeight }}
     >
-      <span className={`pointer-events-none absolute ${tlCls}`} style={{ borderLeft: `3px solid ${cornerColor}`, borderTop: `3px solid ${cornerColor}` }} />
-      <span className={`pointer-events-none absolute ${trCls}`} style={{ borderRight: `3px solid ${cornerColor}`, borderTop: `3px solid ${cornerColor}` }} />
-      <span className={`pointer-events-none absolute ${blCls}`} style={{ borderBottom: `3px solid ${cornerColor}`, borderLeft: `3px solid ${cornerColor}` }} />
-      <span className={`pointer-events-none absolute ${brCls}`} style={{ borderBottom: `3px solid ${cornerColor}`, borderRight: `3px solid ${cornerColor}` }} />
+      <div className="pointer-events-none absolute inset-0" style={bracketWrapStyle}>
+        <span className={`pointer-events-none absolute ${tlCls}`} style={{ borderLeft: `${cw}px solid ${cornerColor}`, borderTop: `${cw}px solid ${cornerColor}` }} />
+        <span className={`pointer-events-none absolute ${trCls}`} style={{ borderRight: `${cw}px solid ${cornerColor}`, borderTop: `${cw}px solid ${cornerColor}` }} />
+        <span className={`pointer-events-none absolute ${blCls}`} style={{ borderBottom: `${cw}px solid ${cornerColor}`, borderLeft: `${cw}px solid ${cornerColor}` }} />
+        <span className={`pointer-events-none absolute ${brCls}`} style={{ borderBottom: `${cw}px solid ${cornerColor}`, borderRight: `${cw}px solid ${cornerColor}` }} />
+      </div>
       <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]" aria-hidden>
-        <div className="operator-handheld-red-laser" />
+        <div
+          className={`operator-handheld-red-laser${subtleSweep ? " operator-handheld-red-laser--subtle" : ""}`}
+        />
       </div>
       {successFlash ? (
         <div
@@ -681,6 +990,10 @@ function OperatorMobileScanPageContent() {
    */
   const [itemsPhaseMainPadPx, setItemsPhaseMainPadPx] = useState(0);
   const modalOpenRef = useRef(false);
+  /** After "all completed" dialog confirm: canonical tracking for the next resolve scan. */
+  const postCompleteTrackingRef = useRef<string | null>(null);
+  /** One Persian prompt per identification search cycle (reset when a new gate search starts). */
+  const completedShipmentDialogShownForKeyRef = useRef<string | null>(null);
   const slip1Ref = useRef<HTMLInputElement>(null);
   const slip2Ref = useRef<HTMLInputElement>(null);
   const cartonPhotoRef = useRef<HTMLInputElement>(null);
@@ -708,8 +1021,26 @@ function OperatorMobileScanPageContent() {
   const [identifyGateEnteredCode, setIdentifyGateEnteredCode] = useState("");
   const [identifyGateRows, setIdentifyGateRows] = useState<Record<string, unknown>[]>([]);
   const [identifyGateCanonicalTracking, setIdentifyGateCanonicalTracking] = useState<string | null>(null);
+  /** Which column matched the scan on `v_inventory_item_status` (slip “ASIN” column → `fnsku`). */
+  const [identifyGateMatchField, setIdentifyGateMatchField] = useState<InventoryViewMatchField | null>(null);
   const [identifyGateEntity, setIdentifyGateEntity] = useState<IdentifyGateEntity | null>(null);
   const [identifyGatePhysicalBoxStr, setIdentifyGatePhysicalBoxStr] = useState("");
+  /** Aggregated `v_inventory_item_status` totals for the current scan (null until search completes). */
+  const [identifyGateInventoryAgg, setIdentifyGateInventoryAgg] = useState<{
+    rowCount: number;
+    totalExpected: number;
+    totalScanned: number;
+  } | null>(null);
+  const [identifyGateInventoryVisual, setIdentifyGateInventoryVisual] = useState<InventoryGateVisualStatus | null>(null);
+  const [identifyGateViewHints, setIdentifyGateViewHints] = useState<{
+    productName: string | null;
+    carrier: string | null;
+    slipCode: string | null;
+  } | null>(null);
+  /** Line-level rows from `v_inventory_item_status` for the matched canonical tracking (strict org/store/tracking query). */
+  const [identifyGateShipmentLines, setIdentifyGateShipmentLines] = useState<VInventoryStatusRow[]>([]);
+  /** User confirmed adding an off-manifest item after full completion — next scan uses `runResolve` with tracking context. */
+  const [awaitingPostCompleteExtraScan, setAwaitingPostCompleteExtraScan] = useState(false);
 
   const [stats, setStats] = useState<{
     totalBoxes: number;
@@ -776,6 +1107,12 @@ function OperatorMobileScanPageContent() {
   const itemPhotoDamageUrlRef = useRef<string | null>(null);
   const [itemReceiveError, setItemReceiveError] = useState<string | null>(null);
   const [scanSuccessFlash, setScanSuccessFlash] = useState(false);
+  /** Brief highlight on the identification “glow” card after a successful inventory lookup or gate confirm. */
+  const [identifyGateGlowFlash, setIdentifyGateGlowFlash] = useState(false);
+  const [gateTrackingHelpOpen, setGateTrackingHelpOpen] = useState(false);
+  const gateTrackingHelpRef = useRef<HTMLDivElement>(null);
+  /** Shipment fully complete on the view — Yes/No before continuing or ending session. */
+  const [completedShipmentModal, setCompletedShipmentModal] = useState<{ key: string; tracking: string } | null>(null);
   const [itemBarcodeMiss, setItemBarcodeMiss] = useState<string | null>(null);
   const [syncErrorToast, setSyncErrorToast] = useState<string | null>(null);
 
@@ -791,10 +1128,14 @@ function OperatorMobileScanPageContent() {
   /** Distinct `tracking_number` values present on loaded `expected_packages` rows — for carton scan match toast. */
   const [expectedPkgTrackingNumbers, setExpectedPkgTrackingNumbers] = useState<string[]>([]);
   const [intakeToast, setIntakeToast] = useState<string | null>(null);
+  const [identifyGatePhotoOcrToast, setIdentifyGatePhotoOcrToast] = useState<string | null>(null);
+  const [identifyGateOcrReading, setIdentifyGateOcrReading] = useState(false);
+  const identifyGateCameraInputRef = useRef<HTMLInputElement>(null);
+  const identifyGateOcrBusyRef = useRef(false);
 
   const laserEnabled =
     ((!isIdentified && flowPhase === "scan") ||
-      (isIdentified && (flowPhase === "scan" || flowPhase === "boxes" || flowPhase === "items"))) &&
+      (isIdentified && (flowPhase === "scan" || flowPhase === "package_scan" || flowPhase === "items"))) &&
     !manualOpen &&
     !(flowPhase === "items" && isIdentified && !hasReceivableBoxForItems(itemScanPackageId, activeBoxSession));
 
@@ -840,6 +1181,26 @@ function OperatorMobileScanPageContent() {
     [identifyGateRows],
   );
 
+  const identifyGateProductDisplay = useMemo(() => {
+    const fromView = identifyGateViewHints?.productName?.trim();
+    if (fromView) return fromView;
+    return identifyGateSummary.productName;
+  }, [identifyGateViewHints?.productName, identifyGateSummary.productName]);
+
+  const identifyGateOrderIdsLabel = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of identifyGateShipmentLines) {
+      const o = r.order_id?.trim();
+      if (o) ids.add(o);
+    }
+    for (const r of identifyGateRows) {
+      const o = String((r as { order_id?: unknown }).order_id ?? "").trim();
+      if (o) ids.add(o);
+    }
+    if (ids.size === 0) return "—";
+    return [...ids].join(", ");
+  }, [identifyGateShipmentLines, identifyGateRows]);
+
   const runIdentificationGateSearch = useCallback(
     async (rawCode: string) => {
       const trimmed = rawCode.trim();
@@ -850,18 +1211,55 @@ function OperatorMobileScanPageContent() {
       setIdentifyGateEnteredCode(trimmed);
       setIdentifyGateRows([]);
       setIdentifyGateCanonicalTracking(null);
+      setIdentifyGateMatchField(null);
+      setIdentifyGateShipmentLines([]);
+      setIdentifyGateInventoryAgg(null);
+      setIdentifyGateInventoryVisual(null);
+      setIdentifyGateViewHints(null);
+      completedShipmentDialogShownForKeyRef.current = null;
+      setCompletedShipmentModal(null);
+      setAwaitingPostCompleteExtraScan(false);
+      setGateTrackingHelpOpen(false);
       setIdentifyGatePhase("searching");
       setBusy(true);
       try {
         if (!isSupabaseConfigured()) {
           if (/^NEW-/i.test(trimmed) || trimmed.length < 3) {
+            const emptyAgg = { rowCount: 0, totalExpected: 0, totalScanned: 0 };
+            setIdentifyGateInventoryAgg(emptyAgg);
+            setIdentifyGateInventoryVisual(resolveInventoryGateVisualStatus([], emptyAgg));
+            setIdentifyGateViewHints(null);
             setIdentifyGatePhase("new");
             return;
           }
-          const base = mockExpectedPackageDetailRows().map((r) => ({ ...r, tracking_number: trimmed }));
-          setIdentifyGateRows(base);
-          setIdentifyGateCanonicalTracking(trimmed);
+          const { rows: invRowsDemo, matchedField: mfDemo } = mockVInventoryRowsForScanCode(trimmed);
+          setIdentifyGateMatchField(mfDemo);
+          const agg = aggregateInventoryStatus(invRowsDemo);
+          const vis = resolveInventoryGateVisualStatus(invRowsDemo, agg);
+          setIdentifyGateInventoryAgg(agg);
+          setIdentifyGateInventoryVisual(vis);
+          setIdentifyGateViewHints(pickInventoryViewHints(invRowsDemo));
+          if (vis === "manual_new") {
+            setIdentifyGatePhase("new");
+            setIdentifyGateMatchField(null);
+            return;
+          }
+          const ids = invRowsDemo.map((r) => r.expected_package_id).filter(Boolean);
+          const allMock = mockExpectedPackageDetailRows();
+          const detailRows = allMock.filter((r) => ids.includes(String((r as { id?: string }).id ?? "")));
+          const canonDemo =
+            invRowsDemo.map((r) => String(r.tracking_number ?? "").trim()).find(Boolean) ??
+            (String(detailRows[0]?.tracking_number ?? "").trim() || trimmed);
+          setIdentifyGateRows(detailRows);
+          setIdentifyGateCanonicalTracking(canonDemo);
+          const lineField: InventoryViewMatchField = mfDemo ?? "tracking_number";
+          const lineValue =
+            mfDemo === "slip_code" || mfDemo === "fnsku" || mfDemo === "sku" ? trimmed : canonDemo;
+          setIdentifyGateShipmentLines(mockVInventoryItemStatusLinesForExact(lineField, lineValue));
+          setIdentifyGateEntity("package");
           setIdentifyGatePhase("matched");
+          playOperatorSuccessBeep();
+          setIdentifyGateGlowFlash(true);
           return;
         }
         if (!sessionStoreId) {
@@ -875,22 +1273,130 @@ function OperatorMobileScanPageContent() {
           setIdentifyGatePhase("idle");
           return;
         }
-        const rows = await fetchExpectedPackageDetailRowsForParent(supabase, orgId, sessionStoreId, {
-          trackingNumber: trimmed,
-          palletId: null,
-        });
-        const safe = Array.isArray(rows) ? rows : [];
-        if (!safe.length) {
-          setIdentifyGatePhase("new");
-        } else {
-          setIdentifyGateRows(safe);
-          setIdentifyGateCanonicalTracking(String(safe[0]?.tracking_number ?? "").trim() || trimmed);
-          setIdentifyGatePhase("matched");
+
+        let gateMatchField: InventoryViewMatchField | null = null;
+        let invRows: VInventoryStatusRow[] = [];
+        try {
+          const res = await fetchVInventoryStatusForScanCode(supabase, orgId, sessionStoreId, trimmed);
+          invRows = res.rows;
+          gateMatchField = res.matchedField;
+        } catch (err) {
+          console.warn("v_inventory_item_status unavailable; falling back to expected_packages only.", err);
+          invRows = [];
         }
+
+        if (!invRows.length) {
+          const epFallback = await fetchExpectedPackageDetailRowsForParent(supabase, orgId, sessionStoreId, {
+            trackingNumber: trimmed,
+            palletId: null,
+          });
+          const safeEp = Array.isArray(epFallback) ? epFallback : [];
+          const exactEp = safeEp.filter((r) =>
+            trackingKeysEqual((r as { tracking_number?: string | null }).tracking_number, trimmed),
+          );
+          if (exactEp.length) {
+            gateMatchField = "tracking_number";
+            invRows = exactEp.map((r) => ({
+              expected_package_id: String((r as { id?: string }).id ?? ""),
+              organization_id: orgId,
+              store_id: sessionStoreId,
+              tracking_number:
+                (r as { tracking_number?: string | null }).tracking_number != null
+                  ? String((r as { tracking_number?: string | null }).tracking_number)
+                  : null,
+              slip_code:
+                (r as { slip_code?: string | null }).slip_code != null
+                  ? String((r as { slip_code?: string | null }).slip_code)
+                  : null,
+              sku: (r as { sku?: string | null }).sku != null ? String((r as { sku?: string | null }).sku) : null,
+              fnsku: (r as { fnsku?: string | null }).fnsku != null ? String((r as { fnsku?: string | null }).fnsku) : null,
+              asin: (r as { asin?: string | null }).asin != null ? String((r as { asin?: string | null }).asin) : null,
+              order_id:
+                (r as { order_id?: string | null }).order_id != null
+                  ? String((r as { order_id?: string | null }).order_id)
+                  : null,
+              status: null,
+              product_name: null,
+              carrier: null,
+              total_expected: Number((r as { expected_scan_quantity?: number }).expected_scan_quantity ?? 0) || 0,
+              total_scanned: Number((r as { actual_scanned_count?: number }).actual_scanned_count ?? 0) || 0,
+            }));
+          }
+        }
+
+        setIdentifyGateMatchField(gateMatchField);
+
+        const agg = aggregateInventoryStatus(invRows);
+        const vis = resolveInventoryGateVisualStatus(invRows, agg);
+        setIdentifyGateInventoryAgg(agg);
+        setIdentifyGateInventoryVisual(vis);
+        setIdentifyGateViewHints(pickInventoryViewHints(invRows));
+
+        if (vis === "manual_new") {
+          setIdentifyGateError(null);
+          setIdentifyGatePhase("new");
+          setIdentifyGateRows([]);
+          setIdentifyGateCanonicalTracking(trimmed);
+          setIdentifyGateShipmentLines([]);
+          setIdentifyGateMatchField(null);
+          return;
+        }
+
+        const ids = [...new Set(invRows.map((r) => r.expected_package_id).filter(Boolean))];
+        let detailRows: Record<string, unknown>[] = [];
+        if (ids.length) {
+          try {
+            detailRows = await fetchExpectedPackageDetailRowsByIds(supabase, orgId, sessionStoreId, ids);
+          } catch (err) {
+            console.warn("fetchExpectedPackageDetailRowsByIds failed", err);
+          }
+        }
+        if (!detailRows.length) {
+          detailRows = await fetchExpectedPackageDetailRowsForParent(supabase, orgId, sessionStoreId, {
+            trackingNumber: trimmed,
+            palletId: null,
+          });
+        }
+        const safe = Array.isArray(detailRows) ? detailRows : [];
+        setIdentifyGateRows(safe);
+        const canon =
+          invRows.map((r) => String(r.tracking_number ?? "").trim()).find(Boolean) ??
+          (String(safe[0]?.tracking_number ?? "").trim() || trimmed);
+        setIdentifyGateCanonicalTracking(canon);
+
+        let shipmentLines: VInventoryStatusRow[] = [];
+        if (sessionStoreId && gateMatchField) {
+          const lineValue =
+            gateMatchField === "slip_code" || gateMatchField === "fnsku" || gateMatchField === "sku"
+              ? trimmed
+              : canon || trimmed;
+          try {
+            const { rows } = await fetchVInventoryItemStatusLinesExact(
+              supabase,
+              orgId,
+              sessionStoreId,
+              gateMatchField,
+              lineValue,
+            );
+            shipmentLines = rows;
+          } catch (err) {
+            console.warn("fetchVInventoryItemStatusLinesExact failed", err);
+          }
+        }
+        setIdentifyGateShipmentLines(shipmentLines);
+        if (invRows.length) setIdentifyGateEntity("package");
+        setIdentifyGatePhase("matched");
+        playOperatorSuccessBeep();
+        setIdentifyGateGlowFlash(true);
       } catch (e) {
         console.error(e);
         setIdentifyGateError(e instanceof Error ? e.message : "Lookup failed.");
         setIdentifyGatePhase("idle");
+        setIdentifyGateInventoryAgg(null);
+        setIdentifyGateInventoryVisual(null);
+        setIdentifyGateViewHints(null);
+        setIdentifyGateShipmentLines([]);
+        setIdentifyGateMatchField(null);
       } finally {
         setBusy(false);
         scheduleFocusScanner();
@@ -898,6 +1404,25 @@ function OperatorMobileScanPageContent() {
     },
     [orgId, sessionStoreId, kioskStoreLocked, operatorStores.length, scheduleFocusScanner],
   );
+
+  useEffect(() => {
+    if (identifyGatePhase !== "matched") return;
+    if (identifyGateInventoryVisual !== "completed") return;
+    const entered = identifyGateEnteredCode.trim();
+    if (!entered) return;
+    const key = `${entered}::${(identifyGateCanonicalTracking ?? "").trim()}::completed`;
+    if (completedShipmentDialogShownForKeyRef.current === key) return;
+    completedShipmentDialogShownForKeyRef.current = key;
+    const tn = (identifyGateCanonicalTracking ?? identifyGateEnteredCode).trim();
+    setCompletedShipmentModal({ key, tracking: tn });
+    queueMicrotask(() => scheduleFocusScanner());
+  }, [
+    identifyGatePhase,
+    identifyGateInventoryVisual,
+    identifyGateCanonicalTracking,
+    identifyGateEnteredCode,
+    scheduleFocusScanner,
+  ]);
 
   const revokeSlip = useCallback((which: 1 | 2) => {
     const ref = which === 1 ? slipPhoto1UrlRef : slipPhoto2UrlRef;
@@ -1073,13 +1598,13 @@ function OperatorMobileScanPageContent() {
   ]);
 
   useEffect(() => {
-    if (flowPhase === "scan") {
+    if (flowPhase === "scan" && !isIdentified) {
       setBoxScanTargetDenominator(null);
     }
-  }, [flowPhase]);
+  }, [flowPhase, isIdentified]);
 
   useEffect(() => {
-    if (flowPhase !== "boxes") {
+    if (flowPhase !== "package_scan") {
       setAiSlipReaderPhase("idle");
       return;
     }
@@ -1108,10 +1633,42 @@ function OperatorMobileScanPageContent() {
   }, [syncErrorToast]);
 
   useEffect(() => {
+    if (!identifyGatePhotoOcrToast) return;
+    const t = window.setTimeout(() => setIdentifyGatePhotoOcrToast(null), 4200);
+    return () => window.clearTimeout(t);
+  }, [identifyGatePhotoOcrToast]);
+
+  useEffect(() => {
     if (!scanSuccessFlash) return;
-    const t = window.setTimeout(() => setScanSuccessFlash(false), 300);
+    const t = window.setTimeout(() => setScanSuccessFlash(false), 420);
     return () => window.clearTimeout(t);
   }, [scanSuccessFlash]);
+
+  useEffect(() => {
+    if (!identifyGateGlowFlash) return;
+    const t = window.setTimeout(() => setIdentifyGateGlowFlash(false), 520);
+    return () => window.clearTimeout(t);
+  }, [identifyGateGlowFlash]);
+
+  useEffect(() => {
+    if (!gateTrackingHelpOpen) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const node = gateTrackingHelpRef.current;
+      const t = e.target as Node | null;
+      if (node && t && !node.contains(t)) setGateTrackingHelpOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setGateTrackingHelpOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [gateTrackingHelpOpen]);
 
   useEffect(() => {
     if (flowPhase !== "items") {
@@ -1393,6 +1950,8 @@ function OperatorMobileScanPageContent() {
           setActiveBoxSession({ barcode: trimmed, packageId: `demo-${Date.now()}` });
           const tnHit = expectedPkgTrackingNumbers.some((t) => trackingKeysEqual(t, trimmed));
           if (tnHit) setIntakeToast("Tracking Matched to Package");
+          playOperatorSuccessBeep();
+          setScanSuccessFlash(true);
           return;
         }
         if (!sessionStoreId) {
@@ -1412,6 +1971,8 @@ function OperatorMobileScanPageContent() {
         const tnHit = expectedPkgTrackingNumbers.some((t) => trackingKeysEqual(t, trimmed));
         if (tnHit) setIntakeToast("Tracking Matched to Package");
         if (activePallet?.id) void loadPalletDetail(activePallet.id);
+        playOperatorSuccessBeep();
+        setScanSuccessFlash(true);
       } finally {
         setBusy(false);
         scheduleFocusScanner();
@@ -1738,12 +2299,87 @@ function OperatorMobileScanPageContent() {
     focusScannerAggressive,
   ]);
 
+  const resetIdentifyGateForm = useCallback(() => {
+    setIdentifyGatePhase("idle");
+    setIdentifyGateError(null);
+    setIdentifyGateEnteredCode("");
+    setIdentifyGateRows([]);
+    setIdentifyGateCanonicalTracking(null);
+    setIdentifyGateShipmentLines([]);
+    setIdentifyGateMatchField(null);
+    setIdentifyGateEntity(null);
+    setIdentifyGatePhysicalBoxStr("");
+    setIdentifyGateInventoryAgg(null);
+    setIdentifyGateInventoryVisual(null);
+    setIdentifyGateViewHints(null);
+    setAwaitingPostCompleteExtraScan(false);
+    setCompletedShipmentModal(null);
+    setGateTrackingHelpOpen(false);
+    setScanLine("");
+  }, []);
+
+  const openIdentifyGateCameraCapture = useCallback(() => {
+    identifyGateCameraInputRef.current?.click();
+  }, []);
+
+  const onIdentifyGateCameraFileChange = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    if (identifyGateOcrBusyRef.current) return;
+    if (!file.type.startsWith("image/")) {
+      setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
+      return;
+    }
+    identifyGateOcrBusyRef.current = true;
+    setIdentifyGateOcrReading(true);
+    try {
+      const { createWorker, PSM } = await import("tesseract.js");
+      const worker = await createWorker("eng", undefined, {
+        logger: () => {},
+      });
+      try {
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        const ocrSource = await preprocessIdentifyGatePhotoForOcr(file);
+        const { data } = await worker.recognize(ocrSource);
+        const raw = String(data.text ?? "");
+        const picked = pickBestIdentifyGateOcrLine(raw);
+        const cleaned = stripIdentifyGateOcrEdges(picked);
+        const conf = typeof data.confidence === "number" ? data.confidence : 0;
+        if (!isIdentifyGateOcrAcceptable(conf, cleaned)) {
+          setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
+          return;
+        }
+        setScanLine(cleaned);
+      } finally {
+        await worker.terminate();
+      }
+    } catch (err) {
+      console.warn("Identify gate photo OCR failed", err);
+      setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
+    } finally {
+      identifyGateOcrBusyRef.current = false;
+      setIdentifyGateOcrReading(false);
+    }
+  }, []);
+
   const onSubmitScan = useCallback(
     async (e?: FormEvent) => {
       e?.preventDefault();
       const code = scanLine.trim();
       setScanLine("");
-      if (flowPhase === "boxes") {
+      if (!isIdentified && flowPhase === "scan" && awaitingPostCompleteExtraScan) {
+        const tn = postCompleteTrackingRef.current?.trim();
+        setAwaitingPostCompleteExtraScan(false);
+        postCompleteTrackingRef.current = null;
+        if (tn) setActiveTracking(tn);
+        setIsIdentified(true);
+        resetIdentifyGateForm();
+        await runResolve(code);
+        return;
+      }
+      if (flowPhase === "package_scan") {
         await handleBoxIntakeScan(code);
         return;
       }
@@ -1757,7 +2393,17 @@ function OperatorMobileScanPageContent() {
       }
       await runResolve(code);
     },
-    [scanLine, flowPhase, isIdentified, handleBoxIntakeScan, handleItemBarcodeScan, runIdentificationGateSearch, runResolve],
+    [
+      scanLine,
+      flowPhase,
+      isIdentified,
+      awaitingPostCompleteExtraScan,
+      handleBoxIntakeScan,
+      handleItemBarcodeScan,
+      runIdentificationGateSearch,
+      runResolve,
+      resetIdentifyGateForm,
+    ],
   );
 
   const closeUnknown = useCallback(() => {
@@ -1805,61 +2451,206 @@ function OperatorMobileScanPageContent() {
     }
   }, [unknownModal, sessionStoreId, orgId, scheduleFocusScanner]);
 
-  const resetIdentifyGateForm = useCallback(() => {
-    setIdentifyGatePhase("idle");
-    setIdentifyGateError(null);
-    setIdentifyGateEnteredCode("");
-    setIdentifyGateRows([]);
-    setIdentifyGateCanonicalTracking(null);
-    setIdentifyGateEntity(null);
-    setIdentifyGatePhysicalBoxStr("");
-    setScanLine("");
-  }, []);
-
   const handleIdentifyMatchedStartWorkflow = useCallback(async () => {
     if (identifyGatePhase !== "matched" || !identifyGateEntity) return;
+    if (identifyGateInventoryVisual === "completed") return;
     const tracking = (identifyGateCanonicalTracking ?? identifyGateEnteredCode).trim();
     if (!tracking) return;
 
-    if (identifyGateEntity === "item") {
-      setPhysicalBoxCount(null);
-      setBoxScanTargetDenominator(null);
-    } else {
-      const parsed = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr);
-      if (!parsed.valid) {
-        return;
+    const orderIdFromGate = (): string | null => {
+      for (const r of identifyGateShipmentLines) {
+        const o = r.order_id?.trim();
+        if (o) return o;
       }
+      for (const r of identifyGateRows) {
+        const o = String((r as { order_id?: unknown }).order_id ?? "").trim();
+        if (o) return o;
+      }
+      return null;
+    };
+    const orderId = orderIdFromGate();
+
+    let palletOperatorPackageCount: number | null = null;
+    if (identifyGateEntity === "pallet") {
+      const parsed = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr);
+      if (!parsed.valid) return;
+      palletOperatorPackageCount = parsed.n;
       setPhysicalBoxCount(parsed.n);
       setBoxScanTargetDenominator(parsed.n);
+    } else if (
+      !(
+        identifyGateEntity === "package" &&
+        (identifyGateInventoryVisual === "new" || identifyGateInventoryVisual === "in_progress")
+      )
+    ) {
+      setPhysicalBoxCount(null);
+      setBoxScanTargetDenominator(null);
     }
+
+    const shipContinueVisual =
+      identifyGateEntity === "package" &&
+      (identifyGateInventoryVisual === "new" || identifyGateInventoryVisual === "in_progress");
+
+    const ensureReceivingPalletForShipment = async (
+      tn: string,
+    ): Promise<{ id: string; pallet_number: string; created: boolean } | null> => {
+      if (!isSupabaseConfigured() || !sessionStoreId) return null;
+      const { data: hitTn, error: eTn } = await supabase
+        .from("pallets")
+        .select("id, pallet_number")
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .eq("tracking_number", tn)
+        .limit(1)
+        .maybeSingle();
+      if (!eTn && hitTn && (hitTn as { id?: string }).id) {
+        return {
+          id: String((hitTn as { id: string }).id),
+          pallet_number: String((hitTn as { pallet_number: string }).pallet_number),
+          created: false,
+        };
+      }
+      if (orderId) {
+        const { data: hitOrd, error: eOrd } = await supabase
+          .from("pallets")
+          .select("id, pallet_number")
+          .eq("organization_id", orgId)
+          .is("deleted_at", null)
+          .eq("order_id", orderId)
+          .limit(1)
+          .maybeSingle();
+        if (!eOrd && hitOrd && (hitOrd as { id?: string }).id) {
+          return {
+            id: String((hitOrd as { id: string }).id),
+            pallet_number: String((hitOrd as { pallet_number: string }).pallet_number),
+            created: false,
+          };
+        }
+      }
+      const palletNumber = `RCV-${tn.replace(/\s+/g, "").slice(0, 48) || "TRACK"}`;
+      const insertPayload: Record<string, unknown> = {
+        organization_id: orgId,
+        store_id: sessionStoreId,
+        pallet_number: palletNumber,
+        status: "open",
+        tracking_number: tn,
+      };
+      if (orderId) insertPayload.order_id = orderId;
+      const { data: created, error: insErr } = await supabase
+        .from("pallets")
+        .insert(insertPayload)
+        .select("id, pallet_number")
+        .maybeSingle();
+      if (insErr) {
+        console.warn("[pallets] shipment receiving pallet create:", insErr.message);
+        return null;
+      }
+      const row = created as { id: string; pallet_number: string } | null;
+      return row?.id ? { id: row.id, pallet_number: row.pallet_number, created: true } : null;
+    };
 
     setBusy(true);
     try {
       const code = identifyGateEnteredCode.trim() || tracking;
       let applied = false;
+      let lastResolve: OperatorResolveResult | null = null;
+      const resolveOnly: OperatorResolveKind | undefined =
+        identifyGateEntity === "package"
+          ? "tracking"
+          : identifyGateEntity === "pallet"
+            ? "pallet"
+            : "item";
+
       if (isSupabaseConfigured()) {
-        const r = await resolveOperatorBarcode(supabase, orgId, code, {
-          only: identifyGateEntity,
+        lastResolve = await resolveOperatorBarcode(supabase, orgId, code, {
+          only: resolveOnly,
           storeId: sessionStoreId,
         });
-        if (r.kind !== "unknown") {
-          applyResult(r);
+        if (lastResolve.kind !== "unknown") {
+          applyResult(lastResolve);
           applied = true;
         }
       } else {
-        const r = mockResolveOperatorBarcode(code, identifyGateEntity);
+        const r = mockResolveOperatorBarcode(code, resolveOnly);
+        lastResolve = r;
         if (r.kind !== "unknown") {
           applyResult(r);
           applied = true;
         }
       }
-      if (!applied) {
-        setActivePallet(null);
-        setActiveSlipOrPackage(null);
-        setActiveTracking(tracking);
-        setDirectBox(false);
-        setFlowPhase("scan");
+
+      let effectiveTracking = tracking;
+      if (lastResolve?.kind === "tracking") {
+        effectiveTracking = String(lastResolve.row.tracking_number ?? "").trim() || effectiveTracking;
       }
+
+      if (shipContinueVisual) {
+        setActiveSlipOrPackage(null);
+        setActiveTracking(effectiveTracking);
+        setDirectBox(false);
+        let receiving: { id: string; pallet_number: string; created: boolean } | null = null;
+        if (isSupabaseConfigured() && sessionStoreId) {
+          receiving = await ensureReceivingPalletForShipment(effectiveTracking);
+        }
+        if (receiving) {
+          setActivePallet({ id: receiving.id, pallet_number: receiving.pallet_number });
+        } else {
+          setActivePallet(null);
+        }
+        if (isSupabaseConfigured() && sessionStoreId) {
+          const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, effectiveTracking);
+          if (snap.rawRowCount > 0) {
+            setPhysicalBoxCount(snap.rawRowCount);
+            setBoxScanTargetDenominator(snap.rawRowCount);
+            const pid = receiving?.id;
+            if (receiving?.created && pid && isUuidString(pid)) {
+              const { error: upErr } = await supabase
+                .from("pallets")
+                .update({ operator_package_count: snap.rawRowCount })
+                .eq("id", pid)
+                .eq("organization_id", orgId);
+              if (upErr) console.warn("[pallets] operator_package_count (shipment):", upErr.message);
+            }
+          }
+        } else {
+          const snap = mockTrackingExpectationSnapshot(effectiveTracking);
+          if (snap.rawRowCount > 0) {
+            setPhysicalBoxCount(snap.rawRowCount);
+            setBoxScanTargetDenominator(snap.rawRowCount);
+          }
+        }
+        setFlowPhase("package_scan");
+      } else {
+        if (
+          applied &&
+          identifyGateEntity === "pallet" &&
+          palletOperatorPackageCount != null &&
+          lastResolve?.kind === "pallet" &&
+          isSupabaseConfigured()
+        ) {
+          const pid = String(lastResolve.row.id ?? "").trim();
+          if (isUuidString(pid)) {
+            const { error: upErr } = await supabase
+              .from("pallets")
+              .update({ operator_package_count: palletOperatorPackageCount })
+              .eq("id", pid)
+              .eq("organization_id", orgId);
+            if (upErr) console.warn("[pallets] operator_package_count:", upErr.message);
+          }
+        }
+        if (!applied) {
+          setActivePallet(null);
+          setActiveSlipOrPackage(null);
+          setActiveTracking(tracking);
+          setDirectBox(false);
+          setFlowPhase("scan");
+        }
+      }
+
+      playOperatorSuccessBeep();
+      setIdentifyGateGlowFlash(true);
+      await new Promise((r) => window.setTimeout(r, 400));
+      setIdentifyGateGlowFlash(false);
       setIsIdentified(true);
       resetIdentifyGateForm();
     } catch (e) {
@@ -1871,9 +2662,12 @@ function OperatorMobileScanPageContent() {
   }, [
     identifyGatePhase,
     identifyGateEntity,
+    identifyGateInventoryVisual,
     identifyGateCanonicalTracking,
     identifyGateEnteredCode,
     identifyGatePhysicalBoxStr,
+    identifyGateShipmentLines,
+    identifyGateRows,
     sessionStoreId,
     orgId,
     applyResult,
@@ -1887,11 +2681,9 @@ function OperatorMobileScanPageContent() {
     if (!code) return;
 
     let boxN: number | null = null;
-    if (identifyGateEntity !== "item") {
+    if (identifyGateEntity === "pallet") {
       const parsed = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr);
-      if (!parsed.valid) {
-        return;
-      }
+      if (!parsed.valid) return;
       boxN = parsed.n;
     }
 
@@ -1913,7 +2705,7 @@ function OperatorMobileScanPageContent() {
         setActivePallet(null);
         setActiveTracking(code);
         setDirectBox(true);
-        setFlowPhase("boxes");
+        setFlowPhase("package_scan");
       } else {
         setActivePallet(null);
         setActiveTracking(null);
@@ -1942,6 +2734,7 @@ function OperatorMobileScanPageContent() {
             pallet_number: code,
             status: "open",
             tracking_number: code,
+            operator_package_count: boxN ?? null,
           })
           .select("id, pallet_number")
           .maybeSingle();
@@ -1967,15 +2760,13 @@ function OperatorMobileScanPageContent() {
           scannedCode: code,
         });
         if (!res.ok) throw new Error(res.message);
-        if (boxN != null) {
-          setPhysicalBoxCount(boxN);
-          setBoxScanTargetDenominator(boxN);
-        }
+        setPhysicalBoxCount(null);
+        setBoxScanTargetDenominator(null);
         setActivePallet(null);
         setActiveSlipOrPackage(null);
         setActiveTracking(code);
         setDirectBox(false);
-        setFlowPhase("boxes");
+        setFlowPhase("package_scan");
       } else {
         const { error } = await supabase.from("returns").insert({
           organization_id: orgId,
@@ -2014,24 +2805,32 @@ function OperatorMobileScanPageContent() {
     resetIdentifyGateForm,
   ]);
 
+  const handleIdentificationGatePrimaryCta = useCallback(() => {
+    const visual = identifyGateInventoryVisual;
+    if (!visual) return;
+    if (visual === "completed") return;
+    if (visual === "manual_new") void handleIdentifyNewCreateAndStart();
+    else void handleIdentifyMatchedStartWorkflow();
+  }, [identifyGateInventoryVisual, handleIdentifyNewCreateAndStart, handleIdentifyMatchedStartWorkflow]);
+
   const palletIdentified = Boolean(activePallet);
   const trackingIdentified = Boolean(activeTracking);
   const parentIdentified = palletIdentified || trackingIdentified;
 
-  const stepIndex = flowPhase === "scan" ? 0 : flowPhase === "boxes" ? 1 : 2;
+  const stepIndex = flowPhase === "scan" ? 0 : flowPhase === "package_scan" ? 1 : 2;
 
   const scanStepMeta = SCANNER_STEPS[stepIndex] ?? SCANNER_STEPS[0];
-  const headerTitle = !isIdentified ? "Identify shipment" : scanStepMeta.title;
-  const headerSubtitle = !isIdentified
-    ? "Scan or enter a tracking number to search expected_packages"
-    : scanStepMeta.subtitle;
+  const headerTitle = "Shipment Entry";
+  const headerSubtitle = isIdentified ? `${scanStepMeta.title} · ${scanStepMeta.subtitle}` : null;
 
-  /** Gate: Pallet/Package require an integer box count ≥ 1 before submit or any DB write. */
-  const identifyGateNeedsValidBoxCount = identifyGateEntity !== null && identifyGateEntity !== "item";
+  /** Operator package count is collected only when entity type is Pallet (saved as pallets.operator_package_count). */
+  const identifyGateNeedsValidBoxCount = identifyGateEntity === "pallet";
   const identifyGateBoxCountValid = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr).valid;
   const identifyGateBoxCountShowsError = identifyGateNeedsValidBoxCount && !identifyGateBoxCountValid;
   const identifyGateMandatoryFieldsOk =
-    identifyGateEntity !== null && (identifyGateEntity === "item" || identifyGateBoxCountValid);
+    identifyGateEntity !== null && (!identifyGateNeedsValidBoxCount || identifyGateBoxCountValid);
+
+  const showIdentifyGatePhysicalBoxInput = identifyGateEntity === "pallet";
 
   const hasItemReceivableBox = hasReceivableBoxForItems(itemScanPackageId, activeBoxSession);
 
@@ -2177,6 +2976,8 @@ function OperatorMobileScanPageContent() {
     setSlipVisionProcessing(false);
     setFlowPhase("scan");
     setIsIdentified(false);
+    completedShipmentDialogShownForKeyRef.current = null;
+    setCompletedShipmentModal(null);
     resetIdentifyGateForm();
     scheduleFocusScanner();
   };
@@ -2195,7 +2996,7 @@ function OperatorMobileScanPageContent() {
   const physicalDenomFloor = Math.max(expectedBoxesForProgress, 1);
   /** Denominator for Box N of M — locked at confirm from Step 2; otherwise preview from `physicalBoxCount`. */
   const boxIntakeDenom =
-    (flowPhase === "boxes" || flowPhase === "items") && boxScanTargetDenominator != null
+    (flowPhase === "package_scan" || flowPhase === "items") && boxScanTargetDenominator != null
       ? boxScanTargetDenominator
       : physicalDenomFloor;
 
@@ -2218,7 +3019,7 @@ function OperatorMobileScanPageContent() {
     }
     setBoxScanTargetDenominator(physicalBoxCount);
     setBoxIntakeError(null);
-    setFlowPhase("boxes");
+    setFlowPhase("package_scan");
   }, [
     parentIdentified,
     slipPhoto1Url,
@@ -2391,10 +3192,10 @@ function OperatorMobileScanPageContent() {
         className="relative z-[110] shrink-0 border-b pt-[max(0.2rem,env(safe-area-inset-top))]"
         style={{
           borderColor: BORDER,
-          background: `linear-gradient(180deg, rgba(22,33,43,0.95) 0%, ${BG} 100%)`,
+          background: "var(--scanner-header-gradient)",
         }}
       >
-        <div className="flex items-start gap-1 px-3 pb-0.5 pt-1 sm:px-4">
+        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-start gap-x-1 px-3 pb-0.5 pt-1 sm:px-4">
           <button
             type="button"
             onClick={() => {
@@ -2407,20 +3208,28 @@ function OperatorMobileScanPageContent() {
                 router.back();
                 return;
               }
-              if (flowPhase === "items") setFlowPhase("boxes");
-              else if (flowPhase === "boxes") setFlowPhase("scan");
+              if (flowPhase === "items") setFlowPhase("package_scan");
+              else if (flowPhase === "package_scan") setFlowPhase("scan");
               else router.back();
             }}
-            className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white transition hover:bg-white/8 active:scale-95"
+            className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/8"
+            style={{ color: TEXT_PRIMARY }}
             aria-label="Go back"
           >
             <ArrowLeft className="h-5 w-5" strokeWidth={2} />
           </button>
-          <div className="min-w-0 flex-1 text-center">
-            <h1 className="text-[1.2rem] font-bold leading-tight tracking-tight text-white sm:text-[1.28rem]">{headerTitle}</h1>
-            <p className="mt-0.5 text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
-              {headerSubtitle}
-            </p>
+          <div className="min-w-0 px-1 text-center">
+            <h1
+              className="operator-heading text-[1.28rem] font-semibold leading-tight tracking-tight sm:text-[1.42rem]"
+              style={{ color: TEXT_PRIMARY }}
+            >
+              {headerTitle}
+            </h1>
+            {headerSubtitle ? (
+              <p className="mt-0.5 text-[11px] font-semibold sm:text-[12px]" style={{ color: MUTED_LABEL }}>
+                {headerSubtitle}
+              </p>
+            ) : null}
             {showWarehouseTrail ? (
               <WarehouseBreadcrumb
                 storeLabel={activeStoreLabel}
@@ -2429,38 +3238,41 @@ function OperatorMobileScanPageContent() {
                 boxBarcode={contextTrailBoxBarcode}
               />
             ) : null}
-            {flowPhase === "boxes" ? (
+            {flowPhase === "package_scan" ? (
               <p className="mt-0.5 text-[11px] font-bold tabular-nums" style={{ color: ACTION_PURPLE }}>
                 Box {boxOrdinal} of{" "}
                 {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : boxIntakeDenom}
               </p>
             ) : null}
             {flowPhase === "items" ? (
-              <p className="mt-0.5 text-[11px] font-bold tabular-nums text-white/90">
+              <p className="mt-0.5 text-[11px] font-bold tabular-nums" style={{ color: TEXT_PRIMARY }}>
                 Item {itemProgressNumerator} of {itemProgressDenom}
-                <span className="font-normal text-white/50">{" · Box receiving progress"}</span>
+                <span className="font-normal opacity-55">{" · Box receiving progress"}</span>
               </p>
             ) : null}
           </div>
-          <button
-            type="button"
-            className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-amber-200/90 transition hover:bg-amber-500/15 active:scale-95"
-            aria-label="Hard reset session"
-            title="Clear local storage and reload"
-            onClick={() => {
-              if (typeof window !== "undefined" && !window.confirm("Hard reset: clear all local data and reload this page?")) {
-                return;
-              }
-              try {
-                localStorage.clear();
-              } catch {
-                /* ignore quota / private mode */
-              }
-              window.location.reload();
-            }}
-          >
-            <RotateCcw className="h-5 w-5" strokeWidth={2} />
-          </button>
+          <div className="flex shrink-0 items-start justify-end gap-0.5">
+            <OperatorThemeToggle />
+            <button
+              type="button"
+              className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-amber-600 transition hover:bg-amber-500/12 active:scale-95 dark:text-amber-200/90 dark:hover:bg-amber-500/15"
+              aria-label="Hard reset session"
+              title="Clear local storage and reload"
+              onClick={() => {
+                if (typeof window !== "undefined" && !window.confirm("Hard reset: clear all local data and reload this page?")) {
+                  return;
+                }
+                try {
+                  localStorage.clear();
+                } catch {
+                  /* ignore quota / private mode */
+                }
+                window.location.reload();
+              }}
+            >
+              <RotateCcw className="h-5 w-5" strokeWidth={2} />
+            </button>
+          </div>
         </div>
 
         {isIdentified ? (
@@ -2657,11 +3469,10 @@ function OperatorMobileScanPageContent() {
           <>
             {!isSupabaseConfigured() ? (
               <p
-                className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+                className="mb-3 rounded-xl border px-3 py-2 text-[11px] font-semibold"
                 style={{ borderColor: "rgba(251,191,36,0.35)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
               >
-                Demo mode: use a tracking code or try prefix <span className="font-mono">NEW-</span> for an unmatched example.
-                Configure Supabase for live expected_packages search.
+                Demo mode — try a tracking code or <span className="font-mono">NEW-</span>. Configure Supabase for live data.
               </p>
             ) : null}
             {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
@@ -2681,47 +3492,90 @@ function OperatorMobileScanPageContent() {
               </p>
             ) : null}
 
-            <section className={`mb-4 rounded-[22px] p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
-              <div className="flex items-center gap-2.5">
+            <section className={`mb-4 rounded-[22px] p-4 sm:p-5 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
+              <div className="flex items-start gap-3">
                 <div
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ring-1"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1"
                   style={{
                     backgroundColor: "rgba(56,189,248,0.1)",
                     borderColor: "rgba(56,189,248,0.2)",
                     boxShadow: "0 0 12px rgba(56,189,248,0.15)",
                   }}
                 >
-                  <Barcode className="h-7 w-7" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
+                  <Barcode className="h-6 w-6" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-[17px] font-bold leading-tight text-white">Scan tracking barcode</h2>
-                  <p className="mt-1 text-[12px] font-semibold" style={{ color: MUTED_LABEL }}>
-                    Matches <span className="font-mono text-[11px] text-sky-200/90">expected_packages.tracking_number</span> for
-                    this store.
-                  </p>
+                <div ref={gateTrackingHelpRef} className="relative min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[17px] font-bold leading-tight sm:text-[18px]" style={{ color: TEXT_PRIMARY }}>
+                      Tracking or slip code
+                    </h2>
+                    <button
+                      type="button"
+                      className="operator-info-icon-pulse flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 bg-black/[0.04] text-slate-500 outline-none transition hover:border-sky-500/35 hover:bg-sky-500/10 hover:text-sky-700 focus-visible:ring-2 focus-visible:ring-sky-400/40 dark:border-white/12 dark:bg-white/[0.06] dark:text-slate-400 dark:hover:border-sky-400/35 dark:hover:bg-white/10 dark:hover:text-sky-100"
+                      aria-label="How lookup works"
+                      aria-expanded={gateTrackingHelpOpen}
+                      title="Exact match on inventory status (tracking or slip) for this organization and store. No SKU or ASIN search."
+                      onClick={() => setGateTrackingHelpOpen((o) => !o)}
+                    >
+                      <Info className="h-4 w-4" strokeWidth={2} aria-hidden />
+                    </button>
+                  </div>
+                  {gateTrackingHelpOpen ? (
+                    <div
+                      className="absolute left-0 right-0 top-full z-30 mt-2 rounded-xl border px-3 py-2.5 text-left text-[12px] font-medium leading-snug shadow-lg sm:right-auto sm:min-w-[260px] sm:max-w-[min(20rem,calc(100vw-2rem))]"
+                      style={{
+                        borderColor: "rgba(148,163,184,0.28)",
+                        backgroundColor: "rgba(15,23,42,0.98)",
+                        color: MUTED_LABEL,
+                        boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
+                      }}
+                      role="tooltip"
+                    >
+                      <span className="font-semibold text-slate-200">Lookup</span> uses an{" "}
+                      <span className="font-mono text-[11px] text-sky-200/90">exact</span> match on the unified inventory view
+                      (tracking number or slip code) for the current organization and store. Partial SKU or ASIN search is not
+                      supported here.
+                    </div>
+                  ) : null}
                 </div>
               </div>
               <div className="mt-4">
                 <ScanFrameWithLaser
                   minHeight="120px"
                   laserColor={ACCENT_BLUE}
-                  cornerColor="rgba(56,189,248,0.75)"
+                  cornerColor="var(--scanner-bracket-cyan)"
                   cornerSize="lg"
                   dashedBorder={false}
+                  subtleSweep
+                  bracketGlow
                   successFlash={scanSuccessFlash}
                   frameStyle={{
-                    borderColor: BORDER,
+                    borderColor: "rgba(148,163,184,0.22)",
+                    borderWidth: 1,
                     backgroundColor: BG,
-                    boxShadow: "inset 0 2px 10px rgba(0,0,0,0.32)",
+                    boxShadow: "inset 0 1px 8px rgba(0,0,0,0.28)",
                   }}
                 >
-                  <ScanLine className="h-10 w-10 opacity-50" strokeWidth={2} style={{ color: MUTED_LABEL }} />
+                  <ScanLine className="h-10 w-10 opacity-40" strokeWidth={2} style={{ color: MUTED_LABEL }} />
                 </ScanFrameWithLaser>
               </div>
               <div className="mt-4">
-                <label htmlFor={`${formId}-gate-manual`} className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                  Enter barcode
+                <label
+                  htmlFor={`${formId}-gate-manual`}
+                  className="mb-1.5 block text-[11px] font-semibold leading-snug text-slate-500 sm:text-[12px]"
+                >
+                  Tracking or slip code (Scan, Type, or Photo)
                 </label>
+                <input
+                  ref={identifyGateCameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden
+                  onChange={onIdentifyGateCameraFileChange}
+                />
                 <div className="relative">
                   <input
                     id={`${formId}-gate-manual`}
@@ -2740,24 +3594,61 @@ function OperatorMobileScanPageContent() {
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    placeholder="Tracking number"
-                    className="h-12 w-full rounded-xl border border-white/10 bg-white/5 py-0 pl-3 pr-[4.5rem] font-mono text-[15px] text-white outline-none transition placeholder:text-slate-600 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
+                    placeholder="Tracking or slip code (Scan, Type, or Photo)"
+                    className="scanner-input-glass min-h-[3.25rem] w-full rounded-xl border py-2.5 pl-3.5 pr-[4.75rem] font-mono text-[17px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] sm:pr-[5.25rem] sm:text-[18px]"
+                    style={{ color: TEXT_PRIMARY }}
                   />
-                  <button
-                    type="button"
-                    disabled={busy || !scanLine.trim()}
-                    onClick={() => void onSubmitScan()}
-                    className="absolute right-1.5 top-1/2 flex h-9 min-w-[3.5rem] -translate-y-1/2 items-center justify-center rounded-lg text-[11px] font-bold text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
-                    style={{ color: "#99f6e4" }}
-                  >
-                    {busy ? "…" : "Search"}
-                  </button>
+                  <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-0.5">
+                    <button
+                      type="button"
+                      disabled={busy || identifyGateOcrReading}
+                      onClick={openIdentifyGateCameraCapture}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-sky-500/15 focus-visible:ring-2 focus-visible:ring-sky-400/50 disabled:cursor-not-allowed disabled:opacity-35"
+                      style={{
+                        color: ACCENT_BLUE,
+                        filter: "drop-shadow(0 0 5px rgba(56,189,248,0.65)) drop-shadow(0 0 12px rgba(34,211,238,0.35))",
+                      }}
+                      aria-label="Read code from photo"
+                      title="Take or choose a photo of the label (on-device OCR)"
+                    >
+                      <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || identifyGateOcrReading || !scanLine.trim()}
+                      onClick={() => void onSubmitScan()}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
+                      style={{ color: "#99f6e4" }}
+                      aria-label={busy ? "Searching" : "Search"}
+                    >
+                      {busy ? <Loader2 className="h-5 w-5 animate-spin" strokeWidth={2} /> : <Search className="h-5 w-5" strokeWidth={2.25} />}
+                    </button>
+                  </div>
+                  {identifyGateOcrReading ? (
+                    <div
+                      className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 rounded-xl border px-3 py-2 backdrop-blur-md"
+                      style={{
+                        borderColor: "rgba(56,189,248,0.45)",
+                        backgroundColor: "rgba(15,23,42,0.78)",
+                        boxShadow: "0 0 32px rgba(56,189,248,0.28), inset 0 0 24px rgba(45,212,191,0.08)",
+                      }}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <Loader2
+                        className="h-7 w-7 animate-spin"
+                        strokeWidth={2}
+                        style={{ color: ACCENT_BLUE, filter: "drop-shadow(0 0 10px rgba(56,189,248,0.7))" }}
+                      />
+                      <span className="text-center text-[12px] font-bold tracking-wide text-sky-100/95">Reading code...</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
               {identifyGatePhase === "searching" ? (
                 <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold" style={{ color: MUTED_LABEL }}>
                   <Loader2 className="h-5 w-5 animate-spin" style={{ color: ACCENT_BLUE }} strokeWidth={2} />
-                  Searching expected_packages…
+                  Searching inventory status…
                 </p>
               ) : null}
               {identifyGateError ? (
@@ -2768,204 +3659,343 @@ function OperatorMobileScanPageContent() {
                   {identifyGateError}
                 </p>
               ) : null}
+              {awaitingPostCompleteExtraScan ? (
+                <p
+                  className="mt-4 rounded-xl border px-3 py-2 text-[11px] font-semibold leading-snug"
+                  style={{
+                    borderColor: "rgba(52,211,153,0.45)",
+                    backgroundColor: "rgba(6,78,59,0.35)",
+                    color: "#d1fae5",
+                  }}
+                >
+                  Scan the extra item barcode — recorded as off-manifest when saved.
+                </p>
+              ) : null}
             </section>
 
-            {identifyGatePhase === "matched" ? (
-              <section className={`mb-4 rounded-[22px] p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: "rgba(52,211,153,0.35)" }}>
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: SUCCESS }}>
-                  Matched in worklist
-                </p>
-                <dl className="mt-3 space-y-2.5 text-[13px]">
-                  <div className="flex justify-between gap-3">
-                    <dt style={{ color: MUTED_LABEL }}>Product name</dt>
-                    <dd className="max-w-[65%] text-right font-semibold text-white">{identifyGateSummary.productName}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt style={{ color: MUTED_LABEL }}>SKU</dt>
-                    <dd className="font-mono font-bold text-white">{identifyGateSummary.skuLabel}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt style={{ color: MUTED_LABEL }}>ASIN</dt>
-                    <dd className="font-mono font-bold text-white">{identifyGateSummary.asinLabel}</dd>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <dt style={{ color: MUTED_LABEL }}>Total expected qty</dt>
-                    <dd className="font-mono text-[16px] font-black tabular-nums" style={{ color: TEAL_STEP }}>
-                      {identifyGateSummary.totalExpectedQty}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Entity type</p>
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {(
-                    [
-                      ["pallet", "Pallet"],
-                      ["package", "Package"],
-                      ["item", "Item"],
-                    ] as const
-                  ).map(([id, label]) => {
-                    const selected = identifyGateEntity === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => {
-                          setIdentifyGateEntity(id);
-                          if (id === "item") setIdentifyGatePhysicalBoxStr("");
-                        }}
-                        className="rounded-xl border py-3 text-[12px] font-bold transition active:scale-95"
-                        style={{
-                          borderColor: selected ? TEAL_STEP : BORDER,
-                          backgroundColor: selected ? "rgba(45,212,191,0.12)" : CARD_INNER,
-                          color: selected ? TEAL_STEP : TEXT_PRIMARY,
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {identifyGateEntity && identifyGateEntity !== "item" ? (
-                  <div className="mt-5">
-                    <label htmlFor={`${formId}-gate-physical`} className="mb-2 block text-center text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                      Physical box count
-                    </label>
-                    <input
-                      id={`${formId}-gate-physical`}
-                      type="tel"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      autoComplete="off"
-                      enterKeyHint="done"
-                      value={identifyGatePhysicalBoxStr}
-                      onChange={(e) => {
-                        const next = e.target.value.replace(/\D/g, "");
-                        setIdentifyGatePhysicalBoxStr(next);
-                      }}
-                      placeholder="0"
-                      aria-invalid={identifyGateBoxCountShowsError}
-                      aria-label="Physical box count for this shipment"
-                      className={`mx-auto block min-h-[88px] w-full max-w-[min(100%,320px)] rounded-2xl border-2 bg-[#060a10] px-4 py-3 text-center font-mono text-[40px] font-black tabular-nums leading-none text-white shadow-[inset_0_4px_24px_rgba(0,0,0,0.65)] outline-none transition placeholder:text-slate-600 sm:min-h-[96px] sm:text-[48px] ${
-                        identifyGateBoxCountShowsError
-                          ? "border-red-500/80 focus:border-red-400 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(248,113,113,0.35)]"
-                          : "border-slate-600/80 focus:border-teal-400/65 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(45,212,191,0.22)]"
-                      }`}
-                    />
-                    {identifyGateBoxCountShowsError ? (
-                      <p className="mt-2 text-center text-[13px] font-bold text-red-400" role="alert">
-                        Box count is required
-                      </p>
-                    ) : (
-                      <p className="mt-2 text-center text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
-                        Used as &quot;Box N of M&quot; on the Package step (e.g. Box 1 of 5).
-                      </p>
-                    )}
-                  </div>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={busy || !identifyGateMandatoryFieldsOk}
-                  onClick={() => void handleIdentifyMatchedStartWorkflow()}
-                  className="mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[18px] text-[15px] font-bold text-[#042f2e] shadow-[0_8px_24px_rgba(45,212,191,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35"
+            {(identifyGatePhase === "matched" || identifyGatePhase === "new") && identifyGateInventoryVisual ? (
+              <section
+                key={`identify-gate-results-${identifyGatePhase}-${identifyGateInventoryVisual}`}
+                className={`animate-scanner-results-enter relative mb-4 w-full max-w-full overflow-hidden rounded-[22px] border-2 px-6 py-6 sm:px-8 sm:py-7 ${glassCard}`}
+                style={{
+                  backgroundColor: CARD,
+                  borderColor: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border,
+                  boxShadow: identifyGateGlowFlash
+                    ? `${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].outerGlow}, 0 0 56px rgba(52,211,153,0.45)`
+                    : IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].outerGlow,
+                }}
+              >
+                <div
+                  className="pointer-events-none absolute inset-0 opacity-[0.14]"
                   style={{
-                    background: `linear-gradient(180deg, ${TEAL_STEP} 0%, #14b8a6 100%)`,
+                    background: `radial-gradient(120% 80% at 50% -10%, ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].chipBg}, transparent 55%)`,
                   }}
-                >
-                  <ScanLine className="h-5 w-5" strokeWidth={2.25} />
-                  Start workflow
-                </button>
-              </section>
-            ) : null}
-
-            {identifyGatePhase === "new" ? (
-              <section className={`mb-4 rounded-[22px] p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: "rgba(251,191,36,0.35)" }}>
-                <p className="text-[16px] font-bold text-amber-100">New item detected</p>
-                <p className="mt-2 text-[12px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
-                  No <span className="font-mono text-[11px]">expected_packages</span> row uses this tracking in the current store.
-                  Choose how to receive and continue.
-                </p>
-                <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Entity type</p>
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {(
-                    [
-                      ["pallet", "Pallet"],
-                      ["package", "Package"],
-                      ["item", "Item"],
-                    ] as const
-                  ).map(([id, label]) => {
-                    const selected = identifyGateEntity === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => {
-                          setIdentifyGateEntity(id);
-                          if (id === "item") setIdentifyGatePhysicalBoxStr("");
-                        }}
-                        className="rounded-xl border py-3 text-[12px] font-bold transition active:scale-95"
-                        style={{
-                          borderColor: selected ? "rgba(251,191,36,0.55)" : BORDER,
-                          backgroundColor: selected ? "rgba(245,158,11,0.12)" : CARD_INNER,
-                          color: selected ? "#fde68a" : TEXT_PRIMARY,
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
+                  aria-hidden
+                />
+                <div className="absolute right-4 top-4 z-[2] flex items-center gap-1 sm:right-5 sm:top-5">
+                  <span
+                    className="inline-flex max-w-[10.5rem] items-center truncate rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-sm sm:max-w-[12rem]"
+                    style={{
+                      borderColor: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border,
+                      backgroundColor: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].chipBg,
+                      color: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].headline,
+                    }}
+                  >
+                    {identifyGateStatusBadgeLabel(identifyGateInventoryVisual)}
+                  </span>
+                  {identifyGateInventoryVisual === "completed" ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-300/90" strokeWidth={2.25} aria-hidden />
+                  ) : identifyGateInventoryVisual === "unexpected" || identifyGateInventoryVisual === "over_scanned" ? (
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-200/90" strokeWidth={2.25} aria-hidden />
+                  ) : null}
                 </div>
-                {identifyGateEntity && identifyGateEntity !== "item" ? (
-                  <div className="mt-5">
-                    <label
-                      htmlFor={`${formId}-gate-new-physical`}
-                      className="mb-2 block text-center text-[11px] font-bold uppercase tracking-widest text-amber-200/80"
+                <div className="relative z-[1] pr-1 pt-1 sm:pr-2">
+                  {(identifyGatePhase === "matched" || identifyGatePhase === "new") && identifyGateEnteredCode.trim() ? (
+                    <div
+                      className="mb-5 rounded-xl border px-3.5 py-3 text-[12px] sm:px-4"
+                      style={{ borderColor: "rgba(148,163,184,0.25)", backgroundColor: "rgba(0,0,0,0.28)" }}
                     >
-                      Physical box count
-                    </label>
-                    <input
-                      id={`${formId}-gate-new-physical`}
-                      type="tel"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      autoComplete="off"
-                      enterKeyHint="done"
-                      value={identifyGatePhysicalBoxStr}
-                      onChange={(e) => {
-                        const next = e.target.value.replace(/\D/g, "");
-                        setIdentifyGatePhysicalBoxStr(next);
+                      {identifyGatePhase === "matched" && identifyGateMatchField ? (
+                        <p className="font-semibold leading-snug text-white">
+                          <span style={{ color: MUTED_LABEL }}>{identifyGateMatchFieldUiLabel(identifyGateMatchField)}</span>
+                          <span className="ml-2 font-mono text-[13px] text-sky-100">{identifyGateEnteredCode.trim()}</span>
+                        </p>
+                      ) : (
+                        <p className="font-semibold leading-snug text-white">
+                          <span style={{ color: MUTED_LABEL }}>Code</span>
+                          <span className="ml-2 font-mono text-[13px] text-sky-100">{identifyGateEnteredCode.trim()}</span>
+                        </p>
+                      )}
+                      {identifyGatePhase === "matched" ? (
+                        <p className="mt-1.5 text-[12px] leading-snug" style={{ color: MUTED_LABEL }}>
+                          Order ID{" "}
+                          <span className="font-mono font-semibold text-white">{identifyGateOrderIdsLabel}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <p className="mb-1 max-w-[calc(100%-5.5rem)] text-[13px] font-medium leading-snug text-white/90">
+                    {identifyGateInventoryVisual === "manual_new"
+                      ? "No manifest lines for this code — create a record or pick entity type."
+                      : identifyGateInventoryVisual === "new"
+                        ? "New on manifest — confirm entity and continue."
+                        : identifyGateInventoryVisual === "unexpected"
+                          ? "Not on the expected list (0 expected)."
+                          : identifyGateInventoryVisual === "in_progress"
+                            ? "Receiving in progress — scanned below manifest total."
+                            : identifyGateInventoryVisual === "completed"
+                              ? "All manifest units accounted for."
+                              : "Scanned exceeds expected — confirm to continue."}
+                  </p>
+
+                  {identifyGateInventoryVisual === "unexpected" ? (
+                    <p
+                      className="mt-2 rounded-lg border px-3 py-2 text-[11px] font-semibold leading-snug text-violet-100/95"
+                      style={{
+                        borderColor: "rgba(168,85,247,0.4)",
+                        backgroundColor: "rgba(88,28,135,0.28)",
                       }}
-                      placeholder="0"
-                      aria-invalid={identifyGateBoxCountShowsError}
-                      aria-label="Physical box count for this shipment"
-                      className={`mx-auto block min-h-[88px] w-full max-w-[min(100%,320px)] rounded-2xl border-2 bg-[#060a10] px-4 py-3 text-center font-mono text-[40px] font-black tabular-nums leading-none text-white shadow-[inset_0_4px_24px_rgba(0,0,0,0.65)] outline-none transition placeholder:text-slate-600 sm:min-h-[96px] sm:text-[48px] ${
-                        identifyGateBoxCountShowsError
-                          ? "border-red-500/80 focus:border-red-400 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(248,113,113,0.35)]"
-                          : "border-amber-500/40 focus:border-amber-400/70 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(245,158,11,0.25)]"
-                      }`}
-                    />
-                    {identifyGateBoxCountShowsError ? (
-                      <p className="mt-2 text-center text-[13px] font-bold text-red-400" role="alert">
-                        Box count is required
+                    >
+                      Not on expected list.
+                    </p>
+                  ) : null}
+                  {identifyGateInventoryVisual === "over_scanned" ? (
+                    <p
+                      className="mt-2 rounded-lg border px-3 py-2 text-[11px] font-semibold leading-snug text-orange-100/95"
+                      style={{
+                        borderColor: "rgba(249,115,22,0.45)",
+                        backgroundColor: "rgba(124,45,18,0.32)",
+                      }}
+                    >
+                      Scanned quantity over expected.
+                    </p>
+                  ) : null}
+
+                  {identifyGateInventoryVisual !== "manual_new" && identifyGateInventoryAgg ? (
+                    <div className="mt-4">
+                      <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-bold tabular-nums text-white">
+                        <span style={{ color: MUTED_LABEL }}>Scan progress</span>
+                        <span>
+                          {formatInventoryProgressLabel(
+                            identifyGateInventoryAgg.totalScanned,
+                            identifyGateInventoryAgg.totalExpected,
+                          )}
+                        </span>
+                      </div>
+                      <div className="h-3.5 w-full overflow-hidden rounded-full bg-black/40 ring-1 ring-white/10">
+                        <div
+                          className="h-full rounded-full transition-[width] duration-300"
+                          style={{
+                            width: `${safeInventoryProgressPercent(
+                              identifyGateInventoryAgg.totalScanned,
+                              identifyGateInventoryAgg.totalExpected,
+                            )}%`,
+                            background:
+                              identifyGateInventoryVisual === "over_scanned"
+                                ? "linear-gradient(90deg, #fb923c, #f97316)"
+                                : identifyGateInventoryVisual === "completed"
+                                  ? "linear-gradient(90deg, #34d399, #10b981)"
+                                  : identifyGateInventoryVisual === "unexpected"
+                                    ? "linear-gradient(90deg, #a78bfa, #7c3aed)"
+                                    : "linear-gradient(90deg, #facc15, #eab308)",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {identifyGateInventoryVisual !== "manual_new" ? (
+                    <dl className="mt-4 space-y-2.5 text-[13px]">
+                      <div className="flex justify-between gap-3">
+                        <dt style={{ color: MUTED_LABEL }}>Product name</dt>
+                        <dd className="max-w-[65%] text-right font-semibold text-white">{identifyGateProductDisplay}</dd>
+                      </div>
+                      {identifyGateViewHints?.carrier?.trim() ? (
+                        <div className="flex justify-between gap-3">
+                          <dt style={{ color: MUTED_LABEL }}>Carrier</dt>
+                          <dd className="max-w-[65%] text-right font-semibold text-white">{identifyGateViewHints.carrier}</dd>
+                        </div>
+                      ) : null}
+                      <div className="flex justify-between gap-3">
+                        <dt style={{ color: MUTED_LABEL }}>Total expected qty</dt>
+                        <dd
+                          className={`font-mono text-[16px] font-black tabular-nums ${
+                            identifyGateInventoryVisual === "unexpected" ? "text-violet-200 ring-1 ring-violet-400/50 rounded-lg px-2 py-0.5" : ""
+                          }`}
+                          style={identifyGateInventoryVisual === "unexpected" ? undefined : { color: TEAL_STEP }}
+                        >
+                          {identifyGateInventoryVisual === "unexpected"
+                            ? 0
+                            : identifyGateInventoryAgg && identifyGateInventoryAgg.totalExpected > 0
+                              ? identifyGateInventoryAgg.totalExpected
+                              : identifyGateSummary.totalExpectedQty}
+                        </dd>
+                      </div>
+                      {identifyGateInventoryAgg ? (
+                        <div className="flex justify-between gap-3">
+                          <dt style={{ color: MUTED_LABEL }}>Total scanned (view)</dt>
+                          <dd className="font-mono text-[15px] font-black tabular-nums text-white">
+                            {identifyGateInventoryAgg.totalScanned}
+                          </dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  ) : null}
+
+                  {identifyGatePhase === "matched" && identifyGateShipmentLines.length > 0 ? (
+                    <div className="mt-5">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        Line items
+                        <span className="ml-1.5 font-normal normal-case text-slate-500">
+                          · exact{" "}
+                          {identifyGateMatchField ? identifyGateMatchFieldUiLabel(identifyGateMatchField) : "tracking"}
+                        </span>
                       </p>
-                    ) : (
-                      <p className="mt-2 text-center text-[11px] font-semibold text-amber-100/75">
-                        Required before creating a pallet or package. Drives &quot;Box N of M&quot; on the Package step.
-                      </p>
-                    )}
+                      <div className="overflow-x-auto rounded-xl ring-1 ring-white/10">
+                        <table className="w-full min-w-[520px] border-collapse text-left text-[11px]">
+                          <thead>
+                            <tr className="border-b border-white/10 bg-black/25 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              <th className="px-2 py-2">Product name</th>
+                              <th className="px-2 py-2 font-mono">FNSKU</th>
+                              <th className="px-2 py-2 text-right tabular-nums">Expected</th>
+                              <th className="px-2 py-2 text-right tabular-nums">Scanned</th>
+                              <th className="px-2 py-2">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {identifyGateShipmentLines.map((row, idx) => {
+                              const vis = shipmentLineStatusVisual(row.status);
+                              const th = IDENTIFICATION_GATE_THEME[vis];
+                              return (
+                                <tr key={`${row.expected_package_id}-${idx}`} className="border-b border-white/5">
+                                  <td className="max-w-[160px] px-2 py-2 font-semibold leading-snug text-white">
+                                    {row.product_name?.trim() || "—"}
+                                  </td>
+                                  <td className="px-2 py-2 font-mono text-[11px] text-white/90">
+                                    {row.fnsku?.trim() || row.asin?.trim() || "—"}
+                                  </td>
+                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white">{row.total_expected}</td>
+                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white">{row.total_scanned}</td>
+                                  <td className="px-2 py-2">
+                                    <span
+                                      className="inline-block rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1"
+                                      style={{
+                                        borderColor: th.border,
+                                        backgroundColor: th.chipBg,
+                                        color: th.headline,
+                                      }}
+                                    >
+                                      {String(row.status ?? "—").trim() || "—"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Entity type</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        ["pallet", "Pallet"],
+                        ["package", "Package"],
+                        ["item", "Item"],
+                      ] as const
+                    ).map(([id, label]) => {
+                      const selected = identifyGateEntity === id;
+                      const th = IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual];
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            setIdentifyGateEntity(id);
+                            if (id !== "pallet") setIdentifyGatePhysicalBoxStr("");
+                          }}
+                          className="rounded-xl border py-3 text-[12px] font-bold transition active:scale-95"
+                          style={{
+                            borderColor: selected ? th.border : BORDER,
+                            backgroundColor: selected ? th.chipBg : CARD_INNER,
+                            color: selected ? th.headline : TEXT_PRIMARY,
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={busy || !identifyGateMandatoryFieldsOk}
-                  onClick={() => void handleIdentifyNewCreateAndStart()}
-                  className="mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[18px] text-[14px] font-bold text-amber-50 shadow-[0_8px_24px_rgba(245,158,11,0.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35"
-                  style={{
-                    background: "linear-gradient(180deg, rgba(245,158,11,0.45) 0%, rgba(180,83,9,0.55) 100%)",
-                    border: "1px solid rgba(251,191,36,0.45)",
-                  }}
-                >
-                  Create &amp; start
-                </button>
+                  {showIdentifyGatePhysicalBoxInput ? (
+                    <div className="mt-5">
+                      <label
+                        htmlFor={`${formId}-gate-physical`}
+                        className="mb-2 block text-center text-[11px] font-bold uppercase tracking-widest text-slate-300"
+                      >
+                        Operator package count
+                      </label>
+                      <input
+                        id={`${formId}-gate-physical`}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        enterKeyHint="done"
+                        value={identifyGatePhysicalBoxStr === "" ? "" : identifyGatePhysicalBoxStr}
+                        onFocus={() => setManualOpen(true)}
+                        onBlur={() => {
+                          window.setTimeout(() => setManualOpen(false), 120);
+                        }}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/\D/g, "");
+                          setIdentifyGatePhysicalBoxStr(v);
+                        }}
+                        placeholder="e.g. 120"
+                        aria-invalid={identifyGateBoxCountShowsError}
+                        aria-label="Operator package count for pallet"
+                        className={`mx-auto block min-h-[88px] w-full max-w-[min(100%,320px)] rounded-2xl border-2 bg-[#060a10] px-4 py-3 text-center font-mono text-[40px] font-black tabular-nums leading-none text-white shadow-[inset_0_4px_24px_rgba(0,0,0,0.65)] outline-none transition placeholder:text-slate-600 sm:min-h-[96px] sm:text-[48px] ${
+                          identifyGateBoxCountShowsError
+                            ? "border-red-500/80 focus:border-red-400 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(248,113,113,0.35)]"
+                            : "border-slate-600/80 focus:border-sky-400/65 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(56,189,248,0.22)]"
+                        }`}
+                      />
+                      {identifyGateBoxCountShowsError ? (
+                        <p className="mt-2 text-center text-[12px] font-bold text-red-400" role="alert">
+                          Enter package count (integer ≥ 1).
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-center text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
+                          Cartons on this pallet (saved with the pallet).
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      !identifyGateMandatoryFieldsOk ||
+                      identifyGateInventoryVisual === "completed" ||
+                      Boolean(completedShipmentModal)
+                    }
+                    onClick={() => void handleIdentificationGatePrimaryCta()}
+                    className="mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[18px] text-[15px] font-bold shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35"
+                    style={{
+                      background: `linear-gradient(180deg, ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].chipBg} 0%, rgba(15,23,42,0.95) 100%)`,
+                      border: `2px solid ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border}`,
+                      color: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].headline,
+                    }}
+                  >
+                    {identifyGateInventoryVisual === "completed" ? (
+                      <ThumbsUp className="h-5 w-5" strokeWidth={2.25} />
+                    ) : (
+                      <ScanLine className="h-5 w-5" strokeWidth={2.25} />
+                    )}
+                    {identificationGatePrimaryCta(identifyGateInventoryVisual)}
+                  </button>
+                </div>
               </section>
             ) : null}
           </>
@@ -2973,28 +4003,28 @@ function OperatorMobileScanPageContent() {
         <>
         {!isSupabaseConfigured() && flowPhase === "scan" ? (
           <p
-            className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+            className="mb-3 rounded-xl border px-3 py-2 text-[11px] font-semibold"
             style={{ borderColor: "rgba(251,191,36,0.35)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
           >
-            Demo mode: scan PLT-…, TRACK-…, PKG-…, SLIP-…, or SKU patterns. Configure Supabase for live data.
+            Demo — PLT-, TRACK-, PKG-, SLIP-, or SKU patterns. Supabase optional.
           </p>
         ) : null}
 
         {isSupabaseConfigured() && !operatorStoresLoading && flowPhase === "scan" && !kioskStoreLocked && operatorStores.length === 0 ? (
           <p
-            className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+            className="mb-3 rounded-xl border px-3 py-2 text-[11px] font-semibold"
             style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
           >
-            No active stores for this organization. Add a store in Settings (Stores and adapters), then refresh.
+            No stores — add one in Settings, then refresh.
           </p>
         ) : null}
 
         {isSupabaseConfigured() && !operatorStoresLoading && flowPhase === "scan" && operatorStores.length > 0 && !sessionStoreId ? (
           <p
-            className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+            className="mb-3 rounded-xl border px-3 py-2 text-[11px] font-semibold"
             style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
           >
-            Could not activate a store — pick one in the header or verify your connection.
+            Pick a store in the header to continue.
           </p>
         ) : null}
 
@@ -3488,7 +4518,7 @@ function OperatorMobileScanPageContent() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
-                    <h2 className="text-[16px] font-bold leading-tight tracking-tight text-white">
+                    <h2 className="text-[16px] font-bold leading-tight tracking-tight" style={{ color: TEXT_PRIMARY }}>
                       {trackingIdentified ? "Tracking locked" : "Scan barcode"}
                     </h2>
                     <div className="relative shrink-0">
@@ -3497,7 +4527,7 @@ function OperatorMobileScanPageContent() {
                         aria-expanded={scanBarcodeHelpOpen}
                         aria-label="Scan instructions"
                         onClick={() => setScanBarcodeHelpOpen((o) => !o)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 text-slate-400 transition hover:border-white/15 hover:bg-white/5 hover:text-slate-300 active:scale-95"
+                        className="operator-info-icon-pulse flex h-7 w-7 items-center justify-center rounded-lg border border-black/10 text-slate-500 transition hover:border-black/15 hover:bg-black/[0.04] hover:text-slate-700 active:scale-95 dark:border-white/10 dark:text-slate-400 dark:hover:border-white/15 dark:hover:bg-white/5 dark:hover:text-slate-300"
                       >
                         <Info className="h-3.5 w-3.5" strokeWidth={2} />
                       </button>
@@ -3545,14 +4575,17 @@ function OperatorMobileScanPageContent() {
                 <ScanFrameWithLaser
                   minHeight="76px"
                   laserColor={ACCENT_BLUE}
-                  cornerColor="rgba(56,189,248,0.75)"
+                  cornerColor="var(--scanner-bracket-cyan)"
                   cornerSize="sm"
                   dashedBorder={false}
+                  subtleSweep
+                  bracketGlow
                   successFlash={scanSuccessFlash}
                   frameStyle={{
-                    borderColor: BORDER,
+                    borderColor: "rgba(148,163,184,0.22)",
+                    borderWidth: 1,
                     backgroundColor: BG,
-                    boxShadow: "inset 0 2px 10px rgba(0,0,0,0.32)",
+                    boxShadow: "inset 0 1px 8px rgba(0,0,0,0.28)",
                   }}
                 >
                   <Barcode className="h-8 w-8 opacity-45" strokeWidth={1.25} style={{ color: MUTED_LABEL }} />
@@ -3582,7 +4615,8 @@ function OperatorMobileScanPageContent() {
                     autoCorrect="off"
                     spellCheck={false}
                     placeholder="Barcode"
-                    className="h-9 w-full rounded-lg border border-white/10 bg-white/5 py-0 pl-3 pr-[4.25rem] font-mono text-[13px] text-white outline-none transition placeholder:text-slate-600 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
+                    className="scanner-input-glass h-9 w-full rounded-lg border py-0 pl-3 pr-[4.25rem] font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
+                    style={{ color: TEXT_PRIMARY }}
                   />
                   <button
                     type="button"
@@ -3804,7 +4838,7 @@ function OperatorMobileScanPageContent() {
           </>
         ) : null}
 
-        {flowPhase === "boxes" ? (
+        {flowPhase === "package_scan" ? (
           <>
             {!parentIdentified ? (
               <p
@@ -3931,18 +4965,20 @@ function OperatorMobileScanPageContent() {
                 >
                   <ScanFrameWithLaser
                     laserColor={ACTION_PURPLE}
-                    cornerColor={ACTION_PURPLE}
+                    cornerColor="rgba(167,139,250,0.5)"
+                    subtleSweep
                     successFlash={scanSuccessFlash}
                     frameStyle={{
-                      borderColor: "rgba(167,139,250,0.55)",
+                      borderColor: "rgba(167,139,250,0.35)",
+                      borderWidth: 1,
                       backgroundColor: "#090E1A",
-                      boxShadow: "inset 0 2px 12px rgba(0,0,0,0.45)",
+                      boxShadow: "inset 0 1px 10px rgba(0,0,0,0.4)",
                     }}
                   >
                     <Barcode className="mb-2 h-12 w-12 opacity-50" strokeWidth={1.25} style={{ color: ACTION_PURPLE }} />
                     <p className="text-[15px] font-bold text-white">Scan box barcode</p>
-                    <p className="mt-1 max-w-[280px] text-center text-[12px] font-medium" style={{ color: MUTED_LABEL }}>
-                      Lock this carton to the parent below. Product unit barcodes belong in Step 4 — Item Inspection.
+                    <p className="mt-1 max-w-[280px] text-center text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
+                      Locks carton to shipment. Item barcodes in the next step.
                     </p>
                   </ScanFrameWithLaser>
                   <div className="mt-3">
@@ -3969,8 +5005,8 @@ function OperatorMobileScanPageContent() {
                         spellCheck={false}
                         placeholder="Type box barcode if scanner fails"
                         disabled={Boolean(activeBoxSession)}
-                        className="h-11 min-w-0 flex-1 rounded-xl border px-3 font-mono text-[14px] text-white outline-none focus:ring-2 focus:ring-violet-500/40 disabled:opacity-45"
-                        style={{ borderColor: PURPLE_RING, backgroundColor: BG }}
+                        className="scanner-input-glass h-11 min-w-0 flex-1 rounded-xl border px-3 font-mono text-[14px] outline-none focus:ring-2 focus:ring-violet-500/40 disabled:opacity-45"
+                        style={{ borderColor: PURPLE_RING, color: TEXT_PRIMARY }}
                       />
                     </div>
                   </div>
@@ -4368,7 +5404,7 @@ function OperatorMobileScanPageContent() {
                     color: "#1e1b4b",
                     boxShadow: `0 6px 20px ${PURPLE_GLOW}`,
                   }}
-                  onClick={() => setFlowPhase("boxes")}
+                  onClick={() => setFlowPhase("package_scan")}
                 >
                   Back to Box Intake
                 </button>
@@ -4604,18 +5640,20 @@ function OperatorMobileScanPageContent() {
               }}
             >
               <p className="text-center text-[16px] font-bold text-white">Scan product barcode</p>
-              <p className="mt-1 text-center text-[12px] font-medium" style={{ color: MUTED_LABEL }}>
-                Step 4 — each unit inside the open carton. UPC / FNSKU / ASIN / SKU (expected lines only).
+              <p className="mt-1 text-center text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
+                Units in the open carton — UPC, FNSKU, ASIN, or SKU on expected lines.
               </p>
               <div className="mt-4">
                 <ScanFrameWithLaser
                   laserColor={TEAL_STEP}
-                  cornerColor={TEAL_STEP}
+                  cornerColor="rgba(45,212,191,0.55)"
+                  subtleSweep
                   successFlash={scanSuccessFlash}
                   frameStyle={{
-                    borderColor: "rgba(45,212,191,0.45)",
+                    borderColor: "rgba(45,212,191,0.32)",
+                    borderWidth: 1,
                     backgroundColor: "#090E1A",
-                    boxShadow: "inset 0 2px 12px rgba(0,0,0,0.45)",
+                    boxShadow: "inset 0 1px 10px rgba(0,0,0,0.4)",
                   }}
                 >
                   <Barcode className="mb-2 h-12 w-12 opacity-80" strokeWidth={1.25} style={{ color: TEAL_STEP }} />
@@ -4820,7 +5858,9 @@ function OperatorMobileScanPageContent() {
             </div>
 
             <p className="mb-6 flex items-center justify-start gap-2 rounded-[16px] border px-3 py-2.5 text-[11px] font-semibold leading-relaxed" style={{ borderColor: "rgba(56,189,248,0.25)", backgroundColor: "rgba(14,165,233,0.08)", color: ACCENT_BLUE }}>
-              <Info className="h-4 w-4 shrink-0" strokeWidth={2} />
+              <span className="operator-info-icon-pulse flex shrink-0 rounded-full">
+                <Info className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+              </span>
               If photos or identifiers do not match the expected item, mark review and add notes. Green flash after save means ready for the next scan.
             </p>
 
@@ -4875,6 +5915,88 @@ function OperatorMobileScanPageContent() {
             <AlertTriangle className="h-5 w-5 shrink-0 text-red-400" strokeWidth={2.25} />
             {syncErrorToast}
           </p>
+        </div>
+      ) : null}
+
+      {identifyGatePhotoOcrToast ? (
+        <div
+          className="pointer-events-none fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] left-1/2 z-[132] w-[min(calc(100vw-2rem),22rem)] -translate-x-1/2 rounded-2xl border px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
+          style={{
+            borderColor: "rgba(251,191,36,0.55)",
+            backgroundColor: "rgba(15,23,42,0.96)",
+            boxShadow: "0 0 28px rgba(251,191,36,0.22), 0 12px 40px rgba(0,0,0,0.45)",
+          }}
+          role="status"
+        >
+          <p className="flex items-center gap-2 text-center text-[13px] font-bold leading-snug text-amber-50">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-300" strokeWidth={2.25} />
+            {identifyGatePhotoOcrToast}
+          </p>
+        </div>
+      ) : null}
+
+      {completedShipmentModal ? (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-ship-done-title`}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border-2 p-5 shadow-[0_0_48px_rgba(52,211,153,0.2)]"
+            style={{
+              borderColor: IDENTIFICATION_GATE_THEME.completed.border,
+              backgroundColor: CARD,
+              boxShadow: IDENTIFICATION_GATE_THEME.completed.outerGlow,
+            }}
+          >
+            <p
+              id={`${formId}-ship-done-title`}
+              className="text-center text-[17px] font-black leading-snug text-white"
+            >
+              Shipment complete. Add extra items?
+            </p>
+            <p className="mt-3 text-center text-[12px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
+              Tracking{" "}
+              <span className="font-mono font-bold text-sky-200/90">{completedShipmentModal.tracking || "—"}</span>
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="h-12 rounded-xl border-2 text-[14px] font-bold transition hover:brightness-110"
+                style={{
+                  borderColor: BORDER,
+                  backgroundColor: CARD_INNER,
+                  color: TEXT_PRIMARY,
+                }}
+                onClick={() => {
+                  setCompletedShipmentModal(null);
+                  editParent();
+                }}
+              >
+                No
+              </button>
+              <button
+                type="button"
+                className="h-12 rounded-xl border-2 text-[14px] font-bold transition hover:brightness-110"
+                style={{
+                  borderColor: IDENTIFICATION_GATE_THEME.completed.border,
+                  backgroundColor: IDENTIFICATION_GATE_THEME.completed.chipBg,
+                  color: IDENTIFICATION_GATE_THEME.completed.headline,
+                }}
+                onClick={() => {
+                  const tn = completedShipmentModal.tracking.trim();
+                  if (tn) postCompleteTrackingRef.current = tn;
+                  setAwaitingPostCompleteExtraScan(true);
+                  setCompletedShipmentModal(null);
+                  playOperatorSuccessBeep();
+                  scheduleFocusScanner();
+                }}
+              >
+                Yes
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

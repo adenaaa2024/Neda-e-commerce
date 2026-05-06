@@ -25,23 +25,16 @@ import {
   ScannerBottomNav,
   SCANNER_OPERATOR_SCAN_PATH,
 } from "./_components/ScannerBottomNav";
+import { OperatorThemeToggle } from "./_components/OperatorThemeToggle";
 import { useOperatorSessionStore } from "./_components/OperatorSessionStoreProvider";
 import { isSupabaseConfigured } from "@/src/lib/supabase";
+import { operatorHapticTap, operatorUiAcknowledge } from "./_lib/operator-haptics";
 
-const BG = "#0B1218";
-const CARD_ELEV = "#111827";
-const TEAL = "#2dd4bf";
-
-/** Minimal glass surface — light, consistent with scan flow */
-const glassCard =
-  "rounded-2xl border border-white/5 bg-slate-900/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] backdrop-blur-md transition-colors hover:border-white/20";
-const glassCardQuiet =
-  "rounded-2xl border border-white/5 bg-slate-900/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] backdrop-blur-md transition-colors hover:border-white/15";
-
-const PALLET = { fg: "#38bdf8", border: "rgba(56, 189, 248, 0.45)", bg: "rgba(56, 189, 248, 0.1)" };
+/** Industrial glass panels — blur + 0.5px edge (see `.operator-glass-card-home` in globals.css) */
+const glassCard = "operator-glass-card-home rounded-2xl";
 
 const mainScrollClass =
-  "[scrollbar-width:thin] [scrollbar-color:#243241_#0B1218] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#243241]/90 hover:[&::-webkit-scrollbar-thumb]:bg-[#334155]/90";
+  "[scrollbar-width:thin] [scrollbar-color:var(--scanner-border)_var(--scanner-bg)] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--scanner-border)]/90 hover:[&::-webkit-scrollbar-thumb]:opacity-80";
 
 type TaskRow = {
   id: string;
@@ -49,13 +42,13 @@ type TaskRow = {
   done: number;
   total: number;
   complete: boolean;
-  barClass: string;
+  tube: "sky" | "violet" | "emerald";
 };
 
 const TASKS: TaskRow[] = [
-  { id: "pallets", label: "Receive assigned pallets", done: 12, total: 18, complete: true, barClass: "bg-sky-400" },
-  { id: "boxes", label: "Open and scan boxes", done: 24, total: 37, complete: true, barClass: "bg-violet-400" },
-  { id: "inspect", label: "Inspect items", done: 68, total: 142, complete: false, barClass: "bg-sky-300/80" },
+  { id: "pallets", label: "Receive assigned pallets", done: 12, total: 18, complete: true, tube: "sky" },
+  { id: "boxes", label: "Open and scan boxes", done: 24, total: 37, complete: true, tube: "violet" },
+  { id: "inspect", label: "Inspect items", done: 68, total: 142, complete: false, tube: "emerald" },
 ];
 
 const RECENT = [
@@ -66,7 +59,7 @@ const RECENT = [
 const PalletStatIcon = Warehouse;
 
 const storeGlass =
-  "rounded-xl border px-2.5 py-1.5 text-xs font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md tracking-tight";
+  "rounded-xl border px-2.5 py-1.5 text-xs font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md tracking-tight dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]";
 
 function OperatorHomeStoreSelector() {
   const {
@@ -81,36 +74,54 @@ function OperatorHomeStoreSelector() {
 
   if (!isSupabaseConfigured()) {
     return (
-      <span className={`${storeGlass} border-white/10 bg-slate-900/50 text-slate-400`}>Demo mode</span>
+      <span
+        className={`${storeGlass} border-black/10 bg-white/70 text-zinc-700 dark:border-white/10 dark:bg-zinc-900/90 dark:text-zinc-400`}
+      >
+        Demo mode
+      </span>
     );
   }
 
   if (operatorStoresLoading) {
-    return <span className={`${storeGlass} border-teal-400/20 bg-slate-900/50 text-slate-400`}>Loading store…</span>;
+    return (
+      <span
+        className={`${storeGlass} border-teal-600/20 bg-white/75 text-zinc-700 dark:border-teal-400/20 dark:bg-zinc-900/90 dark:text-zinc-400`}
+      >
+        Loading store…
+      </span>
+    );
   }
 
   if (kioskStoreLocked) {
     return activeStoreLabel ? (
       <span
-        className={`${storeGlass} max-w-[min(200px,42vw)] truncate border-teal-400/25 bg-slate-900/50 text-white`}
+        className={`${storeGlass} max-w-[min(200px,42vw)] truncate border-teal-600/25 bg-white/75 text-zinc-900 dark:border-teal-400/25 dark:bg-zinc-900/90 dark:text-zinc-50`}
         title={activeStoreLabel}
       >
         Store: {activeStoreLabel}
       </span>
     ) : (
-      <span className={`${storeGlass} border-teal-400/25 bg-slate-900/50 text-teal-100/90`}>Kiosk store</span>
+      <span
+        className={`${storeGlass} border-teal-600/25 bg-teal-50/90 text-teal-900 dark:border-teal-400/25 dark:bg-zinc-900/90 dark:text-teal-100/90`}
+      >
+        Kiosk store
+      </span>
     );
   }
 
   if (operatorStores.length === 0) {
-    return <span className={`${storeGlass} border-amber-400/30 bg-amber-950/30 text-amber-100`}>No stores</span>;
+    return (
+      <span className={`${storeGlass} border-amber-500/35 bg-amber-50/95 text-amber-950 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100`}>
+        No stores
+      </span>
+    );
   }
 
   if (operatorStores.length === 1) {
     const name = operatorStores[0].name;
     return (
       <span
-        className={`${storeGlass} max-w-[min(200px,42vw)] truncate border-teal-400/25 bg-slate-900/50 text-white`}
+        className={`${storeGlass} max-w-[min(200px,42vw)] truncate border-teal-600/25 bg-white/75 text-zinc-900 dark:border-teal-400/25 dark:bg-zinc-900/90 dark:text-zinc-50`}
         title={name}
       >
         Store: {name}
@@ -120,14 +131,17 @@ function OperatorHomeStoreSelector() {
 
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <label htmlFor={selId} className="text-[8px] font-bold uppercase tracking-widest text-teal-200/70">
+      <label
+        htmlFor={selId}
+        className="text-[8px] font-bold uppercase tracking-widest text-teal-700/90 dark:text-teal-200/70"
+      >
         Store
       </label>
       <select
         id={selId}
         value={sessionStoreId ?? ""}
         onChange={(e) => selectSessionStoreId(e.target.value)}
-        className={`${storeGlass} max-w-[min(200px,42vw)] cursor-pointer appearance-none border-teal-400/25 bg-slate-900/55 py-2 pl-2.5 pr-8 text-xs text-white outline-none transition hover:bg-slate-900/70`}
+        className={`${storeGlass} max-w-[min(200px,42vw)] cursor-pointer appearance-none border-teal-600/25 bg-white/80 py-2 pl-2.5 pr-8 text-xs text-zinc-900 outline-none transition hover:bg-white/95 dark:border-teal-400/25 dark:bg-zinc-900/95 dark:text-zinc-50 dark:hover:bg-zinc-800/95`}
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%232dd4bf' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
           backgroundRepeat: "no-repeat",
@@ -135,7 +149,7 @@ function OperatorHomeStoreSelector() {
         }}
       >
         {operatorStores.map((s) => (
-          <option key={s.id} value={s.id} className="bg-slate-950 text-white">
+          <option key={s.id} value={s.id} className="bg-[var(--scanner-card)] text-[var(--scanner-text)]">
             {s.name}
           </option>
         ))}
@@ -148,7 +162,7 @@ function BellHeader({ count }: { count: number }) {
   return (
     <button
       type="button"
-      className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white transition hover:bg-white/5 active:scale-95"
+      className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-800 transition hover:bg-black/[0.05] active:scale-95 dark:text-zinc-50 dark:hover:bg-white/5"
       aria-label={`Notifications, ${count} unread`}
     >
       <Bell className="h-5 w-5" strokeWidth={2} />
@@ -174,26 +188,34 @@ function StatCard({
 }) {
   return (
     <div
-      className={`flex min-w-0 flex-1 flex-col gap-0.5 rounded-xl border border-white/5 bg-slate-900/40 px-2 py-2.5 backdrop-blur-md transition-colors hover:border-white/15 sm:px-2.5`}
+      className={`operator-glass-card-home flex min-w-0 flex-1 flex-col gap-1.5 rounded-xl px-3 py-3.5 sm:px-3.5`}
       style={{
-        boxShadow: `inset 0 1px 0 0 rgba(255,255,255,0.06), inset 0 0 0 1px ${accentRing}`,
+        boxShadow: `
+          0 0 0 0.5px rgba(34, 211, 238, 0.1),
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+          inset 0 0 0 1px ${accentRing},
+          0 12px 36px -18px rgba(0, 0, 0, 0.45)
+        `,
       }}
     >
       {children}
-      <p className="text-xl font-bold tabular-nums tracking-tight text-white">{value}</p>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-xl font-bold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-400">{label}</p>
     </div>
   );
 }
 
-function ProgressBar({ ratio, barClass }: { ratio: number; barClass: string }) {
+function ProgressBar({ ratio, tube }: { ratio: number; tube: TaskRow["tube"] }) {
   const pct = Math.min(100, Math.max(0, ratio * 100));
+  const fill =
+    tube === "sky"
+      ? "operator-progress-fill operator-progress-fill--sky"
+      : tube === "violet"
+        ? "operator-progress-fill operator-progress-fill--violet"
+        : "operator-progress-fill operator-progress-fill--emerald";
   return (
-    <div
-      className="mt-1.5 h-2 w-full overflow-hidden rounded-full shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]"
-      style={{ backgroundColor: CARD_ELEV }}
-    >
-      <div className={`h-full rounded-full transition-all ${barClass}`} style={{ width: `${pct}%` }} />
+    <div className="operator-progress-shell" aria-hidden>
+      <div className={fill} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -204,7 +226,7 @@ function StatusPill({ status }: { status: (typeof RECENT)[number]["status"] }) {
   if (status === "Received") {
     return (
       <span
-        className={`${base} border border-emerald-500/30 bg-emerald-500/15 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.22)]`}
+        className={`${base} border border-emerald-600/35 bg-emerald-500/12 text-emerald-800 shadow-none dark:border-emerald-500/35 dark:bg-emerald-500/15 dark:text-emerald-400 dark:shadow-[0_0_10px_rgba(16,185,129,0.22)]`}
       >
         {status}
       </span>
@@ -212,7 +234,7 @@ function StatusPill({ status }: { status: (typeof RECENT)[number]["status"] }) {
   }
   return (
     <span
-      className={`${base} border border-sky-500/30 bg-sky-500/15 text-sky-300 shadow-[0_0_10px_rgba(14,165,233,0.2)]`}
+      className={`${base} border border-sky-600/35 bg-sky-500/12 text-sky-800 shadow-none dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-300 dark:shadow-[0_0_10px_rgba(14,165,233,0.2)]`}
     >
       {status}
     </span>
@@ -332,7 +354,11 @@ export default function OperatorMobileHomePage() {
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col font-sans tracking-tight antialiased"
-      style={{ backgroundColor: BG, fontFamily: "var(--font-inter), ui-sans-serif, system-ui, sans-serif" }}
+      style={{
+        backgroundColor: "var(--scanner-bg)",
+        color: "var(--scanner-text)",
+        fontFamily: "var(--font-inter), ui-sans-serif, system-ui, sans-serif",
+      }}
     >
       <SearchCodeOverlay
         key={searchOverlayKey}
@@ -341,107 +367,134 @@ export default function OperatorMobileHomePage() {
         onSubmitCode={goSearch}
       />
 
-      <header className="shrink-0 px-4 pt-[max(0.65rem,env(safe-area-inset-top))] pb-2.5" style={{ backgroundColor: BG }}>
+      <header
+        className="shrink-0 border-b px-4 pt-[max(0.65rem,env(safe-area-inset-top))] pb-2.5"
+        style={{
+          borderColor: "var(--scanner-border)",
+          background: "var(--scanner-header-gradient)",
+        }}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">Home</h1>
-              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs font-semibold text-white/90 backdrop-blur-md">
+              <h1 className="operator-heading text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-2xl">
+                Home
+              </h1>
+              <span className="rounded-full border border-black/10 bg-black/[0.04] px-2 py-0.5 text-xs font-semibold text-zinc-900 backdrop-blur-md dark:border-white/10 dark:bg-white/5 dark:text-zinc-50">
                 Operator
               </span>
             </div>
-            <p className="mt-0.5 text-sm font-medium text-slate-500">Warehouse receiving</p>
+            <p className="mt-0.5 text-sm font-medium text-zinc-700 dark:text-zinc-400">Warehouse receiving</p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5 pt-0.5">
+            <div className="flex items-center gap-0.5">
+              <OperatorThemeToggle />
+              <BellHeader count={2} />
+            </div>
             <OperatorHomeStoreSelector />
-            <BellHeader count={2} />
           </div>
         </div>
       </header>
 
       <main className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 ${mainScrollClass}`}>
-        <section className="flex flex-row gap-2" aria-label="Receiving stats">
+        <section className="flex flex-row gap-2.5" aria-label="Receiving stats">
           <StatCard value="18" label="Assigned Pallets" accentRing="rgba(59, 130, 246, 0.22)">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-blue-500/15">
-              <PalletStatIcon className="h-5 w-5 text-blue-400" strokeWidth={2.25} />
+            <div className="operator-stat-well operator-stat-well--blue">
+              <PalletStatIcon className="operator-stat-icon-neon-blue h-5 w-5 text-blue-700 dark:text-blue-300" strokeWidth={2.25} />
             </div>
           </StatCard>
           <StatCard value="37" label="Open Boxes" accentRing="rgba(168, 85, 247, 0.22)">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/10 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-purple-500/15">
-              <Package className="h-5 w-5 text-purple-400" strokeWidth={2.25} />
+            <div className="operator-stat-well operator-stat-well--violet">
+              <Package className="operator-stat-icon-neon-violet h-5 w-5 text-violet-700 dark:text-violet-300" strokeWidth={2.25} />
             </div>
           </StatCard>
           <StatCard value="142" label="Items to Inspect" accentRing="rgba(16, 185, 129, 0.18)">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-emerald-500/15">
-              <Search className="h-5 w-5 text-emerald-400" strokeWidth={2.25} />
+            <div className="operator-stat-well operator-stat-well--emerald">
+              <Search className="operator-stat-icon-neon-emerald h-5 w-5 text-emerald-700 dark:text-emerald-300" strokeWidth={2.25} />
             </div>
           </StatCard>
           <StatCard value="5" label="Alerts" accentRing="rgba(248, 113, 113, 0.2)">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-500/10 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-red-500/15">
-              <AlertTriangle className="h-5 w-5 text-red-400" strokeWidth={2.25} />
+            <div className="operator-stat-well operator-stat-well--red">
+              <AlertTriangle className="operator-stat-icon-neon-red h-5 w-5 text-red-700 dark:text-red-300" strokeWidth={2.25} />
             </div>
           </StatCard>
         </section>
 
-        <section className="mt-3 grid grid-cols-2 gap-2.5">
+        <section className="mt-4 grid grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => router.push(SCANNER_OPERATOR_SCAN_PATH)}
-            className="relative flex min-h-[84px] items-stretch gap-2.5 overflow-hidden rounded-2xl border border-blue-400/20 bg-gradient-to-br from-blue-500 to-blue-700 px-2.5 py-3 text-left shadow-[0_12px_32px_-14px_rgba(37,99,235,0.5),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-3px_16px_rgba(0,0,0,0.18),inset_0_0_24px_-8px_rgba(255,255,255,0.08)] transition active:scale-[0.98]"
+            onClick={() => {
+              operatorUiAcknowledge();
+              router.push(SCANNER_OPERATOR_SCAN_PATH);
+            }}
+            className="operator-neumo-blue relative flex min-h-[92px] items-stretch gap-2.5 overflow-hidden px-3 py-3.5 text-left"
           >
             <span
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(100%_70%_at_30%_0%,rgba(255,255,255,0.14),transparent_55%)]"
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_65%_at_28%_0%,rgba(255,255,255,0.2),transparent_58%)]"
               aria-hidden
             />
             <span className="relative flex shrink-0 items-center justify-center">
-              <PlusSquare className="h-10 w-10 text-white drop-shadow-[0_3px_8px_rgba(0,0,0,0.4)]" strokeWidth={2.35} />
+              <PlusSquare className="h-10 w-10 text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)]" strokeWidth={2.35} />
             </span>
             <span className="relative min-w-0">
-              <span className="block text-sm font-bold leading-snug text-white">Start New Receiving</span>
-              <span className="mt-0.5 block text-xs font-medium leading-snug text-blue-100/85">New pallet / box</span>
+              <span className="block text-[13px] font-bold leading-snug text-white">Start New Receiving</span>
+              <span className="mt-0.5 block text-[11px] font-medium leading-snug text-blue-100/90">New pallet / box</span>
             </span>
           </button>
           <button
             type="button"
-            onClick={() => router.push(SCANNER_OPERATOR_SCAN_PATH)}
-            className="relative flex min-h-[84px] items-stretch gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800 to-slate-950 px-2.5 py-3 text-left shadow-[0_10px_28px_-14px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-2px_12px_rgba(0,0,0,0.25),inset_0_0_20px_-10px_rgba(255,255,255,0.04)] transition active:scale-[0.98]"
+            onClick={() => {
+              operatorUiAcknowledge();
+              router.push(SCANNER_OPERATOR_SCAN_PATH);
+            }}
+            className="operator-neumo-continue relative flex min-h-[92px] items-stretch gap-2.5 px-3 py-3.5 text-left"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/15 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.15)] ring-1 ring-white/10">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-300/90 text-zinc-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] ring-[0.5px] ring-zinc-400/50 dark:bg-white/15 dark:text-white dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] dark:ring-white/12">
               <ScanBarcode className="h-5 w-5" strokeWidth={2.1} />
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-bold leading-snug text-white">Continue Scan</span>
-              <span className="mt-0.5 block text-xs font-medium leading-snug text-slate-400">Resume session</span>
+              <span className="block text-[13px] font-bold leading-snug text-zinc-900 dark:text-white">Continue Scan</span>
+              <span className="mt-0.5 block text-[11px] font-medium leading-snug text-zinc-600 dark:text-zinc-400">
+                Resume session
+              </span>
             </span>
           </button>
         </section>
 
         <button
           type="button"
-          onClick={openSearchOverlay}
-          className={`mt-3 flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left ${glassCard}`}
+          onClick={() => {
+            operatorUiAcknowledge();
+            openSearchOverlay();
+          }}
+          className={`mt-4 flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left ${glassCard}`}
         >
-          <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-            style={{ color: PALLET.fg, backgroundColor: PALLET.bg }}
-          >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-700 ring-1 ring-sky-600/25 dark:bg-sky-500/10 dark:text-sky-400 dark:ring-sky-500/15">
             <Search className="h-4 w-4" strokeWidth={2.25} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-white">Search pallet / box / item</span>
-            <span className="mt-0.5 block text-xs font-medium text-slate-500">Barcode, label, or serial</span>
+            <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-50">Search pallet / box / item</span>
+            <span className="mt-0.5 block text-xs font-medium text-zinc-700 dark:text-zinc-400">
+              Barcode, label, or serial
+            </span>
           </span>
-          <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2} />
+          <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-500" strokeWidth={2} />
         </button>
 
-        <section className="mt-5">
-          <h2 className="text-lg font-bold tracking-tight text-white">Today&apos;s tasks</h2>
-          <ul className="mt-2 space-y-2">
+        <section className="mt-6">
+          <h2 className="operator-heading text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            Today&apos;s tasks
+          </h2>
+          <ul className="mt-3 space-y-3">
             {TASKS.map((task) => {
               const ratio = task.total > 0 ? task.done / task.total : 0;
               return (
                 <li key={task.id}>
-                  <button type="button" className={`flex w-full items-start gap-2.5 rounded-2xl px-3 py-2.5 text-left ${glassCard}`}>
+                  <button
+                    type="button"
+                    onClick={() => operatorHapticTap(10)}
+                    className={`flex w-full items-start gap-3 rounded-2xl px-4 py-3.5 text-left ${glassCard}`}
+                  >
                     <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center">
                       {task.complete ? (
                         <CheckCircle2
@@ -449,19 +502,19 @@ export default function OperatorMobileHomePage() {
                           strokeWidth={2.35}
                         />
                       ) : (
-                        <Circle className="h-7 w-7 text-slate-600" strokeWidth={2} />
+                        <Circle className="h-7 w-7 text-zinc-400 dark:text-zinc-500" strokeWidth={2} />
                       )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-2">
-                        <span className="text-sm font-semibold text-white">{task.label}</span>
-                        <span className="shrink-0 text-xs font-bold tabular-nums text-slate-500">
+                        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{task.label}</span>
+                        <span className="shrink-0 text-xs font-bold tabular-nums text-zinc-700 dark:text-zinc-400">
                           {task.done} / {task.total}
                         </span>
                       </span>
-                      <ProgressBar ratio={ratio} barClass={task.barClass} />
+                      <ProgressBar ratio={ratio} tube={task.tube} />
                     </span>
-                    <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-600" strokeWidth={2} />
+                    <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-500" strokeWidth={2} />
                   </button>
                 </li>
               );
@@ -469,47 +522,63 @@ export default function OperatorMobileHomePage() {
           </ul>
         </section>
 
-        <section className="mt-5">
+        <section className="mt-6">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-lg font-bold tracking-tight text-white">Recent items</h2>
-            <Link href="#" className="text-sm font-semibold transition hover:text-teal-300" style={{ color: TEAL }}>
+            <h2 className="operator-heading text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+              Recent items
+            </h2>
+            <Link
+              href="#"
+              className="text-sm font-semibold text-teal-700 transition hover:text-teal-900 dark:text-teal-400 dark:hover:text-teal-300"
+            >
               View all
             </Link>
           </div>
-          <ul className="mt-2 space-y-2">
-            {RECENT.map((row) => (
-              <li key={row.sku} className={`rounded-2xl px-3 py-2.5 ${glassCardQuiet}`}>
-                <div className="flex gap-2.5">
+          <ul className="mt-3 space-y-0">
+            {RECENT.map((row, i) => (
+              <li key={row.sku}>
+                {i > 0 ? <div className="operator-recent-divider-glow my-3 w-full" aria-hidden /> : null}
+                <div className="operator-recent-row px-4 py-3.5">
+                  <div className="flex gap-3">
                   <div
-                    className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/5 bg-gradient-to-br from-amber-950/35 via-slate-900/80 to-[#0c1220] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-gradient-to-br from-amber-50 via-white to-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] dark:border-white/10 dark:from-amber-950/35 dark:via-slate-900/80 dark:to-[#0c1220] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                     aria-hidden
                   >
-                    <PackageOpen className="h-6 w-6 text-amber-700/90" strokeWidth={2} />
+                    <PackageOpen className="h-6 w-6 text-amber-800 dark:text-amber-400" strokeWidth={2} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-mono text-[11px] font-bold text-white">{row.sku}</p>
-                    <p className="mt-0.5 truncate text-sm font-medium text-slate-200">{row.name}</p>
-                    <p className="mt-0.5 text-xs font-semibold" style={{ color: PALLET.fg }}>
+                    <p className="font-mono text-[11px] font-bold text-zinc-900 dark:text-zinc-50">{row.sku}</p>
+                    <p className="mt-0.5 truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">{row.name}</p>
+                    <p className="mt-0.5 font-mono text-[11px] font-bold uppercase tracking-wide text-sky-700 dark:text-cyan-200 dark:drop-shadow-[0_0_10px_rgba(34,211,238,0.35)]">
                       Pallet {row.pallet}
                     </p>
                     <StatusPill status={row.status} />
                   </div>
                   <div className="flex shrink-0 flex-col items-end justify-start gap-1">
-                    <div className="flex items-center gap-0.5 text-slate-500">
+                    <div className="flex items-center gap-0.5 text-zinc-600 dark:text-zinc-400">
                       <button
                         type="button"
-                        className="rounded-md p-1 transition hover:bg-white/5 active:scale-95"
+                        className="rounded-md p-1 transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/10"
                         aria-label="Locked"
                       >
                         <Lock className="h-3.5 w-3.5" />
                       </button>
-                      <button type="button" className="rounded-md p-1 transition hover:bg-white/5 active:scale-95" aria-label="Edit">
+                      <button
+                        type="button"
+                        className="rounded-md p-1 transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/10"
+                        aria-label="Edit"
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button type="button" className="rounded-md p-1 transition hover:bg-white/5 active:scale-95" aria-label="Delete">
+                      <button
+                        type="button"
+                        className="rounded-md p-1 transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/10"
+                        aria-label="Delete"
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
+                  </div>
                   </div>
                 </div>
               </li>
