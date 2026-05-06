@@ -10,7 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import { isSupabaseConfigured, supabase } from "@/src/lib/supabase";
+import { useUserRole } from "@/components/UserRoleContext";
 import { resolveOrganizationId } from "@/lib/organization";
+import { readWorkspaceSelectedOrganizationIdFromStorage } from "@/lib/workspace-organization-scope";
+import { isUuidString } from "@/lib/uuid";
 import {
   initializeOperatorSessionStores,
   resolvePublicStoreId,
@@ -32,7 +35,21 @@ export type OperatorSessionStoreContextValue = {
 const OperatorSessionStoreContext = createContext<OperatorSessionStoreContextValue | null>(null);
 
 export function OperatorSessionStoreProvider({ children }: { children: ReactNode }) {
-  const orgId = resolveOrganizationId();
+  const { organizationId: profileOrganizationId, sessionCanWorkspaceSwitch } = useUserRole();
+  /**
+   * Match workspace org picker (TopHeader / Settings): internal staff scope is persisted under
+   * `workspace_selected_organization_id`. Prefer that when set so operator mobile stays aligned
+   * with the company selected on the main shell.
+   */
+  const orgId = useMemo(() => {
+    if (typeof window !== "undefined" && sessionCanWorkspaceSwitch) {
+      const fromWorkspacePicker = readWorkspaceSelectedOrganizationIdFromStorage();
+      if (fromWorkspacePicker) return fromWorkspacePicker;
+    }
+    const p = profileOrganizationId?.trim();
+    if (p && isUuidString(p)) return p;
+    return resolveOrganizationId();
+  }, [profileOrganizationId, sessionCanWorkspaceSwitch]);
   const [sessionStoreId, setSessionStoreIdState] = useState<string | null>(null);
   const [operatorStores, setOperatorStores] = useState<OperatorStoreOption[]>([]);
   const [operatorStoresLoading, setOperatorStoresLoading] = useState(false);

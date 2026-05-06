@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type DragEvent,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
@@ -44,7 +45,6 @@ import {
   X,
 } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "@/src/lib/supabase";
-import { resolveOrganizationId } from "@/lib/organization";
 import {
   mockResolveOperatorBarcode,
   resolveOperatorBarcode,
@@ -123,7 +123,8 @@ const PURPLE_GLOW = "rgba(139, 92, 246, 0.22)";
 const BOX_PURPLE_TRACK = "rgba(167, 139, 250, 0.45)";
 const BOX_PURPLE_SOFT_BG = "rgba(167, 139, 250, 0.18)";
 
-const glassCard = `border-[0.5px] border-cyan-500/15 shadow-lg backdrop-blur-xl scanner-glass-surface dark:border-white/12`;
+/** Theme-aware glass panels (see globals.css `.scanner-page-glass-card`) */
+const glassCard = "scanner-page-glass-card";
 
 const IDENTIFICATION_GATE_THEME: Record<
   InventoryGateVisualStatus,
@@ -346,10 +347,6 @@ function stripIdentifyGateOcrEdges(s: string): string {
   return t;
 }
 
-function scoreIdentifyGateOcrLine(line: string): number {
-  return line.replace(/[^A-Za-z0-9]/g, "").length;
-}
-
 /**
  * Amazon packing slips: slip / inventory id (e.g. under barcode), FNSKU-style (X00…),
  * ASIN (B0…), and warehouse-style (ZZQ…) tokens. Picks highest-priority longest match, else best OCR line.
@@ -383,49 +380,56 @@ function collectIdentifyGateOcrPatternHits(text: string): { text: string; tier: 
   return hits;
 }
 
-function pickBestIdentifyGateOcrLine(raw: string): string {
+/**
+ * Strict: only FNSKU / slip / ASIN-style tokens (X00, B0, ZZQ, SD9Q). Ignores other slip prose.
+ * Returns "" if no pattern matched.
+ */
+function extractStrictIdentifyGateSlipCode(raw: string): string {
   const trimmedRaw = raw.trim();
   const patternHits = collectIdentifyGateOcrPatternHits(trimmedRaw);
-  if (patternHits.length) {
-    patternHits.sort((a, b) => b.tier - a.tier || b.alnumLen - a.alnumLen || b.text.length - a.text.length);
-    return patternHits[0]!.text;
-  }
-  const lines = trimmedRaw
-    .split(/\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (!lines.length) return trimmedRaw;
-  let best = lines[0]!;
-  let bestScore = scoreIdentifyGateOcrLine(best);
-  for (const line of lines) {
-    const sc = scoreIdentifyGateOcrLine(line);
-    if (sc > bestScore) {
-      best = line;
-      bestScore = sc;
-    }
-  }
-  return best;
+  if (!patternHits.length) return "";
+  patternHits.sort((a, b) => b.tier - a.tier || b.alnumLen - a.alnumLen || b.text.length - a.text.length);
+  return patternHits[0]!.text;
 }
 
-/** Boost small slip text: grayscale + contrast before Tesseract. */
-async function preprocessIdentifyGatePhotoForOcr(file: File): Promise<Blob | File> {
-  if (typeof createImageBitmap !== "function") return file;
+const IDENTIFY_GATE_IMAGE_EXT_RE = /\.(jpe?g|png)$/i;
+
+function isAllowedIdentifyGateImageFile(file: File): boolean {
+  const t = file.type.toLowerCase();
+  if (t === "image/jpeg" || t === "image/jpg" || t === "image/png") return true;
+  const n = file.name.trim();
+  return n.length > 0 && IDENTIFY_GATE_IMAGE_EXT_RE.test(n);
+}
+
+/** Downscale large photos, compress to JPEG, grayscale + contrast — keeps Tesseract responsive on HD uploads. */
+async function preprocessIdentifyGatePhotoForOcr(file: File | Blob): Promise<Blob | File> {
+  if (typeof createImageBitmap !== "function")
+    return file instanceof File ? file : new File([file], "capture.jpg", { type: "image/jpeg" });
+  const asFile = file instanceof File ? file : new File([file], "capture.jpg", { type: "image/jpeg" });
   try {
     const bmp = await createImageBitmap(file);
     const w = bmp.width;
     const h = bmp.height;
-    const maxDim = 2200;
-    const scale = Math.min(1, maxDim / Math.max(w, h, 1));
-    const cw = Math.max(1, Math.round(w * scale));
-    const ch = Math.max(1, Math.round(h * scale));
+    const maxEdge = 1680;
+    const maxPixels = 2_450_000;
+    let scale = Math.min(1, maxEdge / Math.max(w, h, 1));
+    let cw = Math.max(1, Math.round(w * scale));
+    let ch = Math.max(1, Math.round(h * scale));
+    if (cw * ch > maxPixels) {
+      const s2 = Math.sqrt(maxPixels / (cw * ch));
+      cw = Math.max(1, Math.round(cw * s2));
+      ch = Math.max(1, Math.round(ch * s2));
+    }
     const canvas = document.createElement("canvas");
     canvas.width = cw;
     canvas.height = ch;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) {
       bmp.close?.();
-      return file;
+      return asFile;
     }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(bmp, 0, 0, cw, ch);
     bmp.close?.();
     const imgData = ctx.getImageData(0, 0, cw, ch);
@@ -440,10 +444,12 @@ async function preprocessIdentifyGatePhotoForOcr(file: File): Promise<Blob | Fil
       d[i + 2] = v;
     }
     ctx.putImageData(imgData, 0, 0);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/png", 0.94));
-    return blob ?? file;
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.86),
+    );
+    return blob ?? asFile;
   } catch {
-    return file;
+    return asFile;
   }
 }
 
@@ -468,8 +474,9 @@ function isIdentifyGateOcrAcceptable(confidence: number, cleaned: string): boole
   const asinLike = /^B0[A-Z0-9]{8}$/i.test(cleaned);
   const slipIdLike = /^SD9Q[A-Z0-9]{4,}$/i.test(cleaned);
   const fnskuLike = /^X00[A-Z0-9]{6,}$/i.test(cleaned);
+  const zzqLike = /^ZZQ[A-Z0-9]{4,}$/i.test(cleaned);
   if (asinLike && confidence >= 12) return true;
-  if ((slipIdLike || fnskuLike) && confidence >= 14) return true;
+  if ((slipIdLike || fnskuLike || zzqLike) && confidence >= 14) return true;
   if (confidence < 16) return false;
   if (confidence < 32 && alnum.length < 10) return false;
   if (confidence < 45 && alnum.length < 6) return false;
@@ -970,8 +977,8 @@ function OperatorMobileScanPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const formId = useId();
-  const orgId = resolveOrganizationId();
   const {
+    organizationId: orgId,
     sessionStoreId,
     operatorStores,
     operatorStoresLoading,
@@ -1130,7 +1137,12 @@ function OperatorMobileScanPageContent() {
   const [intakeToast, setIntakeToast] = useState<string | null>(null);
   const [identifyGatePhotoOcrToast, setIdentifyGatePhotoOcrToast] = useState<string | null>(null);
   const [identifyGateOcrReading, setIdentifyGateOcrReading] = useState(false);
-  const identifyGateCameraInputRef = useRef<HTMLInputElement>(null);
+  const [identifyGateOcrProgressPct, setIdentifyGateOcrProgressPct] = useState(0);
+  const [identifyGateOcrMenuOpen, setIdentifyGateOcrMenuOpen] = useState(false);
+  const [identifyGateOcrDropHighlight, setIdentifyGateOcrDropHighlight] = useState(false);
+  const identifyGateCameraCaptureRef = useRef<HTMLInputElement>(null);
+  const identifyGateCameraUploadRef = useRef<HTMLInputElement>(null);
+  const identifyGateOcrMenuRef = useRef<HTMLDivElement | null>(null);
   const identifyGateOcrBusyRef = useRef(false);
 
   const laserEnabled =
@@ -1267,7 +1279,7 @@ function OperatorMobileScanPageContent() {
             kioskStoreLocked
               ? "Store context missing — check NEXT_PUBLIC_STORE_ID."
               : operatorStores.length > 1
-                ? "Select an active store in the header before searching."
+                ? "Select an active store above (Store row) before searching."
                 : "Select or configure a store.",
           );
           setIdentifyGatePhase("idle");
@@ -1536,7 +1548,7 @@ function OperatorMobileScanPageContent() {
                 kioskStoreLocked
                   ? "Store context missing — check NEXT_PUBLIC_STORE_ID / kiosk configuration."
                   : operatorStores.length > 1
-                    ? "Select an active store in the header to load expected_packages for that location."
+                    ? "Select an active store above to load expected_packages for that location."
                     : operatorStores.length === 0
                       ? "No active stores for this organization — add a store in Settings."
                       : "Select or configure a store to load expected_packages.",
@@ -1637,6 +1649,26 @@ function OperatorMobileScanPageContent() {
     const t = window.setTimeout(() => setIdentifyGatePhotoOcrToast(null), 4200);
     return () => window.clearTimeout(t);
   }, [identifyGatePhotoOcrToast]);
+
+  useEffect(() => {
+    if (!identifyGateOcrMenuOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const node = identifyGateOcrMenuRef.current;
+      const t = e.target as Node | null;
+      if (node && t && !node.contains(t)) setIdentifyGateOcrMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIdentifyGateOcrMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [identifyGateOcrMenuOpen]);
 
   useEffect(() => {
     if (!scanSuccessFlash) return;
@@ -2318,34 +2350,39 @@ function OperatorMobileScanPageContent() {
     setScanLine("");
   }, []);
 
-  const openIdentifyGateCameraCapture = useCallback(() => {
-    identifyGateCameraInputRef.current?.click();
-  }, []);
-
-  const onIdentifyGateCameraFileChange = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
+  const runIdentifyGatePhotoOcr = useCallback(async (file: File) => {
     if (identifyGateOcrBusyRef.current) return;
-    if (!file.type.startsWith("image/")) {
-      setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
+    if (!isAllowedIdentifyGateImageFile(file)) {
+      setIdentifyGatePhotoOcrToast("Please use a JPG or PNG image.");
       return;
     }
     identifyGateOcrBusyRef.current = true;
     setIdentifyGateOcrReading(true);
+    setIdentifyGateOcrProgressPct(0);
     try {
       const { createWorker, PSM } = await import("tesseract.js");
       const worker = await createWorker("eng", undefined, {
-        logger: () => {},
+        logger: (m: { progress?: number }) => {
+          if (typeof m.progress === "number" && Number.isFinite(m.progress)) {
+            const pct = Math.round(Math.min(100, Math.max(0, m.progress * 100)));
+            setIdentifyGateOcrProgressPct(pct);
+          }
+        },
       });
       try {
         await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        setIdentifyGateOcrProgressPct((p) => Math.max(p, 2));
         const ocrSource = await preprocessIdentifyGatePhotoForOcr(file);
+        setIdentifyGateOcrProgressPct((p) => Math.max(p, 6));
         const { data } = await worker.recognize(ocrSource);
+        setIdentifyGateOcrProgressPct(100);
         const raw = String(data.text ?? "");
-        const picked = pickBestIdentifyGateOcrLine(raw);
+        const picked = extractStrictIdentifyGateSlipCode(raw);
         const cleaned = stripIdentifyGateOcrEdges(picked);
+        if (!cleaned.trim()) {
+          setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
+          return;
+        }
         const conf = typeof data.confidence === "number" ? data.confidence : 0;
         if (!isIdentifyGateOcrAcceptable(conf, cleaned)) {
           setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
@@ -2361,8 +2398,44 @@ function OperatorMobileScanPageContent() {
     } finally {
       identifyGateOcrBusyRef.current = false;
       setIdentifyGateOcrReading(false);
+      setIdentifyGateOcrProgressPct(0);
     }
   }, []);
+
+  const onIdentifyGateOcrFileInputChange = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const input = e.currentTarget;
+      const file = input.files?.[0];
+      input.value = "";
+      if (file) await runIdentifyGatePhotoOcr(file);
+    },
+    [runIdentifyGatePhotoOcr],
+  );
+
+  const onIdentifyGateScanZoneDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    setIdentifyGateOcrDropHighlight(true);
+  }, []);
+
+  const onIdentifyGateScanZoneDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const rel = e.relatedTarget as Node | null;
+    if (rel && e.currentTarget.contains(rel)) return;
+    setIdentifyGateOcrDropHighlight(false);
+  }, []);
+
+  const onIdentifyGateScanZoneDrop = useCallback(
+    async (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIdentifyGateOcrDropHighlight(false);
+      const f = e.dataTransfer.files?.[0];
+      if (f) await runIdentifyGatePhotoOcr(f);
+    },
+    [runIdentifyGatePhotoOcr],
+  );
 
   const onSubmitScan = useCallback(
     async (e?: FormEvent) => {
@@ -3189,7 +3262,7 @@ function OperatorMobileScanPageContent() {
 
       <header
         ref={scanPageHeaderRef}
-        className="relative z-[110] shrink-0 border-b pt-[max(0.2rem,env(safe-area-inset-top))]"
+        className="relative z-[110] shrink-0 border-b pt-0"
         style={{
           borderColor: BORDER,
           background: "var(--scanner-header-gradient)",
@@ -3219,37 +3292,43 @@ function OperatorMobileScanPageContent() {
             <ArrowLeft className="h-5 w-5" strokeWidth={2} />
           </button>
           <div className="min-w-0 px-1 text-center">
-            <h1
-              className="operator-heading text-[1.28rem] font-semibold leading-tight tracking-tight sm:text-[1.42rem]"
-              style={{ color: TEXT_PRIMARY }}
-            >
-              {headerTitle}
-            </h1>
-            {headerSubtitle ? (
-              <p className="mt-0.5 text-[11px] font-semibold sm:text-[12px]" style={{ color: MUTED_LABEL }}>
-                {headerSubtitle}
-              </p>
-            ) : null}
-            {showWarehouseTrail ? (
-              <WarehouseBreadcrumb
-                storeLabel={activeStoreLabel}
-                palletLabel={warehousePalletLabel}
-                shipmentIdLabel={warehouseShipmentIdLabel}
-                boxBarcode={contextTrailBoxBarcode}
-              />
-            ) : null}
-            {flowPhase === "package_scan" ? (
-              <p className="mt-0.5 text-[11px] font-bold tabular-nums" style={{ color: ACTION_PURPLE }}>
-                Box {boxOrdinal} of{" "}
-                {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : boxIntakeDenom}
-              </p>
-            ) : null}
-            {flowPhase === "items" ? (
-              <p className="mt-0.5 text-[11px] font-bold tabular-nums" style={{ color: TEXT_PRIMARY }}>
-                Item {itemProgressNumerator} of {itemProgressDenom}
-                <span className="font-normal opacity-55">{" · Box receiving progress"}</span>
-              </p>
-            ) : null}
+            {isIdentified ? (
+              <>
+                <h1
+                  className="operator-heading text-[1.28rem] font-semibold leading-tight tracking-tight sm:text-[1.42rem]"
+                  style={{ color: TEXT_PRIMARY }}
+                >
+                  {headerTitle}
+                </h1>
+                {headerSubtitle ? (
+                  <p className="mt-0.5 text-[11px] font-semibold sm:text-[12px]" style={{ color: MUTED_LABEL }}>
+                    {headerSubtitle}
+                  </p>
+                ) : null}
+                {showWarehouseTrail ? (
+                  <WarehouseBreadcrumb
+                    storeLabel={activeStoreLabel}
+                    palletLabel={warehousePalletLabel}
+                    shipmentIdLabel={warehouseShipmentIdLabel}
+                    boxBarcode={contextTrailBoxBarcode}
+                  />
+                ) : null}
+                {flowPhase === "package_scan" ? (
+                  <p className="mt-0.5 text-[11px] font-bold tabular-nums" style={{ color: ACTION_PURPLE }}>
+                    Box {boxOrdinal} of{" "}
+                    {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : boxIntakeDenom}
+                  </p>
+                ) : null}
+                {flowPhase === "items" ? (
+                  <p className="mt-0.5 text-[11px] font-bold tabular-nums" style={{ color: TEXT_PRIMARY }}>
+                    Item {itemProgressNumerator} of {itemProgressDenom}
+                    <span className="font-normal opacity-55">{" · Box receiving progress"}</span>
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <div className="h-10 min-h-[2.5rem] sm:h-11" aria-hidden />
+            )}
           </div>
           <div className="flex shrink-0 items-start justify-end gap-0.5">
             <OperatorThemeToggle />
@@ -3488,41 +3567,49 @@ function OperatorMobileScanPageContent() {
                 className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
               >
-                Could not activate a store — pick one in the header or verify your connection.
+                Could not activate a store — choose one in the Store row above or verify your connection.
               </p>
             ) : null}
 
-            <section className={`mb-4 rounded-[22px] p-4 sm:p-5 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
-              <div className="flex items-start gap-3">
-                <div
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1"
-                  style={{
-                    backgroundColor: "rgba(56,189,248,0.1)",
-                    borderColor: "rgba(56,189,248,0.2)",
-                    boxShadow: "0 0 12px rgba(56,189,248,0.15)",
-                  }}
-                >
-                  <Barcode className="h-6 w-6" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
-                </div>
-                <div ref={gateTrackingHelpRef} className="relative min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-[17px] font-bold leading-tight sm:text-[18px]" style={{ color: TEXT_PRIMARY }}>
-                      Tracking or slip code
-                    </h2>
-                    <button
-                      type="button"
-                      className="operator-info-icon-pulse flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 bg-black/[0.04] text-slate-500 outline-none transition hover:border-sky-500/35 hover:bg-sky-500/10 hover:text-sky-700 focus-visible:ring-2 focus-visible:ring-sky-400/40 dark:border-white/12 dark:bg-white/[0.06] dark:text-slate-400 dark:hover:border-sky-400/35 dark:hover:bg-white/10 dark:hover:text-sky-100"
-                      aria-label="How lookup works"
-                      aria-expanded={gateTrackingHelpOpen}
-                      title="Exact match on inventory status (tracking or slip) for this organization and store. No SKU or ASIN search."
-                      onClick={() => setGateTrackingHelpOpen((o) => !o)}
-                    >
-                      <Info className="h-4 w-4" strokeWidth={2} aria-hidden />
-                    </button>
+            <div className="mb-3 px-0.5">
+              <h1
+                className="operator-heading text-[1.28rem] font-semibold leading-tight tracking-tight sm:text-[1.42rem]"
+                style={{ color: TEXT_PRIMARY }}
+              >
+                {headerTitle}
+              </h1>
+            </div>
+
+            <section className={`mb-4 rounded-[22px] p-4 sm:p-5 ${glassCard}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <div
+                    className="scanner-neon-icon-ring flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-cyan-400/25 dark:ring-cyan-400/35"
+                    style={{
+                      backgroundColor: "rgba(56,189,248,0.12)",
+                      borderColor: "rgba(56,189,248,0.28)",
+                    }}
+                  >
+                    <Barcode className="h-6 w-6" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
                   </div>
+                  <p className="min-w-0 text-[10px] font-bold uppercase leading-snug tracking-[0.12em] text-zinc-700 dark:text-white/60 sm:text-xs sm:tracking-[0.14em]">
+                    Tracking Number or Slip Code
+                  </p>
+                </div>
+                <div ref={gateTrackingHelpRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    className="operator-info-icon-pulse flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 bg-black/[0.04] text-slate-500 outline-none transition hover:border-sky-500/35 hover:bg-sky-500/10 hover:text-sky-700 focus-visible:ring-2 focus-visible:ring-sky-400/40 dark:border-white/12 dark:bg-white/[0.06] dark:text-slate-400 dark:hover:border-sky-400/35 dark:hover:bg-white/10 dark:hover:text-sky-100"
+                    aria-label="How lookup works"
+                    aria-expanded={gateTrackingHelpOpen}
+                    title="Exact match on inventory status (tracking or slip) for this organization and store. No SKU or ASIN search."
+                    onClick={() => setGateTrackingHelpOpen((o) => !o)}
+                  >
+                    <Info className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  </button>
                   {gateTrackingHelpOpen ? (
                     <div
-                      className="absolute left-0 right-0 top-full z-30 mt-2 rounded-xl border px-3 py-2.5 text-left text-[12px] font-medium leading-snug shadow-lg sm:right-auto sm:min-w-[260px] sm:max-w-[min(20rem,calc(100vw-2rem))]"
+                      className="absolute right-0 top-full z-30 mt-2 w-[min(calc(100vw-2rem),260px)] max-w-[min(20rem,calc(100vw-2rem))] rounded-xl border px-3 py-2.5 text-left text-[12px] font-medium leading-snug shadow-lg"
                       style={{
                         borderColor: "rgba(148,163,184,0.28)",
                         backgroundColor: "rgba(15,23,42,0.98)",
@@ -3539,7 +3626,17 @@ function OperatorMobileScanPageContent() {
                   ) : null}
                 </div>
               </div>
-              <div className="mt-4">
+              <div
+                className={`relative mt-4 rounded-[20px] transition-[box-shadow] ${
+                  identifyGateOcrDropHighlight ? "ring-2 ring-sky-400/55" : ""
+                }`}
+                style={{
+                  boxShadow: identifyGateOcrDropHighlight ? "0 0 28px rgba(56,189,248,0.25)" : undefined,
+                }}
+                onDragOver={onIdentifyGateScanZoneDragOver}
+                onDragLeave={onIdentifyGateScanZoneDragLeave}
+                onDrop={onIdentifyGateScanZoneDrop}
+              >
                 <ScanFrameWithLaser
                   minHeight="120px"
                   laserColor={ACCENT_BLUE}
@@ -3558,23 +3655,36 @@ function OperatorMobileScanPageContent() {
                 >
                   <ScanLine className="h-10 w-10 opacity-40" strokeWidth={2} style={{ color: MUTED_LABEL }} />
                 </ScanFrameWithLaser>
+                {identifyGateOcrDropHighlight ? (
+                  <div
+                    className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-[20px] border-2 border-dashed border-sky-400/50 bg-sky-500/10 backdrop-blur-[1px]"
+                    aria-hidden
+                  >
+                    <span className="text-[13px] font-bold text-sky-100/95" style={{ textShadow: "0 0 12px rgba(56,189,248,0.5)" }}>
+                      Drop JPG or PNG to read code
+                    </span>
+                  </div>
+                ) : null}
               </div>
               <div className="mt-4">
-                <label
-                  htmlFor={`${formId}-gate-manual`}
-                  className="mb-1.5 block text-[11px] font-semibold leading-snug text-slate-500 sm:text-[12px]"
-                >
-                  Tracking or slip code (Scan, Type, or Photo)
-                </label>
                 <input
-                  ref={identifyGateCameraInputRef}
+                  ref={identifyGateCameraCaptureRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/jpg,image/png,.jpg,.jpeg,.png"
                   capture="environment"
                   className="sr-only"
                   tabIndex={-1}
                   aria-hidden
-                  onChange={onIdentifyGateCameraFileChange}
+                  onChange={onIdentifyGateOcrFileInputChange}
+                />
+                <input
+                  ref={identifyGateCameraUploadRef}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,image/jpeg,image/png,image/jpg"
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden
+                  onChange={onIdentifyGateOcrFileInputChange}
                 />
                 <div className="relative">
                   <input
@@ -3594,29 +3704,76 @@ function OperatorMobileScanPageContent() {
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    placeholder="Tracking or slip code (Scan, Type, or Photo)"
-                    className="scanner-input-glass min-h-[3.25rem] w-full rounded-xl border py-2.5 pl-3.5 pr-[4.75rem] font-mono text-[17px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] sm:pr-[5.25rem] sm:text-[18px]"
+                    disabled={identifyGateOcrReading}
+                    aria-busy={identifyGateOcrReading}
+                    aria-label={
+                      identifyGateOcrReading ? "Analyzing image" : "Scan, type or upload photo for tracking or slip code"
+                    }
+                    placeholder={
+                      identifyGateOcrReading ? "⏳ Analyzing image..." : "Scan, type or upload photo..."
+                    }
+                    className="scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[4.75rem] font-mono text-[14px] outline-none transition placeholder:opacity-50 placeholder:text-[13px] focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px] sm:placeholder:text-[14px]"
                     style={{ color: TEXT_PRIMARY }}
                   />
                   <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-0.5">
-                    <button
-                      type="button"
-                      disabled={busy || identifyGateOcrReading}
-                      onClick={openIdentifyGateCameraCapture}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-sky-500/15 focus-visible:ring-2 focus-visible:ring-sky-400/50 disabled:cursor-not-allowed disabled:opacity-35"
-                      style={{
-                        color: ACCENT_BLUE,
-                        filter: "drop-shadow(0 0 5px rgba(56,189,248,0.65)) drop-shadow(0 0 12px rgba(34,211,238,0.35))",
-                      }}
-                      aria-label="Read code from photo"
-                      title="Take or choose a photo of the label (on-device OCR)"
-                    >
-                      <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
-                    </button>
+                    <div className="relative" ref={identifyGateOcrMenuRef}>
+                      <button
+                        type="button"
+                        disabled={busy || identifyGateOcrReading}
+                        onClick={() => setIdentifyGateOcrMenuOpen((o) => !o)}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-sky-500/15 focus-visible:ring-2 focus-visible:ring-sky-400/50 disabled:cursor-not-allowed disabled:opacity-35"
+                        style={{
+                          color: ACCENT_BLUE,
+                          filter: "drop-shadow(0 0 5px rgba(56,189,248,0.65)) drop-shadow(0 0 12px rgba(34,211,238,0.35))",
+                        }}
+                        aria-label="Photo or upload for OCR"
+                        aria-expanded={identifyGateOcrMenuOpen}
+                        aria-haspopup="menu"
+                        title="Camera or file (JPG / PNG)"
+                      >
+                        <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
+                      </button>
+                      {identifyGateOcrMenuOpen ? (
+                        <div
+                          className="scanner-ocr-action-sheet absolute right-0 top-full z-[50] mt-2 w-[min(calc(100vw-2rem),19rem)] overflow-hidden rounded-2xl py-2"
+                          role="menu"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold text-zinc-900 transition hover:bg-cyan-500/10 active:bg-cyan-500/15 dark:text-sky-50 dark:hover:bg-sky-500/15 dark:active:bg-sky-500/25 sm:min-h-[3.5rem] sm:text-[16px]"
+                            onClick={() => {
+                              setIdentifyGateOcrMenuOpen(false);
+                              identifyGateCameraCaptureRef.current?.click();
+                            }}
+                          >
+                            <span className="text-xl leading-none" aria-hidden>
+                              📸
+                            </span>
+                            Take a Photo
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex min-h-[3.25rem] w-full items-center gap-3 border-t border-zinc-200 px-4 py-3.5 text-left text-[15px] font-bold text-zinc-900 transition hover:bg-cyan-500/10 active:bg-cyan-500/15 dark:border-white/10 dark:text-sky-50 dark:hover:bg-sky-500/15 dark:active:bg-sky-500/25 sm:min-h-[3.5rem] sm:text-[16px]"
+                            onClick={() => {
+                              setIdentifyGateOcrMenuOpen(false);
+                              identifyGateCameraUploadRef.current?.click();
+                            }}
+                          >
+                            <span className="text-xl leading-none" aria-hidden>
+                              📁
+                            </span>
+                            Upload from Gallery
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     <button
                       type="button"
                       disabled={busy || identifyGateOcrReading || !scanLine.trim()}
                       onClick={() => void onSubmitScan()}
+                      title={identifyGateOcrReading ? "Wait for image analysis" : undefined}
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
                       style={{ color: "#99f6e4" }}
                       aria-label={busy ? "Searching" : "Search"}
@@ -3626,12 +3783,7 @@ function OperatorMobileScanPageContent() {
                   </div>
                   {identifyGateOcrReading ? (
                     <div
-                      className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 rounded-xl border px-3 py-2 backdrop-blur-md"
-                      style={{
-                        borderColor: "rgba(56,189,248,0.45)",
-                        backgroundColor: "rgba(15,23,42,0.78)",
-                        boxShadow: "0 0 32px rgba(56,189,248,0.28), inset 0 0 24px rgba(45,212,191,0.08)",
-                      }}
+                      className="scanner-ocr-reading-overlay absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 rounded-xl px-3 py-2 backdrop-blur-md"
                       role="status"
                       aria-live="polite"
                     >
@@ -3640,7 +3792,9 @@ function OperatorMobileScanPageContent() {
                         strokeWidth={2}
                         style={{ color: ACCENT_BLUE, filter: "drop-shadow(0 0 10px rgba(56,189,248,0.7))" }}
                       />
-                      <span className="text-center text-[12px] font-bold tracking-wide text-sky-100/95">Reading code...</span>
+                      <span className="text-center text-[12px] font-bold tracking-wide text-zinc-900 dark:text-sky-100/95">
+                        Reading code... {identifyGateOcrProgressPct}%
+                      </span>
                     </div>
                   ) : null}
                 </div>
@@ -3678,7 +3832,6 @@ function OperatorMobileScanPageContent() {
                 key={`identify-gate-results-${identifyGatePhase}-${identifyGateInventoryVisual}`}
                 className={`animate-scanner-results-enter relative mb-4 w-full max-w-full overflow-hidden rounded-[22px] border-2 px-6 py-6 sm:px-8 sm:py-7 ${glassCard}`}
                 style={{
-                  backgroundColor: CARD,
                   borderColor: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border,
                   boxShadow: identifyGateGlowFlash
                     ? `${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].outerGlow}, 0 0 56px rgba(52,211,153,0.45)`
@@ -4024,7 +4177,7 @@ function OperatorMobileScanPageContent() {
             className="mb-3 rounded-xl border px-3 py-2 text-[11px] font-semibold"
             style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
           >
-            Pick a store in the header to continue.
+            Pick a store above to continue.
           </p>
         ) : null}
 
@@ -4040,10 +4193,7 @@ function OperatorMobileScanPageContent() {
         {flowPhase === "scan" && parentIdentified ? (
           <>
             {/* Parent information — reference layout */}
-            <section
-              className={`mb-5 rounded-[24px] p-4 ${glassCard}`}
-              style={{ backgroundColor: CARD, borderColor: BORDER }}
-            >
+            <section className={`mb-5 rounded-[24px] p-4 ${glassCard}`}>
               <div className="flex gap-4">
                 {trackingIdentified ? <TrackingParentIcon /> : <ParentType3DIcon />}
                 <dl className="min-w-0 flex-1 space-y-3.5">
@@ -4112,8 +4262,6 @@ function OperatorMobileScanPageContent() {
               <div
                 className={`overflow-hidden rounded-[22px] border ${glassCard}`}
                 style={{
-                  backgroundColor: CARD,
-                  borderColor: BORDER,
                   boxShadow: "0 16px 40px -16px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05)",
                 }}
               >
@@ -4220,7 +4368,6 @@ function OperatorMobileScanPageContent() {
             <section
               className={`mb-5 rounded-[24px] p-4 ${glassCard}`}
               style={{
-                backgroundColor: CARD,
                 borderColor: trackingIdentified ? PURPLE_RING : "rgba(45,212,191,0.35)",
                 boxShadow: trackingIdentified
                   ? `inset 0 0 0 1px rgba(167,139,250,0.12)`
@@ -4501,7 +4648,7 @@ function OperatorMobileScanPageContent() {
 
         {flowPhase === "scan" ? (
           <>
-            <section className={`mb-4 rounded-[22px] p-3 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
+            <section className={`mb-4 rounded-[22px] p-3 ${glassCard}`}>
               <div className="flex gap-2.5">
                 <div
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1"
@@ -4764,7 +4911,6 @@ function OperatorMobileScanPageContent() {
             <section
               className={`mb-4 rounded-[24px] p-4 ${glassCard}`}
               style={{
-                backgroundColor: CARD,
                 borderColor: parentIdentified ? (trackingIdentified ? PURPLE_RING : "rgba(45,212,191,0.35)") : BORDER,
                 boxShadow: parentIdentified
                   ? trackingIdentified
@@ -4863,7 +5009,7 @@ function OperatorMobileScanPageContent() {
                     className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                     style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
                   >
-                    Select an active store in the header — packages require a store scope.
+                    Select an active store above — packages require a store scope.
                   </p>
                 ) : null}
 
@@ -4880,7 +5026,6 @@ function OperatorMobileScanPageContent() {
                 <section
                   className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}
                   style={{
-                    backgroundColor: CARD,
                     borderColor: PURPLE_RING,
                     boxShadow: `0 12px 36px -14px ${PURPLE_GLOW}, inset 0 1px 0 rgba(255,255,255,0.05)`,
                   }}
@@ -4958,7 +5103,6 @@ function OperatorMobileScanPageContent() {
                 <section
                   className={`mb-4 rounded-[24px] p-4 ${glassCard}`}
                   style={{
-                    backgroundColor: CARD,
                     borderColor: PURPLE_RING,
                     boxShadow: `inset 0 0 0 1px rgba(167,139,250,0.12)`,
                   }}
@@ -5028,9 +5172,9 @@ function OperatorMobileScanPageContent() {
 
                 <section
                   className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}
-                  style={{ backgroundColor: CARD, borderColor: PURPLE_RING }}
+                  style={{ borderColor: PURPLE_RING }}
                 >
-                  <h2 className="mb-4 text-[15px] font-bold text-white">Required Box Photos</h2>
+                  <h2 className="mb-4 text-[15px] font-bold text-zinc-900 dark:text-white">Required Box Photos</h2>
                   <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
                     Slip photos <span className="font-normal normal-case">(up to 3 pages)</span>
                   </p>
@@ -5176,9 +5320,9 @@ function OperatorMobileScanPageContent() {
 
                 <section
                   className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}
-                  style={{ backgroundColor: CARD, borderColor: PURPLE_RING }}
+                  style={{ borderColor: PURPLE_RING }}
                 >
-                  <h3 className="text-[15px] font-bold text-white">AI Slip Reading</h3>
+                  <h3 className="text-[15px] font-bold text-zinc-900 dark:text-white">AI Slip Reading</h3>
                   <p className="mt-1 text-[12px] font-medium leading-relaxed" style={{ color: MUTED_LABEL }}>
                     GPT-4o Vision runs only when you tap the button below (not on scan or photo capture).
                   </p>
@@ -5291,10 +5435,10 @@ function OperatorMobileScanPageContent() {
                   <section
                     id="expected-intake-table"
                     className={`mb-4 scroll-mt-4 rounded-[24px] p-4 ${glassCard}`}
-                    style={{ backgroundColor: CARD, borderColor: PURPLE_RING }}
+                    style={{ borderColor: PURPLE_RING }}
                   >
                     <div className="mb-3 flex flex-col gap-1">
-                      <h3 className="text-[14px] font-bold text-white">Shipment lines (reference)</h3>
+                      <h3 className="text-[14px] font-bold text-zinc-900 dark:text-white">Shipment lines (reference)</h3>
                       <p className="text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
                         For slip alignment only. Scan each product inside the carton in Step 4 — Item Inspection.
                       </p>
@@ -5394,8 +5538,10 @@ function OperatorMobileScanPageContent() {
         {flowPhase === "items" ? (
           <div className="flex flex-col gap-5">
             {!hasItemReceivableBox ? (
-              <section className={`rounded-[24px] border p-5 ${glassCard}`} style={{ borderColor: BORDER, backgroundColor: CARD }}>
-                <p className="text-[15px] font-bold leading-snug text-white">Select or scan a box before inspecting items.</p>
+              <section className={`rounded-[24px] border p-5 ${glassCard}`} style={{ borderColor: BORDER }}>
+                <p className="text-[15px] font-bold leading-snug text-zinc-900 dark:text-white">
+                  Select or scan a box before inspecting items.
+                </p>
                 <button
                   type="button"
                   className="mt-4 flex h-[48px] w-full items-center justify-center gap-2 rounded-[18px] text-[14px] font-bold transition hover:brightness-110"
@@ -5425,7 +5571,7 @@ function OperatorMobileScanPageContent() {
                 className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
               >
-                Select an active store in the header to save returns and bump expected_packages.
+                Select an active store above to save returns and bump expected_packages.
               </p>
             ) : null}
 
@@ -5468,7 +5614,7 @@ function OperatorMobileScanPageContent() {
             {itemDraft ? (
               <section
                 className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}
-                style={{ backgroundColor: CARD, borderColor: "rgba(45,212,191,0.22)" }}
+                style={{ borderColor: "rgba(45,212,191,0.22)" }}
               >
                 <div className="flex gap-3">
                   <div
@@ -5634,12 +5780,11 @@ function OperatorMobileScanPageContent() {
             <section
               className={`mb-4 rounded-[24px] p-4 ${glassCard}`}
               style={{
-                backgroundColor: CARD,
                 borderColor: "rgba(45,212,191,0.35)",
                 boxShadow: `inset 0 0 0 1px rgba(45,212,191,0.08)`,
               }}
             >
-              <p className="text-center text-[16px] font-bold text-white">Scan product barcode</p>
+              <p className="text-center text-[16px] font-bold text-zinc-900 dark:text-white">Scan product barcode</p>
               <p className="mt-1 text-center text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
                 Units in the open carton — UPC, FNSKU, ASIN, or SKU on expected lines.
               </p>
@@ -5674,7 +5819,7 @@ function OperatorMobileScanPageContent() {
               </button>
             </section>
 
-            <section className={`mb-4 rounded-[24px] border p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
+            <section className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}>
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h3 className="text-[14px] font-bold text-white">Required photos</h3>
                 <span className="text-[11px] font-bold tabular-nums" style={{ color: TEAL_STEP }}>
@@ -5717,7 +5862,7 @@ function OperatorMobileScanPageContent() {
               </div>
             </section>
 
-            <section className={`mb-4 rounded-[24px] border p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
+            <section className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}>
               <h3 className="mb-3 text-[14px] font-bold text-white">Item condition</h3>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {(
@@ -5865,7 +6010,7 @@ function OperatorMobileScanPageContent() {
             </p>
 
             {!directBox && parentIdentified && expectedPkgLines.length > 0 ? (
-              <section className={`mb-6 rounded-[24px] p-4 ${glassCard}`} style={{ backgroundColor: CARD, borderColor: BORDER }}>
+              <section className={`mb-6 rounded-[24px] p-4 ${glassCard}`}>
                 <h3 className="mb-2 text-[14px] font-bold text-white">Shipment summary</h3>
                 <ul className="divide-y divide-[#243241]">
                   {expectedPkgLines.slice(0, 8).map((line) => (
@@ -6284,7 +6429,7 @@ function OperatorMobileScanPageContent() {
                   <p className="mt-2 text-[11px] font-semibold text-amber-200/75">
                     {operatorStores.length === 0 && !kioskStoreLocked
                       ? "Add an active store for this organization in Settings, or set NEXT_PUBLIC_STORE_ID for kiosk mode."
-                      : "Select an active store in the header (or configure NEXT_PUBLIC_STORE_ID) before creating a package."}
+                      : "Select an active store above (or configure NEXT_PUBLIC_STORE_ID) before creating a package."}
                   </p>
                 ) : (
                   <button

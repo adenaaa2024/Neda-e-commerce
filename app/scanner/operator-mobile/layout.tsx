@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Oswald } from "next/font/google";
 import { OperatorSessionStoreProvider } from "./_components/OperatorSessionStoreProvider";
+import { OperatorProductBrandingStrip } from "./_components/OperatorProductBrandingStrip";
+import { OperatorStoreBar } from "./_components/OperatorStoreBar";
 
 const operatorDisplay = Oswald({
   variable: "--font-operator-display",
@@ -33,6 +35,24 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         }}
       >
         <OperatorSessionStoreProvider>
+          <div
+            className="shrink-0 border-b px-3 sm:px-4 pb-1.5 pt-[max(0.35rem,env(safe-area-inset-top))]"
+            style={{
+              borderColor: "var(--scanner-border, #243241)",
+              background: "var(--scanner-header-gradient)",
+            }}
+          >
+            <OperatorProductBrandingStrip className="w-full" />
+          </div>
+          <div
+            className="shrink-0 border-b px-3 sm:px-4 py-1.5"
+            style={{
+              borderColor: "var(--scanner-border, #243241)",
+              background: "var(--scanner-header-gradient)",
+            }}
+          >
+            <OperatorStoreBar />
+          </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
         </OperatorSessionStoreProvider>
       </div>
