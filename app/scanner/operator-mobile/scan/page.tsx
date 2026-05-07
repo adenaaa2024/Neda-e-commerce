@@ -2,7 +2,6 @@
 
 import {
   Component,
-  Fragment,
   Suspense,
   useCallback,
   useEffect,
@@ -36,7 +35,6 @@ import {
   Pencil,
   Plus,
   Puzzle,
-  RotateCcw,
   Save,
   ScanLine,
   Search,
@@ -96,8 +94,11 @@ import { slipIdLookupCandidates, trackingKeysEqual } from "@/lib/scanner/trackin
 import type { SlipVisionExtract } from "@/lib/scanner/slip-extract-parse";
 import { attachMatchStatusToSlipItems, type SlipVisionItemRow } from "@/lib/scanner/slip-vision-match";
 import { getAIUnifiedKeyFromStorage, getOpenAIApiKeyFromStorage } from "@/lib/openai-settings";
+import { uploadToStorage } from "@/lib/supabase/storage";
+import { CARRIER_ENTRIES, normalizeCarrierLabel } from "@/lib/carriers";
+import { MasterUploader } from "@/components/MasterUploader";
 import { ScannerBottomNav } from "../_components/ScannerBottomNav";
-import { OperatorThemeToggle } from "../_components/OperatorThemeToggle";
+import { createOperatorPalletAction } from "../_components/operator-store-actions";
 import { useOperatorSessionStore } from "../_components/OperatorSessionStoreProvider";
 
 /** Theme tokens — defined on `.operator-mobile-app-shell` (see globals.css). */
@@ -111,7 +112,8 @@ const ACCENT_BLUE = "#38bdf8";
 const ACTION_BLUE = "#0ea5e9";
 const ACTION_BLUE_DEEP = "#0284c7";
 const TEAL_STEP = "#2dd4bf";
-const TEAL_STEP_MUTED = "rgba(45, 212, 191, 0.22)";
+// (TEAL_STEP_MUTED was used by the old step-progress dots row that was removed
+// during the scan-page cleanup; kept as a no-op reference for future styling.)
 const SUCCESS = "#34d399";
 const SUCCESS_BG = "rgba(52, 211, 153, 0.12)";
 /** Box intake lane (reference: purple carton theme) */
@@ -873,55 +875,209 @@ function ExpectedInventoryLineRow(props: {
 }
 
 function WarehouseBreadcrumb(props: {
-  storeLabel: string | null;
+  /** Kept in props for call-site compatibility, no longer rendered (per scan-page cleanup spec). */
+  storeLabel?: string | null;
   palletLabel: string | null;
   shipmentIdLabel: string | null;
   /** Shown only after a package/carton barcode is locked or an item-phase box is selected. */
   boxBarcode: string | null;
   className?: string;
 }) {
-  const { storeLabel, palletLabel, shipmentIdLabel, boxBarcode, className } = props;
+  const { palletLabel, shipmentIdLabel, boxBarcode, className } = props;
+
+  // Compact single-line "Pallet > Package > Item" hierarchy.
+  // Each segment is rendered only when its value is present so the row stays
+  // as short as possible (no Store, no platform name, no "—" placeholders).
+  const segments: Array<{ key: string; label: string; value: string; mono?: boolean; valueColor: string }> = [];
+  const palletValue = palletLabel?.trim() ?? "";
+  if (palletValue) {
+    segments.push({ key: "pallet", label: "Pallet", value: palletValue, mono: true, valueColor: TEAL_STEP });
+  }
+  const pkgValue = shipmentIdLabel?.trim() ?? "";
+  if (pkgValue) {
+    segments.push({ key: "pkg", label: "Pkg", value: pkgValue, mono: true, valueColor: TEXT_PRIMARY });
+  }
+  const itemValue = boxBarcode?.trim() ?? "";
+  if (itemValue) {
+    segments.push({ key: "item", label: "Item", value: itemValue, mono: true, valueColor: SUCCESS });
+  }
+  if (segments.length === 0) return null;
+
   const sep = (
-    <span className="mx-0.5 font-semibold tabular-nums text-slate-600" aria-hidden>
-      &gt;
+    <span className="mx-0.5 select-none font-semibold tabular-nums text-slate-600" aria-hidden>
+      ›
     </span>
   );
-  const boxId = boxBarcode?.trim() ?? "";
-  const boxHot = Boolean(boxId);
 
   return (
     <nav
-      className={`mt-1 flex max-w-full flex-wrap items-center justify-center gap-y-0.5 px-1 text-[10px] font-bold leading-tight tracking-tight ${className ?? ""}`}
+      className={`flex max-w-full flex-nowrap items-center gap-x-0.5 overflow-hidden text-[9px] font-bold leading-none tracking-tight ${className ?? ""}`}
       aria-label="Warehouse path"
     >
-      <span style={{ color: MUTED_LABEL }}>Store</span>
-      {sep}
-      <span className="max-w-[28vw] truncate sm:max-w-[140px]" style={{ color: storeLabel?.trim() ? TEAL_STEP : MUTED_LABEL }}>
-        {storeLabel?.trim() || "—"}
-      </span>
-      {sep}
-      <span style={{ color: MUTED_LABEL }}>Pallet</span>
-      {sep}
-      <span className="max-w-[22vw] truncate font-mono sm:max-w-[100px]" style={{ color: palletLabel?.trim() ? TEAL_STEP : MUTED_LABEL }}>
-        {palletLabel ?? "—"}
-      </span>
-      {sep}
-      <span style={{ color: MUTED_LABEL }}>Shipment</span>
-      {sep}
-      <span className="max-w-[28vw] truncate font-mono sm:max-w-[160px]" style={{ color: shipmentIdLabel?.trim() ? TEXT_PRIMARY : MUTED_LABEL }}>
-        {shipmentIdLabel ?? "—"}
-      </span>
-      {boxHot ? (
-        <>
-          {sep}
-          <span style={{ color: MUTED_LABEL }}>Box</span>
-          {sep}
-          <span className="max-w-[30vw] truncate font-mono sm:max-w-[160px]" style={{ color: SUCCESS }}>
-            {boxId}
+      {segments.map((s, i) => (
+        <span key={s.key} className="flex min-w-0 items-center gap-x-0.5">
+          {i > 0 ? sep : null}
+          <span style={{ color: MUTED_LABEL }}>{s.label}</span>
+          <span
+            className={`min-w-0 max-w-[28vw] truncate sm:max-w-[140px] ${s.mono ? "font-mono" : ""}`}
+            style={{ color: s.valueColor }}
+            title={s.value}
+          >
+            {s.value}
           </span>
-        </>
-      ) : null}
+        </span>
+      ))}
     </nav>
+  );
+}
+
+/**
+ * 3-cell sticky progress dashboard rendered above the page header.
+ *
+ * Each cell shows the Expected / Scanned / Remaining metric at both granularities
+ * (Pkg = pallet-level box count, Item = aggregated SKU units) when the corresponding
+ * dimension is tracked. Cells use mono tabular numerals for fast scanning and a
+ * subtle colour state on Remaining (green when complete, orange while in progress,
+ * red when more than half remain).
+ *
+ * Returns `null` when nothing is being tracked yet so it never adds dead space
+ * before a parent has been identified.
+ */
+function ScanProgressDashboard(props: {
+  active: boolean;
+  boxesExpected: number;
+  boxesScanned: number;
+  itemsExpected: number;
+  itemsScanned: number;
+}) {
+  const { active, boxesExpected, boxesScanned, itemsExpected, itemsScanned } = props;
+  if (!active) return null;
+  const hasBoxes = boxesExpected > 0;
+  const hasItems = itemsExpected > 0;
+  if (!hasBoxes && !hasItems && boxesScanned <= 0 && itemsScanned <= 0) return null;
+
+  const boxesRemaining = Math.max(0, boxesExpected - boxesScanned);
+  const itemsRemaining = Math.max(0, itemsExpected - itemsScanned);
+
+  const primaryRemaining = hasItems ? itemsRemaining : boxesRemaining;
+  const primaryExpected = hasItems ? itemsExpected : boxesExpected;
+  const remainingColor =
+    primaryRemaining <= 0 && primaryExpected > 0
+      ? SUCCESS
+      : primaryExpected > 0 && primaryRemaining > primaryExpected * 0.5
+      ? "#f87171"
+      : primaryRemaining > 0
+      ? "#fb923c"
+      : MUTED_LABEL;
+
+  const renderCell = (
+    label: string,
+    pkgValue: number,
+    itemValue: number,
+    accent: string,
+    border: string,
+    bg: string,
+  ) => (
+    <div
+      className="flex min-w-0 flex-col items-stretch justify-center rounded-lg border px-1.5 py-1"
+      style={{ borderColor: border, backgroundColor: bg }}
+    >
+      <p
+        className="text-center text-[8.5px] font-bold uppercase tracking-widest"
+        style={{ color: MUTED_LABEL }}
+      >
+        {label}
+      </p>
+      <div className="mt-0.5 flex items-baseline justify-center gap-1.5 leading-none">
+        {hasBoxes ? (
+          <span className="flex items-baseline gap-0.5">
+            <span
+              className="font-mono text-[15px] font-extrabold tabular-nums"
+              style={{ color: accent }}
+            >
+              {pkgValue}
+            </span>
+            <span
+              className="text-[8.5px] font-bold uppercase tracking-wider"
+              style={{ color: MUTED_LABEL }}
+            >
+              Pkg
+            </span>
+          </span>
+        ) : null}
+        {hasBoxes && hasItems ? (
+          <span className="text-[10px] font-bold opacity-50" aria-hidden style={{ color: MUTED_LABEL }}>
+            /
+          </span>
+        ) : null}
+        {hasItems ? (
+          <span className="flex items-baseline gap-0.5">
+            <span
+              className="font-mono text-[15px] font-extrabold tabular-nums"
+              style={{ color: accent }}
+            >
+              {itemValue}
+            </span>
+            <span
+              className="text-[8.5px] font-bold uppercase tracking-wider"
+              style={{ color: MUTED_LABEL }}
+            >
+              Item
+            </span>
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      className="relative z-[111] shrink-0 border-b px-2 py-1.5 backdrop-blur-md"
+      style={{
+        borderColor: BORDER,
+        backgroundColor: "rgba(11,18,24,0.92)",
+      }}
+      aria-label="Receiving progress"
+    >
+      <div className="grid grid-cols-3 gap-1.5">
+        {renderCell(
+          "Expected",
+          boxesExpected,
+          itemsExpected,
+          ACCENT_BLUE,
+          "rgba(56,189,248,0.25)",
+          "rgba(56,189,248,0.06)",
+        )}
+        {renderCell(
+          "Scanned",
+          boxesScanned,
+          itemsScanned,
+          SUCCESS,
+          "rgba(52,211,153,0.3)",
+          "rgba(52,211,153,0.07)",
+        )}
+        {renderCell(
+          "Remaining",
+          boxesRemaining,
+          itemsRemaining,
+          remainingColor,
+          primaryRemaining <= 0 && primaryExpected > 0
+            ? "rgba(52,211,153,0.3)"
+            : primaryExpected > 0 && primaryRemaining > primaryExpected * 0.5
+            ? "rgba(248,113,113,0.35)"
+            : primaryRemaining > 0
+            ? "rgba(251,146,60,0.35)"
+            : "rgba(148,163,184,0.18)",
+          primaryRemaining <= 0 && primaryExpected > 0
+            ? "rgba(52,211,153,0.06)"
+            : primaryExpected > 0 && primaryRemaining > primaryExpected * 0.5
+            ? "rgba(248,113,113,0.08)"
+            : primaryRemaining > 0
+            ? "rgba(251,146,60,0.08)"
+            : "rgba(148,163,184,0.04)",
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1061,6 +1217,34 @@ function OperatorMobileScanPageContent() {
   const [slipPhoto2Url, setSlipPhoto2Url] = useState<string | null>(null);
   const slipPhoto1UrlRef = useRef<string | null>(null);
   const slipPhoto2UrlRef = useRef<string | null>(null);
+
+  /** Pallet shipment-slip / pallet-photo / BOL extras (operator-mobile pallet step). */
+  const [palletCarrier, setPalletCarrier] = useState("");
+  const [palletAmazonOrderId, setPalletAmazonOrderId] = useState("");
+  const palletCarrierRef = useRef("");
+  const palletAmazonOrderIdRef = useRef("");
+  const [slipExtractMissing, setSlipExtractMissing] = useState<{ carrier: boolean; orderId: boolean } | null>(null);
+  const [manifestPhotoUploadedUrl, setManifestPhotoUploadedUrl] = useState<string | null>(null);
+  const [manifestPhotoUploading, setManifestPhotoUploading] = useState(false);
+  /** First URL persists to `pallets.photo_url`; extras stay client-side (matches CreatePalletModal note). */
+  const [palletPhotoUrls, setPalletPhotoUrls] = useState<string[]>([]);
+  /** First URL persists to `pallets.bol_photo_url`; extras stay client-side. */
+  const [bolPhotoUrls, setBolPhotoUrls] = useState<string[]>([]);
+  const palletPhotoUrlsRef = useRef<string[]>([]);
+  const bolPhotoUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    palletCarrierRef.current = palletCarrier;
+  }, [palletCarrier]);
+  useEffect(() => {
+    palletAmazonOrderIdRef.current = palletAmazonOrderId;
+  }, [palletAmazonOrderId]);
+  useEffect(() => {
+    palletPhotoUrlsRef.current = palletPhotoUrls;
+  }, [palletPhotoUrls]);
+  useEffect(() => {
+    bolPhotoUrlsRef.current = bolPhotoUrls;
+  }, [bolPhotoUrls]);
 
   const [cartonPhotoUrl, setCartonPhotoUrl] = useState<string | null>(null);
   const [trackerPhotoUrl, setTrackerPhotoUrl] = useState<string | null>(null);
@@ -1501,6 +1685,52 @@ function OperatorMobileScanPageContent() {
     }
   }, [activePallet?.id, loadPalletDetail]);
 
+  /** Hydrate carrier / amazon_order_id / shipment-slip / pallet / BOL photo URLs from the active pallet row. */
+  useEffect(() => {
+    const palletId = activePallet?.id;
+    if (!palletId || !isUuidString(palletId) || !isSupabaseConfigured()) {
+      setPalletCarrier("");
+      setPalletAmazonOrderId("");
+      setManifestPhotoUploadedUrl(null);
+      setPalletPhotoUrls([]);
+      setBolPhotoUrls([]);
+      setSlipExtractMissing(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("pallets")
+        .select("carrier_name, amazon_order_id, manifest_photo_url, photo_url, bol_photo_url")
+        .eq("id", palletId)
+        .eq("organization_id", orgId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        console.warn("[pallets] hydrate failed:", error.message);
+        return;
+      }
+      const row = (data ?? {}) as {
+        carrier_name?: string | null;
+        amazon_order_id?: string | null;
+        manifest_photo_url?: string | null;
+        photo_url?: string | null;
+        bol_photo_url?: string | null;
+      };
+      setPalletCarrier((prev) => {
+        if (prev.trim()) return prev;
+        return normalizeCarrierLabel(row.carrier_name) ?? "";
+      });
+      setPalletAmazonOrderId((prev) => (prev.trim() ? prev : (row.amazon_order_id ?? "").trim()));
+      setManifestPhotoUploadedUrl(row.manifest_photo_url ?? null);
+      setPalletPhotoUrls(row.photo_url ? [row.photo_url] : []);
+      setBolPhotoUrls(row.bol_photo_url ? [row.bol_photo_url] : []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activePallet?.id, orgId]);
+
   useEffect(() => {
     if (!activeTracking && !activePallet?.id) {
       setExpectedPkgLines([]);
@@ -1919,6 +2149,48 @@ function OperatorMobileScanPageContent() {
         const itemRows = attachMatchStatusToSlipItems(json.slip.items, rows);
         setSlipVisionModal({ extract: json.slip, suggestedTracking: tracking, itemRows });
         modalOpenRef.current = true;
+
+        const carrierFromSlip = json.slip.carrier?.trim() ?? "";
+        const normalizedCarrier = normalizeCarrierLabel(carrierFromSlip);
+        const orderIdFromSlip = json.slip.amazon_order_id?.trim() ?? "";
+        let appliedCarrier: string | null = null;
+        let appliedOrder: string | null = null;
+        if (normalizedCarrier && !palletCarrierRef.current.trim()) {
+          appliedCarrier = normalizedCarrier;
+          palletCarrierRef.current = normalizedCarrier;
+          setPalletCarrier(normalizedCarrier);
+        }
+        if (orderIdFromSlip && !palletAmazonOrderIdRef.current.trim()) {
+          appliedOrder = orderIdFromSlip;
+          palletAmazonOrderIdRef.current = orderIdFromSlip;
+          setPalletAmazonOrderId(orderIdFromSlip);
+        }
+        setSlipExtractMissing({
+          carrier: !carrierFromSlip,
+          orderId: !orderIdFromSlip,
+        });
+
+        const palletId = activePallet?.id;
+        if (palletId && isUuidString(palletId) && isSupabaseConfigured()) {
+          try {
+            setManifestPhotoUploading(true);
+            const manifestUrl = await uploadToStorage(file, "pallets/manifest", orgId);
+            setManifestPhotoUploadedUrl(manifestUrl);
+            const updatePayload: Record<string, unknown> = { manifest_photo_url: manifestUrl };
+            if (appliedCarrier) updatePayload.carrier_name = appliedCarrier;
+            if (appliedOrder) updatePayload.amazon_order_id = appliedOrder;
+            const { error: upErr } = await supabase
+              .from("pallets")
+              .update(updatePayload)
+              .eq("id", palletId)
+              .eq("organization_id", orgId);
+            if (upErr) console.warn("[pallets] manifest+slip update:", upErr.message);
+          } catch (uploadErr) {
+            console.warn("[pallets] manifest upload failed", uploadErr);
+          } finally {
+            setManifestPhotoUploading(false);
+          }
+        }
       } catch (e) {
         setSyncErrorToast(e instanceof Error ? e.message : "Slip OCR failed.");
       } finally {
@@ -1926,7 +2198,66 @@ function OperatorMobileScanPageContent() {
         scheduleFocusScanner();
       }
     },
-    [orgId, resolveSlipEpContext, scheduleFocusScanner],
+    [activePallet?.id, orgId, resolveSlipEpContext, scheduleFocusScanner],
+  );
+
+  /** Persist carrier_name / amazon_order_id manual edits on the active pallet (debounced via blur trigger). */
+  const persistPalletShipmentField = useCallback(
+    async (field: "carrier_name" | "amazon_order_id", value: string) => {
+      const palletId = activePallet?.id;
+      if (!palletId || !isUuidString(palletId) || !isSupabaseConfigured()) return;
+      const trimmed = value.trim();
+      const { error } = await supabase
+        .from("pallets")
+        .update({ [field]: trimmed.length > 0 ? trimmed : null })
+        .eq("id", palletId)
+        .eq("organization_id", orgId);
+      if (error) console.warn(`[pallets] ${field} update:`, error.message);
+    },
+    [activePallet?.id, orgId],
+  );
+
+  /**
+   * Persist the first URL of a `MasterUploader` collection to a pallet column.
+   * Extras stay in client state — matches the CreatePalletModal contract noted in the hint text.
+   */
+  const persistPalletPhotoColumn = useCallback(
+    async (column: "photo_url" | "bol_photo_url", urls: string[]) => {
+      const palletId = activePallet?.id;
+      if (!palletId || !isUuidString(palletId) || !isSupabaseConfigured()) return;
+      const next = urls[0]?.trim() || null;
+      const { error } = await supabase
+        .from("pallets")
+        .update({ [column]: next })
+        .eq("id", palletId)
+        .eq("organization_id", orgId);
+      if (error) {
+        setSyncErrorToast(error.message);
+      }
+    },
+    [activePallet?.id, orgId],
+  );
+
+  const handlePalletPhotoUrlsChange = useCallback(
+    (urls: string[]) => {
+      const prev = palletPhotoUrlsRef.current;
+      setPalletPhotoUrls(urls);
+      if ((prev[0] ?? null) !== (urls[0] ?? null)) {
+        void persistPalletPhotoColumn("photo_url", urls);
+      }
+    },
+    [persistPalletPhotoColumn],
+  );
+
+  const handleBolPhotoUrlsChange = useCallback(
+    (urls: string[]) => {
+      const prev = bolPhotoUrlsRef.current;
+      setBolPhotoUrls(urls);
+      if ((prev[0] ?? null) !== (urls[0] ?? null)) {
+        void persistPalletPhotoColumn("bol_photo_url", urls);
+      }
+    },
+    [persistPalletPhotoColumn],
   );
 
   const runManualSlipVisionFromCapture = useCallback(async () => {
@@ -2799,21 +3130,15 @@ function OperatorMobileScanPageContent() {
     setBusy(true);
     try {
       if (identifyGateEntity === "pallet") {
-        const { data, error } = await supabase
-          .from("pallets")
-          .insert({
-            organization_id: orgId,
-            store_id: sessionStoreId,
-            pallet_number: code,
-            status: "open",
-            tracking_number: code,
-            operator_package_count: boxN ?? null,
-          })
-          .select("id, pallet_number")
-          .maybeSingle();
-        if (error) throw new Error(error.message);
-        const row = data as { id: string; pallet_number: string } | null;
-        if (!row?.id) throw new Error("Pallet insert returned no row.");
+        const palletRes = await createOperatorPalletAction({
+          requestedOrganizationId: orgId,
+          storeId: sessionStoreId,
+          palletNumber: code,
+          trackingNumber: code,
+          operatorPackageCount: boxN ?? null,
+        });
+        if (!palletRes.ok) throw new Error(palletRes.error);
+        const row = { id: palletRes.id, pallet_number: palletRes.pallet_number };
         if (boxN != null) {
           setPhysicalBoxCount(boxN);
           setBoxScanTargetDenominator(boxN);
@@ -2894,7 +3219,11 @@ function OperatorMobileScanPageContent() {
 
   const scanStepMeta = SCANNER_STEPS[stepIndex] ?? SCANNER_STEPS[0];
   const headerTitle = "Shipment Entry";
-  const headerSubtitle = isIdentified ? `${scanStepMeta.title} · ${scanStepMeta.subtitle}` : null;
+  // Subtitle (e.g. "Step 1: Pallet · Slip, counts, then packages") was removed from the
+  // page header per the cleanup spec — only the title and the active tracking/pallet ID
+  // belong here. We still keep `scanStepMeta` available for inline use in package_scan
+  // and items phases below.
+  void scanStepMeta;
 
   /** Operator package count is collected only when entity type is Pallet (saved as pallets.operator_package_count). */
   const identifyGateNeedsValidBoxCount = identifyGateEntity === "pallet";
@@ -3009,6 +3338,12 @@ function OperatorMobileScanPageContent() {
       if (slipPhoto1UrlRef.current) URL.revokeObjectURL(slipPhoto1UrlRef.current);
       slipPhoto1UrlRef.current = url;
       setSlipPhoto1Url(url);
+      // Auto-trigger OCR so the operator doesn't need to press a separate button.
+      // Silent no-op if no API key is configured — manual fallback fields stay open.
+      const apiKey = getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage();
+      if (apiKey && !slipVisionProcessing) {
+        void runSlipVisionOcr(file);
+      }
     } else {
       if (slipPhoto2UrlRef.current) URL.revokeObjectURL(slipPhoto2UrlRef.current);
       slipPhoto2UrlRef.current = url;
@@ -3056,7 +3391,6 @@ function OperatorMobileScanPageContent() {
   };
 
   const isReadyForBoxScan =
-    Boolean(slipPhoto1Url) &&
     typeof physicalBoxCount === "number" &&
     physicalBoxCount > 0 &&
     parentIdentified &&
@@ -3260,6 +3594,18 @@ function OperatorMobileScanPageContent() {
         tabIndex={0}
       />
 
+      {/* Sticky 3-cell progress dashboard at the very top of the page (just below
+          the layout-level Company/Store header). Each cell shows dual Pkg / Item
+          counts when both dimensions are tracked. Renders only when at least one
+          dimension has actual data so it never adds dead space pre-receiving. */}
+      <ScanProgressDashboard
+        active={parentIdentified && flowPhase !== "items"}
+        boxesExpected={typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : 0}
+        boxesScanned={scannedBoxesSavedCount}
+        itemsExpected={expectedPkgTotals?.expectedUnits ?? 0}
+        itemsScanned={expectedPkgTotals?.scannedUnits ?? 0}
+      />
+
       <header
         ref={scanPageHeaderRef}
         className="relative z-[110] shrink-0 border-b pt-0"
@@ -3268,7 +3614,7 @@ function OperatorMobileScanPageContent() {
           background: "var(--scanner-header-gradient)",
         }}
       >
-        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-start gap-x-1 px-3 pb-0.5 pt-1 sm:px-4">
+        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-start gap-x-1 px-3 pb-0.5 pt-1 sm:px-4">
           <button
             type="button"
             onClick={() => {
@@ -3295,16 +3641,11 @@ function OperatorMobileScanPageContent() {
             {isIdentified ? (
               <>
                 <h1
-                  className="operator-heading text-[1.28rem] font-semibold leading-tight tracking-tight sm:text-[1.42rem]"
+                  className="operator-heading text-[1.05rem] font-semibold leading-tight tracking-tight sm:text-[1.15rem]"
                   style={{ color: TEXT_PRIMARY }}
                 >
                   {headerTitle}
                 </h1>
-                {headerSubtitle ? (
-                  <p className="mt-0.5 text-[11px] font-semibold sm:text-[12px]" style={{ color: MUTED_LABEL }}>
-                    {headerSubtitle}
-                  </p>
-                ) : null}
                 {showWarehouseTrail ? (
                   <WarehouseBreadcrumb
                     storeLabel={activeStoreLabel}
@@ -3330,96 +3671,18 @@ function OperatorMobileScanPageContent() {
               <div className="h-10 min-h-[2.5rem] sm:h-11" aria-hidden />
             )}
           </div>
-          <div className="flex shrink-0 items-start justify-end gap-0.5">
-            <OperatorThemeToggle />
-            <button
-              type="button"
-              className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-amber-600 transition hover:bg-amber-500/12 active:scale-95 dark:text-amber-200/90 dark:hover:bg-amber-500/15"
-              aria-label="Hard reset session"
-              title="Clear local storage and reload"
-              onClick={() => {
-                if (typeof window !== "undefined" && !window.confirm("Hard reset: clear all local data and reload this page?")) {
-                  return;
-                }
-                try {
-                  localStorage.clear();
-                } catch {
-                  /* ignore quota / private mode */
-                }
-                window.location.reload();
-              }}
-            >
-              <RotateCcw className="h-5 w-5" strokeWidth={2} />
-            </button>
-          </div>
+          {/* Right cell intentionally empty — refresh now lives only in the
+              layout-level utility row at the very top of the screen. The 2.5rem
+              column width keeps the centered title optically balanced opposite
+              the back arrow on the left. */}
+          <div aria-hidden className="h-10 w-10" />
         </div>
 
-        {isIdentified ? (
-          <div className="border-t px-2 pb-2.5 pt-2" style={{ borderColor: BORDER }}>
-          <div className="flex flex-row items-start justify-center gap-0">
-            {SCANNER_STEPS.map((step, index) => {
-              const active = index === stepIndex;
-              const done = index < stepIndex;
-              const boxesStepIndex = 1;
-              const isBoxesStep = index === boxesStepIndex;
-              /** Progress connectors: teal only (never purple). */
-              const segmentFilled = index <= stepIndex;
-              const segmentColor = index === 0 ? CARD_INNER : segmentFilled ? TEAL_STEP : CARD_INNER;
-
-              const doneNode: CSSProperties = {
-                backgroundColor: TEAL_STEP,
-                color: "#042f2e",
-                boxShadow: `0 0 0 3px ${TEAL_STEP_MUTED}`,
-              };
-              const inactiveNode: CSSProperties = {
-                backgroundColor: BG,
-                color: MUTED_LABEL,
-                border: `1px solid ${BORDER}`,
-              };
-              /** Completed steps = teal check never purple. Active Step 3 (boxes) = purple; other active = teal. */
-              let nodeFill: CSSProperties;
-              if (done) {
-                nodeFill = doneNode;
-              } else if (active) {
-                nodeFill = isBoxesStep
-                  ? {
-                      backgroundColor: ACTION_PURPLE,
-                      color: "#1e1b4b",
-                      boxShadow: `0 0 0 3px ${PURPLE_GLOW}`,
-                    }
-                  : doneNode;
-              } else {
-                nodeFill = inactiveNode;
-              }
-
-              return (
-                <Fragment key={step.key}>
-                  {index > 0 ? (
-                    <div
-                      className="mx-1 mt-[14px] h-[3px] min-w-[10px] flex-1 max-w-[52px] rounded-full sm:max-w-none"
-                      style={{
-                        backgroundColor: segmentColor,
-                      }}
-                      aria-hidden
-                    />
-                  ) : null}
-                  <div className="flex w-[4.5rem] shrink-0 flex-col items-center sm:w-[5rem]">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold" style={nodeFill}>
-                      {done ? "✓" : step.id}
-                    </div>
-                    <span
-                      className="mt-1.5 text-center text-[9px] font-bold leading-tight sm:text-[10px]"
-                      style={{ color: active ? TEXT_PRIMARY : MUTED_LABEL }}
-                    >
-                      {step.label}
-                    </span>
-                  </div>
-                </Fragment>
-              );
-            })}
-          </div>
-        </div>
-        ) : null}
+        {/* Step progress indicator (Pallet → Package → Item dots row) was removed
+            from the page header per the cleanup spec. The current phase is implicit
+            from the visible UI (active pallet card → package scan card → item form),
+            and the sticky progress dashboard at the top of the page surfaces
+            scanned/expected counts at all times. */}
 
         {showContextHeader ? (
           <div className="sticky top-0 z-20 border-t px-2 pb-1.5 pt-0.5" style={{ borderColor: BORDER, backgroundColor: BG }}>
@@ -3468,16 +3731,147 @@ function OperatorMobileScanPageContent() {
                   <p className="mt-0.5 truncate font-mono text-xs font-bold" style={{ color: ACCENT_BLUE }}>
                     {contextId}
                   </p>
-                  {activeStoreLabel ? (
-                    <p className="mt-0.5 truncate text-[10px] font-semibold" style={{ color: MUTED_LABEL }}>
-                      Store · <span style={{ color: TEXT_PRIMARY }}>{activeStoreLabel}</span>
-                    </p>
-                  ) : null}
                 </div>
               </div>
+              {/* Row 3: Box Count — editable number field with -/+ steppers, no scan
+                  icon and no inline Start button (the bottom-of-page "Confirm & Start
+                  Box Scan" CTA remains the single primary action). Lives inside the
+                  Active Pallet card so the two form one cohesive block. */}
+              {flowPhase === "scan" && parentIdentified ? (
+                <div className="mt-1.5 flex items-center gap-1.5 border-t pt-1.5" style={{ borderColor: BORDER }}>
+                  <label
+                    htmlFor={`${formId}-physical-boxes`}
+                    className="shrink-0 text-[9px] font-bold uppercase tracking-widest"
+                    style={{ color: MUTED_LABEL }}
+                  >
+                    Box count
+                  </label>
+                  <div
+                    key={`physical-shake-${physicalCountShakeSeq}`}
+                    className={`flex flex-1 items-stretch overflow-hidden rounded-md border-2 border-slate-600/70 bg-[#060a10] shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)] transition focus-within:border-teal-400/65 focus-within:shadow-[inset_0_1px_8px_rgba(0,0,0,0.55),0_0_0_3px_rgba(45,212,191,0.25)] ${
+                      physicalCountShakeSeq > 0 ? "operator-physical-count-shake" : ""
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      aria-label="Decrease box count"
+                      disabled={
+                        slipVisionProcessing ||
+                        !(typeof physicalBoxCount === "number" && physicalBoxCount > 0)
+                      }
+                      onClick={() => {
+                        setPhysicalBoxCount((prev) => {
+                          const cur = typeof prev === "number" ? prev : 0;
+                          const next = Math.max(0, cur - 1);
+                          return next === 0 ? null : next;
+                        });
+                      }}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      −
+                    </button>
+                    <input
+                      ref={physicalBoxCountInputRef}
+                      id={`${formId}-physical-boxes`}
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      enterKeyHint="done"
+                      className="block h-9 min-w-0 flex-1 bg-transparent px-2 text-center font-mono text-[16px] font-black tabular-nums text-white outline-none placeholder:text-slate-600"
+                      value={physicalBoxCount ?? ""}
+                      placeholder="0"
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\D/g, "");
+                        if (raw === "") setPhysicalBoxCount(null);
+                        else {
+                          const n = Number.parseInt(raw, 10);
+                          if (!Number.isNaN(n)) setPhysicalBoxCount(n);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Enter" &&
+                          typeof physicalBoxCount === "number" &&
+                          physicalBoxCount > 0 &&
+                          !slipVisionProcessing
+                        ) {
+                          e.preventDefault();
+                          (e.target as HTMLInputElement).blur();
+                          handleConfirmStartBoxScan();
+                        }
+                      }}
+                      aria-label="Total physical boxes found"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Increase box count"
+                      disabled={slipVisionProcessing}
+                      onClick={() => {
+                        setPhysicalBoxCount((prev) => {
+                          const cur = typeof prev === "number" ? prev : 0;
+                          return cur + 1;
+                        });
+                      }}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <p className="sr-only" aria-live="polite">
                 {scanLine ? `Buffer: ${scanLine}` : "Scanner ready"}
               </p>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Row 4: Carrier Selection — datalist-backed combobox in its own compact row
+            directly under the Active Pallet block. Operators pick from the canonical
+            list (UPS, FedEx, USPS, DHL, OnTrac, Amazon Logistics) or type the 4-letter
+            SCAC (EXLA, ODFL, SAIA, XPO, FXFE, THTE) — `normalizeCarrierLabel` maps
+            both to the canonical carrier name on blur and persists it. */}
+        {showContextHeader ? (
+          <div className="border-t px-2 pb-1.5 pt-1" style={{ borderColor: BORDER, backgroundColor: BG }}>
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor={`${formId}-pallet-carrier-top`}
+                className="shrink-0 text-[9px] font-bold uppercase tracking-widest"
+                style={{ color: MUTED_LABEL }}
+              >
+                Carrier
+              </label>
+              <input
+                id={`${formId}-pallet-carrier-top`}
+                list={`${formId}-pallet-carrier-options-top`}
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={palletCarrier}
+                placeholder="UPS, FedEx, EXLA, ODFL, FXFE…"
+                onChange={(e) => setPalletCarrier(e.target.value)}
+                onBlur={() => {
+                  const normalized = normalizeCarrierLabel(palletCarrier) ?? "";
+                  if (normalized !== palletCarrier) {
+                    setPalletCarrier(normalized);
+                    void persistPalletShipmentField("carrier_name", normalized);
+                  } else {
+                    void persistPalletShipmentField("carrier_name", palletCarrier);
+                  }
+                }}
+                className="h-9 min-w-0 flex-1 rounded-md border-2 border-slate-600/70 bg-[#060a10] px-2 text-[13px] font-semibold text-white shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)] outline-none transition placeholder:text-slate-600 focus:border-teal-400/65 focus:shadow-[inset_0_1px_8px_rgba(0,0,0,0.55),0_0_0_3px_rgba(45,212,191,0.25)]"
+                aria-label="Carrier (type name or SCAC)"
+              />
+              <datalist id={`${formId}-pallet-carrier-options-top`}>
+                {CARRIER_ENTRIES.map((entry) => (
+                  <option
+                    key={entry.name}
+                    value={entry.name}
+                    label={entry.scac ? `${entry.scac} — ${entry.name}` : entry.name}
+                  />
+                ))}
+              </datalist>
             </div>
           </div>
         ) : null}
@@ -3541,7 +3935,7 @@ function OperatorMobileScanPageContent() {
       ) : null}
 
       <main
-        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 ${flowPhase === "items" ? "" : "pt-4"} ${mainScrollClass}`}
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 ${flowPhase === "items" ? "" : "pt-2"} ${mainScrollClass}`}
         style={flowPhase === "items" ? { paddingTop: itemsPhaseMainPadPx } : undefined}
       >
         {!isIdentified ? (
@@ -3580,7 +3974,7 @@ function OperatorMobileScanPageContent() {
               </h1>
             </div>
 
-            <section className={`mb-4 rounded-[22px] p-4 sm:p-5 ${glassCard}`}>
+            <section className={`relative z-10 mb-4 rounded-[22px] p-4 sm:p-5 ${glassCard}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
                   <div
@@ -3830,7 +4224,7 @@ function OperatorMobileScanPageContent() {
             {(identifyGatePhase === "matched" || identifyGatePhase === "new") && identifyGateInventoryVisual ? (
               <section
                 key={`identify-gate-results-${identifyGatePhase}-${identifyGateInventoryVisual}`}
-                className={`animate-scanner-results-enter relative mb-4 w-full max-w-full overflow-hidden rounded-[22px] border-2 px-6 py-6 sm:px-8 sm:py-7 ${glassCard}`}
+                className={`animate-scanner-results-enter relative z-0 mb-4 w-full max-w-full overflow-hidden rounded-[22px] border-2 px-6 py-6 sm:px-8 sm:py-7 ${glassCard}`}
                 style={{
                   borderColor: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border,
                   boxShadow: identifyGateGlowFlash
@@ -4181,472 +4575,279 @@ function OperatorMobileScanPageContent() {
           </p>
         ) : null}
 
-        {parentIdentified && expectedPkgError && flowPhase !== "items" ? (
-          <p
-            className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
-            style={{ borderColor: "rgba(251,191,36,0.35)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
-          >
-            {expectedPkgError}
-          </p>
-        ) : null}
-
         {flowPhase === "scan" && parentIdentified ? (
           <>
-            {/* Parent information — reference layout */}
-            <section className={`mb-5 rounded-[24px] p-4 ${glassCard}`}>
-              <div className="flex gap-4">
-                {trackingIdentified ? <TrackingParentIcon /> : <ParentType3DIcon />}
-                <dl className="min-w-0 flex-1 space-y-3.5">
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                      Parent Type
-                    </dt>
-                    <dd className="mt-0.5 text-[15px] font-bold text-white">
-                      {trackingIdentified ? "Tracking shipment" : "Pallet"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                      {trackingIdentified ? "Tracking number" : "Pallet Code"}
-                    </dt>
-                    <dd className="mt-0.5 font-mono text-[17px] font-bold" style={{ color: ACCENT_BLUE }}>
-                      {trackingIdentified ? activeTracking : activePallet?.pallet_number}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                      Boxes {trackingIdentified ? "on shipment" : "on pallet"}
-                    </dt>
-                    <dd className="mt-0.5 text-[15px] font-bold text-white">
-                      {trackingIdentified ? "—" : stats?.totalBoxes ?? "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                      Expected units <span className="font-mono text-[9px] normal-case">(expected_packages)</span>
-                    </dt>
-                    <dd className="mt-0.5 text-[15px] font-bold text-white">
-                      {expectedPkgTotals?.expectedUnits ?? "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                      Line groups <span className="font-normal">(SKU·FNSKU·disposition)</span>
-                    </dt>
-                    <dd className="mt-0.5 text-[15px] font-bold text-white">{expectedPkgLines.length}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                      Status
-                    </dt>
-                    <dd className="mt-1.5">
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold"
-                        style={{
-                          backgroundColor: SUCCESS_BG,
-                          border: `1px solid rgba(52,211,153,0.35)`,
-                          color: SUCCESS,
-                        }}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.5} />
-                        Ready for slip capture.
-                      </span>
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            </section>
 
-            {/* Physical box count — industrial numeric field; drives Box N of M */}
-            <section className="mb-5">
-              <div
-                className={`overflow-hidden rounded-[22px] border ${glassCard}`}
-                style={{
-                  boxShadow: "0 16px 40px -16px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05)",
-                }}
-              >
-                <div className="px-4 pb-4 pt-3.5 sm:px-5 sm:pb-5 sm:pt-4">
-                  <h2 className="text-center text-base font-bold tracking-tight text-white sm:text-lg">
-                    Physical box intake
-                  </h2>
-                  <p className="mt-1.5 text-center text-[11px] font-medium leading-snug text-slate-400 sm:text-[12px]">
-                    Next step shows{" "}
-                    <span className="font-mono font-semibold text-slate-200">
-                      Box 1 of {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : "—"}
-                    </span>
-                    . {!trackingIdentified ? (
-                      <>
-                        {" "}
-                        System packages on pallet:{" "}
-                        <span className="font-mono font-semibold text-slate-300">{stats?.totalBoxes ?? "—"}</span>.
-                      </>
-                    ) : null}{" "}
-                    Expected units:{" "}
-                    <span className="font-semibold text-slate-300">{expectedPkgTotals?.expectedUnits ?? "—"}</span>.
-                    {expectedPackagesRawRowCount != null && expectedPackagesRawRowCount > 0 ? (
-                      <>
-                        {" "}
-                        <span className="text-slate-500">·</span> expected_packages rows:{" "}
-                        <span className="font-mono font-semibold text-slate-300">{expectedPackagesRawRowCount}</span>.
-                      </>
-                    ) : null}
-                  </p>
-                  {expectedPackagesRawRowCount != null &&
-                  expectedPackagesRawRowCount > 0 &&
-                  typeof physicalBoxCount === "number" &&
-                  physicalBoxCount > 0 &&
-                  physicalBoxCount !== expectedPackagesRawRowCount ? (
-                    <div
-                      className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-center text-[11px] font-medium leading-snug text-amber-200 backdrop-blur-sm sm:text-[12px]"
-                      role="status"
-                    >
-                      Note: You are receiving {physicalBoxCount} boxes, but the system expected {expectedPackagesRawRowCount}.
-                      Discrepancy will be logged.
-                    </div>
-                  ) : null}
-                  <label
-                    htmlFor={`${formId}-physical-boxes`}
-                    className="mt-4 block text-center text-[11px] font-semibold uppercase tracking-widest text-slate-400"
-                  >
-                    Total Physical Boxes Found
-                  </label>
-                  <div
-                    key={`physical-shake-${physicalCountShakeSeq}`}
-                    className={physicalCountShakeSeq > 0 ? "operator-physical-count-shake mt-2" : "mt-2"}
-                  >
-                    <input
-                      ref={physicalBoxCountInputRef}
-                      id={`${formId}-physical-boxes`}
-                      type="tel"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      autoComplete="off"
-                      enterKeyHint="done"
-                      className="mx-auto block min-h-[88px] w-full max-w-[280px] rounded-xl border-2 border-slate-600/80 bg-[#060a10] px-4 text-center font-mono text-[44px] font-black tabular-nums leading-none text-white shadow-[inset_0_4px_24px_rgba(0,0,0,0.65)] outline-none transition placeholder:text-slate-600 focus:border-teal-400/65 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(45,212,191,0.22)] sm:min-h-[96px] sm:max-w-[320px] sm:text-[52px]"
-                      value={physicalBoxCount ?? ""}
-                      placeholder="0"
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/\D/g, "");
-                        if (raw === "") setPhysicalBoxCount(null);
-                        else {
-                          const n = Number.parseInt(raw, 10);
-                          if (!Number.isNaN(n)) setPhysicalBoxCount(n);
-                        }
-                      }}
-                      aria-label="Total physical boxes found"
-                    />
-                  </div>
-                  <p
-                    className="mt-3 text-center text-[11px] font-semibold sm:text-[12px]"
-                    style={{
-                      color:
-                        typeof physicalBoxCount === "number" &&
-                        physicalBoxCount > 0 &&
-                        slipPhoto1Url
-                          ? SUCCESS
-                          : "rgba(251,191,113,0.95)",
-                    }}
-                  >
-                    {typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? (
-                      slipPhoto1Url ? (
-                        <>
-                          <CheckCircle2 className="-mt-0.5 mr-1 inline-block h-3.5 w-3.5 align-middle" strokeWidth={2} />
-                          Count set — tap Confirm & Start Box Scan when ready.
-                        </>
+            {/* Shipment slip — compact tap-to-capture row. AI OCR runs automatically on capture
+                and auto-fills Carrier + Order ID below. Manual fields below also work. */}
+            <section className={`mb-2 rounded-2xl p-2.5 ${glassCard}`}>
+              <div className="flex items-center gap-3">
+                <input
+                  ref={slip1Ref}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => onSlipFile(1, e.target.files?.[0])}
+                />
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (!slipVisionProcessing) slip1Ref.current?.click();
+                  }}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && !slipVisionProcessing) {
+                      e.preventDefault();
+                      slip1Ref.current?.click();
+                    }
+                  }}
+                  className={`relative flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border-2 border-dashed outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-sky-500/50 ${slipVisionProcessing ? "pointer-events-none" : ""}`}
+                  style={{
+                    borderColor: slipPhoto1Url ? "rgba(52,211,153,0.45)" : "rgba(56,189,248,0.45)",
+                    backgroundColor: slipPhoto1Url ? CARD : CARD_INNER,
+                  }}
+                  aria-label="Capture shipment slip"
+                >
+                  {slipPhoto1Url ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={slipPhoto1Url} alt="Shipment slip" className="h-full w-full object-cover" />
+                      {slipVisionProcessing ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/65 backdrop-blur-[2px]">
+                          <Loader2 className="h-5 w-5 animate-spin" style={{ color: TEAL_STEP }} strokeWidth={2.25} />
+                        </div>
                       ) : (
-                        <>Count set — capture slip photo 1 below, then confirm.</>
-                      )
-                    ) : (
-                      <>Physical box count is required (greater than zero) before you can start box scan.</>
-                    )}
+                        <div
+                          className="absolute bottom-0 right-0 rounded-tl-md p-0.5"
+                          style={{ backgroundColor: "rgba(6,78,59,0.92)", color: SUCCESS }}
+                        >
+                          <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} />
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <Camera className="h-6 w-6" style={{ color: ACTION_BLUE }} strokeWidth={1.75} />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-bold leading-tight text-white">
+                    {slipPhoto1Url
+                      ? slipVisionProcessing
+                        ? "Reading slip with AI…"
+                        : "Slip captured"
+                      : "Tap to capture shipment slip"}
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
+                    {slipPhoto1Url
+                      ? "AI fills Carrier & Order ID below — edit any field manually."
+                      : "Optional — AI auto-fills Carrier & Order ID. Or fill manually below."}
                   </p>
                 </div>
+                {slipPhoto1Url && !slipVisionProcessing ? (
+                  <div className="flex shrink-0 flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        revokeSlip(1);
+                      }}
+                      className="rounded-md border border-white/10 px-2 py-0.5 text-[9px] font-semibold text-slate-300 transition hover:bg-white/5"
+                    >
+                      Replace
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!(getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage())}
+                      onClick={() => void runManualSlipVisionFromCapture()}
+                      className="rounded-md border border-white/10 px-2 py-0.5 text-[9px] font-semibold text-slate-300 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Re-run AI
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </section>
 
-            {/* Expected inventory summary */}
-            <section
-              className={`mb-5 rounded-[24px] p-4 ${glassCard}`}
+            {activePallet?.id ? (
+              <>
+                <section className={`mb-2 rounded-2xl p-2.5 ${glassCard}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <ClipboardList className="h-4 w-4" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
+                    <h2 className="text-[14px] font-bold text-white">Shipment slip details</h2>
+                  </div>
+                  {manifestPhotoUploadedUrl ? (
+                    <p
+                      className="mb-3 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                      style={{
+                        borderColor: "rgba(52,211,153,0.4)",
+                        backgroundColor: "rgba(6,78,59,0.35)",
+                        color: SUCCESS,
+                      }}
+                    >
+                      <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} />
+                      Slip image saved
+                    </p>
+                  ) : manifestPhotoUploading ? (
+                    <p
+                      className="mb-3 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                      style={{
+                        borderColor: "rgba(56,189,248,0.45)",
+                        backgroundColor: "rgba(8,47,73,0.35)",
+                        color: ACCENT_BLUE,
+                      }}
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
+                      Uploading slip image…
+                    </p>
+                  ) : null}
+                  {/* Carrier was promoted to the top-level Active Pallet block so the
+                      operator can pick/SCAC-search it without scrolling. Only Amazon
+                      Order ID stays here as a slip-detail field. */}
+                  <div>
+                    <label
+                      htmlFor={`${formId}-pallet-order-id`}
+                      className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                      style={{ color: MUTED_LABEL }}
+                    >
+                      Amazon Order ID{" "}
+                      <span className="font-normal normal-case opacity-70">(optional)</span>
+                    </label>
+                    <input
+                      id={`${formId}-pallet-order-id`}
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={palletAmazonOrderId}
+                      onChange={(e) => setPalletAmazonOrderId(e.target.value)}
+                      onBlur={() => void persistPalletShipmentField("amazon_order_id", palletAmazonOrderId)}
+                      placeholder="114-XXXXXXX-XXXXXXX"
+                      className="scanner-input-glass h-10 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
+                      style={{ color: TEXT_PRIMARY }}
+                    />
+                    <p className="mt-1 text-[10px]" style={{ color: MUTED_LABEL }}>
+                      Inherits to packages &amp; items.
+                    </p>
+                  </div>
+                </section>
+
+                <section
+                  className={`mb-2 space-y-2 rounded-xl p-2.5 ${glassCard}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <ClipboardList className="h-4 w-4" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
+                    <p className="text-[13px] font-bold text-white">Pallet documentation</p>
+                  </div>
+                  <MasterUploader
+                    label="Pallet photo (optional)"
+                    hint="Up to 3 images — first is saved to photo_url (extras are not stored on the pallet row)."
+                    value={palletPhotoUrls}
+                    onChange={handlePalletPhotoUrlsChange}
+                    organizationId={orgId}
+                    maxFiles={3}
+                  />
+                  <MasterUploader
+                    label="Bill of Lading (optional)"
+                    hint="Up to 3 images — first is saved to bol_photo_url (extras are not stored on the pallet row)."
+                    value={bolPhotoUrls}
+                    onChange={handleBolPhotoUrlsChange}
+                    organizationId={orgId}
+                    maxFiles={3}
+                  />
+                </section>
+              </>
+            ) : null}
+
+            {/* Expected inventory — collapsed by default to keep this page calm.
+                Operators can expand to verify SKUs/units before starting box scan. */}
+            <details
+              className={`group mb-2 rounded-2xl p-2 ${glassCard}`}
               style={{
-                borderColor: trackingIdentified ? PURPLE_RING : "rgba(45,212,191,0.35)",
-                boxShadow: trackingIdentified
-                  ? `inset 0 0 0 1px rgba(167,139,250,0.12)`
-                  : `inset 0 0 0 1px rgba(45,212,191,0.1)`,
+                borderColor: trackingIdentified ? PURPLE_RING : "rgba(45,212,191,0.28)",
               }}
             >
-              <div className="mb-3 flex flex-col gap-1.5">
-                <div className="flex items-center gap-2">
+              <summary
+                className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-1 py-0.5 text-[12px] font-semibold text-slate-300 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-sky-500/40"
+              >
+                <span className="flex items-center gap-2">
                   <Package
-                    className="h-4 w-4"
+                    className="h-3.5 w-3.5"
                     strokeWidth={2}
                     style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}
                   />
-                  <h2 className="text-sm font-bold tracking-tight text-slate-400">Expected Inventory Summary</h2>
-                </div>
-                <p className="text-[12px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
-                  From <span className="font-mono text-[11px]">expected_packages</span>, aggregated by SKU · FNSKU · disposition.
-                  Parent:{" "}
-                  <span className="font-mono font-bold" style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}>
+                  Expected inventory
+                  <span
+                    className="ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold"
+                    style={{
+                      backgroundColor: "rgba(148,163,184,0.12)",
+                      color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP,
+                    }}
+                  >
+                    {expectedPkgLines.length} SKUs · {totalSkuUnits} units
+                  </span>
+                </span>
+                <span className="text-[10px] font-medium text-slate-500 group-open:hidden">Tap to view</span>
+                <span className="hidden text-[10px] font-medium text-slate-500 group-open:inline">Hide</span>
+              </summary>
+              <div className="mt-3 border-t pt-3" style={{ borderColor: BORDER }}>
+                <p className="mb-2 text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
+                  Aggregated by SKU · FNSKU · disposition for parent{" "}
+                  <span
+                    className="font-mono font-bold"
+                    style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}
+                  >
                     {trackingIdentified ? activeTracking : activePallet?.pallet_number}
                   </span>
-                  {trackingIdentified ? "" : " (all package trackings on pallet)"}.
+                  .
                 </p>
-              </div>
-              {expectedPkgLines.length === 0 ? (
-                <p className="text-[13px] font-medium" style={{ color: MUTED_LABEL }}>
-                  No expected_packages lines for this parent in the current store.
-                </p>
-              ) : (
-                <ul className="list-none divide-y divide-slate-700/50">
-                  {expectedPkgLines.map((line) => (
-                    <ExpectedInventoryLineRow
-                      key={line.groupKey}
-                      line={line}
-                      accent={trackingIdentified ? "purple" : "teal"}
-                    />
-                  ))}
-                </ul>
-              )}
-              <div
-                className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t pt-3 text-[11px] font-semibold sm:text-[12px]"
-                style={{
-                  borderColor: BORDER,
-                  color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP,
-                }}
-              >
-                <span className="text-center opacity-90">
-                  {expectedPkgLines.length} SKUs · {totalSkuUnits} units total
-                </span>
-                <Info className="h-3.5 w-3.5 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
-              </div>
-            </section>
-
-            {/* Capture slip photos */}
-            <section className="mb-5">
-              <div className="mb-3 flex items-center gap-2">
-                <Camera className="h-4 w-4" style={{ color: ACCENT_BLUE }} strokeWidth={2} />
-                <h2 className="text-[15px] font-bold text-white">Capture Slip Photos</h2>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <input
-                    ref={slip1Ref}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => onSlipFile(1, e.target.files?.[0])}
-                  />
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => slip1Ref.current?.click()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        slip1Ref.current?.click();
-                      }
-                    }}
-                    className={`relative flex aspect-[4/5] w-full cursor-pointer flex-col overflow-hidden rounded-[20px] border-2 border-dashed outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-sky-500/50 ${glassCard} ${slipVisionProcessing ? "pointer-events-none" : ""}`}
-                    style={{
-                      borderColor: slipPhoto1Url ? "rgba(52,211,153,0.4)" : "rgba(56,189,248,0.35)",
-                      backgroundColor: slipPhoto1Url ? CARD : CARD_INNER,
-                    }}
-                  >
-                    <span
-                      className="absolute right-2 top-2 z-[2] rounded-md px-2 py-0.5 text-[10px] font-bold"
-                      style={{
-                        backgroundColor: "rgba(52,211,153,0.2)",
-                        color: SUCCESS,
-                        border: "1px solid rgba(52,211,153,0.45)",
-                      }}
-                    >
-                      Required
-                    </span>
-                    {slipPhoto1Url ? (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={slipPhoto1Url} alt="Slip capture 1" className="h-full w-full object-cover" />
-                        {slipVisionProcessing ? (
-                          <div className="absolute inset-0 z-[4] flex flex-col items-center justify-center gap-3 bg-black/65 backdrop-blur-[2px]">
-                            <div className="relative h-16 w-[88%] overflow-hidden rounded-lg">
-                              <div
-                                className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
-                                aria-hidden
-                              >
-                                <div
-                                  className="operator-scan-laser-beam absolute left-1/2 top-1/2 h-[3px] w-[92%] -translate-x-1/2 rounded-full shadow-[0_0_18px_rgba(45,212,191,0.95)]"
-                                  style={{
-                                    background: `linear-gradient(90deg, transparent 0%, ${TEAL_STEP} 45%, transparent 100%)`,
-                                  }}
-                                />
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 px-3 text-center text-[13px] font-bold text-white">
-                              <Loader2 className="h-5 w-5 shrink-0 animate-spin" style={{ color: TEAL_STEP }} strokeWidth={2.25} />
-                              Processing Slip with AI…
-                            </div>
-                            <p className="max-w-[220px] text-center text-[10px] font-semibold leading-snug text-white/75">
-                              GPT-4o Vision · extracting VRET, shipment ID, and line items
-                            </p>
-                          </div>
-                        ) : null}
-                        <div
-                          className="absolute left-2 top-10 flex h-9 w-9 items-center justify-center rounded-full shadow-lg ring-2 ring-emerald-400/50"
-                          style={{ backgroundColor: "rgba(6,78,59,0.95)", color: SUCCESS }}
-                          aria-hidden
-                        >
-                          <CheckCircle2 className="h-5 w-5" strokeWidth={2.5} />
-                        </div>
-                        <div
-                          className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1 py-2 text-[11px] font-bold"
-                          style={{ backgroundColor: "rgba(6,78,59,0.92)", color: SUCCESS }}
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Photo captured
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-2 pb-4 pt-8">
-                        <Camera className="h-8 w-8" style={{ color: ACTION_BLUE }} strokeWidth={1.75} />
-                        <span className="text-center text-[12px] font-semibold" style={{ color: ACCENT_BLUE }}>
-                          Add Photo
-                        </span>
-                        <span className="text-center text-[11px] font-medium" style={{ color: ACTION_BLUE }}>
-                          Tap to capture
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <p className="mt-1.5 text-center text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
-                    Slip Photo 1
+                {expectedPkgLines.length === 0 ? (
+                  <p className="text-[12px] font-medium" style={{ color: MUTED_LABEL }}>
+                    No expected_packages lines for this parent in the current store.
                   </p>
-                </div>
-                <div>
-                  <input
-                    ref={slip2Ref}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => onSlipFile(2, e.target.files?.[0])}
-                  />
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => slip2Ref.current?.click()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        slip2Ref.current?.click();
-                      }
-                    }}
-                    className={`relative flex aspect-[4/5] w-full cursor-pointer flex-col overflow-hidden rounded-[20px] border-2 border-dashed outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-violet-500/45 ${glassCard}`}
-                    style={{
-                      borderColor: "rgba(139,92,246,0.35)",
-                      backgroundColor: slipPhoto2Url ? CARD : CARD_INNER,
-                    }}
-                  >
-                    <span
-                      className="absolute right-2 top-2 z-[1] rounded-md px-2 py-0.5 text-[10px] font-bold"
-                      style={{
-                        backgroundColor: "rgba(139,92,246,0.15)",
-                        color: "#c4b5fd",
-                        border: "1px solid rgba(167,139,250,0.35)",
-                      }}
-                    >
-                      Optional
-                    </span>
-                    {slipPhoto2Url ? (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={slipPhoto2Url} alt="Slip capture 2" className="h-full w-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            revokeSlip(2);
-                          }}
-                          className="absolute right-2 top-9 z-[2] rounded-full bg-black/55 p-1 text-white"
-                          aria-label="Remove photo"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </>
-                    ) : (
-                      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-2 pb-4 pt-8">
-                        <Camera className="h-8 w-8 text-violet-400/90" strokeWidth={1.75} />
-                        <span className="text-center text-[12px] font-semibold text-violet-300/90">Add Photo</span>
-                        <span className="text-center text-[11px] font-medium text-violet-400/90">Tap to capture</span>
-                      </div>
-                    )}
-                  </div>
-                  <p className="mt-1.5 text-center text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
-                    Slip Photo 2
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            <div className="mb-5">
-              <button
-                type="button"
-                disabled={
-                  !slipPhoto1Url ||
-                  slipVisionProcessing ||
-                  !(getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage())
-                }
-                onClick={() => void runManualSlipVisionFromCapture()}
-                className="flex h-[48px] w-full items-center justify-center gap-2 rounded-[16px] text-[14px] font-bold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
-                style={{
-                  background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
-                  boxShadow: "0 6px 18px rgba(14,165,233,0.35)",
-                  color: "#0f172a",
-                }}
-              >
-                {slipVisionProcessing ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" strokeWidth={2} />
-                    Running slip OCR…
-                  </>
                 ) : (
-                  <>
-                    <Camera className="h-5 w-5" strokeWidth={2} />
-                    Run slip OCR (manual)
-                  </>
+                  <ul className="list-none divide-y divide-slate-700/40">
+                    {expectedPkgLines.map((line) => (
+                      <ExpectedInventoryLineRow
+                        key={line.groupKey}
+                        line={line}
+                        accent={trackingIdentified ? "purple" : "teal"}
+                      />
+                    ))}
+                  </ul>
                 )}
-              </button>
-              <p className="mt-2 text-center text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
-                Requires Slip Photo 1 and an API key in Settings. Scans no longer trigger Vision automatically.
-              </p>
-            </div>
+              </div>
+            </details>
 
             <button
               type="button"
-              disabled={!parentIdentified || !slipPhoto1Url || slipVisionProcessing}
+              disabled={
+                !parentIdentified ||
+                slipVisionProcessing ||
+                !(typeof physicalBoxCount === "number" && physicalBoxCount > 0)
+              }
               onClick={handleConfirmStartBoxScan}
-              className="mb-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-[18px] text-[15px] font-bold text-white shadow-[0_8px_24px_rgba(14,165,233,0.35)] transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+              className="mb-2 flex h-[46px] w-full items-center justify-center gap-2 rounded-[14px] text-[14px] font-bold text-white shadow-[0_6px_18px_rgba(14,165,233,0.3)] transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
               style={{
                 background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
-                boxShadow: isReadyForBoxScan ? `0 10px 28px rgba(14,165,233,0.4)` : undefined,
+                boxShadow: isReadyForBoxScan ? `0 8px 22px rgba(14,165,233,0.38)` : undefined,
               }}
             >
-              <ScanLine className="h-5 w-5" strokeWidth={2.25} />
+              <ScanLine className="h-4 w-4" strokeWidth={2.25} />
               Confirm & Start Box Scan
             </button>
             <button
               type="button"
               onClick={editParent}
-              className="mb-6 flex h-[48px] w-full items-center justify-center gap-2 rounded-[18px] border-2 bg-transparent text-[14px] font-bold transition hover:bg-white/5"
+              className="mb-4 flex h-10 w-full items-center justify-center gap-2 rounded-[14px] border-2 bg-transparent text-[12px] font-bold transition hover:bg-white/5"
               style={{ borderColor: ACTION_BLUE, color: ACCENT_BLUE }}
             >
-              <Pencil className="h-4 w-4" strokeWidth={2} />
+              <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
               Edit Parent
             </button>
           </>
         ) : null}
 
-        {flowPhase === "scan" ? (
+        {flowPhase === "scan" && !parentIdentified ? (
           <>
             <section className={`mb-4 rounded-[22px] p-3 ${glassCard}`}>
               <div className="flex gap-2.5">

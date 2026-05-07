@@ -9,17 +9,23 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { isSupabaseConfigured, supabase } from "@/src/lib/supabase";
+import { isSupabaseConfigured } from "@/src/lib/supabase";
 import { useUserRole } from "@/components/UserRoleContext";
 import { resolveOrganizationId } from "@/lib/organization";
-import { readWorkspaceSelectedOrganizationIdFromStorage } from "@/lib/workspace-organization-scope";
+import {
+  WORKSPACE_ORGANIZATION_CHANGED_EVENT,
+  WORKSPACE_SELECTED_ORGANIZATION_ID_KEY,
+  readWorkspaceSelectedOrganizationIdFromStorage,
+  resolveActiveTenantOrganizationId,
+} from "@/lib/workspace-organization-scope";
 import { isUuidString } from "@/lib/uuid";
 import {
-  initializeOperatorSessionStores,
+  getOperatorSessionStoreIdForOrg,
   resolvePublicStoreId,
   setOperatorSessionStoreIdForOrg,
   type OperatorStoreOption,
 } from "@/lib/scanner/operator-session";
+import { getOperatorStoreScopeForOrganization } from "./operator-store-actions";
 
 export type OperatorSessionStoreContextValue = {
   organizationId: string;
@@ -35,26 +41,77 @@ export type OperatorSessionStoreContextValue = {
 const OperatorSessionStoreContext = createContext<OperatorSessionStoreContextValue | null>(null);
 
 export function OperatorSessionStoreProvider({ children }: { children: ReactNode }) {
-  const { organizationId: profileOrganizationId, sessionCanWorkspaceSwitch } = useUserRole();
+  const {
+    organizationId: contextOrganizationId,
+    homeOrganizationId: profileOrganizationId,
+    sessionCanWorkspaceSwitch,
+  } = useUserRole();
+  const [workspaceSwitcherOrganizationId, setWorkspaceSwitcherOrganizationId] = useState("");
   /**
    * Match workspace org picker (TopHeader / Settings): internal staff scope is persisted under
    * `workspace_selected_organization_id`. Prefer that when set so operator mobile stays aligned
    * with the company selected on the main shell.
    */
   const orgId = useMemo(() => {
-    if (typeof window !== "undefined" && sessionCanWorkspaceSwitch) {
-      const fromWorkspacePicker = readWorkspaceSelectedOrganizationIdFromStorage();
-      if (fromWorkspacePicker) return fromWorkspacePicker;
+    const ctx = contextOrganizationId?.trim();
+    if (ctx && isUuidString(ctx)) {
+      return ctx;
     }
-    const p = profileOrganizationId?.trim();
-    if (p && isUuidString(p)) return p;
+    const resolved = resolveActiveTenantOrganizationId({
+      workspaceSwitcherOrganizationId: sessionCanWorkspaceSwitch ? workspaceSwitcherOrganizationId : "",
+      contextOrganizationId,
+      profileOrganizationId,
+    });
+    if (resolved) return resolved;
     return resolveOrganizationId();
-  }, [profileOrganizationId, sessionCanWorkspaceSwitch]);
+  }, [
+    sessionCanWorkspaceSwitch,
+    workspaceSwitcherOrganizationId,
+    contextOrganizationId,
+    profileOrganizationId,
+  ]);
   const [sessionStoreId, setSessionStoreIdState] = useState<string | null>(null);
   const [operatorStores, setOperatorStores] = useState<OperatorStoreOption[]>([]);
   const [operatorStoresLoading, setOperatorStoresLoading] = useState(false);
 
   const kioskStoreLocked = useMemo(() => Boolean(resolvePublicStoreId()), []);
+
+  useEffect(() => {
+    if (!sessionCanWorkspaceSwitch) {
+      setWorkspaceSwitcherOrganizationId("");
+      return;
+    }
+    setWorkspaceSwitcherOrganizationId(readWorkspaceSelectedOrganizationIdFromStorage());
+
+    function syncWorkspaceOrgFromStorage() {
+      setWorkspaceSwitcherOrganizationId(readWorkspaceSelectedOrganizationIdFromStorage());
+    }
+
+    function onWorkspaceOrgChanged(event: Event) {
+      const detail =
+        event instanceof CustomEvent && event.detail && typeof event.detail === "object"
+          ? (event.detail as { id?: unknown })
+          : null;
+      const id = typeof detail?.id === "string" ? detail.id.trim() : "";
+      if (id && isUuidString(id)) {
+        setWorkspaceSwitcherOrganizationId(id);
+        return;
+      }
+      syncWorkspaceOrgFromStorage();
+    }
+
+    function onStorage(event: StorageEvent) {
+      if (event.key !== WORKSPACE_SELECTED_ORGANIZATION_ID_KEY) return;
+      syncWorkspaceOrgFromStorage();
+    }
+
+    window.addEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [sessionCanWorkspaceSwitch]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -64,13 +121,60 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
       return;
     }
     let cancelled = false;
+    setOperatorStores([]);
+    setSessionStoreIdState(null);
     setOperatorStoresLoading(true);
     void (async () => {
       try {
-        const res = await initializeOperatorSessionStores(supabase, orgId);
+        const scope = await getOperatorStoreScopeForOrganization(orgId);
+        if (!scope.ok) {
+          throw new Error(scope.error);
+        }
         if (cancelled) return;
-        setOperatorStores(res.stores);
-        setSessionStoreIdState(res.sessionStoreId);
+        const stores = scope.snapshot.stores;
+        const ids = new Set(stores.map((s) => s.id));
+        const envId = resolvePublicStoreId();
+
+        if (envId) {
+          const envStoreRow = stores.find((s) => s.id === envId);
+          setOperatorStores(envStoreRow ? [envStoreRow] : []);
+          setSessionStoreIdState(envId);
+          return;
+        }
+
+        setOperatorStores(stores);
+        if (!stores.length) {
+          setSessionStoreIdState(null);
+          return;
+        }
+
+        if (stores.length === 1) {
+          const id = stores[0].id;
+          setOperatorSessionStoreIdForOrg(orgId, id);
+          setSessionStoreIdState(id);
+          return;
+        }
+
+        const persistedRaw = getOperatorSessionStoreIdForOrg(orgId).trim();
+        if (persistedRaw && isUuidString(persistedRaw) && !ids.has(persistedRaw)) {
+          setOperatorSessionStoreIdForOrg(orgId, "");
+        }
+
+        let chosen: string | null = null;
+        const persisted = getOperatorSessionStoreIdForOrg(orgId).trim();
+        if (persisted && isUuidString(persisted) && ids.has(persisted)) {
+          chosen = persisted;
+        }
+
+        const orgDefault = scope.snapshot.defaultStoreId;
+        if (!chosen && orgDefault && ids.has(orgDefault)) {
+          chosen = orgDefault;
+        }
+
+        if (chosen) {
+          setOperatorSessionStoreIdForOrg(orgId, chosen);
+        }
+        setSessionStoreIdState(chosen);
       } catch (e) {
         console.error("[operator session store] init failed:", e);
         if (!cancelled) {

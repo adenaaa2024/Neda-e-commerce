@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Oswald } from "next/font/google";
 import { OperatorSessionStoreProvider } from "./_components/OperatorSessionStoreProvider";
 import { OperatorProductBrandingStrip } from "./_components/OperatorProductBrandingStrip";
-import { OperatorStoreBar } from "./_components/OperatorStoreBar";
+import { OperatorUtilityRow } from "./_components/OperatorUtilityRow";
 
 const operatorDisplay = Oswald({
   variable: "--font-operator-display",
@@ -14,6 +14,11 @@ const operatorDisplay = Oswald({
 /**
  * Centered 430px “native app” shell: LTR, full-height column, no horizontal padding on the shell itself
  * (pages use `px-4` on scrollable content). Bottom nav is anchored inside this column via page flex layout.
+ *
+ * Header stack (top → down):
+ *   1. Slim Utility Row (Refresh + Theme toggle, top-right) — 24px tall.
+ *   2. Brand Header Row (squircle logo + company name | store name) — 48px tall.
+ *   3. {children} — page content (scan page injects a sticky 3-box status dashboard at top).
  */
 export default function OperatorMobileLayout({ children }: { children: ReactNode }) {
   return (
@@ -35,15 +40,19 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         }}
       >
         <OperatorSessionStoreProvider>
+          {/* Utility row — slim, top-right; sits above the brand header.
+              The border-b draws a divider that visually separates the platform
+              (creator) brand row from the customer / store row below. */}
           <div
-            className="shrink-0 border-b px-3 sm:px-4 pb-1.5 pt-[max(0.35rem,env(safe-area-inset-top))]"
+            className="shrink-0 border-b px-3 sm:px-4 pb-1 pt-[max(0.15rem,env(safe-area-inset-top))]"
             style={{
               borderColor: "var(--scanner-border, #243241)",
               background: "var(--scanner-header-gradient)",
             }}
           >
-            <OperatorProductBrandingStrip className="w-full" />
+            <OperatorUtilityRow />
           </div>
+          {/* Brand header — company logo + name on left, store name/selector on right. */}
           <div
             className="shrink-0 border-b px-3 sm:px-4 py-1.5"
             style={{
@@ -51,7 +60,7 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
               background: "var(--scanner-header-gradient)",
             }}
           >
-            <OperatorStoreBar />
+            <OperatorProductBrandingStrip className="w-full" />
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
         </OperatorSessionStoreProvider>

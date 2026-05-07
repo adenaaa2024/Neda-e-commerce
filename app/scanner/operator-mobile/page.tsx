@@ -25,7 +25,6 @@ import {
   ScannerBottomNav,
   SCANNER_OPERATOR_SCAN_PATH,
 } from "./_components/ScannerBottomNav";
-import { OperatorThemeToggle } from "./_components/OperatorThemeToggle";
 import { operatorHapticTap, operatorUiAcknowledge } from "./_lib/operator-haptics";
 
 /** Industrial glass panels — blur + 0.5px edge (see `.operator-glass-card-home` in globals.css) */
@@ -265,30 +264,30 @@ export default function OperatorMobileHomePage() {
         onSubmitCode={goSearch}
       />
 
+      {/* Slim single-row header — Home title and "Warehouse receiving" subtitle merged
+          into one line to save vertical space (per mobile-operator UX request). */}
       <header
-        className="shrink-0 border-b px-4 pb-2.5 pt-2.5"
+        className="shrink-0 border-b px-4 pb-1.5 pt-1.5"
         style={{
           borderColor: "var(--scanner-border)",
           background: "var(--scanner-header-gradient)",
         }}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="operator-heading text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-2xl">
-                Home
-              </h1>
-              <span className="rounded-full border border-black/10 bg-black/[0.04] px-2 py-0.5 text-xs font-semibold text-zinc-900 backdrop-blur-md dark:border-white/10 dark:bg-white/5 dark:text-zinc-50">
-                Operator
-              </span>
-            </div>
-            <p className="mt-0.5 text-sm font-medium text-zinc-700 dark:text-zinc-400">Warehouse receiving</p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <h1 className="operator-heading text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-lg">
+              Home
+            </h1>
+            <span className="rounded-full border border-black/10 bg-black/[0.04] px-1.5 py-0.5 text-[10px] font-semibold text-zinc-900 backdrop-blur-md dark:border-white/10 dark:bg-white/5 dark:text-zinc-50">
+              Operator
+            </span>
+            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-500">·</span>
+            <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-400">
+              Warehouse receiving
+            </span>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1.5 pt-0.5">
-            <div className="flex items-center gap-0.5">
-              <OperatorThemeToggle />
-              <BellHeader count={2} />
-            </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <BellHeader count={2} />
           </div>
         </div>
       </header>
