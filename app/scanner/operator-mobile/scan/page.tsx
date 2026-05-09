@@ -23,13 +23,15 @@ import {
   Barcode,
   Calendar,
   Camera,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   Info,
   Loader2,
   Minus,
   Package,
-  ChevronRight,
   Package2,
   PackageOpen,
   Pencil,
@@ -78,6 +80,12 @@ import {
 } from "@/lib/scanner/v-inventory-status";
 import { resolveItemBarcodeAgainstExpectedRows, type ItemResolveTier } from "@/lib/scanner/operator-item-resolve";
 import { mergeReturnPhotoEvidence } from "@/lib/return-photo-evidence";
+import { extractEvidenceKeyUrls } from "@/lib/entity-photo-evidence";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  isAcceptableStoredMediaReference,
+  normalizePalletDocumentationImageUrls,
+} from "@/lib/media-reference";
 import { isUuidString } from "@/lib/uuid";
 import { operatorReceiveItem } from "@/app/scanner/operator-mobile/item-actions";
 import {
@@ -85,20 +93,30 @@ import {
   insertUnknownPackageForTrackingCode,
 } from "@/lib/scanner/operator-unknown-package";
 import { insertIntakeBoxPackage } from "@/lib/scanner/operator-box-intake";
+import { looksLikePackingSlipScan, type SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
+import { normalizeTrackingKey, slipIdLookupCandidates, trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 import {
-  extractSlipIdsFromScan,
-  looksLikePackingSlipScan,
-  type SlipExtractResult,
-} from "@/lib/scanner/operator-slip-scan";
-import { slipIdLookupCandidates, trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
+  findPalletByTrackingNormalized,
+  palletHasPersistedShipmentDetails,
+  type OperatorPalletTrackingRow,
+} from "@/lib/scanner/operator-pallet-tracking";
 import type { SlipVisionExtract } from "@/lib/scanner/slip-extract-parse";
 import { attachMatchStatusToSlipItems, type SlipVisionItemRow } from "@/lib/scanner/slip-vision-match";
 import { getAIUnifiedKeyFromStorage, getOpenAIApiKeyFromStorage } from "@/lib/openai-settings";
-import { uploadToStorage } from "@/lib/supabase/storage";
-import { CARRIER_ENTRIES, normalizeCarrierLabel } from "@/lib/carriers";
+import {
+  KNOWN_CARRIER_ENTRIES,
+  OTHER_CARRIER_NAME,
+  isKnownCarrierName,
+  normalizeCarrierLabel,
+} from "@/lib/carriers";
 import { MasterUploader } from "@/components/MasterUploader";
-import { ScannerBottomNav } from "../_components/ScannerBottomNav";
-import { createOperatorPalletAction } from "../_components/operator-store-actions";
+import { ScannerBottomNav, SCANNER_OPERATOR_HOME_PATH } from "../_components/ScannerBottomNav";
+import {
+  commitOperatorPalletShipmentStepAction,
+  createOperatorPalletAction,
+  findOperatorPalletByTrackingNumberAction,
+} from "../_components/operator-store-actions";
+import { resolveOperatorAuditFieldsClient } from "@/lib/scanner/operator-audit-fields";
 import { useOperatorSessionStore } from "../_components/OperatorSessionStoreProvider";
 
 /** Theme tokens — defined on `.operator-mobile-app-shell` (see globals.css). */
@@ -127,6 +145,75 @@ const BOX_PURPLE_SOFT_BG = "rgba(167, 139, 250, 0.18)";
 
 /** Theme-aware glass panels (see globals.css `.scanner-page-glass-card`) */
 const glassCard = "scanner-page-glass-card";
+
+/** `pallets.photo_evidence` gallery — `{ urls: string[] }` (see migration 20260331). */
+function parsePalletPhotoEvidenceUrls(raw: unknown): string[] {
+  if (raw == null) return [];
+  if (typeof raw === "string") {
+    try {
+      return parsePalletPhotoEvidenceUrls(JSON.parse(raw) as unknown);
+    } catch {
+      return [];
+    }
+  }
+  if (typeof raw !== "object") return [];
+  const urls = (raw as { urls?: unknown }).urls;
+  if (!Array.isArray(urls)) return [];
+  const out: string[] = [];
+  for (const u of urls) {
+    const s = typeof u === "string" ? u.trim() : "";
+    if (isAcceptableStoredMediaReference(s)) out.push(s);
+  }
+  return out;
+}
+
+/** Shipping label column + JSONB evidence (when manifest column empty — extras up to maxFiles). */
+function buildHydratedShippingLabelUrls(
+  manifest: string | null | undefined,
+  photoEvidence: unknown,
+  maxFiles: number,
+): string[] {
+  const m = (manifest ?? "").trim();
+  const ev = parsePalletPhotoEvidenceUrls(photoEvidence);
+  const urls: string[] = [];
+  if (m) urls.push(m);
+  for (const u of ev) {
+    if (urls.length >= maxFiles) break;
+    if (!urls.includes(u)) urls.push(u);
+  }
+  if (urls.length === 0 && ev.length > 0) return ev.slice(0, maxFiles);
+  return urls.slice(0, maxFiles);
+}
+
+/** Prefer structured `photo_evidence.*_urls`; fall back to legacy TEXT columns + flat `urls` tail for labels. */
+function hydrateOperatorPalletDocumentationPhotoUrls(
+  row: {
+    manifest_photo_url?: string | null;
+    photo_url?: string | null;
+    bol_photo_url?: string | null;
+    photo_evidence?: unknown;
+  },
+  sb: SupabaseClient,
+): { shippingLabel: string[]; pallet: string[]; bol: string[] } {
+  const pe = row.photo_evidence;
+  const labelStructured = extractEvidenceKeyUrls(pe, "label_urls", 3);
+  const shippingRaw =
+    labelStructured.length > 0 ? labelStructured : buildHydratedShippingLabelUrls(row.manifest_photo_url, pe, 3);
+
+  const palletStructured = extractEvidenceKeyUrls(pe, "pallet_urls", 3);
+  const pu = (row.photo_url ?? "").trim();
+  const palletRaw = palletStructured.length > 0 ? palletStructured : pu && isAcceptableStoredMediaReference(pu) ? [pu] : [];
+
+  const bolStructured = extractEvidenceKeyUrls(pe, "bol_urls", 3);
+  const bu = (row.bol_photo_url ?? "").trim();
+  const bolRaw = bolStructured.length > 0 ? bolStructured : bu && isAcceptableStoredMediaReference(bu) ? [bu] : [];
+
+  return {
+    shippingLabel: normalizePalletDocumentationImageUrls(shippingRaw, sb, 3),
+    pallet: normalizePalletDocumentationImageUrls(palletRaw, sb, 3),
+    bol: normalizePalletDocumentationImageUrls(bolRaw, sb, 3),
+  };
+}
 
 const IDENTIFICATION_GATE_THEME: Record<
   InventoryGateVisualStatus,
@@ -226,6 +313,235 @@ function shipmentLineStatusVisual(status: string | null): InventoryGateVisualSta
   return mapInventoryViewStatusToVisual(status) ?? "manual_new";
 }
 
+/**
+ * Searchable carrier picker for the operator slip-details card.
+ *
+ * Behavior:
+ *   • Trigger button shows the current carrier (a known canonical name, the "Other / Not Listed"
+ *     sentinel, or a placeholder when blank).
+ *   • Clicking the trigger opens a popover with a search input and a filtered list. The filter
+ *     matches against carrier name AND SCAC code, so typing "EX" finds "Estes (EXLA)".
+ *   • Picking a known carrier sets the value and closes the panel.
+ *   • Picking "Other / Not Listed" closes the panel, sets the explicit-other flag, and lets the
+ *     parent reveal a manual "Enter Carrier Name" input that writes back into the same value.
+ *
+ * Styling matches the slim, glass-card aesthetic of the Active Pallet section so the slip-details
+ * controls feel cohesive with the box-count stepper above them.
+ */
+function CarrierCombobox(props: {
+  triggerId: string;
+  /** Current persisted carrier name (canonical, custom, or empty). */
+  value: string;
+  /** Whether the operator explicitly chose the "Other / Not Listed" sentinel. */
+  otherSelected: boolean;
+  onPickKnown: (name: string) => void;
+  onPickOther: () => void;
+  invalid?: boolean;
+}) {
+  const { triggerId, value, otherSelected, onPickKnown, onPickOther, invalid = false } = props;
+
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Close on outside click / Escape key.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (triggerRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // Reset query and auto-focus search when the panel opens.
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      return;
+    }
+    const id = window.setTimeout(() => searchRef.current?.focus(), 60);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
+  const trimmedQuery = query.trim().toLowerCase();
+  const filteredKnown = useMemo(() => {
+    if (!trimmedQuery) return KNOWN_CARRIER_ENTRIES;
+    return KNOWN_CARRIER_ENTRIES.filter((e) => {
+      if (e.name.toLowerCase().includes(trimmedQuery)) return true;
+      if (e.scac && e.scac.toLowerCase().includes(trimmedQuery)) return true;
+      return false;
+    });
+  }, [trimmedQuery]);
+
+  const isKnown = isKnownCarrierName(value);
+  const triggerLabel = (() => {
+    if (isKnown) return value;
+    if (otherSelected || (value !== "" && !isKnown)) return OTHER_CARRIER_NAME;
+    return "Pick carrier…";
+  })();
+  const triggerIsPlaceholder = !isKnown && !otherSelected && value === "";
+
+  return (
+    <div className="relative">
+      <button
+        id={triggerId}
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-invalid={invalid}
+        title={triggerLabel}
+        className={`scanner-input-glass flex h-10 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-[13px] outline-none transition focus-visible:border-teal-400/45 focus-visible:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] ${
+          invalid ? "border-amber-500/55" : ""
+        }`}
+        style={{ color: triggerIsPlaceholder ? MUTED_LABEL : TEXT_PRIMARY }}
+      >
+        <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 opacity-70 transition ${open ? "rotate-180" : ""}`}
+          strokeWidth={2.25}
+        />
+      </button>
+
+      {open ? (
+        <>
+          {/* Backdrop swallows clicks outside the panel on touch devices where
+              the document-level listener can race the new render. */}
+          <div
+            className="fixed inset-0 z-[140] cursor-default"
+            aria-hidden
+            onClick={() => setOpen(false)}
+          />
+          <div
+            ref={panelRef}
+            role="listbox"
+            aria-label="Carrier"
+            className="absolute left-0 right-0 top-[calc(100%+6px)] z-[141] overflow-hidden rounded-xl border shadow-[0_16px_40px_rgba(0,0,0,0.45)]"
+            style={{
+              borderColor: "var(--scanner-border, #243241)",
+              backgroundColor: "var(--scanner-card, #0e1620)",
+              color: "var(--scanner-text, #f1f5f9)",
+            }}
+          >
+            <div
+              className="flex items-center gap-1.5 border-b px-2.5 py-2"
+              style={{ borderColor: "var(--scanner-border, #243241)" }}
+            >
+              <Search className="h-3.5 w-3.5 shrink-0 opacity-60" strokeWidth={2.25} />
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search carrier or SCAC (e.g. EXLA)"
+                className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-50"
+                spellCheck={false}
+                autoComplete="off"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    searchRef.current?.focus();
+                  }}
+                  aria-label="Clear search"
+                  className="rounded-md p-0.5 opacity-60 hover:opacity-100"
+                >
+                  <X className="h-3 w-3" strokeWidth={2.5} />
+                </button>
+              ) : null}
+            </div>
+            <ul className="max-h-[min(50vh,320px)] list-none overflow-y-auto overscroll-contain py-1">
+              {filteredKnown.length === 0 ? (
+                <li className="px-3 py-2 text-[12px] font-medium opacity-70" aria-live="polite">
+                  No matches
+                </li>
+              ) : (
+                filteredKnown.map((entry) => {
+                  const isSelected = entry.name === value;
+                  return (
+                    <li key={entry.name} role="option" aria-selected={isSelected}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onPickKnown(entry.name);
+                          setOpen(false);
+                          triggerRef.current?.focus();
+                        }}
+                        className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[12px] font-semibold transition hover:bg-white/5 ${
+                          isSelected ? "bg-teal-500/10 text-teal-200" : ""
+                        }`}
+                      >
+                        <span className="min-w-0 truncate">{entry.name}</span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          {entry.scac ? (
+                            <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider opacity-80">
+                              {entry.scac}
+                            </span>
+                          ) : null}
+                          {isSelected ? (
+                            <Check className="h-3.5 w-3.5 text-teal-300" strokeWidth={2.5} />
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })
+              )}
+              {/* "Other / Not Listed" pinned to the bottom of the list, separated visually. */}
+              <li
+                role="option"
+                aria-selected={otherSelected || (value !== "" && !isKnown)}
+                className="border-t"
+                style={{ borderColor: "var(--scanner-border, #243241)" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPickOther();
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[12px] font-semibold transition hover:bg-white/5 ${
+                    otherSelected || (value !== "" && !isKnown)
+                      ? "bg-amber-500/10 text-amber-200"
+                      : "opacity-90"
+                  }`}
+                >
+                  <span className="min-w-0 truncate">{OTHER_CARRIER_NAME}</span>
+                  {otherSelected || (value !== "" && !isKnown) ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-amber-200" strokeWidth={2.5} />
+                  ) : null}
+                </button>
+              </li>
+            </ul>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /** Compact label for the identify gate status pill (top-right). */
 function identifyGateStatusBadgeLabel(visual: InventoryGateVisualStatus): string {
   switch (visual) {
@@ -249,20 +565,20 @@ function identifyGateStatusBadgeLabel(visual: InventoryGateVisualStatus): string
 const mainScrollClass =
   "[scrollbar-width:thin] [scrollbar-color:var(--scanner-border)_var(--scanner-bg)] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--scanner-border)]/90 hover:[&::-webkit-scrollbar-thumb]:opacity-80";
 
-/** Single source of truth: Pallet → Package → Item (operational phases map to scan / package_scan / items) */
+/** Single source of truth: Pallet → Box intake → Item (operational phases map to scan / package_scan / items) */
 const SCANNER_STEPS = [
   {
     id: 1,
     key: "pallet",
     label: "Pallet",
     title: "Step 1: Pallet",
-    subtitle: "Slip, counts, then packages",
+    subtitle: "Slip, counts, then boxes",
   },
   {
     id: 2,
     key: "package",
-    label: "Package",
-    title: "Step 2: Package",
+    label: "Box",
+    title: "Step 2: Box",
     subtitle: "Box intake",
   },
   {
@@ -878,12 +1194,21 @@ function WarehouseBreadcrumb(props: {
   /** Kept in props for call-site compatibility, no longer rendered (per scan-page cleanup spec). */
   storeLabel?: string | null;
   palletLabel: string | null;
+  /**
+   * Carton / locked package barcode for the "Pkg" crumb (never parent shipment or `pallets.tracking_number`).
+   * Ignored when `middleOverride` is set.
+   */
   shipmentIdLabel: string | null;
+  /**
+   * Package / item phases: middle crumb (e.g. Box 1, Box 2) so pallet `tracking_number`
+   * never appears as a fake "package" id next to the pallet number.
+   */
+  middleOverride?: { label: string; value: string } | null;
   /** Shown only after a package/carton barcode is locked or an item-phase box is selected. */
   boxBarcode: string | null;
   className?: string;
 }) {
-  const { palletLabel, shipmentIdLabel, boxBarcode, className } = props;
+  const { palletLabel, shipmentIdLabel, middleOverride, boxBarcode, className } = props;
 
   // Compact single-line "Pallet > Package > Item" hierarchy.
   // Each segment is rendered only when its value is present so the row stays
@@ -893,9 +1218,22 @@ function WarehouseBreadcrumb(props: {
   if (palletValue) {
     segments.push({ key: "pallet", label: "Pallet", value: palletValue, mono: true, valueColor: TEAL_STEP });
   }
-  const pkgValue = shipmentIdLabel?.trim() ?? "";
-  if (pkgValue) {
-    segments.push({ key: "pkg", label: "Pkg", value: pkgValue, mono: true, valueColor: TEXT_PRIMARY });
+  const mid = middleOverride?.value?.trim()
+    ? { label: middleOverride.label.trim() || "Box", value: middleOverride.value.trim() }
+    : null;
+  if (mid) {
+    segments.push({
+      key: "mid",
+      label: mid.label,
+      value: mid.value,
+      mono: true,
+      valueColor: TEXT_PRIMARY,
+    });
+  } else {
+    const pkgValue = shipmentIdLabel?.trim() ?? "";
+    if (pkgValue) {
+      segments.push({ key: "pkg", label: "Box", value: pkgValue, mono: true, valueColor: TEXT_PRIMARY });
+    }
   }
   const itemValue = boxBarcode?.trim() ?? "";
   if (itemValue) {
@@ -932,35 +1270,17 @@ function WarehouseBreadcrumb(props: {
 }
 
 /**
- * 3-cell sticky progress dashboard rendered above the page header.
- *
- * Each cell shows the Expected / Scanned / Remaining metric at both granularities
- * (Pkg = pallet-level box count, Item = aggregated SKU units) when the corresponding
- * dimension is tracked. Cells use mono tabular numerals for fast scanning and a
- * subtle colour state on Remaining (green when complete, orange while in progress,
- * red when more than half remain).
- *
- * Returns `null` when nothing is being tracked yet so it never adds dead space
- * before a parent has been identified.
+ * 3-cell sticky progress dashboard above the page header — pallet-level box counts only
+ * (Expected / Scanned / Remaining). Compact "BOX" unit suffix for quick scanning.
  */
-function ScanProgressDashboard(props: {
-  active: boolean;
-  boxesExpected: number;
-  boxesScanned: number;
-  itemsExpected: number;
-  itemsScanned: number;
-}) {
-  const { active, boxesExpected, boxesScanned, itemsExpected, itemsScanned } = props;
+function ScanProgressDashboard(props: { active: boolean; boxesExpected: number; boxesScanned: number }) {
+  const { active, boxesExpected, boxesScanned } = props;
   if (!active) return null;
-  const hasBoxes = boxesExpected > 0;
-  const hasItems = itemsExpected > 0;
-  if (!hasBoxes && !hasItems && boxesScanned <= 0 && itemsScanned <= 0) return null;
+  if (boxesExpected <= 0 && boxesScanned <= 0) return null;
 
   const boxesRemaining = Math.max(0, boxesExpected - boxesScanned);
-  const itemsRemaining = Math.max(0, itemsExpected - itemsScanned);
-
-  const primaryRemaining = hasItems ? itemsRemaining : boxesRemaining;
-  const primaryExpected = hasItems ? itemsExpected : boxesExpected;
+  const primaryExpected = boxesExpected;
+  const primaryRemaining = boxesRemaining;
   const remainingColor =
     primaryRemaining <= 0 && primaryExpected > 0
       ? SUCCESS
@@ -970,96 +1290,61 @@ function ScanProgressDashboard(props: {
       ? "#fb923c"
       : MUTED_LABEL;
 
-  const renderCell = (
-    label: string,
-    pkgValue: number,
-    itemValue: number,
-    accent: string,
-    border: string,
-    bg: string,
-  ) => (
+  const renderCell = (label: string, value: number, accent: string, border: string, bg: string) => (
     <div
       className="flex min-w-0 flex-col items-stretch justify-center rounded-lg border px-1.5 py-1"
       style={{ borderColor: border, backgroundColor: bg }}
     >
       <p
-        className="text-center text-[8.5px] font-bold uppercase tracking-widest"
+        className="text-center text-[8.5px] font-bold uppercase tracking-widest leading-tight"
         style={{ color: MUTED_LABEL }}
       >
         {label}
       </p>
-      <div className="mt-0.5 flex items-baseline justify-center gap-1.5 leading-none">
-        {hasBoxes ? (
-          <span className="flex items-baseline gap-0.5">
-            <span
-              className="font-mono text-[15px] font-extrabold tabular-nums"
-              style={{ color: accent }}
-            >
-              {pkgValue}
-            </span>
-            <span
-              className="text-[8.5px] font-bold uppercase tracking-wider"
-              style={{ color: MUTED_LABEL }}
-            >
-              Pkg
-            </span>
-          </span>
-        ) : null}
-        {hasBoxes && hasItems ? (
-          <span className="text-[10px] font-bold opacity-50" aria-hidden style={{ color: MUTED_LABEL }}>
-            /
-          </span>
-        ) : null}
-        {hasItems ? (
-          <span className="flex items-baseline gap-0.5">
-            <span
-              className="font-mono text-[15px] font-extrabold tabular-nums"
-              style={{ color: accent }}
-            >
-              {itemValue}
-            </span>
-            <span
-              className="text-[8.5px] font-bold uppercase tracking-wider"
-              style={{ color: MUTED_LABEL }}
-            >
-              Item
-            </span>
-          </span>
-        ) : null}
+      <div className="mt-0.5 flex items-baseline justify-center gap-0.5 leading-none">
+        <span
+          className="font-mono text-[15px] font-extrabold tabular-nums"
+          style={{ color: accent }}
+        >
+          {value}
+        </span>
+        <span
+          className="text-[8.5px] font-bold uppercase tracking-wider"
+          style={{ color: MUTED_LABEL }}
+        >
+          BOX
+        </span>
       </div>
     </div>
   );
 
   return (
     <div
-      className="relative z-[111] shrink-0 border-b px-2 py-1.5 backdrop-blur-md"
+      className="relative z-[111] shrink-0 border-t px-2 py-1.5 backdrop-blur-md"
       style={{
         borderColor: BORDER,
         backgroundColor: "rgba(11,18,24,0.92)",
       }}
-      aria-label="Receiving progress"
+      aria-label="Box receiving progress"
     >
       <div className="grid grid-cols-3 gap-1.5">
         {renderCell(
-          "Expected",
+          "Expected Boxes",
           boxesExpected,
-          itemsExpected,
           ACCENT_BLUE,
           "rgba(56,189,248,0.25)",
           "rgba(56,189,248,0.06)",
         )}
         {renderCell(
-          "Scanned",
+          "Scanned Boxes",
           boxesScanned,
-          itemsScanned,
           SUCCESS,
           "rgba(52,211,153,0.3)",
           "rgba(52,211,153,0.07)",
         )}
         {renderCell(
-          "Remaining",
+          "Remaining Boxes",
           boxesRemaining,
-          itemsRemaining,
           remainingColor,
           primaryRemaining <= 0 && primaryExpected > 0
             ? "rgba(52,211,153,0.3)"
@@ -1157,7 +1442,6 @@ function OperatorMobileScanPageContent() {
   const postCompleteTrackingRef = useRef<string | null>(null);
   /** One Persian prompt per identification search cycle (reset when a new gate search starts). */
   const completedShipmentDialogShownForKeyRef = useRef<string | null>(null);
-  const slip1Ref = useRef<HTMLInputElement>(null);
   const slip2Ref = useRef<HTMLInputElement>(null);
   const cartonPhotoRef = useRef<HTMLInputElement>(null);
   const trackerPhotoRef = useRef<HTMLInputElement>(null);
@@ -1165,12 +1449,18 @@ function OperatorMobileScanPageContent() {
   const trackerPhotoUrlRef = useRef<string | null>(null);
 
   const [flowPhase, setFlowPhase] = useState<FlowPhase>("scan");
+  const flowPhasePrevRef = useRef<FlowPhase>("scan");
   const [scanLine, setScanLine] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [scanBarcodeHelpOpen, setScanBarcodeHelpOpen] = useState(false);
 
   const [activePallet, setActivePallet] = useState<{ id: string; pallet_number: string } | null>(null);
+  /** Parent shipment / carrier id when there is no pallet row yet (identify gate, direct tracking). */
   const [activeTracking, setActiveTracking] = useState<string | null>(null);
+  /** `pallets.tracking_number` — shipment/parent id; never the carton scan buffer. */
+  const [currentPalletTrackingId, setCurrentPalletTrackingId] = useState<string | null>(null);
+  /** Carton / box barcode buffer for Step 3 (package_scan) only — never the pallet shipment id. */
+  const [currentPackageTrackingId, setCurrentPackageTrackingId] = useState<string | null>(null);
   const [activeSlipOrPackage, setActiveSlipOrPackage] = useState<string | null>(null);
   const [directBox, setDirectBox] = useState(false);
 
@@ -1213,6 +1503,28 @@ function OperatorMobileScanPageContent() {
   } | null>(null);
 
   const [physicalBoxCount, setPhysicalBoxCount] = useState<number | null>(null);
+  /**
+   * **Edit All**: unlocks Tracking ID + box count + slip fields on pallets that default to read-only.
+   * Initial drafts already allow Carrier / Order ID; box + tracking stay read-only until this mode.
+   */
+  const [editAllMode, setEditAllMode] = useState(false);
+  /** Hydrated slip columns indicate pallet already had shipment data in DB. */
+  const [palletDbHasShipmentDetails, setPalletDbHasShipmentDetails] = useState(false);
+  /** Shown under Active Pallet — resolved from `pallets.created_by` → `profiles.full_name`. */
+  const [palletCreatedByLabel, setPalletCreatedByLabel] = useState<string | null>(null);
+  /** Bump to re-run pallet row fetch (e.g. same `activePallet.id` after re-search, or post-save). */
+  const [palletDocHydrationNonce, setPalletDocHydrationNonce] = useState(0);
+  /** Re-read sessionStorage after Save & Start marks shipment committed for this pallet. */
+  const [palletShipmentCommitVersion, setPalletShipmentCommitVersion] = useState(0);
+  /**
+   * True while `handleConfirmStartBoxScan` is awaiting the Supabase persist. Used by
+   * the bottom-of-page "Confirm & Start Box Scan" button to prevent double-taps and
+   * surface a "Saving…" indicator. Reset in a finally block so a network failure
+   * doesn't strand the operator with a permanently-disabled button.
+   */
+  const [confirmSaving, setConfirmSaving] = useState(false);
+  const [saveShipmentConfirmOpen, setSaveShipmentConfirmOpen] = useState(false);
+  const [cancelShipmentConfirmOpen, setCancelShipmentConfirmOpen] = useState(false);
   const [slipPhoto1Url, setSlipPhoto1Url] = useState<string | null>(null);
   const [slipPhoto2Url, setSlipPhoto2Url] = useState<string | null>(null);
   const slipPhoto1UrlRef = useRef<string | null>(null);
@@ -1220,15 +1532,25 @@ function OperatorMobileScanPageContent() {
 
   /** Pallet shipment-slip / pallet-photo / BOL extras (operator-mobile pallet step). */
   const [palletCarrier, setPalletCarrier] = useState("");
-  const [palletAmazonOrderId, setPalletAmazonOrderId] = useState("");
+  const [palletOrderId, setPalletOrderId] = useState("");
+  /**
+   * True when the operator explicitly picked the "Other / Not Listed" sentinel from the
+   * carrier dropdown (so we should render the conditional "Enter Carrier Name" input even
+   * when `palletCarrier` is still empty). The flag also flips on automatically when an
+   * external value (e.g. OCR result, hydration from DB) lands a custom carrier name into
+   * `palletCarrier` that doesn't match any known canonical carrier.
+   */
+  const [palletCarrierOtherSelected, setPalletCarrierOtherSelected] = useState(false);
   const palletCarrierRef = useRef("");
-  const palletAmazonOrderIdRef = useRef("");
+  const palletOrderIdRef = useRef("");
+  /** Latest pallet id targeted by async hydrate — ignore stale fetch results after switching pallets. */
+  const hydrateActivePalletIdRef = useRef<string | null>(null);
   const [slipExtractMissing, setSlipExtractMissing] = useState<{ carrier: boolean; orderId: boolean } | null>(null);
-  const [manifestPhotoUploadedUrl, setManifestPhotoUploadedUrl] = useState<string | null>(null);
-  const [manifestPhotoUploading, setManifestPhotoUploading] = useState(false);
-  /** First URL persists to `pallets.photo_url`; extras stay client-side (matches CreatePalletModal note). */
+  /** Up to three URLs — `[0]` → `manifest_photo_url`, full array → `photo_evidence.label_urls`. */
+  const [shippingLabelPhotoUrls, setShippingLabelPhotoUrls] = useState<string[]>([]);
+  /** Up to three URLs — `[0]` → `photo_url`, full array → `photo_evidence.pallet_urls`. */
   const [palletPhotoUrls, setPalletPhotoUrls] = useState<string[]>([]);
-  /** First URL persists to `pallets.bol_photo_url`; extras stay client-side. */
+  /** Up to three URLs — `[0]` → `bol_photo_url`, full array → `photo_evidence.bol_urls`. */
   const [bolPhotoUrls, setBolPhotoUrls] = useState<string[]>([]);
   const palletPhotoUrlsRef = useRef<string[]>([]);
   const bolPhotoUrlsRef = useRef<string[]>([]);
@@ -1237,8 +1559,8 @@ function OperatorMobileScanPageContent() {
     palletCarrierRef.current = palletCarrier;
   }, [palletCarrier]);
   useEffect(() => {
-    palletAmazonOrderIdRef.current = palletAmazonOrderId;
-  }, [palletAmazonOrderId]);
+    palletOrderIdRef.current = palletOrderId;
+  }, [palletOrderId]);
   useEffect(() => {
     palletPhotoUrlsRef.current = palletPhotoUrls;
   }, [palletPhotoUrls]);
@@ -1328,11 +1650,16 @@ function OperatorMobileScanPageContent() {
   const identifyGateCameraUploadRef = useRef<HTMLInputElement>(null);
   const identifyGateOcrMenuRef = useRef<HTMLDivElement | null>(null);
   const identifyGateOcrBusyRef = useRef(false);
+  /** Set after {@link resumeWorkflowFromExistingPalletRow} — used by gate search defined earlier in the file. */
+  const resumeFromPalletLookupRef = useRef<
+    (row: OperatorPalletTrackingRow, enteredCode: string) => void | Promise<void>
+  >(() => {});
 
   const laserEnabled =
     ((!isIdentified && flowPhase === "scan") ||
       (isIdentified && (flowPhase === "scan" || flowPhase === "package_scan" || flowPhase === "items"))) &&
     !manualOpen &&
+    !(flowPhase === "package_scan" && activeBoxSession) &&
     !(flowPhase === "items" && isIdentified && !hasReceivableBoxForItems(itemScanPackageId, activeBoxSession));
 
   /** Keeps laser wedge wedged: items phase stays focusable during save (busy does not disable input). */
@@ -1346,7 +1673,21 @@ function OperatorMobileScanPageContent() {
     if (busy && flowPhase !== "items") return;
     const el = scannerRef.current;
     if (!el) return;
+    /** Guard each focus attempt: if the operator is currently typing in another editable
+     *  element, abort. Without this, the staggered focus retries (rAF + microtask + 0/32/120ms
+     *  timeouts) will yank focus from inputs like the "Other / Not Listed" carrier field,
+     *  making them appear locked. */
+    const shouldRefocus = () => {
+      if (typeof document === "undefined") return true;
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || active === document.body || active === el) return true;
+      const tag = active.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (active.isContentEditable) return false;
+      return true;
+    };
     const run = () => {
+      if (!shouldRefocus()) return;
       try {
         el.focus({ preventScroll: true });
       } catch {
@@ -1529,6 +1870,21 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateViewHints(pickInventoryViewHints(invRows));
 
         if (vis === "manual_new") {
+          if (isSupabaseConfigured()) {
+            const dupRes = await findOperatorPalletByTrackingNumberAction(orgId, trimmed);
+            if (!dupRes.ok) {
+              setIdentifyGateError(dupRes.error);
+              setIdentifyGatePhase("idle");
+              return;
+            }
+            if (dupRes.pallet) {
+              setIntakeToast("This Tracking Number already exists. Loading details...");
+              resumeFromPalletLookupRef.current(dupRes.pallet, trimmed);
+              playOperatorSuccessBeep();
+              setIdentifyGateGlowFlash(true);
+              return;
+            }
+          }
           setIdentifyGateError(null);
           setIdentifyGatePhase("new");
           setIdentifyGateRows([]);
@@ -1685,54 +2041,111 @@ function OperatorMobileScanPageContent() {
     }
   }, [activePallet?.id, loadPalletDetail]);
 
-  /** Hydrate carrier / amazon_order_id / shipment-slip / pallet / BOL photo URLs from the active pallet row. */
+  useEffect(() => {
+    setEditAllMode(false);
+  }, [activePallet?.id]);
+
+  /** Hydrate carrier / order_id / shipment-slip / pallet / BOL photo URLs from the active pallet row. */
   useEffect(() => {
     const palletId = activePallet?.id;
     if (!palletId || !isUuidString(palletId) || !isSupabaseConfigured()) {
+      hydrateActivePalletIdRef.current = null;
+      setPalletDbHasShipmentDetails(false);
+      setPalletCreatedByLabel(null);
       setPalletCarrier("");
-      setPalletAmazonOrderId("");
-      setManifestPhotoUploadedUrl(null);
+      setPalletCarrierOtherSelected(false);
+      setPalletOrderId("");
+      setCurrentPalletTrackingId(null);
+      setShippingLabelPhotoUrls([]);
       setPalletPhotoUrls([]);
       setBolPhotoUrls([]);
       setSlipExtractMissing(null);
       return;
     }
+    hydrateActivePalletIdRef.current = palletId;
+    const fetchingFor = palletId;
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from("pallets")
-        .select("carrier_name, amazon_order_id, manifest_photo_url, photo_url, bol_photo_url")
-        .eq("id", palletId)
-        .eq("organization_id", orgId)
-        .maybeSingle();
+      const PALLET_DOC_SELECT =
+        "carrier_name, order_id, manifest_photo_url, photo_url, bol_photo_url, created_by, photo_evidence";
+      const { data, error } = await supabase.from("pallets").select(PALLET_DOC_SELECT).eq("id", palletId).maybeSingle();
       if (cancelled) return;
+      if (hydrateActivePalletIdRef.current !== fetchingFor) return;
       if (error) {
-        console.warn("[pallets] hydrate failed:", error.message);
+        console.warn("[pallets] hydrate failed:", error.code ?? "", error.message, { palletId });
+        setPalletDbHasShipmentDetails(false);
+        setPalletCreatedByLabel(null);
         return;
+      }
+      if (!data && process.env.NODE_ENV === "development") {
+        console.debug("[operator] pallet hydrate: no row returned (missing id or RLS?)", { palletId });
       }
       const row = (data ?? {}) as {
         carrier_name?: string | null;
-        amazon_order_id?: string | null;
+        order_id?: string | null;
         manifest_photo_url?: string | null;
         photo_url?: string | null;
         bol_photo_url?: string | null;
+        created_by?: string | null;
+        photo_evidence?: unknown;
       };
-      setPalletCarrier((prev) => {
-        if (prev.trim()) return prev;
-        return normalizeCarrierLabel(row.carrier_name) ?? "";
-      });
-      setPalletAmazonOrderId((prev) => (prev.trim() ? prev : (row.amazon_order_id ?? "").trim()));
-      setManifestPhotoUploadedUrl(row.manifest_photo_url ?? null);
-      setPalletPhotoUrls(row.photo_url ? [row.photo_url] : []);
-      setBolPhotoUrls(row.bol_photo_url ? [row.bol_photo_url] : []);
+      const cid = (row.created_by ?? "").trim();
+      if (cid && isUuidString(cid)) {
+        const { data: auth } = await supabase.auth.getUser();
+        const me = auth?.user?.id?.trim();
+        const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", cid).maybeSingle();
+        const fn = (prof as { full_name?: string | null } | null)?.full_name?.trim();
+        const emailFallback =
+          me === cid ? (typeof auth?.user?.email === "string" ? auth.user.email.trim() : "") : "";
+        setPalletCreatedByLabel(fn || emailFallback || "Unknown");
+      } else {
+        setPalletCreatedByLabel(null);
+      }
+      const raw = (row.carrier_name ?? "").trim();
+      if (!raw) {
+        setPalletCarrier("");
+        setPalletCarrierOtherSelected(false);
+      } else {
+        const normalized = normalizeCarrierLabel(raw);
+        if (normalized && normalized !== OTHER_CARRIER_NAME) {
+          setPalletCarrier(normalized);
+          setPalletCarrierOtherSelected(false);
+        } else {
+          setPalletCarrier(raw);
+          setPalletCarrierOtherSelected(true);
+        }
+      }
+      setPalletOrderId((prev) => (prev.trim() ? prev : (row.order_id ?? "").trim()));
+      // Do not hydrate `currentPalletTrackingId` from DB during the session — gate / operator edits own it.
+      const hydrated = hydrateOperatorPalletDocumentationPhotoUrls(row, supabase);
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[operator] pallet documentation hydrate", {
+          palletId: fetchingFor,
+          rawManifest: row.manifest_photo_url ?? null,
+          rawPhotoUrl: row.photo_url ?? null,
+          rawBol: row.bol_photo_url ?? null,
+          hydrated,
+        });
+      }
+      setShippingLabelPhotoUrls(hydrated.shippingLabel);
+      setPalletPhotoUrls(hydrated.pallet);
+      setBolPhotoUrls(hydrated.bol);
+      const persistedSlip =
+        Boolean((row.carrier_name ?? "").trim()) ||
+        Boolean((row.order_id ?? "").trim()) ||
+        Boolean((row.manifest_photo_url ?? "").trim());
+      setPalletDbHasShipmentDetails(persistedSlip);
     })();
     return () => {
       cancelled = true;
     };
-  }, [activePallet?.id, orgId]);
+  }, [activePallet?.id, orgId, palletDocHydrationNonce]);
 
   useEffect(() => {
-    if (!activeTracking && !activePallet?.id) {
+    const hasPallet = Boolean(activePallet?.id);
+    const palletTn = (currentPalletTrackingId ?? "").trim();
+    const looseTn = (activeTracking ?? "").trim();
+    if (!hasPallet && !looseTn) {
       setExpectedPkgLines([]);
       setExpectedPkgTotals(null);
       setExpectedPkgError(null);
@@ -1746,15 +2159,24 @@ function OperatorMobileScanPageContent() {
       try {
         if (!isSupabaseConfigured()) {
           if (!cancelled) {
-            if (activeTracking) {
-              const snap = mockTrackingExpectationSnapshot(activeTracking);
-              setExpectedPkgLines(snap.lines);
-              setExpectedPkgTotals(snap.totals);
-              setExpectedPackagesRawRowCount(snap.rawRowCount);
-              setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
-              setExpectedPkgError(null);
-            } else if (activePallet?.id) {
-              const snap = mockPalletExpectationSnapshot();
+            if (hasPallet) {
+              if (palletTn) {
+                const snap = mockTrackingExpectationSnapshot(palletTn);
+                setExpectedPkgLines(snap.lines);
+                setExpectedPkgTotals(snap.totals);
+                setExpectedPackagesRawRowCount(snap.rawRowCount);
+                setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+                setExpectedPkgError(null);
+              } else {
+                const snap = mockPalletExpectationSnapshot();
+                setExpectedPkgLines(snap.lines);
+                setExpectedPkgTotals(snap.totals);
+                setExpectedPackagesRawRowCount(snap.rawRowCount);
+                setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+                setExpectedPkgError(null);
+              }
+            } else if (looseTn) {
+              const snap = mockTrackingExpectationSnapshot(looseTn);
               setExpectedPkgLines(snap.lines);
               setExpectedPkgTotals(snap.totals);
               setExpectedPackagesRawRowCount(snap.rawRowCount);
@@ -1778,30 +2200,29 @@ function OperatorMobileScanPageContent() {
                 kioskStoreLocked
                   ? "Store context missing — check NEXT_PUBLIC_STORE_ID / kiosk configuration."
                   : operatorStores.length > 1
-                    ? "Select an active store above to load expected_packages for that location."
+                    ? "Select an active store above to load expected boxes for that location."
                     : operatorStores.length === 0
                       ? "No active stores for this organization — add a store in Settings."
-                      : "Select or configure a store to load expected_packages.",
+                      : "Select or configure a store to load expected boxes.",
               );
             }
           }
           return;
         }
 
-        if (activeTracking) {
-          const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, activeTracking);
-          if (cancelled) return;
-          setExpectedPkgLines(snap.lines);
-          setExpectedPkgTotals(snap.totals);
-          setExpectedPackagesRawRowCount(snap.rawRowCount);
-          setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
-          setExpectedPkgError(
-            snap.rawRowCount === 0 ? "No expected_packages rows for this tracking in the current store." : null,
-          );
-          return;
-        }
-
-        if (activePallet?.id) {
+        if (hasPallet && activePallet?.id) {
+          if (palletTn) {
+            const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, palletTn);
+            if (cancelled) return;
+            setExpectedPkgLines(snap.lines);
+            setExpectedPkgTotals(snap.totals);
+            setExpectedPackagesRawRowCount(snap.rawRowCount);
+            setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+            setExpectedPkgError(
+              snap.rawRowCount === 0 ? "No expected boxes for this tracking in the current store." : null,
+            );
+            return;
+          }
           const snap = await loadPalletExpectationSnapshot(supabase, orgId, sessionStoreId, activePallet.id);
           if (cancelled) return;
           setExpectedPkgLines(snap.lines);
@@ -1810,14 +2231,46 @@ function OperatorMobileScanPageContent() {
           setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
           setExpectedPkgError(
             snap.rawRowCount === 0
-              ? "No expected_packages rows for package trackings on this pallet (link trackings on packages or worklist)."
+              ? "No expected boxes for box trackings on this pallet (link trackings on boxes or worklist)."
               : null,
           );
+          return;
         }
-      } catch (e) {
-        console.error(e);
+
+        if (looseTn) {
+          const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, looseTn);
+          if (cancelled) return;
+          setExpectedPkgLines(snap.lines);
+          setExpectedPkgTotals(snap.totals);
+          setExpectedPackagesRawRowCount(snap.rawRowCount);
+          setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+          setExpectedPkgError(
+            snap.rawRowCount === 0 ? "No expected boxes for this tracking in the current store." : null,
+          );
+        }
+      } catch (e: unknown) {
+        const detail =
+          e instanceof Error
+            ? e.message
+            : typeof e === "object" &&
+                e !== null &&
+                "message" in e &&
+                typeof (e as { message?: unknown }).message === "string"
+              ? (e as { message: string }).message
+              : (() => {
+                  try {
+                    return JSON.stringify(e);
+                  } catch {
+                    return String(e);
+                  }
+                })();
+        console.warn("[operator-mobile] expected_packages load failed:", detail, e);
         if (!cancelled) {
-          setExpectedPkgError("Could not load expected_packages.");
+          setExpectedPkgError(
+            detail && detail !== "{}"
+              ? `Could not load expected boxes: ${detail}`
+              : "Could not load expected boxes.",
+          );
           setExpectedPkgLines([]);
           setExpectedPkgTotals(null);
           setExpectedPackagesRawRowCount(null);
@@ -1831,6 +2284,7 @@ function OperatorMobileScanPageContent() {
     };
   }, [
     activeTracking,
+    currentPalletTrackingId,
     activePallet?.id,
     sessionStoreId,
     orgId,
@@ -1844,6 +2298,14 @@ function OperatorMobileScanPageContent() {
       setBoxScanTargetDenominator(null);
     }
   }, [flowPhase, isIdentified]);
+
+  useEffect(() => {
+    if (flowPhase === "package_scan" && flowPhasePrevRef.current !== "package_scan") {
+      setScanLine("");
+      setCurrentPackageTrackingId(null);
+    }
+    flowPhasePrevRef.current = flowPhase;
+  }, [flowPhase]);
 
   useEffect(() => {
     if (flowPhase !== "package_scan") {
@@ -1957,15 +2419,16 @@ function OperatorMobileScanPageContent() {
           }
           return;
         }
+        const parentTn = activePallet?.id ? (currentPalletTrackingId?.trim() || null) : activeTracking?.trim() || null;
         const rows = await fetchExpectedPackageDetailRowsForParent(supabase, orgId, sessionStoreId, {
-          trackingNumber: activeTracking,
+          trackingNumber: parentTn,
           palletId: activePallet?.id ?? null,
         });
         if (cancelled) return;
         const data = rows ?? [];
         const safe = Array.isArray(data) ? data : [];
         setExpectedPkgDetailRows(safe);
-        if (activeTracking?.trim() && safe.length === 0) {
+        if (parentTn && safe.length === 0) {
           setItemTrackingExpectationsHint(
             "No items found for this Tracking. Please check Store ID and Org ID.",
           );
@@ -1983,7 +2446,7 @@ function OperatorMobileScanPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [flowPhase, sessionStoreId, orgId, activeTracking, activePallet?.id]);
+  }, [flowPhase, sessionStoreId, orgId, activeTracking, currentPalletTrackingId, activePallet?.id]);
 
   useEffect(() => {
     if (flowPhase !== "items" || !itemScanPackageId || !isUuidString(itemScanPackageId) || !isSupabaseConfigured()) {
@@ -2009,11 +2472,14 @@ function OperatorMobileScanPageContent() {
   const applyResult = useCallback((r: OperatorResolveResult) => {
     setActiveSlipOrPackage(null);
     setActiveTracking(null);
+    setCurrentPalletTrackingId(null);
     if (r.kind === "pallet") {
       const id = String(r.row.id ?? "");
       const num = String(r.row.pallet_number ?? "");
       if (id && num) {
         setActivePallet({ id, pallet_number: num });
+        // `currentPalletTrackingId` is set by the caller with the operator's scanned/typed code
+        // (identify gate or runResolve) so Active Pallet edit shows that value, not only DB row.
         setDirectBox(false);
         setFlowPhase("scan");
       }
@@ -2056,6 +2522,12 @@ function OperatorMobileScanPageContent() {
           modalOpenRef.current = true;
         } else {
           applyResult(r);
+          if (r.kind === "pallet") {
+            const scanned = code.trim();
+            const rowTn = String(r.row.tracking_number ?? "").trim();
+            setCurrentPalletTrackingId(scanned || rowTn || null);
+            setPalletDocHydrationNonce((n) => n + 1);
+          }
         }
       } catch (e) {
         setSyncErrorToast(e instanceof Error ? e.message : "Tracking search failed — check network and column access.");
@@ -2067,6 +2539,9 @@ function OperatorMobileScanPageContent() {
     [orgId, sessionStoreId, applyResult, scheduleFocusScanner],
   );
 
+  const runIdentificationGateSearchRef = useRef(runIdentificationGateSearch);
+  runIdentificationGateSearchRef.current = runIdentificationGateSearch;
+
   useEffect(() => {
     const raw = searchParams.get("code") ?? searchParams.get("q");
     if (!raw?.trim()) return;
@@ -2074,13 +2549,14 @@ function OperatorMobileScanPageContent() {
     setScanLine(code);
     router.replace(pathname, { scroll: false });
     queueMicrotask(() => {
-      void runIdentificationGateSearch(code);
+      void runIdentificationGateSearchRef.current(code);
     });
-  }, [searchParams, pathname, router, runIdentificationGateSearch]);
+  }, [searchParams, pathname, router]);
 
   const resolveSlipEpContext = useCallback(
     async (extract: SlipVisionExtract): Promise<{ tracking: string | null; rows: Record<string, unknown>[] }> => {
-      const uniq = slipIdLookupCandidates(extract.shipment_id, extract.vret_id, activeTracking);
+      const slipParentTn = activePallet?.id ? currentPalletTrackingId : activeTracking;
+      const uniq = slipIdLookupCandidates(extract.shipment_id, extract.vret_id, slipParentTn);
 
       if (!isSupabaseConfigured()) {
         for (const c of uniq) {
@@ -2111,7 +2587,7 @@ function OperatorMobileScanPageContent() {
       }
       return { tracking: null, rows: [] };
     },
-    [activeTracking, orgId, sessionStoreId],
+    [activePallet?.id, activeTracking, currentPalletTrackingId, orgId, sessionStoreId],
   );
 
   const runSlipVisionOcr = useCallback(
@@ -2153,44 +2629,25 @@ function OperatorMobileScanPageContent() {
         const carrierFromSlip = json.slip.carrier?.trim() ?? "";
         const normalizedCarrier = normalizeCarrierLabel(carrierFromSlip);
         const orderIdFromSlip = json.slip.amazon_order_id?.trim() ?? "";
-        let appliedCarrier: string | null = null;
-        let appliedOrder: string | null = null;
-        if (normalizedCarrier && !palletCarrierRef.current.trim()) {
-          appliedCarrier = normalizedCarrier;
-          palletCarrierRef.current = normalizedCarrier;
-          setPalletCarrier(normalizedCarrier);
+        if (carrierFromSlip && !palletCarrierRef.current.trim()) {
+          // Prefer the canonical carrier name when OCR text matches a known carrier;
+          // otherwise keep the raw OCR string so the operator sees what was on the slip
+          // and the "Other / Not Listed" manual entry surfaces with that prefilled value.
+          const matchedKnownCarrier =
+            normalizedCarrier !== null && normalizedCarrier !== OTHER_CARRIER_NAME;
+          const carrierToPersist = matchedKnownCarrier ? normalizedCarrier! : carrierFromSlip;
+          palletCarrierRef.current = carrierToPersist;
+          setPalletCarrier(carrierToPersist);
+          setPalletCarrierOtherSelected(!matchedKnownCarrier);
         }
-        if (orderIdFromSlip && !palletAmazonOrderIdRef.current.trim()) {
-          appliedOrder = orderIdFromSlip;
-          palletAmazonOrderIdRef.current = orderIdFromSlip;
-          setPalletAmazonOrderId(orderIdFromSlip);
+        if (orderIdFromSlip && !palletOrderIdRef.current.trim()) {
+          palletOrderIdRef.current = orderIdFromSlip;
+          setPalletOrderId(orderIdFromSlip);
         }
         setSlipExtractMissing({
           carrier: !carrierFromSlip,
           orderId: !orderIdFromSlip,
         });
-
-        const palletId = activePallet?.id;
-        if (palletId && isUuidString(palletId) && isSupabaseConfigured()) {
-          try {
-            setManifestPhotoUploading(true);
-            const manifestUrl = await uploadToStorage(file, "pallets/manifest", orgId);
-            setManifestPhotoUploadedUrl(manifestUrl);
-            const updatePayload: Record<string, unknown> = { manifest_photo_url: manifestUrl };
-            if (appliedCarrier) updatePayload.carrier_name = appliedCarrier;
-            if (appliedOrder) updatePayload.amazon_order_id = appliedOrder;
-            const { error: upErr } = await supabase
-              .from("pallets")
-              .update(updatePayload)
-              .eq("id", palletId)
-              .eq("organization_id", orgId);
-            if (upErr) console.warn("[pallets] manifest+slip update:", upErr.message);
-          } catch (uploadErr) {
-            console.warn("[pallets] manifest upload failed", uploadErr);
-          } finally {
-            setManifestPhotoUploading(false);
-          }
-        }
       } catch (e) {
         setSyncErrorToast(e instanceof Error ? e.message : "Slip OCR failed.");
       } finally {
@@ -2201,64 +2658,17 @@ function OperatorMobileScanPageContent() {
     [activePallet?.id, orgId, resolveSlipEpContext, scheduleFocusScanner],
   );
 
-  /** Persist carrier_name / amazon_order_id manual edits on the active pallet (debounced via blur trigger). */
-  const persistPalletShipmentField = useCallback(
-    async (field: "carrier_name" | "amazon_order_id", value: string) => {
-      const palletId = activePallet?.id;
-      if (!palletId || !isUuidString(palletId) || !isSupabaseConfigured()) return;
-      const trimmed = value.trim();
-      const { error } = await supabase
-        .from("pallets")
-        .update({ [field]: trimmed.length > 0 ? trimmed : null })
-        .eq("id", palletId)
-        .eq("organization_id", orgId);
-      if (error) console.warn(`[pallets] ${field} update:`, error.message);
-    },
-    [activePallet?.id, orgId],
-  );
+  const handlePalletPhotoUrlsChange = useCallback((urls: string[]) => {
+    setPalletPhotoUrls(urls);
+  }, []);
 
-  /**
-   * Persist the first URL of a `MasterUploader` collection to a pallet column.
-   * Extras stay in client state — matches the CreatePalletModal contract noted in the hint text.
-   */
-  const persistPalletPhotoColumn = useCallback(
-    async (column: "photo_url" | "bol_photo_url", urls: string[]) => {
-      const palletId = activePallet?.id;
-      if (!palletId || !isUuidString(palletId) || !isSupabaseConfigured()) return;
-      const next = urls[0]?.trim() || null;
-      const { error } = await supabase
-        .from("pallets")
-        .update({ [column]: next })
-        .eq("id", palletId)
-        .eq("organization_id", orgId);
-      if (error) {
-        setSyncErrorToast(error.message);
-      }
-    },
-    [activePallet?.id, orgId],
-  );
+  const handleBolPhotoUrlsChange = useCallback((urls: string[]) => {
+    setBolPhotoUrls(urls);
+  }, []);
 
-  const handlePalletPhotoUrlsChange = useCallback(
-    (urls: string[]) => {
-      const prev = palletPhotoUrlsRef.current;
-      setPalletPhotoUrls(urls);
-      if ((prev[0] ?? null) !== (urls[0] ?? null)) {
-        void persistPalletPhotoColumn("photo_url", urls);
-      }
-    },
-    [persistPalletPhotoColumn],
-  );
-
-  const handleBolPhotoUrlsChange = useCallback(
-    (urls: string[]) => {
-      const prev = bolPhotoUrlsRef.current;
-      setBolPhotoUrls(urls);
-      if ((prev[0] ?? null) !== (urls[0] ?? null)) {
-        void persistPalletPhotoColumn("bol_photo_url", urls);
-      }
-    },
-    [persistPalletPhotoColumn],
-  );
+  const handleShippingLabelPhotoUrlsChange = useCallback((urls: string[]) => {
+    setShippingLabelPhotoUrls(urls);
+  }, []);
 
   const runManualSlipVisionFromCapture = useCallback(async () => {
     if (!slipPhoto1Url) {
@@ -2284,26 +2694,26 @@ function OperatorMobileScanPageContent() {
         return;
       }
 
+      const parentTrackingKey = (currentPalletTrackingId ?? "").trim();
+      if (parentTrackingKey && trackingKeysEqual(trimmed, parentTrackingKey)) {
+        setBoxIntakeError(
+          "That code matches this shipment’s tracking ID — scan the barcode on the carton, not the pallet/shipment id.",
+        );
+        scheduleFocusScanner();
+        return;
+      }
+      const palletNumKey = activePallet?.pallet_number?.trim() ?? "";
+      if (palletNumKey && trackingKeysEqual(trimmed, palletNumKey)) {
+        setBoxIntakeError("That code matches the pallet id — scan a distinct box barcode.");
+        scheduleFocusScanner();
+        return;
+      }
+
       if (looksLikePackingSlipScan(trimmed)) {
-        setBusy(true);
-        try {
-          setAiSlipReaderPhase("reading");
-          await new Promise((r) => window.setTimeout(r, 650));
-          const extracted = extractSlipIdsFromScan(trimmed);
-          const shipment =
-            (extracted.shipmentId?.trim() || activeTracking?.trim() || "").trim() || null;
-          if (shipment) setActiveTracking(shipment);
-          setSlipBarcodeExtract(extracted);
-          setAiSlipReaderPhase("matched");
-          setIntakeToast(
-            slipPhoto1Url
-              ? "Parsed slip barcode — tap “Run slip OCR” on Review if you want Vision, then scan the carton barcode."
-              : "Parsed slip barcode — capture Slip Photo 1 on Review, optionally run slip OCR, then scan the carton barcode.",
-          );
-        } finally {
-          setBusy(false);
-          scheduleFocusScanner();
-        }
+        setBoxIntakeError(
+          "That looks like a slip or shipment code — scan the physical box barcode on the carton instead.",
+        );
+        scheduleFocusScanner();
         return;
       }
 
@@ -2311,8 +2721,9 @@ function OperatorMobileScanPageContent() {
       try {
         if (!isSupabaseConfigured()) {
           setActiveBoxSession({ barcode: trimmed, packageId: `demo-${Date.now()}` });
+          setCurrentPackageTrackingId(trimmed);
           const tnHit = expectedPkgTrackingNumbers.some((t) => trackingKeysEqual(t, trimmed));
-          if (tnHit) setIntakeToast("Tracking Matched to Package");
+          if (tnHit) setIntakeToast("Tracking matched to box");
           playOperatorSuccessBeep();
           setScanSuccessFlash(true);
           return;
@@ -2321,18 +2732,21 @@ function OperatorMobileScanPageContent() {
           setBoxIntakeError("Configure a store before recording boxes.");
           return;
         }
+        const auditFields = await resolveOperatorAuditFieldsClient(supabase);
         const res = await insertIntakeBoxPackage(supabase, {
           organizationId: orgId,
           palletId: activePallet?.id ?? null,
           packageNumber: trimmed,
+          created_by: auditFields.created_by,
         });
         if (!res.ok) {
           setBoxIntakeError(res.message);
           return;
         }
         setActiveBoxSession({ barcode: trimmed, packageId: res.packageId });
+        setCurrentPackageTrackingId(trimmed);
         const tnHit = expectedPkgTrackingNumbers.some((t) => trackingKeysEqual(t, trimmed));
-        if (tnHit) setIntakeToast("Tracking Matched to Package");
+        if (tnHit) setIntakeToast("Tracking matched to box");
         if (activePallet?.id) void loadPalletDetail(activePallet.id);
         playOperatorSuccessBeep();
         setScanSuccessFlash(true);
@@ -2343,12 +2757,12 @@ function OperatorMobileScanPageContent() {
     },
     [
       activeBoxSession,
-      activeTracking,
+      currentPalletTrackingId,
       sessionStoreId,
       orgId,
       activePallet?.id,
+      activePallet?.pallet_number,
       expectedPkgTrackingNumbers,
-      slipPhoto1Url,
       loadPalletDetail,
       scheduleFocusScanner,
     ],
@@ -2362,7 +2776,10 @@ function OperatorMobileScanPageContent() {
       extract.shipment_id?.trim() ||
       extract.vret_id?.trim() ||
       "";
-    if (trackingToActivate) setActiveTracking(trackingToActivate);
+    if (trackingToActivate) {
+      if (activePallet?.id) setCurrentPalletTrackingId(trackingToActivate);
+      else setActiveTracking(trackingToActivate);
+    }
     setSlipBarcodeExtract({
       vretId: extract.vret_id,
       shipmentId: extract.shipment_id,
@@ -2371,7 +2788,7 @@ function OperatorMobileScanPageContent() {
     modalOpenRef.current = false;
     setIntakeToast("Slip confirmed — shipment context applied for receiving.");
     scheduleFocusScanner();
-  }, [slipVisionModal, scheduleFocusScanner]);
+  }, [slipVisionModal, scheduleFocusScanner, activePallet?.id]);
 
   const dismissSlipVisionModal = useCallback(() => {
     setSlipVisionModal(null);
@@ -2385,6 +2802,7 @@ function OperatorMobileScanPageContent() {
     setItemScanPackageLabel(activeBoxSession.barcode);
     setScannedBoxesSavedCount((n) => n + 1);
     setActiveBoxSession(null);
+    setCurrentPackageTrackingId(null);
     setBoxIntakeError(null);
     if (cartonPhotoUrlRef.current) {
       URL.revokeObjectURL(cartonPhotoUrlRef.current);
@@ -2592,7 +3010,7 @@ function OperatorMobileScanPageContent() {
     if (demoLocal) {
       const bumpId = expectedPackageIdHint ?? hintEpIdRaw;
       if (!isUuidString(bumpId)) {
-        setItemReceiveError("Expected package id missing — cannot update counts.");
+        setItemReceiveError("Expected box id missing — cannot update counts.");
         return;
       }
       bumpLocalRows(bumpId);
@@ -2680,6 +3098,60 @@ function OperatorMobileScanPageContent() {
     setGateTrackingHelpOpen(false);
     setScanLine("");
   }, []);
+
+  const resumeWorkflowFromExistingPalletRow = useCallback(
+    async (row: OperatorPalletTrackingRow, enteredCode: string) => {
+      const tracking = String(row.tracking_number ?? "").trim() || enteredCode.trim();
+      const opCount = row.operator_package_count;
+      resetIdentifyGateForm();
+      setActiveSlipOrPackage(null);
+      setDirectBox(false);
+      setActiveTracking(null);
+      setActivePallet({ id: row.id, pallet_number: row.pallet_number });
+      setCurrentPalletTrackingId(tracking);
+      if (typeof opCount === "number" && Number.isFinite(opCount) && opCount > 0) {
+        setPhysicalBoxCount(opCount);
+        setBoxScanTargetDenominator(opCount);
+      } else {
+        setPhysicalBoxCount(null);
+        setBoxScanTargetDenominator(null);
+      }
+      const resumeCid = String(row.created_by ?? "").trim();
+      if (resumeCid && isUuidString(resumeCid) && isSupabaseConfigured()) {
+        try {
+          const { data: auth } = await supabase.auth.getUser();
+          const me = auth?.user?.id?.trim();
+          const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", resumeCid).maybeSingle();
+          const fn = (prof as { full_name?: string | null } | null)?.full_name?.trim();
+          const emailFallback =
+            me === resumeCid ? (typeof auth?.user?.email === "string" ? auth.user.email.trim() : "") : "";
+          setPalletCreatedByLabel(fn || emailFallback || "Unknown");
+        } catch {
+          setPalletCreatedByLabel("Unknown");
+        }
+      } else {
+        setPalletCreatedByLabel(null);
+      }
+      const hasShip = palletHasPersistedShipmentDetails(row);
+      setFlowPhase(hasShip ? "package_scan" : "scan");
+      if (hasShip && orgId.trim()) {
+        try {
+          window.sessionStorage.setItem(
+            `operatorMobile:palletShipmentCommitted:${orgId}:${row.id}`,
+            "1",
+          );
+        } catch {
+          /* ignore */
+        }
+        setPalletShipmentCommitVersion((v) => v + 1);
+      }
+      setIsIdentified(true);
+      setPalletDocHydrationNonce((n) => n + 1);
+    },
+    [orgId, resetIdentifyGateForm],
+  );
+
+  resumeFromPalletLookupRef.current = resumeWorkflowFromExistingPalletRow;
 
   const runIdentifyGatePhotoOcr = useCallback(async (file: File) => {
     if (identifyGateOcrBusyRef.current) return;
@@ -2771,8 +3243,15 @@ function OperatorMobileScanPageContent() {
   const onSubmitScan = useCallback(
     async (e?: FormEvent) => {
       e?.preventDefault();
-      const code = scanLine.trim();
-      setScanLine("");
+      const packageScanBoxBufferOpen = flowPhase === "package_scan" && !activeBoxSession;
+      let code = "";
+      if (packageScanBoxBufferOpen) {
+        code = (currentPackageTrackingId ?? "").trim();
+        setCurrentPackageTrackingId(null);
+      } else {
+        code = scanLine.trim();
+        setScanLine("");
+      }
       if (!isIdentified && flowPhase === "scan" && awaitingPostCompleteExtraScan) {
         const tn = postCompleteTrackingRef.current?.trim();
         setAwaitingPostCompleteExtraScan(false);
@@ -2799,6 +3278,8 @@ function OperatorMobileScanPageContent() {
     },
     [
       scanLine,
+      currentPackageTrackingId,
+      activeBoxSession,
       flowPhase,
       isIdentified,
       awaitingPostCompleteExtraScan,
@@ -2833,10 +3314,12 @@ function OperatorMobileScanPageContent() {
     if (!sessionStoreId) return;
     setBusy(true);
     try {
+      const auditFields = await resolveOperatorAuditFieldsClient(supabase);
       const res = await insertUnknownPackageForTrackingCode(supabase, {
         organizationId: orgId,
         storeId: sessionStoreId,
         scannedCode: code,
+        created_by: auditFields.created_by,
       });
       if (!res.ok) {
         console.error(res.message);
@@ -2854,6 +3337,72 @@ function OperatorMobileScanPageContent() {
       setBusy(false);
     }
   }, [unknownModal, sessionStoreId, orgId, scheduleFocusScanner]);
+
+  /**
+   * Resolve or create the receiving pallet row for a tracking number (used by the
+   * identification gate and by Save & Start when only tracking context exists).
+   */
+  const ensureReceivingPalletForTracking = useCallback(
+    async (
+      tn: string,
+      orderId: string | null,
+    ): Promise<{ id: string; pallet_number: string; created: boolean } | null> => {
+      if (!isSupabaseConfigured() || !sessionStoreId) return null;
+      const tracking = tn.trim();
+      if (!tracking) return null;
+      const oid = orderId?.trim() || null;
+
+      const hitTn = await findPalletByTrackingNormalized(supabase, orgId, tracking);
+      if (hitTn?.id) {
+        return {
+          id: hitTn.id,
+          pallet_number: hitTn.pallet_number,
+          created: false,
+        };
+      }
+      if (oid) {
+        const { data: hitOrd, error: eOrd } = await supabase
+          .from("pallets")
+          .select("id, pallet_number")
+          .eq("organization_id", orgId)
+          .is("deleted_at", null)
+          .eq("order_id", oid)
+          .limit(1)
+          .maybeSingle();
+        if (!eOrd && hitOrd && (hitOrd as { id?: string }).id) {
+          return {
+            id: String((hitOrd as { id: string }).id),
+            pallet_number: String((hitOrd as { pallet_number: string }).pallet_number),
+            created: false,
+          };
+        }
+      }
+      const palletNumber = `RCV-${tracking.replace(/\s+/g, "").slice(0, 48) || "TRACK"}`;
+      const trackingPersist = normalizeTrackingKey(tracking) || tracking.trim();
+      const audit = await resolveOperatorAuditFieldsClient(supabase);
+      const insertPayload: Record<string, unknown> = {
+        organization_id: orgId,
+        store_id: sessionStoreId,
+        pallet_number: palletNumber,
+        status: "open",
+        tracking_number: trackingPersist,
+      };
+      if (audit.created_by) insertPayload.created_by = audit.created_by;
+      if (oid) insertPayload.order_id = oid;
+      const { data: created, error: insErr } = await supabase
+        .from("pallets")
+        .insert(insertPayload)
+        .select("id, pallet_number")
+        .maybeSingle();
+      if (insErr) {
+        console.warn("[pallets] shipment receiving pallet create:", insErr.message);
+        return null;
+      }
+      const row = created as { id: string; pallet_number: string } | null;
+      return row?.id ? { id: row.id, pallet_number: row.pallet_number, created: true } : null;
+    },
+    [orgId, sessionStoreId],
+  );
 
   const handleIdentifyMatchedStartWorkflow = useCallback(async () => {
     if (identifyGatePhase !== "matched" || !identifyGateEntity) return;
@@ -2895,64 +3444,6 @@ function OperatorMobileScanPageContent() {
       identifyGateEntity === "package" &&
       (identifyGateInventoryVisual === "new" || identifyGateInventoryVisual === "in_progress");
 
-    const ensureReceivingPalletForShipment = async (
-      tn: string,
-    ): Promise<{ id: string; pallet_number: string; created: boolean } | null> => {
-      if (!isSupabaseConfigured() || !sessionStoreId) return null;
-      const { data: hitTn, error: eTn } = await supabase
-        .from("pallets")
-        .select("id, pallet_number")
-        .eq("organization_id", orgId)
-        .is("deleted_at", null)
-        .eq("tracking_number", tn)
-        .limit(1)
-        .maybeSingle();
-      if (!eTn && hitTn && (hitTn as { id?: string }).id) {
-        return {
-          id: String((hitTn as { id: string }).id),
-          pallet_number: String((hitTn as { pallet_number: string }).pallet_number),
-          created: false,
-        };
-      }
-      if (orderId) {
-        const { data: hitOrd, error: eOrd } = await supabase
-          .from("pallets")
-          .select("id, pallet_number")
-          .eq("organization_id", orgId)
-          .is("deleted_at", null)
-          .eq("order_id", orderId)
-          .limit(1)
-          .maybeSingle();
-        if (!eOrd && hitOrd && (hitOrd as { id?: string }).id) {
-          return {
-            id: String((hitOrd as { id: string }).id),
-            pallet_number: String((hitOrd as { pallet_number: string }).pallet_number),
-            created: false,
-          };
-        }
-      }
-      const palletNumber = `RCV-${tn.replace(/\s+/g, "").slice(0, 48) || "TRACK"}`;
-      const insertPayload: Record<string, unknown> = {
-        organization_id: orgId,
-        store_id: sessionStoreId,
-        pallet_number: palletNumber,
-        status: "open",
-        tracking_number: tn,
-      };
-      if (orderId) insertPayload.order_id = orderId;
-      const { data: created, error: insErr } = await supabase
-        .from("pallets")
-        .insert(insertPayload)
-        .select("id, pallet_number")
-        .maybeSingle();
-      if (insErr) {
-        console.warn("[pallets] shipment receiving pallet create:", insErr.message);
-        return null;
-      }
-      const row = created as { id: string; pallet_number: string } | null;
-      return row?.id ? { id: row.id, pallet_number: row.pallet_number, created: true } : null;
-    };
-
     setBusy(true);
     try {
       const code = identifyGateEnteredCode.trim() || tracking;
@@ -2983,6 +3474,11 @@ function OperatorMobileScanPageContent() {
         }
       }
 
+      if (applied && lastResolve?.kind === "pallet") {
+        const rowTn = String(lastResolve.row.tracking_number ?? "").trim();
+        setCurrentPalletTrackingId(tracking || rowTn || null);
+      }
+
       let effectiveTracking = tracking;
       if (lastResolve?.kind === "tracking") {
         effectiveTracking = String(lastResolve.row.tracking_number ?? "").trim() || effectiveTracking;
@@ -2990,16 +3486,19 @@ function OperatorMobileScanPageContent() {
 
       if (shipContinueVisual) {
         setActiveSlipOrPackage(null);
-        setActiveTracking(effectiveTracking);
+        setActiveTracking(null);
+        setCurrentPalletTrackingId(effectiveTracking);
         setDirectBox(false);
         let receiving: { id: string; pallet_number: string; created: boolean } | null = null;
         if (isSupabaseConfigured() && sessionStoreId) {
-          receiving = await ensureReceivingPalletForShipment(effectiveTracking);
+          receiving = await ensureReceivingPalletForTracking(effectiveTracking, orderId);
         }
         if (receiving) {
           setActivePallet({ id: receiving.id, pallet_number: receiving.pallet_number });
         } else {
           setActivePallet(null);
+          setCurrentPalletTrackingId(null);
+          setActiveTracking(effectiveTracking);
         }
         if (isSupabaseConfigured() && sessionStoreId) {
           const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, effectiveTracking);
@@ -3045,6 +3544,7 @@ function OperatorMobileScanPageContent() {
         if (!applied) {
           setActivePallet(null);
           setActiveSlipOrPackage(null);
+          setCurrentPalletTrackingId(null);
           setActiveTracking(tracking);
           setDirectBox(false);
           setFlowPhase("scan");
@@ -3056,6 +3556,7 @@ function OperatorMobileScanPageContent() {
       await new Promise((r) => window.setTimeout(r, 400));
       setIdentifyGateGlowFlash(false);
       setIsIdentified(true);
+      if (isSupabaseConfigured()) setPalletDocHydrationNonce((n) => n + 1);
       resetIdentifyGateForm();
     } catch (e) {
       setSyncErrorToast(e instanceof Error ? e.message : "Could not start workflow.");
@@ -3077,6 +3578,7 @@ function OperatorMobileScanPageContent() {
     applyResult,
     scheduleFocusScanner,
     resetIdentifyGateForm,
+    ensureReceivingPalletForTracking,
   ]);
 
   const handleIdentifyNewCreateAndStart = useCallback(async () => {
@@ -3103,6 +3605,7 @@ function OperatorMobileScanPageContent() {
       if (identifyGateEntity === "pallet") {
         setActivePallet({ id: crypto.randomUUID(), pallet_number: code });
         setActiveTracking(null);
+        setCurrentPalletTrackingId(code.trim());
         setDirectBox(false);
         setFlowPhase("scan");
       } else if (identifyGateEntity === "package") {
@@ -3137,7 +3640,14 @@ function OperatorMobileScanPageContent() {
           trackingNumber: code,
           operatorPackageCount: boxN ?? null,
         });
-        if (!palletRes.ok) throw new Error(palletRes.error);
+        if (!palletRes.ok) {
+          if (palletRes.duplicatePallet) {
+            setIntakeToast("This Tracking Number already exists. Loading details...");
+            resumeWorkflowFromExistingPalletRow(palletRes.duplicatePallet, code);
+            return;
+          }
+          throw new Error(palletRes.error);
+        }
         const row = { id: palletRes.id, pallet_number: palletRes.pallet_number };
         if (boxN != null) {
           setPhysicalBoxCount(boxN);
@@ -3145,17 +3655,20 @@ function OperatorMobileScanPageContent() {
         }
         setActivePallet({ id: row.id, pallet_number: row.pallet_number });
         setActiveTracking(null);
+        setCurrentPalletTrackingId(code.trim());
         setActiveSlipOrPackage(null);
         setDirectBox(false);
         setFlowPhase("scan");
       } else if (identifyGateEntity === "package") {
         if (!allowOperatorUnknownPackageCreate()) {
-          throw new Error("Unknown package creation is disabled for this deployment.");
+          throw new Error("Unknown box creation is disabled for this deployment.");
         }
+        const auditPkg = await resolveOperatorAuditFieldsClient(supabase);
         const res = await insertUnknownPackageForTrackingCode(supabase, {
           organizationId: orgId,
           storeId: sessionStoreId,
           scannedCode: code,
+          created_by: auditPkg.created_by,
         });
         if (!res.ok) throw new Error(res.message);
         setPhysicalBoxCount(null);
@@ -3201,6 +3714,7 @@ function OperatorMobileScanPageContent() {
     orgId,
     scheduleFocusScanner,
     resetIdentifyGateForm,
+    resumeWorkflowFromExistingPalletRow,
   ]);
 
   const handleIdentificationGatePrimaryCta = useCallback(() => {
@@ -3212,7 +3726,8 @@ function OperatorMobileScanPageContent() {
   }, [identifyGateInventoryVisual, handleIdentifyNewCreateAndStart, handleIdentifyMatchedStartWorkflow]);
 
   const palletIdentified = Boolean(activePallet);
-  const trackingIdentified = Boolean(activeTracking);
+  const trackingIdentified =
+    Boolean(activeTracking?.trim()) || Boolean(activePallet?.id && (currentPalletTrackingId ?? "").trim().length > 0);
   const parentIdentified = palletIdentified || trackingIdentified;
 
   const stepIndex = flowPhase === "scan" ? 0 : flowPhase === "package_scan" ? 1 : 2;
@@ -3225,7 +3740,7 @@ function OperatorMobileScanPageContent() {
   // and items phases below.
   void scanStepMeta;
 
-  /** Operator package count is collected only when entity type is Pallet (saved as pallets.operator_package_count). */
+  /** Operator box count is collected only when entity type is Pallet (saved as pallets.operator_package_count). */
   const identifyGateNeedsValidBoxCount = identifyGateEntity === "pallet";
   const identifyGateBoxCountValid = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr).valid;
   const identifyGateBoxCountShowsError = identifyGateNeedsValidBoxCount && !identifyGateBoxCountValid;
@@ -3292,7 +3807,7 @@ function OperatorMobileScanPageContent() {
 
   const contextHeadline = activePallet
     ? "Active Pallet"
-    : activeTracking
+    : activeTracking?.trim()
       ? "Active Tracking"
       : activeSlipOrPackage
         ? "Active Scan"
@@ -3302,13 +3817,13 @@ function OperatorMobileScanPageContent() {
 
   const contextId =
     activePallet?.pallet_number ??
-    activeTracking ??
+    (activePallet?.id ? currentPalletTrackingId : activeTracking) ??
     activeSlipOrPackage ??
     (directBox ? "No pallet locked" : "—");
 
   const contextTone = activePallet
     ? "blue"
-    : activeTracking
+    : activeTracking?.trim()
       ? "sky"
       : activeSlipOrPackage?.startsWith("Slip")
         ? "violet"
@@ -3338,12 +3853,6 @@ function OperatorMobileScanPageContent() {
       if (slipPhoto1UrlRef.current) URL.revokeObjectURL(slipPhoto1UrlRef.current);
       slipPhoto1UrlRef.current = url;
       setSlipPhoto1Url(url);
-      // Auto-trigger OCR so the operator doesn't need to press a separate button.
-      // Silent no-op if no API key is configured — manual fallback fields stay open.
-      const apiKey = getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage();
-      if (apiKey && !slipVisionProcessing) {
-        void runSlipVisionOcr(file);
-      }
     } else {
       if (slipPhoto2UrlRef.current) URL.revokeObjectURL(slipPhoto2UrlRef.current);
       slipPhoto2UrlRef.current = url;
@@ -3379,7 +3888,11 @@ function OperatorMobileScanPageContent() {
     setTrackerPhotoUrl(null);
     setActivePallet(null);
     setActiveTracking(null);
-    setSlipBarcodeExtract(null);
+    setCurrentPalletTrackingId(null);
+      setCurrentPackageTrackingId(null);
+      setPalletCreatedByLabel(null);
+      setScanLine("");
+      setSlipBarcodeExtract(null);
     setSlipVisionModal(null);
     setSlipVisionProcessing(false);
     setFlowPhase("scan");
@@ -3396,9 +3909,6 @@ function OperatorMobileScanPageContent() {
     parentIdentified &&
     !slipVisionProcessing;
 
-  const totalSkuUnits =
-    expectedPkgTotals?.expectedUnits ?? expectedPkgLines.reduce((s, l) => s + l.expectedQty, 0);
-
   const expectedBoxesForProgress = Math.max(0, physicalBoxCount ?? 0);
   const physicalDenomFloor = Math.max(expectedBoxesForProgress, 1);
   /** Denominator for Box N of M — locked at confirm from Step 2; otherwise preview from `physicalBoxCount`. */
@@ -3407,13 +3917,151 @@ function OperatorMobileScanPageContent() {
       ? boxScanTargetDenominator
       : physicalDenomFloor;
 
-  const handleConfirmStartBoxScan = useCallback(() => {
-    if (!parentIdentified || slipVisionProcessing) return;
-    if (!slipPhoto1Url) return;
-    if (typeof physicalBoxCount !== "number" || physicalBoxCount <= 0) {
-      setPhysicalCountShakeSeq((s) => s + 1);
+  /** Single Supabase write for pallet shipment-step fields (carrier, counts, photos). */
+  const commitActivePalletRowAtSaveAndStart = useCallback(async (): Promise<
+    { ok: true; palletId: string } | { ok: false; message: string }
+  > => {
+    const carrierToPersist = palletCarrier.trim();
+    const orderIdToPersist = palletOrderId.trim();
+    const slipShip = slipBarcodeExtract?.shipmentId?.trim() ?? "";
+    // Pallet parent tracking only (`pallets.tracking_number`); never carton scans.
+    const fromPalletField = (currentPalletTrackingId ?? "").trim();
+    const tracking = fromPalletField.length > 0 ? fromPalletField : slipShip.trim();
+    const trackingPersist = tracking.length ? tracking : null;
+    const boxCount =
+      typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : null;
+
+    if (!isSupabaseConfigured()) {
+      const demoId = activePallet?.id?.trim() ?? "";
+      return { ok: true, palletId: demoId };
+    }
+
+    if (!sessionStoreId) {
+      return { ok: false, message: "Select a store before saving." };
+    }
+
+    let palletId = activePallet?.id && isUuidString(activePallet.id) ? activePallet.id : null;
+
+    if (!palletId) {
+      if (!tracking) {
+        return { ok: false, message: "Missing tracking number — cannot save pallet." };
+      }
+      const ensured = await ensureReceivingPalletForTracking(tracking, orderIdToPersist || null);
+      if (!ensured) {
+        return { ok: false, message: "Could not create pallet for this shipment." };
+      }
+      palletId = ensured.id;
+      setActivePallet({ id: ensured.id, pallet_number: ensured.pallet_number });
+    }
+
+    const persisted = await commitOperatorPalletShipmentStepAction({
+      requestedOrganizationId: orgId,
+      palletId,
+      carrier_name: carrierToPersist.length ? carrierToPersist : null,
+      order_id: orderIdToPersist.length ? orderIdToPersist : null,
+      operator_package_count: boxCount,
+      tracking_number: trackingPersist,
+      shipping_label_photo_urls: shippingLabelPhotoUrls,
+      pallet_photo_urls: palletPhotoUrls,
+      bol_photo_urls: bolPhotoUrls,
+    });
+
+    if (!persisted.ok) return { ok: false, message: persisted.message };
+    setPalletCreatedByLabel(persisted.creatorDisplayLabel.trim() || "Unknown");
+    return { ok: true, palletId };
+  }, [
+    palletCarrier,
+    palletOrderId,
+    slipBarcodeExtract?.shipmentId,
+    currentPalletTrackingId,
+    physicalBoxCount,
+    activePallet?.id,
+    shippingLabelPhotoUrls,
+    palletPhotoUrls,
+    bolPhotoUrls,
+    orgId,
+    sessionStoreId,
+    ensureReceivingPalletForTracking,
+  ]);
+
+  const liveDbForShipmentUx = isSupabaseConfigured();
+  const palletIdForShipmentUx = activePallet?.id?.trim() ?? "";
+  const hasBackendPalletRow =
+    liveDbForShipmentUx && Boolean(palletIdForShipmentUx) && isUuidString(palletIdForShipmentUx);
+
+  const palletShipmentCommittedStorageKey =
+    hasBackendPalletRow && orgId?.trim()
+      ? `operatorMobile:palletShipmentCommitted:${orgId}:${palletIdForShipmentUx}`
+      : null;
+
+  const hasSessionShipmentCommit = useMemo(() => {
+    if (!palletShipmentCommittedStorageKey || typeof window === "undefined") return false;
+    try {
+      return window.sessionStorage.getItem(palletShipmentCommittedStorageKey) === "1";
+    } catch {
+      return false;
+    }
+  }, [palletShipmentCommittedStorageKey, palletShipmentCommitVersion]);
+
+  /** Backend pallet with no hydrated slip columns and no session commit — Carrier/Order stay editable; box/tracking locked until Edit All. */
+  const isInitialDraftShipmentUx =
+    hasBackendPalletRow && !palletDbHasShipmentDetails && !hasSessionShipmentCommit;
+
+  /** Carrier + Order ID: editable on demo / no pallet row / initial draft / Edit All. */
+  const slipCarrierOrderEditable =
+    editAllMode ||
+    !liveDbForShipmentUx ||
+    !hasBackendPalletRow ||
+    isInitialDraftShipmentUx;
+
+  /** Box count + Tracking ID: read-only until Edit All. */
+  const boxCountEditable = editAllMode;
+  const trackingIdEditable = editAllMode;
+
+  /** Shipment Entry step: global Edit All + tracking lives in Active Pallet card (not duplicated under title). */
+  const showShipmentEntryEditAll =
+    isIdentified && flowPhase === "scan" && parentIdentified && Boolean(activePallet?.id?.trim());
+
+  const handleConfirmStartBoxScan = useCallback(async () => {
+    if (!parentIdentified) {
+      setSyncErrorToast("Identify the pallet barcode first.");
       return;
     }
+    if (slipVisionProcessing) {
+      setSyncErrorToast("Wait for the slip OCR to finish, then try again.");
+      return;
+    }
+    if (typeof physicalBoxCount !== "number" || physicalBoxCount <= 0) {
+      setPhysicalCountShakeSeq((s) => s + 1);
+      setSyncErrorToast(
+        boxCountEditable
+          ? "Box count is missing — confirm it on the receiving step."
+          : "Tap Edit All to adjust the box count.",
+      );
+      return;
+    }
+
+    if (typeof document !== "undefined") {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active !== document.body && typeof active.blur === "function") {
+        const tag = active.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || active.isContentEditable) {
+          active.blur();
+        }
+      }
+    }
+
+    const carrierToPersist = palletCarrier.trim();
+
+    if (palletCarrierOtherSelected && carrierToPersist.length === 0) {
+      setSyncErrorToast("Enter the carrier name (Other selected) before continuing.");
+      const customInput = document.getElementById(
+        `${formId}-pallet-carrier-custom`,
+      ) as HTMLInputElement | null;
+      customInput?.focus();
+      return;
+    }
+
     if (
       expectedPackagesRawRowCount != null &&
       expectedPackagesRawRowCount > 0 &&
@@ -3424,32 +4072,102 @@ function OperatorMobileScanPageContent() {
         expectedPackagesRowCount: expectedPackagesRawRowCount,
       });
     }
-    setBoxScanTargetDenominator(physicalBoxCount);
-    setBoxIntakeError(null);
-    setFlowPhase("package_scan");
+
+    setConfirmSaving(true);
+    try {
+      const res = await commitActivePalletRowAtSaveAndStart();
+      if (!res.ok) {
+        setSyncErrorToast(res.message);
+        return;
+      }
+      if (orgId?.trim() && res.palletId && isUuidString(res.palletId)) {
+        try {
+          window.sessionStorage.setItem(
+            `operatorMobile:palletShipmentCommitted:${orgId}:${res.palletId}`,
+            "1",
+          );
+        } catch {
+          /* ignore */
+        }
+        setPalletShipmentCommitVersion((v) => v + 1);
+      }
+      setBoxScanTargetDenominator(physicalBoxCount);
+      setBoxIntakeError(null);
+      setEditAllMode(false);
+      setScanLine("");
+      setCurrentPackageTrackingId(null);
+      setFlowPhase("package_scan");
+      setPalletDocHydrationNonce((n) => n + 1);
+    } finally {
+      setConfirmSaving(false);
+    }
   }, [
     parentIdentified,
-    slipPhoto1Url,
     slipVisionProcessing,
     physicalBoxCount,
     expectedPackagesRawRowCount,
+    palletCarrier,
+    palletCarrierOtherSelected,
+    commitActivePalletRowAtSaveAndStart,
+    formId,
+    orgId,
+    boxCountEditable,
   ]);
   const boxOrdinal = Math.min(scannedBoxesSavedCount + 1, boxIntakeDenom);
   const slipPagesCaptured = (slipPhoto1Url ? 1 : 0) + (slipPhoto2Url ? 1 : 0);
   const matchedItemsPreviewCount = aiSlipReaderPhase === "matched" ? expectedPkgLines.length : 0;
+  const slipMatchParentTn = activePallet?.id ? currentPalletTrackingId : activeTracking;
   const showSlipMatchedBadge =
     aiSlipReaderPhase === "matched" &&
     expectedPkgLines.length > 0 &&
     (!slipBarcodeExtract?.shipmentId ||
-      trackingKeysEqual(slipBarcodeExtract.shipmentId, activeTracking ?? ""));
+      trackingKeysEqual(slipBarcodeExtract.shipmentId, slipMatchParentTn ?? ""));
   const showWarehouseTrail = isIdentified && (parentIdentified || directBox || flowPhase !== "scan");
-  const warehousePalletLabel = activePallet?.pallet_number ?? (directBox ? "Direct" : null);
-  const warehouseShipmentIdLabel =
-    activeTracking?.trim() || slipBarcodeExtract?.shipmentId?.trim() || null;
+  /**
+   * Header "Pallet" crumb + Active Pallet read-only must share the same source as the tracking field:
+   * `currentPalletTrackingId` (live while Edit All); when not editing, trimmed tracking then `pallet_number`.
+   */
+  const warehousePalletLabel = (() => {
+    if (!activePallet?.id) return directBox ? "Direct" : null;
+    if (trackingIdEditable) {
+      const v = currentPalletTrackingId;
+      if (v == null || v === "") return null;
+      return v;
+    }
+    const t = (currentPalletTrackingId ?? "").trim();
+    return t || (activePallet.pallet_number ?? "").trim() || null;
+  })();
+  /** Carton buffer / locked box only — never `currentPalletTrackingId` (shipment id lives in the pallet card, not here). */
+  const warehouseBreadcrumbCartonBarcode =
+    (activeBoxSession?.barcode ?? "").trim() ||
+    (flowPhase === "package_scan" ? (currentPackageTrackingId ?? "").trim() : "") ||
+    "";
+  const warehouseBreadcrumbCartonBarcodeOrNull = warehouseBreadcrumbCartonBarcode.length
+    ? warehouseBreadcrumbCartonBarcode
+    : null;
   const contextTrailBoxBarcode = activeBoxSession?.barcode ?? itemScanPackageLabel ?? null;
+  const boxTrailTrim = contextTrailBoxBarcode?.trim() ?? "";
+  const warehouseBreadcrumbMiddleOverride =
+    flowPhase === "items" && boxTrailTrim ? { label: "Box", value: boxTrailTrim } : null;
+  /**
+   * "Pkg" crumb = scanned / locked carton id only. Scan step: no second crumb until a box exists.
+   * Package step: show typed or locked barcode (not shipment tracking).
+   */
+  const warehouseBreadcrumbShipmentForTrail =
+    flowPhase === "package_scan" ? warehouseBreadcrumbCartonBarcodeOrNull : null;
+  /** Avoid duplicate crumbs when the same barcode is already shown as Pkg or Box. */
+  const warehouseBreadcrumbTrailingBarcode =
+    flowPhase === "package_scan"
+      ? null
+      : flowPhase === "items" &&
+          warehouseBreadcrumbMiddleOverride &&
+          warehouseBreadcrumbMiddleOverride.label === "Box" &&
+          warehouseBreadcrumbMiddleOverride.value === boxTrailTrim
+        ? null
+        : contextTrailBoxBarcode;
 
   useEffect(() => {
-    if (flowPhase !== "scan" || !parentIdentified) return;
+    if (flowPhase !== "scan" || !parentIdentified || !boxCountEditable) return;
     const t = window.setTimeout(() => {
       const el = physicalBoxCountInputRef.current;
       if (!el) return;
@@ -3460,7 +4178,7 @@ function OperatorMobileScanPageContent() {
       }
     }, 180);
     return () => window.clearTimeout(t);
-  }, [flowPhase, parentIdentified]);
+  }, [flowPhase, parentIdentified, boxCountEditable]);
 
   const onCartonOrTrackerFile = (which: "carton" | "tracker", file: File | undefined) => {
     if (!file?.type.startsWith("image/")) return;
@@ -3540,6 +4258,9 @@ function OperatorMobileScanPageContent() {
     activeStoreLabel,
     activePallet?.pallet_number,
     activeTracking,
+    currentPalletTrackingId,
+    currentPackageTrackingId,
+    editAllMode,
     itemScanPackageLabel,
     activeBoxSession?.barcode,
     itemExpectedUnitsTotal,
@@ -3552,6 +4273,9 @@ function OperatorMobileScanPageContent() {
     !liveDb || operatorStores.length > 1 || operatorStores.length === 0 || kioskStoreLocked;
   const blockUntilStoreResolved =
     liveDb && !operatorStoresLoading && !sessionStoreId && !allowSessionIncompleteUi;
+
+  /** Step 3: laser wedge + hidden buffer follow carton state, not `scanLine` (items / gate use `scanLine`). */
+  const packageScanBoxBufferOpen = flowPhase === "package_scan" && !activeBoxSession;
 
   if (!orgId?.trim()) {
     return <ScanPageLoading message="Missing organization context." />;
@@ -3576,8 +4300,12 @@ function OperatorMobileScanPageContent() {
         autoCorrect="off"
         spellCheck={false}
         disabled={scannerDisabled}
-        value={scanLine}
-        onChange={(e) => setScanLine(e.target.value)}
+        value={packageScanBoxBufferOpen ? (currentPackageTrackingId ?? "") : scanLine}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (packageScanBoxBufferOpen) setCurrentPackageTrackingId(v === "" ? null : v);
+          else setScanLine(v);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -3586,24 +4314,31 @@ function OperatorMobileScanPageContent() {
         }}
         onBlur={() => {
           window.setTimeout(() => {
-            if (!modalOpenRef.current && !manualOpen && laserEnabled) focusScannerAggressive();
+            if (modalOpenRef.current || manualOpen || !laserEnabled) return;
+            // Critical: if focus moved to ANY editable element (input/textarea/select/
+            // contentEditable), the operator is intentionally typing — do not yank focus
+            // back to the hidden laser input or it will appear "locked" and eat keystrokes.
+            const active =
+              typeof document !== "undefined"
+                ? (document.activeElement as HTMLElement | null)
+                : null;
+            if (active && active !== document.body) {
+              const tag = active.tagName;
+              if (
+                tag === "INPUT" ||
+                tag === "TEXTAREA" ||
+                tag === "SELECT" ||
+                active.isContentEditable
+              ) {
+                return;
+              }
+            }
+            focusScannerAggressive();
           }, 100);
         }}
         className="sr-only"
         aria-hidden
         tabIndex={0}
-      />
-
-      {/* Sticky 3-cell progress dashboard at the very top of the page (just below
-          the layout-level Company/Store header). Each cell shows dual Pkg / Item
-          counts when both dimensions are tracked. Renders only when at least one
-          dimension has actual data so it never adds dead space pre-receiving. */}
-      <ScanProgressDashboard
-        active={parentIdentified && flowPhase !== "items"}
-        boxesExpected={typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : 0}
-        boxesScanned={scannedBoxesSavedCount}
-        itemsExpected={expectedPkgTotals?.expectedUnits ?? 0}
-        itemsScanned={expectedPkgTotals?.scannedUnits ?? 0}
       />
 
       <header
@@ -3614,7 +4349,7 @@ function OperatorMobileScanPageContent() {
           background: "var(--scanner-header-gradient)",
         }}
       >
-        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-start gap-x-1 px-3 pb-0.5 pt-1 sm:px-4">
+        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-start gap-x-1 px-3 pb-0.5 pt-1 sm:gap-x-2 sm:px-4">
           <button
             type="button"
             onClick={() => {
@@ -3650,8 +4385,9 @@ function OperatorMobileScanPageContent() {
                   <WarehouseBreadcrumb
                     storeLabel={activeStoreLabel}
                     palletLabel={warehousePalletLabel}
-                    shipmentIdLabel={warehouseShipmentIdLabel}
-                    boxBarcode={contextTrailBoxBarcode}
+                    shipmentIdLabel={warehouseBreadcrumbShipmentForTrail}
+                    middleOverride={warehouseBreadcrumbMiddleOverride}
+                    boxBarcode={warehouseBreadcrumbTrailingBarcode}
                   />
                 ) : null}
                 {flowPhase === "package_scan" ? (
@@ -3671,16 +4407,39 @@ function OperatorMobileScanPageContent() {
               <div className="h-10 min-h-[2.5rem] sm:h-11" aria-hidden />
             )}
           </div>
-          {/* Right cell intentionally empty — refresh now lives only in the
-              layout-level utility row at the very top of the screen. The 2.5rem
-              column width keeps the centered title optically balanced opposite
-              the back arrow on the left. */}
-          <div aria-hidden className="h-10 w-10" />
+          <div className="flex min-h-10 items-start justify-end pt-0.5">
+            {showShipmentEntryEditAll ? (
+              <button
+                type="button"
+                onClick={() => setEditAllMode((m) => !m)}
+                aria-pressed={editAllMode}
+                className={`inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border px-3 py-2 text-[10px] font-bold uppercase tracking-wide shadow-sm transition active:scale-95 sm:px-3.5 sm:py-2 sm:text-[11px] ${
+                  editAllMode
+                    ? "border-teal-400/65 bg-teal-500/15 text-teal-200"
+                    : "border-slate-600/70 bg-slate-800/70 text-slate-200 hover:bg-slate-700/80"
+                }`}
+              >
+                {editAllMode ? (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+                    Done
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                    Edit All
+                  </>
+                )}
+              </button>
+            ) : (
+              <span className="inline-block h-10 w-10 shrink-0" aria-hidden />
+            )}
+          </div>
         </div>
 
-        {/* Step progress indicator (Pallet → Package → Item dots row) was removed
+        {/* Step progress indicator (Pallet → Box → Item dots row) was removed
             from the page header per the cleanup spec. The current phase is implicit
-            from the visible UI (active pallet card → package scan card → item form),
+            from the visible UI (active pallet card → box scan card → item form),
             and the sticky progress dashboard at the top of the page surfaces
             scanned/expected counts at all times. */}
 
@@ -3728,97 +4487,146 @@ function OperatorMobileScanPageContent() {
                       {parentIdentified ? "Identified" : "Scanning"}
                     </span>
                   </div>
-                  <p className="mt-0.5 truncate font-mono text-xs font-bold" style={{ color: ACCENT_BLUE }}>
-                    {contextId}
-                  </p>
+                  {flowPhase === "scan" && parentIdentified ? (
+                    trackingIdEditable ? (
+                      <input
+                        id={`${formId}-active-pallet-tracking`}
+                        type="text"
+                        autoComplete="off"
+                        enterKeyHint="done"
+                        aria-label="Tracking ID"
+                        className="mt-0.5 block w-full min-w-0 truncate rounded-md border-2 border-sky-400/55 bg-[#060a10] px-2 py-1 font-mono text-xs font-bold text-white outline-none placeholder:text-slate-600 focus-visible:ring-2 focus-visible:ring-sky-500/35"
+                        placeholder="Tracking / shipment ID"
+                        value={currentPalletTrackingId ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setCurrentPalletTrackingId(v === "" ? null : v);
+                        }}
+                        onBlur={(e) => {
+                          const t = e.target.value.trim();
+                          setCurrentPalletTrackingId(t.length ? t : null);
+                        }}
+                      />
+                    ) : (
+                      <p
+                        className="mt-0.5 truncate font-mono text-xs font-bold"
+                        style={{ color: ACCENT_BLUE }}
+                        title={(currentPalletTrackingId ?? "").trim() || activePallet?.pallet_number || undefined}
+                      >
+                        {(currentPalletTrackingId ?? "").trim() || activePallet?.pallet_number || "—"}
+                      </p>
+                    )
+                  ) : (
+                    <p className="mt-0.5 truncate font-mono text-xs font-bold" style={{ color: ACCENT_BLUE }}>
+                      {contextId}
+                    </p>
+                  )}
                 </div>
               </div>
-              {/* Row 3: Box Count — editable number field with -/+ steppers, no scan
-                  icon and no inline Start button (the bottom-of-page "Confirm & Start
-                  Box Scan" CTA remains the single primary action). Lives inside the
-                  Active Pallet card so the two form one cohesive block. */}
+              {/* Row 3: Box count — read-only until Edit All unlocks. */}
               {flowPhase === "scan" && parentIdentified ? (
-                <div className="mt-1.5 flex items-center gap-1.5 border-t pt-1.5" style={{ borderColor: BORDER }}>
-                  <label
-                    htmlFor={`${formId}-physical-boxes`}
-                    className="shrink-0 text-[9px] font-bold uppercase tracking-widest"
-                    style={{ color: MUTED_LABEL }}
-                  >
-                    Box count
-                  </label>
-                  <div
-                    key={`physical-shake-${physicalCountShakeSeq}`}
-                    className={`flex flex-1 items-stretch overflow-hidden rounded-md border-2 border-slate-600/70 bg-[#060a10] shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)] transition focus-within:border-teal-400/65 focus-within:shadow-[inset_0_1px_8px_rgba(0,0,0,0.55),0_0_0_3px_rgba(45,212,191,0.25)] ${
-                      physicalCountShakeSeq > 0 ? "operator-physical-count-shake" : ""
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      aria-label="Decrease box count"
-                      disabled={
-                        slipVisionProcessing ||
-                        !(typeof physicalBoxCount === "number" && physicalBoxCount > 0)
-                      }
-                      onClick={() => {
-                        setPhysicalBoxCount((prev) => {
-                          const cur = typeof prev === "number" ? prev : 0;
-                          const next = Math.max(0, cur - 1);
-                          return next === 0 ? null : next;
-                        });
-                      }}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                <div className="mt-1.5 border-t pt-1.5" style={{ borderColor: BORDER }}>
+                  {boxCountEditable ? (
+                    <div
+                      key={`physical-shake-${physicalCountShakeSeq}`}
+                      className={`flex flex-wrap items-center gap-2 ${
+                        physicalCountShakeSeq > 0 ? "operator-physical-count-shake" : ""
+                      }`}
                     >
-                      −
-                    </button>
-                    <input
-                      ref={physicalBoxCountInputRef}
-                      id={`${formId}-physical-boxes`}
-                      type="tel"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      autoComplete="off"
-                      enterKeyHint="done"
-                      className="block h-9 min-w-0 flex-1 bg-transparent px-2 text-center font-mono text-[16px] font-black tabular-nums text-white outline-none placeholder:text-slate-600"
-                      value={physicalBoxCount ?? ""}
-                      placeholder="0"
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/\D/g, "");
-                        if (raw === "") setPhysicalBoxCount(null);
-                        else {
-                          const n = Number.parseInt(raw, 10);
-                          if (!Number.isNaN(n)) setPhysicalBoxCount(n);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "Enter" &&
-                          typeof physicalBoxCount === "number" &&
-                          physicalBoxCount > 0 &&
-                          !slipVisionProcessing
-                        ) {
-                          e.preventDefault();
-                          (e.target as HTMLInputElement).blur();
-                          handleConfirmStartBoxScan();
-                        }
-                      }}
-                      aria-label="Total physical boxes found"
-                    />
-                    <button
-                      type="button"
-                      aria-label="Increase box count"
-                      disabled={slipVisionProcessing}
-                      onClick={() => {
-                        setPhysicalBoxCount((prev) => {
-                          const cur = typeof prev === "number" ? prev : 0;
-                          return cur + 1;
-                        });
-                      }}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                      <span
+                        className="shrink-0 text-[9px] font-bold uppercase tracking-widest"
+                        style={{ color: MUTED_LABEL }}
+                        id={`${formId}-physical-boxes-label`}
+                      >
+                        Box count
+                      </span>
+                      <div className="flex items-stretch overflow-hidden rounded-md border-2 border-teal-400/65 bg-[#060a10] shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)] focus-within:shadow-[inset_0_1px_8px_rgba(0,0,0,0.55),0_0_0_3px_rgba(45,212,191,0.25)]">
+                        <button
+                          type="button"
+                          aria-label="Decrease box count"
+                          disabled={(() => {
+                            const n = physicalBoxCount;
+                            return typeof n !== "number" || n <= 1;
+                          })()}
+                          onClick={() => {
+                            const cur = physicalBoxCount;
+                            if (typeof cur !== "number" || cur <= 1) {
+                              setPhysicalBoxCount(null);
+                              return;
+                            }
+                            setPhysicalBoxCount(cur - 1);
+                          }}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                        >
+                          −
+                        </button>
+                        <input
+                          ref={physicalBoxCountInputRef}
+                          id={`${formId}-physical-boxes`}
+                          type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          autoComplete="off"
+                          enterKeyHint="done"
+                          aria-labelledby={`${formId}-physical-boxes-label`}
+                          maxLength={4}
+                          className="block h-9 w-[4.25rem] min-w-0 bg-transparent text-center font-mono text-[17px] font-black tabular-nums text-white outline-none placeholder:text-slate-600"
+                          value={physicalBoxCount ?? ""}
+                          placeholder="0"
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/\D/g, "").slice(0, 4);
+                            if (raw === "") setPhysicalBoxCount(null);
+                            else {
+                              const n = Number.parseInt(raw, 10);
+                              if (!Number.isNaN(n)) setPhysicalBoxCount(n);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              (e.target as HTMLInputElement).blur();
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Increase box count"
+                          onClick={() => {
+                            const cur = physicalBoxCount;
+                            const next =
+                              typeof cur === "number" && Number.isFinite(cur)
+                                ? Math.min(9999, cur + 1)
+                                : 1;
+                            setPhysicalBoxCount(next);
+                          }}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p
+                      className={`text-[14px] font-extrabold tabular-nums leading-snug text-white ${
+                        physicalCountShakeSeq > 0 ? "operator-physical-count-shake text-amber-200" : ""
+                      }`}
+                      aria-label={`Box count: ${typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : "not set"}`}
                     >
-                      +
-                    </button>
-                  </div>
+                      Box Count:{" "}
+                      {typeof physicalBoxCount === "number" && physicalBoxCount > 0
+                        ? physicalBoxCount
+                        : "—"}
+                    </p>
+                  )}
                 </div>
+              ) : null}
+              {flowPhase === "scan" && parentIdentified && activePallet?.id ? (
+                <p className="mt-2 text-[9px] font-medium leading-snug opacity-85" style={{ color: MUTED_LABEL }}>
+                  Created by:{" "}
+                  <span className="font-semibold text-slate-400/95">
+                    {palletCreatedByLabel?.trim() ? palletCreatedByLabel.trim() : "Unknown"}
+                  </span>
+                </p>
               ) : null}
               <p className="sr-only" aria-live="polite">
                 {scanLine ? `Buffer: ${scanLine}` : "Scanner ready"}
@@ -3827,54 +4635,12 @@ function OperatorMobileScanPageContent() {
           </div>
         ) : null}
 
-        {/* Row 4: Carrier Selection — datalist-backed combobox in its own compact row
-            directly under the Active Pallet block. Operators pick from the canonical
-            list (UPS, FedEx, USPS, DHL, OnTrac, Amazon Logistics) or type the 4-letter
-            SCAC (EXLA, ODFL, SAIA, XPO, FXFE, THTE) — `normalizeCarrierLabel` maps
-            both to the canonical carrier name on blur and persists it. */}
-        {showContextHeader ? (
-          <div className="border-t px-2 pb-1.5 pt-1" style={{ borderColor: BORDER, backgroundColor: BG }}>
-            <div className="flex items-center gap-1.5">
-              <label
-                htmlFor={`${formId}-pallet-carrier-top`}
-                className="shrink-0 text-[9px] font-bold uppercase tracking-widest"
-                style={{ color: MUTED_LABEL }}
-              >
-                Carrier
-              </label>
-              <input
-                id={`${formId}-pallet-carrier-top`}
-                list={`${formId}-pallet-carrier-options-top`}
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                value={palletCarrier}
-                placeholder="UPS, FedEx, EXLA, ODFL, FXFE…"
-                onChange={(e) => setPalletCarrier(e.target.value)}
-                onBlur={() => {
-                  const normalized = normalizeCarrierLabel(palletCarrier) ?? "";
-                  if (normalized !== palletCarrier) {
-                    setPalletCarrier(normalized);
-                    void persistPalletShipmentField("carrier_name", normalized);
-                  } else {
-                    void persistPalletShipmentField("carrier_name", palletCarrier);
-                  }
-                }}
-                className="h-9 min-w-0 flex-1 rounded-md border-2 border-slate-600/70 bg-[#060a10] px-2 text-[13px] font-semibold text-white shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)] outline-none transition placeholder:text-slate-600 focus:border-teal-400/65 focus:shadow-[inset_0_1px_8px_rgba(0,0,0,0.55),0_0_0_3px_rgba(45,212,191,0.25)]"
-                aria-label="Carrier (type name or SCAC)"
-              />
-              <datalist id={`${formId}-pallet-carrier-options-top`}>
-                {CARRIER_ENTRIES.map((entry) => (
-                  <option
-                    key={entry.name}
-                    value={entry.name}
-                    label={entry.scac ? `${entry.scac} — ${entry.name}` : entry.name}
-                  />
-                ))}
-              </datalist>
-            </div>
-          </div>
-        ) : null}
+        {/* Row 4 — Box-only progress (Expected / Scanned / Remaining). */}
+        <ScanProgressDashboard
+          active={parentIdentified && flowPhase !== "items"}
+          boxesExpected={typeof physicalBoxCount === "number" && physicalBoxCount > 0 ? physicalBoxCount : 0}
+          boxesScanned={scannedBoxesSavedCount}
+        />
       </header>
 
       {flowPhase === "items" ? (
@@ -3906,8 +4672,9 @@ function OperatorMobileScanPageContent() {
                 className="mt-0 justify-start px-0"
                 storeLabel={activeStoreLabel}
                 palletLabel={warehousePalletLabel}
-                shipmentIdLabel={warehouseShipmentIdLabel}
-                boxBarcode={contextTrailBoxBarcode}
+                shipmentIdLabel={warehouseBreadcrumbShipmentForTrail}
+                middleOverride={warehouseBreadcrumbMiddleOverride}
+                boxBarcode={warehouseBreadcrumbTrailingBarcode}
               />
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 border-t border-white/10 pt-1.5 text-[11px] tabular-nums">
                 <span
@@ -4450,7 +5217,7 @@ function OperatorMobileScanPageContent() {
                     {(
                       [
                         ["pallet", "Pallet"],
-                        ["package", "Package"],
+                        ["package", "Box"],
                         ["item", "Item"],
                       ] as const
                     ).map(([id, label]) => {
@@ -4477,43 +5244,81 @@ function OperatorMobileScanPageContent() {
                     })}
                   </div>
                   {showIdentifyGatePhysicalBoxInput ? (
-                    <div className="mt-5">
-                      <label
-                        htmlFor={`${formId}-gate-physical`}
-                        className="mb-2 block text-center text-[11px] font-bold uppercase tracking-widest text-slate-300"
-                      >
-                        Operator package count
-                      </label>
-                      <input
-                        id={`${formId}-gate-physical`}
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        enterKeyHint="done"
-                        value={identifyGatePhysicalBoxStr === "" ? "" : identifyGatePhysicalBoxStr}
-                        onFocus={() => setManualOpen(true)}
-                        onBlur={() => {
-                          window.setTimeout(() => setManualOpen(false), 120);
-                        }}
-                        onChange={(e) => {
-                          const v = e.target.value.replace(/\D/g, "");
-                          setIdentifyGatePhysicalBoxStr(v);
-                        }}
-                        placeholder="e.g. 120"
-                        aria-invalid={identifyGateBoxCountShowsError}
-                        aria-label="Operator package count for pallet"
-                        className={`mx-auto block min-h-[88px] w-full max-w-[min(100%,320px)] rounded-2xl border-2 bg-[#060a10] px-4 py-3 text-center font-mono text-[40px] font-black tabular-nums leading-none text-white shadow-[inset_0_4px_24px_rgba(0,0,0,0.65)] outline-none transition placeholder:text-slate-600 sm:min-h-[96px] sm:text-[48px] ${
-                          identifyGateBoxCountShowsError
-                            ? "border-red-500/80 focus:border-red-400 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(248,113,113,0.35)]"
-                            : "border-slate-600/80 focus:border-sky-400/65 focus:shadow-[inset_0_4px_24px_rgba(0,0,0,0.65),0_0_0_3px_rgba(56,189,248,0.22)]"
-                        }`}
-                      />
+                    <div className="mt-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <label
+                          htmlFor={`${formId}-gate-physical`}
+                          className="shrink-0 text-[11px] font-bold uppercase tracking-widest text-slate-300"
+                        >
+                          Box count:
+                        </label>
+                        <div
+                          className={`flex items-stretch overflow-hidden rounded-md border-2 bg-[#060a10] shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)] transition ${
+                            identifyGateBoxCountShowsError
+                              ? "border-red-500/80 focus-within:border-red-400 focus-within:shadow-[inset_0_1px_8px_rgba(0,0,0,0.55),0_0_0_3px_rgba(248,113,113,0.3)]"
+                              : "border-slate-600/80 focus-within:border-sky-400/65 focus-within:shadow-[inset_0_1px_8px_rgba(0,0,0,0.55),0_0_0_3px_rgba(56,189,248,0.22)]"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            aria-label="Decrease box count"
+                            disabled={(() => {
+                              const n = Number.parseInt(identifyGatePhysicalBoxStr, 10);
+                              return !Number.isFinite(n) || n <= 0;
+                            })()}
+                            onClick={() => {
+                              const cur = Number.parseInt(identifyGatePhysicalBoxStr, 10);
+                              if (!Number.isFinite(cur) || cur <= 1) {
+                                setIdentifyGatePhysicalBoxStr("");
+                                return;
+                              }
+                              setIdentifyGatePhysicalBoxStr(String(cur - 1));
+                            }}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            −
+                          </button>
+                          <input
+                            id={`${formId}-gate-physical`}
+                            type="tel"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            autoComplete="off"
+                            enterKeyHint="done"
+                            maxLength={4}
+                            value={identifyGatePhysicalBoxStr}
+                            onFocus={() => setManualOpen(true)}
+                            onBlur={() => {
+                              window.setTimeout(() => setManualOpen(false), 120);
+                            }}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                              setIdentifyGatePhysicalBoxStr(v);
+                            }}
+                            aria-invalid={identifyGateBoxCountShowsError}
+                            aria-label="Operator box count for pallet"
+                            className="block h-9 w-[4.5rem] min-w-0 bg-transparent px-1 text-center font-mono text-[18px] font-black tabular-nums text-white outline-none"
+                          />
+                          <button
+                            type="button"
+                            aria-label="Increase box count"
+                            onClick={() => {
+                              const cur = Number.parseInt(identifyGatePhysicalBoxStr, 10);
+                              const next = Number.isFinite(cur) ? Math.min(9999, cur + 1) : 1;
+                              setIdentifyGatePhysicalBoxStr(String(next));
+                            }}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center text-[18px] font-black text-slate-300 transition hover:bg-slate-700/40 active:scale-95"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
                       {identifyGateBoxCountShowsError ? (
-                        <p className="mt-2 text-center text-[12px] font-bold text-red-400" role="alert">
-                          Enter package count (integer ≥ 1).
+                        <p className="mt-1.5 text-center text-[11px] font-bold text-red-400" role="alert">
+                          Enter box count (integer ≥ 1).
                         </p>
                       ) : (
-                        <p className="mt-2 text-center text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
+                        <p className="mt-1.5 text-center text-[10px] font-semibold" style={{ color: MUTED_LABEL }}>
                           Cartons on this pallet (saved with the pallet).
                         </p>
                       )}
@@ -4537,9 +5342,7 @@ function OperatorMobileScanPageContent() {
                   >
                     {identifyGateInventoryVisual === "completed" ? (
                       <ThumbsUp className="h-5 w-5" strokeWidth={2.25} />
-                    ) : (
-                      <ScanLine className="h-5 w-5" strokeWidth={2.25} />
-                    )}
+                    ) : null}
                     {identificationGatePrimaryCta(identifyGateInventoryVisual)}
                   </button>
                 </div>
@@ -4553,7 +5356,7 @@ function OperatorMobileScanPageContent() {
             className="mb-3 rounded-xl border px-3 py-2 text-[11px] font-semibold"
             style={{ borderColor: "rgba(251,191,36,0.35)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
           >
-            Demo — PLT-, TRACK-, PKG-, SLIP-, or SKU patterns. Supabase optional.
+            Demo — PLT-, TRACK-, BOX-, SLIP-, or SKU patterns. Supabase optional.
           </p>
         ) : null}
 
@@ -4577,106 +5380,18 @@ function OperatorMobileScanPageContent() {
 
         {flowPhase === "scan" && parentIdentified ? (
           <>
-
-            {/* Shipment slip — compact tap-to-capture row. AI OCR runs automatically on capture
-                and auto-fills Carrier + Order ID below. Manual fields below also work. */}
-            <section className={`mb-2 rounded-2xl p-2.5 ${glassCard}`}>
-              <div className="flex items-center gap-3">
-                <input
-                  ref={slip1Ref}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => onSlipFile(1, e.target.files?.[0])}
-                />
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    if (!slipVisionProcessing) slip1Ref.current?.click();
-                  }}
-                  onKeyDown={(e) => {
-                    if ((e.key === "Enter" || e.key === " ") && !slipVisionProcessing) {
-                      e.preventDefault();
-                      slip1Ref.current?.click();
-                    }
-                  }}
-                  className={`relative flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border-2 border-dashed outline-none transition hover:brightness-105 focus-visible:ring-2 focus-visible:ring-sky-500/50 ${slipVisionProcessing ? "pointer-events-none" : ""}`}
-                  style={{
-                    borderColor: slipPhoto1Url ? "rgba(52,211,153,0.45)" : "rgba(56,189,248,0.45)",
-                    backgroundColor: slipPhoto1Url ? CARD : CARD_INNER,
-                  }}
-                  aria-label="Capture shipment slip"
-                >
-                  {slipPhoto1Url ? (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={slipPhoto1Url} alt="Shipment slip" className="h-full w-full object-cover" />
-                      {slipVisionProcessing ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/65 backdrop-blur-[2px]">
-                          <Loader2 className="h-5 w-5 animate-spin" style={{ color: TEAL_STEP }} strokeWidth={2.25} />
-                        </div>
-                      ) : (
-                        <div
-                          className="absolute bottom-0 right-0 rounded-tl-md p-0.5"
-                          style={{ backgroundColor: "rgba(6,78,59,0.92)", color: SUCCESS }}
-                        >
-                          <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} />
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <Camera className="h-6 w-6" style={{ color: ACTION_BLUE }} strokeWidth={1.75} />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-bold leading-tight text-white">
-                    {slipPhoto1Url
-                      ? slipVisionProcessing
-                        ? "Reading slip with AI…"
-                        : "Slip captured"
-                      : "Tap to capture shipment slip"}
-                  </p>
-                  <p className="mt-0.5 text-[10px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
-                    {slipPhoto1Url
-                      ? "AI fills Carrier & Order ID below — edit any field manually."
-                      : "Optional — AI auto-fills Carrier & Order ID. Or fill manually below."}
-                  </p>
-                </div>
-                {slipPhoto1Url && !slipVisionProcessing ? (
-                  <div className="flex shrink-0 flex-col gap-1">
-                    <button
-                      type="button"
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        revokeSlip(1);
-                      }}
-                      className="rounded-md border border-white/10 px-2 py-0.5 text-[9px] font-semibold text-slate-300 transition hover:bg-white/5"
-                    >
-                      Replace
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!(getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage())}
-                      onClick={() => void runManualSlipVisionFromCapture()}
-                      className="rounded-md border border-white/10 px-2 py-0.5 text-[9px] font-semibold text-slate-300 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Re-run AI
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </section>
-
             {activePallet?.id ? (
               <>
-                <section className={`mb-2 rounded-2xl p-2.5 ${glassCard}`}>
+                {/* `relative z-30` lifts this section above subsequent sibling cards
+                    (Pallet documentation, etc.). Each `glassCard` creates its own stacking
+                    context via backdrop-filter, so without this the open Carrier combobox
+                    panel would render UNDER the next card in DOM order. */}
+                <section className={`relative z-30 mb-2 rounded-2xl p-2.5 ${glassCard}`}>
                   <div className="mb-2 flex items-center gap-2">
-                    <ClipboardList className="h-4 w-4" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
+                    <ClipboardList className="h-4 w-4 shrink-0" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
                     <h2 className="text-[14px] font-bold text-white">Shipment slip details</h2>
                   </div>
-                  {manifestPhotoUploadedUrl ? (
+                  {shippingLabelPhotoUrls.length > 0 ? (
                     <p
                       className="mb-3 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
                       style={{
@@ -4686,164 +5401,204 @@ function OperatorMobileScanPageContent() {
                       }}
                     >
                       <CheckCircle2 className="h-3 w-3" strokeWidth={2.5} />
-                      Slip image saved
-                    </p>
-                  ) : manifestPhotoUploading ? (
-                    <p
-                      className="mb-3 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
-                      style={{
-                        borderColor: "rgba(56,189,248,0.45)",
-                        backgroundColor: "rgba(8,47,73,0.35)",
-                        color: ACCENT_BLUE,
-                      }}
-                    >
-                      <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.5} />
-                      Uploading slip image…
+                      Shipping label photo attached
                     </p>
                   ) : null}
-                  {/* Carrier was promoted to the top-level Active Pallet block so the
-                      operator can pick/SCAC-search it without scrolling. Only Amazon
-                      Order ID stays here as a slip-detail field. */}
-                  <div>
-                    <label
-                      htmlFor={`${formId}-pallet-order-id`}
-                      className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
-                      style={{ color: MUTED_LABEL }}
-                    >
-                      Amazon Order ID{" "}
-                      <span className="font-normal normal-case opacity-70">(optional)</span>
-                    </label>
-                    <input
-                      id={`${formId}-pallet-order-id`}
-                      type="text"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={palletAmazonOrderId}
-                      onChange={(e) => setPalletAmazonOrderId(e.target.value)}
-                      onBlur={() => void persistPalletShipmentField("amazon_order_id", palletAmazonOrderId)}
-                      placeholder="114-XXXXXXX-XXXXXXX"
-                      className="scanner-input-glass h-10 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
-                      style={{ color: TEXT_PRIMARY }}
-                    />
-                    <p className="mt-1 text-[10px]" style={{ color: MUTED_LABEL }}>
-                      Inherits to packages &amp; items.
-                    </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor={slipCarrierOrderEditable ? `${formId}-pallet-carrier` : undefined}
+                        className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                        style={{ color: MUTED_LABEL }}
+                      >
+                        Carrier{" "}
+                        <span className="font-normal normal-case opacity-70">(optional)</span>
+                      </label>
+                      {slipCarrierOrderEditable ? (
+                        <>
+                          <CarrierCombobox
+                            triggerId={`${formId}-pallet-carrier`}
+                            value={palletCarrier}
+                            otherSelected={palletCarrierOtherSelected}
+                            invalid={
+                              palletCarrierOtherSelected &&
+                              palletCarrier.trim().length === 0
+                            }
+                            onPickKnown={(name) => {
+                              setPalletCarrierOtherSelected(false);
+                              setPalletCarrier(name);
+                            }}
+                            onPickOther={() => {
+                              setPalletCarrierOtherSelected(true);
+                              if (isKnownCarrierName(palletCarrier)) {
+                                setPalletCarrier("");
+                              }
+                            }}
+                          />
+                          {/* Conditional "Other" free-text input: only renders when
+                              "Other / Not Listed" was explicitly selected from the
+                              dropdown, even though we're already in global edit mode. */}
+                          {palletCarrierOtherSelected ? (
+                            <div className="relative z-50 mt-2">
+                              <label
+                                htmlFor={`${formId}-pallet-carrier-custom`}
+                                className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                                style={{ color: MUTED_LABEL }}
+                              >
+                                Enter Carrier Name{" "}
+                                <span className="text-amber-400">*</span>
+                              </label>
+                              <input
+                                id={`${formId}-pallet-carrier-custom`}
+                                type="text"
+                                value={palletCarrier}
+                                onChange={(e) => setPalletCarrier(e.target.value)}
+                                placeholder="Type here..."
+                                autoComplete="off"
+                                spellCheck={false}
+                                className="relative z-50 h-9 w-full rounded-lg border border-amber-500/55 bg-white/95 px-3 text-[13px] text-zinc-900 outline-none placeholder:opacity-50 focus:border-teal-400 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] dark:bg-zinc-900/95 dark:text-zinc-50"
+                              />
+                            </div>
+                          ) : (
+                            <p
+                              className="mt-1 text-[10px]"
+                              style={{ color: MUTED_LABEL }}
+                            >
+                              Search by name or SCAC (e.g. EXLA). Auto-fills child
+                              boxes.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        // Read-only display: shows the saved canonical name, the
+                        // typed Other value, or an em-dash when nothing is set yet.
+                        <div
+                          className="block h-9 rounded-md border-2 border-slate-600/70 bg-[#060a10] px-3 leading-9 text-[13px] font-semibold text-white shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)]"
+                          aria-label={`Carrier: ${palletCarrier || "not set"}`}
+                        >
+                          {palletCarrier.trim().length > 0 ? (
+                            palletCarrierOtherSelected ? (
+                              <span>
+                                <span className="opacity-60">Other:</span>{" "}
+                                {palletCarrier}
+                              </span>
+                            ) : (
+                              palletCarrier
+                            )
+                          ) : (
+                            <span style={{ color: MUTED_LABEL }}>—</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label
+                        htmlFor={slipCarrierOrderEditable ? `${formId}-pallet-order-id` : undefined}
+                        className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                        style={{ color: MUTED_LABEL }}
+                      >
+                        Order ID{" "}
+                        <span className="font-normal normal-case opacity-70">(optional)</span>
+                      </label>
+                      {slipCarrierOrderEditable ? (
+                        <input
+                          id={`${formId}-pallet-order-id`}
+                          type="text"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={palletOrderId}
+                          onChange={(e) => setPalletOrderId(e.target.value)}
+                          placeholder="114-XXXXXXX-XXXXXXX"
+                          className="scanner-input-glass h-10 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
+                          style={{ color: TEXT_PRIMARY }}
+                        />
+                      ) : (
+                        <div
+                          className="block h-9 rounded-md border-2 border-slate-600/70 bg-[#060a10] px-3 font-mono leading-9 text-[13px] font-semibold text-white shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)]"
+                          aria-label={`Order ID: ${palletOrderId || "not set"}`}
+                        >
+                          {palletOrderId.trim().length > 0 ? (
+                            palletOrderId
+                          ) : (
+                            <span style={{ color: MUTED_LABEL }}>—</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </section>
 
-                <section
-                  className={`mb-2 space-y-2 rounded-xl p-2.5 ${glassCard}`}
-                >
+                <section className={`mb-2 space-y-3 rounded-xl p-2.5 ${glassCard}`}>
                   <div className="flex items-center gap-2">
                     <ClipboardList className="h-4 w-4" strokeWidth={2} style={{ color: ACCENT_BLUE }} />
-                    <p className="text-[13px] font-bold text-white">Pallet documentation</p>
+                    <p className="text-[13px] font-bold text-white">Pallet Documentation</p>
                   </div>
                   <MasterUploader
+                    label="SHIPPING LABEL"
+                    hint="Up to 3 images — stored as manifest_photo_url plus photo_evidence.label_urls."
+                    value={shippingLabelPhotoUrls}
+                    onChange={handleShippingLabelPhotoUrlsChange}
+                    organizationId={orgId}
+                    maxFiles={3}
+                    disabled={!slipCarrierOrderEditable}
+                  />
+                  <MasterUploader
                     label="Pallet photo (optional)"
-                    hint="Up to 3 images — first is saved to photo_url (extras are not stored on the pallet row)."
+                    hint="Up to 3 images — stored as photo_url plus photo_evidence.pallet_urls."
                     value={palletPhotoUrls}
                     onChange={handlePalletPhotoUrlsChange}
                     organizationId={orgId}
                     maxFiles={3}
+                    disabled={!slipCarrierOrderEditable}
                   />
                   <MasterUploader
                     label="Bill of Lading (optional)"
-                    hint="Up to 3 images — first is saved to bol_photo_url (extras are not stored on the pallet row)."
+                    hint="Up to 3 images — stored as bol_photo_url plus photo_evidence.bol_urls."
                     value={bolPhotoUrls}
                     onChange={handleBolPhotoUrlsChange}
                     organizationId={orgId}
                     maxFiles={3}
+                    disabled={!slipCarrierOrderEditable}
                   />
                 </section>
               </>
             ) : null}
 
-            {/* Expected inventory — collapsed by default to keep this page calm.
-                Operators can expand to verify SKUs/units before starting box scan. */}
-            <details
-              className={`group mb-2 rounded-2xl p-2 ${glassCard}`}
-              style={{
-                borderColor: trackingIdentified ? PURPLE_RING : "rgba(45,212,191,0.28)",
-              }}
-            >
-              <summary
-                className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-1 py-0.5 text-[12px] font-semibold text-slate-300 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-sky-500/40"
-              >
-                <span className="flex items-center gap-2">
-                  <Package
-                    className="h-3.5 w-3.5"
-                    strokeWidth={2}
-                    style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}
-                  />
-                  Expected inventory
-                  <span
-                    className="ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold"
-                    style={{
-                      backgroundColor: "rgba(148,163,184,0.12)",
-                      color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP,
-                    }}
-                  >
-                    {expectedPkgLines.length} SKUs · {totalSkuUnits} units
-                  </span>
-                </span>
-                <span className="text-[10px] font-medium text-slate-500 group-open:hidden">Tap to view</span>
-                <span className="hidden text-[10px] font-medium text-slate-500 group-open:inline">Hide</span>
-              </summary>
-              <div className="mt-3 border-t pt-3" style={{ borderColor: BORDER }}>
-                <p className="mb-2 text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
-                  Aggregated by SKU · FNSKU · disposition for parent{" "}
-                  <span
-                    className="font-mono font-bold"
-                    style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}
-                  >
-                    {trackingIdentified ? activeTracking : activePallet?.pallet_number}
-                  </span>
-                  .
-                </p>
-                {expectedPkgLines.length === 0 ? (
-                  <p className="text-[12px] font-medium" style={{ color: MUTED_LABEL }}>
-                    No expected_packages lines for this parent in the current store.
-                  </p>
-                ) : (
-                  <ul className="list-none divide-y divide-slate-700/40">
-                    {expectedPkgLines.map((line) => (
-                      <ExpectedInventoryLineRow
-                        key={line.groupKey}
-                        line={line}
-                        accent={trackingIdentified ? "purple" : "teal"}
-                      />
-                    ))}
-                  </ul>
-                )}
+            <div className="mb-6 flex w-full justify-center px-4 pb-1">
+              <div className="flex w-full max-w-md flex-wrap justify-center gap-4 sm:flex-nowrap">
+                <button
+                  type="button"
+                  disabled={confirmSaving}
+                  onClick={() => {
+                    modalOpenRef.current = true;
+                    setCancelShipmentConfirmOpen(true);
+                  }}
+                  className="flex h-[48px] min-h-[48px] min-w-[9.5rem] flex-1 items-center justify-center rounded-[14px] border-2 border-red-400/55 bg-transparent px-4 text-[13px] font-bold text-red-200 shadow-none transition hover:bg-red-500/10 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35 sm:flex-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmSaving}
+                  onClick={() => {
+                    modalOpenRef.current = true;
+                    setSaveShipmentConfirmOpen(true);
+                  }}
+                  className="flex h-[48px] min-h-[48px] min-w-[9.5rem] flex-1 items-center justify-center gap-2 rounded-[14px] px-4 text-[14px] font-bold text-white shadow-[0_6px_18px_rgba(14,165,233,0.3)] transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35 sm:flex-1"
+                  style={{
+                    background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
+                    boxShadow: isReadyForBoxScan ? `0 8px 22px rgba(14,165,233,0.38)` : undefined,
+                  }}
+                >
+                  {confirmSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.25} />
+                  ) : (
+                    <ScanLine className="h-4 w-4" strokeWidth={2.25} />
+                  )}
+                  {confirmSaving ? "Saving…" : "Save & Start Scan"}
+                </button>
               </div>
-            </details>
-
-            <button
-              type="button"
-              disabled={
-                !parentIdentified ||
-                slipVisionProcessing ||
-                !(typeof physicalBoxCount === "number" && physicalBoxCount > 0)
-              }
-              onClick={handleConfirmStartBoxScan}
-              className="mb-2 flex h-[46px] w-full items-center justify-center gap-2 rounded-[14px] text-[14px] font-bold text-white shadow-[0_6px_18px_rgba(14,165,233,0.3)] transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
-              style={{
-                background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
-                boxShadow: isReadyForBoxScan ? `0 8px 22px rgba(14,165,233,0.38)` : undefined,
-              }}
-            >
-              <ScanLine className="h-4 w-4" strokeWidth={2.25} />
-              Confirm & Start Box Scan
-            </button>
-            <button
-              type="button"
-              onClick={editParent}
-              className="mb-4 flex h-10 w-full items-center justify-center gap-2 rounded-[14px] border-2 bg-transparent text-[12px] font-bold transition hover:bg-white/5"
-              style={{ borderColor: ACTION_BLUE, color: ACCENT_BLUE }}
-            >
-              <Pencil className="h-3.5 w-3.5" strokeWidth={2} />
-              Edit Parent
-            </button>
+            </div>
           </>
         ) : null}
 
@@ -4896,14 +5651,13 @@ function OperatorMobileScanPageContent() {
                             <p className="text-[12px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
                               {trackingIdentified ? (
                                 <>
-                                  Expected lines come from <span className="font-mono text-[11px] text-sky-200/90">expected_packages</span>{" "}
-                                  for this tracking and store. Capture slip photos on this step, then start box scan.
+                                  Expected lines come from the expected box worklist for this tracking and store. Capture slip photos on
+                                  this step, then start box scan.
                                 </>
                               ) : (
                                 <>
-                                  Scan a pallet label, tracking label, carton, slip, or item code. When you lock onto a tracking,
-                                  lines match <span className="font-mono text-[11px] text-sky-200/90">expected_packages</span> for this
-                                  org and store.
+                                  Scan a pallet label, tracking label, carton, slip, or item code. When you lock onto a tracking, lines
+                                  match the expected box worklist for this org and store.
                                 </>
                               )}
                             </p>
@@ -5023,7 +5777,9 @@ function OperatorMobileScanPageContent() {
               >
                 <div className="min-w-0">
                   <p className="font-mono text-[15px] font-bold leading-snug sm:text-[17px]" style={{ color: ACTION_PURPLE }}>
-                    {activeTracking}
+                    {activePallet?.id
+                      ? (currentPalletTrackingId ?? "").trim() || slipBarcodeExtract?.shipmentId?.trim() || "—"
+                      : activeTracking ?? "—"}
                   </p>
                   <p className="mt-1 text-[11px] font-bold uppercase tracking-wide" style={{ color: "rgba(196,181,253,0.95)" }}>
                     Tracking · box-level parent
@@ -5047,24 +5803,32 @@ function OperatorMobileScanPageContent() {
               {parentIdentified ? (
                 <>
                   <PalletScanStatTile
-                    label="Expected"
-                    value={expectedPkgTotals ? String(expectedPkgTotals.expectedUnits) : "—"}
+                    label="Expected Boxes"
+                    value={
+                      typeof physicalBoxCount === "number" && physicalBoxCount > 0
+                        ? String(physicalBoxCount)
+                        : "—"
+                    }
                     icon={ClipboardList}
                     glow="blue"
                     iconColor={ACCENT_BLUE}
                     valueColor={ACTION_BLUE}
                   />
                   <PalletScanStatTile
-                    label="Scanned"
-                    value={expectedPkgTotals ? String(expectedPkgTotals.scannedUnits) : "—"}
+                    label="Scanned Boxes"
+                    value={String(scannedBoxesSavedCount)}
                     icon={ScanLine}
                     glow="green"
                     iconColor={SUCCESS}
                     valueColor={SUCCESS}
                   />
                   <PalletScanStatTile
-                    label="Remaining"
-                    value={expectedPkgTotals ? String(expectedPkgTotals.remainingUnits) : "—"}
+                    label="Remaining Boxes"
+                    value={
+                      typeof physicalBoxCount === "number" && physicalBoxCount > 0
+                        ? String(Math.max(0, physicalBoxCount - scannedBoxesSavedCount))
+                        : "—"
+                    }
                     icon={Package}
                     glow="purple"
                     iconColor={ACCENT_PURPLE}
@@ -5082,24 +5846,24 @@ function OperatorMobileScanPageContent() {
                     valueColor={TEAL_STEP}
                   />
                   <PalletScanStatTile
-                    label="Expected"
-                    value={stats ? String(stats.expectedItems) : "—"}
+                    label="Expected Boxes"
+                    value="—"
                     icon={ClipboardList}
                     glow="blue"
                     iconColor={ACCENT_BLUE}
                     valueColor={TEXT_PRIMARY}
                   />
                   <PalletScanStatTile
-                    label="Scanned"
-                    value={stats ? String(stats.scannedItems) : "—"}
+                    label="Scanned Boxes"
+                    value="—"
                     icon={ScanLine}
                     glow="green"
                     iconColor={SUCCESS}
                     valueColor={SUCCESS}
                   />
                   <PalletScanStatTile
-                    label="Remaining"
-                    value={stats ? String(stats.remainingItems) : "—"}
+                    label="Remaining Boxes"
+                    value="—"
                     icon={Package}
                     glow="purple"
                     iconColor={ACCENT_PURPLE}
@@ -5136,12 +5900,16 @@ function OperatorMobileScanPageContent() {
                       className="font-mono font-bold"
                       style={{ color: trackingIdentified ? ACTION_PURPLE : TEAL_STEP }}
                     >
-                      {trackingIdentified ? activeTracking : activePallet?.pallet_number}
+                      {trackingIdentified
+                        ? activePallet?.id
+                          ? (currentPalletTrackingId ?? "").trim() || slipBarcodeExtract?.shipmentId?.trim() || activePallet?.pallet_number
+                          : activeTracking
+                        : activePallet?.pallet_number}
                     </span>
                   </p>
                 ) : (
                   <p className="text-[12px] font-medium" style={{ color: MUTED_LABEL }}>
-                    Scan a pallet or tracking to load <span className="font-mono text-[11px]">expected_packages</span>.
+                    Scan a pallet or tracking to load expected boxes.
                   </p>
                 )}
               </div>
@@ -5151,7 +5919,7 @@ function OperatorMobileScanPageContent() {
                 </p>
               ) : expectedPkgLines.length === 0 ? (
                 <p className="text-[13px] font-medium" style={{ color: MUTED_LABEL }}>
-                  No expected_packages rows for this parent (store + worklist).
+                  No expected boxes for this parent (store + worklist).
                 </p>
               ) : (
                 <ul className="list-none divide-y divide-slate-700/50">
@@ -5201,7 +5969,7 @@ function OperatorMobileScanPageContent() {
                     className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                     style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
                   >
-                    No active stores for this organization — add a store in Settings before saving packages.
+                    No active stores for this organization — add a store in Settings before saving boxes.
                   </p>
                 ) : null}
 
@@ -5210,7 +5978,7 @@ function OperatorMobileScanPageContent() {
                     className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                     style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
                   >
-                    Select an active store above — packages require a store scope.
+                    Select an active store above — saving boxes requires a store scope.
                   </p>
                 ) : null}
 
@@ -5223,7 +5991,7 @@ function OperatorMobileScanPageContent() {
                   </p>
                 ) : null}
 
-                {/* Step 3 — Box intake only (package + carton evidence). Item barcodes belong in Step 4. */}
+                {/* Step 3 — Box intake only (carton evidence). Item barcodes belong in Step 4. */}
                 <section
                   className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}
                   style={{
@@ -5238,22 +6006,22 @@ function OperatorMobileScanPageContent() {
                     <div className="min-w-0 flex-1 space-y-3">
                       <div>
                         <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                          {trackingIdentified ? "Shipment" : "Pallet"} ID
+                          Shipment ID
                         </p>
                         <p className="mt-0.5 font-mono text-[17px] font-bold" style={{ color: ACTION_PURPLE }}>
-                          {trackingIdentified ? activeTracking : activePallet?.pallet_number}
+                          {(currentPalletTrackingId ?? "").trim() || "—"}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-x-8 gap-y-2">
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                            Expected boxes
+                            Expected Boxes
                           </p>
                           <p className="text-[20px] font-bold tabular-nums text-white">{physicalBoxCount ?? "—"}</p>
                         </div>
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                            Scanned boxes
+                            Scanned Boxes
                           </p>
                           <p className="text-[20px] font-bold tabular-nums" style={{ color: ACTION_PURPLE }}>
                             {scannedBoxesSavedCount}
@@ -5297,7 +6065,7 @@ function OperatorMobileScanPageContent() {
                 ) : null}
                 {activeBoxSession ? (
                   <p className="-mt-2 mb-3 text-center font-mono text-[11px] font-semibold" style={{ color: ACCENT_PURPLE }}>
-                    Locked: {activeBoxSession.barcode}
+                    Locked: {currentPackageTrackingId ?? activeBoxSession.barcode}
                   </p>
                 ) : null}
 
@@ -5333,8 +6101,11 @@ function OperatorMobileScanPageContent() {
                     <div className="mt-1.5 flex gap-2">
                       <input
                         id={`${formId}-box-intake-manual`}
-                        value={scanLine}
-                        onChange={(e) => setScanLine(e.target.value)}
+                        value={currentPackageTrackingId ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setCurrentPackageTrackingId(v === "" ? null : v);
+                        }}
                         onFocus={() => setManualOpen(true)}
                         onBlur={() => {
                           window.setTimeout(() => setManualOpen(false), 120);
@@ -5357,7 +6128,7 @@ function OperatorMobileScanPageContent() {
                   </div>
                   <button
                     type="button"
-                    disabled={busy || !scanLine.trim() || Boolean(activeBoxSession)}
+                    disabled={busy || !(currentPackageTrackingId ?? "").trim() || Boolean(activeBoxSession)}
                     onClick={() => void onSubmitScan()}
                     className="mt-4 flex h-[50px] w-full items-center justify-center gap-2 rounded-[16px] text-[15px] font-bold transition hover:brightness-110 disabled:opacity-40"
                     style={{
@@ -5772,7 +6543,7 @@ function OperatorMobileScanPageContent() {
                 className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
               >
-                Select an active store above to save returns and bump expected_packages.
+                Select an active store above to save returns and update receiving data.
               </p>
             ) : null}
 
@@ -5781,7 +6552,7 @@ function OperatorMobileScanPageContent() {
                 className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
               >
-                Demo package id — saves use <span className="font-mono">package_id = null</span> until you intake a live box.
+                Demo mode — saves are not linked to a live box record until you intake one.
               </p>
             ) : null}
 
@@ -6346,6 +7117,102 @@ function OperatorMobileScanPageContent() {
         </div>
       ) : null}
 
+      {saveShipmentConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-[141] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-save-ship-confirm-title`}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border-2 p-5 shadow-[0_0_48px_rgba(14,165,233,0.18)]"
+            style={{ borderColor: "rgba(56,189,248,0.45)", backgroundColor: CARD }}
+          >
+            <p id={`${formId}-save-ship-confirm-title`} className="text-center text-[16px] font-black leading-snug text-white">
+              Are you sure you want to save this record and begin scanning boxes?
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="h-12 rounded-xl border-2 text-[14px] font-bold transition hover:brightness-110"
+                style={{
+                  borderColor: BORDER,
+                  backgroundColor: CARD_INNER,
+                  color: TEXT_PRIMARY,
+                }}
+                onClick={() => {
+                  setSaveShipmentConfirmOpen(false);
+                  modalOpenRef.current = false;
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="h-12 rounded-xl border-2 border-sky-400/55 text-[14px] font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
+                }}
+                disabled={confirmSaving}
+                onClick={() => {
+                  setSaveShipmentConfirmOpen(false);
+                  modalOpenRef.current = false;
+                  void handleConfirmStartBoxScan();
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelShipmentConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-[141] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-cancel-ship-confirm-title`}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border-2 p-5 shadow-[0_0_48px_rgba(248,113,113,0.15)]"
+            style={{ borderColor: "rgba(248,113,113,0.45)", backgroundColor: CARD }}
+          >
+            <p id={`${formId}-cancel-ship-confirm-title`} className="text-center text-[16px] font-black leading-snug text-white">
+              Discard changes? You will return to the search screen.
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="h-12 rounded-xl border-2 text-[14px] font-bold transition hover:brightness-110"
+                style={{
+                  borderColor: BORDER,
+                  backgroundColor: CARD_INNER,
+                  color: TEXT_PRIMARY,
+                }}
+                onClick={() => {
+                  setCancelShipmentConfirmOpen(false);
+                  modalOpenRef.current = false;
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="h-12 rounded-xl border-2 border-red-400/60 bg-transparent text-[14px] font-bold text-red-100 transition hover:bg-red-500/15"
+                onClick={() => {
+                  setCancelShipmentConfirmOpen(false);
+                  modalOpenRef.current = false;
+                  router.push(SCANNER_OPERATOR_HOME_PATH);
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <ScannerBottomNav active="scan" alertCount={2} />
 
       {candidatePicker ? (
@@ -6440,8 +7307,8 @@ function OperatorMobileScanPageContent() {
                   Confirm slip (GPT-4o)
                 </p>
                 <p className="mt-1 text-[11px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
-                  Review extracted IDs and line items. Confirm applies shipment context before you save boxes to{" "}
-                  <span className="font-mono text-[10px]">packages</span>.
+                  Review extracted IDs and line items. Confirm applies shipment context before you save box intake to
+                  the pallet.
                 </p>
               </div>
               <button
@@ -6478,7 +7345,7 @@ function OperatorMobileScanPageContent() {
                     Confirmed by Slip
                   </span>
                   <CheckCircle2 className="mr-1 inline-block h-4 w-4 align-text-bottom text-emerald-400" strokeWidth={2} />
-                  <span className="font-mono text-emerald-50">expected_packages</span> · tracking{" "}
+                  Expected box · tracking{" "}
                   <span className="font-mono text-white">{slipVisionModal.suggestedTracking}</span>
                 </div>
               ) : (
@@ -6487,8 +7354,8 @@ function OperatorMobileScanPageContent() {
                     Not confirmed
                   </span>
                   <AlertTriangle className="mr-1 inline-block h-4 w-4 align-text-bottom text-amber-400" strokeWidth={2} />
-                  No <span className="font-mono text-amber-50/95">expected_packages</span> row for these IDs (space/case-insensitive
-                  tracking search was tried). You can still confirm slip labels; scan or set tracking manually.
+                  No expected box matched for these IDs (space/case-insensitive tracking search was tried). You can still confirm slip
+                  labels; scan or set tracking manually.
                 </div>
               )}
 
@@ -6539,7 +7406,7 @@ function OperatorMobileScanPageContent() {
                           <p className="mt-1 text-[10px] font-bold text-emerald-400/95">{row.matchedHint}</p>
                         ) : row.match === "unexpected" ? (
                           <p className="mt-1 text-[10px] font-bold text-amber-200/95">
-                            No expected_packages line matched (SKU / FNSKU / description heuristic).
+                            No expected line matched (SKU / FNSKU / description heuristic).
                           </p>
                         ) : null}
                       </div>
@@ -6588,7 +7455,7 @@ function OperatorMobileScanPageContent() {
                 </p>
                 <p className="mt-1 font-mono text-sm font-bold text-amber-200/90">{unknownModal.code}</p>
                 <p className="mt-2 text-xs font-semibold text-amber-200/70">
-                  Choose match type: Tracking → Package → Slip → Pallet → Item
+                  Choose match type: Tracking → Box → Slip → Pallet → Item
                 </p>
               </div>
               <button type="button" onClick={closeUnknown} className="rounded-xl p-2 text-amber-200 hover:bg-amber-500/15" aria-label="Close">
@@ -6599,7 +7466,7 @@ function OperatorMobileScanPageContent() {
               {(
                 [
                   ["tracking", "Tracking"],
-                  ["package", "Package"],
+                  ["package", "Box"],
                   ["slip", "Slip"],
                   ["pallet", "Pallet"],
                   ["item", "Item"],
@@ -6620,7 +7487,7 @@ function OperatorMobileScanPageContent() {
               <div className="mt-4 rounded-[18px] border border-amber-300/45 bg-amber-500/10 px-3 py-3">
                 <p className="text-[13px] font-bold text-amber-50">Shipment code not found</p>
                 <p className="mt-1 text-[11px] font-semibold leading-relaxed text-amber-100/85">
-                  Tracking not found in the database. Create a new unknown package with this scan as{" "}
+                  Tracking not found in the database. Create a new unknown box with this scan as{" "}
                   <span className="font-mono text-amber-50/95">tracking_number</span>? You can continue receiving; worklist data may
                   arrive later.
                 </p>
@@ -6630,7 +7497,7 @@ function OperatorMobileScanPageContent() {
                   <p className="mt-2 text-[11px] font-semibold text-amber-200/75">
                     {operatorStores.length === 0 && !kioskStoreLocked
                       ? "Add an active store for this organization in Settings, or set NEXT_PUBLIC_STORE_ID for kiosk mode."
-                      : "Select an active store above (or configure NEXT_PUBLIC_STORE_ID) before creating a package."}
+                      : "Select an active store above (or configure NEXT_PUBLIC_STORE_ID) before creating a box."}
                   </p>
                 ) : (
                   <button
@@ -6643,7 +7510,7 @@ function OperatorMobileScanPageContent() {
                       background: "linear-gradient(180deg, rgba(245,158,11,0.35) 0%, rgba(180,83,9,0.45) 100%)",
                     }}
                   >
-                    Create unknown package
+                    Create unknown box
                   </button>
                 )}
               </div>
