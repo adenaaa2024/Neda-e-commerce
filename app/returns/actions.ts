@@ -436,6 +436,10 @@ export async function createPallet(
     }
     const sid = uuidFkOrNull(payload.store_id ?? null, "store_id");
     if (sid) insertRow.store_id = sid;
+    const carrier = payload.carrier_name?.trim() || null;
+    if (carrier) insertRow.carrier_name = carrier;
+    const ord = payload.order_id?.trim() || null;
+    if (ord) insertRow.order_id = ord;
     const { data, error } = await supabaseServer.from("pallets")
       .insert(insertRow)
       .select(PALLET_MUTATION_SELECT).single();

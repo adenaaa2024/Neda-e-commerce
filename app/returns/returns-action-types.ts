@@ -21,10 +21,10 @@ export type PalletRecord = {
    */
   carrier_name?: string | null;
   /**
-   * Amazon / marketplace order ID for this pallet — inherited by child packages and items.
-   * Added in migration 20260418_pallets_carrier_amazon_order_id.
+   * Marketplace order ID for this pallet — inherited by child packages and items.
+   * Column `pallets.order_id` (renamed from `amazon_order_id`).
    */
-  amazon_order_id?: string | null;
+  order_id?: string | null;
   /** Primary pallet overview image (media bucket). */
   photo_url?: string | null;
   bol_photo_url?: string | null;
@@ -48,8 +48,8 @@ export type PalletInsertPayload = {
   notes?: string;
   /** Shipping carrier — auto-fills child Package forms. */
   carrier_name?: string | null;
-  /** Amazon / marketplace order ID — inherits to child packages and items. */
-  amazon_order_id?: string | null;
+  /** Marketplace order ID — inherits to child packages and items (`pallets.order_id`). */
+  order_id?: string | null;
   organization_id?: string; created_by?: string;
   /** Resolves tenant + super-admin target org on the server */
   actor_profile_id?: string | null;
@@ -59,6 +59,7 @@ export type PalletUpdatePayload = Partial<Pick<
   PalletRecord,
   | "status" | "notes" | "tracking_number"
   | "photo_url" | "bol_photo_url" | "manifest_photo_url"
+  | "carrier_name" | "order_id"
 >>;
 
 export type PackageStatus = "open" | "closed" | "suspicious" | "submitted";

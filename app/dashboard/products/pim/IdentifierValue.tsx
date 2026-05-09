@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
-import { Check, Copy, ExternalLink, Search } from "lucide-react";
+import { Check, Copy, Search } from "lucide-react";
 
-type IdentifierKind = "asin" | "sku" | "fnsku" | "upc";
+export type IdentifierKind = "asin" | "sku" | "fnsku" | "upc";
 
 function amazonDpUrl(asin: string): string {
   return `https://www.amazon.com/dp/${encodeURIComponent(asin)}`;
@@ -13,11 +13,8 @@ function amazonSearchUrl(value: string): string {
   return `https://www.amazon.com/s?k=${encodeURIComponent(value)}`;
 }
 
-function sellerCentralSkuUrl(sku: string): string | null {
-  const tpl = (process.env.NEXT_PUBLIC_AMAZON_SELLER_CENTRAL_SKU_URL ?? "").trim();
-  if (!tpl.includes("{value}")) return null;
-  return tpl.split("{value}").join(encodeURIComponent(sku));
-}
+const iconBtn =
+  "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border/60 bg-background/80 text-muted-foreground hover:bg-muted hover:text-foreground";
 
 export function IdentifierValue({
   value,
@@ -46,47 +43,37 @@ export function IdentifierValue({
     return <span className={`text-muted-foreground ${className}`}>—</span>;
   }
 
-  const openPrimary =
-    kind === "asin"
-      ? () => window.open(amazonDpUrl(v), "_blank", "noopener,noreferrer")
-      : () => window.open(amazonSearchUrl(v), "_blank", "noopener,noreferrer");
-
-  const scUrl = kind === "sku" || kind === "fnsku" ? sellerCentralSkuUrl(v) : null;
+  const searchAmazon = () => window.open(amazonSearchUrl(v), "_blank", "noopener,noreferrer");
 
   return (
-    <span className={`inline-flex max-w-full items-center gap-0.5 font-mono text-xs ${className}`}>
-      <span className="min-w-0 truncate" title={v}>
+    <span
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-xs ${className}`}
+      role="group"
+      aria-label={`${kind} ${v}`}
+    >
+      <span className="min-w-0 flex-1 truncate text-foreground" title={v}>
         {v}
       </span>
-      <button
-        type="button"
-        onClick={() => void copy()}
-        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-        title="Copy"
-        aria-label="Copy"
-      >
-        {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-      </button>
-      <button
-        type="button"
-        onClick={openPrimary}
-        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-        title={kind === "asin" ? "Open product on Amazon" : "Search on Amazon"}
-        aria-label="Open on Amazon"
-      >
-        {kind === "asin" ? <ExternalLink className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
-      </button>
-      {scUrl ? (
+      <span className="inline-flex shrink-0 items-center gap-0.5">
         <button
           type="button"
-          onClick={() => window.open(scUrl, "_blank", "noopener,noreferrer")}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Open in Seller Central (configured URL)"
-          aria-label="Seller Central"
+          onClick={() => void copy()}
+          className={iconBtn}
+          title="Copy"
+          aria-label={`Copy ${kind}`}
         >
-          <span className="text-[10px] font-semibold">SC</span>
+          {copied ? <Check className="h-3 w-3 text-emerald-600" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
         </button>
-      ) : null}
+        <button
+          type="button"
+          onClick={searchAmazon}
+          className={iconBtn}
+          title="Search on Amazon"
+          aria-label="Search on Amazon"
+        >
+          <Search className="h-3 w-3" aria-hidden />
+        </button>
+      </span>
     </span>
   );
 }

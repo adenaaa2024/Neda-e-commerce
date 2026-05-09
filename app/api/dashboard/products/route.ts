@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { assertUserCanAccessOrganization } from "../../../dashboard/products/pim-actions";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { upsertPrimaryIdentifierMapForPim } from "../../../../lib/pim-product-map-upsert";
+import { mergePimProductAttributesMetadata, normalizePimProductStatus } from "../../../../lib/pim-product-status";
 import { isUuidString } from "../../../../lib/uuid";
 
 type CreateProductBody = {
@@ -22,6 +23,8 @@ type CreateProductBody = {
   status?: string | null;
   condition?: string | null;
   notes?: string | null;
+  /** Extra key/value fields stored under `metadata.product_attributes`. */
+  product_attributes?: Record<string, unknown> | null;
 };
 
 function emptyToNull(v: unknown): string | null {
@@ -134,16 +137,21 @@ export async function POST(req: Request) {
   const upcCode = emptyToNull(body.upc_code);
   const asin = emptyToNull(body.asin);
   const fnsku = emptyToNull(body.fnsku);
-  const status = emptyToNull(body.status);
+  const status = normalizePimProductStatus(body.status ?? undefined);
   const condition = emptyToNull(body.condition);
   const notes = typeof body.notes === "string" ? body.notes.trim() : "";
-  const metadata: Record<string, unknown> = {
-    pim_ui: {
-      seed_source: "manual",
-      created_at: new Date().toISOString(),
-      ...(notes ? { notes, notes_updated_at: new Date().toISOString() } : {}),
+  const metadata: Record<string, unknown> = mergePimProductAttributesMetadata(
+    {
+      pim_ui: {
+        seed_source: "manual",
+        created_at: new Date().toISOString(),
+        ...(notes ? { notes, notes_updated_at: new Date().toISOString() } : {}),
+      },
     },
-  };
+    body.product_attributes != null && typeof body.product_attributes === "object" && !Array.isArray(body.product_attributes)
+      ? (body.product_attributes as Record<string, unknown>)
+      : null,
+  );
 
   const barcode = `pim-manual-${randomUUID()}`;
 
@@ -162,7 +170,7 @@ export async function POST(req: Request) {
     asin,
     fnsku,
     barcode,
-    status,
+    status: status as string,
     condition,
     metadata,
     last_catalog_sync_at: new Date().toISOString(),

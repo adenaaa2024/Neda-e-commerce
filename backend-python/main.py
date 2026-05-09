@@ -19,6 +19,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import Client, create_client
 
+from pim_import_async import (
+    get_pim_import_preview_status,
+    run_pim_import_apply_step,
+    run_pim_import_preview_step,
+    run_pim_import_retry_preview,
+)
+
 # Load environment variables securely from .env file
 load_dotenv()
 
@@ -229,6 +236,45 @@ def _read_tabular_file(content: bytes) -> pd.DataFrame:
         )
 
 
+def _read_text_delimited(content: bytes, fname: str | None) -> tuple[pd.DataFrame, str, bool]:
+    """
+    Read .csv / .txt with delimiter sniffing (comma, tab, semicolon, pipe, or pandas auto).
+    Returns (dataframe, human_label, uncertain_single_column).
+    """
+    best_cols = -1
+    best_rows = -1
+    best_label = "comma"
+    best_df: pd.DataFrame | None = None
+    candidates: list[tuple[str | None, str]] = [
+        (None, "auto-detected"),
+        ("\t", "tab"),
+        (",", "comma"),
+        (";", "semicolon"),
+        ("|", "pipe"),
+    ]
+    for sep, label in candidates:
+        try:
+            buf = io.BytesIO(content)
+            df = pd.read_csv(
+                buf,
+                sep=sep,
+                engine="python",
+                encoding="utf-8-sig",
+                dtype=object,
+                keep_default_na=False,
+            )
+            ncols = int(df.shape[1])
+            nrows = int(df.shape[0])
+            if ncols > best_cols or (ncols == best_cols and nrows > best_rows):
+                best_cols, best_rows, best_label, best_df = ncols, nrows, label, df
+        except Exception:
+            continue
+    if best_df is None:
+        return _read_tabular_file(content), "fallback", True
+    uncertain = best_cols < 2 and len(content) > 80
+    return best_df, best_label, uncertain
+
+
 def _looks_like_xlsx_bytes(content: bytes, filename: str | None) -> bool:
     fn = (filename or "").strip().lower()
     if fn.endswith((".xlsx", ".xlsm")):
@@ -239,10 +285,14 @@ def _looks_like_xlsx_bytes(content: bytes, filename: str | None) -> bool:
 def _iter_seed_product_frames(content: bytes, filename: str | None) -> Iterator[tuple[str | None, pd.DataFrame]]:
     """
     Yield (sheet_name_or_none, dataframe) for seed-products.
-    CSV/TSV: one frame with sheet None. Excel: one frame per non-empty sheet (header row required).
+    CSV/TSV: one frame (no tab name). Excel (.xlsx): only the tab named App_Import_Product_Master.
     """
     if not _looks_like_xlsx_bytes(content, filename):
-        yield None, _read_tabular_file(content)
+        df, delim, uncertain = _read_text_delimited(content, filename)
+        if hasattr(df, "attrs"):
+            df.attrs["pim_delimiter_detected"] = delim
+            df.attrs["pim_delimiter_uncertain"] = uncertain
+        yield None, df
         return
     try:
         import openpyxl  # noqa: F401 — pandas read_excel(engine="openpyxl") needs this package at runtime
@@ -266,7 +316,10 @@ def _iter_seed_product_frames(content: bytes, filename: str | None) -> Iterator[
                 "(see backend-python/requirements.txt)."
             ),
         ) from e
+    saw_master = False
     for sheet in xl.sheet_names:
+        if sheet != PRODUCT_MASTER_SHEET_NAME:
+            continue
         df = pd.read_excel(
             xl,
             sheet_name=sheet,
@@ -277,7 +330,16 @@ def _iter_seed_product_frames(content: bytes, filename: str | None) -> Iterator[
         headers = [str(c).strip() for c in df.columns if str(c).strip() != ""]
         if df.shape[0] == 0 or not headers:
             continue
+        saw_master = True
         yield sheet, df
+    if not saw_master:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Excel workbook must contain a sheet named {PRODUCT_MASTER_SHEET_NAME!r} "
+                "with a header row and at least one data row. Other tabs are ignored."
+            ),
+        )
 
 
 def _sniff_csv_delimiter(first_line: str) -> str:
@@ -1813,6 +1875,31 @@ class DetectHeadersRequest(BaseModel):
     headers: list[str]
     organization_id: str
 
+
+class PimImportPreviewStepBody(BaseModel):
+    organization_id: str
+    store_id: str
+    upload_id: str
+    row_chunk: int | None = None
+    """Optional client hint for diagnostics only; server uses persisted scan_cursor."""
+    scan_data_row_hint: int | None = None
+
+
+class PimImportApplyStepBody(BaseModel):
+    organization_id: str
+    store_id: str
+    upload_id: str
+    confirm: str = "false"
+    row_chunk: int | None = None
+    skip_conflicts: bool = False
+    import_safe_rows_only: bool = False
+
+    @property
+    def safe_rows_only(self) -> bool:
+        """Canonical check — True when either legacy or new flag is set."""
+        return self.skip_conflicts or self.import_safe_rows_only
+
+
 @app.post("/etl/detect-headers")
 async def etl_detect_headers(request: DetectHeadersRequest):
     """Architectural Route for Client-Side Slicing auto-detection."""
@@ -2073,6 +2160,25 @@ import requests
 import time
 from datetime import datetime, timezone
 
+from dataclasses import dataclass, replace
+
+from pim_product_master import (
+    PRODUCT_MASTER_SHEET_NAME,
+    canonical_category_display_name,
+    collect_product_attributes_from_row,
+    merge_product_attributes_into_metadata,
+    normalize_category_label_for_key,
+    normalize_pim_status,
+)
+from pim_seed_cleaning import (
+    ParsedIdentifierRow,
+    build_identifier_map_variants,
+    finalize_ambiguity_with_db,
+    ordered_unique,
+    parse_identifier_row,
+    trim_cell_value,
+)
+
 def _get_api_credentials(db: Any, org_id: str, api_name: str) -> Any:
     if api_name == "openai_api_key":
         k = _resolve_openai_api_key_from_db(db, org_id)
@@ -2142,7 +2248,290 @@ _PIM_MAP_STANDARD_KEYS = (
     "fnsku",
     "upc",
     "cost",
+    "status",
 )
+
+
+def _pim_public_column_map(column_map: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for k in _PIM_MAP_STANDARD_KEYS:
+        v = column_map.get(k)
+        if v is not None and str(v).strip():
+            out[str(k)] = str(v).strip()
+    return out
+
+
+def _pim_build_header_norm_index(headers: list[str]) -> dict[str, str]:
+    """normalized_header -> first exact header string from the file."""
+    out: dict[str, str] = {}
+    for h in headers:
+        t = str(h).strip()
+        if not t:
+            continue
+        nk = _normalize_header(t)
+        if nk not in out:
+            out[nk] = t
+    return out
+
+
+def _pim_try_deterministic_column_map(headers: list[str]) -> dict[str, Any] | None:
+    """
+    Rule-based map for common PIM exports (e.g. UPC, Vendor, Seller SKU, Mfg #, FNSKU, ASIN, Product Name).
+    Skips GPT when we have product_name plus at least one identifier column.
+    """
+    idx = _pim_build_header_norm_index(headers)
+
+    def pick(*norm_keys: str) -> str | None:
+        for k in norm_keys:
+            v = idx.get(k)
+            if v:
+                return v
+        return None
+
+    m: dict[str, Any] = {}
+    maybe_vendor = pick("vendor", "supplier", "distributor", "manufacturer", "brand_owner")
+    maybe_category = pick(
+        "category",
+        "product_category",
+        "product_type",
+        "producttype",
+        "department",
+        "amazon_category",
+    )
+    maybe_product = pick(
+        "product_name",
+        "productname",
+        "title",
+        "item_name",
+        "itemname",
+        "product_title",
+        "producttitle",
+        "name",
+        "listing_title",
+    )
+    maybe_sku = pick("seller_sku", "sellersku", "merchant_sku", "merchantsku", "msku", "sku")
+    maybe_mfg = pick(
+        "mfg_#",
+        "mfg_hash",
+        "mfg_no",
+        "mfg_num",
+        "mfg_number",
+        "mfg_part",
+        "mfg_part_number",
+        "manufacturer_part_number",
+        "manufacturer_part",
+        "mpn",
+        "part_number",
+    )
+    maybe_asin = pick("asin")
+    maybe_fnsku = pick("fnsku", "fulfillment_channel_sku", "fulfillmentchannelsku")
+    maybe_upc = pick("upc", "upc_ean", "upc_code", "ean", "gtin", "barcode")
+    maybe_cost = pick("cost", "unit_cost", "unitcost", "list_price", "listprice", "price", "last_cost")
+    maybe_status = pick("status", "product_status", "lifecycle", "state", "active", "listing_status")
+
+    if maybe_vendor:
+        m["vendor"] = maybe_vendor
+    if maybe_category:
+        m["category"] = maybe_category
+    if maybe_product:
+        m["product_name"] = maybe_product
+    if maybe_sku:
+        m["seller_sku"] = maybe_sku
+    if maybe_mfg:
+        m["mfg_part"] = maybe_mfg
+    if maybe_asin:
+        m["asin"] = maybe_asin
+    if maybe_fnsku:
+        m["fnsku"] = maybe_fnsku
+    if maybe_upc:
+        m["upc"] = maybe_upc
+    if maybe_cost:
+        m["cost"] = maybe_cost
+    if maybe_status:
+        m["status"] = maybe_status
+
+    ident = bool(m.get("seller_sku") or m.get("asin") or m.get("fnsku") or m.get("upc"))
+    if ident and m.get("product_name"):
+        return m
+    return None
+
+
+def _pim_resolve_column_map(headers: list[str], openai_key: str | None) -> tuple[dict[str, Any], str]:
+    det = _pim_try_deterministic_column_map(headers)
+    if det is not None:
+        return det, "deterministic"
+    key = (openai_key or "").strip()
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "column_mapping_requires_openai",
+                "message": (
+                    "Could not map columns from headers without GPT. Save an OpenAI LLM key in Settings "
+                    "(organization_api_keys) or set OPENAI_API_KEY on the ETL server — or use a file whose headers "
+                    "include Product Name plus at least one of: Seller SKU, ASIN, FNSKU, UPC."
+                ),
+                "headers": headers,
+            },
+        )
+    return _gpt_map_catalog_columns_or_raise(headers, key), "gpt"
+
+
+def _pim_coerce_mapped_columns_string(df: pd.DataFrame, handles: dict[str, str | None]) -> pd.DataFrame:
+    """Treat mapped identity / text columns as plain strings (leading zeros, avoid float UPC drift)."""
+    out = df.copy()
+    sci_re = re.compile(r"^-?\d+(\.\d+)?[eE][+-]?\d+$")
+
+    def to_text(v: Any) -> str:
+        if v is None:
+            return ""
+        try:
+            if isinstance(v, float) and pd.isna(v):
+                return ""
+        except Exception:
+            pass
+        if isinstance(v, bool):
+            return "TRUE" if v else "FALSE"
+        if isinstance(v, float):
+            if math.isfinite(v) and v == int(v):
+                return str(int(v))
+            return str(v).strip()
+        if isinstance(v, int) and not isinstance(v, bool):
+            return str(v)
+        s = str(v).strip()
+        if sci_re.match(s):
+            try:
+                f = float(s)
+                if math.isfinite(f) and f == int(f):
+                    return str(int(f))
+            except (TypeError, ValueError):
+                pass
+        return s
+
+    for std in _PIM_MAP_STANDARD_KEYS:
+        col = handles.get(std)
+        if not col or col not in out.columns:
+            continue
+        out[col] = out[col].map(to_text)
+    return out
+
+
+def _pim_seed_history_insert_preview(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    file_name: str | None,
+    column_map: dict[str, str],
+    mapping_source: str,
+    quality: dict[str, Any],
+) -> str | None:
+    """Insert raw_report_uploads row for PIM seed preview (best-effort; returns id or None)."""
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        meta: dict[str, Any] = {
+            "pim_catalog_seed": True,
+            "module": "pim",
+            "import_area": "product_master",
+            "source_kind": "file",
+            "store_id": store_id,
+            "phase": "previewed",
+            "mapping_source": mapping_source,
+            "column_mapping": dict(column_map),
+            "quality_snapshot": quality,
+            "started_at": now,
+            "finished_at": now,
+            "preview_status": "preview_ready",
+            "confirm_required": True,
+        }
+        ins = (
+            db.table("raw_report_uploads")
+            .insert(
+                {
+                    "organization_id": organization_id,
+                    "file_name": (file_name or "catalog_upload").strip() or "catalog_upload",
+                    "report_type": "pim_product_master",
+                    "status": "mapped",
+                    "metadata": meta,
+                    "row_count": int(quality.get("rows_total") or 0),
+                }
+            )
+            .execute()
+        )
+        if ins.data:
+            return str(ins.data[0]["id"])
+    except Exception as e:
+        log.warning("PIM seed history insert (preview) skipped: %s", e)
+    return None
+
+
+def _pim_seed_history_finalize_apply(
+    db: Any,
+    seed_session_id: str | None,
+    organization_id: str,
+    store_id: str,
+    *,
+    success: bool,
+    metrics: dict[str, Any] | None,
+    quality: dict[str, Any] | None,
+    error_message: str | None,
+) -> None:
+    if not seed_session_id:
+        return
+    try:
+        uuid.UUID(str(seed_session_id).strip())
+    except ValueError:
+        return
+    sid = str(seed_session_id).strip()
+    try:
+        res = (
+            db.table("raw_report_uploads")
+            .select("id,organization_id,metadata")
+            .eq("id", sid)
+            .eq("organization_id", organization_id)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return
+        prev_meta = rows[0].get("metadata") if isinstance(rows[0].get("metadata"), dict) else {}
+        merged: dict[str, Any] = dict(prev_meta) if isinstance(prev_meta, dict) else {}
+        merged["pim_catalog_seed"] = True
+        merged.setdefault("module", "pim")
+        merged.setdefault("import_area", "product_master")
+        merged["store_id"] = store_id
+        if error_message == "apply_blocked_by_dirty_rate":
+            merged["phase"] = "blocked"
+        else:
+            merged["phase"] = "completed" if success else "failed"
+        merged["apply_finished_at"] = datetime.now(timezone.utc).isoformat()
+        if metrics is not None:
+            merged["apply_metrics"] = metrics
+        if quality is not None:
+            merged["apply_quality"] = quality
+        row_status = "complete" if success else "failed"
+        upd: dict[str, Any] = {
+            "metadata": merged,
+            "status": row_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if error_message:
+            upd["error_message"] = error_message[:8000]
+        elif success:
+            upd["error_message"] = None
+        db.table("raw_report_uploads").update(upd).eq("id", sid).eq("organization_id", organization_id).execute()
+    except Exception as e:
+        log.warning("PIM seed history finalize (apply) skipped: %s", e)
+
+
+# Catalog seed / Google Sheets: reject apply when too many rows fail quality classification (preview still returns 200).
+PIM_SEED_MAX_DIRTY_RATE = float(os.environ.get("PIM_SEED_MAX_DIRTY_RATE", "0.2"))
+
+
+def _pim_catalog_seed_confirm_true(raw: str | None) -> bool:
+    v = (raw or "").strip().lower()
+    return v in ("1", "true", "yes", "on", "confirm")
+
 
 def _validate_pim_org_store(organization_id: str, store_id: str) -> tuple[str, str]:
     """Accept any 128-bit UUID string (matches TS `isUuidString` / `uuid.UUID`), not RFC version/variant only."""
@@ -2175,7 +2564,9 @@ def _empty_pim_seed_metrics() -> dict[str, Any]:
         "sheets_processed": 0,
         "rows_per_sheet": {},
         "vendors_created": 0,
+        "vendors_reused": 0,
         "categories_created": 0,
+        "categories_reused": 0,
         "products_created": 0,
         "products_updated": 0,
         "identifiers_created": 0,
@@ -2184,8 +2575,1409 @@ def _empty_pim_seed_metrics() -> dict[str, Any]:
         "products_enriched_by_amazon": 0,
         "skipped_no_identity": 0,
         "skipped_ambiguous": 0,
+        "blocked_new_without_seller_sku": 0,
         "errors": [],
+        "fields_trimmed": 0,
+        "multi_identifier_cells_split": 0,
+        "identifier_tokens_accepted": 0,
+        "identifier_tokens_rejected": 0,
+        "duplicate_identifier_tokens_collapsed": 0,
+        "ambiguous_multi_identifier_rows": 0,
+        "multi_identifier_rows_allowed": 0,
+        "multi_identifier_rows_conflicting": 0,
+        "canonical_products_from_multi_id_rows": 0,
+        "identifier_tokens_attached": 0,
+        "conflict_rows_blocked": 0,
+        "prices_skipped_duplicate": 0,
     }
+
+
+def _pim_seed_quality_acc() -> dict[str, Any]:
+    return {
+        "rows_total": 0,
+        "dirty_rows": 0,
+        "blocked_new_without_seller_sku": 0,
+        "products_would_update": 0,
+        "products_would_create": 0,
+        "vendors_would_create": 0,
+        "vendors_reused": 0,
+        "categories_would_create": 0,
+        "categories_reused": 0,
+        "prices_would_insert": 0,
+        "skipped_no_identity": 0,
+        "skipped_ambiguous": 0,
+        "invalid_price_rows": 0,
+        "preview_errors": [],
+        "fields_trimmed": 0,
+        "multi_identifier_cells_split": 0,
+        "identifier_tokens_accepted": 0,
+        "identifier_tokens_rejected": 0,
+        "duplicate_identifier_tokens_collapsed": 0,
+        "ambiguous_multi_identifier_rows": 0,
+        "identifier_map_rows_would_insert": 0,
+        "identifier_map_rows_would_update": 0,
+        "identifier_rows_would_insert": 0,
+        "identifier_rows_would_update": 0,
+        "duplicates_reused": 0,
+        "existing_products_matched": 0,
+        "already_complete": 0,
+        "metadata_attributes_detected": 0,
+        "multi_identifier_rows_allowed": 0,
+        "multi_identifier_rows_conflicting": 0,
+        "canonical_products_from_multi_id_rows": 0,
+        "identifier_tokens_attached": 0,
+        "conflict_rows_blocked": 0,
+        "pim_category_debug_samples": [],
+        "preview_rows_multi_identifier": 0,
+        "preview_category_nonempty_rows": 0,
+        "preview_category_simulated_rows": 0,
+        "clean_pm_physical_rows_split": 0,
+        "clean_pm_synthetic_rows_emitted": 0,
+        "conflict_detail": [],  # list[dict] — structured per-row conflict records for UI panel
+    }
+
+
+def _pim_seed_preview_append(acc: dict[str, Any], row_index: int | str | None, message: str, cap: int = 200) -> None:
+    pe = acc.setdefault("preview_errors", [])
+    if not isinstance(pe, list) or len(pe) >= cap:
+        return
+    prefix = f"row {row_index}: " if row_index is not None else ""
+    pe.append(f"{prefix}{message}")
+
+
+def _pim_bump_cleaning_counters(
+    target: dict[str, Any], parsed: ParsedIdentifierRow, row_trim: int, *, include_accepted: bool
+) -> None:
+    target["fields_trimmed"] = int(target.get("fields_trimmed") or 0) + int(row_trim)
+    target["multi_identifier_cells_split"] = int(target.get("multi_identifier_cells_split") or 0) + int(
+        parsed.multi_identifier_cells_split or 0
+    )
+    if include_accepted:
+        target["identifier_tokens_accepted"] = int(target.get("identifier_tokens_accepted") or 0) + int(
+            parsed.identifier_tokens_accepted or 0
+        )
+    target["identifier_tokens_rejected"] = int(target.get("identifier_tokens_rejected") or 0) + int(
+        parsed.identifier_tokens_rejected or 0
+    )
+    target["duplicate_identifier_tokens_collapsed"] = int(target.get("duplicate_identifier_tokens_collapsed") or 0) + int(
+        parsed.duplicate_identifier_tokens_collapsed or 0
+    )
+
+
+def _pim_product_ids_for_values(db: Any, organization_id: str, store_id: str, values: list[str], col: str) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for v in values:
+        try:
+            r = (
+                db.table("products")
+                .select("id")
+                .eq("organization_id", organization_id)
+                .eq("store_id", store_id)
+                .eq(col, v)
+                .limit(15)
+                .execute()
+            )
+            out[v] = [str(x["id"]) for x in (r.data or [])]
+        except Exception:
+            out[v] = []
+    return out
+
+
+def _pim_product_ids_for_values_batch(
+    db: Any, organization_id: str, store_id: str, values: list[str], col: str
+) -> dict[str, list[str]]:
+    """One query per batch of distinct identifier values (preview performance)."""
+    out: dict[str, list[str]] = {}
+    uniq = [str(v).strip() for v in dict.fromkeys(values) if str(v).strip()]
+    batch_n = 120
+    for i in range(0, len(uniq), batch_n):
+        chunk = uniq[i : i + batch_n]
+        if not chunk:
+            continue
+        try:
+            r = (
+                db.table("products")
+                .select(f"id,{col}")
+                .eq("organization_id", organization_id)
+                .eq("store_id", store_id)
+                .in_(col, chunk)
+                .limit(8000)
+                .execute()
+            )
+            for row in r.data or []:
+                key = str(row.get(col) or "").strip()
+                pid = str(row.get("id") or "").strip()
+                if not key or not pid:
+                    continue
+                out.setdefault(key, []).append(pid)
+                if len(out[key]) > 15:
+                    out[key] = out[key][:15]
+        except Exception:
+            for v in chunk:
+                out.setdefault(v, [])
+    for v in uniq:
+        out.setdefault(v, [])
+    return out
+
+
+def _pim_identifier_preview_detail(parsed: ParsedIdentifierRow) -> str:
+    chunks: list[str] = []
+    for label, col in (
+        ("SKU", parsed.seller_sku),
+        ("ASIN", parsed.asin),
+        ("FNSKU", parsed.fnsku),
+        ("UPC", parsed.upc),
+    ):
+        if not col.original_display and not col.split_tokens:
+            continue
+        chunks.append(
+            f"{label} cell={col.original_display!r} tokens={col.split_tokens!r} "
+            f"accepted={col.accepted!r} rejected={col.rejected!r}"
+        )
+    return "; ".join(chunks)[:900]
+
+
+def _pim_finalize_multi_sku(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    parsed: ParsedIdentifierRow,
+) -> tuple[ParsedIdentifierRow, str | None]:
+    """Multiple seller SKUs in one row: require a single existing product or mark ambiguous."""
+    sk = parsed.seller_sku.accepted
+    if len(sk) <= 1:
+        return parsed, None
+    # Parse / finalize_ambiguity may already mark ambiguity — never replace with SKU-only reasons.
+    if parsed.ambiguous and parsed.ambiguous_reason != "multiple_seller_sku_requires_single_resolved_product":
+        return parsed, None
+    matched: dict[str, str] = {}
+    for sku in sk:
+        try:
+            r = (
+                db.table("products")
+                .select("id")
+                .eq("organization_id", organization_id)
+                .eq("store_id", store_id)
+                .eq("sku", sku)
+                .limit(5)
+                .execute()
+            )
+        except Exception:
+            return replace(parsed, ambiguous=True, ambiguous_reason="multi_sku_db_lookup_failed"), None
+        rows = r.data or []
+        if len(rows) > 1:
+            return replace(parsed, ambiguous=True, ambiguous_reason="sku_resolves_multiple_products"), None
+        if len(rows) == 1:
+            matched[sku] = str(rows[0]["id"])
+    pids = {v for v in matched.values()}
+    if len(pids) > 1:
+        return replace(parsed, ambiguous=True, ambiguous_reason="multiple_sku_map_to_different_products"), None
+    if len(pids) == 0:
+        return (
+            replace(parsed, ambiguous=True, ambiguous_reason="multiple_seller_sku_requires_single_resolved_product"),
+            None,
+        )
+    pref = next((s for s in sk if s in matched), sk[0])
+    return parsed, pref
+
+
+def _pim_finalize_multi_sku_batched(
+    parsed: ParsedIdentifierRow,
+    sku_to_pids: dict[str, list[str]],
+) -> tuple[ParsedIdentifierRow, str | None]:
+    """Same semantics as _pim_finalize_multi_sku using a pre-fetched sku -> product_id lists map."""
+    sk = parsed.seller_sku.accepted
+    if len(sk) <= 1:
+        return parsed, None
+    if parsed.ambiguous and parsed.ambiguous_reason != "multiple_seller_sku_requires_single_resolved_product":
+        return parsed, None
+    matched: dict[str, str] = {}
+    for sku in sk:
+        rows = sku_to_pids.get(sku, [])
+        if len(rows) > 1:
+            return replace(parsed, ambiguous=True, ambiguous_reason="sku_resolves_multiple_products"), None
+        if len(rows) == 1:
+            matched[sku] = str(rows[0])
+    pids = {v for v in matched.values()}
+    if len(pids) > 1:
+        return replace(parsed, ambiguous=True, ambiguous_reason="multiple_sku_map_to_different_products"), None
+    if len(pids) == 0:
+        return (
+            replace(parsed, ambiguous=True, ambiguous_reason="multiple_seller_sku_requires_single_resolved_product"),
+            None,
+        )
+    pref = next((s for s in sk if s in matched), sk[0])
+    return parsed, pref
+
+
+def _pim_imap_distinct_product_ids_for_tokens(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    seller_skus: list[str],
+    asins: list[str],
+    fnskus: list[str],
+    upcs: list[str],
+) -> set[str]:
+    """Union of product_id values in product_identifier_map for any listed token (batched)."""
+    out: set[str] = set()
+    batch_n = 100
+    for col, vals in (
+        ("seller_sku", seller_skus),
+        ("asin", asins),
+        ("fnsku", fnskus),
+        ("upc_code", upcs),
+    ):
+        uniq = ordered_unique([str(v).strip() for v in vals if str(v).strip()])
+        if not uniq:
+            continue
+        for i in range(0, len(uniq), batch_n):
+            chunk = uniq[i : i + batch_n]
+            try:
+                r = (
+                    db.table("product_identifier_map")
+                    .select("product_id")
+                    .eq("organization_id", organization_id)
+                    .eq("store_id", store_id)
+                    .in_(col, chunk)
+                    .limit(5000)
+                    .execute()
+                )
+                for row in r.data or []:
+                    pid = str(row.get("product_id") or "").strip()
+                    if pid:
+                        out.add(pid)
+            except Exception:
+                log.exception("pim_product_master imap lookup failed col=%s", col)
+    return out
+
+
+def _pim_pm_singleton_pids_union_for_tokens(
+    tokens: list[str],
+    col_map: dict[str, list[str]],
+) -> tuple[set[str], str | None]:
+    """Each token maps to 0 or 1 product_id in col_map; return union of singletons or ambiguity reason."""
+    out: set[str] = set()
+    for raw in tokens:
+        t = str(raw).strip()
+        if not t:
+            continue
+        rows = col_map.get(t, [])
+        if len(rows) > 1:
+            return set(), "product_master_token_resolves_multiple_products"
+        if len(rows) == 1:
+            out.add(str(rows[0]))
+    return out, None
+
+
+def _pim_product_master_resolve_multi_sku_row(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    parsed: ParsedIdentifierRow,
+    sku_to_pids: dict[str, list[str]],
+    row_cells: dict[str, Any],
+    handles: dict[str, str | None],
+    acc: dict[str, Any] | None,
+    *,
+    asin_to_pids: dict[str, list[str]] | None = None,
+    fnsku_to_pids: dict[str, list[str]] | None = None,
+    upc_to_pids: dict[str, list[str]] | None = None,
+) -> tuple[ParsedIdentifierRow, str | None]:
+    """
+    PIM Product Master (import_mode=product_master): multiple seller SKUs may unify only when
+    every accepted SKU/ASIN/FNSKU/UPC resolves via products table (and optionally identifier_map)
+    to exactly one org+store product_id. No name/vendor/category heuristics.
+    """
+    _ = row_cells, handles  # reserved for future diagnostics
+    sk = parsed.seller_sku.accepted
+    if len(sk) <= 1 or not parsed.ambiguous:
+        return parsed, None
+    if parsed.ambiguous_reason != "multiple_seller_sku_requires_single_resolved_product":
+        return parsed, None
+
+    asin_map = asin_to_pids or {}
+    fnsku_map = fnsku_to_pids or {}
+    upc_map = upc_to_pids or {}
+
+    matched: dict[str, str] = {}
+    for sku in sk:
+        key = str(sku).strip()
+        rows = sku_to_pids.get(key, [])
+        if len(rows) > 1:
+            return replace(parsed, ambiguous=True, ambiguous_reason="sku_resolves_multiple_products"), None
+        if len(rows) == 1:
+            matched[key] = str(rows[0])
+    pids_from_skus = {v for v in matched.values()}
+    if len(pids_from_skus) > 1:
+        return replace(parsed, ambiguous=True, ambiguous_reason="multiple_sku_map_to_different_products"), None
+
+    u_prod = set(pids_from_skus)
+    s_asin, ea = _pim_pm_singleton_pids_union_for_tokens(list(parsed.asin.accepted), asin_map)
+    if ea:
+        return replace(parsed, ambiguous=True, ambiguous_reason=ea), None
+    u_prod |= s_asin
+    s_fn, ef = _pim_pm_singleton_pids_union_for_tokens(list(parsed.fnsku.accepted), fnsku_map)
+    if ef:
+        return replace(parsed, ambiguous=True, ambiguous_reason=ef), None
+    u_prod |= s_fn
+    s_up, eu = _pim_pm_singleton_pids_union_for_tokens(list(parsed.upc.accepted), upc_map)
+    if eu:
+        return replace(parsed, ambiguous=True, ambiguous_reason=eu), None
+    u_prod |= s_up
+
+    if len(u_prod) > 1:
+        if acc is not None:
+            acc["multi_identifier_rows_conflicting"] = int(acc.get("multi_identifier_rows_conflicting") or 0) + 1
+            acc["conflict_rows_blocked"] = int(acc.get("conflict_rows_blocked") or 0) + 1
+        return replace(
+            parsed,
+            ambiguous=True,
+            ambiguous_reason="product_master_identifiers_resolve_to_different_products",
+        ), None
+
+    if len(u_prod) == 1:
+        pid = next(iter(u_prod))
+        pref = next((str(s) for s in sk if str(s).strip() in matched and matched[str(s).strip()] == pid), None)
+        if not pref:
+            try:
+                pr = (
+                    db.table("products")
+                    .select("sku")
+                    .eq("id", pid)
+                    .eq("organization_id", organization_id)
+                    .eq("store_id", store_id)
+                    .limit(1)
+                    .execute()
+                )
+                db_sku = str(pr.data[0].get("sku") or "").strip() if pr.data else ""
+                pref = next((str(s) for s in sk if str(s) == db_sku), None)
+            except Exception:
+                log.exception("pim_product_master product lookup for unify failed pid=%s", pid)
+                pref = None
+        if not pref and sk:
+            pref = str(sk[0])
+        if acc is not None:
+            acc["multi_identifier_rows_allowed"] = int(acc.get("multi_identifier_rows_allowed") or 0) + 1
+            acc["canonical_products_from_multi_id_rows"] = int(acc.get("canonical_products_from_multi_id_rows") or 0) + 1
+            extra = max(0, len(sk) + len(parsed.asin.accepted) + len(parsed.fnsku.accepted) + len(parsed.upc.accepted) - 1)
+            acc["identifier_tokens_attached"] = int(acc.get("identifier_tokens_attached") or 0) + extra
+        return replace(parsed, ambiguous=False, ambiguous_reason=None), pref
+
+    imap_pids = _pim_imap_distinct_product_ids_for_tokens(
+        db,
+        organization_id,
+        store_id,
+        list(sk),
+        list(parsed.asin.accepted),
+        list(parsed.fnsku.accepted),
+        list(parsed.upc.accepted),
+    )
+    if len(imap_pids) > 1:
+        if acc is not None:
+            acc["multi_identifier_rows_conflicting"] = int(acc.get("multi_identifier_rows_conflicting") or 0) + 1
+            acc["conflict_rows_blocked"] = int(acc.get("conflict_rows_blocked") or 0) + 1
+        return replace(
+            parsed,
+            ambiguous=True,
+            ambiguous_reason="product_master_identifier_map_resolves_to_multiple_products",
+        ), None
+    if len(imap_pids) == 1:
+        pid = next(iter(imap_pids))
+        pref: str | None = None
+        try:
+            pr = (
+                db.table("products")
+                .select("sku")
+                .eq("id", pid)
+                .eq("organization_id", organization_id)
+                .eq("store_id", store_id)
+                .limit(1)
+                .execute()
+            )
+            db_sku = str(pr.data[0].get("sku") or "").strip() if pr.data else ""
+            pref = next((str(s) for s in sk if str(s) == db_sku), str(sk[0]) if sk else None)
+        except Exception:
+            log.exception("pim_product_master product lookup for imap unify failed pid=%s", pid)
+            pref = str(sk[0]) if sk else None
+        if acc is not None:
+            acc["multi_identifier_rows_allowed"] = int(acc.get("multi_identifier_rows_allowed") or 0) + 1
+            acc["canonical_products_from_multi_id_rows"] = int(acc.get("canonical_products_from_multi_id_rows") or 0) + 1
+            extra = max(0, len(sk) + len(parsed.asin.accepted) + len(parsed.fnsku.accepted) + len(parsed.upc.accepted) - 1)
+            acc["identifier_tokens_attached"] = int(acc.get("identifier_tokens_attached") or 0) + extra
+        return replace(parsed, ambiguous=False, ambiguous_reason=None), pref
+
+    if acc is not None:
+        acc["multi_identifier_rows_conflicting"] = int(acc.get("multi_identifier_rows_conflicting") or 0) + 1
+        acc["conflict_rows_blocked"] = int(acc.get("conflict_rows_blocked") or 0) + 1
+    return replace(
+        parsed,
+        ambiguous=True,
+        ambiguous_reason="product_master_multi_sku_no_unified_db_identity",
+    ), None
+
+
+def _pim_resolve_product_from_cache(
+    seller_sku: str | None,
+    fnsku: str | None,
+    asin: str | None,
+    upc: str | None,
+    by_sku: dict[str, list[str]],
+    by_fnsku: dict[str, list[str]],
+    by_asin: dict[str, list[str]],
+    by_upc: dict[str, list[str]],
+) -> tuple[str | None, str, str | None]:
+    """Mirror _pim_resolve_product using batched lookup dicts (values are product id lists)."""
+    if seller_sku:
+        rows = by_sku.get(seller_sku, [])
+        if len(rows) > 1:
+            return None, "ambiguous", None
+        if len(rows) == 1:
+            return str(rows[0]), "update", None
+        return None, "insert", seller_sku
+    if fnsku:
+        rows = by_fnsku.get(fnsku, [])
+        if len(rows) > 1:
+            return None, "ambiguous", None
+        if len(rows) == 1:
+            return str(rows[0]), "update", None
+        return None, "insert", fnsku
+    if asin:
+        rows = by_asin.get(asin, [])
+        if len(rows) > 1:
+            return None, "ambiguous", None
+        if len(rows) == 1:
+            return str(rows[0]), "update", None
+        return None, "insert", asin
+    if upc:
+        rows = by_upc.get(upc, [])
+        if len(rows) > 1:
+            return None, "ambiguous", None
+        if len(rows) == 1:
+            return str(rows[0]), "update", None
+        return None, "insert", upc
+    return None, "no_identity", None
+
+
+def _pim_imap_conflicts_other_cached(
+    imap_rows: list[dict[str, Any]],
+    preview_pid: str,
+    seller_sku: str | None,
+    asin: str | None,
+    fnsku: str | None,
+    upc: str | None,
+) -> bool:
+    checks: list[tuple[str, str]] = []
+    if seller_sku and str(seller_sku).strip():
+        checks.append(("seller_sku", str(seller_sku).strip()))
+    if asin and str(asin).strip():
+        checks.append(("asin", str(asin).strip()))
+    if fnsku and str(fnsku).strip():
+        checks.append(("fnsku", str(fnsku).strip()))
+    if upc and str(upc).strip():
+        checks.append(("upc_code", str(upc).strip()))
+    pid_s = str(preview_pid)
+    for col, val in checks:
+        for row in imap_rows:
+            if str(row.get(col) or "").strip() != val:
+                continue
+            rpid = str(row.get("product_id") or "")
+            if rpid and rpid != pid_s:
+                return True
+    return False
+
+
+def _pim_imap_row_fate_cached(
+    rows_for_pid: list[dict[str, Any]],
+    product_id: str | None,
+    seller_sku: str | None,
+    asin: str | None,
+    fnsku: str | None,
+    upc: str | None,
+) -> str:
+    """Mirror _pim_identifier_map_row_fate using rows already scoped to org+store (global chunk list ok)."""
+    if not (seller_sku or asin or fnsku or upc):
+        return "noop"
+    if not product_id:
+        return "insert"
+    cands = rows_for_pid
+    rec: dict[str, Any] | None = None
+    if seller_sku:
+        rec = next((x for x in cands if str(x.get("seller_sku") or "") == str(seller_sku)), None)
+    elif fnsku:
+        rec = next((x for x in cands if str(x.get("fnsku") or "") == str(fnsku)), None)
+    elif asin:
+        rec = next((x for x in cands if str(x.get("asin") or "") == str(asin)), None)
+    elif upc:
+        rec = next((x for x in cands if str(x.get("upc_code") or "") == str(upc)), None)
+    if not rec:
+        return "insert"
+    payload: dict[str, Any] = {}
+    if asin and not rec.get("asin"):
+        payload["asin"] = asin
+    if fnsku and not rec.get("fnsku"):
+        payload["fnsku"] = fnsku
+    if seller_sku and not rec.get("seller_sku"):
+        payload["seller_sku"] = seller_sku
+    if upc and not rec.get("upc_code"):
+        payload["upc_code"] = upc
+    return "update" if payload else "noop"
+
+
+@dataclass
+class PimPreviewChunkDbCache:
+    """Batched DB lookups for one CSV preview chunk (avoids per-row PostgREST storms)."""
+
+    by_sku: dict[str, list[str]]
+    by_fnsku: dict[str, list[str]]
+    by_asin: dict[str, list[str]]
+    by_upc: dict[str, list[str]]
+    sku_multi: dict[str, list[str]]
+    imap_rows: list[dict[str, Any]]
+    imap_by_pid: dict[str, list[dict[str, Any]]]
+
+
+def _pim_preview_load_imap_touching(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    skus: set[str],
+    fnskus: set[str],
+    asins: set[str],
+    upcs: set[str],
+) -> list[dict[str, Any]]:
+    """Union of identifier_map rows matching any chunk identifier (deduped by id)."""
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    batch_n = 120
+    for col, vals in (
+        ("seller_sku", skus),
+        ("fnsku", fnskus),
+        ("asin", asins),
+        ("upc_code", upcs),
+    ):
+        uniq = [str(v).strip() for v in vals if str(v).strip()]
+        if not uniq:
+            continue
+        for i in range(0, len(uniq), batch_n):
+            chunk = uniq[i : i + batch_n]
+            try:
+                r = (
+                    db.table("product_identifier_map")
+                    .select("id,product_id,seller_sku,asin,fnsku,upc_code")
+                    .eq("organization_id", organization_id)
+                    .eq("store_id", store_id)
+                    .in_(col, chunk)
+                    .limit(8000)
+                    .execute()
+                )
+                for row in r.data or []:
+                    rid = str(row.get("id") or "")
+                    if rid and rid not in seen:
+                        seen.add(rid)
+                        out.append(row)
+            except Exception:
+                log.exception("pim preview imap batch failed col=%s", col)
+    return out
+
+
+def _pim_preview_prepare_chunk_db_cache(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    rows_chunk: list[tuple[int, dict[str, Any], int]],
+    handles: dict[str, str | None],
+    headers: list[str],
+    asin_prefetch: dict[str, list[str]],
+    upc_prefetch: dict[str, list[str]],
+) -> PimPreviewChunkDbCache:
+    """Parse chunk once, batch-fetch products + identifier_map, return caches for per-row analysis."""
+    _ = headers  # reserved — row_cells already keyed by header names
+    multi_skus: set[str] = set()
+    staged: list[tuple[int, dict[str, Any], int, ParsedIdentifierRow]] = []
+    for idx, row_cells, row_trim in rows_chunk:
+        parsed = parse_identifier_row(row_cells, handles)
+        by_asin = {a: asin_prefetch.get(a, []) for a in parsed.asin.accepted}
+        by_upc = {u: upc_prefetch.get(u, []) for u in parsed.upc.accepted}
+        parsed = finalize_ambiguity_with_db(parsed, product_ids_by_asin=by_asin, product_ids_by_upc=by_upc)
+        if len(parsed.seller_sku.accepted) > 1:
+            for s in parsed.seller_sku.accepted:
+                if str(s).strip():
+                    multi_skus.add(str(s).strip())
+        staged.append((idx, row_cells, row_trim, parsed))
+
+    sku_multi = (
+        _pim_product_ids_for_values_batch(db, organization_id, store_id, list(multi_skus), "sku")
+        if multi_skus
+        else {}
+    )
+
+    skus: set[str] = set()
+    fnskus: set[str] = set()
+    asins: set[str] = set()
+    upcs: set[str] = set()
+    for _idx, _row_cells, _row_trim, parsed in staged:
+        parsed, sku_resolve_pref = _pim_finalize_multi_sku_batched(parsed, sku_multi)
+        if parsed.ambiguous:
+            continue
+        seller_sku = sku_resolve_pref or parsed.primary_sku()
+        asin = parsed.primary_asin()
+        fnsku = parsed.primary_fnsku()
+        upc = parsed.primary_upc()
+        if seller_sku:
+            skus.add(str(seller_sku).strip())
+        if fnsku:
+            fnskus.add(str(fnsku).strip())
+        if asin:
+            asins.add(str(asin).strip())
+        if upc:
+            upcs.add(str(upc).strip())
+
+    by_sku = _pim_product_ids_for_values_batch(db, organization_id, store_id, list(skus), "sku") if skus else {}
+    by_fnsku = _pim_product_ids_for_values_batch(db, organization_id, store_id, list(fnskus), "fnsku") if fnskus else {}
+    by_asin = _pim_product_ids_for_values_batch(db, organization_id, store_id, list(asins), "asin") if asins else {}
+    by_upc = _pim_product_ids_for_values_batch(db, organization_id, store_id, list(upcs), "upc_code") if upcs else {}
+
+    imap_skus: set[str] = set()
+    imap_fns: set[str] = set()
+    imap_asins: set[str] = set()
+    imap_upcs: set[str] = set()
+    for _idx, _row_cells, _row_trim, parsed in staged:
+        parsed, sku_resolve_pref = _pim_finalize_multi_sku_batched(parsed, sku_multi)
+        if parsed.ambiguous:
+            continue
+        seller_sku = sku_resolve_pref or parsed.primary_sku()
+        asin = parsed.primary_asin()
+        fnsku = parsed.primary_fnsku()
+        upc = parsed.primary_upc()
+        if not seller_sku and not fnsku and not asin and not upc:
+            continue
+        _prod_id, resolution, sku_insert = _pim_resolve_product_from_cache(
+            seller_sku, fnsku, asin, upc, by_sku, by_fnsku, by_asin, by_upc
+        )
+        if resolution in ("ambiguous", "no_identity"):
+            continue
+        if resolution == "insert" and not sku_insert:
+            continue
+        map_sku = sku_resolve_pref or parsed.primary_sku() or seller_sku or sku_insert
+        for v in build_identifier_map_variants(parsed, map_sku):
+            if v.get("seller_sku"):
+                imap_skus.add(str(v["seller_sku"]).strip())
+            if v.get("fnsku"):
+                imap_fns.add(str(v["fnsku"]).strip())
+            if v.get("asin"):
+                imap_asins.add(str(v["asin"]).strip())
+            if v.get("upc_code"):
+                imap_upcs.add(str(v["upc_code"]).strip())
+
+    imap_rows = _pim_preview_load_imap_touching(
+        db, organization_id, store_id, imap_skus, imap_fns, imap_asins, imap_upcs
+    )
+    imap_by_pid: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in imap_rows:
+        pid = str(row.get("product_id") or "")
+        if pid:
+            imap_by_pid[pid].append(row)
+
+    return PimPreviewChunkDbCache(
+        by_sku=by_sku,
+        by_fnsku=by_fnsku,
+        by_asin=by_asin,
+        by_upc=by_upc,
+        sku_multi=sku_multi,
+        imap_rows=imap_rows,
+        imap_by_pid=dict(imap_by_pid),
+    )
+
+
+def _pim_simulate_vendor_id(raw_label: str | None, index: dict[str, str]) -> tuple[str | None, bool]:
+    """Return (existing_id_or_none, would_create_new). Mutates index with a placeholder id so preview dedupes rows."""
+    name = _pim_normalize_vendor_name(raw_label)
+    key = _pim_vendor_index_key(name)
+    if key in index:
+        return index[key], False
+    index[key] = "__pim_preview_vendor__"
+    return None, True
+
+
+def _pim_clean_product_master_row_variants(
+    row_cells: dict[str, Any],
+    handles: dict[str, str | None],
+    *,
+    max_variants: int = 48,
+) -> list[dict[str, Any]]:
+    """Split multi-token identifier columns into one dict per combination (cartesian, capped)."""
+    from itertools import product
+
+    parsed = parse_identifier_row(row_cells, handles)
+    axes: list[list[tuple[str, str]]] = []
+    for attr, hk in (
+        ("seller_sku", "seller_sku"),
+        ("asin", "asin"),
+        ("fnsku", "fnsku"),
+        ("upc", "upc"),
+    ):
+        col = handles.get(hk)
+        if not col:
+            continue
+        part = getattr(parsed, attr)
+        acc_tok = [str(x).strip() for x in part.accepted if str(x).strip()]
+        if len(acc_tok) <= 1:
+            continue
+        axes.append([(str(col), a) for a in acc_tok])
+    if not axes:
+        return [row_cells]
+    out: list[dict[str, Any]] = []
+    for combo in product(*axes):
+        if len(out) >= int(max_variants):
+            break
+        rc = dict(row_cells)
+        for cname, val in combo:
+            rc[cname] = val
+        out.append(rc)
+    return out if out else [row_cells]
+
+
+def _pim_simulate_category_id(raw_label: str | None, index: dict[str, str]) -> tuple[str | None, bool]:
+    """Match `_pim_ensure_category` / DB index: canonical display + normalized key; preview dedupes new keys."""
+    disp = canonical_category_display_name(raw_label)
+    if not disp:
+        return None, False
+    key = normalize_category_label_for_key(raw_label)
+    if not key:
+        return None, False
+    if key in index:
+        return index[key], False
+    index[key] = "__pim_preview_category__"
+    return None, True
+
+
+def _pim_analyze_seed_row_for_quality(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    row_cells: dict[str, Any],
+    handles: dict[str, str | None],
+    headers: list[str],
+    vendor_index: dict[str, str],
+    category_index: dict[str, str],
+    acc: dict[str, Any],
+    row_index: int | str,
+    row_trim: int,
+    *,
+    amazon_creds: Any,
+    skip_amazon: bool,
+    asin_prefetch: dict[str, list[str]] | None = None,
+    upc_prefetch: dict[str, list[str]] | None = None,
+    chunk_db_cache: PimPreviewChunkDbCache | None = None,
+    pim_import_mode: str | None = None,
+    clean_pm_depth: int = 0,
+) -> None:
+    eff_mode = (pim_import_mode or "generic_raw").strip().lower()
+
+    if clean_pm_depth == 0 and eff_mode == "clean_product_master":
+        variants = _pim_clean_product_master_row_variants(row_cells, handles)
+        if len(variants) > 1:
+            acc["rows_total"] = int(acc["rows_total"]) + 1
+            acc["clean_pm_physical_rows_split"] = int(acc.get("clean_pm_physical_rows_split") or 0) + 1
+            acc["clean_pm_synthetic_rows_emitted"] = int(acc.get("clean_pm_synthetic_rows_emitted") or 0) + len(variants)
+            for i, rc in enumerate(variants):
+                sub_lbl = f"{row_index}×{i + 1}"
+                _pim_analyze_seed_row_for_quality(
+                    db,
+                    organization_id,
+                    store_id,
+                    rc,
+                    handles,
+                    headers,
+                    vendor_index,
+                    category_index,
+                    acc,
+                    sub_lbl,
+                    row_trim,
+                    amazon_creds=amazon_creds,
+                    skip_amazon=skip_amazon,
+                    asin_prefetch=asin_prefetch if clean_pm_depth == 0 else None,
+                    upc_prefetch=upc_prefetch if clean_pm_depth == 0 else None,
+                    chunk_db_cache=chunk_db_cache if clean_pm_depth == 0 else None,
+                    pim_import_mode=pim_import_mode,
+                    clean_pm_depth=clean_pm_depth + 1,
+                )
+            return
+
+    if clean_pm_depth == 0:
+        acc["rows_total"] = int(acc["rows_total"]) + 1
+
+    parsed = parse_identifier_row(row_cells, handles)
+    if clean_pm_depth == 0:
+        if len(parsed.seller_sku.accepted) > 1 or int(parsed.multi_identifier_cells_split or 0) > 0:
+            acc["preview_rows_multi_identifier"] = int(acc.get("preview_rows_multi_identifier") or 0) + 1
+    if asin_prefetch is not None:
+        by_asin = {a: asin_prefetch.get(a, []) for a in parsed.asin.accepted}
+    else:
+        by_asin = _pim_product_ids_for_values(db, organization_id, store_id, parsed.asin.accepted, "asin")
+    if upc_prefetch is not None:
+        by_upc = {u: upc_prefetch.get(u, []) for u in parsed.upc.accepted}
+    else:
+        by_upc = _pim_product_ids_for_values(db, organization_id, store_id, parsed.upc.accepted, "upc_code")
+    parsed = finalize_ambiguity_with_db(parsed, product_ids_by_asin=by_asin, product_ids_by_upc=by_upc)
+    if chunk_db_cache is not None:
+        parsed, sku_resolve_pref = _pim_finalize_multi_sku_batched(parsed, chunk_db_cache.sku_multi)
+    else:
+        parsed, sku_resolve_pref = _pim_finalize_multi_sku(db, organization_id, store_id, parsed)
+    if eff_mode == "product_master" and parsed.ambiguous and parsed.ambiguous_reason == "multiple_seller_sku_requires_single_resolved_product":
+        sku_map = (
+            chunk_db_cache.sku_multi
+            if chunk_db_cache is not None
+            else _pim_product_ids_for_values_batch(
+                db, organization_id, store_id, list(parsed.seller_sku.accepted), "sku"
+            )
+        )
+        if asin_prefetch is not None:
+            asin_map = {a: asin_prefetch.get(a, []) for a in parsed.asin.accepted}
+        else:
+            asin_map = (
+                _pim_product_ids_for_values_batch(db, organization_id, store_id, list(parsed.asin.accepted), "asin")
+                if parsed.asin.accepted
+                else {}
+            )
+        if upc_prefetch is not None:
+            upc_map = {u: upc_prefetch.get(u, []) for u in parsed.upc.accepted}
+        else:
+            upc_map = (
+                _pim_product_ids_for_values_batch(
+                    db, organization_id, store_id, list(parsed.upc.accepted), "upc_code"
+                )
+                if parsed.upc.accepted
+                else {}
+            )
+        if chunk_db_cache is not None:
+            fnsku_map = {str(f).strip(): chunk_db_cache.by_fnsku.get(str(f).strip(), []) for f in parsed.fnsku.accepted}
+        else:
+            fnsku_map = (
+                _pim_product_ids_for_values_batch(db, organization_id, store_id, list(parsed.fnsku.accepted), "fnsku")
+                if parsed.fnsku.accepted
+                else {}
+            )
+        parsed, sku_resolve_pref = _pim_product_master_resolve_multi_sku_row(
+            db,
+            organization_id,
+            store_id,
+            parsed,
+            sku_map,
+            row_cells,
+            handles,
+            acc,
+            asin_to_pids=asin_map,
+            fnsku_to_pids=fnsku_map,
+            upc_to_pids=upc_map,
+        )
+    _pim_bump_cleaning_counters(acc, parsed, row_trim, include_accepted=not parsed.ambiguous)
+
+    if parsed.ambiguous:
+        acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
+        acc["skipped_ambiguous"] = int(acc["skipped_ambiguous"]) + 1
+        acc["ambiguous_multi_identifier_rows"] = int(acc.get("ambiguous_multi_identifier_rows") or 0) + 1
+        _pim_seed_preview_append(
+            acc,
+            row_index,
+            f"multi-identifier ambiguous ({parsed.ambiguous_reason}): {_pim_identifier_preview_detail(parsed)}",
+        )
+        return
+
+    seller_sku = sku_resolve_pref or parsed.primary_sku()
+    asin = parsed.primary_asin()
+    fnsku = parsed.primary_fnsku()
+    upc = parsed.primary_upc()
+    cost_raw, _price_handle_key = _pim_pick_price_raw_from_handles(row_cells, handles)
+
+    if not seller_sku and not fnsku and not asin and not upc:
+        acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
+        acc["skipped_no_identity"] = int(acc["skipped_no_identity"]) + 1
+        # Include raw mapped values in the message for debug visibility.
+        raw_sku = str(_pim_cell(row_cells, handles.get("seller_sku")) or "").strip()
+        raw_asin = str(_pim_cell(row_cells, handles.get("asin")) or "").strip()
+        raw_fnsku = str(_pim_cell(row_cells, handles.get("fnsku")) or "").strip()
+        raw_upc = str(_pim_cell(row_cells, handles.get("upc")) or "").strip()
+        raw_parts = []
+        if raw_sku: raw_parts.append(f"raw_sku={raw_sku[:30]!r}")
+        if raw_asin: raw_parts.append(f"raw_asin={raw_asin[:30]!r}")
+        if raw_fnsku: raw_parts.append(f"raw_fnsku={raw_fnsku[:30]!r}")
+        if raw_upc: raw_parts.append(f"raw_upc={raw_upc[:30]!r}")
+        detail = ("; ".join(raw_parts)) if raw_parts else _pim_identifier_preview_detail(parsed)
+        _pim_seed_preview_append(
+            acc,
+            row_index,
+            f"no_identity_after_cleaning: {detail}",
+        )
+        return
+
+    if asin and amazon_creds and not skip_amazon:
+        _fetch_amazon_catalog_data(asin, amazon_creds)
+        time.sleep(0.2)
+
+    if chunk_db_cache is not None:
+        prod_id, resolution, sku_insert = _pim_resolve_product_from_cache(
+            seller_sku,
+            fnsku,
+            asin,
+            upc,
+            chunk_db_cache.by_sku,
+            chunk_db_cache.by_fnsku,
+            chunk_db_cache.by_asin,
+            chunk_db_cache.by_upc,
+        )
+    else:
+        prod_id, resolution, sku_insert = _pim_resolve_product(
+            db, organization_id, store_id, seller_sku, fnsku, asin, upc
+        )
+    if resolution == "ambiguous":
+        acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
+        acc["skipped_ambiguous"] = int(acc["skipped_ambiguous"]) + 1
+        _pim_seed_preview_append(acc, row_index, "ambiguous product match for org+store+identifiers")
+        return
+    if resolution == "no_identity":
+        acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
+        acc["skipped_no_identity"] = int(acc["skipped_no_identity"]) + 1
+        _pim_seed_preview_append(acc, row_index, "no_identity after resolve")
+        return
+
+    if resolution == "insert" and not sku_insert:
+        acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
+        acc["blocked_new_without_seller_sku"] = int(acc["blocked_new_without_seller_sku"]) + 1
+        _pim_seed_preview_append(
+            acc,
+            row_index,
+            "blocked: could not determine primary sku/upc/asin for new product insert",
+        )
+        return
+
+    if resolution == "insert":
+        acc["products_would_create"] = int(acc["products_would_create"]) + 1
+    elif resolution == "update":
+        acc["products_would_update"] = int(acc["products_would_update"]) + 1
+        acc["existing_products_matched"] = int(acc.get("existing_products_matched") or 0) + 1
+
+    map_sku = sku_resolve_pref or parsed.primary_sku() or seller_sku or sku_insert
+    variants = build_identifier_map_variants(parsed, map_sku)
+    preview_pid = prod_id if resolution == "update" else None
+    ident_conflict_dirty = False
+
+    # Holistic row-level conflict analysis:
+    # Collect ALL product IDs that this row's identifiers are linked to (excluding preview_pid).
+    # - 0 other PIDs  → already linked to same product OR new links → safe (not dirty)
+    # - 1 other PID   → all identifiers consistently link to ONE alternative product → safe update (task D)
+    # - 2+ other PIDs → true conflict, identifiers point to multiple products → dirty
+    if preview_pid:
+        pid_s = str(preview_pid)
+        other_pids_set: set[str] = set()
+        imap_source = chunk_db_cache.imap_rows if chunk_db_cache is not None else []
+        for v in variants:
+            for _col, _val in (
+                ("seller_sku", str(v.get("seller_sku") or "").strip()),
+                ("asin", str(v.get("asin") or "").strip()),
+                ("fnsku", str(v.get("fnsku") or "").strip()),
+                ("upc_code", str(v.get("upc_code") or "").strip()),
+            ):
+                if not _val:
+                    continue
+                for imap_row in imap_source:
+                    if str(imap_row.get(_col) or "").strip() == _val:
+                        rpid = str(imap_row.get("product_id") or "")
+                        if rpid and rpid != pid_s:
+                            other_pids_set.add(rpid)
+
+        if len(other_pids_set) == 0:
+            # All identifiers are either new (not in imap yet) or already linked to preview_pid.
+            # Nothing to do — handled by the fate loop below.
+            pass
+        elif len(other_pids_set) == 1:
+            # Task item D: all conflicting identifiers consistently point to ONE other product.
+            # Treat as safe update / existing_product_matched — NOT dirty.
+            acc["already_complete"] = int(acc.get("already_complete") or 0) + 1
+            # Still fall through to the fate loop so insert/update/noop are counted.
+        else:
+            # Task item E: identifiers point to MULTIPLE different products — true conflict.
+            acc["identifier_map_conflicts_preview"] = int(acc.get("identifier_map_conflicts_preview") or 0) + 1
+            acc["conflict_rows_blocked"] = int(acc.get("conflict_rows_blocked") or 0) + 1
+            ident_conflict_dirty = True
+            acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
+            other_sorted = sorted(other_pids_set)
+            first_two = ", ".join(p[:8] for p in other_sorted[:2])
+            _pim_seed_preview_append(
+                acc,
+                row_index,
+                f"true conflict: row identifiers linked to {len(other_pids_set)} different products "
+                f"(e.g. {first_two}…) — sku={seller_sku or '—'} asin={asin or '—'}",
+            )
+            # Structured conflict record for operator UI panel
+            try:
+                if len(acc.get("conflict_detail", [])) < 500:
+                    acc.setdefault("conflict_detail", []).append({
+                        "row": str(row_index),
+                        "sku": str(seller_sku or ""),
+                        "asin": str(asin or ""),
+                        "fnsku": str(fnsku or ""),
+                        "upc": str(upc or ""),
+                        "product_name": str(_pim_cell(row_cells, handles.get("product_name")) or "")[:120],
+                        "resolved_pid": str(preview_pid) if preview_pid else None,
+                        "conflict_pids": [str(p) for p in other_sorted[:5]],
+                        "reason_source": "imap",
+                        "recommended": "detach_wrong_imap" if preview_pid else "review",
+                    })
+            except Exception:
+                log.debug("conflict_detail append skipped", exc_info=True)
+    elif not preview_pid and variants:
+        # Insert row: no conflict check needed, but scan imap for identifiers already in use
+        # by other products — this is informational only, not dirty.
+        imap_source_ins = chunk_db_cache.imap_rows if chunk_db_cache is not None else []
+        ins_other_set: set[str] = set()
+        for v in variants:
+            for _col, _val in (
+                ("seller_sku", str(v.get("seller_sku") or "").strip()),
+                ("asin", str(v.get("asin") or "").strip()),
+                ("fnsku", str(v.get("fnsku") or "").strip()),
+                ("upc_code", str(v.get("upc_code") or "").strip()),
+            ):
+                if not _val:
+                    continue
+                for imap_row in imap_source_ins:
+                    if str(imap_row.get(_col) or "").strip() == _val:
+                        rpid = str(imap_row.get("product_id") or "")
+                        if rpid:
+                            ins_other_set.add(rpid)
+        if len(ins_other_set) > 1:
+            # Identifiers for a NEW product point to multiple existing products — true conflict.
+            acc["identifier_map_conflicts_preview"] = int(acc.get("identifier_map_conflicts_preview") or 0) + 1
+            acc["conflict_rows_blocked"] = int(acc.get("conflict_rows_blocked") or 0) + 1
+            ident_conflict_dirty = True
+            acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
+            other_sorted_ins = sorted(ins_other_set)
+            first_two_ins = ", ".join(p[:8] for p in other_sorted_ins[:2])
+            _pim_seed_preview_append(
+                acc,
+                row_index,
+                f"true conflict: new-product row identifiers already claim "
+                f"{len(ins_other_set)} different products ({first_two_ins}…) — "
+                f"sku={seller_sku or '—'} asin={asin or '—'}",
+            )
+            try:
+                if len(acc.get("conflict_detail", [])) < 500:
+                    acc.setdefault("conflict_detail", []).append({
+                        "row": str(row_index),
+                        "sku": str(seller_sku or ""),
+                        "asin": str(asin or ""),
+                        "fnsku": str(fnsku or ""),
+                        "upc": str(upc or ""),
+                        "product_name": str(_pim_cell(row_cells, handles.get("product_name")) or "")[:120],
+                        "resolved_pid": None,
+                        "conflict_pids": [str(p) for p in other_sorted_ins[:5]],
+                        "reason_source": "imap",
+                        "recommended": "review",
+                    })
+            except Exception:
+                log.debug("conflict_detail insert-row append skipped", exc_info=True)
+
+    for v in variants:
+        if ident_conflict_dirty:
+            continue
+        if chunk_db_cache is not None:
+            rows_for = chunk_db_cache.imap_by_pid.get(str(preview_pid), []) if preview_pid else []
+            fate = _pim_imap_row_fate_cached(
+                rows_for,
+                preview_pid,
+                v.get("seller_sku"),
+                v.get("asin"),
+                v.get("fnsku"),
+                v.get("upc_code"),
+            )
+        else:
+            fate = _pim_identifier_map_row_fate(
+                db,
+                organization_id,
+                store_id,
+                preview_pid,
+                v.get("seller_sku"),
+                v.get("asin"),
+                v.get("fnsku"),
+                v.get("upc_code"),
+            )
+        if fate == "insert":
+            acc["identifier_map_rows_would_insert"] = int(acc.get("identifier_map_rows_would_insert") or 0) + 1
+        elif fate == "update":
+            acc["identifier_map_rows_would_update"] = int(acc.get("identifier_map_rows_would_update") or 0) + 1
+        elif fate == "noop":
+            acc["duplicates_reused"] = int(acc.get("duplicates_reused") or 0) + 1
+
+    if not ident_conflict_dirty:
+        mapped_headers = {str(v).strip() for v in handles.values() if v}
+        extra_attrs = collect_product_attributes_from_row(
+            row_cells, mapped_headers=mapped_headers, all_headers=headers
+        )
+        if extra_attrs:
+            acc["metadata_attributes_detected"] = int(acc.get("metadata_attributes_detected") or 0) + 1
+
+        v_raw = _clean_identifier(_pim_cell(row_cells, handles.get("vendor")))
+        _, wv = _pim_simulate_vendor_id(v_raw, vendor_index)
+        if wv:
+            acc["vendors_would_create"] = int(acc["vendors_would_create"]) + 1
+        elif v_raw:
+            acc["vendors_reused"] = int(acc.get("vendors_reused") or 0) + 1
+
+        c_raw = _clean_identifier(_pim_cell(row_cells, handles.get("category")))
+        if c_raw:
+            acc["preview_category_nonempty_rows"] = int(acc.get("preview_category_nonempty_rows") or 0) + 1
+        _, wc = _pim_simulate_category_id(c_raw, category_index)
+        acc["preview_category_simulated_rows"] = int(acc.get("preview_category_simulated_rows") or 0) + 1
+        if wc:
+            acc["categories_would_create"] = int(acc["categories_would_create"]) + 1
+        elif c_raw:
+            acc["categories_reused"] = int(acc.get("categories_reused") or 0) + 1
+
+        dbg = acc.get("pim_category_debug_samples")
+        if isinstance(dbg, list) and c_raw and len(dbg) < 18:
+            dbg.append(
+                {
+                    "raw": str(c_raw)[:200],
+                    "normalized_key": normalize_category_label_for_key(c_raw),
+                    "would_create_preview": bool(wc),
+                }
+            )
+
+    if cost_raw is not None:
+        s = str(cost_raw).strip()
+        if s and s.lower() not in ("x", "n/a", "na", "-", "none", "null"):
+            try:
+                float(s.replace("$", "").replace(",", ""))
+                acc["prices_would_insert"] = int(acc["prices_would_insert"]) + 1
+            except (TypeError, ValueError):
+                # Invalid price/cost does NOT mark the row dirty — identifiers and product data
+                # are still valid; only the price column is unparseable. Track separately.
+                acc["invalid_price_rows"] = int(acc["invalid_price_rows"]) + 1
+                _pim_seed_preview_append(acc, row_index, f"invalid price/cost value (skipped): {s[:40]!r}")
+
+
+def _pim_seed_quality_finalize(acc: dict[str, Any]) -> dict[str, Any]:
+    total = max(int(acc.get("rows_total") or 0), 1)
+    dirty = int(acc.get("dirty_rows") or 0)
+    dr = round(float(dirty) / float(total), 4)
+    pe = acc.get("preview_errors") or []
+    rejected_sample: list[dict[str, str]] = []
+    if isinstance(pe, list):
+        for msg in pe[:200]:
+            if isinstance(msg, str):
+                rejected_sample.append({"message": msg})
+    rows_total = int(acc.get("rows_total") or 0)
+    skipped = int(acc.get("skipped_no_identity") or 0) + int(acc.get("skipped_ambiguous") or 0)
+    ins_map = int(acc.get("identifier_map_rows_would_insert") or 0)
+    upd_map = int(acc.get("identifier_map_rows_would_update") or 0)
+    cat_samples = acc.get("pim_category_debug_samples")
+    cat_dbg_out: dict[str, Any] | None = None
+    if isinstance(cat_samples, list) and cat_samples:
+        cat_dbg_out = {"samples": cat_samples[:25]}
+    conflict_blocked = int(acc.get("conflict_rows_blocked") or 0)
+    acc_out = {
+        k: v
+        for k, v in acc.items()
+        if k != "pim_category_debug_samples" and not str(k).startswith("_pim_")
+    }
+    rows_accepted_est = max(rows_total - dirty, 0)
+    cat_wc = int(acc.get("categories_would_create") or 0)
+    cat_ru = int(acc.get("categories_reused") or 0)
+    if cat_wc == 0 and cat_ru == 0:
+        if cat_dbg_out is None:
+            cat_dbg_out = {}
+        reasons: list[str] = []
+        if not bool(acc.get("_pim_scan_has_category_handle")):
+            reasons.append("no_category_column_mapped")
+        elif rows_accepted_est <= 0:
+            reasons.append("no_rows_accepted_past_identity_and_resolve")
+        elif int(acc.get("preview_category_nonempty_rows") or 0) == 0:
+            reasons.append("category_cells_empty_on_accepted_rows")
+        elif int(acc.get("preview_category_simulated_rows") or 0) == 0:
+            reasons.append("category_metrics_skipped_other_row_issues")
+        cat_dbg_out["why_categories_zero"] = reasons
+    return {
+        **acc_out,
+        "identifier_rows_would_insert": ins_map,
+        "identifier_rows_would_update": upd_map,
+        "rows_skipped": skipped,
+        "ambiguous_rows": int(acc.get("skipped_ambiguous") or 0),
+        "dirty_rate": dr,
+        "apply_blocked_by_dirty_rate": dr > PIM_SEED_MAX_DIRTY_RATE,
+        "apply_blocked_by_conflicts": conflict_blocked > 0,
+        "max_dirty_rate": PIM_SEED_MAX_DIRTY_RATE,
+        "category_import_debug": cat_dbg_out,
+        "rejected_sample": rejected_sample,
+        "accepted_sample": [],
+        "rows_accepted_estimate": rows_accepted_est,
+        "skipped_dirty_row": dirty,
+        "would_create_products": int(acc.get("products_would_create") or 0),
+        "would_update_products": int(acc.get("products_would_update") or 0),
+        "ambiguous_matches": int(acc.get("skipped_ambiguous") or 0),
+        "multi_identifier_rows_allowed": int(acc.get("multi_identifier_rows_allowed") or 0),
+        "multi_identifier_rows_conflicting": int(acc.get("multi_identifier_rows_conflicting") or 0),
+        "canonical_products_from_multi_id_rows": int(acc.get("canonical_products_from_multi_id_rows") or 0),
+        "identifier_tokens_attached": int(acc.get("identifier_tokens_attached") or 0),
+        "conflict_rows_blocked": int(acc.get("conflict_rows_blocked") or 0),
+        "invalid_price_rows": int(acc.get("invalid_price_rows") or 0),
+        "already_complete": int(acc.get("already_complete") or 0),
+        "conflict_detail": acc.get("conflict_detail", [])[:500],
+    }
+
+
+def _pim_seed_scan_prepared_quality(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    prepared: list[dict[str, Any]],
+    amazon_creds: Any,
+    *,
+    skip_amazon: bool,
+) -> dict[str, Any]:
+    vendor_index = _pim_load_vendor_index(db, organization_id)
+    category_index = _pim_load_category_index(db, organization_id)
+    acc = _pim_seed_quality_acc()
+    for block in prepared:
+        df = block["df"]
+        headers = block["headers"]
+        handles = block["handles"]
+        sl = block.get("sheet_label")
+        sl_str = str(sl).strip() if sl is not None else ""
+        for i, (_, row) in enumerate(df.iterrows()):
+            row_cells, row_trim = _pim_row_cells_from_series(row, headers)
+            row_lbl: int | str = f"{sl_str}!{i + 2}" if sl_str else i + 2
+            _pim_analyze_seed_row_for_quality(
+                db,
+                organization_id,
+                store_id,
+                row_cells,
+                handles,
+                headers,
+                vendor_index,
+                category_index,
+                acc,
+                row_lbl,
+                row_trim,
+                amazon_creds=amazon_creds,
+                skip_amazon=skip_amazon,
+            )
+    return _pim_seed_quality_finalize(acc)
+
+
+def _pim_collect_prepared_from_upload(
+    raw_bytes: bytes, fname: str | None, openai_key: str | None
+) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    column_map: dict[str, Any] | None = None
+    reference_headers: list[str] | None = None
+    last_mapping_src = "unknown"
+    saw_any_yield = False
+    saw_frame = False
+    for sheet_label, df in _iter_seed_product_frames(raw_bytes, fname):
+        saw_any_yield = True
+        original_headers = [str(c).strip() for c in df.columns]
+        if not any(h for h in original_headers if h):
+            continue
+        saw_frame = True
+        if column_map is None or reference_headers != original_headers:
+            column_map, last_mapping_src = _pim_resolve_column_map(original_headers, openai_key)
+            _validate_gpt_column_map(column_map, original_headers)
+            reference_headers = list(original_headers)
+            mapping_src = last_mapping_src
+        else:
+            mapping_src = "reused_header_match"
+        assert column_map is not None
+        handles = _pim_augment_handles_from_deterministic(
+            original_headers, _pim_handles_from_map(column_map, original_headers)
+        )
+        df = _pim_coerce_mapped_columns_string(df, handles)
+        sheet_key = sheet_label or "(csv)"
+        match_src = f"etl_seed_products:{sheet_label}" if sheet_label else "etl_seed_products_csv"
+        attrs = getattr(df, "attrs", {}) if isinstance(getattr(df, "attrs", None), dict) else {}
+        prepared.append(
+            {
+                "sheet_key": sheet_key,
+                "sheet_label": sheet_label or "",
+                "df": df,
+                "headers": original_headers,
+                "handles": handles,
+                "match_src": match_src,
+                "pim_column_map": _pim_public_column_map(column_map),
+                "mapping_source": mapping_src,
+                "pim_delimiter_detected": attrs.get("pim_delimiter_detected"),
+                "pim_delimiter_uncertain": bool(attrs.get("pim_delimiter_uncertain")),
+            }
+        )
+    if not saw_any_yield:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    if not saw_frame:
+        raise HTTPException(
+            status_code=400,
+            detail="No readable tabular data: for Excel, add at least one sheet with a header row and data.",
+        )
+    return prepared
+
+
+def _pim_google_build_prepared_frames(
+    db: Any, organization_id: str, sheet_id: str, creds: Any, openai_key: str | None
+) -> list[dict[str, Any]]:
+    try:
+        from googleapiclient.discovery import build
+    except ModuleNotFoundError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Google Sheets dependencies are not installed. Run: "
+                "python -m pip install google-api-python-client google-auth"
+            ),
+        ) from e
+
+    service = build("sheets", "v4", credentials=creds)
+    sheet_metadata = service.spreadsheets().get(spreadsheetId=sheet_id).execute()
+    sheets = sheet_metadata.get("sheets", [])
+    prepared: list[dict[str, Any]] = []
+    for sheet in sheets:
+        sheet_name = sheet["properties"]["title"]
+        if sheet_name != PRODUCT_MASTER_SHEET_NAME:
+            log.info("Skipping Google Sheet tab tab=%r (only %r is imported)", sheet_name, PRODUCT_MASTER_SHEET_NAME)
+            continue
+        result = service.spreadsheets().values().get(spreadsheetId=sheet_id, range=f"'{sheet_name}'!A:Z").execute()
+        values = result.get("values", [])
+        if not values or len(values) < 2:
+            log.info("Skipping empty Google Sheet tab tab=%r spreadsheet=%r", sheet_name, sheet_id)
+            continue
+        headers = [str(c).strip() for c in values[0]]
+        rows = [row + [""] * (len(headers) - len(row)) for row in values[1:]]
+        df = pd.DataFrame(rows, columns=headers)
+        original_headers = headers
+        column_map, mapping_src = _pim_resolve_column_map(original_headers, openai_key)
+        _validate_gpt_column_map(column_map, original_headers)
+        handles = _pim_augment_handles_from_deterministic(
+            original_headers, _pim_handles_from_map(column_map, original_headers)
+        )
+        df = _pim_coerce_mapped_columns_string(df, handles)
+        prepared.append(
+            {
+                "sheet_key": sheet_name,
+                "sheet_label": sheet_name,
+                "df": df,
+                "headers": original_headers,
+                "handles": handles,
+                "match_src": "etl_google_sheets",
+                "pim_column_map": _pim_public_column_map(column_map),
+                "mapping_source": mapping_src,
+            }
+        )
+    if not prepared:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Google Sheet must contain a non-empty tab named {PRODUCT_MASTER_SHEET_NAME!r} "
+                "(header row + data). Other tabs are ignored."
+            ),
+        )
+    return prepared
 
 
 def _pim_append_error(errors: list[str], row_index: int | str | None, message: str, cap: int = 200) -> None:
@@ -2211,7 +4003,7 @@ def _gpt_map_catalog_columns_or_raise(headers: list[str], api_key: str) -> dict[
         client = OpenAI(api_key=api_key)
         prompt = (
             "You are a data mapping AI. Map these CSV/Sheet headers to standard keys: "
-            "'vendor', 'category', 'mfg_part', 'product_name', 'seller_sku', 'asin', 'fnsku', 'upc', 'cost'. "
+            "'vendor', 'category', 'mfg_part', 'product_name', 'seller_sku', 'asin', 'fnsku', 'upc', 'cost', 'status'. "
             "Values must be EXACT header strings from the list (character-for-character match). "
             "Omit a key if no column applies. "
             "Reply ONLY with a valid JSON object mapping standard keys to exact header names. "
@@ -2278,14 +4070,58 @@ def _pim_handles_from_map(column_map: dict[str, Any], original_headers: list[str
     return out
 
 
+def _pim_augment_handles_from_deterministic(
+    original_headers: list[str], handles: dict[str, str | None]
+) -> dict[str, str | None]:
+    """
+    Fill missing standard handles (e.g. `category` from a `Category` column) when GPT/JSON
+    mapping omitted them but `_pim_try_deterministic_column_map` can infer them.
+    """
+    inv = set(original_headers)
+    det = _pim_try_deterministic_column_map(original_headers)
+    if not det:
+        return handles
+    out = dict(handles)
+    for std in _PIM_MAP_STANDARD_KEYS:
+        if out.get(std):
+            continue
+        v = det.get(std)
+        if v is None or (isinstance(v, str) and not str(v).strip()):
+            continue
+        h = str(v).strip()
+        if h in inv:
+            out[std] = h
+    return out
+
+
+_PIM_VENDOR_WS = re.compile(r"\s+")
+
+
+def _pim_normalize_vendor_name(raw: str | None) -> str:
+    """Trim, collapse internal whitespace; empty -> Unknown Vendor (canonical display name)."""
+    s = (raw or "").strip()
+    if not s:
+        return "Unknown Vendor"
+    collapsed = _PIM_VENDOR_WS.sub(" ", s).strip()
+    return collapsed or "Unknown Vendor"
+
+
+def _pim_vendor_index_key(display: str) -> str:
+    return display.lower()
+
+
 def _pim_load_vendor_index(db: Any, organization_id: str) -> dict[str, str]:
     idx: dict[str, str] = {}
     try:
         r = db.table("vendors").select("id,name").eq("organization_id", organization_id).execute()
         for row in r.data or []:
             n = str(row.get("name") or "").strip()
-            if n:
-                idx[n.lower()] = str(row["id"])
+            if not n:
+                continue
+            display = _pim_normalize_vendor_name(n)
+            key = _pim_vendor_index_key(display)
+            if key not in idx:
+                idx[key] = str(row["id"])
     except Exception as e:
         log.exception("Failed to load vendors for org=%s", organization_id)
         raise HTTPException(status_code=500, detail=f"Failed to load vendors: {e}") from e
@@ -2301,9 +4137,10 @@ def _pim_ensure_vendor(
     errors: list[str],
     row_index: int | str | None,
 ) -> str | None:
-    name = (raw_label or "").strip() or "Unknown Vendor"
-    key = name.lower()
+    name = _pim_normalize_vendor_name(raw_label)
+    key = _pim_vendor_index_key(name)
     if key in index:
+        metrics["vendors_reused"] = int(metrics.get("vendors_reused") or 0) + 1
         return index[key]
     try:
         ins = db.table("vendors").insert({"organization_id": organization_id, "name": name}).execute()
@@ -2320,8 +4157,12 @@ def _pim_ensure_vendor(
             r = db.table("vendors").select("id,name").eq("organization_id", organization_id).execute()
             for row in r.data or []:
                 n = str(row.get("name") or "").strip()
-                if n:
-                    index[n.lower()] = str(row["id"])
+                if not n:
+                    continue
+                display = _pim_normalize_vendor_name(n)
+                k = _pim_vendor_index_key(display)
+                if k not in index:
+                    index[k] = str(row["id"])
             if key in index:
                 return index[key]
         except Exception as e2:
@@ -2339,7 +4180,9 @@ def _pim_load_category_index(db: Any, organization_id: str) -> dict[str, str]:
         for row in r.data or []:
             n = str(row.get("name") or "").strip()
             if n:
-                idx[n.lower()] = str(row["id"])
+                k = normalize_category_label_for_key(n)
+                if k and k not in idx:
+                    idx[k] = str(row["id"])
     except Exception as e:
         log.exception("Failed to load product_categories for org=%s", organization_id)
         raise HTTPException(status_code=500, detail=f"Failed to load categories: {e}") from e
@@ -2355,11 +4198,12 @@ def _pim_ensure_category(
     errors: list[str],
     row_index: int | str | None,
 ) -> str | None:
-    name = (raw_label or "").strip()
+    name = canonical_category_display_name(raw_label)
     if not name:
         return None
-    key = name.lower()
+    key = normalize_category_label_for_key(raw_label)
     if key in index:
+        metrics["categories_reused"] = int(metrics.get("categories_reused") or 0) + 1
         return index[key]
     try:
         ins = db.table("product_categories").insert({"organization_id": organization_id, "name": name}).execute()
@@ -2377,7 +4221,9 @@ def _pim_ensure_category(
             for row in r.data or []:
                 n = str(row.get("name") or "").strip()
                 if n:
-                    index[n.lower()] = str(row["id"])
+                    nk = normalize_category_label_for_key(n)
+                    if nk and nk not in index:
+                        index[nk] = str(row["id"])
             if key in index:
                 return index[key]
         except Exception as e2:
@@ -2410,9 +4256,11 @@ def _pim_resolve_product(
     seller_sku: str | None,
     fnsku: str | None,
     asin: str | None,
+    upc: str | None = None,
 ) -> tuple[str | None, str, str | None]:
     """Returns (product_id_or_none, resolution, sku_for_insert_or_none).
     resolution: update | insert | ambiguous | no_identity
+    Match priority: seller_sku, fnsku, asin, upc (store-scoped).
     """
     if seller_sku:
         r = (
@@ -2462,7 +4310,112 @@ def _pim_resolve_product(
         if len(rows) == 1:
             return str(rows[0]["id"]), "update", None
         return None, "insert", asin
+    if upc:
+        r = (
+            db.table("products")
+            .select("id")
+            .eq("organization_id", organization_id)
+            .eq("store_id", store_id)
+            .eq("upc_code", upc)
+            .limit(25)
+            .execute()
+        )
+        rows = r.data or []
+        if len(rows) > 1:
+            return None, "ambiguous", None
+        if len(rows) == 1:
+            return str(rows[0]["id"]), "update", None
+        return None, "insert", upc
     return None, "no_identity", None
+
+
+def _pim_identifier_map_conflicts_other_product(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    product_id: str,
+    seller_sku: str | None,
+    asin: str | None,
+    fnsku: str | None,
+    upc: str | None,
+) -> bool:
+    """True if any non-empty identifier is already linked to a different product in this store."""
+    try:
+        checks: list[tuple[str, str]] = []
+        if seller_sku and str(seller_sku).strip():
+            checks.append(("seller_sku", str(seller_sku).strip()))
+        if asin and str(asin).strip():
+            checks.append(("asin", str(asin).strip()))
+        if fnsku and str(fnsku).strip():
+            checks.append(("fnsku", str(fnsku).strip()))
+        if upc and str(upc).strip():
+            checks.append(("upc_code", str(upc).strip()))
+        for col, val in checks:
+            r = (
+                db.table("product_identifier_map")
+                .select("id,product_id")
+                .eq("organization_id", organization_id)
+                .eq("store_id", store_id)
+                .eq(col, val)
+                .limit(5)
+                .execute()
+            )
+            for row in r.data or []:
+                if str(row.get("product_id") or "") != str(product_id):
+                    return True
+    except Exception:
+        return True
+    return False
+
+
+def _pim_identifier_map_row_fate(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    product_id: str | None,
+    seller_sku: str | None,
+    asin: str | None,
+    fnsku: str | None,
+    upc: str | None,
+) -> str:
+    """Preview projection: insert | update | noop (mirrors _pim_upsert_identifier_map lookup/update rules)."""
+    if not (seller_sku or asin or fnsku or upc):
+        return "noop"
+    if not product_id:
+        return "insert"
+    try:
+        q = (
+            db.table("product_identifier_map")
+            .select("id", "seller_sku", "asin", "fnsku", "upc_code")
+            .eq("organization_id", organization_id)
+            .eq("store_id", store_id)
+            .eq("product_id", product_id)
+        )
+        if seller_sku:
+            q = q.eq("seller_sku", seller_sku)
+        elif fnsku:
+            q = q.eq("fnsku", fnsku)
+        elif asin:
+            q = q.eq("asin", asin)
+        elif upc:
+            q = q.eq("upc_code", upc)
+        existing = q.limit(5).execute()
+        rows = existing.data or []
+        if not rows:
+            return "insert"
+        rec = rows[0]
+        payload: dict[str, Any] = {}
+        if asin and not rec.get("asin"):
+            payload["asin"] = asin
+        if fnsku and not rec.get("fnsku"):
+            payload["fnsku"] = fnsku
+        if seller_sku and not rec.get("seller_sku"):
+            payload["seller_sku"] = seller_sku
+        if upc and not rec.get("upc_code"):
+            payload["upc_code"] = upc
+        return "update" if payload else "noop"
+    except Exception:
+        return "insert"
 
 
 def _pim_upsert_identifier_map(
@@ -2481,6 +4434,44 @@ def _pim_upsert_identifier_map(
 ) -> None:
     if not (seller_sku or asin or fnsku or upc):
         return
+    # Holistic conflict check: collect all OTHER product_ids linked to any of this row's identifiers.
+    # Mirrors the preview-path check: only true conflicts (>1 other product) block insertion.
+    try:
+        other_pids: set[str] = set()
+        pid_s = str(product_id)
+        for _col, _val in (
+            ("seller_sku", str(seller_sku or "").strip()),
+            ("asin", str(asin or "").strip()),
+            ("fnsku", str(fnsku or "").strip()),
+            ("upc_code", str(upc or "").strip()),
+        ):
+            if not _val:
+                continue
+            r = (
+                db.table("product_identifier_map")
+                .select("product_id")
+                .eq("organization_id", organization_id)
+                .eq("store_id", store_id)
+                .eq(_col, _val)
+                .is_("deleted_at", "null")
+                .limit(10)
+                .execute()
+            )
+            for row in r.data or []:
+                rpid = str(row.get("product_id") or "")
+                if rpid and rpid != pid_s:
+                    other_pids.add(rpid)
+        if len(other_pids) > 1:
+            # True conflict: identifiers point to 2+ different products — skip
+            _pim_append_error(
+                errors,
+                row_index,
+                f"identifier map skipped: identifiers claim {len(other_pids)} different products in this store",
+            )
+            return
+        # 0 or 1 other_pids: safe to upsert (either no conflict or single consistent alternative)
+    except Exception as e:
+        log.warning("pim imap holistic conflict check failed product_id=%s: %s", product_id, e)
     try:
         q = (
             db.table("product_identifier_map")
@@ -2495,6 +4486,8 @@ def _pim_upsert_identifier_map(
             q = q.eq("fnsku", fnsku)
         elif asin:
             q = q.eq("asin", asin)
+        elif upc:
+            q = q.eq("upc_code", upc)
         existing = q.limit(5).execute()
         rows = existing.data or []
         if not rows:
@@ -2533,6 +4526,183 @@ def _pim_upsert_identifier_map(
         _pim_append_error(errors, row_index, f"identifier map: {e}")
 
 
+def _pim_pick_price_raw_from_handles(
+    row_cells: dict[str, Any],
+    handles: dict[str, str | None],
+) -> tuple[Any | None, str | None]:
+    """First non-empty mapped price/cost column (Product Master files vary: cost, case_cost, unit_cost, …)."""
+    for logical in ("cost", "price", "unit_cost", "case_cost", "last_cost", "list_price", "msrp"):
+        h = handles.get(logical)
+        if not h:
+            continue
+        raw = _pim_cell(row_cells, h)
+        if raw is None:
+            continue
+        s = str(raw).strip()
+        if not s or s.lower() in ("x", "n/a", "na", "-", "none", "null"):
+            continue
+        return raw, logical
+    # Unmapped columns: match common header tokens (preview parity with apply when AI mapping misses a cost column).
+    skip_substr = ("asin", "sku", "upc", "fnsku", "ean", "gtin", "mpn", "note", "desc", "url", "image", "photo")
+    for key, raw in row_cells.items():
+        if raw is None:
+            continue
+        kn = str(key).strip().lower().replace(" ", "_").replace("-", "_")
+        if not kn:
+            continue
+        if any(x in kn for x in skip_substr):
+            continue
+        hit = None
+        for token in (
+            "case_cost",
+            "casecost",
+            "unit_cost",
+            "unitcost",
+            "last_cost",
+            "lastcost",
+            "list_price",
+            "listprice",
+            "dealer_price",
+            "dealerprice",
+            "msrp",
+            "map_price",
+            "your_price",
+            "sell_price",
+            "selling_price",
+            "retail",
+            "cost",
+            "price",
+        ):
+            if token in kn or kn == token:
+                hit = token
+                break
+        if not hit:
+            continue
+        s = str(raw).strip()
+        if not s or s.lower() in ("x", "n/a", "na", "-", "none", "null"):
+            continue
+        return raw, f"header:{kn[:72]}"
+    return None, None
+
+
+def _pim_row_brand_from_handles(row_cells: dict[str, Any], handles: dict[str, str | None]) -> str | None:
+    """Explicit brand columns only — never treat manufacturer/vendor as brand without Brand_By_MFG mapping."""
+    for logical in ("brand", "brand_name"):
+        h = handles.get(logical)
+        if not h:
+            continue
+        v = _clean_identifier(_pim_cell(row_cells, h))
+        if v:
+            return v
+    return None
+
+
+def _pim_brand_from_mfg_map_lookup(
+    row_cells: dict[str, Any],
+    handles: dict[str, str | None],
+    brand_by_mfg_map: dict[str, str] | None,
+) -> str | None:
+    """Resolve brand using Brand_By_MFG sheet (mfg / manufacturer -> brand)."""
+    if not brand_by_mfg_map:
+        return None
+    for logical in ("mfg", "manufacturer", "mfg_name"):
+        h = handles.get(logical)
+        if not h:
+            continue
+        raw = _clean_identifier(_pim_cell(row_cells, h))
+        if not raw:
+            continue
+        k = raw.strip().lower()
+        hit = brand_by_mfg_map.get(k)
+        if hit and str(hit).strip():
+            return str(hit).strip()
+    return None
+
+
+def _pim_load_brand_by_mfg_from_xlsx(path: str) -> dict[str, str]:
+    """Read optional ``Brand_By_MFG`` sheet: manufacturer key -> brand label (lowercase keys)."""
+    import openpyxl
+
+    out: dict[str, str] = {}
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return out
+    try:
+        sheet_name = None
+        for sn in wb.sheetnames:
+            if str(sn).strip().lower() == "brand_by_mfg":
+                sheet_name = sn
+                break
+        if sheet_name is None:
+            return out
+        ws = wb[sheet_name]
+        rows_it = ws.iter_rows(min_row=1, values_only=True)
+        header_row = next(rows_it, None)
+        if not header_row:
+            return out
+        headers = [str(c).strip().lower() if c is not None else "" for c in header_row]
+        mfg_i = None
+        brand_i = None
+        for i, h in enumerate(headers):
+            if not h:
+                continue
+            if mfg_i is None and any(x in h for x in ("mfg", "manufacturer", "vendor", "company")):
+                mfg_i = i
+            if brand_i is None and "brand" in h:
+                brand_i = i
+        if mfg_i is None:
+            mfg_i = 0
+        if brand_i is None:
+            brand_i = 1 if len(headers) > 1 else 0
+        if mfg_i == brand_i:
+            return out
+        for raw in rows_it:
+            if not raw:
+                continue
+            cells = list(raw)
+            if mfg_i >= len(cells) or brand_i >= len(cells):
+                continue
+            mk = cells[mfg_i]
+            bv = cells[brand_i]
+            if mk is None or bv is None:
+                continue
+            ms = str(mk).strip()
+            bs = str(bv).strip()
+            if not ms or not bs:
+                continue
+            out[ms.lower()] = bs
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+    return out
+
+
+def _pim_reconcile_apply_vs_preview(metrics: dict[str, Any], pq: dict[str, Any] | None) -> dict[str, Any]:
+    if not pq or not isinstance(pq, dict):
+        return {}
+    preview_rows = int(pq.get("rows_accepted_estimate") or pq.get("rows_total") or 0)
+    proc = int(metrics.get("rows_processed") or 0)
+    return {
+        "preview_accepted_rows_estimate": preview_rows,
+        "apply_rows_processed": proc,
+        "products_created": int(metrics.get("products_created") or 0),
+        "products_updated": int(metrics.get("products_updated") or 0),
+        "skipped_no_identity": int(metrics.get("skipped_no_identity") or 0),
+        "skipped_ambiguous": int(metrics.get("skipped_ambiguous") or 0),
+        "vendors_created": int(metrics.get("vendors_created") or 0),
+        "vendors_reused": int(metrics.get("vendors_reused") or 0),
+        "categories_created": int(metrics.get("categories_created") or 0),
+        "categories_reused": int(metrics.get("categories_reused") or 0),
+        "identifiers_created": int(metrics.get("identifiers_created") or 0),
+        "prices_inserted": int(metrics.get("prices_inserted") or 0),
+        "apply_error_events": len(metrics.get("errors") or []),
+        "delta_apply_rows_minus_preview_accepted": proc - preview_rows if preview_rows else None,
+    }
+
+
 def _pim_insert_price_if_present(
     db: Any,
     organization_id: str,
@@ -2543,6 +4713,11 @@ def _pim_insert_price_if_present(
     metrics: dict[str, Any],
     errors: list[str],
     row_index: int | str,
+    product_sku: str | None = None,
+    *,
+    asin_value: str | None = None,
+    source_column: str | None = None,
+    pim_upload_id: str | None = None,
 ) -> None:
     if cost_raw is None:
         return
@@ -2555,20 +4730,107 @@ def _pim_insert_price_if_present(
         _pim_append_error(errors, row_index, f"invalid price/cost value: {s[:40]!r}")
         return
     try:
-        db.table("product_prices").insert(
-            {
-                "organization_id": organization_id,
-                "store_id": store_id,
-                "product_id": product_id,
-                "amount": amt,
-                "currency": "USD",
-                "source": price_source,
-            }
-        ).execute()
+        src_label = "product_master_import" if str(price_source).strip() == "pim_import_async" else (price_source or "import")
+        meta_blob: dict[str, Any] = {
+            "price_source": price_source,
+            "source_column": source_column,
+        }
+        if pim_upload_id and str(pim_upload_id).strip():
+            uid_s = str(pim_upload_id).strip()
+            meta_blob["import_upload_id"] = uid_s
+            meta_blob["import_job_id"] = uid_s
+        if asin_value and str(asin_value).strip():
+            meta_blob["asin"] = str(asin_value).strip()
+
+        # Idempotency: skip if same amount+currency+source was inserted today
+        try:
+            from datetime import timedelta
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+            dup_check = (
+                db.table("product_prices")
+                .select("id")
+                .eq("organization_id", organization_id)
+                .eq("store_id", store_id)
+                .eq("product_id", product_id)
+                .eq("amount", amt)
+                .eq("currency", "USD")
+                .eq("source", src_label)
+                .gte("observed_at", cutoff)
+                .limit(1)
+                .execute()
+            )
+            if dup_check.data:
+                metrics["prices_skipped_duplicate"] = int(metrics.get("prices_skipped_duplicate") or 0) + 1
+                return
+        except Exception as dup_err:
+            log.debug("price dedup check skipped: %s", dup_err)
+
+        row: dict[str, Any] = {
+            "organization_id": organization_id,
+            "store_id": store_id,
+            "product_id": product_id,
+            "amount": amt,
+            "currency": "USD",
+            "source": src_label,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "metadata": meta_blob,
+        }
+        if product_sku and str(product_sku).strip():
+            row["sku"] = str(product_sku).strip()
+        uid = str(pim_upload_id).strip() if pim_upload_id else ""
+        if uid:
+            row["source_upload_id"] = uid
+        db.table("product_prices").insert(row).execute()
         metrics["prices_inserted"] += 1
     except Exception as e:
         log.exception("product_prices insert failed product_id=%s", product_id)
         _pim_append_error(errors, row_index, f"price insert: {e}")
+
+
+def _pim_seed_apply_prepared_writes(
+    db: Any,
+    organization_id: str,
+    store_id: str,
+    prepared: list[dict[str, Any]],
+    amazon_creds: Any,
+    price_source: str,
+) -> dict[str, Any]:
+    metrics = _empty_pim_seed_metrics()
+    errors: list[str] = metrics["errors"]
+    vendor_index = _pim_load_vendor_index(db, organization_id)
+    category_index = _pim_load_category_index(db, organization_id)
+    for block in prepared:
+        df = block["df"]
+        headers = block["headers"]
+        handles = block["handles"]
+        match_src = str(block["match_src"])
+        sheet_key = str(block.get("sheet_key") or "")
+        rows_before = int(metrics["rows_processed"])
+        metrics["sheets_processed"] = int(metrics["sheets_processed"]) + 1
+        sl = block.get("sheet_label")
+        sl_str = str(sl).strip() if sl is not None else ""
+        for i, (_, row) in enumerate(df.iterrows()):
+            row_cells, row_trim = _pim_row_cells_from_series(row, headers)
+            row_lbl: int | str = f"{sl_str}!{i + 2}" if sl_str else i + 2
+            _process_pim_seed_row(
+                db,
+                organization_id,
+                store_id,
+                row_cells,
+                handles,
+                headers,
+                amazon_creds,
+                price_source,
+                match_src,
+                metrics,
+                errors,
+                row_lbl,
+                vendor_index,
+                category_index,
+                row_trim,
+            )
+        metrics["rows_per_sheet"][sheet_key] = int(metrics["rows_processed"]) - rows_before
+    return metrics
 
 
 def _process_pim_seed_row(
@@ -2577,6 +4839,7 @@ def _process_pim_seed_row(
     store_id: str,
     row_cells: dict[str, Any],
     handles: dict[str, str | None],
+    headers: list[str],
     amazon_creds: Any,
     price_source: str,
     match_source: str,
@@ -2585,27 +4848,112 @@ def _process_pim_seed_row(
     row_index: int | str,
     vendor_index: dict[str, str],
     category_index: dict[str, str],
+    row_trim: int,
+    pim_import_mode: str | None = None,
+    clean_pm_depth: int = 0,
+    *,
+    skip_amazon_enrichment: bool = False,
+    pim_upload_id: str | None = None,
+    brand_by_mfg_map: dict[str, str] | None = None,
 ) -> None:
+    eff_mode = (pim_import_mode or ("product_master" if "pim_async" in str(match_source) else "generic_raw")).strip().lower()
+
+    if clean_pm_depth == 0 and eff_mode == "clean_product_master":
+        variants = _pim_clean_product_master_row_variants(row_cells, handles)
+        if len(variants) > 1:
+            for i, rc in enumerate(variants):
+                _process_pim_seed_row(
+                    db,
+                    organization_id,
+                    store_id,
+                    rc,
+                    handles,
+                    headers,
+                    amazon_creds,
+                    price_source,
+                    match_source,
+                    metrics,
+                    errors,
+                    f"{row_index}×{i + 1}",
+                    vendor_index,
+                    category_index,
+                    row_trim,
+                    pim_import_mode=pim_import_mode,
+                    clean_pm_depth=clean_pm_depth + 1,
+                    skip_amazon_enrichment=skip_amazon_enrichment,
+                    pim_upload_id=pim_upload_id,
+                )
+            return
+
     metrics["rows_processed"] += 1
 
-    seller_sku = _clean_identifier(_pim_cell(row_cells, handles.get("seller_sku")))
-    asin = _clean_identifier(_pim_cell(row_cells, handles.get("asin")))
-    fnsku = _clean_identifier(_pim_cell(row_cells, handles.get("fnsku")))
-    upc = _clean_identifier(_pim_cell(row_cells, handles.get("upc")))
+    parsed = parse_identifier_row(row_cells, handles)
+    by_asin = _pim_product_ids_for_values(db, organization_id, store_id, parsed.asin.accepted, "asin")
+    by_upc = _pim_product_ids_for_values(db, organization_id, store_id, parsed.upc.accepted, "upc_code")
+    parsed = finalize_ambiguity_with_db(parsed, product_ids_by_asin=by_asin, product_ids_by_upc=by_upc)
+    parsed, sku_resolve_pref = _pim_finalize_multi_sku(db, organization_id, store_id, parsed)
+    if eff_mode == "product_master" and parsed.ambiguous and parsed.ambiguous_reason == "multiple_seller_sku_requires_single_resolved_product":
+        sku_map = _pim_product_ids_for_values_batch(
+            db, organization_id, store_id, list(parsed.seller_sku.accepted), "sku"
+        )
+        asin_map = _pim_product_ids_for_values_batch(
+            db, organization_id, store_id, list(parsed.asin.accepted), "asin"
+        )
+        fnsku_map = _pim_product_ids_for_values_batch(
+            db, organization_id, store_id, list(parsed.fnsku.accepted), "fnsku"
+        )
+        upc_map = _pim_product_ids_for_values_batch(
+            db, organization_id, store_id, list(parsed.upc.accepted), "upc_code"
+        )
+        parsed, sku_resolve_pref = _pim_product_master_resolve_multi_sku_row(
+            db,
+            organization_id,
+            store_id,
+            parsed,
+            sku_map,
+            row_cells,
+            handles,
+            metrics,
+            asin_to_pids=asin_map,
+            fnsku_to_pids=fnsku_map,
+            upc_to_pids=upc_map,
+        )
+    _pim_bump_cleaning_counters(metrics, parsed, row_trim, include_accepted=not parsed.ambiguous)
+
+    if parsed.ambiguous:
+        metrics["skipped_ambiguous"] += 1
+        metrics["ambiguous_multi_identifier_rows"] = int(metrics.get("ambiguous_multi_identifier_rows") or 0) + 1
+        _pim_append_error(
+            errors,
+            row_index,
+            f"multi-identifier ambiguous ({parsed.ambiguous_reason}): {_pim_identifier_preview_detail(parsed)}",
+        )
+        return
+
+    seller_sku = sku_resolve_pref or parsed.primary_sku()
+    asin = parsed.primary_asin()
+    fnsku = parsed.primary_fnsku()
+    upc = parsed.primary_upc()
     sheet_product_name = _clean_identifier(_pim_cell(row_cells, handles.get("product_name")))
     mfg_part = _clean_identifier(_pim_cell(row_cells, handles.get("mfg_part")))
-    cost_col = handles.get("cost")
-    cost_raw = _pim_cell(row_cells, cost_col) if cost_col else None
+    price_raw, price_col_key = _pim_pick_price_raw_from_handles(row_cells, handles)
+    status_val = normalize_pim_status(_pim_cell(row_cells, handles.get("status")))
+    mapped_headers = {str(v).strip() for v in handles.values() if v}
+    extra_attrs = collect_product_attributes_from_row(
+        row_cells, mapped_headers=mapped_headers, all_headers=headers
+    )
 
+    vendor_cell = _clean_identifier(_pim_cell(row_cells, handles.get("vendor")))
     vendor_id = _pim_ensure_vendor(
         db,
         organization_id,
-        _clean_identifier(_pim_cell(row_cells, handles.get("vendor"))),
+        vendor_cell,
         vendor_index,
         metrics,
         errors,
         row_index,
     )
+    vendor_display_name = _pim_normalize_vendor_name(vendor_cell) if vendor_cell else None
     category_id = _pim_ensure_category(
         db,
         organization_id,
@@ -2616,17 +4964,17 @@ def _process_pim_seed_row(
         row_index,
     )
 
-    if not seller_sku and not fnsku and not asin:
+    if not seller_sku and not fnsku and not asin and not upc:
         metrics["skipped_no_identity"] += 1
         _pim_append_error(
             errors,
             row_index,
-            "skipped: need at least one of seller_sku, fnsku, or asin for store-scoped product identity",
+            f"skipped: no valid identifiers after split/validate: {_pim_identifier_preview_detail(parsed)}",
         )
         return
 
     amazon_data: dict[str, Any] = {}
-    if asin and amazon_creds:
+    if not skip_amazon_enrichment and asin and amazon_creds:
         amazon_data = _fetch_amazon_catalog_data(asin, amazon_creds)
         time.sleep(0.2)
         if amazon_data:
@@ -2634,33 +4982,58 @@ def _process_pim_seed_row(
         elif asin:
             _pim_append_error(errors, row_index, f"Amazon enrichment returned no data for ASIN {asin}")
 
+    sheet_brand = _pim_row_brand_from_handles(row_cells, handles)
+    mfg_mapped_brand = _pim_brand_from_mfg_map_lookup(row_cells, handles, brand_by_mfg_map)
+    effective_brand = sheet_brand or mfg_mapped_brand
     final_name = (
-        amazon_data.get("product_name")
+        (amazon_data.get("product_name") if amazon_data else None)
         or sheet_product_name
-        or f"Pending Details ({asin or seller_sku or fnsku})"
+        or f"Pending Details ({asin or seller_sku or fnsku or upc})"
     )
-    final_brand = amazon_data.get("brand")
+    final_brand = effective_brand or (amazon_data.get("brand") if amazon_data else None)
     main_image = amazon_data.get("main_image_url")
     amazon_raw = amazon_data.get("amazon_raw") if amazon_data else None
 
-    prod_id, resolution, sku_insert = _pim_resolve_product(db, organization_id, store_id, seller_sku, fnsku, asin)
+    prod_id, resolution, sku_insert = _pim_resolve_product(
+        db, organization_id, store_id, seller_sku, fnsku, asin, upc
+    )
     if resolution == "ambiguous":
         metrics["skipped_ambiguous"] += 1
         _pim_append_error(
             errors,
             row_index,
-            f"ambiguous product match org+store+identifiers (sku={seller_sku!r} fnsku={fnsku!r} asin={asin!r})",
+            f"ambiguous product match org+store+identifiers (sku={seller_sku!r} fnsku={fnsku!r} asin={asin!r} upc={upc!r})",
         )
         return
     if resolution == "no_identity":
         metrics["skipped_no_identity"] += 1
-        _pim_append_error(errors, row_index, "no_identity: missing seller_sku, fnsku, and asin")
+        _pim_append_error(errors, row_index, "no_identity: missing resolvable seller_sku, fnsku, asin, and upc")
         return
 
     sync_iso = datetime.now(timezone.utc).isoformat()
 
     try:
         if resolution == "update" and prod_id:
+            prev_meta: Any = {}
+            try:
+                prm = (
+                    db.table("products")
+                    .select("metadata")
+                    .eq("id", prod_id)
+                    .eq("organization_id", organization_id)
+                    .eq("store_id", store_id)
+                    .limit(1)
+                    .execute()
+                )
+                if prm.data and isinstance(prm.data[0].get("metadata"), dict):
+                    prev_meta = prm.data[0]["metadata"]
+            except Exception:
+                prev_meta = {}
+            merged_meta = merge_product_attributes_into_metadata(prev_meta, extra_attrs)
+            merged_meta = {
+                **merged_meta,
+                "pim_seed": {"source": match_source, "last_import_at": sync_iso},
+            }
             upd: dict[str, Any] = {
                 "vendor_id": vendor_id,
                 "category_id": category_id,
@@ -2669,8 +5042,12 @@ def _process_pim_seed_row(
                 "brand": final_brand,
                 "main_image_url": main_image,
                 "amazon_raw": amazon_raw or {},
+                "status": status_val,
+                "metadata": merged_meta,
                 "last_catalog_sync_at": sync_iso,
             }
+            if vendor_display_name:
+                upd["vendor_name"] = vendor_display_name
             if seller_sku:
                 upd["sku"] = seller_sku
             if asin:
@@ -2684,6 +5061,8 @@ def _process_pim_seed_row(
             ).execute()
             metrics["products_updated"] += 1
         elif resolution == "insert" and sku_insert:
+            seed_meta = merge_product_attributes_into_metadata({}, extra_attrs)
+            seed_meta["pim_seed"] = {"source": match_source, "imported_at": sync_iso}
             ins = (
                 db.table("products")
                 .insert(
@@ -2692,6 +5071,7 @@ def _process_pim_seed_row(
                         "store_id": store_id,
                         "sku": sku_insert,
                         "vendor_id": vendor_id,
+                        "vendor_name": vendor_display_name,
                         "category_id": category_id,
                         "mfg_part_number": mfg_part,
                         "product_name": final_name,
@@ -2701,6 +5081,8 @@ def _process_pim_seed_row(
                         "asin": asin,
                         "fnsku": fnsku,
                         "upc_code": upc,
+                        "status": status_val,
+                        "metadata": seed_meta,
                         "last_catalog_sync_at": sync_iso,
                     }
                 )
@@ -2713,43 +5095,73 @@ def _process_pim_seed_row(
             metrics["products_created"] += 1
         else:
             metrics["skipped_no_identity"] += 1
-            _pim_append_error(errors, row_index, "could not determine sku for new product")
+            metrics["blocked_new_without_seller_sku"] = int(metrics.get("blocked_new_without_seller_sku") or 0) + 1
+            _pim_append_error(errors, row_index, "could not determine primary sku for new product insert")
             return
     except Exception as e:
         log.exception("product upsert failed row=%s", row_index)
         _pim_append_error(errors, row_index, f"product upsert: {e}")
         return
 
-    _pim_upsert_identifier_map(
+    map_sku = sku_resolve_pref or parsed.primary_sku() or seller_sku or sku_insert
+    payloads = build_identifier_map_variants(parsed, map_sku)
+    if not payloads and (seller_sku or asin or fnsku or upc):
+        payloads = [
+            {
+                "seller_sku": seller_sku or map_sku,
+                "asin": asin,
+                "fnsku": fnsku,
+                "upc_code": upc,
+            }
+        ]
+    for payload in payloads:
+        _pim_upsert_identifier_map(
+            db,
+            organization_id,
+            store_id,
+            prod_id,
+            payload.get("seller_sku"),
+            payload.get("asin"),
+            payload.get("fnsku"),
+            payload.get("upc_code"),
+            match_source,
+            metrics,
+            errors,
+            row_index,
+        )
+    _pim_insert_price_if_present(
         db,
         organization_id,
         store_id,
         prod_id,
-        seller_sku,
-        asin,
-        fnsku,
-        upc,
-        match_source,
+        price_raw,
+        price_source,
         metrics,
         errors,
         row_index,
-    )
-    _pim_insert_price_if_present(
-        db, organization_id, store_id, prod_id, cost_raw, price_source, metrics, errors, row_index
+        product_sku=map_sku,
+        asin_value=asin,
+        source_column=price_col_key,
+        pim_upload_id=pim_upload_id,
     )
 
 
-def _pim_row_cells_from_series(row: Any, headers: list[str]) -> dict[str, Any]:
+def _pim_row_cells_from_series(row: Any, headers: list[str]) -> tuple[dict[str, Any], int]:
+    """Build row dict with every cell trimmed (empty-after-trim -> None). Returns (cells, trim_count)."""
     out: dict[str, Any] = {}
+    trimmed = 0
     for h in headers:
         try:
             if h in row.index:
-                out[h] = _cell_to_json_safe(row[h])
+                raw = _cell_to_json_safe(row[h])
             else:
-                out[h] = None
+                raw = None
         except Exception:
-            out[h] = None
-    return out
+            raw = None
+        nv, inc = trim_cell_value(raw)
+        out[h] = nv
+        trimmed += int(inc)
+    return out, trimmed
 
 
 # --- Google Sheets Sync helpers (used by etl_sync_google_sheets) ---
@@ -2868,7 +5280,15 @@ def _get_google_creds(db: Any, org_id: str):
 
 
 @app.post("/etl/seed-products")
-async def etl_seed_products(file: UploadFile = File(...), organization_id: str = Form(...), store_id: str = Form(...)):
+async def etl_seed_products(
+    file: UploadFile = File(...),
+    organization_id: str = Form(...),
+    store_id: str = Form(...),
+    mode: str = Form("preview"),
+    confirm: str = Form("false"),
+    seed_session_id: str | None = Form(None),
+):
+    """Catalog seed: default ``mode=preview`` (no writes). Use ``mode=apply`` + ``confirm=true`` or ``confirm=1`` after review."""
     organization_id, store_id = _validate_pim_org_store(organization_id, store_id)
     db = _require_supabase()
     try:
@@ -2879,68 +5299,130 @@ async def etl_seed_products(file: UploadFile = File(...), organization_id: str =
         openai_key = _get_api_credentials(db, organization_id, "openai_api_key")
         amazon_creds = _get_api_credentials(db, organization_id, "amazon_sp_api")
 
-        metrics = _empty_pim_seed_metrics()
-        errors: list[str] = metrics["errors"]
-        vendor_index = _pim_load_vendor_index(db, organization_id)
-        category_index = _pim_load_category_index(db, organization_id)
-
-        column_map: dict[str, Any] | None = None
-        handles: dict[str, str | None] | None = None
-        reference_headers: list[str] | None = None
-        saw_any_yield = False
-        saw_frame = False
         fname = file.filename
+        prepared = _pim_collect_prepared_from_upload(raw_bytes, fname, openai_key)
+        quality = _pim_seed_scan_prepared_quality(
+            db, organization_id, store_id, prepared, amazon_creds, skip_amazon=True
+        )
 
-        for sheet_label, df in _iter_seed_product_frames(raw_bytes, fname):
-            saw_any_yield = True
-            original_headers = [str(c).strip() for c in df.columns]
-            if not any(h for h in original_headers if h):
-                continue
-            saw_frame = True
+        first = prepared[0] if prepared else {}
+        column_mapping = first.get("pim_column_map") if isinstance(first, dict) else {}
+        if not isinstance(column_mapping, dict):
+            column_mapping = {}
+        mapping_source = str(first.get("mapping_source") or "unknown")
 
-            rows_before = int(metrics["rows_processed"])
-            # Reuse GPT map only when header list matches the first sheet exactly (order-sensitive).
-            if column_map is None or reference_headers != original_headers:
-                column_map = _gpt_map_catalog_columns_or_raise(original_headers, openai_key)
-                _validate_gpt_column_map(column_map, original_headers)
-                handles = _pim_handles_from_map(column_map, original_headers)
-                reference_headers = list(original_headers)
+        m = (mode or "preview").strip().lower()
+        if m in ("preview", "dry_run", "simulate"):
+            hist_id = _pim_seed_history_insert_preview(
+                db, organization_id, store_id, fname, column_mapping, mapping_source, quality
+            )
+            pe = quality.get("preview_errors") or []
+            err_first = pe[:200] if isinstance(pe, list) else []
+            return {
+                "status": "preview",
+                "stage": "preview_ready",
+                "mode": "preview",
+                "message": "Quality scan only — no writes. Review mapping and quality, then POST mode=apply with confirm=true or confirm=1.",
+                "mapping": column_mapping,
+                "mapping_source": mapping_source,
+                "quality": quality,
+                "delimiter_detected": first.get("pim_delimiter_detected") if isinstance(first, dict) else None,
+                "delimiter_uncertain": bool(first.get("pim_delimiter_uncertain")) if isinstance(first, dict) else False,
+                "metrics": {
+                    "rows_total": quality.get("rows_total"),
+                    "dirty_rows": quality.get("dirty_rows"),
+                    "products_would_create": quality.get("products_would_create"),
+                    "products_would_update": quality.get("products_would_update"),
+                },
+                "accepted_sample": quality.get("accepted_sample") or [],
+                "rejected_sample": quality.get("rejected_sample") or [],
+                "errors": err_first,
+                "seed_session_id": hist_id,
+            }
 
-            assert handles is not None
-            metrics["sheets_processed"] = int(metrics["sheets_processed"]) + 1
-            match_src = f"etl_seed_products:{sheet_label}" if sheet_label else "etl_seed_products_csv"
-
-            for i, (_, row) in enumerate(df.iterrows()):
-                row_cells = _pim_row_cells_from_series(row, original_headers)
-                row_lbl: int | str = f"{sheet_label}!{i + 2}" if sheet_label else i + 2
-                _process_pim_seed_row(
-                    db,
-                    organization_id,
-                    store_id,
-                    row_cells,
-                    handles,
-                    amazon_creds,
-                    "etl_seed_products",
-                    match_src,
-                    metrics,
-                    errors,
-                    row_lbl,
-                    vendor_index,
-                    category_index,
-                )
-
-            sheet_key = sheet_label or "(csv)"
-            metrics["rows_per_sheet"][sheet_key] = int(metrics["rows_processed"]) - rows_before
-
-        if not saw_any_yield:
-            raise HTTPException(status_code=400, detail="Empty file.")
-        if not saw_frame:
+        if m != "apply":
             raise HTTPException(
                 status_code=400,
-                detail="No readable tabular data: for Excel, add at least one sheet with a header row and data.",
+                detail={"error": "invalid_mode", "message": 'mode must be "preview" or "apply".', "got": mode},
             )
 
-        return {"status": "success", "message": "Catalog import finished.", "metrics": metrics}
+        if not _pim_catalog_seed_confirm_true(confirm):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "confirm_required",
+                    "message": "Import writes are disabled until you pass confirm=true or confirm=1 (after reviewing preview).",
+                    "quality": quality,
+                    "mapping": column_mapping,
+                },
+            )
+
+        if quality.get("apply_blocked_by_dirty_rate"):
+            _pim_seed_history_finalize_apply(
+                db,
+                seed_session_id,
+                organization_id,
+                store_id,
+                success=False,
+                metrics=None,
+                quality=quality,
+                error_message="apply_blocked_by_dirty_rate",
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "dirty_rate_too_high",
+                    "message": (
+                        f"dirty_rate {quality.get('dirty_rate')} exceeds configured maximum "
+                        f"{quality.get('max_dirty_rate')} — fix rows or raise env PIM_SEED_MAX_DIRTY_RATE."
+                    ),
+                    "quality": quality,
+                    "mapping": column_mapping,
+                },
+            )
+
+        try:
+            metrics = _pim_seed_apply_prepared_writes(
+                db, organization_id, store_id, prepared, amazon_creds, "etl_seed_products"
+            )
+        except Exception as apply_exc:
+            _pim_seed_history_finalize_apply(
+                db,
+                seed_session_id,
+                organization_id,
+                store_id,
+                success=False,
+                metrics=None,
+                quality=quality,
+                error_message=str(apply_exc),
+            )
+            raise
+        _pim_seed_history_finalize_apply(
+            db,
+            seed_session_id,
+            organization_id,
+            store_id,
+            success=True,
+            metrics=metrics,
+            quality=quality,
+            error_message=None,
+        )
+        pe = metrics.get("errors") or []
+        err_first = pe[:200] if isinstance(pe, list) else []
+        return {
+            "status": "success",
+            "stage": "complete",
+            "mode": "apply",
+            "message": "Catalog import finished.",
+            "mapping": column_mapping,
+            "mapping_source": mapping_source,
+            "metrics": metrics,
+            "quality": quality,
+            "accepted_sample": quality.get("accepted_sample") or [],
+            "rejected_sample": quality.get("rejected_sample") or [],
+            "errors": err_first,
+            "seed_session_id": seed_session_id,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -2948,8 +5430,180 @@ async def etl_seed_products(file: UploadFile = File(...), organization_id: str =
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.post("/etl/pim-import/retry-preview")
+async def etl_pim_import_retry_preview_route(body: PimImportPreviewStepBody):
+    """Reset persisted preview cursor and quality accumulators; reuse same upload row."""
+    organization_id, store_id = _validate_pim_org_store(body.organization_id, body.store_id)
+    uid = (body.upload_id or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="upload_id is required.")
+    db = _require_supabase()
+    try:
+        return run_pim_import_retry_preview(db, organization_id, store_id, uid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("pim-import retry-preview failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/etl/pim-import/preview-status")
+async def etl_pim_import_preview_status(body: PimImportPreviewStepBody):
+    """Poll persisted preview result (same payload as preview-step when complete)."""
+    organization_id, store_id = _validate_pim_org_store(body.organization_id, body.store_id)
+    uid = (body.upload_id or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="upload_id is required.")
+    db = _require_supabase()
+    try:
+        return get_pim_import_preview_status(db, organization_id, store_id, uid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("pim-import preview-status failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/etl/pim-import/preview-step")
+async def etl_pim_import_preview_step(body: PimImportPreviewStepBody):
+    """One bounded chunk of PIM Product Master preview (poll until done)."""
+    organization_id, store_id = _validate_pim_org_store(body.organization_id, body.store_id)
+    uid = (body.upload_id or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="upload_id is required.")
+    db = _require_supabase()
+    openai_key = _get_api_credentials(db, organization_id, "openai_api_key")
+    amazon_creds = _get_api_credentials(db, organization_id, "amazon_sp_api")
+    try:
+        return run_pim_import_preview_step(
+            db,
+            organization_id,
+            store_id,
+            uid,
+            openai_key=openai_key,
+            amazon_creds=amazon_creds,
+            row_chunk=body.row_chunk,
+            scan_data_row_hint=body.scan_data_row_hint,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        err_detail = f"{type(e).__name__}: {e}"
+        log.exception("pim-import preview-step failed: %s", err_detail)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "preview_step_exception", "message": err_detail,
+                    "traceback": traceback.format_exc()[-2000:]},
+        ) from e
+
+
+@app.post("/etl/pim-import/apply-step")
+async def etl_pim_import_apply_step(body: PimImportApplyStepBody):
+    """One bounded chunk of PIM Product Master apply (poll until done)."""
+    organization_id, store_id = _validate_pim_org_store(body.organization_id, body.store_id)
+    uid = (body.upload_id or "").strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="upload_id is required.")
+    db = _require_supabase()
+    res = (
+        db.table("raw_report_uploads")
+        .select("metadata")
+        .eq("id", uid)
+        .eq("organization_id", organization_id)
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Upload not found.")
+    meta = rows[0].get("metadata") if isinstance(rows[0].get("metadata"), dict) else {}
+    job = meta.get("pim_import_job") if isinstance(meta.get("pim_import_job"), dict) else {}
+    q = job.get("preview_quality") if isinstance(job.get("preview_quality"), dict) else {}
+
+    # Canonical safe-rows-only flag — accepts both import_safe_rows_only and legacy skip_conflicts.
+    # ALSO auto-reads from metadata so resume/retry inherits the original run's safe-only setting
+    # even when the frontend doesn't re-send the flag (e.g. after ConnectionTerminated).
+    safe_rows_only = body.safe_rows_only or bool(meta.get("pim_import_safe_rows_only"))
+    log.info(
+        "pim apply-step upload_id=%s import_safe_rows_only=%s skip_conflicts=%s "
+        "safe_rows_only=%s apply_blocked_by_conflicts=%s",
+        uid, body.import_safe_rows_only, body.skip_conflicts,
+        safe_rows_only, q.get("apply_blocked_by_conflicts"),
+    )
+
+    if q.get("apply_blocked_by_dirty_rate"):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "dirty_rate_too_high",
+                "message": f"dirty_rate {q.get('dirty_rate')} exceeds max {q.get('max_dirty_rate')}",
+            },
+        )
+    if q.get("apply_blocked_by_conflicts") and not safe_rows_only:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "conflicts_block_import",
+                "message": "Preview has blocking identifier conflicts. Use 'Import safe rows only' to import accepted rows and skip the conflicting rows.",
+                "conflict_count": int(q.get("conflict_rows_blocked") or 0),
+                "can_skip_conflicts": True,
+                "import_safe_rows_only": True,
+            },
+        )
+    confirm_true_in_body = _pim_catalog_seed_confirm_true(body.confirm)
+    confirmed = confirm_true_in_body or bool(meta.get("pim_import_confirmed"))
+    if not confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "confirm_required", "message": "Pass confirm=true after reviewing preview."},
+        )
+
+    # Persist the safe-rows-only flag in metadata so the apply loop has visibility
+    if safe_rows_only and not meta.get("pim_import_safe_rows_only"):
+        try:
+            import datetime as _dt
+            meta2 = {**meta, "pim_import_safe_rows_only": True}
+            db.table("raw_report_uploads").update(
+                {"metadata": meta2, "updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}
+            ).eq("id", uid).eq("organization_id", organization_id).execute()
+        except Exception as _persist_err:
+            log.warning("could not persist pim_import_safe_rows_only flag: %s", _persist_err)
+
+    amazon_creds = _get_api_credentials(db, organization_id, "amazon_sp_api")
+    try:
+        return run_pim_import_apply_step(
+            db,
+            organization_id,
+            store_id,
+            uid,
+            amazon_creds=amazon_creds,
+            price_source="pim_import_async",
+            row_chunk=body.row_chunk,
+            confirmed_via_api=confirm_true_in_body,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback as _tb
+        err_detail = f"{type(e).__name__}: {e}"
+        log.exception("pim-import apply-step failed: %s", err_detail)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "apply_step_exception", "message": err_detail,
+                    "traceback": _tb.format_exc()[-2000:]},
+        ) from e
+
+
 @app.post("/etl/sync-google-sheets")
-async def etl_sync_google_sheets(organization_id: str = Form(...), store_id: str = Form(...)):
+async def etl_sync_google_sheets(
+    organization_id: str = Form(...),
+    store_id: str = Form(...),
+    mode: str = Form("preview"),
+    confirm: str = Form("false"),
+    seed_session_id: str | None = Form(None),
+):
+    """Google Sheets catalog sync: default ``mode=preview`` (no writes). ``mode=apply`` + ``confirm=true`` or ``confirm=1`` to write."""
     organization_id, store_id = _validate_pim_org_store(organization_id, store_id)
     db = _require_supabase()
 
@@ -2968,75 +5622,131 @@ async def etl_sync_google_sheets(organization_id: str = Form(...), store_id: str
         raise HTTPException(status_code=401, detail="Google API Key not configured in Organization Keys.")
 
     try:
-        try:
-            from googleapiclient.discovery import build
-        except ModuleNotFoundError as e:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "Google Sheets dependencies are not installed. Run: "
-                    "python -m pip install google-api-python-client google-auth"
-                ),
-            ) from e
-
-        service = build("sheets", "v4", credentials=creds)
-        sheet_metadata = service.spreadsheets().get(spreadsheetId=sheet_id).execute()
-        sheets = sheet_metadata.get("sheets", [])
-
-        metrics = _empty_pim_seed_metrics()
-        metrics["sheets_processed"] = 0
-        errors: list[str] = metrics["errors"]
-
-        vendor_index = _pim_load_vendor_index(db, organization_id)
-        category_index = _pim_load_category_index(db, organization_id)
         openai_key = _get_api_credentials(db, organization_id, "openai_api_key")
         amazon_creds = _get_api_credentials(db, organization_id, "amazon_sp_api")
+        prepared = _pim_google_build_prepared_frames(db, organization_id, sheet_id, creds, openai_key)
+        quality = _pim_seed_scan_prepared_quality(
+            db, organization_id, store_id, prepared, amazon_creds, skip_amazon=True
+        )
 
-        for sheet in sheets:
-            sheet_name = sheet["properties"]["title"]
-            result = service.spreadsheets().values().get(spreadsheetId=sheet_id, range=f"'{sheet_name}'!A:Z").execute()
-            values = result.get("values", [])
+        first = prepared[0] if prepared else {}
+        column_mapping = first.get("pim_column_map") if isinstance(first, dict) else {}
+        if not isinstance(column_mapping, dict):
+            column_mapping = {}
+        mapping_source = str(first.get("mapping_source") or "unknown")
+        virtual_fname = f"google_sheet_{sheet_id}.xlsx"
 
-            if not values or len(values) < 2:
-                log.info(
-                    "Skipping empty Google Sheet tab tab=%r spreadsheet=%r",
-                    sheet_name,
-                    sheet_id,
-                )
-                continue
+        m = (mode or "preview").strip().lower()
+        if m in ("preview", "dry_run", "simulate"):
+            hist_id = _pim_seed_history_insert_preview(
+                db, organization_id, store_id, virtual_fname, column_mapping, mapping_source, quality
+            )
+            pe = quality.get("preview_errors") or []
+            err_first = pe[:200] if isinstance(pe, list) else []
+            return {
+                "status": "preview",
+                "stage": "preview_ready",
+                "mode": "preview",
+                "message": "Quality scan only — no writes. Review mapping and quality, then POST mode=apply with confirm=true or confirm=1.",
+                "mapping": column_mapping,
+                "mapping_source": mapping_source,
+                "quality": quality,
+                "delimiter_detected": None,
+                "delimiter_uncertain": False,
+                "metrics": {
+                    "rows_total": quality.get("rows_total"),
+                    "dirty_rows": quality.get("dirty_rows"),
+                    "products_would_create": quality.get("products_would_create"),
+                    "products_would_update": quality.get("products_would_update"),
+                },
+                "accepted_sample": quality.get("accepted_sample") or [],
+                "rejected_sample": quality.get("rejected_sample") or [],
+                "errors": err_first,
+                "seed_session_id": hist_id,
+            }
 
-            metrics["sheets_processed"] += 1
-            headers = [str(c).strip() for c in values[0]]
-            rows = [row + [""] * (len(headers) - len(row)) for row in values[1:]]
-            df = pd.DataFrame(rows, columns=headers)
-            original_headers = headers
+        if m != "apply":
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_mode", "message": 'mode must be "preview" or "apply".', "got": mode},
+            )
 
-            column_map = _gpt_map_catalog_columns_or_raise(original_headers, openai_key)
-            _validate_gpt_column_map(column_map, original_headers)
-            handles = _pim_handles_from_map(column_map, original_headers)
+        if not _pim_catalog_seed_confirm_true(confirm):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "confirm_required",
+                    "message": "Sheet sync writes are disabled until you pass confirm=true or confirm=1 (after reviewing preview).",
+                    "quality": quality,
+                    "mapping": column_mapping,
+                },
+            )
 
-            for j, (_, row) in enumerate(df.iterrows()):
-                row_cells = _pim_row_cells_from_series(row, original_headers)
-                _process_pim_seed_row(
-                    db,
-                    organization_id,
-                    store_id,
-                    row_cells,
-                    handles,
-                    amazon_creds,
-                    "etl_google_sheets",
-                    "etl_google_sheets",
-                    metrics,
-                    errors,
-                    j + 2,
-                    vendor_index,
-                    category_index,
-                )
+        if quality.get("apply_blocked_by_dirty_rate"):
+            _pim_seed_history_finalize_apply(
+                db,
+                seed_session_id,
+                organization_id,
+                store_id,
+                success=False,
+                metrics=None,
+                quality=quality,
+                error_message="apply_blocked_by_dirty_rate",
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "dirty_rate_too_high",
+                    "message": (
+                        f"dirty_rate {quality.get('dirty_rate')} exceeds configured maximum "
+                        f"{quality.get('max_dirty_rate')} — fix sheet rows or raise env PIM_SEED_MAX_DIRTY_RATE."
+                    ),
+                    "quality": quality,
+                    "mapping": column_mapping,
+                },
+            )
 
+        try:
+            metrics = _pim_seed_apply_prepared_writes(
+                db, organization_id, store_id, prepared, amazon_creds, "etl_google_sheets"
+            )
+        except Exception as apply_exc:
+            _pim_seed_history_finalize_apply(
+                db,
+                seed_session_id,
+                organization_id,
+                store_id,
+                success=False,
+                metrics=None,
+                quality=quality,
+                error_message=str(apply_exc),
+            )
+            raise
+        _pim_seed_history_finalize_apply(
+            db,
+            seed_session_id,
+            organization_id,
+            store_id,
+            success=True,
+            metrics=metrics,
+            quality=quality,
+            error_message=None,
+        )
+        pe = metrics.get("errors") or []
+        err_first = pe[:200] if isinstance(pe, list) else []
         return {
             "status": "success",
+            "stage": "complete",
+            "mode": "apply",
             "message": f"Google Sheets sync finished ({metrics['sheets_processed']} non-empty tabs).",
+            "mapping": column_mapping,
+            "mapping_source": mapping_source,
             "metrics": metrics,
+            "quality": quality,
+            "accepted_sample": quality.get("accepted_sample") or [],
+            "rejected_sample": quality.get("rejected_sample") or [],
+            "errors": err_first,
+            "seed_session_id": seed_session_id,
         }
     except HTTPException:
         raise

@@ -5668,9 +5668,9 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
     tracking: p.tracking_number ?? undefined,
   }));
 
-  // ── Pallet → Package: inherit carrier_name and amazon_order_id ───────────
+  // ── Pallet → Package: inherit carrier_name and marketplace order_id ───────────
   // Priority: pallet.carrier_name  →  sibling package carrier  →  keep current value
-  // Priority: pallet.amazon_order_id  →  keep current value
+  // Priority: pallet.order_id  →  keep current value
   // CRITICAL: fields are NOT locked — operators may override freely.
   useEffect(() => {
     const pid = palletId?.trim();
@@ -5681,18 +5681,18 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
     // 1. Resolve from in-memory pallet list first (zero network cost)
     const localPallet = openPallets.find((p) => p.id === pid);
     if (localPallet?.carrier_name)    setCarrier(localPallet.carrier_name);
-    if (localPallet?.amazon_order_id) setAmazonOrderId(localPallet.amazon_order_id);
+    if (localPallet?.order_id) setAmazonOrderId(localPallet.order_id);
 
     // 2. Always confirm from DB (covers pallets not yet in the local list)
     void supabaseBrowser
       .from("pallets")
-      .select("carrier_name, amazon_order_id")
+      .select("carrier_name, order_id")
       .eq("id", pid)
       .maybeSingle()
       .then(({ data: plt }) => {
         if (cancelled) return;
         if (plt?.carrier_name)    setCarrier(plt.carrier_name as string);
-        if (plt?.amazon_order_id) setAmazonOrderId(plt.amazon_order_id as string);
+        if (plt?.order_id) setAmazonOrderId(plt.order_id as string);
 
         // 3. Fallback for carrier: if pallet has no carrier_name, check sibling packages
         if (!plt?.carrier_name) {
@@ -6324,7 +6324,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
         notes,
         created_by: actor,
         carrier_name:    palletCarrier.trim()         || null,
-        amazon_order_id: palletAmazonOrderId.trim()   || null,
+        order_id: palletAmazonOrderId.trim() || null,
       });
       setSaving(false);
       if (res.ok && res.data) onCreated(res.data); else setError(res.error ?? "Failed.");

@@ -52,11 +52,11 @@ export const PACKAGE_MUTATION_SELECT = PACKAGE_LIST_SELECT.replace(
 
 /**
  * `pallets` list rows — explicit columns; omit `photo_evidence` JSONB from list queries for performance.
- * Includes carrier_name and amazon_order_id for Pallet → Package → Item auto-fill inheritance.
+ * Includes carrier_name and order_id for Pallet → Package → Item auto-fill inheritance.
  */
 export const PALLET_LIST_SELECT =
   "id, organization_id, pallet_number, tracking_number, notes, status, item_count, " +
-  "carrier_name, amazon_order_id, " +
+  "carrier_name, order_id, " +
   "created_at, updated_at, created_by, updated_by, store_id, " +
   "photo_url, bol_photo_url, manifest_photo_url, deleted_at, " +
   "stores(name,platform)";

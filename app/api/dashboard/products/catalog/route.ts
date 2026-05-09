@@ -3,12 +3,18 @@ import { assertUserCanAccessOrganization } from "../../../../dashboard/products/
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { isUuidString } from "../../../../../lib/uuid";
 
-const PAGE_SIZES = new Set([25, 50, 100]);
+const PAGE_SIZES = new Set([10, 25, 50, 100]);
 
 function parseBool(v: string | null): boolean {
   if (!v) return false;
   const x = v.trim().toLowerCase();
   return x === "1" || x === "true" || x === "yes";
+}
+
+function triState(v: string | null): "any" | "has" | "missing" {
+  const x = (v ?? "").trim().toLowerCase();
+  if (x === "has" || x === "missing") return x;
+  return "any";
 }
 
 export async function GET(req: Request) {
@@ -51,9 +57,31 @@ export async function GET(req: Request) {
   const status = url.searchParams.get("status");
   const matchSource = url.searchParams.get("match_source");
   const sourceReportType = url.searchParams.get("source_report_type");
-  const missingImage = parseBool(url.searchParams.get("missing_image"));
-  const missingAsin = parseBool(url.searchParams.get("missing_asin"));
-  const missingFnsku = parseBool(url.searchParams.get("missing_fnsku"));
+
+  const imageFilter = triState(url.searchParams.get("filter_image"));
+  const skuFilter = triState(url.searchParams.get("filter_sku"));
+  const asinFilter = triState(url.searchParams.get("filter_asin"));
+  const fnskuFilter = triState(url.searchParams.get("filter_fnsku"));
+  const upcFilter = triState(url.searchParams.get("filter_upc"));
+  const vendorPresence = triState(url.searchParams.get("filter_vendor"));
+  const categoryPresence = triState(url.searchParams.get("filter_category"));
+  const brandFieldFilter = triState(url.searchParams.get("filter_brand_field"));
+
+  const legacyMissingImage = parseBool(url.searchParams.get("missing_image"));
+  const legacyMissingAsin = parseBool(url.searchParams.get("missing_asin"));
+  const legacyMissingFnsku = parseBool(url.searchParams.get("missing_fnsku"));
+
+  const effectiveImage =
+    imageFilter !== "any"
+      ? imageFilter
+      : legacyMissingImage
+        ? "missing"
+        : "any";
+  const effectiveAsin =
+    asinFilter !== "any" ? asinFilter : legacyMissingAsin ? "missing" : "any";
+  const effectiveFnsku =
+    fnskuFilter !== "any" ? fnskuFilter : legacyMissingFnsku ? "missing" : "any";
+
   const sortColumn = (url.searchParams.get("sort") ?? "updated_at").trim() || "updated_at";
   const sortDir = (url.searchParams.get("dir") ?? "desc").trim() || "desc";
 
@@ -69,9 +97,14 @@ export async function GET(req: Request) {
     p_status: status?.trim() || null,
     p_match_source: matchSource?.trim() || null,
     p_source_report_type: sourceReportType?.trim() || null,
-    p_missing_image: missingImage,
-    p_missing_asin: missingAsin,
-    p_missing_fnsku: missingFnsku,
+    p_image_filter: effectiveImage,
+    p_sku_filter: skuFilter,
+    p_asin_filter: effectiveAsin,
+    p_fnsku_filter: effectiveFnsku,
+    p_upc_filter: upcFilter,
+    p_vendor_presence: vendorPresence,
+    p_category_presence: categoryPresence,
+    p_brand_field_filter: brandFieldFilter,
     p_sort_column: sortColumn,
     p_sort_dir: sortDir,
   };
@@ -82,6 +115,10 @@ export async function GET(req: Request) {
     const msg = error.message ?? "Catalog query failed.";
     const code = (error as { code?: string }).code;
     const m = msg.toLowerCase();
+    const provHint =
+      m.includes("field_provenance") && m.includes("does not exist")
+        ? " This project’s database may be missing the products.field_provenance column while a catalog SQL function still references it — re-apply the latest PIM catalog migrations from this repo, or align the RPC with your schema."
+        : "";
     /** PostgREST / Postgres: only treat as "migration not applied" when the RPC truly is missing from schema cache. */
     const looksLikeMissingRpc =
       code === "42883" ||
@@ -96,14 +133,18 @@ export async function GET(req: Request) {
         {
           ok: false,
           error:
-            "Catalog RPC is not available on this database. Apply migration 20260710120000_pim_catalog_products_page.sql to the same project your app uses (check SUPABASE_URL / service role).",
+            "Catalog RPC is not available on this database. Apply PIM catalog migrations (e.g. 20260505140000_pim_catalog_identifier_groups_cte_and_filters.sql) to the same project your app uses.",
           details: msg,
         },
         { status: 503 },
       );
     }
     return NextResponse.json(
-      { ok: false, error: msg, details: (error as { details?: string }).details ?? msg },
+      {
+        ok: false,
+        error: provHint ? `${msg}${provHint}` : msg,
+        details: (error as { details?: string }).details ?? msg,
+      },
       { status: 400 },
     );
   }

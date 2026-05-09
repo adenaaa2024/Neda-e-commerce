@@ -3,7 +3,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from "react";
-import { supabase } from "@/src/lib/supabase";
+import { isSupabaseConfigured, supabase } from "@/src/lib/supabase";
 import {
   getOrganizationNames,
   getWorkspaceViewModeForOrganizationAction,
@@ -41,6 +41,18 @@ export const ROLE_HIERARCHY: UserRole[] = [
 
 const LS_WORKSPACE_ORGANIZATION = "workspace_selected_organization_id";
 const LS_VIEW_AS_PROFILE_ID = "workspace_view_as_profile_id";
+
+function formatAuthReachabilityError(raw: string): string {
+  const m = raw.trim() || "Unknown error";
+  const low = m.toLowerCase();
+  if (low.includes("failed to fetch") || low.includes("networkerror") || low.includes("load failed")) {
+    return (
+      "Could not reach Supabase Auth (network). Check NEXT_PUBLIC_SUPABASE_URL, internet/VPN/firewall, " +
+      "and that the Supabase project is running — then restart `next dev` so env is picked up."
+    );
+  }
+  return m;
+}
 
 function splitJoined<T>(raw: unknown): T | null {
   if (raw == null) return null;
@@ -262,11 +274,29 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
     setProfileLoading(true);
     setProfileError(null);
     try {
+      if (!isSupabaseConfigured()) {
+        if (gen !== loadProfileGenerationRef.current) return;
+        setProfileError(
+          "Supabase browser env is missing: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then restart the dev server.",
+        );
+        setActorUserId(null);
+        setSessionCanWorkspaceSwitch(false);
+        return;
+      }
+
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
 
       if (gen !== loadProfileGenerationRef.current) return;
+
+      if (authError) {
+        setProfileError(formatAuthReachabilityError(authError.message));
+        setActorUserId(null);
+        setSessionCanWorkspaceSwitch(false);
+        return;
+      }
 
       const authUserId = user?.id ?? null;
       setActorUserId(authUserId);
@@ -442,6 +472,12 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
           window.localStorage.removeItem(LS_VIEW_AS_PROFILE_ID);
         }
       }
+    } catch (e) {
+      if (gen !== loadProfileGenerationRef.current) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      setProfileError(formatAuthReachabilityError(msg));
+      setActorUserId(null);
+      setSessionCanWorkspaceSwitch(false);
     } finally {
       if (gen === loadProfileGenerationRef.current) {
         setProfileLoading(false);

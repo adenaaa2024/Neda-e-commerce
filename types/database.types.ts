@@ -158,6 +158,10 @@ export type PalletsRow = {
   manifest_photo_url: string | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
+  /** Shipping carrier — pallet-level; inherited by child packages. */
+  carrier_name: string | null;
+  /** Marketplace order ID for this pallet (renamed from `amazon_order_id`). */
+  order_id: string | null;
   // --- PostgREST embed ---
   stores?: { name: string; platform: string } | null;
 };

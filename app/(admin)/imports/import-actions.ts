@@ -14,8 +14,23 @@ import type { ImportFpsSnapshot } from "../../../lib/import-ui-action-state";
 import { resolveOrganizationId } from "../../../lib/organization";
 import { resolveWriteOrganizationId } from "../../../lib/server-tenant";
 import type { RawReportType } from "../../../lib/raw-report-types";
+import { isPimRawReportType } from "../../../lib/pim-import-report-types";
 import { isUuidString } from "../../../lib/uuid";
 import { DB_TABLES, RAW_REPORTS_BUCKET, RAW_REPORT_UPLOADS_SELECT } from "../lib/constants";
+
+/** PIM Quick Import / catalog seed rows — excluded from generic Amazon/raw Import History. */
+function isPimCatalogOrAsyncUploadRow(raw: Record<string, unknown>): boolean {
+  if (isPimRawReportType(String(raw.report_type ?? "").trim())) return true;
+  const md = raw.metadata;
+  if (md && typeof md === "object" && !Array.isArray(md)) {
+    const m = md as Record<string, unknown>;
+    if (m.module === "pim") return true;
+    if (m.pim_async_import === true) return true;
+    if (m.pim_catalog_seed === true) return true;
+    if (String(m.import_area ?? "") === "product_master") return true;
+  }
+  return false;
+}
 
 /**
  * Inserts use **only** snake_case keys that match PostgREST / Postgres.
@@ -452,13 +467,14 @@ export async function listRawReportUploads(input?: {
       .select(RAW_REPORT_UPLOADS_SELECT)
       .eq("organization_id", orgId)
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(200);
 
     if (error) return { ok: false, error: error.message };
 
     const base = (data ?? []) as Record<string, unknown>[];
+    const baseFiltered = base.filter((raw) => !isPimCatalogOrAsyncUploadRow(raw)).slice(0, 100);
 
-    const uploadIds = base
+    const uploadIds = baseFiltered
       .map((raw) => String((raw as { id?: unknown }).id ?? "").trim())
       .filter((id) => isUuidString(id));
     const fpsByUpload = new Map<string, ImportFpsSnapshot>();
@@ -543,7 +559,7 @@ export async function listRawReportUploads(input?: {
       }
     }
 
-    const rows: RawReportUploadRow[] = base.map((raw) => {
+    const rows: RawReportUploadRow[] = baseFiltered.map((raw) => {
       const r = raw as Record<string, unknown>;
       const meta = parseRawReportMetadata(r.metadata);
       const metaObj =

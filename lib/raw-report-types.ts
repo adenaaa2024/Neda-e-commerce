@@ -21,6 +21,15 @@ export const RAW_REPORT_TYPES = [
   "TRANSACTIONS",
   "REPORTS_REPOSITORY",
   "PRODUCT_IDENTITY",
+  /** Python ETL `/etl/seed-products` quick catalog CSV/XLSX (not Amazon report import). */
+  "PIM_CATALOG_SEED",
+  /** PIM catalog / Product Master (see lib/pim-import-report-types.ts). */
+  "pim_catalog_seed",
+  "pim_product_master",
+  "pim_price_history",
+  "pim_identifier_map",
+  "pim_vendor_reference",
+  "pim_category_reference",
   // ── Additional report types (raw-archive landing tables) ─────────────────
   "ALL_ORDERS",
   "REPLACEMENTS",

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { assertUserCanAccessOrganization } from "../../../dashboard/products/pim-actions";
 import { supabaseServer } from "../../../../lib/supabase-server";
+import { isPimInvalidVendorCategoryLabel } from "../../../../lib/pim-invalid-label";
+import {
+  filterPimProductCategoriesForStore,
+  normalizePimProductCategoryRow,
+  type PimProductCategoryOption,
+} from "../../../../lib/pim-product-category-normalize";
 import { isUuidString } from "../../../../lib/uuid";
 
 function slugify(name: string): string {
@@ -17,6 +23,8 @@ export async function GET(req: Request) {
   const organizationId = String(url.searchParams.get("organization_id") ?? "").trim();
   const storeId = String(url.searchParams.get("store_id") ?? "").trim();
   const includeCounts = url.searchParams.get("include_counts") === "1" || url.searchParams.get("include_counts") === "true";
+  const includeInvalidAudit =
+    url.searchParams.get("include_invalid_audit") === "1" || url.searchParams.get("include_invalid_audit") === "true";
   if (!isUuidString(organizationId)) {
     return NextResponse.json({ ok: false, error: "organization_id must be a UUID." }, { status: 400 });
   }
@@ -29,16 +37,38 @@ export async function GET(req: Request) {
   }
   const { data, error } = await supabaseServer
     .from("product_categories")
-    .select("id, name, slug, parent_id, created_at, updated_at")
-    .eq("organization_id", organizationId)
-    .order("name", { ascending: true });
+    .select("*")
+    .eq("organization_id", organizationId);
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
   }
-  const categories = (data ?? []) as { id: string; name: string; slug?: string | null; parent_id?: string | null }[];
+
+  const scopedRows = filterPimProductCategoriesForStore(
+    (data ?? []) as Record<string, unknown>[],
+    isUuidString(storeId) ? storeId : null,
+  );
+
+  const normalizedAll: PimProductCategoryOption[] = [];
+  for (const raw of scopedRows) {
+    const n = normalizePimProductCategoryRow(raw);
+    if (n) normalizedAll.push(n);
+  }
+  normalizedAll.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+  const invalidCategoryAudit = normalizedAll.filter((c) => isPimInvalidVendorCategoryLabel(c.name));
+  /**
+   * Always return the full org (+ optional store scope) taxonomy for dropdowns.
+   * `exclude_invalid_names` is accepted for URL compatibility but is not applied to category names:
+   * labels like "Other" / "Misc" are valid product categories (unlike vendor placeholder rows).
+   */
+  const categories: PimProductCategoryOption[] = normalizedAll;
 
   if (!includeCounts || !isUuidString(storeId)) {
-    return NextResponse.json({ ok: true, categories });
+    return NextResponse.json({
+      ok: true,
+      categories,
+      ...(includeInvalidAudit ? { invalid_category_audit: invalidCategoryAudit } : {}),
+    });
   }
 
   const { data: prows, error: pErr } = await supabaseServer
@@ -61,8 +91,16 @@ export async function GET(req: Request) {
     ...c,
     product_count: byCat.get(c.id) ?? 0,
   }));
+  const invalidEnriched = invalidCategoryAudit.map((c) => ({
+    ...c,
+    product_count: byCat.get(c.id) ?? 0,
+  }));
 
-  return NextResponse.json({ ok: true, categories: enriched });
+  return NextResponse.json({
+    ok: true,
+    categories: enriched,
+    ...(includeInvalidAudit ? { invalid_category_audit: invalidEnriched } : {}),
+  });
 }
 
 type PostBody = { organization_id?: string; name?: string; slug?: string | null; parent_id?: string | null };

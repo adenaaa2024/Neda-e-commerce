@@ -16,7 +16,7 @@
  */
 
 import React, {
-  createContext, useContext, useCallback, useEffect, useState,
+  createContext, useContext, useCallback, useEffect, useRef, useState,
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
@@ -73,6 +73,11 @@ export const useAppShell = () => useContext(MobileMenuCtx);
 
 // ─── Shared CSS classes ───────────────────────────────────────────────────────
 
+const SIDEBAR_WIDTH_STORAGE_KEY = "sidebar_width_px";
+const SIDEBAR_EXPANDED_DEFAULT_PX = 240;
+const SIDEBAR_MIN_PX = Math.round(SIDEBAR_EXPANDED_DEFAULT_PX * 0.7);
+const SIDEBAR_MAX_PX = Math.round(SIDEBAR_EXPANDED_DEFAULT_PX * 1.6);
+
 const CLS = {
   linkActive: "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300",
   linkIdle:   "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -104,13 +109,63 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const [techDebugOpen, setTechDebugOpen] = useState(false);
   const [mounted,       setMounted]       = useState(false);
   const [expanded,      setExpanded]      = useState<Record<string, boolean>>({});
+  const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const sidebarDragRef = useRef<{ startX: number; startW: number } | null>(null);
   const pathname = usePathname();
   const isAuthRoute = pathname === "/login";
+
+  const expandedSidebarWidth = sidebarWidthPx ?? SIDEBAR_EXPANDED_DEFAULT_PX;
 
   useEffect(() => {
     setMounted(true);
     if (localStorage.getItem("sidebar_collapsed") === "true") setCollapsed(true);
+    try {
+      const raw = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+      const n = raw != null ? Number.parseInt(raw, 10) : Number.NaN;
+      if (Number.isFinite(n) && n >= SIDEBAR_MIN_PX && n <= SIDEBAR_MAX_PX) {
+        setSidebarWidthPx(n);
+      }
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  useEffect(() => {
+    if (!sidebarResizing) return;
+    const onMove = (e: MouseEvent) => {
+      const d = sidebarDragRef.current;
+      if (!d) return;
+      const next = Math.min(
+        SIDEBAR_MAX_PX,
+        Math.max(SIDEBAR_MIN_PX, d.startW + (e.clientX - d.startX)),
+      );
+      setSidebarWidthPx(next);
+    };
+    const onUp = () => {
+      setSidebarWidthPx((w) => {
+        const finalW = w ?? SIDEBAR_EXPANDED_DEFAULT_PX;
+        try {
+          localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(finalW));
+        } catch {
+          /* ignore */
+        }
+        return w;
+      });
+      sidebarDragRef.current = null;
+      setSidebarResizing(false);
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [sidebarResizing]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((c) => {
@@ -485,11 +540,15 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           {/* Desktop sidebar */}
           <aside
             className={[
-              "sticky top-0 hidden h-screen flex-col overflow-hidden",
+              "sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden",
               "border-r border-sidebar-border bg-sidebar",
-              "transition-[width] duration-300 ease-in-out md:flex",
-              collapsed ? "w-16" : "w-60",
-            ].join(" ")}
+              "md:flex",
+              collapsed ? "w-16" : "relative",
+              !collapsed && !sidebarResizing ? "transition-[width] duration-200 ease-out" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            style={!collapsed ? { width: expandedSidebarWidth } : undefined}
           >
             <Link
               href="/"
@@ -530,6 +589,26 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
                 {!collapsed && <span>Collapse</span>}
               </button>
             </div>
+
+            {!collapsed ? (
+              <button
+                type="button"
+                aria-label="Resize sidebar"
+                title="Drag to resize sidebar"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  sidebarDragRef.current = {
+                    startX: e.clientX,
+                    startW: expandedSidebarWidth,
+                  };
+                  setSidebarResizing(true);
+                }}
+                className="absolute right-0 top-0 z-30 h-full w-2 max-w-[12px] cursor-col-resize border-0 bg-transparent p-0 hover:bg-foreground/[0.06] active:bg-foreground/10"
+              >
+                <span className="pointer-events-none absolute right-1 top-1/2 h-10 w-px -translate-y-1/2 rounded-full bg-border/80" />
+              </button>
+            ) : null}
           </aside>
 
           {/* Main column */}

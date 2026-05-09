@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { assertUserCanAccessOrganization } from "../../../dashboard/products/pim-actions";
 import { supabaseServer } from "../../../../lib/supabase-server";
+import { isPimInvalidVendorCategoryLabel } from "../../../../lib/pim-invalid-label";
 import { isUuidString } from "../../../../lib/uuid";
 
 export async function GET(req: Request) {
@@ -8,6 +9,10 @@ export async function GET(req: Request) {
   const organizationId = String(url.searchParams.get("organization_id") ?? "").trim();
   const storeId = String(url.searchParams.get("store_id") ?? "").trim();
   const includeCounts = url.searchParams.get("include_counts") === "1" || url.searchParams.get("include_counts") === "true";
+  const excludeInvalidNames =
+    url.searchParams.get("exclude_invalid_names") === "1" || url.searchParams.get("exclude_invalid_names") === "true";
+  const includeInvalidAudit =
+    url.searchParams.get("include_invalid_audit") === "1" || url.searchParams.get("include_invalid_audit") === "true";
   if (!isUuidString(organizationId)) {
     return NextResponse.json({ ok: false, error: "organization_id must be a UUID." }, { status: 400 });
   }
@@ -26,10 +31,17 @@ export async function GET(req: Request) {
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
   }
-  const vendors = (data ?? []) as { id: string; name: string; created_at?: string; updated_at?: string }[];
+  const vendorsRaw = (data ?? []) as { id: string; name: string; created_at?: string; updated_at?: string }[];
+  const invalidAudit = vendorsRaw.filter((v) => isPimInvalidVendorCategoryLabel(v.name));
+  const vendors =
+    excludeInvalidNames ? vendorsRaw.filter((v) => !isPimInvalidVendorCategoryLabel(v.name)) : vendorsRaw;
 
   if (!includeCounts || !isUuidString(storeId)) {
-    return NextResponse.json({ ok: true, vendors });
+    return NextResponse.json({
+      ok: true,
+      vendors,
+      ...(includeInvalidAudit ? { invalid_vendor_audit: invalidAudit } : {}),
+    });
   }
 
   const { data: prows, error: pErr } = await supabaseServer
@@ -74,7 +86,18 @@ export async function GET(req: Request) {
     aggBy.set(vid, a);
   }
 
-  const enriched = vendors.map((v) => {
+  const enrichedRaw = vendors.map((v) => {
+    const a = aggBy.get(v.id);
+    return {
+      ...v,
+      product_count: a?.n ?? 0,
+      missing_asin: a?.missing_asin ?? 0,
+      missing_image: a?.missing_image ?? 0,
+      missing_category: a?.missing_category ?? 0,
+      active_status_count: a?.active_status ?? 0,
+    };
+  });
+  const invalidEnriched = invalidAudit.map((v) => {
     const a = aggBy.get(v.id);
     return {
       ...v,
@@ -86,7 +109,11 @@ export async function GET(req: Request) {
     };
   });
 
-  return NextResponse.json({ ok: true, vendors: enriched });
+  return NextResponse.json({
+    ok: true,
+    vendors: enrichedRaw,
+    ...(includeInvalidAudit ? { invalid_vendor_audit: invalidEnriched } : {}),
+  });
 }
 
 type PostBody = { organization_id?: string; name?: string };

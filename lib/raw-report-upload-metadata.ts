@@ -282,6 +282,26 @@ export type RawReportUploadMetadata = {
     mapperRejectedSample?: number;
     lowConfidenceFinancialKeys?: string[];
   };
+  /** PIM Product Master chunked import: uploaded | previewing | preview_ready | failed */
+  preview_status?: string;
+  /** Persisted async preview contract (quality, mapping, samples) for resume / Confirm & Import. */
+  pim_preview_result?: Record<string, unknown>;
+  /** PIM import job state (lifecycle, scan cursor, frozen_plan, preview_quality). */
+  pim_import_job?: Record<string, unknown>;
+  pim_seed_session_id?: string;
+  pim_import_confirmed?: boolean;
+  pim_import_confirmed_at?: string;
+  pim_import_cancelled?: boolean;
+  /** ISO timestamp when user chose Reset active import (dashboard). */
+  pim_ui_reset_at?: string;
+  /** Normalized driver status for UI (uploaded, previewing, preview_ready, import_queued, …). */
+  import_job_status?: string;
+  /** Single merged object path after multi-part upload (see `pim_import_async._ensure_pim_merged_source`). */
+  pim_merged_storage_path?: string | null;
+  /** Pickled DataFrame path for CSV preview/apply chunks (avoids re-parsing CSV each step). */
+  pim_csv_scan_cache_storage?: string | null;
+  /** Optional legacy key; PIM UI uses `raw_report_uploads.id` as the import job id. */
+  pim_import_session_id?: string;
 };
 
 function num(v: unknown, fallback = 0): number {
