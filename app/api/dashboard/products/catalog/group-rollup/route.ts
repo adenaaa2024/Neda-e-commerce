@@ -102,21 +102,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Store not found for this organization." }, { status: 400 });
   }
 
-  const { data: products, error: pErr } = await supabaseServer
-    .from("products")
-    .select(
-      "id, sku, asin, fnsku, upc_code, brand, vendor_id, vendor_name, category_id, main_image_url, amazon_raw, status",
-    )
-    .eq("organization_id", organizationId)
-    .eq("store_id", storeId)
-    .is("deleted_at", null)
-    .limit(15_000);
-
-  if (pErr) {
-    return NextResponse.json({ ok: false, error: pErr.message }, { status: 400 });
-  }
-
-  const plist = (products ?? []) as {
+  const CHUNK = 1000;
+  const MAX_PRODUCTS = 200_000;
+  type ProductRollupRow = {
     id: string;
     sku?: string | null;
     asin?: string | null;
@@ -129,7 +117,26 @@ export async function GET(req: Request) {
     main_image_url?: string | null;
     amazon_raw?: unknown;
     status?: string | null;
-  }[];
+  };
+  const plist: ProductRollupRow[] = [];
+  for (let from = 0; from < MAX_PRODUCTS; from += CHUNK) {
+    const { data: chunk, error: pErr } = await supabaseServer
+      .from("products")
+      .select(
+        "id, sku, asin, fnsku, upc_code, brand, vendor_id, vendor_name, category_id, main_image_url, amazon_raw, status",
+      )
+      .eq("organization_id", organizationId)
+      .eq("store_id", storeId)
+      .is("deleted_at", null)
+      .order("id", { ascending: true })
+      .range(from, from + CHUNK - 1);
+    if (pErr) {
+      return NextResponse.json({ ok: false, error: pErr.message }, { status: 400 });
+    }
+    const rows = (chunk ?? []) as ProductRollupRow[];
+    plist.push(...rows);
+    if (rows.length < CHUNK) break;
+  }
 
   const catNameById = new Map<string, string>();
   const { data: cats } = await supabaseServer
@@ -294,18 +301,27 @@ export async function GET(req: Request) {
           : dimension === "map_fnsku"
             ? "fnsku"
             : "upc_code";
-    const { data: maps, error: mErr } = await supabaseServer
-      .from("product_identifier_map")
-      .select(`product_id, ${col}`)
-      .eq("organization_id", organizationId)
-      .eq("store_id", storeId)
-      .limit(25_000);
-    if (mErr) {
-      return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
+    const MAP_CHUNK = 1000;
+    const MAX_MAP_ROWS = 500_000;
+    const mapsAccum: Record<string, unknown>[] = [];
+    for (let from = 0; from < MAX_MAP_ROWS; from += MAP_CHUNK) {
+      const { data: mapChunk, error: mErr } = await supabaseServer
+        .from("product_identifier_map")
+        .select(`product_id, ${col}`)
+        .eq("organization_id", organizationId)
+        .eq("store_id", storeId)
+        .order("id", { ascending: true })
+        .range(from, from + MAP_CHUNK - 1);
+      if (mErr) {
+        return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
+      }
+      const part = mapChunk ?? [];
+      mapsAccum.push(...part);
+      if (part.length < MAP_CHUNK) break;
     }
     const prodById = new Map(plist.map((x) => [x.id, x]));
     const prodSets = new Map<string, Set<string>>();
-    for (const row of maps ?? []) {
+    for (const row of mapsAccum) {
       const r = row as Record<string, unknown>;
       const pid = String(r.product_id ?? "").trim();
       const val = String(r[col] ?? "").trim();

@@ -1772,6 +1772,7 @@ def run_pim_import_apply_step(
                         skip_amazon_enrichment=True,
                         pim_upload_id=str(upload_id),
                         brand_by_mfg_map=brand_by_mfg_map,
+                        import_file_name=fname,
                     )
                     processed += 1
                 next_a = data_row_start + processed
@@ -1836,6 +1837,7 @@ def run_pim_import_apply_step(
                             skip_amazon_enrichment=True,
                             pim_upload_id=str(upload_id),
                             brand_by_mfg_map=brand_by_mfg_map,
+                            import_file_name=fname,
                         )
                         processed += 1
                     next_a = data_row_start + processed
@@ -2015,6 +2017,388 @@ def run_pim_import_apply_step(
                 "metrics_partial": metrics if isinstance(metrics, dict) else {},
                 "user_message": um,
             }
+    finally:
+        try:
+            os.unlink(local_path)
+        except Exception:
+            pass
+
+
+PRICE_BACKFILL_CHUNK_DEFAULT = 200
+PRICE_BACKFILL_CHUNK_MIN = 100
+PRICE_BACKFILL_CHUNK_MAX = 250
+PRICE_BACKFILL_MAX_FILE_ROWS = 500_000
+PRICE_BACKFILL_STEP_TIME_BUDGET_SEC = 50.0
+
+
+def _pb_default_price_backfill_state() -> dict[str, Any]:
+    return {
+        "status": "idle",
+        "offset": 0,
+        "total": 0,
+        "processed_rows": 0,
+        "inserted": 0,
+        "skipped_duplicate": 0,
+        "skipped_no_product": 0,
+        "skipped_no_price": 0,
+        "errors": 0,
+        "last_error": None,
+        "updated_at": None,
+    }
+
+
+def _fps_read_import_metrics(db: Any, upload_id: str) -> dict[str, Any]:
+    try:
+        r = (
+            db.table("file_processing_status")
+            .select("import_metrics")
+            .eq("upload_id", upload_id)
+            .limit(1)
+            .execute()
+        )
+        if r.data and isinstance(r.data[0].get("import_metrics"), dict):
+            return dict(r.data[0]["import_metrics"])
+    except Exception:
+        log.debug("fps import_metrics read failed", exc_info=True)
+    return {}
+
+
+def _fps_merge_price_backfill_state(im: dict[str, Any]) -> dict[str, Any]:
+    raw = im.get("price_backfill")
+    base = _pb_default_price_backfill_state()
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            base[k] = v
+    return base
+
+
+def _fps_persist_price_backfill(
+    db: Any,
+    organization_id: str,
+    upload_id: str,
+    price_bf: dict[str, Any],
+    *,
+    process_pct: int,
+    processed_rows: int,
+    total_rows: int,
+) -> None:
+    im = _fps_read_import_metrics(db, upload_id)
+    im = dict(im)
+    im["price_backfill"] = price_bf
+    payload: dict[str, Any] = {
+        "upload_id": upload_id,
+        "organization_id": organization_id,
+        "status": "processing",
+        "import_metrics": im,
+        "process_pct": min(100, max(0, int(process_pct))),
+        "processed_rows": max(0, int(processed_rows)),
+        "total_rows": max(0, int(total_rows)),
+        "current_phase": "pim_price_backfill",
+    }
+    try:
+        db.table("file_processing_status").upsert(payload, on_conflict="upload_id").execute()
+    except Exception as e:
+        log.warning("fps persist price_backfill failed: %s", e)
+
+
+def run_pim_import_price_backfill_step(
+    db: Any,
+    organization_id: str,
+    upload_id: str,
+    *,
+    row_chunk: int | None = None,
+    restart: bool = False,
+    cancel: bool = False,
+) -> dict[str, Any]:
+    """One bounded chunk of Product Master price backfill; checkpoints in file_processing_status.import_metrics."""
+    m = _main()
+    uid = str(upload_id).strip()
+
+    def _iso_now() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    if cancel:
+        im = _fps_read_import_metrics(db, uid)
+        bf = _fps_merge_price_backfill_state(im)
+        bf["status"] = "cancelled"
+        bf["updated_at"] = _iso_now()
+        tot = int(bf.get("total") or 0)
+        off = int(bf.get("offset") or 0)
+        _fps_persist_price_backfill(db, organization_id, uid, bf, process_pct=0, processed_rows=off, total_rows=tot)
+        return {"ok": True, "done": True, "terminal": True, "cancelled": True, "price_backfill": bf}
+
+    res = (
+        db.table("raw_report_uploads")
+        .select("id,file_name,metadata,organization_id")
+        .eq("id", uid)
+        .eq("organization_id", organization_id)
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        return {"ok": False, "error": "upload_not_found", "done": True, "terminal": True}
+
+    row_ap = rows[0]
+    meta = row_ap.get("metadata") if isinstance(row_ap.get("metadata"), dict) else {}
+    fname = str(row_ap.get("file_name") or "upload")
+    job = meta.get("pim_import_job") if isinstance(meta.get("pim_import_job"), dict) else {}
+    frozen = job.get("frozen_plan") if isinstance(job.get("frozen_plan"), dict) else {}
+    if not isinstance(frozen.get("headers"), list) or not isinstance(frozen.get("handles"), dict):
+        return {
+            "ok": False,
+            "error": "frozen_plan_missing",
+            "done": True,
+            "terminal": True,
+            "message": "Re-run preview on this upload first.",
+        }
+
+    if _pim_import_meta_cancelled(meta, db, organization_id, uid):
+        im = _fps_read_import_metrics(db, uid)
+        bf = _fps_merge_price_backfill_state(im)
+        bf["status"] = "cancelled"
+        bf["updated_at"] = _iso_now()
+        tot = int(bf.get("total") or 0)
+        off = int(bf.get("offset") or 0)
+        _fps_persist_price_backfill(db, organization_id, uid, bf, process_pct=0, processed_rows=off, total_rows=tot)
+        return {"ok": False, "error": "cancelled", "done": True, "terminal": True, "price_backfill": bf}
+
+    store_raw = str(meta.get("import_store_id") or meta.get("ledger_store_id") or meta.get("store_id") or "").strip()
+    if not store_raw:
+        return {"ok": False, "error": "import_store_id_missing", "done": True, "terminal": True}
+
+    meta = _ensure_pim_merged_source(db, organization_id, uid, meta, fname)
+    job = meta.get("pim_import_job") if isinstance(meta.get("pim_import_job"), dict) else {}
+    frozen = job.get("frozen_plan") if isinstance(job.get("frozen_plan"), dict) else {}
+    handles = frozen.get("handles")
+    headers = frozen.get("headers")
+    if not isinstance(handles, dict) or not isinstance(headers, list):
+        return {"ok": False, "error": "invalid_frozen_plan", "done": True, "terminal": True}
+
+    pim_mode_apply = str(frozen.get("import_mode") or "").strip().lower()
+    if not pim_mode_apply:
+        pim_mode_apply = "product_master" if bool(frozen.get("pim_product_master_seed")) else "generic_raw"
+
+    im0 = _fps_read_import_metrics(db, uid)
+    bf = _fps_merge_price_backfill_state(im0)
+
+    if restart:
+        bf = _pb_default_price_backfill_state()
+        bf["status"] = "running"
+        bf["updated_at"] = _iso_now()
+
+    if not restart and str(bf.get("status") or "") == "cancelled":
+        return {"ok": False, "error": "cancelled", "done": True, "terminal": True, "price_backfill": bf}
+
+    if not restart and str(bf.get("status") or "") == "completed":
+        off0 = int(bf.get("offset") or 0)
+        tot0 = int(bf.get("total") or 0)
+        if tot0 > 0 and off0 >= tot0:
+            return {"ok": True, "done": True, "terminal": True, "cached": True, "price_backfill": bf}
+
+    chunk = int(row_chunk) if row_chunk and int(row_chunk) > 0 else PRICE_BACKFILL_CHUNK_DEFAULT
+    chunk = max(PRICE_BACKFILL_CHUNK_MIN, min(PRICE_BACKFILL_CHUNK_MAX, chunk))
+
+    total_hint = int(bf.get("total") or 0)
+    if total_hint <= 0:
+        total_hint = int(job.get("import_total_rows") or frozen.get("preview_accepted_row_total") or 0) or 0
+
+    offset = int(bf.get("offset") or 0)
+    cum_ins = int(bf.get("inserted") or 0)
+    cum_dup = int(bf.get("skipped_duplicate") or 0)
+    cum_nop = int(bf.get("skipped_no_product") or 0)
+    cum_nopr = int(bf.get("skipped_no_price") or 0)
+    cum_err = int(bf.get("errors") or 0)
+
+    bf["status"] = "running"
+    bf["updated_at"] = _iso_now()
+
+    local_path, _ = materialize_job_local_file(db, meta, fname)
+    t0 = time.monotonic()
+    rows_this_chunk = 0
+    next_off = offset
+    tot_final = max(total_hint, 1)
+    try:
+        vendor_index = m._pim_load_vendor_index(db, organization_id)
+        category_index = m._pim_load_category_index(db, organization_id)
+        brand_by_mfg_map: dict[str, str] | None = None
+        file_kind = str(frozen.get("file_kind") or "xlsx")
+        sheet_label = str(frozen.get("sheet_label") or PRODUCT_MASTER_SHEET_NAME)
+
+        if file_kind == "csv":
+            df, _meta2 = _load_csv_df_from_cache_or_parse(
+                db, meta, local_path, fname, organization_id=organization_id, upload_id=uid
+            )
+            total_r = min(int(df.shape[0]), PRICE_BACKFILL_MAX_FILE_ROWS)
+            if total_hint <= 0:
+                total_hint = total_r
+            total_r = min(total_r, total_hint) if total_hint > 0 else total_r
+            tot_final = max(int(total_r), 1)
+            end = min(offset + chunk, total_r)
+            idx = offset
+            while idx < end and (time.monotonic() - t0) < PRICE_BACKFILL_STEP_TIME_BUDGET_SEC:
+                row = df.iloc[idx]
+                row_cells, row_trim = m._pim_row_cells_from_series(row, headers)
+                row_lbl = idx + 2
+                cm = m._empty_pim_seed_metrics()
+                m._process_pim_seed_row(
+                    db,
+                    organization_id,
+                    store_raw,
+                    row_cells,
+                    handles,
+                    headers,
+                    None,
+                    "pim_import_async",
+                    str(frozen.get("match_src") or "pim_async"),
+                    cm,
+                    cm["errors"],
+                    row_lbl,
+                    vendor_index,
+                    category_index,
+                    row_trim,
+                    pim_import_mode=pim_mode_apply,
+                    skip_amazon_enrichment=True,
+                    pim_upload_id=str(uid),
+                    brand_by_mfg_map=brand_by_mfg_map,
+                    prices_only=True,
+                    import_file_name=fname,
+                )
+                cum_ins += int(cm.get("prices_inserted") or 0)
+                cum_dup += int(cm.get("prices_skipped_duplicate") or 0)
+                cum_nop += int(cm.get("prices_backfill_skipped_no_product") or 0)
+                cum_nopr += int(cm.get("prices_skipped_no_valid_price") or 0)
+                cum_err += len(cm.get("errors") or [])
+                rows_this_chunk += 1
+                idx += 1
+            next_off = idx
+        else:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(local_path, read_only=True, data_only=True)
+            try:
+                ws = wb[sheet_label]
+                if total_hint <= 0:
+                    total_hint = _count_excel_data_rows(local_path, sheet_label, max_scan=PRICE_BACKFILL_MAX_FILE_ROWS)
+                total_r = min(int(total_hint), PRICE_BACKFILL_MAX_FILE_ROWS)
+                tot_final = max(int(total_r), 1)
+                end_idx = min(offset + chunk, total_r)
+                idx = offset
+                while idx < end_idx and (time.monotonic() - t0) < PRICE_BACKFILL_STEP_TIME_BUDGET_SEC:
+                    min_row = idx + 2
+                    max_row = idx + 2
+                    raw_row = None
+                    for raw_row in ws.iter_rows(min_row=min_row, max_row=max_row, values_only=True):
+                        break
+                    if raw_row is None:
+                        break
+                    cells = list(raw_row)
+                    pad = len(headers) - len(cells)
+                    if pad > 0:
+                        cells = cells + [None] * pad
+                    elif len(cells) > len(headers):
+                        cells = cells[: len(headers)]
+                    row_cells, row_trim = m._pim_row_cells_from_series(
+                        pd.Series({headers[i]: cells[i] for i in range(len(headers))}),
+                        headers,
+                    )
+                    row_lbl = f"{sheet_label}!{idx + 2}"
+                    cm = m._empty_pim_seed_metrics()
+                    m._process_pim_seed_row(
+                        db,
+                        organization_id,
+                        store_raw,
+                        row_cells,
+                        handles,
+                        headers,
+                        None,
+                        "pim_import_async",
+                        str(frozen.get("match_src") or "pim_async"),
+                        cm,
+                        cm["errors"],
+                        row_lbl,
+                        vendor_index,
+                        category_index,
+                        row_trim,
+                        pim_import_mode=pim_mode_apply,
+                        skip_amazon_enrichment=True,
+                        pim_upload_id=str(uid),
+                        brand_by_mfg_map=brand_by_mfg_map,
+                        prices_only=True,
+                        import_file_name=fname,
+                    )
+                    cum_ins += int(cm.get("prices_inserted") or 0)
+                    cum_dup += int(cm.get("prices_skipped_duplicate") or 0)
+                    cum_nop += int(cm.get("prices_backfill_skipped_no_product") or 0)
+                    cum_nopr += int(cm.get("prices_skipped_no_valid_price") or 0)
+                    cum_err += len(cm.get("errors") or [])
+                    rows_this_chunk += 1
+                    idx += 1
+                next_off = idx
+            finally:
+                wb.close()
+
+        bf["offset"] = int(next_off)
+        bf["total"] = int(tot_final)
+        bf["processed_rows"] = int(next_off)
+        bf["inserted"] = int(cum_ins)
+        bf["skipped_duplicate"] = int(cum_dup)
+        bf["skipped_no_product"] = int(cum_nop)
+        bf["skipped_no_price"] = int(cum_nopr)
+        bf["errors"] = int(cum_err)
+        bf["updated_at"] = _iso_now()
+
+        done = next_off >= tot_final
+        time_hit = (time.monotonic() - t0) >= PRICE_BACKFILL_STEP_TIME_BUDGET_SEC * 0.92
+        paused = not done and time_hit and rows_this_chunk < chunk
+        if done:
+            bf["status"] = "completed"
+        elif paused:
+            bf["status"] = "paused"
+        else:
+            bf["status"] = "running"
+
+        pct = int(min(100, round(100.0 * float(next_off) / float(tot_final))))
+        _fps_persist_price_backfill(
+            db, organization_id, uid, bf, process_pct=pct, processed_rows=int(next_off), total_rows=int(tot_final)
+        )
+
+        out: dict[str, Any] = {
+            "ok": True,
+            "done": done,
+            "terminal": done,
+            "price_backfill": bf,
+            "chunk_rows": int(rows_this_chunk),
+        }
+        if paused and not done:
+            out["paused"] = True
+            out["done"] = False
+            out["terminal"] = False
+            out["user_hint"] = (
+                "Price backfill paused. Resume will continue without duplicating completed rows."
+            )
+        return out
+    except Exception as e:
+        log.exception("pim price backfill step failed upload_id=%s", uid)
+        bf_err = _fps_merge_price_backfill_state(_fps_read_import_metrics(db, uid))
+        bf_err["status"] = "paused"
+        bf_err["last_error"] = str(e)[:500]
+        bf_err["updated_at"] = _iso_now()
+        try:
+            tot_e = int(bf_err.get("total") or tot_final or 1)
+            off_e = int(bf_err.get("offset") or next_off or 0)
+            pct_e = int(min(100, round(100.0 * float(off_e) / float(max(tot_e, 1)))))
+            _fps_persist_price_backfill(db, organization_id, uid, bf_err, process_pct=pct_e, processed_rows=off_e, total_rows=tot_e)
+        except Exception:
+            log.debug("fps persist after price backfill failure skipped", exc_info=True)
+        return {
+            "ok": False,
+            "error": "price_backfill_step_exception",
+            "done": False,
+            "terminal": False,
+            "price_backfill": bf_err,
+            "user_hint": "Price backfill paused after saving progress. Click Resume price backfill.",
+        }
     finally:
         try:
             os.unlink(local_path)

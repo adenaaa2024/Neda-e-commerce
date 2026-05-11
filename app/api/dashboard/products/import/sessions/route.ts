@@ -14,8 +14,11 @@ export async function GET(req: Request) {
   const limitRaw = url.searchParams.get("limit");
   const limit = limitRaw ? Number(limitRaw) : undefined;
 
-  if (!isUuidString(organization_id) || !isUuidString(store_id)) {
-    return NextResponse.json({ ok: false, error: "Invalid organization_id or store_id." }, { status: 400 });
+  if (!isUuidString(organization_id)) {
+    return NextResponse.json({ ok: false, error: "Invalid organization_id." }, { status: 400 });
+  }
+  if (store_id && !isUuidString(store_id)) {
+    return NextResponse.json({ ok: false, error: "Invalid store_id." }, { status: 400 });
   }
 
   const gate = await assertUserCanAccessOrganization(organization_id);
@@ -28,7 +31,7 @@ export async function GET(req: Request) {
 
   const res = await listPimImportSessions({
     organizationId: organization_id,
-    storeId: store_id,
+    ...(store_id ? { storeId: store_id } : {}),
     limit: Number.isFinite(limit) ? limit : undefined,
   });
 

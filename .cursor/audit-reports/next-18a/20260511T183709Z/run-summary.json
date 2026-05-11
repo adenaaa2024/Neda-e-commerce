@@ -1,0 +1,33 @@
+{
+  "runId": "20260511T183709Z",
+  "startedAt": "2026-05-11T18:37:09.588Z",
+  "finishedAt": "2026-05-11T18:37:14.705Z",
+  "pairs_discovered": 1,
+  "rows_scanned": 1000,
+  "bucket_counts": {
+    "2": 531,
+    "3": 78,
+    "4": 325,
+    "5": 66
+  },
+  "cross_conflict_rows": 62,
+  "provenance_gap_rows": 0,
+  "fan_out_findings": 2485,
+  "per_table_stats": {
+    "amazon_amazon_fulfilled_inventory": {
+      "rowsScanned": 1000,
+      "pageCount": 1,
+      "ms": 170
+    }
+  },
+  "files": {
+    "manifest": "manifest.json",
+    "run_summary": "run-summary.json",
+    "roll_up": "00-roll-up.csv",
+    "rows": "01-rows.ndjson",
+    "identifier_fan_out": "02-identifier-fan-out.json",
+    "cross_conflict": "03-cross-product-conflict.csv",
+    "provenance_gap": "04-provenance-gap.csv",
+    "validation_checks": "05-validation-checks.json"
+  }
+}

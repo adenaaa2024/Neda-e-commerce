@@ -22,6 +22,7 @@ from supabase import Client, create_client
 from pim_import_async import (
     get_pim_import_preview_status,
     run_pim_import_apply_step,
+    run_pim_import_price_backfill_step,
     run_pim_import_preview_step,
     run_pim_import_retry_preview,
 )
@@ -1900,6 +1901,14 @@ class PimImportApplyStepBody(BaseModel):
         return self.skip_conflicts or self.import_safe_rows_only
 
 
+class PimImportPriceBackfillStepBody(BaseModel):
+    organization_id: str
+    upload_id: str
+    row_chunk: int | None = None
+    restart: bool = False
+    cancel: bool = False
+
+
 @app.post("/etl/detect-headers")
 async def etl_detect_headers(request: DetectHeadersRequest):
     """Architectural Route for Client-Side Slicing auto-detection."""
@@ -2558,6 +2567,25 @@ def _validate_pim_org_store(organization_id: str, store_id: str) -> tuple[str, s
     return oid, sid
 
 
+def _pim_is_valid_store_uuid(value: Any) -> bool:
+    """True iff `value` is a non-empty UUID string (matches `_validate_pim_org_store`).
+
+    Used as the entry-guard for `_process_pim_seed_row` so PIM never silently
+    INSERTs a duplicate `products` row under an unscoped (org, store) pair when
+    `metadata.import_store_id` is missing or malformed. See PATCH-01.
+    """
+    if value is None:
+        return False
+    s = str(value).strip()
+    if not s:
+        return False
+    try:
+        uuid.UUID(s)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
 def _empty_pim_seed_metrics() -> dict[str, Any]:
     return {
         "rows_processed": 0,
@@ -2575,6 +2603,7 @@ def _empty_pim_seed_metrics() -> dict[str, Any]:
         "products_enriched_by_amazon": 0,
         "skipped_no_identity": 0,
         "skipped_ambiguous": 0,
+        "skipped_invalid_store_scope": 0,
         "blocked_new_without_seller_sku": 0,
         "errors": [],
         "fields_trimmed": 0,
@@ -2589,6 +2618,8 @@ def _empty_pim_seed_metrics() -> dict[str, Any]:
         "identifier_tokens_attached": 0,
         "conflict_rows_blocked": 0,
         "prices_skipped_duplicate": 0,
+        "prices_backfill_skipped_no_product": 0,
+        "prices_skipped_no_valid_price": 0,
     }
 
 
@@ -2665,6 +2696,12 @@ def _pim_bump_cleaning_counters(
 
 
 def _pim_product_ids_for_values(db: Any, organization_id: str, store_id: str, values: list[str], col: str) -> dict[str, list[str]]:
+    # NEXT-02b: defense-in-depth scope guard. Without this, store-less SELECTs
+    # would silently match nothing and callers would treat the row as "insert"
+    # at PIM apply time. Returns empty-list mapping shaped like a no-match run.
+    if not _pim_is_valid_store_uuid(organization_id) or not _pim_is_valid_store_uuid(store_id):
+        return {value: [] for value in values}
+
     out: dict[str, list[str]] = {}
     for v in values:
         try:
@@ -2687,6 +2724,11 @@ def _pim_product_ids_for_values_batch(
     db: Any, organization_id: str, store_id: str, values: list[str], col: str
 ) -> dict[str, list[str]]:
     """One query per batch of distinct identifier values (preview performance)."""
+    # NEXT-02b: defense-in-depth scope guard. Same rationale as the single-value
+    # variant; preview-time callers in pim_import_async.py reach this directly.
+    if not _pim_is_valid_store_uuid(organization_id) or not _pim_is_valid_store_uuid(store_id):
+        return {value: [] for value in dict.fromkeys(values)}
+
     out: dict[str, list[str]] = {}
     uniq = [str(v).strip() for v in dict.fromkeys(values) if str(v).strip()]
     batch_n = 120
@@ -3489,7 +3531,7 @@ def _pim_analyze_seed_row_for_quality(
     asin = parsed.primary_asin()
     fnsku = parsed.primary_fnsku()
     upc = parsed.primary_upc()
-    cost_raw, _price_handle_key = _pim_pick_price_raw_from_handles(row_cells, handles)
+    cost_raw, _price_handle_key, _price_pick_meta = _pim_pick_row_unit_price(row_cells, handles, eff_mode)
 
     if not seller_sku and not fnsku and not asin and not upc:
         acc["dirty_rows"] = int(acc["dirty_rows"]) + 1
@@ -3907,6 +3949,7 @@ def _pim_collect_prepared_from_upload(
                 "mapping_source": mapping_src,
                 "pim_delimiter_detected": attrs.get("pim_delimiter_detected"),
                 "pim_delimiter_uncertain": bool(attrs.get("pim_delimiter_uncertain")),
+                "import_file_name": fname,
             }
         )
     if not saw_any_yield:
@@ -3967,6 +4010,7 @@ def _pim_google_build_prepared_frames(
                 "match_src": "etl_google_sheets",
                 "pim_column_map": _pim_public_column_map(column_map),
                 "mapping_source": mapping_src,
+                "import_file_name": f"google_sheet:{sheet_id}",
             }
         )
     if not prepared:
@@ -4262,6 +4306,14 @@ def _pim_resolve_product(
     resolution: update | insert | ambiguous | no_identity
     Match priority: seller_sku, fnsku, asin, upc (store-scoped).
     """
+    # NEXT-02b: defense-in-depth scope guard. Any caller that bypasses
+    # `_process_pim_seed_row` (e.g. preview-time helpers in pim_import_async)
+    # would otherwise issue store-less SELECTs that miss every existing product
+    # and report "insert" — the seed row caller would then INSERT a duplicate.
+    # Reuse `_pim_is_valid_store_uuid` (introduced in PATCH-01).
+    if not _pim_is_valid_store_uuid(organization_id) or not _pim_is_valid_store_uuid(store_id):
+        return None, "no_identity", None
+
     if seller_sku:
         r = (
             db.table("products")
@@ -4526,6 +4578,160 @@ def _pim_upsert_identifier_map(
         _pim_append_error(errors, row_index, f"identifier map: {e}")
 
 
+def _pim_norm_header_key(key: str) -> str:
+    return str(key).strip().lower().replace(" ", "_").replace("-", "_").replace(".", "_")
+
+
+def _pim_try_parse_positive_number(cost_raw: Any) -> float | None:
+    if cost_raw is None:
+        return None
+    s = str(cost_raw).strip()
+    if not s or s.lower() in ("x", "n/a", "na", "-", "none", "null"):
+        return None
+    try:
+        v = float(s.replace("$", "").replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+    if v <= 0 or v != v:  # NaN
+        return None
+    return v
+
+
+def _pim_currency_from_row(row_cells: dict[str, Any], handles: dict[str, str | None]) -> str:
+    for logical in ("currency", "iso_currency", "price_currency"):
+        h = handles.get(logical)
+        if not h:
+            continue
+        raw = _pim_cell(row_cells, h)
+        if raw is None:
+            continue
+        c = str(raw).strip().upper()
+        if len(c) == 3 and c.isalpha():
+            return c
+    for col, raw in row_cells.items():
+        nh = _pim_norm_header_key(col)
+        if "currency" not in nh and nh not in ("iso", "ccy"):
+            continue
+        c = str(raw or "").strip().upper()
+        if len(c) == 3 and c.isalpha():
+            return c
+    return "USD"
+
+
+def _pim_find_pack_units_per_case(row_cells: dict[str, Any]) -> float | None:
+    """Units per case / pack size from common Product Master column names (optional case→unit cost)."""
+    for col, raw in row_cells.items():
+        nh = _pim_norm_header_key(col)
+        if "case" not in nh:
+            continue
+        if "cost" in nh or "price" in nh:
+            continue
+        if not any(x in nh for x in ("unit", "qty", "quantity", "pack", "count", "size", "item")):
+            continue
+        v = _pim_try_parse_positive_number(raw)
+        if v is not None and v > 1:
+            return v
+    return None
+
+
+def _pim_pick_product_master_unit_price(
+    row_cells: dict[str, Any],
+    handles: dict[str, str | None],
+) -> tuple[Any | None, str | None, dict[str, Any]]:
+    """Product Master: priority unit-level cost; optional case÷pack. Returns (raw_for_insert, key, meta_extra)."""
+    meta_extra: dict[str, Any] = {}
+    logical_priority: list[tuple[str, tuple[str, ...]]] = [
+        ("selling_unit_cost_without_freight", ("selling_unit_cost_without_freight", "selling_unit_cost_wo_freight")),
+        ("selling_unit_cost", ("selling_unit_cost", "unit_selling_cost")),
+        ("case_cost_without_freight", ("case_cost_without_freight", "case_cost_wo_freight")),
+        ("case_cost", ("case_cost", "casecost")),
+    ]
+    for label, logical_keys in logical_priority:
+        for lk in logical_keys:
+            h = handles.get(lk)
+            if not h:
+                continue
+            raw = _pim_cell(row_cells, h)
+            if raw is None:
+                continue
+            s = str(raw).strip()
+            if not s or s.lower() in ("x", "n/a", "na", "-", "none", "null"):
+                continue
+            meta_extra["matched_via"] = "column_map"
+            if label in ("case_cost", "case_cost_without_freight"):
+                pack = _pim_find_pack_units_per_case(row_cells)
+                case_amt = _pim_try_parse_positive_number(raw)
+                if pack and pack > 1 and case_amt is not None:
+                    unit = case_amt / pack
+                    if unit > 0:
+                        meta_extra["unit_derived_from_case"] = True
+                        meta_extra["case_pack_units"] = pack
+                        meta_extra["case_cost_value"] = case_amt
+                        return (f"{unit:.10f}".rstrip("0").rstrip("."), f"{label}/per_unit_from_case", meta_extra)
+            return raw, label, meta_extra
+
+    header_rules: list[tuple[str, Any]] = [
+        (
+            "selling_unit_cost_without_freight",
+            lambda nh: all(x in nh for x in ("selling", "unit", "cost", "without", "freight")),
+        ),
+        (
+            "selling_unit_cost",
+            lambda nh: "selling" in nh and "unit" in nh and "cost" in nh and not ("without" in nh and "freight" in nh),
+        ),
+        (
+            "case_cost_without_freight",
+            lambda nh: "case" in nh and "cost" in nh and "without" in nh and "freight" in nh,
+        ),
+        (
+            "case_cost",
+            lambda nh: "case" in nh and "cost" in nh and not ("without" in nh and "freight" in nh),
+        ),
+    ]
+    for label, pred in header_rules:
+        for col_key, raw in row_cells.items():
+            nh = _pim_norm_header_key(col_key)
+            if not pred(nh):
+                continue
+            if raw is None:
+                continue
+            s = str(raw).strip()
+            if not s or s.lower() in ("x", "n/a", "na", "-", "none", "null"):
+                continue
+            meta_extra["matched_via"] = "header"
+            meta_extra["source_header"] = str(col_key).strip()
+            if label in ("case_cost", "case_cost_without_freight"):
+                pack = _pim_find_pack_units_per_case(row_cells)
+                case_amt = _pim_try_parse_positive_number(raw)
+                if pack and pack > 1 and case_amt is not None:
+                    unit = case_amt / pack
+                    if unit > 0:
+                        meta_extra["unit_derived_from_case"] = True
+                        meta_extra["case_pack_units"] = pack
+                        meta_extra["case_cost_value"] = case_amt
+                        return (f"{unit:.10f}".rstrip("0").rstrip("."), f"{label}/per_unit_from_case", meta_extra)
+            return raw, label, meta_extra
+
+    fb_raw, fb_key = _pim_pick_price_raw_from_handles(row_cells, handles)
+    if fb_raw is not None:
+        meta_extra["matched_via"] = "fallback_generic_cost"
+    return fb_raw, fb_key, meta_extra
+
+
+def _pim_pick_row_unit_price(
+    row_cells: dict[str, Any],
+    handles: dict[str, str | None],
+    eff_mode: str,
+) -> tuple[Any | None, str | None, dict[str, Any]]:
+    em = eff_mode.strip().lower()
+    if em in ("product_master", "clean_product_master"):
+        raw, key, extra = _pim_pick_product_master_unit_price(row_cells, handles)
+        if raw is not None:
+            return raw, key, extra
+    a, b = _pim_pick_price_raw_from_handles(row_cells, handles)
+    return a, b, {}
+
+
 def _pim_pick_price_raw_from_handles(
     row_cells: dict[str, Any],
     handles: dict[str, str | None],
@@ -4718,6 +4924,12 @@ def _pim_insert_price_if_present(
     asin_value: str | None = None,
     source_column: str | None = None,
     pim_upload_id: str | None = None,
+    import_file_name: str | None = None,
+    import_observed_iso: str | None = None,
+    currency: str | None = None,
+    row_cells: dict[str, Any] | None = None,
+    handles: dict[str, str | None] | None = None,
+    price_pick_meta: dict[str, Any] | None = None,
 ) -> None:
     if cost_raw is None:
         return
@@ -4729,12 +4941,29 @@ def _pim_insert_price_if_present(
     except (TypeError, ValueError):
         _pim_append_error(errors, row_index, f"invalid price/cost value: {s[:40]!r}")
         return
+    if amt <= 0 or amt != amt:
+        return
     try:
         src_label = "product_master_import" if str(price_source).strip() == "pim_import_async" else (price_source or "import")
+        cur = (currency or "").strip().upper() if currency else ""
+        if not cur and row_cells is not None and handles is not None:
+            cur = _pim_currency_from_row(row_cells, handles)
+        if not cur:
+            cur = "USD"
+
         meta_blob: dict[str, Any] = {
             "price_source": price_source,
             "source_column": source_column,
+            "source_column_name": source_column,
+            "raw_value": s[:200],
+            "seller_sku": str(product_sku).strip() if product_sku and str(product_sku).strip() else None,
+            "asin": str(asin_value).strip() if asin_value and str(asin_value).strip() else None,
+            "import_file_name": str(import_file_name).strip() if import_file_name and str(import_file_name).strip() else None,
         }
+        if price_pick_meta:
+            for k, v in price_pick_meta.items():
+                if v is not None:
+                    meta_blob[k] = v
         if pim_upload_id and str(pim_upload_id).strip():
             uid_s = str(pim_upload_id).strip()
             meta_blob["import_upload_id"] = uid_s
@@ -4742,24 +4971,41 @@ def _pim_insert_price_if_present(
         if asin_value and str(asin_value).strip():
             meta_blob["asin"] = str(asin_value).strip()
 
-        # Idempotency: skip if same amount+currency+source was inserted today
-        try:
+        obs_iso = import_observed_iso or datetime.now(timezone.utc).isoformat()
+
+        def _price_dup_exists() -> bool:
             from datetime import timedelta
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-            dup_check = (
+
+            uid = str(pim_upload_id).strip() if pim_upload_id else ""
+            q = (
                 db.table("product_prices")
-                .select("id")
+                .select("id,amount,price")
                 .eq("organization_id", organization_id)
                 .eq("store_id", store_id)
                 .eq("product_id", product_id)
-                .eq("amount", amt)
-                .eq("currency", "USD")
+                .eq("currency", cur)
                 .eq("source", src_label)
-                .gte("observed_at", cutoff)
-                .limit(1)
-                .execute()
             )
-            if dup_check.data:
+            if uid:
+                q = q.eq("source_upload_id", uid)
+            else:
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+                q = q.gte("observed_at", cutoff)
+            dup_check = q.limit(40).execute()
+            for rec in dup_check.data or []:
+                for colname in ("amount", "price"):
+                    v = rec.get(colname)
+                    if v is None:
+                        continue
+                    try:
+                        if abs(float(v) - float(amt)) < 1e-5:
+                            return True
+                    except (TypeError, ValueError):
+                        continue
+            return False
+
+        try:
+            if _price_dup_exists():
                 metrics["prices_skipped_duplicate"] = int(metrics.get("prices_skipped_duplicate") or 0) + 1
                 return
         except Exception as dup_err:
@@ -4770,9 +5016,10 @@ def _pim_insert_price_if_present(
             "store_id": store_id,
             "product_id": product_id,
             "amount": amt,
-            "currency": "USD",
+            "price": amt,
+            "currency": cur,
             "source": src_label,
-            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "observed_at": obs_iso,
             "metadata": meta_blob,
         }
         if product_sku and str(product_sku).strip():
@@ -4809,6 +5056,7 @@ def _pim_seed_apply_prepared_writes(
         metrics["sheets_processed"] = int(metrics["sheets_processed"]) + 1
         sl = block.get("sheet_label")
         sl_str = str(sl).strip() if sl is not None else ""
+        fn = str(block.get("import_file_name") or "").strip() or None
         for i, (_, row) in enumerate(df.iterrows()):
             row_cells, row_trim = _pim_row_cells_from_series(row, headers)
             row_lbl: int | str = f"{sl_str}!{i + 2}" if sl_str else i + 2
@@ -4828,6 +5076,7 @@ def _pim_seed_apply_prepared_writes(
                 vendor_index,
                 category_index,
                 row_trim,
+                import_file_name=fn,
             )
         metrics["rows_per_sheet"][sheet_key] = int(metrics["rows_processed"]) - rows_before
     return metrics
@@ -4855,7 +5104,29 @@ def _process_pim_seed_row(
     skip_amazon_enrichment: bool = False,
     pim_upload_id: str | None = None,
     brand_by_mfg_map: dict[str, str] | None = None,
+    prices_only: bool = False,
+    import_file_name: str | None = None,
 ) -> None:
+    # PATCH-01: hard scope guard — refuse rows where org/store scope is missing or
+    # malformed. Without this, `_pim_resolve_product` would run with empty filters,
+    # miss every existing product (priority 1..4 incl. UPC), fall to "insert", and
+    # create duplicate `products` rows under an unscoped (org, store) pair. The
+    # guard runs BEFORE clean_pm variant expansion, parse_identifier_row, and any
+    # DB read or write — including price/identifier-map writes.
+    if not _pim_is_valid_store_uuid(organization_id) or not _pim_is_valid_store_uuid(store_id):
+        metrics["skipped_invalid_store_scope"] = int(metrics.get("skipped_invalid_store_scope") or 0) + 1
+        metrics["skipped_no_identity"] = int(metrics.get("skipped_no_identity") or 0) + 1
+        _pim_append_error(
+            errors,
+            row_index,
+            (
+                "invalid_store_scope: row skipped (organization_id="
+                f"{str(organization_id)[:48]!r} store_id={str(store_id)[:48]!r} "
+                "are not both valid UUIDs)"
+            ),
+        )
+        return
+
     eff_mode = (pim_import_mode or ("product_master" if "pim_async" in str(match_source) else "generic_raw")).strip().lower()
 
     if clean_pm_depth == 0 and eff_mode == "clean_product_master":
@@ -4882,6 +5153,9 @@ def _process_pim_seed_row(
                     clean_pm_depth=clean_pm_depth + 1,
                     skip_amazon_enrichment=skip_amazon_enrichment,
                     pim_upload_id=pim_upload_id,
+                    brand_by_mfg_map=brand_by_mfg_map,
+                    prices_only=prices_only,
+                    import_file_name=import_file_name,
                 )
             return
 
@@ -4936,7 +5210,7 @@ def _process_pim_seed_row(
     upc = parsed.primary_upc()
     sheet_product_name = _clean_identifier(_pim_cell(row_cells, handles.get("product_name")))
     mfg_part = _clean_identifier(_pim_cell(row_cells, handles.get("mfg_part")))
-    price_raw, price_col_key = _pim_pick_price_raw_from_handles(row_cells, handles)
+    price_raw, price_col_key, price_pick_meta = _pim_pick_row_unit_price(row_cells, handles, eff_mode)
     status_val = normalize_pim_status(_pim_cell(row_cells, handles.get("status")))
     mapped_headers = {str(v).strip() for v in handles.values() if v}
     extra_attrs = collect_product_attributes_from_row(
@@ -4944,25 +5218,29 @@ def _process_pim_seed_row(
     )
 
     vendor_cell = _clean_identifier(_pim_cell(row_cells, handles.get("vendor")))
-    vendor_id = _pim_ensure_vendor(
-        db,
-        organization_id,
-        vendor_cell,
-        vendor_index,
-        metrics,
-        errors,
-        row_index,
-    )
+    vendor_id = None
     vendor_display_name = _pim_normalize_vendor_name(vendor_cell) if vendor_cell else None
-    category_id = _pim_ensure_category(
-        db,
-        organization_id,
-        _clean_identifier(_pim_cell(row_cells, handles.get("category"))),
-        category_index,
-        metrics,
-        errors,
-        row_index,
-    )
+    category_id = None
+    if not prices_only:
+        vendor_id = _pim_ensure_vendor(
+            db,
+            organization_id,
+            vendor_cell,
+            vendor_index,
+            metrics,
+            errors,
+            row_index,
+        )
+        vendor_display_name = _pim_normalize_vendor_name(vendor_cell) if vendor_cell else None
+        category_id = _pim_ensure_category(
+            db,
+            organization_id,
+            _clean_identifier(_pim_cell(row_cells, handles.get("category"))),
+            category_index,
+            metrics,
+            errors,
+            row_index,
+        )
 
     if not seller_sku and not fnsku and not asin and not upc:
         metrics["skipped_no_identity"] += 1
@@ -4970,6 +5248,40 @@ def _process_pim_seed_row(
             errors,
             row_index,
             f"skipped: no valid identifiers after split/validate: {_pim_identifier_preview_detail(parsed)}",
+        )
+        return
+
+    if prices_only:
+        prod_id, resolution, sku_insert = _pim_resolve_product(
+            db, organization_id, store_id, seller_sku, fnsku, asin, upc
+        )
+        if resolution != "update" or not prod_id:
+            metrics["prices_backfill_skipped_no_product"] = int(metrics.get("prices_backfill_skipped_no_product") or 0) + 1
+            return
+        if price_raw is None:
+            metrics["prices_skipped_no_valid_price"] = int(metrics.get("prices_skipped_no_valid_price") or 0) + 1
+            return
+        map_sku = sku_resolve_pref or parsed.primary_sku() or seller_sku or (sku_insert or "")
+        cur_po = _pim_currency_from_row(row_cells, handles)
+        _pim_insert_price_if_present(
+            db,
+            organization_id,
+            store_id,
+            str(prod_id),
+            price_raw,
+            price_source,
+            metrics,
+            errors,
+            row_index,
+            product_sku=str(map_sku).strip() if map_sku else None,
+            asin_value=asin,
+            source_column=price_col_key,
+            pim_upload_id=pim_upload_id,
+            import_file_name=import_file_name,
+            currency=cur_po,
+            row_cells=row_cells,
+            handles=handles,
+            price_pick_meta=price_pick_meta,
         )
         return
 
@@ -5129,6 +5441,7 @@ def _process_pim_seed_row(
             errors,
             row_index,
         )
+    cur_ins = _pim_currency_from_row(row_cells, handles)
     _pim_insert_price_if_present(
         db,
         organization_id,
@@ -5143,6 +5456,11 @@ def _process_pim_seed_row(
         asin_value=asin,
         source_column=price_col_key,
         pim_upload_id=pim_upload_id,
+        import_file_name=import_file_name,
+        currency=cur_ins,
+        row_cells=row_cells,
+        handles=handles,
+        price_pick_meta=price_pick_meta,
     )
 
 
@@ -5592,6 +5910,36 @@ async def etl_pim_import_apply_step(body: PimImportApplyStepBody):
             status_code=500,
             detail={"error": "apply_step_exception", "message": err_detail,
                     "traceback": _tb.format_exc()[-2000:]},
+        ) from e
+
+
+@app.post("/etl/pim-import/backfill-prices-step")
+async def etl_pim_import_backfill_prices_step_route(body: PimImportPriceBackfillStepBody):
+    """One bounded chunk of Product Master price backfill; checkpoints in file_processing_status.import_metrics."""
+    organization_id = body.organization_id.strip()
+    upload_id = body.upload_id.strip()
+    if not organization_id or not upload_id:
+        raise HTTPException(status_code=400, detail="organization_id and upload_id are required.")
+    db = _require_supabase()
+    try:
+        return run_pim_import_price_backfill_step(
+            db,
+            organization_id,
+            upload_id,
+            row_chunk=body.row_chunk,
+            restart=bool(body.restart),
+            cancel=bool(body.cancel),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback as _tb
+
+        err_detail = f"{type(e).__name__}: {e}"
+        log.exception("pim-import backfill-prices-step failed: %s", err_detail)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "backfill_prices_step_exception", "message": err_detail, "traceback": _tb.format_exc()[-2000:]},
         ) from e
 
 

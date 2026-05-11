@@ -1,0 +1,22 @@
+{
+  "runId": "20260511T081606Z",
+  "startedAt": "2026-05-11T08:16:06.458Z",
+  "finishedAt": "2026-05-11T08:16:08.740Z",
+  "pairs_discovered": 0,
+  "rows_scanned": 0,
+  "bucket_counts": {},
+  "cross_conflict_rows": 0,
+  "provenance_gap_rows": 0,
+  "fan_out_findings": 0,
+  "per_table_stats": {},
+  "files": {
+    "manifest": "manifest.json",
+    "run_summary": "run-summary.json",
+    "roll_up": "00-roll-up.csv",
+    "rows": "01-rows.ndjson",
+    "identifier_fan_out": "02-identifier-fan-out.json",
+    "cross_conflict": "03-cross-product-conflict.csv",
+    "provenance_gap": "04-provenance-gap.csv",
+    "validation_checks": "05-validation-checks.json"
+  }
+}

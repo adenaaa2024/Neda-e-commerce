@@ -269,7 +269,7 @@ export const NATIVE_COLUMNS_SAFET = new Set([
 
 /** amazon_transactions — physical DB columns (source_line_hash added in migration 20260605) */
 export const NATIVE_COLUMNS_TRANSACTIONS = new Set([
-  "id", "organization_id", "upload_id",
+  "id", "organization_id", "store_id", "upload_id",
   "source_line_hash",
   "source_file_sha256", "source_physical_row_number",
   "settlement_id", "order_id", "transaction_type", "amount", "sku", "posted_date",
@@ -1776,6 +1776,7 @@ function mapRowToAmazonSettlementTxtFlat(
   row: Record<string, string>,
   orgId: string,
   uploadId: string,
+  importStoreId?: string | null,
 ): AmazonSettlementInsert | null {
   const settlement_id = (row.settlement_id ?? "").trim();
   if (!settlement_id) return null;
@@ -1812,6 +1813,7 @@ function mapRowToAmazonSettlementTxtFlat(
   return {
     organization_id: orgId,
     upload_id: uploadId,
+    store_id: importStoreId ?? null,
     settlement_id,
     amazon_line_key: lineKey,
     settlement_start_date: parseIsoDateTime(row.settlement_start_date ?? "") ?? null,
@@ -1833,6 +1835,7 @@ function mapRowToAmazonSettlementLegacyCsv(
   row: Record<string, string>,
   orgId: string,
   uploadId: string,
+  importStoreId?: string | null,
 ): AmazonSettlementInsert | null {
   const consumed = new Set<string>();
   const settlement_id = pickT(row, SETTLEMENT_ID_ALIASES, consumed);
@@ -1886,6 +1889,7 @@ function mapRowToAmazonSettlementLegacyCsv(
   return {
     organization_id: orgId,
     upload_id: uploadId,
+    store_id: importStoreId ?? null,
     settlement_id,
     amazon_line_key: lineKey,
     order_id,
@@ -1968,11 +1972,12 @@ export function mapRowToAmazonSettlement(
   row: Record<string, string>,
   orgId: string,
   uploadId: string,
+  importStoreId?: string | null,
 ): AmazonSettlementInsert | null {
   if (isAmazonSettlementTxtFlatRow(row)) {
-    return mapRowToAmazonSettlementTxtFlat(row, orgId, uploadId);
+    return mapRowToAmazonSettlementTxtFlat(row, orgId, uploadId, importStoreId);
   }
-  return mapRowToAmazonSettlementLegacyCsv(row, orgId, uploadId);
+  return mapRowToAmazonSettlementLegacyCsv(row, orgId, uploadId, importStoreId);
 }
 
 // ── amazon_safet_claims ───────────────────────────────────────────────────────
@@ -2205,6 +2210,7 @@ const REPORTS_REPO_TX_RELEASE_ALIASES = [
 export type AmazonReportsRepositoryInsert = {
   organization_id: string;
   upload_id: string;
+  store_id: string | null;
   source_line_hash: string;
   date_time: string | null;
   settlement_id: string | null;
@@ -2251,6 +2257,7 @@ export function mapRowToAmazonReportsRepository(
   row: Record<string, string>,
   orgId: string,
   uploadId: string,
+  importStoreId?: string | null,
 ): AmazonReportsRepositoryInsert {
   const source_line_hash = computeSourceLineHash(orgId, row);
   const consumed = new Set<string>();
@@ -2300,6 +2307,7 @@ export function mapRowToAmazonReportsRepository(
   return {
     organization_id: orgId,
     upload_id: uploadId,
+    store_id: importStoreId ?? null,
     source_line_hash,
     date_time,
     settlement_id,

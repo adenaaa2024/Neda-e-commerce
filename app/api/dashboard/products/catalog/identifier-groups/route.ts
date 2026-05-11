@@ -46,7 +46,7 @@ export async function GET(req: Request) {
       {
         ok: false,
         error: error.message,
-        hint: "Apply migration 20260717120000_pim_catalog_identifier_groups_and_sort_upc if this RPC is missing.",
+        hint: 'If the error mentions relation "ranked", apply migration 20260810120000_pim_catalog_identifier_groups_fix_ranked_cte.sql. If the RPC is missing, apply the latest PIM catalog migrations.',
       },
       { status: 400 },
     );

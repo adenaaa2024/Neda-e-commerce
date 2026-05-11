@@ -1,0 +1,95 @@
+{
+  "runId": "20260511T214206Z",
+  "startedAt": "2026-05-11T21:42:06.382Z",
+  "finishedAt": "2026-05-11T21:42:06.515Z",
+  "input_run": "20260511T210609Z",
+  "input_clusters": 115,
+  "tenant": {
+    "organization_id": "00000000-0000-0000-0000-000000000001",
+    "store_ids": [
+      "509ee1f6-622c-46a5-8110-7b889ba46c2c"
+    ]
+  },
+  "totals": {
+    "product_ids_requested": 245,
+    "product_ids_found": 245,
+    "product_ids_missing": 0,
+    "identifier_map_rows_snapshot": 105,
+    "clusters_enriched": 115,
+    "clusters_by_severity": {
+      "critical": 12,
+      "high": 39,
+      "medium": 0,
+      "low": 64
+    }
+  },
+  "hint_distribution": {
+    "yes_high": 0,
+    "yes_medium": 25,
+    "uncertain": 88,
+    "no_low": 2
+  },
+  "signal_counts": {
+    "clusters_any_merged": 0,
+    "clusters_any_deleted": 0,
+    "clusters_any_cross_store": 0,
+    "clusters_with_missing_product_rows": 0,
+    "clusters_merged_into_inside_cluster": 0
+  },
+  "thresholds": {
+    "yes_high": "existing_merge_decision OR (single_sku AND single_asin) OR (any_merged AND single_sku)",
+    "yes_medium": "single_asin AND (single_title OR title_similarity>=0.5), or any_merged alone",
+    "no_low": "all_distinct_identifiers AND title_similarity<0.2",
+    "cross_store_caveat": "any cluster spanning >=2 store_ids is downgraded to 'uncertain' unless merged_into_inside_cluster"
+  },
+  "files": {
+    "manifest": "manifest.json",
+    "run_summary": "run-summary.json",
+    "enriched_csv": "00-enriched-conflict-clusters.csv",
+    "enriched_json": "01-enriched-conflict-clusters.json",
+    "missing_csv": "02-missing-product-rows.csv",
+    "selection_trace": "logs/selection-trace.txt",
+    "identifier_map_snapshot": "logs/identifier-map-snapshot.ndjson",
+    "fetch_warnings": "logs/fetch-warnings.ndjson"
+  },
+  "j_checks": [
+    {
+      "name": "J1_all_pids_requested_once",
+      "pass": true,
+      "strict": true
+    },
+    {
+      "name": "J2_found_products_match_tenant_org",
+      "pass": true,
+      "strict": true
+    },
+    {
+      "name": "J3_input_cluster_count_preserved",
+      "pass": true,
+      "strict": true,
+      "note": "enriched=115 matches input=115"
+    },
+    {
+      "name": "J4_cross_store_flagged_not_dropped",
+      "pass": true,
+      "strict": true
+    },
+    {
+      "name": "J5_likely_hint_well_typed",
+      "pass": true,
+      "strict": true
+    },
+    {
+      "name": "J6_missing_pids_reconcile",
+      "pass": true,
+      "strict": true,
+      "note": "requested=245 found=245 missing=0"
+    },
+    {
+      "name": "J7_identifier_map_consistency",
+      "pass": true,
+      "strict": true
+    }
+  ],
+  "fetch_warnings_count": 0
+}

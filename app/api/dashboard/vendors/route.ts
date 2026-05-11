@@ -48,7 +48,8 @@ export async function GET(req: Request) {
     .from("products")
     .select("vendor_id, asin, main_image_url, amazon_raw, category_id, status")
     .eq("organization_id", organizationId)
-    .eq("store_id", storeId);
+    .eq("store_id", storeId)
+    .is("deleted_at", null);
   if (pErr) {
     return NextResponse.json({ ok: false, error: pErr.message }, { status: 400 });
   }

@@ -17,10 +17,13 @@ import {
   findResumablePimProductMasterSession,
   getPimImportSyncDiagnostics,
   listPimImportSessions,
+  getPimImportFileProcessingMetrics,
+  pimPriceBackfillStep,
   retryPimImportPreviewSession,
   type PimImportSessionListRow,
   type PimSuggestedActiveImport,
 } from "./pim-import-actions";
+import { pimUiMayRunPriceBackfill } from "../../../lib/pim-import-history";
 import {
   getPimIntegrationsSummary,
   getPimManualProductFormDefaults,
@@ -680,6 +683,7 @@ type AiCsvImportPanelProps = {
 function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: AiCsvImportPanelProps) {
   const searchParams = useSearchParams();
   const pimDebugEnabled = searchParams.get("pimdebug") === "1";
+  const { canonicalRoleKey } = useUserRole();
   const perms = useRbacPermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -735,6 +739,10 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
   const [wasSafeRowsOnly, setWasSafeRowsOnly] = useState(false);
   const [mappingDetailsOpen, setMappingDetailsOpen] = useState(false);
   const [activeImportDetailsOpen, setActiveImportDetailsOpen] = useState(false);
+  /** Expands the Preview summary metric grid above — toggled from the active import card. */
+  const [importDetailPanelsOpen, setImportDetailPanelsOpen] = useState(false);
+  const [priceBackfillBusyUploadId, setPriceBackfillBusyUploadId] = useState<string | null>(null);
+  const [fpsPriceBackfillByUpload, setFpsPriceBackfillByUpload] = useState<Record<string, Record<string, unknown>>>({});
   const [importDeleteModal, setImportDeleteModal] = useState<null | {
     uploadId: string;
     fileLabel: string;
@@ -806,6 +814,71 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
       setHistoryLoading(false);
     }
   }, [organizationId, selectedStoreId, importUploadId]);
+
+  const refreshPriceBackfillSnapshot = useCallback(
+    async (uploadId: string) => {
+      const oid = organizationId?.trim();
+      if (!oid) return;
+      const r = await getPimImportFileProcessingMetrics({ organizationId: oid, uploadId });
+      if (!r.ok || !r.import_metrics) return;
+      const im = r.import_metrics as Record<string, unknown>;
+      const pb = im.price_backfill;
+      if (pb && typeof pb === "object") {
+        setFpsPriceBackfillByUpload((m) => ({ ...m, [uploadId]: pb as Record<string, unknown> }));
+      }
+    },
+    [organizationId],
+  );
+
+  const runPimPriceBackfillForUpload = useCallback(
+    async (uploadId: string) => {
+      const oid = organizationId?.trim();
+      if (!oid) return;
+      setPriceBackfillBusyUploadId(uploadId);
+      try {
+        for (let step = 0; step < 5000; step++) {
+          const res = await pimPriceBackfillStep({ organizationId: oid, uploadId });
+          if (res.ok && res.price_backfill) {
+            setFpsPriceBackfillByUpload((m) => ({ ...m, [uploadId]: res.price_backfill! }));
+          }
+          if (!res.ok) {
+            window.alert(res.error);
+            break;
+          }
+          if (res.done || res.terminal || res.cancelled) break;
+        }
+        void refreshHistory();
+        void refreshPriceBackfillSnapshot(uploadId);
+      } finally {
+        setPriceBackfillBusyUploadId(null);
+      }
+    },
+    [organizationId, refreshHistory, refreshPriceBackfillSnapshot],
+  );
+
+  const runActiveUploadPriceBackfill = useCallback(async () => {
+    const oid = organizationId?.trim();
+    const uid = importUploadId?.trim();
+    if (!oid || !uid) return;
+    setPriceBackfillBusyUploadId(uid);
+    try {
+      for (let step = 0; step < 5000; step++) {
+        const res = await pimPriceBackfillStep({ organizationId: oid, uploadId: uid });
+        if (res.ok && res.price_backfill) {
+          setFpsPriceBackfillByUpload((m) => ({ ...m, [uid]: res.price_backfill! }));
+        }
+        if (!res.ok) {
+          window.alert(res.error);
+          break;
+        }
+        if (res.done || res.terminal || res.cancelled) break;
+      }
+      void refreshHistory();
+      void refreshPriceBackfillSnapshot(uid);
+    } finally {
+      setPriceBackfillBusyUploadId(null);
+    }
+  }, [organizationId, importUploadId, refreshHistory, refreshPriceBackfillSnapshot]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
@@ -2513,898 +2586,18 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
               </div>
         )}
 
-        {phase === "preview_ready" && Object.keys(columnMapping).length > 0 ? (
-          <div className="rounded-lg border border-border/60 bg-card/40 px-4 py-3 text-sm">
-            <button
-              type="button"
-              className="flex w-full items-start justify-between gap-2 text-left"
-              onClick={() => setMappingDetailsOpen((v) => !v)}
-            >
-              <p className="min-w-0 flex-1 text-sm text-foreground">
-                <span className="font-medium">Column mapping detected:</span> {pimColumnMappingSummary(columnMapping) || "—"}
-              </p>
-              <ChevronDown
-                className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${mappingDetailsOpen ? "rotate-180" : ""}`}
-                aria-hidden
-              />
-            </button>
-            {mappingDetailsOpen ? (
-              <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
-                <PimHelpNote label="Column mapping details">
-                  <div className="space-y-2 text-xs">
-                    <div>
-                      Source: <span className="font-mono text-foreground">{mappingSource ?? "—"}</span>
-                      {seedSessionId ? (
-                        <>
-                          {" "}
-                          · Session <span className="font-mono text-[10px] text-foreground">{seedSessionId.slice(0, 8)}…</span>
-                        </>
-                      ) : null}
-                    </div>
-                    {seedDelimiterDetected ? (
-                      <div>
-                        Delimiter: <span className="font-mono text-foreground">{seedDelimiterDetected}</span>
-                        {seedDelimiterUncertain ? (
-                          <span className="ml-1 text-amber-700 dark:text-amber-300">(uncertain — verify columns)</span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </PimHelpNote>
-                <div className="max-h-48 overflow-y-auto rounded border border-border/50">
-                  <table className="w-full text-left text-xs">
-                    <thead className="sticky top-0 bg-muted/80">
-                      <tr>
-                        <th className="px-2 py-1.5 font-medium text-muted-foreground">Standard field</th>
-                        <th className="px-2 py-1.5 font-medium text-muted-foreground">Your column</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(columnMapping).map(([std, hdr]) => (
-                        <tr key={std} className="border-t border-border/40">
-                          <td className="px-2 py-1.5 font-medium text-foreground">{std}</td>
-                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{hdr}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
 
-        {phase === "preview_ready" && previewQuality ? (
-          <div className="space-y-3 rounded-lg border border-border/60 bg-muted/15 px-4 py-3 text-sm" role="status">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-medium text-foreground">Preview summary</p>
-              <PimHelpNote label="Preview summary">
-                <div className="max-w-sm space-y-1 text-xs leading-relaxed">
-                  <div>These counts come from the last preview scan only — nothing is written until you confirm.</div>
-                  <div>Review counts below, then use Confirm &amp; Import when ready.</div>
-                </div>
-              </PimHelpNote>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-xs">
-              <MetricCard icon={Table2} label="Rows scanned" value={previewQuality.rows_total ?? 0} tone="slate" />
-              <MetricCard
-                icon={CheckCircle2}
-                label="Accepted rows"
-                value={
-                  typeof previewQuality.rows_accepted_estimate === "number"
-                    ? previewQuality.rows_accepted_estimate
-                    : "—"
-                }
-                tone="emerald"
-              />
-              <MetricCard
-                icon={Ban}
-                label="Rejected rows"
-                value={
-                  (previewQuality.dirty_rows ?? previewQuality.skipped_dirty_row ?? 0) +
-                  (previewQuality.blocked_new_without_seller_sku ?? 0)
-                }
-                tone="amber"
-              />
-              {typeof previewQuality.dirty_rate === "number" ? (
-                <MetricCard
-                  icon={Tag}
-                  label="Dirty rate"
-                  value={`${(previewQuality.dirty_rate * 100).toFixed(1)}%`}
-                  tone={previewQuality.apply_blocked_by_dirty_rate ? "amber" : "slate"}
-                />
-              ) : null}
-              <MetricCard
-                icon={Package}
-                label="Products to create"
-                value={previewQuality.products_would_create ?? previewQuality.would_create_products ?? 0}
-                tone="violet"
-              />
-              <MetricCard
-                icon={Package}
-                label="Products to update"
-                value={previewQuality.products_would_update ?? previewQuality.would_update_products ?? 0}
-                tone="violet"
-              />
-              {typeof previewQuality.existing_products_matched === "number" ? (
-                <MetricCard
-                  icon={CheckCircle2}
-                  label="Existing products matched"
-                  value={previewQuality.existing_products_matched}
-                  tone="emerald"
-                />
-              ) : null}
-              <MetricCard icon={Building2} label="Vendors to create" value={previewQuality.vendors_would_create ?? 0} tone="sky" />
-              {typeof previewQuality.vendors_reused === "number" ? (
-                <MetricCard icon={Building2} label="Vendors reused" value={previewQuality.vendors_reused} tone="emerald" />
-              ) : null}
-              {/* Category cards — show friendly message when column is blank */}
-              {(() => {
-                const catDbg = previewQuality.category_import_debug as Record<string, unknown> | undefined;
-                const reasons = Array.isArray((catDbg as Record<string, unknown> | undefined)?.why_categories_zero)
-                  ? ((catDbg as Record<string, unknown>).why_categories_zero as string[])
-                  : [];
-                const noCatInFile =
-                  reasons.includes("category_cells_empty_on_accepted_rows") ||
-                  reasons.includes("no_category_column_mapped");
-                if (noCatInFile) {
-                  return (
-                    <div className="col-span-full rounded-lg border border-border/40 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
-                      No categories in this file — categories can be assigned later via product enrichment.
-                    </div>
-                  );
-                }
-                return (
-                  <>
-                    {typeof previewQuality.categories_would_create === "number" ? (
-                      <MetricCard icon={LayoutGrid} label="Categories to create" value={previewQuality.categories_would_create} tone="sky" />
-                    ) : null}
-                    {typeof previewQuality.categories_reused === "number" ? (
-                      <MetricCard icon={LayoutGrid} label="Categories reused" value={previewQuality.categories_reused} tone="emerald" />
-                    ) : null}
-                  </>
-                );
-              })()}
-              <MetricCard
-                icon={Link2}
-                label="Identifiers to add"
-                value={
-                  previewQuality.identifier_rows_would_insert ??
-                  previewQuality.identifier_map_rows_would_insert ??
-                  0
-                }
-                tone="violet"
-              />
-              {typeof (previewQuality.identifier_rows_would_update ?? previewQuality.identifier_map_rows_would_update) === "number" ? (
-                <MetricCard
-                  icon={Link2}
-                  label="Identifiers to update"
-                  value={previewQuality.identifier_rows_would_update ?? previewQuality.identifier_map_rows_would_update ?? 0}
-                  tone="violet"
-                />
-              ) : null}
-              {typeof previewQuality.duplicates_reused === "number" ? (
-                <MetricCard icon={Copy} label="Links already complete" value={previewQuality.duplicates_reused} tone="slate" />
-              ) : null}
-              <MetricCard icon={FileSpreadsheet} label="Prices to add" value={previewQuality.prices_would_insert ?? 0} tone="violet" />
-              {typeof previewQuality.metadata_attributes_detected === "number" ? (
-                <MetricCard
-                  icon={Cloud}
-                  label="Metadata rows detected"
-                  value={previewQuality.metadata_attributes_detected}
-                  tone="slate"
-                />
-              ) : null}
-              {typeof previewQuality.rows_skipped === "number" ? (
-                <MetricCard icon={Ban} label="Rows skipped" value={previewQuality.rows_skipped} tone="slate" />
-              ) : null}
-              <MetricCard
-                icon={AlertTriangle}
-                label="Conflicts"
-                value={
-                  (previewQuality.conflict_rows_blocked ?? 0) +
-                  (previewQuality.multi_identifier_rows_conflicting ?? 0) +
-                  (previewQuality.identifier_map_conflicts_preview ?? 0)
-                }
-                tone={previewQuality.apply_blocked_by_conflicts ? "amber" : "slate"}
-              />
-            </div>
-            {/* Single collapsible rejected/conflict samples section */}
-            {(() => {
-              const hasSamples =
-                (Array.isArray(previewQuality.rejected_sample) && previewQuality.rejected_sample.length > 0) ||
-                (Array.isArray(previewQuality.preview_errors) && previewQuality.preview_errors.length > 0);
-              if (!hasSamples) return null;
-              return (
-                <div>
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-left text-xs font-medium text-foreground hover:bg-muted/40"
-                    onClick={() => setShowDirtyRowsPanel((v) => !v)}
-                  >
-                    <span>
-                      Rejected / conflict samples (
-                      {(previewQuality.rejected_sample?.length ?? 0) + (previewQuality.preview_errors?.length ?? 0)}
-                      )
-                    </span>
-                    <ChevronDown
-                      className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${showDirtyRowsPanel ? "rotate-180" : ""}`}
-                      aria-hidden
-                    />
-                  </button>
-                  {showDirtyRowsPanel ? (
-                    <div className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-[11px] text-muted-foreground">
-                      {Array.isArray(previewQuality.rejected_sample) && previewQuality.rejected_sample.length > 0 ? (
-                        <>
-                          <p className="mb-1 font-medium text-foreground">Rejected rows</p>
-                          <ul className="mb-2 list-inside list-disc space-y-1">
-                            {previewQuality.rejected_sample.slice(0, 30).map((r, i) => (
-                    <li key={i}>
-                      {typeof r.row === "string" ? <span className="font-mono text-foreground/80">{r.row}: </span> : null}
-                      {r.message}
-                    </li>
-                  ))}
-                </ul>
-                        </>
-            ) : null}
-            {Array.isArray(previewQuality.preview_errors) && previewQuality.preview_errors.length > 0 ? (
-                        <>
-                          <p className="mb-1 font-medium text-foreground">
-                            Preview messages (first {Math.min(20, previewQuality.preview_errors.length)})
-                          </p>
-                          <ul className="list-inside list-disc space-y-0.5">
-                            {previewQuality.preview_errors.slice(0, 20).map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
-                </ul>
-                        </>
-                      ) : null}
-              </div>
-            ) : null}
-                </div>
-              );
-            })()}
-            <p className="text-xs text-muted-foreground">
-              Use <span className="font-medium text-foreground">Confirm &amp; Import</span> below when you are ready.
-            </p>
-            {successMessage ? <p className="text-xs text-emerald-700 dark:text-emerald-300">{successMessage}</p> : null}
-          </div>
-        ) : null}
 
-        {/* Conflict diagnosis panel — shown when preview has conflicts */}
-        {phase === "preview_ready" && (previewQuality?.apply_blocked_by_conflicts || (previewQuality?.conflict_detail?.length ?? 0) > 0) ? (
-          <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-                <p className="font-semibold text-foreground">
-                  {(previewQuality!.conflict_detail?.length ?? previewQuality!.conflict_rows_blocked ?? 0)} row{(previewQuality!.conflict_detail?.length ?? previewQuality!.conflict_rows_blocked ?? 0) !== 1 ? "s" : ""} have identifier conflicts — those rows will be skipped on import.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/50"
-                  onClick={() => setShowConflictPanel((v) => !v)}
-                >
-                  {showConflictPanel ? "Hide conflicts" : "View conflicts"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!(previewQuality?.conflict_detail?.length)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/50 disabled:opacity-50"
-                  onClick={() => {
-                    const detail = previewQuality?.conflict_detail;
-                    if (!detail?.length) return;
-                    const cols = ["row","sku","asin","fnsku","upc","product_name","conflict_pids","reason_source","recommended"];
-                    const csvEscape = (v: unknown): string => {
-                      const s = Array.isArray(v) ? v.join("|") : String(v ?? "");
-                      // RFC 4180: wrap in double-quotes, escape embedded double-quotes
-                      return `"${s.replace(/"/g, '""')}"`;
-                    };
-                    const rows = detail.map((r) => cols.map((c) => csvEscape((r as Record<string, unknown>)[c])).join(","));
-                    const csv = [cols.map((c) => `"${c}"`).join(","), ...rows].join("\r\n");
-                    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `conflicts_${activeImportFileLabel ?? "import"}.csv`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                >
-                  <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
-                  Export CSV
-                </button>
-                <button
-                  type="button"
-                  disabled={isBusy || !canSync || !previewQuality}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void runCatalogApply({ skipConflicts: true })}
-                >
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                  Import safe rows only
-                </button>
-              </div>
-            </div>
-            {showConflictPanel ? (
-              <div className="space-y-2 border-t border-border/40 pt-2">
-                {/* Filter bar */}
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <input
-                    type="search"
-                    placeholder="Search SKU / ASIN / FNSKU / UPC…"
-                    value={conflictSearchText}
-                    onChange={(e) => setConflictSearchText(e.target.value)}
-                    className="h-7 min-w-[200px] rounded-md border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                  <select
-                    value={conflictReasonFilter}
-                    onChange={(e) => setConflictReasonFilter(e.target.value)}
-                    className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <option value="all">All sources</option>
-                    <option value="imap">Identifier map</option>
-                    <option value="products">Products table</option>
-                    <option value="both">Both</option>
-                  </select>
-                </div>
-                {/* Conflict table — only shown when conflict_detail is available (requires re-preview after latest backend) */}
-                {(previewQuality?.conflict_detail?.length ?? 0) > 0 ? (
-                <div className="overflow-x-auto rounded border border-border/60">
-                  <table className="min-w-[900px] w-full border-collapse text-left text-[11px]">
-                    <thead className="bg-muted/50 text-muted-foreground">
-                      <tr>
-                        <th className="px-2 py-1.5 font-medium">Row</th>
-                        <th className="px-2 py-1.5 font-medium">SKU</th>
-                        <th className="px-2 py-1.5 font-medium">ASIN</th>
-                        <th className="px-2 py-1.5 font-medium">FNSKU</th>
-                        <th className="px-2 py-1.5 font-medium">Product name</th>
-                        <th className="px-2 py-1.5 font-medium">Source</th>
-                        <th className="px-2 py-1.5 font-medium">Conflicting products</th>
-                        {perms.isAtLeast("admin") ? <th className="px-2 py-1.5 font-medium">Action</th> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(previewQuality!.conflict_detail ?? [])
-                        .filter((cd) => {
-                          if (conflictReasonFilter !== "all" && cd.reason_source !== conflictReasonFilter) return false;
-                          if (conflictSearchText) {
-                            const q = conflictSearchText.toLowerCase();
-                            return (
-                              cd.sku.toLowerCase().includes(q) ||
-                              cd.asin.toLowerCase().includes(q) ||
-                              cd.fnsku.toLowerCase().includes(q) ||
-                              cd.upc.toLowerCase().includes(q)
-                            );
-                          }
-                          return true;
-                        })
-                        .slice(0, 100)
-                        .map((cd, i) => (
-                          <tr key={i} className="border-t border-border/40 align-top hover:bg-muted/20">
-                            <td className="px-2 py-1.5 text-muted-foreground">{cd.row}</td>
-                            <td className="max-w-[120px] truncate px-2 py-1.5 font-mono text-foreground" title={cd.sku}>{cd.sku || "—"}</td>
-                            <td className="px-2 py-1.5 font-mono text-muted-foreground">{cd.asin || "—"}</td>
-                            <td className="px-2 py-1.5 font-mono text-muted-foreground">{cd.fnsku || "—"}</td>
-                            <td className="max-w-[150px] truncate px-2 py-1.5 text-muted-foreground" title={cd.product_name}>{cd.product_name || "—"}</td>
-                            <td className="px-2 py-1.5 text-muted-foreground">{cd.reason_source}</td>
-                            <td className="px-2 py-1.5 font-mono text-muted-foreground">
-                              {cd.conflict_pids.map((p) => p.slice(0, 8)).join(", ")}…
-                            </td>
-                            {perms.isAtLeast("admin") ? (
-                              <td className="px-2 py-1.5">
-                                {cd.resolved_pid ? (
-                                  <button
-                                    type="button"
-                                    disabled={conflictDetachBusy === cd.row || !organizationId}
-                                    className="inline-flex items-center gap-1 rounded border border-amber-600/50 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-100"
-                                    onClick={async () => {
-                                      if (!organizationId) return;
-                                      setConflictDetachBusy(cd.row);
-                                      try {
-                                        // dryRun first
-                                        const dry = await detachConflictingImapRows({
-                                          organizationId,
-                                          storeId: selectedStoreId.trim(),
-                                          keepProductId: cd.resolved_pid!,
-                                          sellerSku: cd.sku || null,
-                                          asin: cd.asin || null,
-                                          fnsku: cd.fnsku || null,
-                                          upc: cd.upc || null,
-                                          uploadId: importUploadId,
-                                          dryRun: true,
-                                        });
-                                        if (!dry.ok) { window.alert(`Error: ${dry.error}`); return; }
-                                        const go = window.confirm(
-                                          `Detach ${dry.would_detach} wrong identifier link(s) for row ${cd.row}?\n\nThis will soft-delete the incorrect links and is logged in the audit trail. You can re-run preview after.`,
-                                        );
-                                        if (!go) return;
-                                        const result = await detachConflictingImapRows({
-                                          organizationId,
-                                          storeId: selectedStoreId.trim(),
-                                          keepProductId: cd.resolved_pid!,
-                                          sellerSku: cd.sku || null,
-                                          asin: cd.asin || null,
-                                          fnsku: cd.fnsku || null,
-                                          upc: cd.upc || null,
-                                          uploadId: importUploadId,
-                                          dryRun: false,
-                                          confirmRecent: true,
-                                        });
-                                        if (!result.ok) { window.alert(`Error: ${result.error}`); return; }
-                                        window.alert(`Detached ${result.detached} link(s). Re-run preview to verify conflicts are resolved.`);
-                                      } finally {
-                                        setConflictDetachBusy(null);
-                                      }
-                                    }}
-                                  >
-                                    Detach wrong link
-                                  </button>
-                                ) : (
-                                  <span className="text-muted-foreground">Review manually</span>
-                                )}
-                              </td>
-                            ) : null}
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-                ) : (
-                  <div className="rounded border border-border/50 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
-                    Conflict row details are not available yet. Re-run preview to generate the conflict report with per-row details.
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {(previewQuality?.conflict_detail?.length ?? 0) > 0
-                    ? `Showing up to 100 of ${previewQuality!.conflict_detail!.length} conflict rows. `
-                    : ""}
-                  Use <span className="font-medium text-foreground">Import safe rows only</span> to import the {(previewQuality?.rows_accepted_estimate ?? 0).toLocaleString()} accepted rows now and resolve conflicts separately.
-                </p>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {phase === "success" && metrics && (
-          <div id="pim-quick-import-success" className="space-y-4">
-            <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>{successMessage}</span>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {typeof metrics.sheets_processed === "number" && metrics.sheets_processed > 0 ? (
-                <MetricCard icon={FileSpreadsheet} label="Sheets processed" value={metrics.sheets_processed} tone="slate" />
-              ) : null}
-              {typeof metrics.rows_processed === "number" && (
-                <MetricCard icon={Table2} label="Rows processed" value={metrics.rows_processed} tone="slate" />
-              )}
-              <MetricCard icon={Building2} label="Vendors created" value={metrics.vendors_created} tone="sky" />
-              {typeof metrics.vendors_reused === "number" ? (
-                <MetricCard icon={Building2} label="Vendors reused" value={metrics.vendors_reused} tone="emerald" />
-              ) : null}
-              {typeof metrics.categories_created === "number" && (
-                <MetricCard icon={LayoutGrid} label="Categories created" value={metrics.categories_created} tone="sky" />
-              )}
-              {typeof metrics.categories_reused === "number" ? (
-                <MetricCard icon={LayoutGrid} label="Categories reused" value={metrics.categories_reused} tone="emerald" />
-              ) : null}
-              <MetricCard icon={Package} label="Products created" value={metrics.products_created} tone="violet" />
-              {typeof metrics.products_updated === "number" && (
-                <MetricCard icon={Package} label="Products updated" value={metrics.products_updated} tone="violet" />
-              )}
-              <MetricCard
-                icon={Globe2}
-                label="Enriched by Amazon"
-                value={metrics.products_enriched_by_amazon}
-                tone="emerald"
-              />
-              <MetricCard
-                icon={Link2}
-                label="Catalog link rows created"
-                value={metrics.identifiers_created ?? metrics.skus_mapped ?? 0}
-                tone="amber"
-              />
-              {typeof metrics.identifiers_updated === "number" && (
-                <MetricCard icon={Link2} label="Catalog link rows updated" value={metrics.identifiers_updated} tone="amber" />
-              )}
-              {typeof metrics.prices_inserted === "number" && (
-                <MetricCard icon={FileSpreadsheet} label="Prices inserted" value={metrics.prices_inserted} tone="emerald" />
-              )}
-              {typeof metrics.skipped_no_identity === "number" && (
-                <MetricCard icon={Ban} label="Skipped (no identity)" value={metrics.skipped_no_identity} tone="slate" />
-              )}
-              {typeof metrics.skipped_ambiguous === "number" && (
-                <MetricCard icon={Ban} label="Skipped (ambiguous)" value={metrics.skipped_ambiguous} tone="slate" />
-              )}
-              {typeof metrics.skipped_garbage === "number" && (
-                <MetricCard icon={Ban} label="Rows skipped (legacy)" value={metrics.skipped_garbage} tone="slate" />
-              )}
-            </div>
-            {metrics.reconciliation && typeof metrics.reconciliation === "object" ? (
-              <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-3 text-xs">
-                <p className="font-medium text-foreground">Preview vs apply reconciliation</p>
-                <ul className="mt-2 grid gap-1 sm:grid-cols-2">
-                  {Object.entries(metrics.reconciliation).map(([k, v]) => (
-                    <li key={k} className="text-muted-foreground">
-                      <span className="font-medium text-foreground">{k.replace(/_/g, " ")}:</span>{" "}
-                      {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <div className="rounded-lg border border-border/60 bg-muted/10 px-3 py-3 text-xs">
-              <p className="font-medium text-foreground">Import cleaning (apply)</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <MetricCard icon={Scissors} label="Fields trimmed (cells)" value={metrics.fields_trimmed ?? 0} tone="slate" />
-                <MetricCard icon={Split} label="Multi-ID cells split" value={metrics.multi_identifier_cells_split ?? 0} tone="slate" />
-                <MetricCard
-                  icon={Link2}
-                  label="ID tokens accepted"
-                  value={metrics.identifier_tokens_accepted ?? metrics.identifier_tokens_created ?? 0}
-                  tone="emerald"
-                />
-                <MetricCard icon={Ban} label="ID tokens rejected" value={metrics.identifier_tokens_rejected ?? 0} tone="amber" />
-                <MetricCard
-                  icon={Copy}
-                  label="Duplicate tokens collapsed"
-                  value={metrics.duplicate_identifier_tokens_collapsed ?? 0}
-                  tone="slate"
-                />
-                <MetricCard
-                  icon={AlertTriangle}
-                  label="Ambiguous multi-ID rows"
-                  value={metrics.ambiguous_multi_identifier_rows ?? 0}
-                  tone="amber"
-                />
-              </div>
-            </div>
-            {metrics.rows_per_sheet && Object.keys(metrics.rows_per_sheet).length > 0 ? (
-              <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">Rows per sheet</p>
-                <ul className="mt-1 list-inside list-disc space-y-0.5">
-                  {Object.entries(metrics.rows_per_sheet).map(([name, n]) => (
-                    <li key={name}>
-                      {name}: {n}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {Array.isArray(metrics.errors) && metrics.errors.length > 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
-                <p className="font-medium">Import messages ({metrics.errors.length})</p>
-                <ul className="mt-2 max-h-40 list-inside list-disc space-y-1 overflow-y-auto">
-                  {metrics.errors.slice(0, 25).map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={resetImport}
-              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-            >
-              Upload another file
-            </button>
-          </div>
-        )}
-
-        {(importUploadId && organizationId) ? (
-          isBusy ? (
-            <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-primary/20 bg-primary/5 px-6 py-12">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" aria-label="Loading" />
-              <div className="text-center space-y-1">
-                <p className="text-sm font-semibold text-foreground">{activeImportFileLabel || file?.name || "—"}</p>
-                <p className="text-sm font-medium text-foreground">{friendlyStageLabel(uiStageLabel) || "Working…"}</p>
-                <p className="text-xs text-muted-foreground">{activeStoreLabel}</p>
-              </div>
-            {busyKind === "preview" && previewProgressLine ? (
-              <p className="text-center text-xs font-mono text-muted-foreground">{previewProgressLine}</p>
-            ) : null}
-            {busyKind === "apply" && applyPartialMetrics ? (
-              <div className="w-full max-w-lg rounded-lg border border-border/50 bg-card/60 px-3 py-2 text-left text-[11px] text-muted-foreground">
-                <p className="font-medium text-foreground">Apply progress (partial)</p>
-                <ul className="mt-1 grid gap-0.5 sm:grid-cols-2">
-                  <li>
-                    Products created {applyPartialMetrics.products_created ?? 0}, updated {applyPartialMetrics.products_updated ?? 0}
-                  </li>
-                  <li>
-                    Vendors +{applyPartialMetrics.vendors_created ?? 0} new · reused {applyPartialMetrics.vendors_reused ?? 0}
-                  </li>
-                  <li>
-                    Categories +{applyPartialMetrics.categories_created ?? 0} new · reused {applyPartialMetrics.categories_reused ?? 0}
-                  </li>
-                  <li>Identifier rows +{applyPartialMetrics.identifiers_created ?? applyPartialMetrics.skus_mapped ?? 0}</li>
-                  <li>Prices inserted {applyPartialMetrics.prices_inserted ?? 0}</li>
-                </ul>
-              </div>
-            ) : null}
-            <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-300"
-                style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
-              />
-            </div>
-            <p className="text-center text-xs text-muted-foreground">
-              {busyKind === "apply"
-                ? "Import runs on the server in steps; this screen updates as each step finishes."
-                : "Preview runs on the server in steps; this screen updates as each step finishes."}
-            </p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {busyKind === "apply" ? (
-                  <>
-                    <button
-                      type="button"
-                      className={`${btnSecondary} border-destructive/50 text-destructive hover:bg-destructive/10`}
-                      onClick={() => void cancelActiveImportJob()}
-                    >
-                      Cancel import
-                    </button>
-                    <button type="button" className={btnSecondary} onClick={() => void refreshActiveJobSnap()}>
-                      Refresh status
-                    </button>
-                  </>
-                ) : null}
-                {busyKind === "preview" ? (
-                  <button
-                    type="button"
-                    className={`${btnSecondary} border-destructive/50 text-destructive hover:bg-destructive/10`}
-                    onClick={() => void cancelActiveImportJob()}
-                  >
-                    Cancel preview
-                  </button>
-                ) : null}
-          </div>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border/70 bg-card/90 p-5 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <PimStatusBadge label={activeStatusDisplay.label} tone={activeStatusDisplay.tone} />
-                  </div>
-                  <p className="truncate text-sm font-semibold text-foreground">{activeImportFileLabel || file?.name || "—"}</p>
-                  <p className="text-xs text-muted-foreground">{activeStoreLabel}</p>
-                </div>
-              </div>
-              {phase === "preview_ready" && previewQuality?.apply_blocked_by_dirty_rate ? (
-                <div className="mt-3 flex flex-wrap items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-50">
-                  <p className="min-w-0 flex-1 leading-snug">
-                    {(() => {
-                      const total = Number(previewQuality.rows_total ?? 0);
-                      const bad = Number(previewQuality.dirty_rows ?? previewQuality.skipped_dirty_row ?? 0);
-                      return `Import blocked — ${bad.toLocaleString()} of ${total.toLocaleString()} rows failed validation. Review dirty rows, clean the file, or ask an admin to adjust the allowed failure rate.`;
-                    })()}
-                  </p>
-                  <PimHelpNote label="About validation limits">
-                    <div className="max-w-xs space-y-2 text-xs leading-relaxed">
-                      <div>
-                        An administrator can raise the allowed failure rate on the import service, or you can fix the spreadsheet and run
-                        preview again.
-                      </div>
-                    </div>
-                  </PimHelpNote>
-                </div>
-              ) : null}
-              <div className="mt-4 space-y-3 border-t border-border/50 pt-4">
-                <div className="flex flex-wrap gap-2">
-                  {phase === "success" ? (
-                    <>
-                      <button
-                        type="button"
-                        className={btnSecondary}
-                        onClick={() =>
-                          document
-                            .getElementById("pim-quick-import-success")
-                            ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                        }
-                      >
-                        View results
-                      </button>
-                      <button type="button" className={btnPrimary} onClick={() => resetImport()}>
-                        Import another file
-                      </button>
-                    </>
-                  ) : null}
-                  {phase === "error" && partialFailed ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={isBusy || !canSync}
-                        className={btnPrimary}
-                        onClick={() => void retryApplyFromCheckpoint()}
-                      >
-                        Resume import
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isBusy || !canSync}
-                        className={btnSecondary}
-                        onClick={() => void retryApplyFromCheckpoint()}
-                      >
-                        Retry failed chunk
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isBusy || !canSync}
-                        className={btnSecondary}
-                        onClick={() => void retryPreviewForActiveUpload()}
-                      >
-                        Retry preview
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isBusy}
-                        className={`${btnSecondary} border-destructive/50 text-destructive hover:bg-destructive/10`}
-                        onClick={() => void cancelActiveImportJob()}
-                      >
-                        Cancel import
-                      </button>
-                    </>
-                  ) : null}
-                  {phase === "error" && !partialFailed && !serverCancelled ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={isBusy || !canSync}
-                        className={btnPrimary}
-                        onClick={() => void retryApplyFromCheckpoint()}
-                      >
-                        Retry import
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isBusy || !canSync}
-                        className={btnSecondary}
-                        onClick={() => void retryPreviewForActiveUpload()}
-                      >
-                        Retry preview
-                      </button>
-                    </>
-                  ) : null}
-                  {phase === "error" && serverCancelled ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={isBusy || !canSync}
-                        className={btnPrimary}
-                        onClick={() => void retryApplyFromCheckpoint()}
-                      >
-                        Resume import
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isBusy || !canSync}
-                        className={btnSecondary}
-                        onClick={() => void retryPreviewForActiveUpload()}
-                      >
-                        Retry preview
-                      </button>
-                    </>
-                  ) : null}
-                  {phase === "preview_ready" && !isBusy ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={
-                          !canSync ||
-                          !previewQuality ||
-                          Boolean(previewQuality.apply_blocked_by_dirty_rate) ||
-                          Boolean(previewQuality.apply_blocked_by_conflicts)
-                        }
-                        title={
-                          previewQuality?.apply_blocked_by_dirty_rate
-                            ? "Too many rows failed validation for the current safety limit."
-                            : previewQuality?.apply_blocked_by_conflicts
-                              ? "Import has identifier conflicts — use Import safe rows only below."
-                              : undefined
-                        }
-                        className={btnPrimary}
-                        onClick={() => void runCatalogApply()}
-                      >
-                        Confirm &amp; Import
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canSync}
-                        className={btnSecondary}
-                        onClick={() => void retryPreviewForActiveUpload()}
-                      >
-                        Retry preview
-                      </button>
-                      {previewQuality?.apply_blocked_by_conflicts ? (
-                        <button
-                          type="button"
-                          disabled={!canSync}
-                          className={`${btnSecondary} border-amber-600/50 text-amber-900 hover:bg-amber-500/15 dark:text-amber-100`}
-                          title="Imports accepted rows only — skips the conflicting rows. Conflict details are preserved."
-                          onClick={() => void runCatalogApply({ skipConflicts: true })}
-                        >
-                          Import safe rows only
-                        </button>
-                      ) : null}
-                      {previewQuality &&
-                      (Boolean(previewQuality.apply_blocked_by_dirty_rate) ||
-                        Boolean(previewQuality.apply_blocked_by_conflicts)) ? (
-                        <p className="basis-full text-sm text-amber-950 dark:text-amber-100">
-                          {previewQuality.apply_blocked_by_dirty_rate
-                            ? "Confirm stays off until fewer rows fail validation or an administrator raises the allowed failure rate."
-                            : `Confirm & Import is blocked — ${previewQuality.conflict_rows_blocked ?? 0} rows have identifier conflicts. Use Import safe rows only to import the ${(previewQuality.rows_accepted_estimate ?? 0).toLocaleString()} accepted rows now. View & repair conflicts in the panel below.`}
-                        </p>
-                      ) : null}
-                    </>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2 border-t border-border/40 pt-3">
-                  <button type="button" className={btnSecondary} onClick={() => setActiveImportDetailsOpen((v) => !v)}>
-                    {activeImportDetailsOpen ? "Hide details" : "View details"}
-                  </button>
-                  {phase !== "success" ? (
-                    <button
-                      type="button"
-                      className={btnSecondary}
-                      disabled={isBusy && busyKind === "apply"}
-                      title={
-                        isBusy && busyKind === "apply" ? "Cancel the import run before resetting this job." : undefined
-                      }
-                      onClick={() => void resetActivePimImportJob()}
-                    >
-                      Reset
-                    </button>
-                  ) : null}
-                  <button type="button" className={btnDanger} onClick={() => void openPimImportDeleteModal(null)}>
-                    Delete
-                  </button>
-                </div>
-                {activeImportDetailsOpen ? (
-                  <div className="space-y-2 rounded-lg border border-border/60 bg-muted/25 p-3 text-xs text-muted-foreground">
-                    <p className="font-medium text-foreground">Diagnostic references</p>
-                    <p className="break-all">
-                      <span className="text-muted-foreground">Upload id: </span>
-                      {importUploadId}
-                    </p>
-                    <p className="break-all">
-                      <span className="text-muted-foreground">Session id: </span>
-                      {importSessionId ?? "—"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Use the diagnostic log below for server error details.
-                    </p>
-                    {(pimDebugEnabled || perms.isAtLeast("admin")) ? (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <button
-                          type="button"
-                          className="text-primary underline-offset-2 hover:underline"
-                          onClick={() => void openActiveImportDebugPanel()}
-                        >
-                          {showPreviewDebug ? "Hide debug log" : "Open full diagnostic log"}
-                        </button>
-                      </div>
-                    ) : null}
-                    {showPreviewDebug && previewDiag?.raw ? (
-                      <pre className="mt-2 max-h-64 overflow-auto rounded border border-border bg-muted/20 p-2 text-[10px] leading-relaxed">
-                        {previewDiag.raw}
-                      </pre>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          )
-        ) : null}
-
-        <div className="mt-10 border-t border-border/60 pt-8">
+        <div className="mt-6 rounded-xl border border-border/60 bg-muted/10 p-4 sm:p-5 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold text-foreground">Import history</h3>
-              <PimHelpNote label="Import history">
+                  <PimHelpNote label="Import history">
                 <div className="max-w-sm space-y-2 text-xs leading-relaxed">
-                  <div>Each row is one file import for the store you selected above.</div>
-                  <div>Use <span className="font-medium">View details</span> on any row to download a JSON diagnostic for support.</div>
+                  <div>
+                    One panel: toolbar on top, then the <strong>current file</strong> block (preview / confirm / details), then the framed <strong>session list</strong> (table or empty state). Refresh and bulk actions apply to that list.
+                  </div>
+                  <div>Use row actions for resume, reset, price import, or diagnostics.</div>
                 </div>
               </PimHelpNote>
             </div>
@@ -3450,7 +2643,836 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
               </button>
             </div>
           </div>
-          <p className="mb-3 text-sm text-muted-foreground">Previous catalog seed imports for the selected store.</p>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Use the toolbar on this card for <span className="font-medium text-foreground">Refresh</span>, bulk actions, and clearing stale uploads.
+            The bordered block below is the <span className="font-medium text-foreground">current file</span>; the <span className="font-medium text-foreground">session list</span> is the framed section under it.
+          </p>
+
+          <div id="pim-import-history-current" className="mb-4 space-y-4 rounded-xl border border-primary/20 bg-card/80 p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current file &amp; actions</p>
+            </div>
+            {(importUploadId && organizationId) ? (
+              isBusy ? (
+                <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-primary/20 bg-primary/5 px-6 py-12">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" aria-label="Loading" />
+                  <div className="text-center space-y-1">
+                    <p className="text-sm font-semibold text-foreground">{activeImportFileLabel || file?.name || "—"}</p>
+                    <p className="text-sm font-medium text-foreground">{friendlyStageLabel(uiStageLabel) || "Working…"}</p>
+                    <p className="text-xs text-muted-foreground">{activeStoreLabel}</p>
+                  </div>
+                {busyKind === "preview" && previewProgressLine ? (
+                  <p className="text-center text-xs font-mono text-muted-foreground">{previewProgressLine}</p>
+                ) : null}
+                {busyKind === "apply" && applyPartialMetrics ? (
+                  <div className="w-full max-w-lg rounded-lg border border-border/50 bg-card/60 px-3 py-2 text-left text-[11px] text-muted-foreground">
+                    <p className="font-medium text-foreground">Apply progress (partial)</p>
+                    <ul className="mt-1 grid gap-0.5 sm:grid-cols-2">
+                      <li>
+                        Products created {applyPartialMetrics.products_created ?? 0}, updated {applyPartialMetrics.products_updated ?? 0}
+                      </li>
+                      <li>
+                        Vendors +{applyPartialMetrics.vendors_created ?? 0} new · reused {applyPartialMetrics.vendors_reused ?? 0}
+                      </li>
+                      <li>
+                        Categories +{applyPartialMetrics.categories_created ?? 0} new · reused {applyPartialMetrics.categories_reused ?? 0}
+                      </li>
+                      <li>Identifier rows +{applyPartialMetrics.identifiers_created ?? applyPartialMetrics.skus_mapped ?? 0}</li>
+                      <li>Prices inserted {applyPartialMetrics.prices_inserted ?? 0}</li>
+                    </ul>
+                  </div>
+                ) : null}
+                <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-300"
+                    style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
+                  />
+                </div>
+                <p className="text-center text-xs text-muted-foreground">
+                  {busyKind === "apply"
+                    ? "Import runs on the server in steps; this screen updates as each step finishes."
+                    : "Preview runs on the server in steps; this screen updates as each step finishes."}
+                </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {busyKind === "apply" ? (
+                      <>
+                        <button
+                          type="button"
+                          className={`${btnSecondary} border-destructive/50 text-destructive hover:bg-destructive/10`}
+                          onClick={() => void cancelActiveImportJob()}
+                        >
+                          Cancel import
+                        </button>
+                        <button type="button" className={btnSecondary} onClick={() => void refreshActiveJobSnap()}>
+                          Refresh status
+                        </button>
+                      </>
+                    ) : null}
+                    {busyKind === "preview" ? (
+                      <button
+                        type="button"
+                        className={`${btnSecondary} border-destructive/50 text-destructive hover:bg-destructive/10`}
+                        onClick={() => void cancelActiveImportJob()}
+                      >
+                        Cancel preview
+                      </button>
+                    ) : null}
+              </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border/70 bg-card/90 p-5 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <PimStatusBadge label={activeStatusDisplay.label} tone={activeStatusDisplay.tone} />
+                      </div>
+                      <p className="truncate text-sm font-semibold text-foreground">{activeImportFileLabel || file?.name || "—"}</p>
+                      <p className="text-xs text-muted-foreground">{activeStoreLabel}</p>
+                    </div>
+                  </div>
+                  {phase === "preview_ready" && previewQuality?.apply_blocked_by_dirty_rate ? (
+                    <div className="mt-3 flex flex-wrap items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-50">
+                      <p className="min-w-0 flex-1 leading-snug">
+                        {(() => {
+                          const total = Number(previewQuality.rows_total ?? 0);
+                          const bad = Number(previewQuality.dirty_rows ?? previewQuality.skipped_dirty_row ?? 0);
+                          return `Import blocked — ${bad.toLocaleString()} of ${total.toLocaleString()} rows failed validation. Review dirty rows, clean the file, or ask an admin to adjust the allowed failure rate.`;
+                        })()}
+                      </p>
+                      <PimHelpNote label="About validation limits">
+                        <div className="max-w-xs space-y-2 text-xs leading-relaxed">
+                          <div>
+                            An administrator can raise the allowed failure rate on the import service, or you can fix the spreadsheet and run
+                            preview again.
+                          </div>
+                        </div>
+                      </PimHelpNote>
+                    </div>
+                  ) : null}
+                  <div className="mt-4 space-y-3 border-t border-border/50 pt-4">
+                    <div className="flex flex-wrap gap-2">
+                      {phase === "success" ? (
+                        <>
+                          <button
+                            type="button"
+                            className={btnSecondary}
+                            onClick={() =>
+                              document
+                                .getElementById("pim-quick-import-success")
+                                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                            }
+                          >
+                            View results
+                          </button>
+                          <button type="button" className={btnPrimary} onClick={() => resetImport()}>
+                            Import another file
+                          </button>
+                        </>
+                      ) : null}
+                      {phase === "error" && partialFailed ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isBusy || !canSync}
+                            className={btnPrimary}
+                            onClick={() => void retryApplyFromCheckpoint()}
+                          >
+                            Resume import
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy || !canSync}
+                            className={btnSecondary}
+                            onClick={() => void retryApplyFromCheckpoint()}
+                          >
+                            Retry failed chunk
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy || !canSync}
+                            className={btnSecondary}
+                            onClick={() => void retryPreviewForActiveUpload()}
+                          >
+                            Retry preview
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            className={`${btnSecondary} border-destructive/50 text-destructive hover:bg-destructive/10`}
+                            onClick={() => void cancelActiveImportJob()}
+                          >
+                            Cancel import
+                          </button>
+                        </>
+                      ) : null}
+                      {phase === "error" && !partialFailed && !serverCancelled ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isBusy || !canSync}
+                            className={btnPrimary}
+                            onClick={() => void retryApplyFromCheckpoint()}
+                          >
+                            Retry import
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy || !canSync}
+                            className={btnSecondary}
+                            onClick={() => void retryPreviewForActiveUpload()}
+                          >
+                            Retry preview
+                          </button>
+                        </>
+                      ) : null}
+                      {phase === "error" && serverCancelled ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isBusy || !canSync}
+                            className={btnPrimary}
+                            onClick={() => void retryApplyFromCheckpoint()}
+                          >
+                            Resume import
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy || !canSync}
+                            className={btnSecondary}
+                            onClick={() => void retryPreviewForActiveUpload()}
+                          >
+                            Retry preview
+                          </button>
+                        </>
+                      ) : null}
+                      {phase === "preview_ready" && !isBusy ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={
+                              !canSync ||
+                              !previewQuality ||
+                              Boolean(previewQuality.apply_blocked_by_dirty_rate) ||
+                              Boolean(previewQuality.apply_blocked_by_conflicts)
+                            }
+                            title={
+                              previewQuality?.apply_blocked_by_dirty_rate
+                                ? "Too many rows failed validation for the current safety limit."
+                                : previewQuality?.apply_blocked_by_conflicts
+                                  ? "Import has identifier conflicts — use Import safe rows only below."
+                                  : undefined
+                            }
+                            className={btnPrimary}
+                            onClick={() => void runCatalogApply()}
+                          >
+                            Confirm &amp; Import
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canSync}
+                            className={btnSecondary}
+                            onClick={() => void retryPreviewForActiveUpload()}
+                          >
+                            Retry preview
+                          </button>
+                          {previewQuality?.apply_blocked_by_conflicts ? (
+                            <button
+                              type="button"
+                              disabled={!canSync}
+                              className={`${btnSecondary} border-amber-600/50 text-amber-900 hover:bg-amber-500/15 dark:text-amber-100`}
+                              title="Imports accepted rows only — skips the conflicting rows. Conflict details are preserved."
+                              onClick={() => void runCatalogApply({ skipConflicts: true })}
+                            >
+                              Import safe rows only
+                            </button>
+                          ) : null}
+                          {previewQuality &&
+                          (Boolean(previewQuality.apply_blocked_by_dirty_rate) ||
+                            Boolean(previewQuality.apply_blocked_by_conflicts)) ? (
+                            <p className="basis-full text-sm text-amber-950 dark:text-amber-100">
+                              {previewQuality.apply_blocked_by_dirty_rate
+                                ? "Confirm stays off until fewer rows fail validation or an administrator raises the allowed failure rate."
+                                : `Confirm & Import is blocked — ${previewQuality.conflict_rows_blocked ?? 0} rows have identifier conflicts. Use Import safe rows only to import the ${(previewQuality.rows_accepted_estimate ?? 0).toLocaleString()} accepted rows now. View & repair conflicts in the panel below.`}
+                            </p>
+                          ) : null}
+                          {previewQuality && (previewQuality.prices_would_insert ?? 0) > 0 ? (
+                            <p className="basis-full text-xs text-muted-foreground">
+                              Price column(s): <span className="font-medium text-foreground">{(previewQuality.prices_would_insert ?? 0).toLocaleString()}</span>{" "}
+                              price row(s) in preview — written on import. If counts are still short after import, use{" "}
+                              <span className="font-medium text-foreground">Import prices to database</span> on this card (admins).
+                            </p>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2 border-t border-border/40 pt-3">
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        aria-expanded={importDetailPanelsOpen}
+                        onClick={() => {
+                          setImportDetailPanelsOpen((v) => {
+                            const next = !v;
+                            if (next) {
+                              window.setTimeout(() => {
+                                document.getElementById("pim-import-detail-panels")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }, 0);
+                            }
+                            return next;
+                          });
+                        }}
+                      >
+                        {importDetailPanelsOpen ? "Hide details" : "View details"}
+                      </button>
+                      <button type="button" className={btnSecondary} onClick={() => setActiveImportDetailsOpen((v) => !v)}>
+                        {activeImportDetailsOpen ? "Hide technical info" : "Technical info"}
+                      </button>
+                      {importUploadId &&
+                      pimUiMayRunPriceBackfill(canonicalRoleKey) &&
+                      (previewQuality?.prices_would_insert ?? 0) > 0 &&
+                      !busyKind &&
+                      (typeof metrics?.prices_inserted !== "number" ||
+                        (previewQuality?.prices_would_insert ?? 0) > (metrics.prices_inserted ?? 0)) ? (
+                        <button
+                          type="button"
+                          disabled={priceBackfillBusyUploadId !== null || isBusy}
+                          className={btnPrimary}
+                          onClick={() => void runActiveUploadPriceBackfill()}
+                        >
+                          {priceBackfillBusyUploadId ? "Importing prices…" : "Import prices to database"}
+                        </button>
+                      ) : null}
+                      {phase !== "success" ? (
+                        <button
+                          type="button"
+                          className={btnSecondary}
+                          disabled={isBusy && busyKind === "apply"}
+                          title={
+                            isBusy && busyKind === "apply" ? "Cancel the import run before resetting this job." : undefined
+                          }
+                          onClick={() => void resetActivePimImportJob()}
+                        >
+                          Reset
+                        </button>
+                      ) : null}
+                      <button type="button" className={btnDanger} onClick={() => void openPimImportDeleteModal(null)}>
+                        Delete
+                      </button>
+                    </div>
+                    {activeImportDetailsOpen ? (
+                      <div className="space-y-2 rounded-lg border border-border/60 bg-muted/25 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">Diagnostic references</p>
+                        <p className="break-all">
+                          <span className="text-muted-foreground">Upload id: </span>
+                          {importUploadId}
+                        </p>
+                        <p className="break-all">
+                          <span className="text-muted-foreground">Session id: </span>
+                          {importSessionId ?? "—"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Use the diagnostic log below for server error details.
+                        </p>
+                        {(pimDebugEnabled || perms.isAtLeast("admin")) ? (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <button
+                              type="button"
+                              className="text-primary underline-offset-2 hover:underline"
+                              onClick={() => void openActiveImportDebugPanel()}
+                            >
+                              {showPreviewDebug ? "Hide debug log" : "Open full diagnostic log"}
+                            </button>
+                          </div>
+                        ) : null}
+                        {showPreviewDebug && previewDiag?.raw ? (
+                          <pre className="mt-2 max-h-64 overflow-auto rounded border border-border bg-muted/20 p-2 text-[10px] leading-relaxed">
+                            {previewDiag.raw}
+                          </pre>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            ) : null}
+
+          {phase === "preview_ready" && previewQuality && !importDetailPanelsOpen ? (
+          <div
+            className="mb-4 rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3 text-xs text-muted-foreground"
+            role="note"
+          >
+            <span className="font-medium text-foreground">Preview details</span> are hidden. Use{" "}
+            <span className="font-medium text-foreground">View details</span> on the current file card above to show preview metrics, column
+            mapping, and conflicts together.
+          </div>
+        ) : null}
+
+          {importDetailPanelsOpen && phase === "preview_ready" && previewQuality ? (
+            <div id="pim-import-detail-panels" className="mb-4 space-y-4 rounded-xl border border-border/60 bg-muted/20 p-4">
+                      {phase === "preview_ready" && Object.keys(columnMapping).length > 0 ? (
+                        <div className="rounded-lg border border-border/60 bg-card/40 px-4 py-3 text-sm">
+                          <button
+                            type="button"
+                            className="flex w-full items-start justify-between gap-2 text-left"
+                            onClick={() => setMappingDetailsOpen((v) => !v)}
+                          >
+                            <p className="min-w-0 flex-1 text-sm text-foreground">
+                              <span className="font-medium">Column mapping detected:</span> {pimColumnMappingSummary(columnMapping) || "—"}
+                            </p>
+                            <ChevronDown
+                              className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${mappingDetailsOpen ? "rotate-180" : ""}`}
+                              aria-hidden
+                            />
+                          </button>
+                          {mappingDetailsOpen ? (
+                            <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
+                              <PimHelpNote label="Column mapping details">
+                                <div className="space-y-2 text-xs">
+                                  <div>
+                                    Source: <span className="font-mono text-foreground">{mappingSource ?? "—"}</span>
+                                    {seedSessionId ? (
+                                      <>
+                                        {" "}
+                                        · Session <span className="font-mono text-[10px] text-foreground">{seedSessionId.slice(0, 8)}…</span>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                  {seedDelimiterDetected ? (
+                                    <div>
+                                      Delimiter: <span className="font-mono text-foreground">{seedDelimiterDetected}</span>
+                                      {seedDelimiterUncertain ? (
+                                        <span className="ml-1 text-amber-700 dark:text-amber-300">(uncertain — verify columns)</span>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </PimHelpNote>
+                              <div className="max-h-48 overflow-y-auto rounded border border-border/50">
+                                <table className="w-full text-left text-xs">
+                                  <thead className="sticky top-0 bg-muted/80">
+                                    <tr>
+                                      <th className="px-2 py-1.5 font-medium text-muted-foreground">Standard field</th>
+                                      <th className="px-2 py-1.5 font-medium text-muted-foreground">Your column</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {Object.entries(columnMapping).map(([std, hdr]) => (
+                                      <tr key={std} className="border-t border-border/40">
+                                        <td className="px-2 py-1.5 font-medium text-foreground">{std}</td>
+                                        <td className="px-2 py-1.5 font-mono text-muted-foreground">{hdr}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+
+                      {phase === "preview_ready" && previewQuality ? (
+                        <div
+                          id="pim-preview-summary"
+                          className="space-y-3 rounded-lg border border-border/60 bg-muted/15 px-4 py-3 text-sm"
+                          role="status"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-foreground">Preview summary</p>
+                            <PimHelpNote label="Preview summary">
+                              <div className="max-w-sm space-y-1 text-xs leading-relaxed">
+                                <div>These counts come from the last preview scan only — nothing is written until you confirm.</div>
+                                <div>Review counts below, then use Confirm &amp; Import when ready.</div>
+                              </div>
+                            </PimHelpNote>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-xs">
+                            <MetricCard icon={Table2} label="Rows scanned" value={previewQuality.rows_total ?? 0} tone="slate" />
+                            <MetricCard
+                              icon={CheckCircle2}
+                              label="Accepted rows"
+                              value={
+                                typeof previewQuality.rows_accepted_estimate === "number"
+                                  ? previewQuality.rows_accepted_estimate
+                                  : "—"
+                              }
+                              tone="emerald"
+                            />
+                            <MetricCard
+                              icon={Ban}
+                              label="Rejected rows"
+                              value={
+                                (previewQuality.dirty_rows ?? previewQuality.skipped_dirty_row ?? 0) +
+                                (previewQuality.blocked_new_without_seller_sku ?? 0)
+                              }
+                              tone="amber"
+                            />
+                            {typeof previewQuality.dirty_rate === "number" ? (
+                              <MetricCard
+                                icon={Tag}
+                                label="Dirty rate"
+                                value={`${(previewQuality.dirty_rate * 100).toFixed(1)}%`}
+                                tone={previewQuality.apply_blocked_by_dirty_rate ? "amber" : "slate"}
+                              />
+                            ) : null}
+                            <MetricCard
+                              icon={Package}
+                              label="Products to create"
+                              value={previewQuality.products_would_create ?? previewQuality.would_create_products ?? 0}
+                              tone="violet"
+                            />
+                            <MetricCard
+                              icon={Package}
+                              label="Products to update"
+                              value={previewQuality.products_would_update ?? previewQuality.would_update_products ?? 0}
+                              tone="violet"
+                            />
+                            {typeof previewQuality.existing_products_matched === "number" ? (
+                              <MetricCard
+                                icon={CheckCircle2}
+                                label="Existing products matched"
+                                value={previewQuality.existing_products_matched}
+                                tone="emerald"
+                              />
+                            ) : null}
+                            <MetricCard icon={Building2} label="Vendors to create" value={previewQuality.vendors_would_create ?? 0} tone="sky" />
+                            {typeof previewQuality.vendors_reused === "number" ? (
+                              <MetricCard icon={Building2} label="Vendors reused" value={previewQuality.vendors_reused} tone="emerald" />
+                            ) : null}
+                            {/* Category cards — show friendly message when column is blank */}
+                            {(() => {
+                              const catDbg = previewQuality.category_import_debug as Record<string, unknown> | undefined;
+                              const reasons = Array.isArray((catDbg as Record<string, unknown> | undefined)?.why_categories_zero)
+                                ? ((catDbg as Record<string, unknown>).why_categories_zero as string[])
+                                : [];
+                              const noCatInFile =
+                                reasons.includes("category_cells_empty_on_accepted_rows") ||
+                                reasons.includes("no_category_column_mapped");
+                              if (noCatInFile) {
+                                return (
+                                  <div className="col-span-full rounded-lg border border-border/40 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+                                    No categories in this file — categories can be assigned later via product enrichment.
+                                  </div>
+                                );
+                              }
+                              return (
+                                <>
+                                  {typeof previewQuality.categories_would_create === "number" ? (
+                                    <MetricCard icon={LayoutGrid} label="Categories to create" value={previewQuality.categories_would_create} tone="sky" />
+                                  ) : null}
+                                  {typeof previewQuality.categories_reused === "number" ? (
+                                    <MetricCard icon={LayoutGrid} label="Categories reused" value={previewQuality.categories_reused} tone="emerald" />
+                                  ) : null}
+                                </>
+                              );
+                            })()}
+                            <MetricCard
+                              icon={Link2}
+                              label="Identifiers to add"
+                              value={
+                                previewQuality.identifier_rows_would_insert ??
+                                previewQuality.identifier_map_rows_would_insert ??
+                                0
+                              }
+                              tone="violet"
+                            />
+                            {typeof (previewQuality.identifier_rows_would_update ?? previewQuality.identifier_map_rows_would_update) === "number" ? (
+                              <MetricCard
+                                icon={Link2}
+                                label="Identifiers to update"
+                                value={previewQuality.identifier_rows_would_update ?? previewQuality.identifier_map_rows_would_update ?? 0}
+                                tone="violet"
+                              />
+                            ) : null}
+                            {typeof previewQuality.duplicates_reused === "number" ? (
+                              <MetricCard icon={Copy} label="Links already complete" value={previewQuality.duplicates_reused} tone="slate" />
+                            ) : null}
+                            <MetricCard icon={FileSpreadsheet} label="Prices to add" value={previewQuality.prices_would_insert ?? 0} tone="violet" />
+                            {typeof previewQuality.metadata_attributes_detected === "number" ? (
+                              <MetricCard
+                                icon={Cloud}
+                                label="Metadata rows detected"
+                                value={previewQuality.metadata_attributes_detected}
+                                tone="slate"
+                              />
+                            ) : null}
+                            {typeof previewQuality.rows_skipped === "number" ? (
+                              <MetricCard icon={Ban} label="Rows skipped" value={previewQuality.rows_skipped} tone="slate" />
+                            ) : null}
+                            <MetricCard
+                              icon={AlertTriangle}
+                              label="Conflicts"
+                              value={
+                                (previewQuality.conflict_rows_blocked ?? 0) +
+                                (previewQuality.multi_identifier_rows_conflicting ?? 0) +
+                                (previewQuality.identifier_map_conflicts_preview ?? 0)
+                              }
+                              tone={previewQuality.apply_blocked_by_conflicts ? "amber" : "slate"}
+                            />
+                          </div>
+                          {/* Single collapsible rejected/conflict samples section */}
+                          {(() => {
+                            const hasSamples =
+                              (Array.isArray(previewQuality.rejected_sample) && previewQuality.rejected_sample.length > 0) ||
+                              (Array.isArray(previewQuality.preview_errors) && previewQuality.preview_errors.length > 0);
+                            if (!hasSamples) return null;
+                            return (
+                              <div>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-left text-xs font-medium text-foreground hover:bg-muted/40"
+                                  onClick={() => setShowDirtyRowsPanel((v) => !v)}
+                                >
+                                  <span>
+                                    Rejected / conflict samples (
+                                    {(previewQuality.rejected_sample?.length ?? 0) + (previewQuality.preview_errors?.length ?? 0)}
+                                    )
+                                  </span>
+                                  <ChevronDown
+                                    className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${showDirtyRowsPanel ? "rotate-180" : ""}`}
+                                    aria-hidden
+                                  />
+                                </button>
+                                {showDirtyRowsPanel ? (
+                                  <div className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-[11px] text-muted-foreground">
+                                    {Array.isArray(previewQuality.rejected_sample) && previewQuality.rejected_sample.length > 0 ? (
+                                      <>
+                                        <p className="mb-1 font-medium text-foreground">Rejected rows</p>
+                                        <ul className="mb-2 list-inside list-disc space-y-1">
+                                          {previewQuality.rejected_sample.slice(0, 30).map((r, i) => (
+                                  <li key={i}>
+                                    {typeof r.row === "string" ? <span className="font-mono text-foreground/80">{r.row}: </span> : null}
+                                    {r.message}
+                                  </li>
+                                ))}
+                              </ul>
+                                      </>
+                          ) : null}
+                          {Array.isArray(previewQuality.preview_errors) && previewQuality.preview_errors.length > 0 ? (
+                                      <>
+                                        <p className="mb-1 font-medium text-foreground">
+                                          Preview messages (first {Math.min(20, previewQuality.preview_errors.length)})
+                                        </p>
+                                        <ul className="list-inside list-disc space-y-0.5">
+                                          {previewQuality.preview_errors.slice(0, 20).map((e, i) => (
+                                  <li key={i}>{e}</li>
+                                ))}
+                              </ul>
+                                      </>
+                                    ) : null}
+                            </div>
+                          ) : null}
+                              </div>
+                            );
+                          })()}
+                          <p className="text-xs text-muted-foreground">
+                            Use <span className="font-medium text-foreground">Confirm &amp; Import</span> below when you are ready.
+                          </p>
+                          {successMessage ? <p className="text-xs text-emerald-700 dark:text-emerald-300">{successMessage}</p> : null}
+                        </div>
+                      ) : null}
+
+                      {/* Conflict diagnosis panel — shown when preview has conflicts */}
+                      {phase === "preview_ready" && (previewQuality?.apply_blocked_by_conflicts || (previewQuality?.conflict_detail?.length ?? 0) > 0) ? (
+                        <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                              <p className="font-semibold text-foreground">
+                                {(previewQuality!.conflict_detail?.length ?? previewQuality!.conflict_rows_blocked ?? 0)} row{(previewQuality!.conflict_detail?.length ?? previewQuality!.conflict_rows_blocked ?? 0) !== 1 ? "s" : ""} have identifier conflicts — those rows will be skipped on import.
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/50"
+                                onClick={() => setShowConflictPanel((v) => !v)}
+                              >
+                                {showConflictPanel ? "Hide conflicts" : "View conflicts"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!(previewQuality?.conflict_detail?.length)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted/50 disabled:opacity-50"
+                                onClick={() => {
+                                  const detail = previewQuality?.conflict_detail;
+                                  if (!detail?.length) return;
+                                  const cols = ["row","sku","asin","fnsku","upc","product_name","conflict_pids","reason_source","recommended"];
+                                  const csvEscape = (v: unknown): string => {
+                                    const s = Array.isArray(v) ? v.join("|") : String(v ?? "");
+                                    // RFC 4180: wrap in double-quotes, escape embedded double-quotes
+                                    return `"${s.replace(/"/g, '""')}"`;
+                                  };
+                                  const rows = detail.map((r) => cols.map((c) => csvEscape((r as Record<string, unknown>)[c])).join(","));
+                                  const csv = [cols.map((c) => `"${c}"`).join(","), ...rows].join("\r\n");
+                                  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  a.download = `conflicts_${activeImportFileLabel ?? "import"}.csv`;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
+                                }}
+                              >
+                                <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
+                                Export CSV
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy || !canSync || !previewQuality}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => void runCatalogApply({ skipConflicts: true })}
+                              >
+                                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                                Import safe rows only
+                              </button>
+                            </div>
+                          </div>
+                          {showConflictPanel ? (
+                            <div className="space-y-2 border-t border-border/40 pt-2">
+                              {/* Filter bar */}
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                <input
+                                  type="search"
+                                  placeholder="Search SKU / ASIN / FNSKU / UPC…"
+                                  value={conflictSearchText}
+                                  onChange={(e) => setConflictSearchText(e.target.value)}
+                                  className="h-7 min-w-[200px] rounded-md border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                />
+                                <select
+                                  value={conflictReasonFilter}
+                                  onChange={(e) => setConflictReasonFilter(e.target.value)}
+                                  className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <option value="all">All sources</option>
+                                  <option value="imap">Identifier map</option>
+                                  <option value="products">Products table</option>
+                                  <option value="both">Both</option>
+                                </select>
+                              </div>
+                              {/* Conflict table — only shown when conflict_detail is available (requires re-preview after latest backend) */}
+                              {(previewQuality?.conflict_detail?.length ?? 0) > 0 ? (
+                              <div className="overflow-x-auto rounded border border-border/60">
+                                <table className="min-w-[900px] w-full border-collapse text-left text-[11px]">
+                                  <thead className="bg-muted/50 text-muted-foreground">
+                                    <tr>
+                                      <th className="px-2 py-1.5 font-medium">Row</th>
+                                      <th className="px-2 py-1.5 font-medium">SKU</th>
+                                      <th className="px-2 py-1.5 font-medium">ASIN</th>
+                                      <th className="px-2 py-1.5 font-medium">FNSKU</th>
+                                      <th className="px-2 py-1.5 font-medium">Product name</th>
+                                      <th className="px-2 py-1.5 font-medium">Source</th>
+                                      <th className="px-2 py-1.5 font-medium">Conflicting products</th>
+                                      {perms.isAtLeast("admin") ? <th className="px-2 py-1.5 font-medium">Action</th> : null}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(previewQuality!.conflict_detail ?? [])
+                                      .filter((cd) => {
+                                        if (conflictReasonFilter !== "all" && cd.reason_source !== conflictReasonFilter) return false;
+                                        if (conflictSearchText) {
+                                          const q = conflictSearchText.toLowerCase();
+                                          return (
+                                            cd.sku.toLowerCase().includes(q) ||
+                                            cd.asin.toLowerCase().includes(q) ||
+                                            cd.fnsku.toLowerCase().includes(q) ||
+                                            cd.upc.toLowerCase().includes(q)
+                                          );
+                                        }
+                                        return true;
+                                      })
+                                      .slice(0, 100)
+                                      .map((cd, i) => (
+                                        <tr key={i} className="border-t border-border/40 align-top hover:bg-muted/20">
+                                          <td className="px-2 py-1.5 text-muted-foreground">{cd.row}</td>
+                                          <td className="max-w-[120px] truncate px-2 py-1.5 font-mono text-foreground" title={cd.sku}>{cd.sku || "—"}</td>
+                                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{cd.asin || "—"}</td>
+                                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{cd.fnsku || "—"}</td>
+                                          <td className="max-w-[150px] truncate px-2 py-1.5 text-muted-foreground" title={cd.product_name}>{cd.product_name || "—"}</td>
+                                          <td className="px-2 py-1.5 text-muted-foreground">{cd.reason_source}</td>
+                                          <td className="px-2 py-1.5 font-mono text-muted-foreground">
+                                            {cd.conflict_pids.map((p) => p.slice(0, 8)).join(", ")}…
+                                          </td>
+                                          {perms.isAtLeast("admin") ? (
+                                            <td className="px-2 py-1.5">
+                                              {cd.resolved_pid ? (
+                                                <button
+                                                  type="button"
+                                                  disabled={conflictDetachBusy === cd.row || !organizationId}
+                                                  className="inline-flex items-center gap-1 rounded border border-amber-600/50 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-100"
+                                                  onClick={async () => {
+                                                    if (!organizationId) return;
+                                                    setConflictDetachBusy(cd.row);
+                                                    try {
+                                                      // dryRun first
+                                                      const dry = await detachConflictingImapRows({
+                                                        organizationId,
+                                                        storeId: selectedStoreId.trim(),
+                                                        keepProductId: cd.resolved_pid!,
+                                                        sellerSku: cd.sku || null,
+                                                        asin: cd.asin || null,
+                                                        fnsku: cd.fnsku || null,
+                                                        upc: cd.upc || null,
+                                                        uploadId: importUploadId,
+                                                        dryRun: true,
+                                                      });
+                                                      if (!dry.ok) { window.alert(`Error: ${dry.error}`); return; }
+                                                      const go = window.confirm(
+                                                        `Detach ${dry.would_detach} wrong identifier link(s) for row ${cd.row}?\n\nThis will soft-delete the incorrect links and is logged in the audit trail. You can re-run preview after.`,
+                                                      );
+                                                      if (!go) return;
+                                                      const result = await detachConflictingImapRows({
+                                                        organizationId,
+                                                        storeId: selectedStoreId.trim(),
+                                                        keepProductId: cd.resolved_pid!,
+                                                        sellerSku: cd.sku || null,
+                                                        asin: cd.asin || null,
+                                                        fnsku: cd.fnsku || null,
+                                                        upc: cd.upc || null,
+                                                        uploadId: importUploadId,
+                                                        dryRun: false,
+                                                        confirmRecent: true,
+                                                      });
+                                                      if (!result.ok) { window.alert(`Error: ${result.error}`); return; }
+                                                      window.alert(`Detached ${result.detached} link(s). Re-run preview to verify conflicts are resolved.`);
+                                                    } finally {
+                                                      setConflictDetachBusy(null);
+                                                    }
+                                                  }}
+                                                >
+                                                  Detach wrong link
+                                                </button>
+                                              ) : (
+                                                <span className="text-muted-foreground">Review manually</span>
+                                              )}
+                                            </td>
+                                          ) : null}
+                                        </tr>
+                                      ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              ) : (
+                                <div className="rounded border border-border/50 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+                                  Conflict row details are not available yet. Re-run preview to generate the conflict report with per-row details.
+                                </div>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                {(previewQuality?.conflict_detail?.length ?? 0) > 0
+                                  ? `Showing up to 100 of ${previewQuality!.conflict_detail!.length} conflict rows. `
+                                  : ""}
+                                Use <span className="font-medium text-foreground">Import safe rows only</span> to import the {(previewQuality?.rows_accepted_estimate ?? 0).toLocaleString()} accepted rows now and resolve conflicts separately.
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+            </div>
+          ) : null}
+
+          </div>
+          <div className="mt-1 space-y-3 rounded-xl border border-border/60 bg-muted/10 p-3 sm:p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Session list</p>
           {!organizationId ? (
             <p className="text-xs text-muted-foreground">Select an organization to load history.</p>
           ) : !selectedStoreId.trim() ? (
@@ -3461,26 +3483,19 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
               Loading import history…
             </div>
           ) : historyRows.length === 0 ? (
-            <div className="space-y-3">
+            <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-3 text-sm text-muted-foreground">
               {importUploadId && !historyLoading ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-100">
-                  <p className="font-medium">Active import not in history yet</p>
-                  <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-200">
-                    The current upload was not found in the store&apos;s history. This can happen if the store ID in the upload metadata does not
-                    match the selected store. Use Refresh to try again, or check that the correct store is selected.
+                <>
+                  <p className="font-medium text-foreground">Session list is empty</p>
+                  <p className="mt-1 text-xs leading-relaxed">
+                    The current file card above may still show your active upload. Use <span className="font-medium text-foreground">Refresh</span> in the toolbar to reload this table. If it stays empty, there may be no Product Master rows in the current window, or the upload&apos;s store may not match the selected store.
                   </p>
-                  <button
-                    type="button"
-                    disabled={historyLoading}
-                    onClick={() => void refreshHistory()}
-                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 underline-offset-2 hover:underline dark:text-amber-100"
-                  >
-                    <RefreshCw className="h-3 w-3" aria-hidden />
-                    Refresh history
-                  </button>
-                </div>
-              ) : null}
-              <p className="text-sm text-muted-foreground">No import history for this store.</p>
+                </>
+              ) : (
+                <p className="text-sm">
+                  No sessions in this list yet. Pick a store if needed, then <span className="font-medium text-foreground">Refresh</span> in the toolbar.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -3630,6 +3645,34 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
                     const histBtnDanger =
                       "inline-flex items-center justify-center rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-45";
                     const rowActive = importUploadId === row.upload_id;
+                    const rtHist = String(row.report_type ?? "").trim().toLowerCase();
+                    const isPmHistoryReport =
+                      rtHist === "pim_product_master" ||
+                      rtHist === "pim_catalog_seed" ||
+                      String(row.report_type ?? "").trim() === "PIM_CATALOG_SEED";
+                    const pwHist =
+                      typeof qm?.prices_would_insert === "number" ? qm.prices_would_insert : null;
+                    const piHist =
+                      typeof amObj?.prices_inserted === "number" ? amObj.prices_inserted : null;
+                    const bfRow = fpsPriceBackfillByUpload[row.upload_id] ?? {};
+                    const bfSt = String(bfRow.status ?? "idle").toLowerCase();
+                    const bfProc = Number(bfRow.processed_rows ?? bfRow.offset ?? 0);
+                    const bfTot = Number(bfRow.total ?? 0);
+                    const bfPct =
+                      bfTot > 0 ? Math.min(100, Math.round((100 * bfProc) / bfTot)) : bfSt === "completed" ? 100 : 0;
+                    const histPriceStripEligible =
+                      pimUiMayRunPriceBackfill(canonicalRoleKey) &&
+                      isPmHistoryReport &&
+                      !activeJob &&
+                      pwHist != null &&
+                      pwHist > 0;
+                    const histPriceLikelyIncomplete =
+                      piHist == null || (typeof pwHist === "number" && typeof piHist === "number" && piHist < pwHist);
+                    const histPricePanelOpen =
+                      histPriceStripEligible ||
+                      priceBackfillBusyUploadId === row.upload_id ||
+                      (isPmHistoryReport && bfSt && bfSt !== "idle" && bfSt !== "");
+
                     return (
                       <tr
                         key={row.session_id}
@@ -3781,6 +3824,98 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
                               Delete
                             </button>
                           </div>
+                          {histPricePanelOpen ? (
+                            <div className="mt-3 w-full min-w-[280px] max-w-xl rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 text-[11px] leading-snug text-muted-foreground shadow-inner">
+                              <p className="font-semibold text-foreground">Import prices to catalog</p>
+                              <p className="mt-1 text-[10px]">
+                                Writes <span className="font-medium text-foreground">product_prices</span> from this upload&apos;s staged rows.
+                                Preview expected <span className="tabular-nums text-foreground">{pwHist?.toLocaleString() ?? "—"}</span> · inserted{" "}
+                                <span className="tabular-nums text-foreground">{piHist?.toLocaleString() ?? "—"}</span>.
+                              </p>
+                              {histPriceStripEligible && !histPriceLikelyIncomplete && bfSt === "completed" ? (
+                                <p className="mt-1 text-[10px] text-emerald-700 dark:text-emerald-300">
+                                  Apply metrics match preview counts for prices; use Import again only if you intentionally need a replay.
+                                </p>
+                              ) : null}
+                              <dl className="mt-2 grid gap-1 sm:grid-cols-2">
+                                <div>
+                                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Stage</dt>
+                                  <dd className="font-medium capitalize text-foreground">{bfSt || "idle"}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Progress</dt>
+                                  <dd className="tabular-nums text-foreground">
+                                    {bfProc.toLocaleString()} / {bfTot > 0 ? bfTot.toLocaleString() : "—"} ({bfPct}%)
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Inserted (this run)</dt>
+                                  <dd className="tabular-nums text-foreground">{Number(bfRow.inserted ?? 0).toLocaleString()}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Skipped (no price)</dt>
+                                  <dd className="tabular-nums text-foreground">{Number(bfRow.skipped_no_price ?? 0).toLocaleString()}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Duplicates skipped</dt>
+                                  <dd className="tabular-nums text-foreground">{Number(bfRow.skipped_duplicate ?? 0).toLocaleString()}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Errors</dt>
+                                  <dd className="tabular-nums text-foreground">{Number(bfRow.errors ?? 0).toLocaleString()}</dd>
+                                </div>
+                              </dl>
+                              {bfRow.last_error ? (
+                                <p className="mt-2 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 font-mono text-[10px] text-destructive">
+                                  {String(bfRow.last_error)}
+                                </p>
+                              ) : null}
+                              <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className="h-full rounded-full bg-violet-600 transition-[width] duration-300"
+                                  style={{ width: `${bfPct}%` }}
+                                />
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                <button
+                                  type="button"
+                                  disabled={
+                                    (priceBackfillBusyUploadId !== null && priceBackfillBusyUploadId !== row.upload_id) || isBusy
+                                  }
+                                  className={histBtnPri}
+                                  onClick={() => void runPimPriceBackfillForUpload(row.upload_id)}
+                                >
+                                  {priceBackfillBusyUploadId === row.upload_id ? "Working…" : "Import prices to database"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className={histBtn}
+                                  onClick={() => void refreshPriceBackfillSnapshot(row.upload_id)}
+                                >
+                                  Refresh progress
+                                </button>
+                                {(bfSt === "running" || bfSt === "paused" || priceBackfillBusyUploadId === row.upload_id) &&
+                                organizationId ? (
+                                  <button
+                                    type="button"
+                                    className={histBtn}
+                                    onClick={async () => {
+                                      const oid = organizationId.trim();
+                                      await pimPriceBackfillStep({
+                                        organizationId: oid,
+                                        uploadId: row.upload_id,
+                                        cancel: true,
+                                      });
+                                      void refreshPriceBackfillSnapshot(row.upload_id);
+                                      void refreshHistory();
+                                    }}
+                                  >
+                                    Cancel backfill
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -3790,7 +3925,138 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
             </div>
             </div>
           )}
+          </div>
         </div>
+
+
+        {phase === "success" && metrics && (
+          <div id="pim-quick-import-success" className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>{successMessage}</span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {typeof metrics.sheets_processed === "number" && metrics.sheets_processed > 0 ? (
+                <MetricCard icon={FileSpreadsheet} label="Sheets processed" value={metrics.sheets_processed} tone="slate" />
+              ) : null}
+              {typeof metrics.rows_processed === "number" && (
+                <MetricCard icon={Table2} label="Rows processed" value={metrics.rows_processed} tone="slate" />
+              )}
+              <MetricCard icon={Building2} label="Vendors created" value={metrics.vendors_created} tone="sky" />
+              {typeof metrics.vendors_reused === "number" ? (
+                <MetricCard icon={Building2} label="Vendors reused" value={metrics.vendors_reused} tone="emerald" />
+              ) : null}
+              {typeof metrics.categories_created === "number" && (
+                <MetricCard icon={LayoutGrid} label="Categories created" value={metrics.categories_created} tone="sky" />
+              )}
+              {typeof metrics.categories_reused === "number" ? (
+                <MetricCard icon={LayoutGrid} label="Categories reused" value={metrics.categories_reused} tone="emerald" />
+              ) : null}
+              <MetricCard icon={Package} label="Products created" value={metrics.products_created} tone="violet" />
+              {typeof metrics.products_updated === "number" && (
+                <MetricCard icon={Package} label="Products updated" value={metrics.products_updated} tone="violet" />
+              )}
+              <MetricCard
+                icon={Globe2}
+                label="Enriched by Amazon"
+                value={metrics.products_enriched_by_amazon}
+                tone="emerald"
+              />
+              <MetricCard
+                icon={Link2}
+                label="Catalog link rows created"
+                value={metrics.identifiers_created ?? metrics.skus_mapped ?? 0}
+                tone="amber"
+              />
+              {typeof metrics.identifiers_updated === "number" && (
+                <MetricCard icon={Link2} label="Catalog link rows updated" value={metrics.identifiers_updated} tone="amber" />
+              )}
+              {typeof metrics.prices_inserted === "number" && (
+                <MetricCard icon={FileSpreadsheet} label="Prices inserted" value={metrics.prices_inserted} tone="emerald" />
+              )}
+              {typeof metrics.skipped_no_identity === "number" && (
+                <MetricCard icon={Ban} label="Skipped (no identity)" value={metrics.skipped_no_identity} tone="slate" />
+              )}
+              {typeof metrics.skipped_ambiguous === "number" && (
+                <MetricCard icon={Ban} label="Skipped (ambiguous)" value={metrics.skipped_ambiguous} tone="slate" />
+              )}
+              {typeof metrics.skipped_garbage === "number" && (
+                <MetricCard icon={Ban} label="Rows skipped (legacy)" value={metrics.skipped_garbage} tone="slate" />
+              )}
+            </div>
+            {metrics.reconciliation && typeof metrics.reconciliation === "object" ? (
+              <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-3 text-xs">
+                <p className="font-medium text-foreground">Preview vs apply reconciliation</p>
+                <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+                  {Object.entries(metrics.reconciliation).map(([k, v]) => (
+                    <li key={k} className="text-muted-foreground">
+                      <span className="font-medium text-foreground">{k.replace(/_/g, " ")}:</span>{" "}
+                      {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="rounded-lg border border-border/60 bg-muted/10 px-3 py-3 text-xs">
+              <p className="font-medium text-foreground">Import cleaning (apply)</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <MetricCard icon={Scissors} label="Fields trimmed (cells)" value={metrics.fields_trimmed ?? 0} tone="slate" />
+                <MetricCard icon={Split} label="Multi-ID cells split" value={metrics.multi_identifier_cells_split ?? 0} tone="slate" />
+                <MetricCard
+                  icon={Link2}
+                  label="ID tokens accepted"
+                  value={metrics.identifier_tokens_accepted ?? metrics.identifier_tokens_created ?? 0}
+                  tone="emerald"
+                />
+                <MetricCard icon={Ban} label="ID tokens rejected" value={metrics.identifier_tokens_rejected ?? 0} tone="amber" />
+                <MetricCard
+                  icon={Copy}
+                  label="Duplicate tokens collapsed"
+                  value={metrics.duplicate_identifier_tokens_collapsed ?? 0}
+                  tone="slate"
+                />
+                <MetricCard
+                  icon={AlertTriangle}
+                  label="Ambiguous multi-ID rows"
+                  value={metrics.ambiguous_multi_identifier_rows ?? 0}
+                  tone="amber"
+                />
+              </div>
+            </div>
+            {metrics.rows_per_sheet && Object.keys(metrics.rows_per_sheet).length > 0 ? (
+              <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Rows per sheet</p>
+                <ul className="mt-1 list-inside list-disc space-y-0.5">
+                  {Object.entries(metrics.rows_per_sheet).map(([name, n]) => (
+                    <li key={name}>
+                      {name}: {n}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {Array.isArray(metrics.errors) && metrics.errors.length > 0 ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+                <p className="font-medium">Import messages ({metrics.errors.length})</p>
+                <ul className="mt-2 max-h-40 list-inside list-disc space-y-1 overflow-y-auto">
+                  {metrics.errors.slice(0, 25).map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={resetImport}
+              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Upload another file
+            </button>
+          </div>
+        )}
+
+
+
       </div>
       {clearStaleModalOpen ? (
         <div className="fixed inset-0 z-[80] flex items-start justify-center px-4 py-16" role="dialog" aria-modal="true">

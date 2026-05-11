@@ -1,0 +1,33 @@
+{
+  "runId": "20260511T210609Z",
+  "startedAt": "2026-05-11T21:06:09.689Z",
+  "finishedAt": "2026-05-11T21:06:09.814Z",
+  "cliArgs": {
+    "afiRun": null,
+    "manageFbaRun": null,
+    "fbaInvRun": null,
+    "outputDir": null
+  },
+  "envHash": "1486b9f425ff18f7f889c85b4cc2903875d74cef7d5a134b973faf2adc607c2f",
+  "nodeVersion": "v22.22.0",
+  "supabaseJsVersion": null,
+  "generatorGitSha": null,
+  "inputRuns": {
+    "amazon_amazon_fulfilled_inventory": {
+      "runId": "20260511T183709Z",
+      "startedAt": "2026-05-11T18:37:09.588Z",
+      "generatorGitSha": "1ad129589400748471778ec5171ed3801e5e3e98"
+    },
+    "amazon_manage_fba_inventory": {
+      "runId": "20260511T192824Z",
+      "startedAt": "2026-05-11T19:28:24.338Z",
+      "generatorGitSha": "1ad129589400748471778ec5171ed3801e5e3e98"
+    },
+    "amazon_fba_inventory": {
+      "runId": "20260511T195927Z",
+      "startedAt": "2026-05-11T19:59:27.990Z",
+      "generatorGitSha": "1ad129589400748471778ec5171ed3801e5e3e98"
+    }
+  },
+  "entryPoint": "scripts/product-seed-conflict-cluster-review.ts"
+}

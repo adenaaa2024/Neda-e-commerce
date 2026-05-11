@@ -1,0 +1,18 @@
+{
+  "runId": "20260511T195927Z",
+  "startedAt": "2026-05-11T19:59:27.990Z",
+  "finishedAt": "2026-05-11T19:59:34.388Z",
+  "cliArgs": {
+    "sourceTables": "amazon_fba_inventory",
+    "organizationId": null,
+    "storeId": null,
+    "outputDir": null,
+    "noPreload": false,
+    "maxRowsPerTable": 1000,
+    "dryRunOnly": true
+  },
+  "envHash": "e59eb1b728cca1eb80d0c2ce78b1ae3fb66968beb3eacd1cc4017d0c5c8710e8",
+  "nodeVersion": "v22.22.0",
+  "supabaseJsVersion": "2.101.1",
+  "generatorGitSha": "1ad129589400748471778ec5171ed3801e5e3e98"
+}

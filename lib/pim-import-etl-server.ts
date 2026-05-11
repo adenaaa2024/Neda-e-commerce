@@ -36,7 +36,16 @@ export type PimEtlApplyBody = {
   import_safe_rows_only?: boolean;
 };
 
-async function postJson(path: string, body: unknown): Promise<{ ok: boolean; status: number; json: unknown; timedOut: boolean }> {
+type PimEtlPostJsonOptions = {
+  /** Alters client-abort timeout copy (server still uses the same ceiling). */
+  timeoutKind?: "default" | "price_backfill";
+};
+
+async function postJson(
+  path: string,
+  body: unknown,
+  options?: PimEtlPostJsonOptions,
+): Promise<{ ok: boolean; status: number; json: unknown; timedOut: boolean }> {
   const url = `${etlOrigin()}/etl/${path}`;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), PIM_IMPORT_ETL_TIMEOUT_MS);
@@ -75,18 +84,19 @@ async function postJson(path: string, body: unknown): Promise<{ ok: boolean; sta
         timedOut: false,
       };
     }
+    const timeoutMsg =
+      options?.timeoutKind === "price_backfill"
+        ? "Price backfill step timed out after saving progress. Click Resume price backfill."
+        : `ETL step exceeded ${PIM_IMPORT_ETL_TIMEOUT_MS}ms — retry preview-step.`;
     return {
       ok: false,
       status: aborted ? 504 : 503,
       json: {
         ok: false,
         error: aborted ? "etl_step_timeout" : "etl_unreachable",
-        message: aborted
-          ? `ETL step exceeded ${PIM_IMPORT_ETL_TIMEOUT_MS}ms — retry preview-step.`
-          : e instanceof Error
-            ? e.message
-            : "ETL unreachable",
+        message: aborted ? timeoutMsg : e instanceof Error ? e.message : "ETL unreachable",
         timed_out: aborted,
+        user_hint: aborted && options?.timeoutKind === "price_backfill" ? timeoutMsg : undefined,
       },
       timedOut: aborted,
     };
@@ -109,4 +119,16 @@ export async function pimEtlPreviewStatus(body: { organization_id: string; store
 
 export async function pimEtlApplyStep(body: PimEtlApplyBody) {
   return postJson("pim-import/apply-step", body);
+}
+
+export type PimEtlPriceBackfillStepBody = {
+  organization_id: string;
+  upload_id: string;
+  row_chunk?: number | null;
+  restart?: boolean;
+  cancel?: boolean;
+};
+
+export async function pimEtlPriceBackfillStep(body: PimEtlPriceBackfillStepBody) {
+  return postJson("pim-import/backfill-prices-step", body, { timeoutKind: "price_backfill" });
 }

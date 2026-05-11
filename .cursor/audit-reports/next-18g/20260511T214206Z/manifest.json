@@ -1,0 +1,30 @@
+{
+  "runId": "20260511T214206Z",
+  "startedAt": "2026-05-11T21:42:06.382Z",
+  "finishedAt": "2026-05-11T21:42:06.515Z",
+  "cliArgs": {
+    "inputRun": null,
+    "organizationId": null,
+    "clusterId": null,
+    "severityMin": "low",
+    "mapSnapshot": true,
+    "outputDir": null
+  },
+  "envHash": "2ffe49fdbdd3318c810202962676f7974051faf4d50a7f5ad14d5b8082b6d573",
+  "nodeVersion": "v22.22.0",
+  "supabaseJsVersion": "2.101.1",
+  "generatorGitSha": "1ad129589400748471778ec5171ed3801e5e3e98",
+  "inputRun": {
+    "runId": "20260511T210609Z",
+    "runDir": ".cursor\\audit-reports\\next-18f\\20260511T210609Z",
+    "startedAt": "2026-05-11T21:06:09.689Z",
+    "finishedAt": "2026-05-11T21:06:09.814Z"
+  },
+  "tenant": {
+    "organization_id": "00000000-0000-0000-0000-000000000001",
+    "store_ids": [
+      "509ee1f6-622c-46a5-8110-7b889ba46c2c"
+    ]
+  },
+  "entryPoint": "scripts/product-seed-conflict-enrich.ts"
+}

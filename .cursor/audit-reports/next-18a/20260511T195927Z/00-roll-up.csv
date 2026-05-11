@@ -1,0 +1,5 @@
+organization_id,store_id,source_table,bucket_id,bucket_label,row_count,distinct_seller_skus,distinct_asins,distinct_fnskus,distinct_upcs,with_upload_provenance_count,with_native_asin_count,with_native_fnsku_count
+00000000-0000-0000-0000-000000000001,509ee1f6-622c-46a5-8110-7b889ba46c2c,amazon_fba_inventory,2,existing_via_identifier_map,631,631,600,631,0,631,631,631
+00000000-0000-0000-0000-000000000001,509ee1f6-622c-46a5-8110-7b889ba46c2c,amazon_fba_inventory,3,existing_via_products,151,151,151,151,0,151,151,151
+00000000-0000-0000-0000-000000000001,509ee1f6-622c-46a5-8110-7b889ba46c2c,amazon_fba_inventory,4,safe_new_candidate,125,125,121,125,0,125,125,125
+00000000-0000-0000-0000-000000000001,509ee1f6-622c-46a5-8110-7b889ba46c2c,amazon_fba_inventory,5,ambiguous_conflict,42,42,40,42,0,42,42,42

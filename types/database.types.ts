@@ -276,6 +276,8 @@ export type OrganizationSettingsRow = {
   company_display_name: string | null;
   /** Pre-selected store FK for new returns/packages in this org. */
   default_store_id: string | null;
+  /** ISO 4217 code for catalog/UI price display when row currency is absent. */
+  display_currency_code: string | null;
   /** Enables verbose debug logging/UI for this tenant. */
   is_debug_mode_enabled: boolean | null;
 };

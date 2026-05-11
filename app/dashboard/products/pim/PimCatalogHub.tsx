@@ -5,17 +5,14 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BadgeInfo,
-  Barcode,
-  Box,
+  Banknote,
   ChevronDown,
   Fingerprint,
   FolderTree,
-  Hash,
   LayoutGrid,
   Loader2,
   Plus,
   RefreshCw,
-  ScanBarcode,
   Search,
   Store,
   Tag,
@@ -38,16 +35,7 @@ import { ManualProductForm } from "./ManualProductForm";
 import { PimHelpNote } from "./PimHelpNote";
 import { isAdminRole, useUserRole } from "../../../../components/UserRoleContext";
 
-type ViewMode =
-  | "grid"
-  | "vendor"
-  | "category"
-  | "brand"
-  | "sku"
-  | "asin"
-  | "fnsku"
-  | "upc"
-  | "identifiers";
+type ViewMode = "grid" | "vendor" | "category" | "brand" | "identifiers";
 
 type Facets = {
   brands: string[];
@@ -57,6 +45,28 @@ type Facets = {
 };
 
 type TriFilter = "any" | "has" | "missing";
+
+/** ISO 4217 codes for catalog price display (org default in Settings → General). */
+const PIM_DISPLAY_CURRENCIES = [
+  "USD",
+  "EUR",
+  "GBP",
+  "CAD",
+  "AUD",
+  "JPY",
+  "CHF",
+  "SEK",
+  "NOK",
+  "MXN",
+  "INR",
+  "CNY",
+  "BRL",
+  "ZAR",
+  "AED",
+  "SGD",
+  "HKD",
+  "NZD",
+] as const;
 
 type EnrichCatalogMetrics = {
   scanned: number;
@@ -111,6 +121,10 @@ type EnrichCatalogMetrics = {
   price_from_catalog_products_fallback_offer?: number;
   api_price_ai_disambiguations?: number;
   retry_missing_prices_only?: boolean;
+  start_index?: number;
+  batch_size?: number;
+  prioritize_incomplete?: boolean;
+  force_fresh_price_rows?: boolean;
 };
 
 type EnrichFailure = { product_id: string; reason: string };
@@ -222,6 +236,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   const [toast, setToast] = useState<string | null>(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [amazonSpConfigured, setAmazonSpConfigured] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useState("USD");
   const [enrichBusy, setEnrichBusy] = useState(false);
   const [enrichMetrics, setEnrichMetrics] = useState<EnrichCatalogMetrics | null>(null);
   const [imagePreview, setImagePreview] = useState<{ urls: string[]; index: number } | null>(null);
@@ -341,23 +356,25 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     if (view === "vendor") return "vendor";
     if (view === "category") return "category";
     if (view === "brand") return "brand";
-    if (view === "sku") return "map_sku";
-    if (view === "asin") return "map_asin";
-    if (view === "fnsku") return "map_fnsku";
-    if (view === "upc") return "map_upc";
     return null;
   }, [view]);
 
   useEffect(() => {
     if (!oid) {
       setAmazonSpConfigured(false);
+      setDisplayCurrency("USD");
       return;
     }
     let cancelled = false;
     void getPimIntegrationsSummary(oid).then((r) => {
       if (cancelled) return;
-      if (r.ok) setAmazonSpConfigured(r.data.connectionStatus.amazonSpApi);
-      else setAmazonSpConfigured(false);
+      if (r.ok) {
+        setAmazonSpConfigured(r.data.connectionStatus.amazonSpApi);
+        setDisplayCurrency(r.data.displayCurrencyCode ?? "USD");
+      } else {
+        setAmazonSpConfigured(false);
+        setDisplayCurrency("USD");
+      }
     });
     return () => {
       cancelled = true;
@@ -533,6 +550,82 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     setPage(1);
   }, []);
 
+  const runEnrichmentBatches = useCallback(
+    async (base: Record<string, unknown>, loopUntilDone: boolean) => {
+      if (!oid || !storeId) return false;
+      let start = 0;
+      let batch = 0;
+      const allFailures: EnrichFailure[] = [];
+      const allRetry = new Set<string>();
+      let lastMetrics: EnrichCatalogMetrics | null = null;
+      let allDebug: EnrichmentDebugRow[] = [];
+      try {
+        for (;;) {
+          batch += 1;
+          const res = await fetch("/api/dashboard/products/catalog/enrich-images", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...base, start_index: start }),
+          });
+          const data = (await res.json()) as {
+            ok?: boolean;
+            error?: string;
+            metrics?: EnrichCatalogMetrics;
+            failures?: EnrichFailure[];
+            failed_product_ids?: string[];
+            enrichment_debug?: EnrichmentDebugRow[];
+            continuation?: { next_start_index: number; total_eligible: number };
+          };
+          if (!res.ok || !data.ok) {
+            setEnrichMetrics(null);
+            setEnrichRetryIds([]);
+            setEnrichDebugRows([]);
+            setEnrichErr(data.error ?? `Request failed (${res.status}).`);
+            return false;
+          }
+          lastMetrics = data.metrics ?? null;
+          setEnrichMetrics(lastMetrics);
+          for (const f of data.failures ?? []) allFailures.push(f);
+          for (const id of data.failed_product_ids ?? []) if (id) allRetry.add(id);
+          if (enrichAdminDebug && Array.isArray(data.enrichment_debug)) {
+            allDebug = allDebug.concat(data.enrichment_debug);
+            if (allDebug.length > 500) allDebug = allDebug.slice(-500);
+          }
+          const cont = data.continuation;
+          if (!cont || !loopUntilDone) break;
+          setToast(
+            `Catalog enrichment: batch ${batch} · next ${cont.next_start_index.toLocaleString()} / ${cont.total_eligible.toLocaleString()} (products with ASIN)…`,
+          );
+          start = cont.next_start_index;
+          await new Promise((r) => window.setTimeout(r, 200));
+        }
+        setEnrichFailures(allFailures);
+        setEnrichRetryIds([...allRetry]);
+        setEnrichDebugRows(allDebug);
+        setEnrichErr(null);
+        setEnrichLastRunAt(new Date().toISOString());
+        const scanned = lastMetrics?.scanned;
+        setToast(
+          loopUntilDone && batch > 1
+            ? `Catalog enrichment finished · ${batch} batches · ${typeof scanned === "number" ? `${scanned.toLocaleString()} ASIN products in pool` : "done"}.`
+            : `Catalog enrichment finished.`,
+        );
+        void loadGrid();
+        void loadFacets();
+        void refreshVendorsAgg();
+        window.dispatchEvent(new Event("pim-catalog-refresh"));
+        return true;
+      } catch (e) {
+        setEnrichMetrics(null);
+        setEnrichFailures([]);
+        setEnrichRetryIds([]);
+        setEnrichErr(e instanceof Error ? e.message : "Enrichment failed.");
+        return false;
+      }
+    },
+    [oid, storeId, enrichAdminDebug, loadGrid, loadFacets, refreshVendorsAgg],
+  );
+
   const vendorOptions = useMemo(
     () => vendorsAgg.filter((v) => !isPimInvalidVendorCategoryLabel(v.name)).map((v) => ({ id: v.id, name: v.name })),
     [vendorsAgg],
@@ -598,8 +691,8 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
             <PimHelpNote label="Catalog Hub">
               <div className="space-y-2">
                 <div>
-                  Store-scoped catalog with filters, group views, and optional Amazon image enrichment (batch job only — never during table render).
-                  Invalid vendor or category labels can be reviewed in the audit panel when present.
+                  Grid plus tree groupings for vendor, category, and brand. Use <strong>Identifiers</strong> for SKU/ASIN/FNSKU/UPC groups from the identity map. Optional Amazon enrichment runs as a batch job only — not while the table renders.
+                  Invalid vendor or category labels appear in the audit banner when present.
                 </div>
                 <div>
                   <Link href="/dashboard/file-import" className="font-medium text-primary underline-offset-2 hover:underline">
@@ -623,57 +716,18 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                   : "Batch job: call Amazon Catalog (ASIN) to fill missing images, weak titles, missing brand, matching category, and optional list price when present. Never runs during table render."
               }
               onClick={() => {
-              if (!oid || !storeId || enrichBusy) return;
-              setEnrichBusy(true);
-              setEnrichErr(null);
-              setEnrichFailures([]);
-              setEnrichDetailOpen(false);
-              setEnrichDebugOpen(false);
-              setEnrichDebugRows([]);
-              void fetch("/api/dashboard/products/catalog/enrich-images", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  organization_id: oid,
-                  store_id: storeId,
-                  include_enrichment_debug: enrichAdminDebug,
-                }),
-              })
-                .then(async (res) => {
-                  const data = (await res.json()) as {
-                    ok?: boolean;
-                    error?: string;
-                    metrics?: EnrichCatalogMetrics;
-                    failures?: EnrichFailure[];
-                    failed_product_ids?: string[];
-                    enrichment_debug?: EnrichmentDebugRow[];
-                  };
-                  if (!res.ok || !data.ok) {
-                    setEnrichMetrics(null);
-                    setEnrichRetryIds([]);
-                    setEnrichDebugRows([]);
-                    setEnrichErr(data.error ?? `Request failed (${res.status}).`);
-                    return;
-                  }
-                  setEnrichMetrics(data.metrics ?? null);
-                  setEnrichFailures(Array.isArray(data.failures) ? data.failures : []);
-                  setEnrichRetryIds(Array.isArray(data.failed_product_ids) ? data.failed_product_ids : []);
-                  setEnrichDebugRows(Array.isArray(data.enrichment_debug) ? data.enrichment_debug : []);
-                  setEnrichErr(null);
-                  setEnrichLastRunAt(new Date().toISOString());
-                  void loadGrid();
-                  void loadFacets();
-                  void refreshVendorsAgg();
-                  window.dispatchEvent(new Event("pim-catalog-refresh"));
-                })
-                .catch((e) => {
-                  setEnrichMetrics(null);
-                  setEnrichFailures([]);
-                  setEnrichRetryIds([]);
-                  setEnrichErr(e instanceof Error ? e.message : "Enrichment request failed.");
-                })
-                .finally(() => setEnrichBusy(false));
-            }}
+                if (!oid || !storeId || enrichBusy) return;
+                setEnrichBusy(true);
+                setEnrichErr(null);
+                setEnrichFailures([]);
+                setEnrichDetailOpen(false);
+                setEnrichDebugOpen(false);
+                setEnrichDebugRows([]);
+                void runEnrichmentBatches(
+                  { organization_id: oid, store_id: storeId, include_enrichment_debug: enrichAdminDebug },
+                  true,
+                ).finally(() => setEnrichBusy(false));
+              }}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             >
               {enrichBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
@@ -682,8 +736,9 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
             <PimHelpNote label="Catalog enrichment">
               <div className="space-y-2">
                 <div>
-                  Batch Amazon Catalog Items call (ASIN on each product). Fills missing images, weak titles, brand, category, and optional list
-                  price when the API returns them. Never runs during table render.
+                  Batch Amazon Catalog Items call for every product with an ASIN. The hub automatically continues in batches until the full list is
+                  covered (not only the first few hundred). Fills images, titles, brand, category, and prices when APIs return them. Never runs during
+                  table render.
                 </div>
                 <div>
                   If the AI module is enabled, mapping or validation may be assisted automatically. AI should not invent product data.
@@ -700,47 +755,16 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                 if (!oid || !storeId || enrichBusy) return;
                 setEnrichBusy(true);
                 setEnrichErr(null);
-                void fetch("/api/dashboard/products/catalog/enrich-images", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
+                void runEnrichmentBatches(
+                  {
                     organization_id: oid,
                     store_id: storeId,
                     retry_failed_only: true,
                     product_ids: enrichRetryIds,
                     include_enrichment_debug: enrichAdminDebug,
-                  }),
-                })
-                  .then(async (res) => {
-                    const data = (await res.json()) as {
-                      ok?: boolean;
-                      error?: string;
-                      metrics?: EnrichCatalogMetrics;
-                      failures?: EnrichFailure[];
-                      failed_product_ids?: string[];
-                      enrichment_debug?: EnrichmentDebugRow[];
-                    };
-                    if (!res.ok || !data.ok) {
-                      setEnrichMetrics(null);
-                      setEnrichDebugRows([]);
-                      setEnrichErr(data.error ?? `Request failed (${res.status}).`);
-                      return;
-                    }
-                    setEnrichMetrics(data.metrics ?? null);
-                    setEnrichFailures(Array.isArray(data.failures) ? data.failures : []);
-                    setEnrichRetryIds(Array.isArray(data.failed_product_ids) ? data.failed_product_ids : []);
-                    setEnrichDebugRows(Array.isArray(data.enrichment_debug) ? data.enrichment_debug : []);
-                    setEnrichErr(null);
-                    setEnrichLastRunAt(new Date().toISOString());
-                    void loadGrid();
-                    void loadFacets();
-                    void refreshVendorsAgg();
-                    window.dispatchEvent(new Event("pim-catalog-refresh"));
-                  })
-                  .catch((e) => {
-                    setEnrichErr(e instanceof Error ? e.message : "Retry failed.");
-                  })
-                  .finally(() => setEnrichBusy(false));
+                  },
+                  false,
+                ).finally(() => setEnrichBusy(false));
               }}
               className="h-10 rounded-lg border border-dashed border-border px-3 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
             >
@@ -759,47 +783,15 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
               setEnrichDetailOpen(false);
               setEnrichDebugOpen(false);
               setEnrichDebugRows([]);
-              void fetch("/api/dashboard/products/catalog/enrich-images", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+              void runEnrichmentBatches(
+                {
                   organization_id: oid,
                   store_id: storeId,
                   retry_missing_prices_only: true,
                   include_enrichment_debug: enrichAdminDebug,
-                }),
-              })
-                .then(async (res) => {
-                  const data = (await res.json()) as {
-                    ok?: boolean;
-                    error?: string;
-                    metrics?: EnrichCatalogMetrics;
-                    failures?: EnrichFailure[];
-                    failed_product_ids?: string[];
-                    enrichment_debug?: EnrichmentDebugRow[];
-                  };
-                  if (!res.ok || !data.ok) {
-                    setEnrichMetrics(null);
-                    setEnrichRetryIds([]);
-                    setEnrichDebugRows([]);
-                    setEnrichErr(data.error ?? `Request failed (${res.status}).`);
-                    return;
-                  }
-                  setEnrichMetrics(data.metrics ?? null);
-                  setEnrichFailures(Array.isArray(data.failures) ? data.failures : []);
-                  setEnrichRetryIds(Array.isArray(data.failed_product_ids) ? data.failed_product_ids : []);
-                  setEnrichDebugRows(Array.isArray(data.enrichment_debug) ? data.enrichment_debug : []);
-                  setEnrichErr(null);
-                  setEnrichLastRunAt(new Date().toISOString());
-                  void loadGrid();
-                  void loadFacets();
-                  void refreshVendorsAgg();
-                  window.dispatchEvent(new Event("pim-catalog-refresh"));
-                })
-                .catch((e) => {
-                  setEnrichErr(e instanceof Error ? e.message : "Retry missing prices failed.");
-                })
-                .finally(() => setEnrichBusy(false));
+                },
+                true,
+              ).finally(() => setEnrichBusy(false));
             }}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -1061,6 +1053,33 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
             ))}
           </select>
         </div>
+        <div className="flex w-full min-w-[12rem] max-w-full flex-col gap-1 sm:w-auto">
+          <span className="flex items-center gap-1.5 text-sm font-medium leading-none text-foreground">
+            <Banknote className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            Price display
+            <PimHelpNote label="Currency in the catalog">
+              <div className="space-y-2">
+                <p>
+                  Default comes from <span className="font-medium">Settings → General → Display currency</span>. Changing the menu here only affects
+                  number formatting in this catalog (grid, groups, product details). Stored amounts in the database are unchanged.
+                </p>
+                <p>If a row has its own currency from imports or Amazon, that value still wins.</p>
+              </div>
+            </PimHelpNote>
+          </span>
+          <select
+            value={displayCurrency}
+            onChange={(e) => setDisplayCurrency(e.target.value)}
+            className="block h-10 w-full min-w-[10rem] rounded-lg border border-border bg-background px-3 text-sm sm:w-40"
+            aria-label="Display currency for prices"
+          >
+            {PIM_DISPLAY_CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="max-w-full overflow-x-auto rounded-lg border border-border p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex min-w-max flex-nowrap">
             {(
@@ -1069,10 +1088,6 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                 ["vendor", "Vendor", Store] as const,
                 ["category", "Category", FolderTree] as const,
                 ["brand", "Brand", Tag] as const,
-                ["sku", "SKU", Hash] as const,
-                ["asin", "ASIN", Box] as const,
-                ["fnsku", "FNSKU", Barcode] as const,
-                ["upc", "UPC", ScanBarcode] as const,
                 ["identifiers", "Identifiers", Fingerprint] as const,
               ] as const
             ).map(([id, label, Icon]) => (
@@ -1212,112 +1227,114 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                 </select>
               </label>
             </div>
-            <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
-              <TriSelect
-                label="Image"
-                value={filterImage}
-                onChange={(v) => {
-                  setFilterImage(v);
-                  setPage(1);
-                }}
-              />
-              <TriSelect
-                label="SKU"
-                value={filterSku}
-                onChange={(v) => {
-                  setFilterSku(v);
-                  setPage(1);
-                }}
-              />
-              <TriSelect
-                label="ASIN"
-                value={filterAsin}
-                onChange={(v) => {
-                  setFilterAsin(v);
-                  setPage(1);
-                }}
-              />
-              <TriSelect
-                label="FNSKU"
-                value={filterFnsku}
-                onChange={(v) => {
-                  setFilterFnsku(v);
-                  setPage(1);
-                }}
-              />
-              <TriSelect
-                label="UPC"
-                value={filterUpc}
-                onChange={(v) => {
-                  setFilterUpc(v);
-                  setPage(1);
-                }}
-              />
-              <TriSelect
-                label="Vendor (assigned)"
-                value={filterVendor}
-                onChange={(v) => {
-                  setFilterVendor(v);
-                  setPage(1);
-                }}
-              />
-              <TriSelect
-                label="Category (assigned)"
-                value={filterCategory}
-                onChange={(v) => {
-                  setFilterCategory(v);
-                  setPage(1);
-                }}
-              />
-              <TriSelect
-                label="Brand field"
-                value={filterBrandField}
-                onChange={(v) => {
-                  setFilterBrandField(v);
-                  setPage(1);
-                }}
-              />
-            </div>
             <details className="rounded-lg border border-border/60 bg-background/60 px-2.5 py-1.5">
               <summary className="cursor-pointer select-none text-xs font-medium text-foreground">Advanced filters</summary>
-              <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
-                <div className="text-xs font-medium text-muted-foreground">
-                  <div className="mb-1">Match source</div>
-                  <select
-                    aria-label="Match source"
-                    value={matchSourceFilter}
-                    onChange={(e) => {
-                      setMatchSourceFilter(e.target.value);
+              <div className="mt-2 space-y-3">
+                <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
+                  <TriSelect
+                    label="Image"
+                    value={filterImage}
+                    onChange={(v) => {
+                      setFilterImage(v);
                       setPage(1);
                     }}
-                    className="h-9 w-full rounded-lg border border-border bg-background text-sm"
-                  >
-                    <option value="">All</option>
-                    {(facets?.match_sources ?? []).map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                  <TriSelect
+                    label="SKU"
+                    value={filterSku}
+                    onChange={(v) => {
+                      setFilterSku(v);
+                      setPage(1);
+                    }}
+                  />
+                  <TriSelect
+                    label="ASIN"
+                    value={filterAsin}
+                    onChange={(v) => {
+                      setFilterAsin(v);
+                      setPage(1);
+                    }}
+                  />
+                  <TriSelect
+                    label="FNSKU"
+                    value={filterFnsku}
+                    onChange={(v) => {
+                      setFilterFnsku(v);
+                      setPage(1);
+                    }}
+                  />
+                  <TriSelect
+                    label="UPC"
+                    value={filterUpc}
+                    onChange={(v) => {
+                      setFilterUpc(v);
+                      setPage(1);
+                    }}
+                  />
+                  <TriSelect
+                    label="Vendor (assigned)"
+                    value={filterVendor}
+                    onChange={(v) => {
+                      setFilterVendor(v);
+                      setPage(1);
+                    }}
+                  />
+                  <TriSelect
+                    label="Category (assigned)"
+                    value={filterCategory}
+                    onChange={(v) => {
+                      setFilterCategory(v);
+                      setPage(1);
+                    }}
+                  />
+                  <TriSelect
+                    label="Brand field"
+                    value={filterBrandField}
+                    onChange={(v) => {
+                      setFilterBrandField(v);
+                      setPage(1);
+                    }}
+                  />
                 </div>
-                <div className="text-xs font-medium text-muted-foreground">
-                  <div className="mb-1">Source report type</div>
-                  <select
-                    aria-label="Source report type"
-                    value={reportTypeFilter}
-                    onChange={(e) => {
-                      setReportTypeFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    className="h-9 w-full rounded-lg border border-border bg-background text-sm"
-                  >
-                    <option value="">All</option>
-                    {(facets?.source_report_types ?? []).map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    <div className="mb-1">Match source</div>
+                    <select
+                      aria-label="Match source"
+                      value={matchSourceFilter}
+                      onChange={(e) => {
+                        setMatchSourceFilter(e.target.value);
+                        setPage(1);
+                      }}
+                      className="h-9 w-full rounded-lg border border-border bg-background text-sm"
+                    >
+                      <option value="">All</option>
+                      {(facets?.match_sources ?? []).map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="text-xs font-medium text-muted-foreground">
+                    <div className="mb-1">Source report type</div>
+                    <select
+                      aria-label="Source report type"
+                      value={reportTypeFilter}
+                      onChange={(e) => {
+                        setReportTypeFilter(e.target.value);
+                        setPage(1);
+                      }}
+                      className="h-9 w-full rounded-lg border border-border bg-background text-sm"
+                    >
+                      <option value="">All</option>
+                      {(facets?.source_report_types ?? []).map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
             </details>
@@ -1336,29 +1353,41 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                 onClick={() => setAuditOpen((o) => !o)}
                 className="flex w-full items-center justify-between gap-2 text-left text-sm font-medium text-amber-950 dark:text-amber-100"
               >
-                <span>Invalid vendor / category labels (audit)</span>
+                <span>Vendor or category names need cleanup</span>
                 <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${auditOpen ? "rotate-180" : ""}`} aria-hidden />
               </button>
               {auditOpen ? (
-                <div className="mt-2 grid gap-3 text-xs sm:grid-cols-2">
+                <div className="mt-2 space-y-3 text-xs sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
+                  <p className="text-muted-foreground sm:col-span-2">
+                    These labels look like placeholders or raw codes (for example bare numbers). Rename the vendor or category in your catalog
+                    tools so reporting and filters stay clear.
+                  </p>
                   <div>
                     <p className="font-semibold text-foreground">Vendors ({invalidVendorAudit.length})</p>
-                    <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto text-muted-foreground">
+                    <ul className="mt-1 max-h-48 space-y-1.5 overflow-y-auto text-muted-foreground">
                       {invalidVendorAudit.map((v) => (
-                        <li key={v.id}>
-                          <span className="font-mono text-foreground">{v.name}</span>
-                          {typeof v.product_count === "number" ? ` · ${v.product_count} products` : null}
+                        <li key={v.id} className="rounded-md border border-border/50 bg-background/60 px-2 py-1.5">
+                          <span className="text-foreground">{v.name}</span>
+                          {typeof v.product_count === "number" ? (
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                              {v.product_count} product{v.product_count === 1 ? "" : "s"} in this store
+                            </span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
                   </div>
                   <div>
                     <p className="font-semibold text-foreground">Categories ({invalidCategoryAudit.length})</p>
-                    <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto text-muted-foreground">
+                    <ul className="mt-1 max-h-48 space-y-1.5 overflow-y-auto text-muted-foreground">
                       {invalidCategoryAudit.map((c) => (
-                        <li key={c.id}>
-                          <span className="font-mono text-foreground">{c.name}</span>
-                          {typeof c.product_count === "number" ? ` · ${c.product_count} products` : null}
+                        <li key={c.id} className="rounded-md border border-border/50 bg-background/60 px-2 py-1.5">
+                          <span className="text-foreground">{c.name}</span>
+                          {typeof c.product_count === "number" ? (
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                              {c.product_count} product{c.product_count === 1 ? "" : "s"} in this store
+                            </span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
@@ -1393,6 +1422,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
               filtersActive={filtersActive}
               onClearFilters={() => clearAllFilters()}
               onImagePreview={(urls, startIndex) => setImagePreview({ urls, index: startIndex })}
+              displayCurrency={displayCurrency}
             />
           ) : bucketDimension ? (
             <PimGroupTreeView
@@ -1405,6 +1435,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                 setEditId(id);
                 setFormOpen(true);
               }}
+              displayCurrency={displayCurrency}
             />
           ) : null}
         </>
@@ -1424,6 +1455,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
           organizationId={oid}
           storeId={storeId}
           productId={drawerId}
+          displayCurrency={displayCurrency}
           onClose={() => setDrawerId(null)}
           onEdit={(id) => {
             setDrawerId(null);
