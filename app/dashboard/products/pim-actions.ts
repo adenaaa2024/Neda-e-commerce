@@ -18,6 +18,8 @@ export type PimIntegrationsSummary = {
   googleSheetId: string | null;
   /** Default store for ETL calls that require store_id (e.g. Google Sheets sync). */
   defaultStoreId: string | null;
+  /** ISO 4217; catalog UI fallback when a row has no currency. */
+  displayCurrencyCode: string;
   connectionStatus: PimConnectionStatus;
 };
 
@@ -76,6 +78,31 @@ const PIM_ENRICHMENT_DEBUG_ROLE_KEYS = new Set([
 ]);
 
 /** Server-side gate for PIM enrichment verbose debug payloads (never trust client-only flags). */
+const PIM_PRICE_BACKFILL_ROLE_KEYS = new Set([
+  "admin",
+  "super_admin",
+  "system_admin",
+  "system_employee",
+  "tenant_admin",
+]);
+
+/** Server gate for Product Master price backfill (ETL / repair tools). */
+export async function userCanRunPimPriceBackfill(organizationId: string): Promise<boolean> {
+  const gate = await assertUserCanAccessOrganization(organizationId);
+  if (!gate.ok) return false;
+  const { data: prof, error } = await supabaseServer
+    .from("profiles")
+    .select("roles!profiles_role_id_fkey(key)")
+    .eq("id", gate.userId)
+    .maybeSingle();
+  if (error || !prof) return false;
+  const rolesRel = (prof as { roles?: { key?: string } | { key?: string }[] | null }).roles;
+  const roleKeyRaw =
+    Array.isArray(rolesRel) ? rolesRel[0]?.key : rolesRel && typeof rolesRel === "object" ? rolesRel.key : undefined;
+  const roleKey = String(roleKeyRaw ?? "").trim().toLowerCase();
+  return PIM_PRICE_BACKFILL_ROLE_KEYS.has(roleKey);
+}
+
 export async function userCanViewPimEnrichmentDebug(organizationId: string): Promise<boolean> {
   const gate = await assertUserCanAccessOrganization(organizationId);
   if (!gate.ok) return false;
@@ -151,17 +178,21 @@ export async function getPimIntegrationsSummary(
 
   const { data: osDefault } = await supabaseServer
     .from("organization_settings")
-    .select("default_store_id")
+    .select("default_store_id, display_currency_code")
     .eq("organization_id", organizationId)
     .maybeSingle();
   const rawDefault = (osDefault as { default_store_id?: string | null } | null)?.default_store_id;
   const defaultStoreId = typeof rawDefault === "string" && isUuidString(rawDefault) ? rawDefault : null;
+  const rawCur = (osDefault as { display_currency_code?: string | null } | null)?.display_currency_code;
+  const displayCurrencyCode =
+    typeof rawCur === "string" && /^[A-Z]{3}$/i.test(rawCur.trim()) ? rawCur.trim().toUpperCase() : "USD";
 
   return {
     ok: true,
     data: {
       googleSheetId,
       defaultStoreId,
+      displayCurrencyCode,
       connectionStatus: { amazonSpApi, openai, googleSheets },
     },
   };

@@ -2,10 +2,11 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, Loader2, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
 import { derivePimPriceOriginLabel } from "../../../../lib/pim-product-display-sources";
 import { getPimFieldProvenanceObject } from "../../../../lib/pim-field-provenance";
 import { IdentifierValue } from "./IdentifierValue";
+import { dedupeAmazonProductImageUrls } from "../../../../lib/amazon-catalog-image-extract";
 import { collectPimAmazonRawGalleryUrls, resolvePimDisplayImageUrl } from "../../../../lib/pim-display-image";
 import { dedupeImageUrls, ImageLightbox } from "./ImageLightbox";
 import { PimHelpNote } from "./PimHelpNote";
@@ -69,16 +70,31 @@ function listingStatusCell(cp: Record<string, unknown>): string {
   return String(cp.listing_status ?? "").trim() || "—";
 }
 
+function formatDrawerPrice(amount: unknown, rowCurrency: unknown, fallbackCurrency: string): string {
+  const n = typeof amount === "number" ? amount : typeof amount === "string" ? Number.parseFloat(amount) : Number.NaN;
+  if (!Number.isFinite(n)) return "—";
+  const raw = typeof rowCurrency === "string" ? rowCurrency.trim().toUpperCase() : "";
+  const code = /^[A-Z]{3}$/.test(raw) ? raw : fallbackCurrency.trim().toUpperCase() || "USD";
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(n);
+  } catch {
+    return `${code} ${n.toFixed(2)}`;
+  }
+}
+
 export function ProductDetailDrawer({
   organizationId,
   storeId,
   productId,
+  displayCurrency = "USD",
   onClose,
   onEdit,
 }: {
   organizationId: string;
   storeId: string;
   productId: string | null;
+  /** When a price row has no currency, format with this ISO 4217 code. */
+  displayCurrency?: string;
   onClose: () => void;
   onEdit?: (productId: string) => void;
 }) {
@@ -87,7 +103,14 @@ export function ProductDetailDrawer({
   const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
   const [openAmazon, setOpenAmazon] = useState(false);
   const [openAdvanced, setOpenAdvanced] = useState(false);
-  const scrollLockRef = useRef<{ y: number; htmlOverflow: string; bodyOverflow: string } | null>(null);
+  const scrollLockRef = useRef<{
+    scrollY: number;
+    bodyPosition: string;
+    bodyTop: string;
+    bodyLeft: string;
+    bodyRight: string;
+    bodyWidth: string;
+  } | null>(null);
   const [payload, setPayload] = useState<{
     product: Record<string, unknown>;
     category_name: string | null;
@@ -110,18 +133,31 @@ export function ProductDetailDrawer({
 
   useLayoutEffect(() => {
     if (!productId) return;
-    const y = window.scrollY;
-    const htmlOverflow = document.documentElement.style.overflow;
-    const bodyOverflow = document.body.style.overflow;
-    scrollLockRef.current = { y, htmlOverflow, bodyOverflow };
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
+    const scrollY = window.scrollY;
+    const b = document.body;
+    scrollLockRef.current = {
+      scrollY,
+      bodyPosition: b.style.position,
+      bodyTop: b.style.top,
+      bodyLeft: b.style.left,
+      bodyRight: b.style.right,
+      bodyWidth: b.style.width,
+    };
+    b.style.position = "fixed";
+    b.style.top = `-${scrollY}px`;
+    b.style.left = "0";
+    b.style.right = "0";
+    b.style.width = "100%";
     return () => {
       const prev = scrollLockRef.current;
       scrollLockRef.current = null;
-      document.documentElement.style.overflow = prev?.htmlOverflow ?? "";
-      document.body.style.overflow = prev?.bodyOverflow ?? "";
-      if (prev) window.scrollTo(0, prev.y);
+      if (!prev) return;
+      b.style.position = prev.bodyPosition;
+      b.style.top = prev.bodyTop;
+      b.style.left = prev.bodyLeft;
+      b.style.right = prev.bodyRight;
+      b.style.width = prev.bodyWidth;
+      window.scrollTo(0, prev.scrollY);
     };
   }, [productId]);
 
@@ -180,15 +216,27 @@ export function ProductDetailDrawer({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const onRefresh = () => {
+      if (productId) void load();
+    };
+    window.addEventListener("pim-catalog-refresh", onRefresh);
+    return () => window.removeEventListener("pim-catalog-refresh", onRefresh);
+  }, [productId, load]);
+
   if (!productId) return null;
 
   const p = payload?.product;
   const img = p ? resolvePimDisplayImageUrl(p.main_image_url, p.amazon_raw) : null;
   const directMain =
     p && typeof p.main_image_url === "string" && p.main_image_url.trim() ? p.main_image_url.trim() : null;
-  const galleryRaw = p ? collectPimAmazonRawGalleryUrls(p.amazon_raw, 16) : [];
-  const allPreviewUrls = dedupeImageUrls([directMain, img, ...galleryRaw].filter(Boolean) as string[]);
-  const extraGallery = allPreviewUrls.filter((u) => u !== img);
+  const galleryRaw = p ? collectPimAmazonRawGalleryUrls(p.amazon_raw, 24) : [];
+  const allPreviewUrls = dedupeAmazonProductImageUrls([directMain, img, ...galleryRaw].filter(Boolean) as string[]).slice(
+    0,
+    16,
+  );
+  const heroUrl = allPreviewUrls[0] ?? img ?? directMain ?? null;
+  const thumbUrls = heroUrl ? allPreviewUrls.filter((u) => u !== heroUrl) : [];
 
   const statusBadge =
     p && typeof p.status === "string" && p.status.trim() ? (
@@ -205,24 +253,27 @@ export function ProductDetailDrawer({
         : null;
 
   const drawer = (
-    <div
-      className="fixed inset-0 z-[400] flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/40 p-3 sm:p-6"
-      role="presentation"
-      onClick={(e) => {
-        if (lightbox) return;
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-[400]" role="presentation">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        aria-label="Close panel"
+        disabled={Boolean(lightbox)}
+        onClick={() => {
+          if (lightbox) return;
+          onClose();
+        }}
+      />
       <div
-        className="my-auto flex min-h-0 w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl max-h-[min(100dvh-2rem,920px)]"
+        className="absolute inset-y-0 right-0 flex max-h-none w-full max-w-xl flex-col border-l border-border bg-card shadow-2xl sm:max-w-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="pim-drawer-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
-          <h2 id="pim-drawer-title" className="text-lg font-semibold text-foreground">
-            Product
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3 sm:px-5 sm:py-4">
+          <h2 id="pim-drawer-title" className="text-lg font-semibold tracking-tight text-foreground">
+            Product details
           </h2>
           <div className="flex shrink-0 items-center gap-1">
             {onEdit && productId ? (
@@ -240,7 +291,7 @@ export function ProductDetailDrawer({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 text-sm leading-relaxed">
           {loading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -249,29 +300,48 @@ export function ProductDetailDrawer({
             <p className="text-sm text-destructive">{err}</p>
           ) : p ? (
             <div className="space-y-6">
-              <div className="rounded-xl border border-border/70 bg-gradient-to-br from-muted/30 to-transparent p-4">
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    className="h-28 w-28 shrink-0 overflow-hidden rounded-xl border border-border bg-muted text-left ring-offset-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => {
-                      const start = (img ?? allPreviewUrls[0]) ?? null;
-                      if (start) openLightbox(allPreviewUrls, start);
-                    }}
-                    disabled={allPreviewUrls.length === 0}
-                    title={allPreviewUrls.length ? "View larger" : undefined}
-                  >
-                    {(img || allPreviewUrls[0]) ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={(img ?? allPreviewUrls[0])!} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">No image</span>
-                    )}
-                  </button>
+              <div className="rounded-xl border border-border/70 bg-gradient-to-br from-muted/30 to-transparent p-4 sm:p-5">
+                <div className="flex flex-col gap-4">
+                  <div className="w-full space-y-3">
+                    <button
+                      type="button"
+                      className="relative aspect-[4/3] w-full max-h-72 overflow-hidden rounded-xl border border-border bg-muted text-left ring-offset-background transition hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => {
+                        if (heroUrl) openLightbox(allPreviewUrls.length ? allPreviewUrls : [heroUrl], heroUrl);
+                      }}
+                      disabled={!heroUrl}
+                      title={heroUrl ? "View larger" : undefined}
+                    >
+                      {heroUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={heroUrl} alt="" className="h-full w-full object-contain" />
+                      ) : (
+                        <span className="flex h-full min-h-[8rem] w-full items-center justify-center text-xs text-muted-foreground">
+                          No image
+                        </span>
+                      )}
+                    </button>
+                    {thumbUrls.length > 0 ? (
+                      <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+                        {thumbUrls.map((u) => (
+                          <button
+                            key={u}
+                            type="button"
+                            className="aspect-square overflow-hidden rounded-lg border border-border bg-muted hover:opacity-90"
+                            onClick={() => openLightbox(allPreviewUrls, u)}
+                            title="View larger"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={u} alt="" className="h-full w-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">{statusBadge}</div>
                     <p className="text-lg font-semibold leading-snug text-foreground">{String(p.product_name ?? "—")}</p>
-                    <dl className="grid gap-1 text-sm">
+                    <dl className="grid gap-2 text-sm">
                       <div className="flex flex-wrap gap-x-2">
                         <dt className="text-muted-foreground">Vendor</dt>
                         <dd className="font-medium text-foreground">{String(p.vendor_name ?? "—")}</dd>
@@ -292,30 +362,13 @@ export function ProductDetailDrawer({
                 </div>
               </div>
 
-              {extraGallery.length > 0 ? (
-                <section>
-                  <h3 className="text-sm font-semibold text-foreground">More images</h3>
-                  <p className="mt-1 text-[11px] text-muted-foreground">From saved Amazon catalog data for this product.</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {extraGallery.map((u) => (
-                      <button
-                        key={u}
-                        type="button"
-                        className="h-14 w-14 overflow-hidden rounded-lg border border-border bg-muted hover:opacity-90"
-                        onClick={() => openLightbox(allPreviewUrls, u)}
-                        title="View larger"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={u} alt="" className="h-full w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <section className="rounded-xl border border-border/60 bg-card/50 p-4">
-                <h3 className="text-sm font-semibold text-foreground">Identifiers</h3>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">Values on the product record and from imports.</p>
+              <section className="rounded-xl border border-border/60 bg-card/50 p-4 sm:p-5">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">Identifiers</h3>
+                  <PimHelpNote label="Identifiers">
+                    <p>Primary codes on this product. Copy and search on Amazon from the inline actions next to each value where shown.</p>
+                  </PimHelpNote>
+                </div>
                 <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                   {(
                     [
@@ -334,18 +387,6 @@ export function ProductDetailDrawer({
                         ) : (
                           <IdentifierValue value={val || null} kind={kind as "sku" | "asin" | "fnsku" | "upc"} />
                         )}
-                        {val && (kind === "sku" || kind === "asin" || kind === "upc") ? (
-                          <a
-                            href={`https://www.google.com/search?q=${encodeURIComponent(val)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 text-muted-foreground hover:bg-muted"
-                            title="Search web"
-                            aria-label={`Search ${label}`}
-                          >
-                            <Search className="h-3.5 w-3.5" />
-                          </a>
-                        ) : null}
                       </dd>
                     </div>
                   ))}
@@ -381,8 +422,13 @@ export function ProductDetailDrawer({
                 });
                 return (
                   <section className="rounded-xl border border-border/60 bg-card/50 p-4">
-                    <h3 className="text-sm font-semibold text-foreground">Attributes</h3>
-                    <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-foreground">Attributes</h3>
+                      <PimHelpNote label="Attributes">
+                        <p>Extra fields from your catalog file or enrichment, shown as key–value pairs.</p>
+                      </PimHelpNote>
+                    </div>
+                    <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                       {sorted.map(([k, v]) => (
                         <div key={k} className="min-w-0">
                           <dt className="text-xs text-muted-foreground capitalize">{k.replace(/_/g, " ")}</dt>
@@ -394,85 +440,59 @@ export function ProductDetailDrawer({
                 );
               })()}
 
-              <section>
-                <h3 className="text-sm font-semibold text-foreground">Pricing</h3>
+              <section className="rounded-xl border border-border/60 bg-card/50 p-4 sm:p-5">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">Pricing</h3>
+                  <PimHelpNote label="Pricing">
+                    <div className="space-y-2">
+                      <p>
+                        Amounts come from imports or catalog enrichment. If a row has no currency code, the catalog display currency from settings is
+                        used for formatting only.
+                      </p>
+                      <p>Technical storage and API details stay under Advanced technical details.</p>
+                    </div>
+                  </PimHelpNote>
+                </div>
                 {(() => {
                   const prices = payload?.product_prices ?? [];
                   if (prices.length === 0) {
                     const why = payload?.pim_price_missing_reason?.trim();
                     return (
-                      <div className="mt-1 space-y-2">
-                        <p className="text-sm text-muted-foreground">No price data yet.</p>
+                      <div className="mt-2 space-y-2">
+                        <p className="text-sm text-muted-foreground">No price history for this product yet.</p>
                         {why ? (
                           <div className="rounded-md border border-border/60 bg-muted/25 px-3 py-2 text-[11px] leading-snug text-foreground">
-                            <span className="font-medium text-foreground">Price unavailable: </span>
                             {why}
                           </div>
                         ) : null}
-                        <p className="text-[11px] text-muted-foreground">
-                          When prices exist, they are stored in <span className="font-medium text-foreground">product_prices</span> with an
-                          origin label (Amazon enrichment vs manual/imported). Run catalog enrichment or import listing data — prices are never
-                          invented.
-                        </p>
                       </div>
                     );
                   }
                   const latest = prices[0];
                   const amtRaw = latest?.amount ?? latest?.price;
-                  const amt = amtRaw;
-                  const cur = typeof latest?.currency === "string" ? latest.currency : "USD";
-                  const n = typeof amt === "number" ? amt : typeof amt === "string" ? Number.parseFloat(amt) : Number.NaN;
-                  const label = Number.isFinite(n)
-                    ? new Intl.NumberFormat(undefined, { style: "currency", currency: cur.length === 3 ? cur : "USD" }).format(n)
-                    : "—";
-                  const storageLabel = payload?.pim_price_storage_label ?? payload?.pim_price_table ?? "product_prices";
+                  const label = formatDrawerPrice(amtRaw, latest?.currency, displayCurrency);
                   const originLabel = payload?.pim_price_origin_label ?? "—";
-                  const latestMeta =
-                    latest?.metadata && typeof latest.metadata === "object" && !Array.isArray(latest.metadata)
-                      ? (latest.metadata as Record<string, unknown>)
-                      : {};
-                  const priceSourceKind = typeof latestMeta.price_source === "string" ? latestMeta.price_source.trim() : "";
-                  const priceTier =
-                    typeof latestMeta.pricing_api_tier === "string" ? latestMeta.pricing_api_tier.trim() : "";
                   const lastProductPriceAt =
                     typeof p.last_price_updated_at === "string" && p.last_price_updated_at.trim()
                       ? p.last_price_updated_at.trim()
                       : null;
                   return (
                     <>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        Stored in: <span className="font-medium text-foreground">{storageLabel}</span>
-                        {" · "}
-                        <span>Origin: {originLabel}</span>
-                      </p>
-                      {priceSourceKind ? (
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">
-                          Price source: <span className="font-mono text-foreground">{priceSourceKind}</span>
-                          {priceTier ? (
-                            <>
-                              {" "}
-                              · API tier: <span className="font-mono text-foreground">{priceTier}</span>
-                            </>
-                          ) : null}
-                        </p>
-                      ) : null}
-                      {lastProductPriceAt ? (
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">
-                          Last price update: <span className="text-foreground">{lastProductPriceAt}</span>
-                        </p>
-                      ) : null}
-                      <p className="text-[11px] text-muted-foreground">Price history below (newest first) comes from product_prices.</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Latest: <span className="font-medium text-foreground">{label}</span>
+                      <p className="mt-2 text-sm text-foreground">
+                        Latest: <span className="text-xl font-semibold tabular-nums">{label}</span>
                         {latest?.observed_at ? (
-                          <span className="text-xs"> ({String(latest.observed_at)})</span>
+                          <span className="ml-2 text-xs text-muted-foreground">({String(latest.observed_at)})</span>
                         ) : null}
                       </p>
-                      <div className="mt-2 max-h-40 overflow-auto rounded-lg border border-border/50">
+                      <p className="mt-1 text-xs text-muted-foreground">Source summary: {originLabel}</p>
+                      {lastProductPriceAt ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">Last update on record: {lastProductPriceAt}</p>
+                      ) : null}
+                      <div className="mt-3 max-h-44 overflow-auto rounded-lg border border-border/50">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="border-b border-border bg-muted/40 text-left">
-                              <th className="px-2 py-1">Amount</th>
+                              <th className="px-2 py-1">Price</th>
                               <th className="px-2 py-1">Observed</th>
                               <th className="px-2 py-1">Source</th>
                             </tr>
@@ -480,9 +500,11 @@ export function ProductDetailDrawer({
                           <tbody>
                             {prices.map((row) => (
                               <tr key={String(row.id)} className="border-b border-border/30">
-                                <td className="px-2 py-1 font-mono">{String(row.amount ?? row.price ?? "—")}</td>
-                                <td className="px-2 py-1">{String(row.observed_at ?? "")}</td>
-                                <td className="max-w-[10rem] truncate px-2 py-1" title={derivePimPriceOriginLabel(row) ?? ""}>
+                                <td className="px-2 py-1 tabular-nums text-foreground">
+                                  {formatDrawerPrice(row.amount ?? row.price, row.currency, displayCurrency)}
+                                </td>
+                                <td className="px-2 py-1 text-muted-foreground">{String(row.observed_at ?? "")}</td>
+                                <td className="max-w-[12rem] truncate px-2 py-1 text-muted-foreground" title={derivePimPriceOriginLabel(row) ?? ""}>
                                   {derivePimPriceOriginLabel(row) ?? String(row.source ?? "—")}
                                 </td>
                               </tr>
@@ -549,11 +571,13 @@ export function ProductDetailDrawer({
                 ) : null}
               </section>
 
-              <section className="rounded-xl border border-border/60 bg-card/50 p-4">
-                <h3 className="text-sm font-semibold text-foreground">Linked identifiers</h3>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Identity map rows for this product (import pipelines may add multiple matches over time).
-                </p>
+              <section className="rounded-xl border border-border/60 bg-card/50 p-4 sm:p-5">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">Linked identifiers</h3>
+                  <PimHelpNote label="Linked identifiers">
+                    <p>Additional SKU/ASIN/FNSKU/UPC links from imports. The primary values at the top of this dialog are on the product record itself.</p>
+                  </PimHelpNote>
+                </div>
                 {(payload?.product_identifier_map ?? []).length === 0 ? (
                   <p className="mt-2 text-sm text-muted-foreground">
                     {String(p.sku ?? "").trim() ||

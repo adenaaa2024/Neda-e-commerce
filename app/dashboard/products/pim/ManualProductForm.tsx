@@ -60,22 +60,42 @@ export function ManualProductForm({
   /** Product has category text on the row but no category_id FK. */
   const [categoryUnlinkedLabel, setCategoryUnlinkedLabel] = useState("");
   const firstFieldRef = useRef<HTMLInputElement>(null);
-  const scrollLockRef = useRef<{ y: number; htmlOverflow: string; bodyOverflow: string } | null>(null);
+  const scrollLockRef = useRef<{
+    scrollY: number;
+    bodyPosition: string;
+    bodyTop: string;
+    bodyLeft: string;
+    bodyRight: string;
+    bodyWidth: string;
+  } | null>(null);
 
   useLayoutEffect(() => {
     if (!open) return;
-    const y = window.scrollY;
-    const htmlOverflow = document.documentElement.style.overflow;
-    const bodyOverflow = document.body.style.overflow;
-    scrollLockRef.current = { y, htmlOverflow, bodyOverflow };
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
+    const scrollY = window.scrollY;
+    const b = document.body;
+    scrollLockRef.current = {
+      scrollY,
+      bodyPosition: b.style.position,
+      bodyTop: b.style.top,
+      bodyLeft: b.style.left,
+      bodyRight: b.style.right,
+      bodyWidth: b.style.width,
+    };
+    b.style.position = "fixed";
+    b.style.top = `-${scrollY}px`;
+    b.style.left = "0";
+    b.style.right = "0";
+    b.style.width = "100%";
     return () => {
       const prev = scrollLockRef.current;
       scrollLockRef.current = null;
-      document.documentElement.style.overflow = prev?.htmlOverflow ?? "";
-      document.body.style.overflow = prev?.bodyOverflow ?? "";
-      if (prev) window.scrollTo(0, prev.y);
+      if (!prev) return;
+      b.style.position = prev.bodyPosition;
+      b.style.top = prev.bodyTop;
+      b.style.left = prev.bodyLeft;
+      b.style.right = prev.bodyRight;
+      b.style.width = prev.bodyWidth;
+      window.scrollTo(0, prev.scrollY);
     };
   }, [open]);
 

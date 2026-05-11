@@ -1,11 +1,34 @@
 "use server";
 
+import { pimHistoryRowIsTerminal } from "../../../lib/pim-import-history";
 import { PIM_RAW_REPORT_TYPES } from "../../../lib/pim-import-report-types";
-import { pimEtlRetryPreview } from "../../../lib/pim-import-etl-server";
+import { pimEtlPriceBackfillStep, pimEtlRetryPreview } from "../../../lib/pim-import-etl-server";
 import { mergeUploadMetadata } from "../../../lib/raw-report-upload-metadata";
 import { supabaseServer } from "../../../lib/supabase-server";
 import { isUuidString } from "../../../lib/uuid";
-import { assertUserCanAccessOrganization, userCanViewPimEnrichmentDebug } from "./pim-actions";
+import {
+  assertUserCanAccessOrganization,
+  userCanRunPimPriceBackfill,
+  userCanViewPimEnrichmentDebug,
+} from "./pim-actions";
+
+/** Canonical Product Master upload type on `raw_report_uploads.report_type` (DB check constraint). */
+const PIM_PRODUCT_MASTER_REPORT_TYPE = "pim_product_master";
+/** Legacy catalog-seed rows that use the same Product Master UI (optional merge into history). */
+const PIM_HISTORY_LEGACY_SEED_TYPES = ["pim_catalog_seed", "PIM_CATALOG_SEED"] as const;
+
+type RawReportUploadListRow = {
+  id?: string;
+  file_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  status?: string | null;
+  row_count?: number | null;
+  metadata?: Record<string, unknown> | null;
+  error_message?: string | null;
+  report_type?: string | null;
+  created_by?: string | null;
+};
 
 const RAW_BUCKET = "raw-reports";
 
@@ -553,7 +576,10 @@ export type PimImportSessionListRow = {
 };
 
 /** Derive display lifecycle from `raw_report_uploads.metadata` (mirrors ETL job sync). */
-function sessionStatusFromUploadMetadata(m: Record<string, unknown>): {
+function sessionStatusFromUploadMetadata(
+  m: Record<string, unknown>,
+  uploadRowStatus?: string | null,
+): {
   status: string;
   current_step: string;
   progress_percent: number;
@@ -564,6 +590,10 @@ function sessionStatusFromUploadMetadata(m: Record<string, unknown>): {
   const stage = String(job.stage_label ?? "").trim();
   const pct = Number(job.progress_pct);
   const progress = Number.isFinite(pct) ? Math.max(0, Math.min(100, Math.round(pct))) : 0;
+  const urs = String(uploadRowStatus ?? "").trim().toLowerCase();
+  if (urs === "uploading" || urs === "pending" || urs === "processing") {
+    return { status: "uploading", current_step: stage || "uploading", progress_percent: progress || 5 };
+  }
   if (m.pim_import_cancelled === true || pstat === "cancelled" || life === "cancelled") {
     return { status: "cancelled", current_step: "cancelled", progress_percent: 0 };
   }
@@ -618,7 +648,7 @@ function mapRawReportUploadToHistoryRow(
     (typeof job.import_mode === "string" && job.import_mode.trim()) ||
     (typeof frozen?.import_mode === "string" && String(frozen.import_mode).trim()) ||
     null;
-  const ss = sessionStatusFromUploadMetadata(m);
+  const ss = sessionStatusFromUploadMetadata(m, up.status);
   const uploadedBy = String(up.created_by ?? "").trim();
 
   const preview_metrics =
@@ -687,20 +717,9 @@ function mapRawReportUploadToHistoryRow(
   };
 }
 
-/** Terminal = completed import, user reset, or soft-deleted upload — excluded from active-import pick. */
-function isTerminalPimImportListRow(row: PimImportSessionListRow): boolean {
-  const meta = row.metadata ?? {};
-  const p = String(row.preview_status ?? "").toLowerCase();
-  const life = String(row.lifecycle ?? "").toLowerCase();
-  if (life === "completed" || p === "completed") return true;
-  if (p === "reset") return true;
-  if (meta.pim_upload_deleted === true || meta.deleted === true) return true;
-  return false;
-}
-
 /** Newest-first history row that can drive “current import” / resume (within loaded history window). */
 function isSuggestedActivePimImportRow(row: PimImportSessionListRow): boolean {
-  if (isTerminalPimImportListRow(row)) return false;
+  if (pimHistoryRowIsTerminal(row)) return false;
   const m = row.metadata ?? {};
   const p = String(row.preview_status ?? "").toLowerCase();
   const rs = String(row.status ?? "").toLowerCase();
@@ -804,16 +823,34 @@ export async function findActivePimImportBySha(input: {
 /** History list row id equals `raw_report_uploads.id` (session table not used). */
 export type PimSuggestedActiveImport = { upload_id: string; file_name: string };
 
+/** Admin-only diagnostics for Product Master history query (when `includeHistoryDebug` + permission). */
+export type PimImportHistoryQueryDebug = {
+  organization_id: string;
+  report_type_filter: string;
+  pim_product_master_row_count: number;
+  legacy_catalog_seed_row_count: number;
+  merged_unique_row_count: number;
+  limited_to: number;
+  returned_rows: { id: string; file_name: string; report_type: string | null }[];
+  include_upload_ids_requested: string[];
+  forced_fetch_missing_reasons: Record<string, string>;
+};
+
 /**
- * PIM seed import history: `raw_report_uploads` for org + store (metadata store fields), newest first.
- * If `includeUploadIds` are provided, those rows are always fetched and prepended (even if store doesn't match).
+ * PIM seed import history: `raw_report_uploads` for org (newest first).
+ * Primary filter: `report_type = pim_product_master`. Legacy `pim_catalog_seed` / `PIM_CATALOG_SEED` merged in.
+ * Does not filter by store, terminal status, or file_processing_status.
+ * If `includeUploadIds` are provided, those rows are fetched by id and merged in (even if outside the window).
  */
 export async function listPimImportSessions(input: {
   organizationId: string;
-  storeId: string;
+  /** When set, used only to tag `store_mismatch` on rows — history is org-wide. */
+  storeId?: string;
   limit?: number;
   /** Upload ids that must appear in the result regardless of store match (e.g. current active import). */
   includeUploadIds?: string[];
+  /** When true, returns `historyQueryDebug` if the user may view PIM enrichment debug. */
+  includeHistoryDebug?: boolean;
 }): Promise<
   | {
       ok: true;
@@ -821,56 +858,47 @@ export async function listPimImportSessions(input: {
       unlinkedRows: PimUnlinkedUploadRow[];
       ensureStats: EnsurePimImportSessionsResult;
       suggestedActive: PimSuggestedActiveImport | null;
+      historyQueryDebug?: PimImportHistoryQueryDebug;
     }
   | { ok: false; error: string }
 > {
   const gate = await assertUserCanAccessOrganization(input.organizationId);
   if (!gate.ok) return { ok: false, error: gate.error };
-  const sid = input.storeId.trim();
-  if (!isUuidString(sid)) return { ok: false, error: "Invalid store." };
-  const lim = Math.min(100, Math.max(1, input.limit ?? 40));
+  const sid = String(input.storeId ?? "").trim();
+  if (sid && !isUuidString(sid)) return { ok: false, error: "Invalid store." };
+  const lim = Math.min(200, Math.max(1, input.limit ?? 100));
 
-  const { data: uploads, error: uErr } = await supabaseServer
+  const oid = input.organizationId.trim();
+
+  const { data: pmUploads, error: pmErr } = await supabaseServer
     .from("raw_report_uploads")
     .select("id,file_name,created_at,updated_at,status,row_count,metadata,error_message,report_type,created_by")
-    .eq("organization_id", input.organizationId)
-    .in("report_type", [...PIM_SESSION_REPORT_TYPES])
+    .eq("organization_id", oid)
+    .eq("report_type", PIM_PRODUCT_MASTER_REPORT_TYPE)
     .order("created_at", { ascending: false })
     .limit(800);
 
-  if (uErr) return { ok: false, error: uErr.message };
+  if (pmErr) return { ok: false, error: pmErr.message };
 
-  // Also fetch uploads that have PIM metadata markers but a non-standard report_type.
-  const { data: metaFallback } = await supabaseServer
+  const { data: legacySeedUploads } = await supabaseServer
     .from("raw_report_uploads")
     .select("id,file_name,created_at,updated_at,status,row_count,metadata,error_message,report_type,created_by")
-    .eq("organization_id", input.organizationId)
-    .not("report_type", "in", `(${[...PIM_SESSION_REPORT_TYPES].join(",")})`)
+    .eq("organization_id", oid)
+    .in("report_type", [...PIM_HISTORY_LEGACY_SEED_TYPES])
     .order("created_at", { ascending: false })
     .limit(200);
 
-  // Merge and de-duplicate by id.
-  const seenIds = new Set<string>();
-  const allUploads: typeof uploads = [];
-  for (const u of [...(uploads ?? []), ...(metaFallback ?? [])]) {
+  const mergedById = new Map<string, RawReportUploadListRow>();
+  for (const u of [...(pmUploads ?? []), ...(legacySeedUploads ?? [])]) {
     const uid = String((u as { id?: string }).id ?? "").trim();
-    if (!uid || seenIds.has(uid)) continue;
-    const m = (u as { metadata?: Record<string, unknown> }).metadata ?? {};
-    // Include metaFallback rows only if they look like PIM imports.
-    const rt = String((u as { report_type?: string }).report_type ?? "");
-    const isPimType = (PIM_SESSION_REPORT_TYPES as readonly string[]).includes(rt);
-    if (!isPimType && !isPimMetadataRow(m)) continue;
-    seenIds.add(uid);
-    allUploads.push(u);
+    if (!uid || mergedById.has(uid)) continue;
+    mergedById.set(uid, u as RawReportUploadListRow);
   }
 
-  const relevant = allUploads.filter((u) => {
-    const m = (u as { metadata?: Record<string, unknown> }).metadata ?? {};
-    const uploadStore = uploadStoreIdFromMetadata(m);
-    // Include all PIM uploads for the org. Store filter is informational only —
-    // do NOT exclude uploads because of store mismatch (prevents active upload from disappearing).
-    // Tag store_mismatch per-row in the slice loop below.
-    return Boolean(uploadStore) || true; // always include
+  const relevant = Array.from(mergedById.values()).sort((a, b) => {
+    const ta = new Date((a as { created_at?: string | null }).created_at ?? 0).getTime();
+    const tb = new Date((b as { created_at?: string | null }).created_at ?? 0).getTime();
+    return tb - ta;
   });
 
   const ensureStats = pimListStatsFromRawScan(relevant.length);
@@ -914,7 +942,7 @@ export async function listPimImportSessions(input: {
       // Tag row as store_mismatch if its metadata store doesn't match the selected store
       const m = ((u as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
       const uploadStore = uploadStoreIdFromMetadata(m);
-      if (uploadStore && uploadStore !== sid) {
+      if (sid && uploadStore && uploadStore !== sid) {
         (row as PimImportSessionListRow & { store_mismatch?: boolean }).store_mismatch = true;
       }
       rows.push(row);
@@ -924,7 +952,7 @@ export async function listPimImportSessions(input: {
   const unlinkedRows: PimUnlinkedUploadRow[] = [];
 
   // Force-include any explicitly requested upload IDs (e.g. current active import).
-  // If they're not already in rows, fetch them directly and prepend as "unlisted" entries.
+  const forcedFetchMissingReasons: Record<string, string> = {};
   const forcedIds = (input.includeUploadIds ?? []).filter(isUuidString);
   if (forcedIds.length > 0) {
     const presentIds = new Set(rows.map((r) => r.upload_id));
@@ -933,12 +961,20 @@ export async function listPimImportSessions(input: {
       const { data: forcedUploads } = await supabaseServer
         .from("raw_report_uploads")
         .select("id,file_name,created_at,updated_at,status,row_count,metadata,error_message,report_type,created_by")
-        .eq("organization_id", input.organizationId)
+        .eq("organization_id", oid)
         .in("id", missingIds);
+      const byForcedId = new Map<string, RawReportUploadListRow>();
       for (const u of forcedUploads ?? []) {
+        const id = String((u as { id?: string }).id ?? "").trim();
+        if (id) byForcedId.set(id, u as RawReportUploadListRow);
+      }
+      for (const id of missingIds) {
+        const u = byForcedId.get(id);
+        if (!u) {
+          forcedFetchMissingReasons[id] = "no_raw_report_uploads_row_for_organization_and_id";
+          continue;
+        }
         const m = ((u as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
-        const rt = String((u as { report_type?: string }).report_type ?? "");
-        if (!(PIM_SESSION_REPORT_TYPES as readonly string[]).includes(rt) && !isPimMetadataRow(m)) continue;
         const forcedRow = mapRawReportUploadToHistoryRow(
           u as {
             id?: string;
@@ -954,11 +990,15 @@ export async function listPimImportSessions(input: {
           },
           nameById,
         );
-        if (forcedRow) {
-          // Tag this row so the UI can show a "store mismatch" warning.
-          (forcedRow as PimImportSessionListRow & { store_mismatch?: boolean }).store_mismatch = true;
-          rows.unshift(forcedRow);
+        if (!forcedRow) {
+          forcedFetchMissingReasons[id] = "history_mapper_returned_null";
+          continue;
         }
+        const uploadStoreF = uploadStoreIdFromMetadata(m);
+        if (sid && uploadStoreF && uploadStoreF !== sid) {
+          (forcedRow as PimImportSessionListRow & { store_mismatch?: boolean }).store_mismatch = true;
+        }
+        rows.unshift(forcedRow);
       }
     }
   }
@@ -971,7 +1011,26 @@ export async function listPimImportSessions(input: {
     }
   }
 
-  return { ok: true, rows, unlinkedRows, ensureStats, suggestedActive };
+  let historyQueryDebug: PimImportHistoryQueryDebug | undefined;
+  if (input.includeHistoryDebug && (await userCanViewPimEnrichmentDebug(oid))) {
+    historyQueryDebug = {
+      organization_id: oid,
+      report_type_filter: `${PIM_PRODUCT_MASTER_REPORT_TYPE} (+ legacy ${PIM_HISTORY_LEGACY_SEED_TYPES.join(", ")})`,
+      pim_product_master_row_count: pmUploads?.length ?? 0,
+      legacy_catalog_seed_row_count: legacySeedUploads?.length ?? 0,
+      merged_unique_row_count: relevant.length,
+      limited_to: lim,
+      returned_rows: rows.map((r) => ({
+        id: r.upload_id,
+        file_name: r.file_name,
+        report_type: r.report_type ?? null,
+      })),
+      include_upload_ids_requested: forcedIds,
+      forced_fetch_missing_reasons: forcedFetchMissingReasons,
+    };
+  }
+
+  return { ok: true, rows, unlinkedRows, ensureStats, suggestedActive, historyQueryDebug };
 }
 
 /**
@@ -1486,4 +1545,110 @@ export async function detachConflictingImapRows(input: {
   }
 
   return { ok: true, would_detach: imap_rows_found.length, detached: idsToDetach.length, imap_rows: imap_rows_found };
+}
+
+/** Latest `file_processing_status.import_metrics` for a Product Master upload (price backfill checkpoints live here). */
+export async function getPimImportFileProcessingMetrics(input: {
+  organizationId: string;
+  uploadId: string;
+}): Promise<{ ok: true; import_metrics: Record<string, unknown> | null } | { ok: false; error: string }> {
+  const gate = await assertUserCanAccessOrganization(input.organizationId);
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const uid = String(input.uploadId ?? "").trim();
+  if (!isUuidString(uid)) return { ok: false, error: "Invalid upload id." };
+
+  const { data, error } = await supabaseServer
+    .from("file_processing_status")
+    .select("import_metrics")
+    .eq("upload_id", uid)
+    .eq("organization_id", input.organizationId.trim())
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  const im = data?.import_metrics;
+  return {
+    ok: true,
+    import_metrics: im && typeof im === "object" && !Array.isArray(im) ? (im as Record<string, unknown>) : null,
+  };
+}
+
+/**
+ * One bounded chunk of Product Master price backfill (ETL checkpoints in `file_processing_status.import_metrics`).
+ * Admin-gated; callers should loop until `done` or `terminal`.
+ */
+export async function pimPriceBackfillStep(input: {
+  organizationId: string;
+  uploadId: string;
+  rowChunk?: number | null;
+  restart?: boolean;
+  cancel?: boolean;
+}): Promise<
+  | {
+      ok: true;
+      done: boolean;
+      terminal?: boolean;
+      paused?: boolean;
+      cancelled?: boolean;
+      cached?: boolean;
+      chunk_rows?: number;
+      price_backfill: Record<string, unknown> | null;
+      user_hint?: string | null;
+    }
+  | { ok: false; error: string; user_hint?: string | null; price_backfill?: Record<string, unknown> | null }
+> {
+  const gate = await assertUserCanAccessOrganization(input.organizationId);
+  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!(await userCanRunPimPriceBackfill(input.organizationId))) {
+    return { ok: false, error: "Only administrators can run price backfill." };
+  }
+  const uid = String(input.uploadId ?? "").trim();
+  if (!isUuidString(uid)) return { ok: false, error: "Invalid upload id." };
+
+  const r = await pimEtlPriceBackfillStep({
+    organization_id: input.organizationId,
+    upload_id: uid,
+    row_chunk: input.rowChunk ?? undefined,
+    restart: Boolean(input.restart),
+    cancel: Boolean(input.cancel),
+  });
+  const status = r.timedOut ? 504 : r.status;
+  const json = (r.json && typeof r.json === "object" ? r.json : {}) as Record<string, unknown>;
+  if (!r.ok) {
+    const det = json.detail;
+    const msg =
+      typeof json.message === "string"
+        ? json.message
+        : typeof json.user_hint === "string"
+          ? json.user_hint
+          : typeof det === "string"
+            ? det
+            : det && typeof det === "object" && typeof (det as { message?: string }).message === "string"
+              ? String((det as { message: string }).message)
+              : `ETL error (HTTP ${status}).`;
+    return { ok: false, error: msg, user_hint: typeof json.user_hint === "string" ? json.user_hint : undefined };
+  }
+  if (json.ok === false) {
+    return {
+      ok: false,
+      error: String(json.error ?? json.message ?? "backfill_step_failed"),
+      user_hint: typeof json.user_hint === "string" ? json.user_hint : undefined,
+      price_backfill:
+        json.price_backfill && typeof json.price_backfill === "object"
+          ? (json.price_backfill as Record<string, unknown>)
+          : null,
+    };
+  }
+  const bf =
+    json.price_backfill && typeof json.price_backfill === "object" ? (json.price_backfill as Record<string, unknown>) : null;
+  return {
+    ok: true,
+    done: Boolean(json.done),
+    terminal: json.terminal !== undefined ? Boolean(json.terminal) : Boolean(json.done),
+    paused: Boolean(json.paused),
+    cancelled: Boolean(json.cancelled),
+    cached: Boolean(json.cached),
+    chunk_rows: typeof json.chunk_rows === "number" ? json.chunk_rows : undefined,
+    price_backfill: bf,
+    user_hint: typeof json.user_hint === "string" ? json.user_hint : null,
+  };
 }

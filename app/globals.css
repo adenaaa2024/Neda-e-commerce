@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Reduce layout shift when modals hide the scrollbar (dashboard sidebar alignment). */
+html {
+  scrollbar-gutter: stable;
+}
+
 /*
  * ── Dark-mode variant ──────────────────────────────────────────────────────────
  * By default Tailwind v4 dark: uses @media (prefers-color-scheme: dark).

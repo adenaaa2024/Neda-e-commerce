@@ -24,17 +24,19 @@ const SORTABLE = new Set([
   "latest_price",
 ]);
 
-export function formatPrice(row: PimCatalogRow): string {
+export function formatPrice(row: PimCatalogRow, displayCurrencyFallback = "USD"): string {
   const r = row as Record<string, unknown>;
   const amt = r.latest_price_amount ?? r.latestPriceAmount;
   const curRaw = r.latest_price_currency ?? r.latestPriceCurrency;
-  const cur = typeof curRaw === "string" ? curRaw : "USD";
+  const trimmed = typeof curRaw === "string" ? curRaw.trim() : "";
+  const cur = trimmed.length === 3 ? trimmed.toUpperCase() : displayCurrencyFallback.trim().toUpperCase() || "USD";
   const n = typeof amt === "number" ? amt : typeof amt === "string" ? Number.parseFloat(amt) : Number.NaN;
   if (!Number.isFinite(n)) return "—";
+  const code = /^[A-Z]{3}$/.test(cur) ? cur : "USD";
   try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: cur.length === 3 ? cur : "USD" }).format(n);
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(n);
   } catch {
-    return `${cur} ${n.toFixed(2)}`;
+    return `${code} ${n.toFixed(2)}`;
   }
 }
 
@@ -117,6 +119,7 @@ export function CatalogDataGrid({
   filtersActive = false,
   onClearFilters,
   onImagePreview,
+  displayCurrency = "USD",
 }: {
   rows: PimCatalogRow[];
   total: number;
@@ -134,6 +137,8 @@ export function CatalogDataGrid({
   onClearFilters?: () => void;
   /** Deduped gallery URLs, primary first */
   onImagePreview?: (urls: string[], startIndex: number) => void;
+  /** ISO 4217 when row has no currency (Settings → General). */
+  displayCurrency?: string;
 }) {
   const [identifierLayout, setIdentifierLayout] = useState<"separate" | "combined">("separate");
   useEffect(() => {
@@ -348,7 +353,7 @@ export function CatalogDataGrid({
                       </>
                     )}
                     <td className="whitespace-nowrap px-3 py-2 align-middle text-muted-foreground">{status}</td>
-                    <td className="whitespace-nowrap px-3 py-2 align-middle text-muted-foreground">{formatPrice(row)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 align-middle text-muted-foreground">{formatPrice(row, displayCurrency)}</td>
                     <td className="whitespace-nowrap px-3 py-2 align-middle text-xs text-muted-foreground">{formatTs(last)}</td>
                     <td className="whitespace-nowrap px-3 py-2 align-middle">
                       <div className="flex flex-wrap gap-1">

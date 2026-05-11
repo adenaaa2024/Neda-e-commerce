@@ -62,6 +62,7 @@ export function PimGroupTreeView({
   onApplyToGrid,
   onOpenProduct,
   onEditProduct,
+  displayCurrency = "USD",
 }: {
   organizationId: string;
   storeId: string;
@@ -69,6 +70,7 @@ export function PimGroupTreeView({
   onApplyToGrid: (dim: CatalogGroupDimension, row: CatalogGroupRow) => void;
   onOpenProduct: (id: string) => void;
   onEditProduct: (id: string) => void;
+  displayCurrency?: string;
 }) {
   const [groups, setGroups] = useState<CatalogGroupRow[]>([]);
   const [rollupLoading, setRollupLoading] = useState(false);
@@ -358,7 +360,7 @@ export function PimGroupTreeView({
                                           <IdentifierValue value={displayUpc(p) || null} kind="upc" />
                                         </td>
                                         <td className="whitespace-nowrap px-2 py-1.5 align-top text-muted-foreground">{status}</td>
-                                        <td className="whitespace-nowrap px-2 py-1.5 align-top text-muted-foreground">{formatPrice(p)}</td>
+                                        <td className="whitespace-nowrap px-2 py-1.5 align-top text-muted-foreground">{formatPrice(p, displayCurrency)}</td>
                                         <td className="whitespace-nowrap px-2 py-1.5 align-top">
                                           <div className="flex flex-wrap gap-1">
                                             <button

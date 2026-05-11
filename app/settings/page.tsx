@@ -86,8 +86,9 @@ import {
   saveOrganizationClaimEvidenceDefaults,
 } from "./organization-claim-evidence-actions";
 import {
-  getOrganizationDefaultStoreId,
+  getOrganizationOperationalPreferences,
   saveOrganizationDefaultStoreId,
+  saveOrganizationDisplayCurrencyCode,
 } from "./organization-default-store-actions";
 
 // ─── Types & Constants ────────────────────────────────────────────────────────
@@ -187,6 +188,11 @@ const PLATFORM_TO_PROVIDER: Record<string, string | null> = {
   shopify: null,
   custom:  null,
 };
+
+/** ISO 4217 codes for catalog price display (PIM hub). */
+const DISPLAY_CURRENCY_OPTIONS = [
+  "USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "SEK", "NOK", "MXN", "INR", "CNY", "BRL", "ZAR", "AED", "SGD", "HKD", "NZD",
+] as const;
 
 const PLANS = ["Free Tier", "Pro Tier", "Enterprise"] as const;
 type SaasPlan = typeof PLANS[number];
@@ -454,6 +460,7 @@ export default function SettingsPage() {
 
   // ── General Preferences ────────────────────────────────────────────────────
   const [defaultStoreId,  setDefaultStoreId]  = useState<string>("");
+  const [displayCurrencyCode, setDisplayCurrencyCode] = useState<string>("USD");
   const [storesList,      setStoresList]      = useState<StorePublicRow[]>([]);
   const [storesListLoading, setStoresListLoading] = useState(false);
 
@@ -612,18 +619,19 @@ export default function SettingsPage() {
     if (tab) setActiveTab(tab);
   }, [mounted]);
 
-  // ── Default store: organization_settings.default_store_id is canonical; localStorage is fallback ─
+  // ── Default store + display currency: organization_settings is canonical; localStorage is fallback for store ─
   useEffect(() => {
     if (!mounted) return;
     let cancelled = false;
-    void getOrganizationDefaultStoreId(tenantCtx).then((serverId) => {
+    void getOrganizationOperationalPreferences(tenantCtx).then((prefs) => {
       if (cancelled) return;
-      if (serverId) {
-        setDefaultStoreId(serverId);
-        setDefaultStoreIdInStorage(serverId);
+      if (prefs.defaultStoreId) {
+        setDefaultStoreId(prefs.defaultStoreId);
+        setDefaultStoreIdInStorage(prefs.defaultStoreId);
       } else {
         setDefaultStoreId(getDefaultStoreIdFromStorage());
       }
+      setDisplayCurrencyCode(prefs.displayCurrencyCode);
     });
     return () => {
       cancelled = true;
@@ -809,6 +817,11 @@ export default function SettingsPage() {
     const res = await saveOrganizationDefaultStoreId(defaultStoreId.trim() || null, tenantCtx);
     if (!res.ok) {
       showToast(res.error ?? "Failed to save default store.", false);
+      return;
+    }
+    const resCur = await saveOrganizationDisplayCurrencyCode(displayCurrencyCode, tenantCtx);
+    if (!resCur.ok) {
+      showToast(resCur.error ?? "Failed to save display currency.", false);
       return;
     }
     setDefaultStoreIdInStorage(defaultStoreId);
@@ -1742,6 +1755,28 @@ export default function SettingsPage() {
                         when no package or prefix is detected.
                       </p>
                     )}
+                  </div>
+
+                  <div>
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <label className={LABEL_CLS}>Catalog display currency</label>
+                    </div>
+                    <p className={HINT_CLS}>
+                      ISO 4217 code used in the product catalog when a price row has no currency (PIM grid, groups, product detail). Does not convert
+                      stored amounts.
+                    </p>
+                    <select
+                      value={displayCurrencyCode}
+                      onChange={(e) => setDisplayCurrencyCode(e.target.value)}
+                      className={SELECT_CLS}
+                    >
+                      {DISPLAY_CURRENCY_OPTIONS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

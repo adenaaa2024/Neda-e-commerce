@@ -157,6 +157,8 @@ export async function insertAmazonEnrichmentProductPrice(
     priceSourceKind?: AmazonPriceSourceKind;
     /** When `from` is pricing_item_offers, tier chosen from API payload. */
     pricingApiTier?: PricingApiTier | null;
+    /** When true, skip the recent same-amount duplicate check (allows a new history row sooner). */
+    skipRecentDuplicateCheck?: boolean;
   },
 ): Promise<InsertAmazonProductPriceResult> {
   const org = String(params.organizationId ?? "").trim();
@@ -235,9 +237,11 @@ export async function insertAmazonEnrichmentProductPrice(
   }
   dupeQ = dupeQ.eq("currency", currencyNorm).limit(1);
 
-  const { data: recentDupe } = await dupeQ;
-  if (recentDupe?.length) {
-    return { ok: false, reason: "duplicate_recent" };
+  if (!params.skipRecentDuplicateCheck) {
+    const { data: recentDupe } = await dupeQ;
+    if (recentDupe?.length) {
+      return { ok: false, reason: "duplicate_recent" };
+    }
   }
 
   const skuTrim =

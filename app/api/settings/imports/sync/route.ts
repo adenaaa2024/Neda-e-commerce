@@ -2031,16 +2031,23 @@ export async function POST(req: Request): Promise<Response> {
               | Record<string, unknown>
               | null;
           } else if (kind === "SETTLEMENT") {
-            insertRow = mapRowToAmazonSettlement(mappedRow, orgId, uploadId) as Record<string, unknown> | null;
+            insertRow = mapRowToAmazonSettlement(
+              mappedRow,
+              orgId,
+              uploadId,
+              importStoreId ?? null,
+            ) as Record<string, unknown> | null;
           } else if (kind === "SAFET_CLAIMS") {
             insertRow = mapRowToAmazonSafetClaim(mappedRow, orgId, uploadId, importStoreId!) as Record<string, unknown> | null;
           } else if (kind === "TRANSACTIONS") {
             insertRow = mapRowToAmazonTransaction(mappedRow, orgId, uploadId, importStoreId!) as Record<string, unknown> | null;
           } else if (kind === "REPORTS_REPOSITORY") {
-            insertRow = mapRowToAmazonReportsRepository(mappedRow, orgId, uploadId) as Record<
-              string,
-              unknown
-            >;
+            insertRow = mapRowToAmazonReportsRepository(
+              mappedRow,
+              orgId,
+              uploadId,
+              importStoreId ?? null,
+            ) as Record<string, unknown>;
           } else if (kind === "MANAGE_FBA_INVENTORY") {
             insertRow = mapRowToAmazonManageFbaInventory(
               mappedRow,

@@ -163,6 +163,53 @@ function wantsCatalogEnrichment(r: ProductRow): boolean {
   );
 }
 
+const ENRICH_PRODUCT_SELECT =
+  "id, asin, fnsku, sku, upc_code, product_name, brand, main_image_url, amazon_raw, category_id, metadata";
+
+async function fetchProductRowsForEnrichment(args: {
+  organizationId: string;
+  storeId: string;
+  retryOnly: boolean;
+  retryIds: string[];
+  retryMissingPrices: boolean;
+}): Promise<{ rows: ProductRow[]; error: string | null }> {
+  const { organizationId, storeId, retryOnly, retryIds, retryMissingPrices } = args;
+
+  if (retryOnly && retryIds.length) {
+    const { data, error } = await supabaseServer
+      .from("products")
+      .select(ENRICH_PRODUCT_SELECT)
+      .eq("organization_id", organizationId)
+      .eq("store_id", storeId)
+      .is("deleted_at", null)
+      .in("id", retryIds);
+    return { rows: (data ?? []) as ProductRow[], error: error?.message ?? null };
+  }
+
+  const pageSize = 1000;
+  const out: ProductRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    let q = supabaseServer
+      .from("products")
+      .select(ENRICH_PRODUCT_SELECT)
+      .eq("organization_id", organizationId)
+      .eq("store_id", storeId)
+      .is("deleted_at", null);
+    if (retryMissingPrices) {
+      q = q.order("updated_at", { ascending: false, nullsFirst: false });
+    } else {
+      q = q.order("id", { ascending: true });
+    }
+    q = q.range(from, from + pageSize - 1);
+    const { data, error } = await q;
+    if (error) return { rows: [], error: error.message };
+    const chunk = (data ?? []) as ProductRow[];
+    out.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+  return { rows: out, error: null };
+}
+
 async function resolveOrCreateCategoryId(
   organizationId: string,
   label: string,
@@ -230,6 +277,15 @@ export async function POST(req: Request) {
     organization_id?: string;
     store_id?: string;
     limit?: number;
+    /** Offset into the eligible ASIN list for this run (use with `continuation.next_start_index`). */
+    start_index?: number;
+    /**
+     * When true, products missing image/title/brand/category are processed first (legacy behavior).
+     * Default false: stable product id order so every product is reached across repeated batches.
+     */
+    prioritize_incomplete?: boolean;
+    /** When true, allow new `product_prices` rows even if the same amount was stored recently. */
+    force_fresh_price_rows?: boolean;
     retry_failed_only?: boolean;
     /** When true, only products with a valid ASIN and no `product_prices` rows for this store. */
     retry_missing_prices_only?: boolean;
@@ -246,6 +302,13 @@ export async function POST(req: Request) {
   const organizationId = String(body.organization_id ?? "").trim();
   const storeId = String(body.store_id ?? "").trim();
   const limit = Math.min(MAX_PER_RUN, Math.max(1, Number(body.limit ?? MAX_PER_RUN) || MAX_PER_RUN));
+  const startIndexRaw = Number(body.start_index ?? 0);
+  const startIndex = Number.isFinite(startIndexRaw) ? Math.max(0, Math.floor(startIndexRaw)) : 0;
+  const prioritizeIncomplete = Boolean(body.prioritize_incomplete);
+  const forceFreshPriceRows = Boolean(body.force_fresh_price_rows);
+  const priceDedupe: { skipRecentDuplicateCheck?: boolean } = forceFreshPriceRows
+    ? { skipRecentDuplicateCheck: true }
+    : {};
   const retryOnly = Boolean(body.retry_failed_only);
   const retryMissingPrices = Boolean(body.retry_missing_prices_only);
   const retryIds = Array.isArray(body.product_ids)
@@ -313,29 +376,18 @@ export async function POST(req: Request) {
     );
   }
 
-  let q = supabaseServer
-    .from("products")
-    .select(
-      "id, asin, fnsku, sku, upc_code, product_name, brand, main_image_url, amazon_raw, category_id, metadata",
-    )
-    .eq("organization_id", organizationId)
-    .eq("store_id", storeId)
-    .is("deleted_at", null);
-
-  if (retryOnly) {
-    q = q.in("id", retryIds);
-  } else if (retryMissingPrices) {
-    q = q.order("updated_at", { ascending: false, nullsFirst: false }).limit(Math.max(800, limit * 10));
-  } else {
-    q = q.limit(800);
+  const { rows: fetchedRows, error: fetchErr } = await fetchProductRowsForEnrichment({
+    organizationId,
+    storeId,
+    retryOnly,
+    retryIds,
+    retryMissingPrices,
+  });
+  if (fetchErr) {
+    return NextResponse.json({ ok: false, error: fetchErr }, { status: 400 });
   }
 
-  const { data: rows, error: qErr } = await q;
-  if (qErr) {
-    return NextResponse.json({ ok: false, error: qErr.message }, { status: 400 });
-  }
-
-  let list = (rows ?? []) as ProductRow[];
+  let list = fetchedRows;
   let skipped_no_asin_for_missing_price = 0;
 
   if (retryMissingPrices) {
@@ -397,11 +449,19 @@ export async function POST(req: Request) {
           (a, b) => priceRetryBoost(a) - priceRetryBoost(b) || String(a.id).localeCompare(String(b.id)),
         )
       : [...withValidAsin].sort((a, b) => {
-          const pri = (x: ProductRow) => (wantsCatalogEnrichment(x) ? 0 : 1);
-          return pri(a) - pri(b) || String(a.id).localeCompare(String(b.id));
+          if (prioritizeIncomplete) {
+            const pri = (x: ProductRow) => (wantsCatalogEnrichment(x) ? 0 : 1);
+            return pri(a) - pri(b) || String(a.id).localeCompare(String(b.id));
+          }
+          return String(a.id).localeCompare(String(b.id));
         });
-  const toProcess = orderedForRun.slice(0, limit);
-  const scanned = retryOnly || retryMissingPrices ? orderedForRun.length : withValidAsin.length;
+  const toProcess = orderedForRun.slice(startIndex, startIndex + limit);
+  const scanned = orderedForRun.length;
+  const nextStartIndex = startIndex + toProcess.length;
+  const continuation =
+    nextStartIndex < orderedForRun.length
+      ? { next_start_index: nextStartIndex, total_eligible: orderedForRun.length }
+      : undefined;
 
   const with_asin = withValidAsin.length;
   const with_fnsku = withValidAsin.filter((r) => String(r.fnsku ?? "").trim().length > 0).length;
@@ -631,6 +691,7 @@ export async function POST(req: Request) {
           productSku: row.sku,
           rawSample: offersRawSample,
           pricingApiTier: offersPricingApiTier,
+          ...priceDedupe,
         });
         if (ins.ok) {
           priceInsertedThis += 1;
@@ -661,6 +722,7 @@ export async function POST(req: Request) {
           currency: savedListPartial.currency,
           from: "saved_amazon_raw_catalog",
           productSku: row.sku,
+          ...priceDedupe,
         });
         if (insR.ok) {
           priceInsertedThis += 1;
@@ -690,6 +752,7 @@ export async function POST(req: Request) {
           from: "catalog_products_listing",
           productSku: row.sku,
           metadataExtra: { catalog_product_id: listingPickPartial.catalog_product_id },
+          ...priceDedupe,
         });
         if (insL.ok) {
           priceInsertedThis += 1;
@@ -719,6 +782,7 @@ export async function POST(req: Request) {
           from: "catalog_products_fallback_offer",
           productSku: row.sku,
           metadataExtra: { catalog_product_id: fallbackPickPartial.catalog_product_id },
+          ...priceDedupe,
         });
         if (insF.ok) {
           priceInsertedThis += 1;
@@ -1252,6 +1316,7 @@ export async function POST(req: Request) {
             productSku: row.sku,
             rawSample: offersRawSample,
             pricingApiTier: offersPricingApiTier,
+            ...priceDedupe,
           });
           insertedOffersOk = insOffers.ok;
           if (insOffers.ok) {
@@ -1289,6 +1354,7 @@ export async function POST(req: Request) {
               currency: listPriceCatalog.currency,
               from: "catalog_items_api",
               productSku: row.sku,
+              ...priceDedupe,
             });
             if (insList.ok) {
               priceInsertedThis += 1;
@@ -1323,6 +1389,7 @@ export async function POST(req: Request) {
               currency: savedMerged.currency,
               from: "saved_amazon_raw_catalog",
               productSku: row.sku,
+              ...priceDedupe,
             });
             if (insR.ok) {
               priceInsertedThis += 1;
@@ -1355,6 +1422,7 @@ export async function POST(req: Request) {
               from: "catalog_products_listing",
               productSku: row.sku,
               metadataExtra: { catalog_product_id: listingPickOk.catalog_product_id },
+              ...priceDedupe,
             });
             if (insL.ok) {
               priceInsertedThis += 1;
@@ -1387,6 +1455,7 @@ export async function POST(req: Request) {
               from: "catalog_products_fallback_offer",
               productSku: row.sku,
               metadataExtra: { catalog_product_id: fallbackPickOk.catalog_product_id },
+              ...priceDedupe,
             });
             if (insF.ok) {
               priceInsertedThis += 1;
@@ -1506,8 +1575,11 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    ...(continuation ? { continuation } : {}),
     metrics: {
       scanned,
+      start_index: startIndex,
+      batch_size: toProcess.length,
       with_asin,
       with_fnsku,
       with_sku,
@@ -1557,6 +1629,8 @@ export async function POST(req: Request) {
       price_from_catalog_products_fallback_offer,
       api_price_ai_disambiguations,
       retry_missing_prices_only: retryMissingPrices,
+      prioritize_incomplete: prioritizeIncomplete,
+      force_fresh_price_rows: forceFreshPriceRows,
     },
     failures,
     failed_product_ids: failures.map((f) => f.product_id),
