@@ -91,6 +91,63 @@ export async function getOperatorStoreScopeForOrganization(
   };
 }
 
+export type OperatorPackageListRow = {
+  id: string;
+  package_code: string | null;
+  tracking_number: string | null;
+  id_slip_contents: string | null;
+  notes?: string | null;
+  outside_photo_urls?: unknown;
+  inside_photo_urls?: unknown;
+  slip_photo_urls?: unknown;
+  expected_item_count?: number | null;
+  actual_item_count?: number | null;
+  updated_at?: string | null;
+};
+
+/**
+ * BOX collaboration: list active packages on a pallet (service role + org resolution).
+ */
+export async function listOperatorPackagesForPalletAction(
+  requestedOrganizationId: string,
+  palletId: string,
+): Promise<{ ok: true; packages: OperatorPackageListRow[] } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const pid = String(palletId ?? "").trim();
+  if (!isUuidString(pid)) {
+    return { ok: false, message: "Invalid pallet id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const { data: pchk, error: perr } = await supabaseServer
+    .from("pallets")
+    .select("id")
+    .eq("id", pid)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (perr) return { ok: false, message: perr.message };
+  if (!pchk) {
+    return { ok: false, message: "Pallet not found for this organization." };
+  }
+  const { data, error } = await supabaseServer
+    .from("packages")
+    .select(
+      // `notes` = packages.notes (plural). Do not use legacy discrepancy_note / operator_note column names.
+      "id, package_code, tracking_number, id_slip_contents, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, expected_item_count, actual_item_count, updated_at",
+    )
+    .eq("organization_id", organizationId)
+    .eq("pallet_id", pid)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, packages: (data ?? []) as OperatorPackageListRow[] };
+}
+
 export type CreateOperatorPalletActionInput = {
   requestedOrganizationId: string;
   storeId: string;
@@ -117,6 +174,8 @@ export type CommitOperatorPalletShipmentStepInput = {
   pallet_photo_urls: string[];
   /** Up to three BOL images. */
   bol_photo_urls: string[];
+  /** Operator / collaboration notes (pallets.notes). */
+  notes?: string | null;
 };
 
 export async function commitOperatorPalletShipmentStepAction(
@@ -161,6 +220,10 @@ export async function commitOperatorPalletShipmentStepAction(
   const palletUrls = sanitizePublicMediaUrlStrings(input.pallet_photo_urls, 3);
   const bolUrls = sanitizePublicMediaUrlStrings(input.bol_photo_urls, 3);
 
+  if (!labelUrls.length) {
+    return { ok: false, message: "At least one shipping label photo is required." };
+  }
+
   const payload: Record<string, unknown> = {
     carrier_name: carrierTrimmed,
     order_id: input.order_id,
@@ -170,6 +233,10 @@ export async function commitOperatorPalletShipmentStepAction(
     pallet_photo_urls: palletUrls,
     bol_photo_urls: bolUrls,
   };
+  if (input.notes !== undefined) {
+    const n = String(input.notes ?? "").trim();
+    payload.notes = n.length ? n : null;
+  }
 
   const creatorMissing = !(String(ex.created_by ?? "").trim());
   if (creatorMissing && actor.userId) {
@@ -343,11 +410,13 @@ export type InsertOperatorIntakeBoxPackageInput = {
   requestedOrganizationId: string;
   palletId: string | null;
   packageNumber: string;
+  /** Parent shipment / pallet tracking — many boxes may share it; not used for upsert dedupe. */
+  shipmentTrackingNumber?: string | null;
   storeId?: string | null;
 };
 
 export type InsertOperatorIntakeBoxPackageResult =
-  | { ok: true; packageId: string }
+  | { ok: true; packageId: string; reusedExisting?: boolean }
   | { ok: false; message: string };
 
 /**
@@ -407,11 +476,26 @@ export async function insertOperatorIntakeBoxPackageAction(
     palletIdFk = palletRaw;
   }
 
+  let shipmentTracking =
+    input.shipmentTrackingNumber != null ? String(input.shipmentTrackingNumber).trim() : "";
+  if (!shipmentTracking && palletIdFk) {
+    const { data: pltTn, error: pltTnErr } = await supabaseServer
+      .from("pallets")
+      .select("tracking_number")
+      .eq("id", palletIdFk)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (!pltTnErr && pltTn) {
+      shipmentTracking = String((pltTn as { tracking_number?: string | null }).tracking_number ?? "").trim();
+    }
+  }
+
   const actor = await resolveAuditActorForSession();
   return insertIntakeBoxPackage(supabaseServer, {
     organizationId,
     palletId: palletIdFk,
     packageNumber,
+    shipmentTrackingNumber: shipmentTracking || null,
     storeId: storeRaw || null,
     created_by: actor.userId ?? null,
   });
@@ -477,6 +561,8 @@ export type UpdateOperatorIntakeBoxPackageSlipLine = {
   description: string | null;
   expected_qty: number;
   condition: string | null;
+  /** Line marked missing vs physical slip (persisted in manifest JSON + UI). */
+  missing?: boolean;
 };
 
 /**
@@ -488,6 +574,8 @@ export type UpdateOperatorIntakeBoxPackageSlipLine = {
  */
 export type UpdateOperatorIntakeBoxPackageInput = {
   requestedOrganizationId: string;
+  /** Session store — preferred for `slip_contents.store_id` when replacing lines. */
+  storeId?: string | null;
   packageId: string;
   palletId?: string | null;
   palletUpdate?: {
@@ -500,9 +588,13 @@ export type UpdateOperatorIntakeBoxPackageInput = {
     inside_photo_urls?: string[];
     slip_photo_urls?: string[];
     package_code?: string | null;
+    /** Parent shipment / pallet tracking — optional, not a unique key. */
+    tracking_number?: string | null;
     id_slip_contents?: string | null;
     rma_number?: string | null;
     manifest_data?: Record<string, unknown>;
+    /** packages.notes — collaboration / discrepancy text. */
+    notes?: string | null;
   };
   slipContents:
     | { mode: "replace"; lines: UpdateOperatorIntakeBoxPackageSlipLine[]; slipCode: string | null }
@@ -533,14 +625,24 @@ export async function updateOperatorIntakeBoxPackageAction(
 
   const { data: pkgRow, error: pkgSelErr } = await supabaseServer
     .from("packages")
-    .select("id, organization_id")
+    .select("id, organization_id, store_id")
     .eq("id", packageId)
     .maybeSingle();
   if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
-  const pkgOrg = String((pkgRow as { organization_id?: string } | null)?.organization_id ?? "").trim();
+  const pkgTyped = pkgRow as { organization_id?: string; store_id?: string | null } | null;
+  const pkgOrg = String(pkgTyped?.organization_id ?? "").trim();
   if (!pkgRow || pkgOrg !== organizationId) {
     return { ok: false, message: "Package not found for this organization." };
   }
+
+  const inputStoreRaw = input.storeId != null ? String(input.storeId).trim() : "";
+  const pkgStoreRaw = String(pkgTyped?.store_id ?? "").trim();
+  const slipStoreId: string | null =
+    inputStoreRaw && isUuidString(inputStoreRaw)
+      ? inputStoreRaw
+      : pkgStoreRaw && isUuidString(pkgStoreRaw)
+        ? pkgStoreRaw
+        : null;
 
   const actor = await resolveAuditActorForSession();
   const uid = actor.userId?.trim() || null;
@@ -583,9 +685,14 @@ export async function updateOperatorIntakeBoxPackageAction(
     pkgPatch.slip_photo_urls = sanitizePublicMediaUrlStrings(pu.slip_photo_urls, 3);
   }
   if (pu.package_code !== undefined) pkgPatch.package_code = pu.package_code;
+  if (pu.tracking_number !== undefined) pkgPatch.tracking_number = pu.tracking_number;
   if (pu.id_slip_contents !== undefined) pkgPatch.id_slip_contents = pu.id_slip_contents;
   if (pu.rma_number !== undefined) pkgPatch.rma_number = pu.rma_number;
   if (pu.manifest_data !== undefined) pkgPatch.manifest_data = pu.manifest_data;
+  if (pu.notes !== undefined) {
+    const n = String(pu.notes ?? "").trim();
+    pkgPatch.notes = n.length ? n : null;
+  }
   if (uid) pkgPatch.updated_by = uid;
 
   const patchKeys = Object.keys(pkgPatch).filter((k) => k !== "updated_at" && k !== "updated_by");
@@ -614,6 +721,7 @@ export async function updateOperatorIntakeBoxPackageAction(
       const rows = lines.map((line, i) => ({
         organization_id: organizationId,
         package_id: packageId,
+        store_id: slipStoreId,
         slip_code: slipLineCode,
         rma_number: rmaPersist,
         upc: line.upc?.trim() || null,
