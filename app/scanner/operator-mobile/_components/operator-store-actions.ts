@@ -15,6 +15,11 @@ import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib
 import { sanitizePublicMediaUrlStrings } from "@/lib/entity-photo-evidence";
 import { insertIntakeBoxPackage } from "@/lib/scanner/operator-box-intake";
 import { insertUnknownPackageForTrackingCode } from "@/lib/scanner/operator-unknown-package";
+import {
+  fetchStoreDisplayNameForOrganization,
+  formatUnauthorizedPackageInStoreMessage,
+  formatUnauthorizedTrackingInStoreMessage,
+} from "@/lib/scanner/operator-store-display";
 
 export type OperatorStoreScopeSnapshot = {
   stores: OperatorStoreOption[];
@@ -102,15 +107,69 @@ export type OperatorPackageListRow = {
   slip_photo_urls?: unknown;
   expected_item_count?: number | null;
   actual_item_count?: number | null;
+  created_at?: string | null;
   updated_at?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  /** Filled by {@link listOperatorPackagesForPalletAction} via profiles lookup. */
+  created_by_display?: string | null;
+  updated_by_display?: string | null;
 };
+
+async function enrichOperatorPackageRowsWithProfileLabels(
+  rows: OperatorPackageListRow[],
+): Promise<OperatorPackageListRow[]> {
+  const ids = new Set<string>();
+  for (const r of rows) {
+    const cb = String(r.created_by ?? "").trim();
+    const ub = String(r.updated_by ?? "").trim();
+    if (isUuidString(cb)) ids.add(cb);
+    if (isUuidString(ub)) ids.add(ub);
+  }
+  if (ids.size === 0) {
+    return rows.map((r) => ({
+      ...r,
+      created_by_display: null,
+      updated_by_display: null,
+    }));
+  }
+  const idList = [...ids];
+  const { data: profs, error } = await supabaseServer.from("profiles").select("id, full_name").in("id", idList);
+  if (error) {
+    console.warn("[enrichOperatorPackageRowsWithProfileLabels]", error.message);
+    return rows.map((r) => ({
+      ...r,
+      created_by_display: null,
+      updated_by_display: null,
+    }));
+  }
+  const labelById = new Map<string, string>();
+  for (const pr of profs ?? []) {
+    const raw = pr as { id?: string; full_name?: string | null };
+    const id = String(raw.id ?? "").trim();
+    if (!isUuidString(id)) continue;
+    const fn = String(raw.full_name ?? "").trim();
+    labelById.set(id, fn || "Unknown");
+  }
+  return rows.map((r) => {
+    const cb = String(r.created_by ?? "").trim();
+    const ub = String(r.updated_by ?? "").trim();
+    return {
+      ...r,
+      created_by_display: isUuidString(cb) ? (labelById.get(cb) ?? null) : null,
+      updated_by_display: isUuidString(ub) ? (labelById.get(ub) ?? null) : null,
+    };
+  });
+}
 
 /**
  * BOX collaboration: list active packages on a pallet (service role + org resolution).
+ * Scoped to `storeId` when provided so operators only see packages for the active store.
  */
 export async function listOperatorPackagesForPalletAction(
   requestedOrganizationId: string,
   palletId: string,
+  storeId?: string | null,
 ): Promise<{ ok: true; packages: OperatorPackageListRow[] } | { ok: false; message: string }> {
   const sessionUserId = await getSessionUserIdFromCookies();
   if (!sessionUserId || !isUuidString(sessionUserId)) {
@@ -126,7 +185,7 @@ export async function listOperatorPackagesForPalletAction(
   }
   const { data: pchk, error: perr } = await supabaseServer
     .from("pallets")
-    .select("id")
+    .select("id, store_id")
     .eq("id", pid)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -134,18 +193,111 @@ export async function listOperatorPackagesForPalletAction(
   if (!pchk) {
     return { ok: false, message: "Pallet not found for this organization." };
   }
-  const { data, error } = await supabaseServer
+  const storeScope = String(storeId ?? "").trim();
+  const palletStore = String((pchk as { store_id?: string | null }).store_id ?? "").trim();
+  if (storeScope && isUuidString(storeScope) && palletStore && isUuidString(palletStore) && palletStore !== storeScope) {
+    return { ok: false, message: "This pallet belongs to another store — select the correct store." };
+  }
+  let pkgQuery = supabaseServer
     .from("packages")
     .select(
       // `notes` = packages.notes (plural). Do not use legacy discrepancy_note / operator_note column names.
-      "id, package_code, tracking_number, id_slip_contents, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, expected_item_count, actual_item_count, updated_at",
+      "id, package_code, tracking_number, id_slip_contents, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, expected_item_count, actual_item_count, created_at, updated_at, created_by, updated_by",
     )
     .eq("organization_id", organizationId)
     .eq("pallet_id", pid)
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false });
+    .is("deleted_at", null);
+  if (storeScope && isUuidString(storeScope)) {
+    pkgQuery = pkgQuery.eq("store_id", storeScope);
+  }
+  const { data, error } = await pkgQuery.order("updated_at", { ascending: false });
   if (error) return { ok: false, message: error.message };
-  return { ok: true, packages: (data ?? []) as OperatorPackageListRow[] };
+  const rawRows = (data ?? []) as OperatorPackageListRow[];
+  const packages = await enrichOperatorPackageRowsWithProfileLabels(rawRows);
+  return { ok: true, packages };
+}
+
+/** Row shape for hydrating BOX slip lines (matches `slip_contents` + client `mapSlipContentRowToVisionLine`). */
+export type OperatorSlipContentsListRow = {
+  /** `slip_contents.id` when loaded from DB — stable key for UI. */
+  id: string | null;
+  upc: string | null;
+  fnsku: string | null;
+  description: string | null;
+  quantity: number;
+  condition: string | null;
+  /** Line-level JSON flags (e.g. `{ "missing": true }`) — not operator prose. */
+  notes?: string | null;
+  rma_number: string | null;
+  sort_index: number;
+  slip_code: string | null;
+};
+
+/**
+ * Load `slip_contents` lines for a package (service role + org check).
+ * Use this from the operator scan UI instead of browser Supabase, which may be blocked by RLS.
+ */
+export async function listOperatorSlipContentsForPackageAction(
+  requestedOrganizationId: string,
+  packageId: string,
+  storeId?: string | null,
+): Promise<{ ok: true; rows: OperatorSlipContentsListRow[] } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const pkgId = String(packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+    .from("packages")
+    .select("id, store_id")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+  if (!pkgRow) {
+    return { ok: false, message: "Package not found for this organization." };
+  }
+  const scope = String(storeId ?? "").trim();
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  const { data: rows, error } = await supabaseServer
+    .from("slip_contents")
+    .select("id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code")
+    .eq("package_id", pkgId)
+    .order("sort_index", { ascending: true });
+  if (error) return { ok: false, message: error.message };
+
+  const normalized: OperatorSlipContentsListRow[] = (rows ?? []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    const q = Number(r.quantity ?? 0);
+    const idRaw = typeof r.id === "string" ? r.id.trim() : "";
+    return {
+      id: idRaw && isUuidString(idRaw) ? idRaw : null,
+      upc: typeof r.upc === "string" && r.upc.trim() ? r.upc.trim() : null,
+      fnsku: typeof r.fnsku === "string" && r.fnsku.trim() ? r.fnsku.trim() : null,
+      description: typeof r.description === "string" && r.description.trim() ? r.description.trim() : null,
+      quantity: Number.isFinite(q) && q >= 0 ? Math.floor(q) : 0,
+      condition: typeof r.condition === "string" && r.condition.trim() ? r.condition.trim() : null,
+      notes: typeof r.notes === "string" && r.notes.trim() ? r.notes.trim() : null,
+      rma_number: typeof r.rma_number === "string" && r.rma_number.trim() ? r.rma_number.trim() : null,
+      sort_index: Number.isFinite(Number(r.sort_index)) ? Math.floor(Number(r.sort_index)) : 0,
+      slip_code: typeof r.slip_code === "string" && r.slip_code.trim() ? r.slip_code.trim() : null,
+    };
+  });
+
+  return { ok: true, rows: normalized };
 }
 
 export type CreateOperatorPalletActionInput = {
@@ -158,7 +310,7 @@ export type CreateOperatorPalletActionInput = {
 
 export type CreateOperatorPalletActionResult =
   | { ok: true; id: string; pallet_number: string }
-  | { ok: false; error: string; duplicatePallet?: OperatorPalletTrackingRow };
+  | { ok: false; error: string; duplicatePallet?: OperatorPalletTrackingRow; duplicateWrongStore?: boolean };
 
 /** Save & Start (shipment commit) — service-role pallet update + audit columns. */
 export type CommitOperatorPalletShipmentStepInput = {
@@ -181,7 +333,7 @@ export type CommitOperatorPalletShipmentStepInput = {
 export async function commitOperatorPalletShipmentStepAction(
   input: CommitOperatorPalletShipmentStepInput,
 ): Promise<
-  | { ok: true; creatorDisplayLabel: string }
+  | { ok: true; creatorDisplayLabel: string; createdByUserId: string | null }
   | { ok: false; message: string }
 > {
   const palletId = String(input.palletId ?? "").trim();
@@ -257,22 +409,50 @@ export async function commitOperatorPalletShipmentStepAction(
   if (creatorId && isUuidString(creatorId)) {
     creatorDisplayLabel = (await resolveDisplayLabelForUserId(creatorId)) ?? "Unknown";
   }
-  return { ok: true, creatorDisplayLabel };
+  return {
+    ok: true,
+    creatorDisplayLabel,
+    createdByUserId: creatorId && isUuidString(creatorId) ? creatorId : null,
+  };
 }
 
 /**
- * Creates an off-manifest / operator pallet using the service-role client.
- * Browser inserts fail RLS when internal staff use the workspace org picker —
- * their JWT `profiles.organization_id` does not match the selected tenant.
+ * Load an existing pallet in the org by inbound tracking (normalized match).
+ * When `activeStoreId` is set, pallets registered to another store are hidden (`wrongStore`).
  */
-/**
- * Load an existing pallet anywhere in the tenant by carrier / inbound tracking (normalized match).
- */
+const PALLET_TRACKING_DUP_SAME_STORE = "Tracking already exists in this store.";
+
+async function palletDupResultFromExisting(
+  existing: OperatorPalletTrackingRow,
+  targetStoreId: string,
+  organizationId: string,
+): Promise<Extract<CreateOperatorPalletActionResult, { ok: false }>> {
+  const es = String(existing.store_id ?? "").trim();
+  const wrong = Boolean(es && isUuidString(es) && es !== targetStoreId);
+  if (!wrong) {
+    return {
+      ok: false,
+      error: PALLET_TRACKING_DUP_SAME_STORE,
+      duplicatePallet: existing,
+      duplicateWrongStore: false,
+    };
+  }
+  const storeLabel =
+    (await fetchStoreDisplayNameForOrganization(supabaseServer, organizationId, es)) ?? "";
+  return {
+    ok: false,
+    error: formatUnauthorizedTrackingInStoreMessage(storeLabel),
+    duplicateWrongStore: true,
+  };
+}
+
 export async function findOperatorPalletByTrackingNumberAction(
   requestedOrganizationId: string,
   trackingNumber: string,
+  activeStoreId?: string | null,
 ): Promise<
-  { ok: true; pallet: OperatorPalletTrackingRow | null } | { ok: false; error: string }
+  | { ok: true; pallet: OperatorPalletTrackingRow | null; wrongStore?: boolean; wrongStoreMessage?: string }
+  | { ok: false; error: string }
 > {
   const sessionUserId = await getSessionUserIdFromCookies();
   if (!sessionUserId || !isUuidString(sessionUserId)) {
@@ -291,6 +471,20 @@ export async function findOperatorPalletByTrackingNumberAction(
 
   try {
     const pallet = await findPalletByTrackingNormalized(supabaseServer, organizationId, raw);
+    const active = String(activeStoreId ?? "").trim();
+    if (pallet && active && isUuidString(active)) {
+      const ps = String(pallet.store_id ?? "").trim();
+      if (ps && isUuidString(ps) && ps !== active) {
+        const storeLabel =
+          (await fetchStoreDisplayNameForOrganization(supabaseServer, organizationId, ps)) ?? "";
+        return {
+          ok: true,
+          pallet: null,
+          wrongStore: true,
+          wrongStoreMessage: formatUnauthorizedTrackingInStoreMessage(storeLabel),
+        };
+      }
+    }
     return { ok: true, pallet };
   } catch (e) {
     const msg = formatSupabaseActionError(e, "Lookup failed.");
@@ -358,11 +552,7 @@ export async function createOperatorPalletAction(
 
   const existing = await findPalletByTrackingNormalized(supabaseServer, organizationId, tracking_number);
   if (existing) {
-    return {
-      ok: false,
-      error: "This Tracking Number already exists.",
-      duplicatePallet: existing,
-    };
+    return palletDupResultFromExisting(existing, storeId, organizationId);
   }
 
   const actor = await resolveAuditActorForSession();
@@ -386,13 +576,9 @@ export async function createOperatorPalletAction(
     if (error.code === "23505") {
       const dup = await findPalletByTrackingNormalized(supabaseServer, organizationId, tracking_number);
       if (dup) {
-        return {
-          ok: false,
-          error: "This Tracking Number already exists.",
-          duplicatePallet: dup,
-        };
+        return palletDupResultFromExisting(dup, storeId, organizationId);
       }
-      return { ok: false, error: "This Tracking Number already exists." };
+      return { ok: false, error: PALLET_TRACKING_DUP_SAME_STORE };
     }
     return { ok: false, error: error.message };
   }
@@ -570,7 +756,8 @@ export type UpdateOperatorIntakeBoxPackageSlipLine = {
  *
  * - **Package row**: only keys present on `packageUpdate` are written (partial patches supported).
  * - **Pallet** (optional): when `palletId` + `palletUpdate` are set, pallet must belong to the resolved org.
- * - **slip_contents**: `replace` deletes all rows for the package then inserts `lines`; `skip` leaves DB rows unchanged.
+ * - **slip_contents**: `replace` **replaces** all rows for the package (delete where `package_id`, then insert `lines`).
+ *   This avoids duplicate lines for the same package and matches a full “snapshot” of the current slip table.
  */
 export type UpdateOperatorIntakeBoxPackageInput = {
   requestedOrganizationId: string;
@@ -637,6 +824,16 @@ export async function updateOperatorIntakeBoxPackageAction(
 
   const inputStoreRaw = input.storeId != null ? String(input.storeId).trim() : "";
   const pkgStoreRaw = String(pkgTyped?.store_id ?? "").trim();
+  if (inputStoreRaw && isUuidString(inputStoreRaw) && pkgStoreRaw && isUuidString(pkgStoreRaw)) {
+    if (pkgStoreRaw !== inputStoreRaw) {
+      const storeLabel =
+        (await fetchStoreDisplayNameForOrganization(supabaseServer, organizationId, pkgStoreRaw)) ?? "";
+      return {
+        ok: false,
+        message: formatUnauthorizedPackageInStoreMessage(storeLabel),
+      };
+    }
+  }
   const slipStoreId: string | null =
     inputStoreRaw && isUuidString(inputStoreRaw)
       ? inputStoreRaw
@@ -729,7 +926,9 @@ export async function updateOperatorIntakeBoxPackageAction(
         description: line.description?.trim() || null,
         quantity: line.expected_qty,
         condition: line.condition?.trim() || null,
+        notes: line.missing ? JSON.stringify({ missing: true }) : null,
         sort_index: i,
+        ...(uid ? { created_by: uid } : {}),
       }));
       const { error: insE } = await supabaseServer.from("slip_contents").insert(rows);
       if (insE) return { ok: false, message: insE.message };

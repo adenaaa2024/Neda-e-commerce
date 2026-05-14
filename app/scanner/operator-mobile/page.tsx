@@ -238,6 +238,20 @@ export default function OperatorMobileHomePage() {
   const router = useRouter();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchOverlayKey, setSearchOverlayKey] = useState(0);
+  const [hubFlashToast, setHubFlashToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem("operatorMobile:hubToast");
+      if (!msg) return;
+      sessionStorage.removeItem("operatorMobile:hubToast");
+      setHubFlashToast(msg);
+      const t = window.setTimeout(() => setHubFlashToast(null), 4500);
+      return () => window.clearTimeout(t);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const goSearch = (code: string) => {
     router.push(`${SCANNER_OPERATOR_SCAN_PATH}?code=${encodeURIComponent(code)}`);
@@ -482,6 +496,23 @@ export default function OperatorMobileHomePage() {
           </ul>
         </section>
       </main>
+
+      {hubFlashToast ? (
+        <div
+          className="pointer-events-none fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-1/2 z-[130] w-[min(calc(100vw-2rem),22rem)] -translate-x-1/2 rounded-2xl border px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
+          style={{
+            borderColor: "rgba(52,211,153,0.45)",
+            backgroundColor: "rgba(15,23,42,0.96)",
+            boxShadow: "0 0 24px rgba(45,212,191,0.22), 0 12px 40px rgba(0,0,0,0.45)",
+          }}
+          role="status"
+        >
+          <p className="flex items-center gap-2 text-center text-[13px] font-bold leading-snug text-white">
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" strokeWidth={2.25} aria-hidden />
+            {hubFlashToast}
+          </p>
+        </div>
+      ) : null}
 
       <ScannerBottomNav active="home" alertCount={2} />
     </div>
