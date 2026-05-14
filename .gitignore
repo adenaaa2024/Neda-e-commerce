@@ -1,3 +1,4 @@
+@'
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -25,6 +26,8 @@
 *.pem
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # debug
 npm-debug.log*
@@ -32,7 +35,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
 
 # vercel
@@ -43,18 +46,11 @@ yarn-error.log*
 next-env.d.ts
 .env
 
-# REPO-HYGIENE-01 / NEXT-GIT-CLEANUP-01 — large generated audit outputs (keep .md + manifest.json)
+# generated audit reports and local outputs
+.cursor/audit-reports/
+.cursor/audit-reports/**
 .cursor/audit-reports/**/*.csv
 .cursor/audit-reports/**/*.ndjson
-.cursor/audit-reports/**/01-claim-candidates.ndjson
-.cursor/audit-reports/**/05-financial-hints.csv
-!.cursor/audit-reports/repo-hygiene-01/**/*.md
-!.cursor/audit-reports/repo-hygiene-01/**/manifest.json
-!.cursor/audit-reports/repo-hygiene-01/**/*.ndjson
-!.cursor/audit-reports/**/*.md
-!.cursor/audit-reports/**/manifest.json
-
-# NEXT-GIT-CLEANUP-01 — audit binaries, Amazon/raw exports, temp (local only)
 .cursor/audit-reports/**/*.tsv
 .cursor/audit-reports/**/*.parquet
 .cursor/audit-reports/**/*.jsonl
@@ -63,6 +59,16 @@ next-env.d.ts
 .cursor/audit-reports/**/snapshots/**
 .cursor/audit-reports/**/*-preimage.csv
 .cursor/audit-reports/**/*-preimage.ndjson
+
+# keep lightweight documentation if intentionally added later
+!.cursor/audit-reports/**/*.md
+!.cursor/audit-reports/**/manifest.json
+
+# Python generated cache
+backend-python/__pycache__/
+backend-python/**/*.pyc
+
+# raw/generated data exports
 **/amazon-raw/**
 **/amazon-exports/**
 **/report-downloads/**
@@ -75,3 +81,4 @@ tmp/**
 *.csv.gz
 *.tsv.gz
 *.ndjson.gz
+'@ | Set-Content .gitignore -Encoding utf8
