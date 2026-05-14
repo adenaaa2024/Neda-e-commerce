@@ -355,12 +355,11 @@ export function extractFromAmazonManageFbaInventoryRow(
 
 /**
  * Shape of an `amazon_fba_inventory` row as projected by the orchestrator.
- * Convention C: this table has NO `resolved_product_id` / `resolved_catalog_product_id`
- * columns (migration 20260642 never touches it), so the projection does not
- * include resolver fields and the descriptor's resolver accessors return null
- * for every row. The identifier triad (sku/fnsku/asin) is native, plus a
- * native `product_name` flowing into `identifiers.title`. UPC, if present,
- * uses the same `raw_data` key set as the other FBA tables.
+ * Resolver UUIDs are optional: present after migration `20260813120000_amazon_fba_inventory_resolver_columns`
+ * and when the resolver pipeline has populated them. The identifier triad
+ * (sku/fnsku/asin) is native, plus a native `product_name` flowing into
+ * `identifiers.title`. UPC, if present, uses the same `raw_data` key set as
+ * the other FBA tables.
  */
 export type AmazonFbaInventoryRowProjection = {
   id: string;
@@ -370,6 +369,8 @@ export type AmazonFbaInventoryRowProjection = {
   fnsku: string | null;
   asin: string | null;
   product_name: string | null;
+  resolved_product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
   source_upload_id: string | null;
   raw_data: unknown;
 };
@@ -377,10 +378,10 @@ export type AmazonFbaInventoryRowProjection = {
 /**
  * `amazon_fba_inventory` (Inventory Health) — identifier extraction.
  *
- * Mirrors `extractFromAmazonManageFbaInventoryRow` minus the resolver fields.
- * Bucket 1 (`already_resolved`) is structurally impossible for this table
- * because the row carries no resolver column; the classifier handles this
- * correctly via the descriptor's null-returning accessors.
+ * Mirrors `extractFromAmazonManageFbaInventoryRow` for native identifiers.
+ * When `resolved_product_id` / `resolved_catalog_product_id` are non-null on
+ * the row, the dry-run descriptor passes them into the classifier as
+ * Convention A/B “already resolved” inputs (see `SourceTableDescriptor`).
  */
 export function extractFromAmazonFbaInventoryRow(
   row: AmazonFbaInventoryRowProjection,

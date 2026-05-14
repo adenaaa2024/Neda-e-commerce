@@ -2,8 +2,8 @@
  * NEXT-18B / NEXT-18C — Product-seed dry-run report generator.
  *
  * READ-ONLY. No Supabase writes. No mutations of products / product_identifier_map
- * / catalog_products / product_prices / product_identity_staging_rows. No
- * migrations, no schema changes.
+ * / catalog_products / product_prices / product_identity_staging_rows. This
+ * script never applies migrations; DB schema is managed separately.
  *
  * Wired source tables (slice 4):
  *   - catalog_products                  (NEXT-18B slice 1)
@@ -545,15 +545,16 @@ const DESCRIPTORS: Record<string, SourceTableDescriptor> = {
   amazon_fba_inventory: {
     name: "amazon_fba_inventory",
     selectCols:
-      "id, organization_id, store_id, sku, fnsku, asin, product_name, source_upload_id, raw_data",
+      "id, organization_id, store_id, sku, fnsku, asin, product_name, resolved_product_id, resolved_catalog_product_id, source_upload_id, raw_data",
     uploadCol: "source_upload_id",
     uploadCastMode: "uuid",
     extract: (row) =>
       extractFromAmazonFbaInventoryRow(
         row as unknown as AmazonFbaInventoryRowProjection,
       ),
-    existingResolvedProductId: () => null,
-    existingResolvedCatalogProductId: () => null,
+    existingResolvedProductId: (row) => nonEmptyString((row as Record<string, unknown>).resolved_product_id),
+    existingResolvedCatalogProductId: (row) =>
+      nonEmptyString((row as Record<string, unknown>).resolved_catalog_product_id),
     allowNullStoreId: true,
   },
 };

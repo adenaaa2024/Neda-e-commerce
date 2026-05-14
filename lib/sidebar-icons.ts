@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   Users,
   ClipboardList,
+  Inbox,
 } from "lucide-react";
 import type { SidebarIconName } from "./sidebar-config";
 
@@ -36,6 +37,7 @@ export const SIDEBAR_ICONS: Record<SidebarIconName, LucideIcon> = {
   Shield: Shield,
   Database: Database,
   ScanLine: ScanLine,
+  Inbox: Inbox,
 };
 
 export function getSidebarIcon(name: SidebarIconName): LucideIcon {

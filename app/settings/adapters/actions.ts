@@ -432,15 +432,21 @@ const STORES_LIST_SELECT_WITH_DEFAULT =
 const STORES_LIST_SELECT_BASE =
   "id, name, platform, is_active, marketplace_id, organization_id, created_at";
 
+/**
+ * Manual smoke (Super Admin workspace org): select org A → Settings → Marketplaces & Stores;
+ * store rows must all have organization_id = A. Switch to org B; list must show only B.
+ */
 export async function listStores(
-  _ctx?: RbacContext | null
+  ctx?: RbacContext | null
 ): Promise<{ ok: boolean; data?: StorePublicRow[]; error?: string }> {
   try {
-    // Always query `public.stores` (not amazon_*). Ignore _ctx for row scope —
-    // service role returns all stores; tenant UI can filter client-side if needed.
+    const rbac = getRbacContext(ctx);
+    // `public.stores` only (not amazon_*). Service role bypasses RLS — scope by organization_id
+    // from Settings / Super Admin selected tenant (same as insertStore/updateStore/deleteStore).
     const first = await supabaseServer
       .from("stores")
       .select(STORES_LIST_SELECT_WITH_DEFAULT)
+      .eq("organization_id", rbac.organization_id)
       .order("created_at", { ascending: false });
 
     // Widen to a loose row shape: retry path omits `is_default` (pre-migration DBs)
@@ -453,6 +459,7 @@ export async function listStores(
       const retry = await supabaseServer
         .from("stores")
         .select(STORES_LIST_SELECT_BASE)
+        .eq("organization_id", rbac.organization_id)
         .order("created_at", { ascending: false });
       data = (retry.data as Record<string, unknown>[] | null) ?? null;
       error = retry.error;
@@ -592,20 +599,15 @@ export async function listMarketplaces(
 }> {
   const rbac = getRbacContext(ctx);
   try {
-    let { data, error } = await supabaseServer
+    const { data, error } = await supabaseServer
       .from("marketplaces")
       .select("id, provider, nickname, credentials, organization_id, role_required, created_at")
       .eq("organization_id", rbac.organization_id)
       .order("created_at", { ascending: false });
 
     if (error) {
-      // Fallback without org filter
-      const fb = await supabaseServer
-        .from("marketplaces")
-        .select("id, provider, nickname, credentials, organization_id, role_required, created_at")
-        .order("created_at", { ascending: false });
-      if (fb.error) throw new Error(fb.error.message);
-      data = fb.data;
+      console.error("[listMarketplaces] error:", error.message, error);
+      return { ok: false, error: error.message };
     }
 
     const rows = (data ?? []) as MarketplaceRow[];

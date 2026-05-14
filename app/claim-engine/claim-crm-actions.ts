@@ -1,6 +1,7 @@
 "use server";
 
 import { supabaseServer } from "../../lib/supabase-server";
+import { isUuidString } from "../../lib/uuid";
 import { estimateClaimSuccessProbability } from "./claim-crm-utils";
 import { CLAIM_SUBMISSION_RETURN_ID_COLUMN, CLAIM_SUBMISSIONS_TABLE } from "./claim-submissions-constants";
 import type { ClaimSubmissionStatus } from "./claim-submission-actions";
@@ -97,6 +98,9 @@ function resolveReturnSku(ret: Record<string, unknown> | null): string | null {
 export async function getClaimEngineKpis(
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data?: ClaimEngineKpis; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, error: "organization_id must be a valid UUID." };
+  }
   try {
     const { data, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
@@ -176,6 +180,12 @@ export async function getClaimHistoryLogsForSubmission(
   submissionId: string,
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data: ClaimHistoryLogRow[]; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, data: [], error: "organization_id must be a valid UUID." };
+  }
+  if (!isUuidString(submissionId)) {
+    return { ok: false, data: [], error: "submission id must be a valid UUID." };
+  }
   try {
     const { data, error } = await supabaseServer
       .from(CLAIM_HISTORY_TABLE)
@@ -202,6 +212,12 @@ export async function getClaimInvestigationPayload(
   submissionId: string,
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data?: ClaimInvestigationPayload; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, error: "organization_id must be a valid UUID." };
+  }
+  if (!isUuidString(submissionId)) {
+    return { ok: false, error: "submission id must be a valid UUID." };
+  }
   try {
     const { data: sub, error: sErr } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
@@ -273,6 +289,12 @@ export async function syncMarketplaceStatus(opts: {
   lastMessageForProbability?: string;
 }): Promise<{ ok: boolean; successProbability?: number; error?: string }> {
   const organizationId = opts.organizationId ?? DEFAULT_ORG;
+  if (!isUuidString(organizationId)) {
+    return { ok: false, error: "organization_id must be a valid UUID." };
+  }
+  if (!isUuidString(opts.submissionId)) {
+    return { ok: false, error: "submission id must be a valid UUID." };
+  }
 
   try {
     const lastText =

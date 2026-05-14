@@ -3,6 +3,7 @@
  * Joins `returns` for ASIN/FNSKU/SKU whenever `return_id` is set.
  */
 import { supabaseServer } from "../../lib/supabase-server";
+import { isUuidString } from "../../lib/uuid";
 import type { ReturnRecord } from "../returns/returns-action-types";
 import {
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
@@ -59,21 +60,24 @@ const WORKSPACE_STATUSES = [
 ] as const;
 
 /**
- * Submissions in review / filed states. V16.4.23: org filter removed temporarily so rows are visible under RLS testing.
+ * Submissions in review / filed states for one tenant (organization_id required).
  */
 export async function fetchClaimWorkspaceRows(
-  _organizationId: string,
+  organizationId: string,
   limit = 200,
 ): Promise<{ ok: boolean; data: ClaimRecord[]; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, data: [], error: "organization_id must be a valid UUID." };
+  }
   try {
     const { data: subs, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
       .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
+      .eq("organization_id", organizationId)
       .in("status", [...WORKSPACE_STATUSES])
       .order("updated_at", { ascending: false })
       .limit(limit);
 
-    console.log("Claim workspace submissions:", subs, error);
     if (error) throw new Error(error.message);
     const list = subs ?? [];
 
@@ -135,6 +139,9 @@ export async function fetchClaimSubmissionsWithReturns(
   organizationId: string,
   limit = 100,
 ): Promise<{ ok: boolean; data: ClaimRecord[]; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, data: [], error: "organization_id must be a valid UUID." };
+  }
   try {
     const { data: subs, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)

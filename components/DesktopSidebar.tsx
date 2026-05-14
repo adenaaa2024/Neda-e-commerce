@@ -10,6 +10,7 @@ import {
   Package,
   RotateCcw,
   ShieldAlert,
+  Inbox,
   Store,
   Settings,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const NAV_SECTIONS = [
       { label: "Dashboard",           icon: LayoutDashboard, href: "/"                  },
       { label: "Returns Processing",  icon: RotateCcw,       href: "/returns"           },
       { label: "Claim Engine",        icon: ShieldAlert,     href: "/claim-engine"  },
+      { label: "Claim Inbox",         icon: Inbox,           href: "/claim-engine/inbox" },
       { label: "Report history",      icon: FileText,        href: "/claim-engine/report-history" },
       { label: "Product Information Management", icon: Package, href: "/dashboard/products" },
     ],
@@ -63,7 +65,13 @@ export function DesktopSidebar() {
               {group.section}
             </p>
             {group.items.map((item) => {
-              const active  = pathname === item.href;
+              const path = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
+              const active =
+                item.href === "/claim-engine"
+                  ? path === "/claim-engine"
+                  : item.href === "/claim-engine/inbox"
+                    ? path === "/claim-engine/inbox" || path.startsWith("/claim-engine/inbox/")
+                    : path === item.href;
               const disabled = (item as { disabled?: boolean }).disabled;
               return (
                 <Link
