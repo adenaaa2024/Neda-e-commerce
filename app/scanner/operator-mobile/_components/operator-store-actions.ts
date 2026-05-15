@@ -11,6 +11,7 @@ import {
   type OperatorPalletTrackingRow,
 } from "@/lib/scanner/operator-pallet-tracking";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
+import { extractOrderIdFromAmazonStyleRa } from "@/lib/scanner/amazon-ra-order-id";
 import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib/server-audit-actor";
 import { sanitizePublicMediaUrlStrings } from "@/lib/entity-photo-evidence";
 import { insertIntakeBoxPackage } from "@/lib/scanner/operator-box-intake";
@@ -20,6 +21,7 @@ import {
   formatUnauthorizedPackageInStoreMessage,
   formatUnauthorizedTrackingInStoreMessage,
 } from "@/lib/scanner/operator-store-display";
+import { formatDuplicatePackingSlipMessage } from "@/lib/scanner/operator-slip-duplicate";
 
 export type OperatorStoreScopeSnapshot = {
   stores: OperatorStoreOption[];
@@ -100,6 +102,8 @@ export type OperatorPackageListRow = {
   id: string;
   package_code: string | null;
   tracking_number: string | null;
+  /** Marketplace / removal order id stored on the package row. */
+  order_id?: string | null;
   id_slip_contents: string | null;
   notes?: string | null;
   outside_photo_urls?: unknown;
@@ -202,7 +206,7 @@ export async function listOperatorPackagesForPalletAction(
     .from("packages")
     .select(
       // `notes` = packages.notes (plural). Do not use legacy discrepancy_note / operator_note column names.
-      "id, package_code, tracking_number, id_slip_contents, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, expected_item_count, actual_item_count, created_at, updated_at, created_by, updated_by",
+      "id, package_code, tracking_number, order_id, id_slip_contents, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, expected_item_count, actual_item_count, created_at, updated_at, created_by, updated_by",
     )
     .eq("organization_id", organizationId)
     .eq("pallet_id", pid)
@@ -215,6 +219,25 @@ export async function listOperatorPackagesForPalletAction(
   const rawRows = (data ?? []) as OperatorPackageListRow[];
   const packages = await enrichOperatorPackageRowsWithProfileLabels(rawRows);
   return { ok: true, packages };
+}
+
+/** PostgREST when `slip_contents.notes` exists in app but not yet migrated on the project DB. */
+function isMissingSlipContentsNotesSchemaError(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    m.includes("slip_contents") &&
+    m.includes("notes") &&
+    (m.includes("schema cache") || m.includes("could not find") || m.includes("column"))
+  );
+}
+
+function isMissingSlipContentsConflictingOrderIdSchemaError(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    m.includes("slip_contents") &&
+    m.includes("conflicting_order_id") &&
+    (m.includes("schema cache") || m.includes("could not find") || m.includes("column"))
+  );
 }
 
 /** Row shape for hydrating BOX slip lines (matches `slip_contents` + client `mapSlipContentRowToVisionLine`). */
@@ -231,6 +254,8 @@ export type OperatorSlipContentsListRow = {
   rma_number: string | null;
   sort_index: number;
   slip_code: string | null;
+  /** RA-derived token that disagreed with `pallets.order_id` when slip was saved (same on each line row). */
+  conflicting_order_id?: string | null;
 };
 
 /**
@@ -272,12 +297,35 @@ export async function listOperatorSlipContentsForPackageAction(
     return { ok: false, message: "This package belongs to another store — select the correct store." };
   }
 
-  const { data: rows, error } = await supabaseServer
+  const slipContentsSelectWithNotesAndConflict =
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, conflicting_order_id";
+  const slipContentsSelectWithNotes =
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes";
+  const slipContentsSelectBase =
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code";
+
+  let slipFirst = await supabaseServer
     .from("slip_contents")
-    .select("id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code")
+    .select(slipContentsSelectWithNotesAndConflict)
     .eq("package_id", pkgId)
     .order("sort_index", { ascending: true });
-  if (error) return { ok: false, message: error.message };
+  if (slipFirst.error && isMissingSlipContentsConflictingOrderIdSchemaError(slipFirst.error.message)) {
+    slipFirst = (await supabaseServer
+      .from("slip_contents")
+      .select(slipContentsSelectWithNotes)
+      .eq("package_id", pkgId)
+      .order("sort_index", { ascending: true })) as typeof slipFirst;
+  }
+  const slipFinal =
+    slipFirst.error && isMissingSlipContentsNotesSchemaError(slipFirst.error.message)
+      ? await supabaseServer
+          .from("slip_contents")
+          .select(slipContentsSelectBase)
+          .eq("package_id", pkgId)
+          .order("sort_index", { ascending: true })
+      : slipFirst;
+  if (slipFinal.error) return { ok: false, message: slipFinal.error.message };
+  const rows = slipFinal.data;
 
   const normalized: OperatorSlipContentsListRow[] = (rows ?? []).map((raw) => {
     const r = raw as Record<string, unknown>;
@@ -294,6 +342,10 @@ export async function listOperatorSlipContentsForPackageAction(
       rma_number: typeof r.rma_number === "string" && r.rma_number.trim() ? r.rma_number.trim() : null,
       sort_index: Number.isFinite(Number(r.sort_index)) ? Math.floor(Number(r.sort_index)) : 0,
       slip_code: typeof r.slip_code === "string" && r.slip_code.trim() ? r.slip_code.trim() : null,
+      conflicting_order_id:
+        typeof r.conflicting_order_id === "string" && r.conflicting_order_id.trim()
+          ? r.conflicting_order_id.trim()
+          : null,
     };
   });
 
@@ -355,7 +407,7 @@ export async function commitOperatorPalletShipmentStepAction(
 
   const { data: existing, error: selErr } = await supabaseServer
     .from("pallets")
-    .select("id, organization_id, created_by")
+    .select("id, organization_id, created_by, store_id")
     .eq("id", palletId)
     .maybeSingle();
 
@@ -363,6 +415,7 @@ export async function commitOperatorPalletShipmentStepAction(
   const ex = existing as {
     organization_id?: string | null;
     created_by?: string | null;
+    store_id?: string | null;
   } | null;
   if (!ex || String(ex.organization_id ?? "").trim() !== organizationId) {
     return { ok: false, message: "Pallet not found for this organization." };
@@ -388,6 +441,25 @@ export async function commitOperatorPalletShipmentStepAction(
   if (input.notes !== undefined) {
     const n = String(input.notes ?? "").trim();
     payload.notes = n.length ? n : null;
+  }
+
+  const trackingCell = input.tracking_number != null ? String(input.tracking_number).trim() : "";
+  const trackingNorm =
+    trackingCell.length > 0 ? normalizeTrackingKey(trackingCell) || trackingCell : "";
+  if (trackingNorm.length > 0) {
+    const hit = await findPalletByTrackingNormalized(supabaseServer, organizationId, trackingNorm);
+    const hitId = String(hit?.id ?? "").trim();
+    if (hit && hitId && hitId !== palletId) {
+      const targetStoreId = String(ex.store_id ?? "").trim();
+      if (!isUuidString(targetStoreId)) {
+        return {
+          ok: false,
+          message: "Could not resolve store for this pallet — tracking was not saved.",
+        };
+      }
+      const dupRes = await palletDupResultFromExisting(hit, targetStoreId, organizationId);
+      return { ok: false, message: dupRes.error };
+    }
   }
 
   const creatorMissing = !(String(ex.created_by ?? "").trim());
@@ -759,6 +831,89 @@ export type UpdateOperatorIntakeBoxPackageSlipLine = {
  * - **slip_contents**: `replace` **replaces** all rows for the package (delete where `package_id`, then insert `lines`).
  *   This avoids duplicate lines for the same package and matches a full “snapshot” of the current slip table.
  */
+export type DuplicatePackingSlipInfo = {
+  slipCode: string;
+  otherPackageCode: string;
+};
+
+export type UpdateOperatorIntakeBoxPackageResult =
+  | {
+      ok: true;
+      palletMixedOrderIds?: boolean;
+      palletOrderIdFromDb?: string | null;
+      /** Set when slip RMA token disagreed with pallet `order_id` (persisted on `slip_contents`). */
+      slipConflictingOrderId?: string | null;
+    }
+  | { ok: false; message: string; duplicatePackingSlip?: DuplicatePackingSlipInfo };
+
+async function findDuplicatePackageForSlipContents(
+  organizationId: string,
+  slipCode: string,
+  excludePackageId: string,
+): Promise<{ package_code: string | null } | null> {
+  const slip = slipCode.trim();
+  if (!slip) return null;
+  let q = supabaseServer
+    .from("packages")
+    .select("id, package_code")
+    .eq("organization_id", organizationId)
+    .eq("id_slip_contents", slip)
+    .is("deleted_at", null);
+  if (isUuidString(excludePackageId)) {
+    q = q.neq("id", excludePackageId);
+  }
+  const { data, error } = await q.limit(1).maybeSingle();
+  if (error || !data) return null;
+  return data as { package_code: string | null };
+}
+
+/**
+ * Returns whether `id_slip_contents` is already used on a different package in the org.
+ * `excludePackageId` — UUID of the current box (omit or empty when the row does not exist yet).
+ */
+export async function checkOperatorSlipCodeDuplicateAction(
+  requestedOrganizationId: string,
+  slipCode: string,
+  excludePackageId: string | null,
+): Promise<
+  | { ok: true; duplicate: false }
+  | { ok: true; duplicate: true; slipCode: string; otherPackageCode: string; message: string }
+  | { ok: false; error: string }
+> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, error: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, error: "Could not resolve organization." };
+  }
+  const slip = String(slipCode ?? "").trim();
+  if (!slip) return { ok: true, duplicate: false };
+  const ex = String(excludePackageId ?? "").trim();
+  const dup = await findDuplicatePackageForSlipContents(
+    organizationId,
+    slip,
+    isUuidString(ex) ? ex : "",
+  );
+  if (!dup) return { ok: true, duplicate: false };
+  const otherPackageCode = String(dup.package_code ?? "").trim() || "—";
+  return {
+    ok: true,
+    duplicate: true,
+    slipCode: slip,
+    otherPackageCode,
+    message: formatDuplicatePackingSlipMessage(slip, otherPackageCode),
+  };
+}
+
+/** Trim only — never treat a non-empty id as empty (no lowercase here). */
+function normalizeMarketplaceOrderId(raw: unknown): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  return s.length ? s : null;
+}
+
 export type UpdateOperatorIntakeBoxPackageInput = {
   requestedOrganizationId: string;
   /** Session store — preferred for `slip_contents.store_id` when replacing lines. */
@@ -777,6 +932,8 @@ export type UpdateOperatorIntakeBoxPackageInput = {
     package_code?: string | null;
     /** Parent shipment / pallet tracking — optional, not a unique key. */
     tracking_number?: string | null;
+    /** Marketplace / removal order id for this package (`packages.order_id`). */
+    order_id?: string | null;
     id_slip_contents?: string | null;
     rma_number?: string | null;
     manifest_data?: Record<string, unknown>;
@@ -794,7 +951,7 @@ export type UpdateOperatorIntakeBoxPackageInput = {
  */
 export async function updateOperatorIntakeBoxPackageAction(
   input: UpdateOperatorIntakeBoxPackageInput,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<UpdateOperatorIntakeBoxPackageResult> {
   const sessionUserId = await getSessionUserIdFromCookies();
   if (!sessionUserId || !isUuidString(sessionUserId)) {
     return { ok: false, message: "Not signed in." };
@@ -841,34 +998,31 @@ export async function updateOperatorIntakeBoxPackageAction(
         ? pkgStoreRaw
         : null;
 
+  const pu = input.packageUpdate;
+  let slipForDup: string | null = null;
+  if (pu.id_slip_contents !== undefined) {
+    const t = String(pu.id_slip_contents ?? "").trim();
+    if (t) slipForDup = t;
+  }
+  if (!slipForDup && input.slipContents.mode === "replace") {
+    const t = String(input.slipContents.slipCode ?? "").trim();
+    if (t) slipForDup = t;
+  }
+  if (slipForDup) {
+    const dupRow = await findDuplicatePackageForSlipContents(organizationId, slipForDup, packageId);
+    if (dupRow) {
+      const otherPackageCode = String(dupRow.package_code ?? "").trim() || "—";
+      return {
+        ok: false,
+        message: formatDuplicatePackingSlipMessage(slipForDup, otherPackageCode),
+        duplicatePackingSlip: { slipCode: slipForDup, otherPackageCode },
+      };
+    }
+  }
+
   const actor = await resolveAuditActorForSession();
   const uid = actor.userId?.trim() || null;
 
-  const palletRaw = input.palletId != null ? String(input.palletId).trim() : "";
-  if (palletRaw && isUuidString(palletRaw) && input.palletUpdate) {
-    const { data: plt, error: pltErr } = await supabaseServer
-      .from("pallets")
-      .select("id")
-      .eq("id", palletRaw)
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (pltErr) return { ok: false, message: pltErr.message };
-    if (!plt) {
-      return { ok: false, message: "Pallet not found for this organization." };
-    }
-    const labelUrls = sanitizePublicMediaUrlStrings(input.palletUpdate.shipping_label_urls, 3);
-    const palletPatch: Record<string, unknown> = {
-      carrier_name: input.palletUpdate.carrier_name,
-      order_id: input.palletUpdate.order_id,
-      shipping_label_urls: labelUrls,
-      updated_at: new Date().toISOString(),
-    };
-    if (uid) palletPatch.updated_by = uid;
-    const { error: pe } = await supabaseServer.from("pallets").update(palletPatch).eq("id", palletRaw);
-    if (pe) return { ok: false, message: pe.message };
-  }
-
-  const pu = input.packageUpdate;
   const pkgPatch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -883,6 +1037,9 @@ export async function updateOperatorIntakeBoxPackageAction(
   }
   if (pu.package_code !== undefined) pkgPatch.package_code = pu.package_code;
   if (pu.tracking_number !== undefined) pkgPatch.tracking_number = pu.tracking_number;
+  if (pu.order_id !== undefined) {
+    pkgPatch.order_id = normalizeMarketplaceOrderId(pu.order_id);
+  }
   if (pu.id_slip_contents !== undefined) pkgPatch.id_slip_contents = pu.id_slip_contents;
   if (pu.rma_number !== undefined) pkgPatch.rma_number = pu.rma_number;
   if (pu.manifest_data !== undefined) pkgPatch.manifest_data = pu.manifest_data;
@@ -892,21 +1049,79 @@ export async function updateOperatorIntakeBoxPackageAction(
   }
   if (uid) pkgPatch.updated_by = uid;
 
+  const palletRaw = input.palletId != null ? String(input.palletId).trim() : "";
+  const hasPalletUuid = Boolean(palletRaw && isUuidString(palletRaw));
+
+  let slipConflictingOrderIdForInsert: string | null = null;
+  let smartRaCaseA = false;
+  let palletMixedOrderIds = false;
+
+  const linesPreview =
+    input.slipContents.mode === "replace" ? input.slipContents.lines : [];
+  const rmaSmart = pu.rma_number !== undefined ? String(pu.rma_number ?? "").trim() : "";
+  if (input.slipContents.mode === "replace" && linesPreview.length > 0 && hasPalletUuid && rmaSmart) {
+    const extracted = extractOrderIdFromAmazonStyleRa(rmaSmart);
+    if (extracted) {
+      const { data: pltSmart, error: pltSmartErr } = await supabaseServer
+        .from("pallets")
+        .select("order_id")
+        .eq("id", palletRaw)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (!pltSmartErr && pltSmart) {
+        const palOrder = normalizeMarketplaceOrderId((pltSmart as { order_id?: unknown }).order_id);
+        if (!palOrder) {
+          smartRaCaseA = true;
+          pkgPatch.order_id = extracted;
+        } else if (palOrder.toLowerCase() !== extracted.toLowerCase()) {
+          slipConflictingOrderIdForInsert = extracted;
+          palletMixedOrderIds = true;
+        }
+      }
+    }
+  }
+
   const patchKeys = Object.keys(pkgPatch).filter((k) => k !== "updated_at" && k !== "updated_by");
-  const didPalletUpdate = Boolean(palletRaw && isUuidString(palletRaw) && input.palletUpdate);
   const willReplaceSlipContents = input.slipContents.mode === "replace";
-  if (!didPalletUpdate && !uid && patchKeys.length === 0 && !willReplaceSlipContents) {
+  const willUpdatePackageRow = patchKeys.length > 0 || Boolean(uid);
+
+  const willEvaluatePallet =
+    hasPalletUuid &&
+    (Boolean(input.palletUpdate) || pu.order_id !== undefined || smartRaCaseA);
+
+  if (!willUpdatePackageRow && !willReplaceSlipContents && !willEvaluatePallet) {
     return { ok: false, message: "Nothing to update." };
   }
 
-  if (patchKeys.length > 0 || uid) {
+  console.log("[updateOperatorIntakeBoxPackageAction] start", {
+    packageId,
+    willUpdatePackageRow,
+    patchKeys,
+    willReplaceSlipContents,
+    willEvaluatePallet,
+    hasPalletUuid,
+  });
+
+  // --- Step A: persist package row first (independent of pallet). No DB transaction wrapper — each statement auto-commits. ---
+  if (willUpdatePackageRow) {
+    console.log("[updateOperatorIntakeBoxPackageAction] stepA: packages.update", { keys: patchKeys });
     const { error: pke } = await supabaseServer.from("packages").update(pkgPatch).eq("id", packageId);
-    if (pke) return { ok: false, message: pke.message };
+    if (pke) {
+      console.log("[updateOperatorIntakeBoxPackageAction] stepA: FAIL", pke.message);
+      return { ok: false, message: pke.message };
+    }
+    console.log("[updateOperatorIntakeBoxPackageAction] stepA: OK");
+  } else {
+    console.log("[updateOperatorIntakeBoxPackageAction] stepA: skip (no package column patch / audit uid)");
   }
 
   if (input.slipContents.mode === "replace") {
+    console.log("[updateOperatorIntakeBoxPackageAction] step: slip_contents replace");
     const { error: delE } = await supabaseServer.from("slip_contents").delete().eq("package_id", packageId);
-    if (delE) return { ok: false, message: delE.message };
+    if (delE) {
+      console.log("[updateOperatorIntakeBoxPackageAction] slip delete FAIL", delE.message);
+      return { ok: false, message: delE.message };
+    }
 
     const lines = input.slipContents.lines;
     if (lines.length > 0) {
@@ -928,12 +1143,184 @@ export async function updateOperatorIntakeBoxPackageAction(
         condition: line.condition?.trim() || null,
         notes: line.missing ? JSON.stringify({ missing: true }) : null,
         sort_index: i,
+        ...(slipConflictingOrderIdForInsert
+          ? { conflicting_order_id: slipConflictingOrderIdForInsert }
+          : {}),
         ...(uid ? { created_by: uid } : {}),
       }));
-      const { error: insE } = await supabaseServer.from("slip_contents").insert(rows);
-      if (insE) return { ok: false, message: insE.message };
+      type SlipInsertRow = Record<string, unknown>;
+      let insertRows: SlipInsertRow[] = rows as SlipInsertRow[];
+      let { error: insE } = await supabaseServer.from("slip_contents").insert(insertRows);
+      if (insE && isMissingSlipContentsConflictingOrderIdSchemaError(insE.message)) {
+        insertRows = insertRows.map(({ conflicting_order_id: _c, ...rest }) => rest);
+        ({ error: insE } = await supabaseServer.from("slip_contents").insert(insertRows));
+      }
+      if (insE && isMissingSlipContentsNotesSchemaError(insE.message)) {
+        insertRows = insertRows.map(({ notes: _n, ...rest }) => rest);
+        ({ error: insE } = await supabaseServer.from("slip_contents").insert(insertRows));
+      }
+      if (insE) {
+        console.log("[updateOperatorIntakeBoxPackageAction] slip insert FAIL", insE.message);
+        return { ok: false, message: insE.message };
+      }
+    }
+    console.log("[updateOperatorIntakeBoxPackageAction] slip_contents: OK");
+  }
+
+  let didPalletRowUpdate = false;
+
+  if (willEvaluatePallet) {
+    console.log("[updateOperatorIntakeBoxPackageAction] stepB/C: pallet sync begin", { palletRaw });
+    const { data: plt, error: pltErr } = await supabaseServer
+      .from("pallets")
+      .select("id, order_id")
+      .eq("id", palletRaw)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (pltErr) {
+      console.log("[updateOperatorIntakeBoxPackageAction] stepB/C: pallet select FAIL", pltErr.message);
+      return { ok: false, message: pltErr.message };
+    }
+    if (!plt) {
+      console.log("[updateOperatorIntakeBoxPackageAction] stepB/C: pallet not found");
+      return { ok: false, message: "Pallet not found for this organization." };
+    }
+
+    const existingPalletOrderRaw = (plt as { order_id?: string | null }).order_id;
+    const existingPalletOrderId = normalizeMarketplaceOrderId(existingPalletOrderRaw);
+
+    let pkgOrderFromPackageRow: string | null = null;
+    if (smartRaCaseA) {
+      const { data: pkgOrdRow, error: pkgOrdErr } = await supabaseServer
+        .from("packages")
+        .select("order_id")
+        .eq("id", packageId)
+        .maybeSingle();
+      if (pkgOrdErr) {
+        console.warn("[updateOperatorIntakeBoxPackageAction] package order_id read (smart RA):", pkgOrdErr.message);
+      } else {
+        pkgOrderFromPackageRow = normalizeMarketplaceOrderId(
+          (pkgOrdRow as { order_id?: unknown } | null)?.order_id,
+        );
+      }
+    } else if (pu.order_id !== undefined) {
+      pkgOrderFromPackageRow = normalizeMarketplaceOrderId(pu.order_id);
+    } else {
+      const { data: pkgOrdRow, error: pkgOrdErr } = await supabaseServer
+        .from("packages")
+        .select("order_id")
+        .eq("id", packageId)
+        .maybeSingle();
+      if (pkgOrdErr) {
+        console.warn("[updateOperatorIntakeBoxPackageAction] package order_id read:", pkgOrdErr.message);
+      } else {
+        pkgOrderFromPackageRow = normalizeMarketplaceOrderId(
+          (pkgOrdRow as { order_id?: unknown } | null)?.order_id,
+        );
+      }
+    }
+
+    const packageOrderKeyPresent = pu.order_id !== undefined;
+    const packageOrderNorm = packageOrderKeyPresent ? normalizeMarketplaceOrderId(pu.order_id) : undefined;
+    const palletUpdateOrderNorm = input.palletUpdate
+      ? normalizeMarketplaceOrderId(input.palletUpdate.order_id)
+      : undefined;
+
+    console.log("[updateOperatorIntakeBoxPackageAction] stepB/C: context", {
+      existingPalletOrderId,
+      pkgOrderFromPackageRow,
+      packageOrderKeyPresent,
+      packageOrderNorm,
+      palletUpdateOrderNorm,
+      smartRaCaseA,
+    });
+
+    const palletPatch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (uid) palletPatch.updated_by = uid;
+    if (input.palletUpdate) {
+      const labelUrls = sanitizePublicMediaUrlStrings(input.palletUpdate.shipping_label_urls, 3);
+      palletPatch.carrier_name = input.palletUpdate.carrier_name;
+      palletPatch.shipping_label_urls = labelUrls;
+    }
+
+    if (packageOrderKeyPresent || smartRaCaseA) {
+      const orderIntentNonEmpty = normalizeMarketplaceOrderId(
+        smartRaCaseA
+          ? pkgOrderFromPackageRow ?? palletUpdateOrderNorm
+          : packageOrderNorm ?? palletUpdateOrderNorm,
+      );
+      if (!existingPalletOrderId && orderIntentNonEmpty) {
+        palletPatch.order_id = orderIntentNonEmpty;
+        console.log("[updateOperatorIntakeBoxPackageAction] stepB: fill pallet order_id", {
+          from: existingPalletOrderRaw ?? null,
+          to: orderIntentNonEmpty,
+        });
+      } else if (
+        existingPalletOrderId &&
+        orderIntentNonEmpty &&
+        existingPalletOrderId.toLowerCase() !== orderIntentNonEmpty.toLowerCase()
+      ) {
+        palletMixedOrderIds = true;
+        console.log("[updateOperatorIntakeBoxPackageAction] stepC: mixed order ids (pallet order_id unchanged)", {
+          existingPalletOrderId,
+          orderIntentNonEmpty,
+        });
+      }
+    } else if (input.palletUpdate) {
+      palletPatch.order_id = palletUpdateOrderNorm;
+    }
+
+    const palletMeaningfulKeys = Object.keys(palletPatch).filter(
+      (k) => k !== "updated_at" && k !== "updated_by",
+    );
+    if (palletMeaningfulKeys.length > 0) {
+      console.log("[updateOperatorIntakeBoxPackageAction] stepB/C: pallets.update", {
+        keys: palletMeaningfulKeys,
+      });
+      const { error: pe } = await supabaseServer.from("pallets").update(palletPatch).eq("id", palletRaw);
+      if (pe) {
+        console.log("[updateOperatorIntakeBoxPackageAction] pallets.update FAIL", pe.message);
+        return { ok: false, message: pe.message };
+      }
+      didPalletRowUpdate = true;
+      console.log("[updateOperatorIntakeBoxPackageAction] pallets.update OK");
+    } else {
+      console.log("[updateOperatorIntakeBoxPackageAction] stepB/C: skip pallets.update (no field changes)");
     }
   }
 
-  return { ok: true };
+  let palletOrderIdFromDb: string | null | undefined;
+  if (hasPalletUuid) {
+    const { data: pltAfter, error: afterErr } = await supabaseServer
+      .from("pallets")
+      .select("order_id")
+      .eq("id", palletRaw)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (afterErr) {
+      console.warn("[updateOperatorIntakeBoxPackageAction] pallet order_id re-read:", afterErr.message);
+    } else {
+      palletOrderIdFromDb = normalizeMarketplaceOrderId((pltAfter as { order_id?: unknown } | null)?.order_id);
+    }
+  }
+
+  console.log("[updateOperatorIntakeBoxPackageAction] complete", {
+    palletMixedOrderIds,
+    didPalletRowUpdate,
+    palletOrderIdFromDb: palletOrderIdFromDb === undefined ? "(re-read skipped)" : palletOrderIdFromDb,
+  });
+
+  return {
+    ok: true,
+    ...(palletMixedOrderIds ? { palletMixedOrderIds: true } : {}),
+    ...(palletOrderIdFromDb !== undefined ? { palletOrderIdFromDb } : {}),
+    ...(slipConflictingOrderIdForInsert
+      ? { slipConflictingOrderId: slipConflictingOrderIdForInsert }
+      : {}),
+  };
 }
+
+/** Same implementation as {@link updateOperatorIntakeBoxPackageAction} — alias for docs / external naming. */
+export const saveOperatorPackageAction = updateOperatorIntakeBoxPackageAction;

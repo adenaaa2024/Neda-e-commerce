@@ -87,6 +87,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isPersistableStoredMediaReference,
 } from "@/lib/media-reference";
+import { deleteOperatorEvidenceStorageByPublicUrlsAction } from "@/lib/scanner/operator-evidence-storage-delete";
 import { isUuidString } from "@/lib/uuid";
 import {
   buildPackageManifestRelativePath,
@@ -105,14 +106,24 @@ import {
   listOperatorPackagesForPalletAction,
   listOperatorSlipContentsForPackageAction,
   updateOperatorIntakeBoxPackageAction,
+  checkOperatorSlipCodeDuplicateAction,
+  type DuplicatePackingSlipInfo,
   type OperatorPackageListRow,
   type OperatorSlipContentsListRow,
+  type UpdateOperatorIntakeBoxPackageResult,
 } from "@/app/scanner/operator-mobile/_components/operator-store-actions";
 import { OperatorCrossStoreScopeBanner } from "@/app/scanner/operator-mobile/_components/OperatorCrossStoreScopeBanner";
+import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobile/_components/OperatorDuplicatePackingSlipBanner";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
-import type { BoxSlipVisionExtract, BoxSlipVisionLine } from "@/lib/scanner/box-slip-vision-parse";
+import { extractOrderIdFromAmazonStyleRa } from "@/lib/scanner/amazon-ra-order-id";
+import {
+  INVALID_SLIP_FORMAT,
+  isStructuredBoxSlipExtractValid,
+  type BoxSlipVisionExtract,
+  type BoxSlipVisionLine,
+} from "@/lib/scanner/box-slip-vision-parse";
 import { normalizeTrackingKey, trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 import {
   fetchStoreDisplayNameForOrganization,
@@ -157,6 +168,8 @@ type OperatorActivePallet = {
   id: string;
   pallet_number: string;
   carrier_name?: string | null;
+  /** `pallets.order_id` when known from resolve / persist (hydrate is authoritative for display state). */
+  order_id?: string | null;
 };
 
 const DISCREPANCY_AUTO_NOTE =
@@ -192,6 +205,18 @@ const glassCard = "scanner-page-glass-card";
 /** Required markers in form labels — bright yellow on dark scanner UI. */
 const REQ_MARK_CLASS = "font-normal normal-case text-yellow-300";
 const REQ_STAR_CLASS = "font-bold text-yellow-300";
+/** Tooltip when pallet shipment order id disagrees with one or more saved packages. */
+const MIXED_PALLET_ORDER_IDS_TITLE =
+  "This pallet contains items from multiple Order IDs.";
+const AMBER_MIXED_ORDER = "#fbbf24";
+
+function firstConflictingOrderIdFromSlipRows(rows: OperatorSlipContentsListRow[]): string {
+  for (const r of rows) {
+    const c = String(r.conflicting_order_id ?? "").trim();
+    if (c) return c;
+  }
+  return "";
+}
 
 /** Canonical pallet photo-array parser (`text[]` in DB) with legacy JSON-string tolerance. */
 function parsePalletPhotoUrlArray(raw: unknown): string[] {
@@ -2133,8 +2158,8 @@ function OperatorMobileScanPageContent() {
 
   const [physicalBoxCount, setPhysicalBoxCount] = useState<number | null>(null);
   /**
-   * **Edit All**: unlocks Tracking ID + box count + slip fields on pallets that default to read-only.
-   * Initial drafts already allow Carrier / Order ID; box + tracking stay read-only until this mode.
+   * **Edit All**: unlocks pallet shipment fields (tracking, box count, carrier, order, photos, notes)
+   * and package intake when a saved UUID box is open. Persisted pallet / saved box rows default to read-only.
    */
   const [editAllMode, setEditAllMode] = useState(false);
   /** Hydrated slip columns indicate pallet already had shipment data in DB. */
@@ -2172,6 +2197,20 @@ function OperatorMobileScanPageContent() {
   /** Pallet shipment-slip / pallet-photo / BOL extras (operator-mobile pallet step). */
   const [palletCarrier, setPalletCarrier] = useState("");
   const [palletOrderId, setPalletOrderId] = useState("");
+  /** Last `pallets.order_id` read from DB (not operator-sticky like `palletOrderId`). */
+  const [palletDbOrderId, setPalletDbOrderId] = useState("");
+  /**
+   * BOX slip RMA embeds an order id (see {@link extractOrderIdFromAmazonStyleRa}) that disagrees with
+   * the pallet’s persisted `order_id` — informational only (small banner + badge).
+   */
+  const [slipVersusPalletOrderMismatch, setSlipVersusPalletOrderMismatch] = useState<null | {
+    slipOrderId: string;
+    palletOrderId: string;
+  }>(null);
+  /** True after a save detected package vs pallet order id conflict (until list hydrate clears it). */
+  const [palletMixedOrderIdsWarning, setPalletMixedOrderIdsWarning] = useState(false);
+  /** Mirrors {@link palletMixedOrderIdsUi} for pallet hydrate (declared before the memo). */
+  const palletMixedOrderIdsUiRef = useRef(false);
   /**
    * True when the operator explicitly picked the "Other / Not Listed" sentinel from the
    * carrier dropdown (so we should render the conditional "Enter Carrier Name" input even
@@ -2182,10 +2221,16 @@ function OperatorMobileScanPageContent() {
   const [palletCarrierOtherSelected, setPalletCarrierOtherSelected] = useState(false);
   const palletCarrierRef = useRef("");
   const palletOrderIdRef = useRef("");
+  /** When set, `palletOrderId` was last auto-filled from RA middle token — safe to clear on RA/slip reset. */
+  const lastOrderIdAutoFilledFromRaRef = useRef<string | null>(null);
   /** Latest pallet id targeted by async hydrate — ignore stale fetch results after switching pallets. */
   const hydrateActivePalletIdRef = useRef<string | null>(null);
   /** `${orgId}:${palletId}` — distinguish pallet/org switch from same-pallet refetch (`palletDocHydrationNonce`). */
   const palletHydrateStableKeyRef = useRef<string | null>(null);
+  /** When the persisted pallet row changes on the scan step, exit Edit All so shipment UI starts locked. */
+  const lastPalletIdForViewLockResetRef = useRef<string | null>(null);
+  /** Shipment tracking string to restore after a failed duplicate check while editing the header field. */
+  const palletTrackingEditBaselineRef = useRef("");
   const parentPalletCarrierDefaultRef = useRef("");
   const [slipExtractMissing, setSlipExtractMissing] = useState<{ carrier: boolean; orderId: boolean } | null>(null);
   /** Up to three URLs — persisted in `pallets.shipping_label_urls`. */
@@ -2196,6 +2241,20 @@ function OperatorMobileScanPageContent() {
   const [bolPhotoUrls, setBolPhotoUrls] = useState<string[]>([]);
   const palletPhotoUrlsRef = useRef<string[]>([]);
   const bolPhotoUrlsRef = useRef<string[]>([]);
+  const shippingLabelPhotoUrlsRef = useRef<string[]>([]);
+  const outsideBoxPhotoUrlsRef = useRef<string[]>([]);
+  const insideBoxPhotoUrlsRef = useRef<string[]>([]);
+  /** Last server-aligned evidence URLs — soft-removals stage deletes until Save; Discard abandons without storage delete. */
+  const evidenceBaselineRef = useRef<{
+    slip: string[];
+    outside: string[];
+    inside: string[];
+    shipping: string[];
+    pallet: string[];
+    bol: string[];
+  }>({ slip: [], outside: [], inside: [], shipping: [], pallet: [], bol: [] });
+  /** Persisted storage public URLs to remove after a successful Save/Confirm. */
+  const pendingEvidenceStorageDeletesRef = useRef<Set<string>>(new Set());
   /** `pallets.notes` — collaboration / receiving notes (pallet step). */
   const [palletNotes, setPalletNotes] = useState("");
 
@@ -2265,12 +2324,59 @@ function OperatorMobileScanPageContent() {
   useEffect(() => {
     palletOrderIdRef.current = palletOrderId;
   }, [palletOrderId]);
+
+  const applyPalletOrderIdFromRaIfApplicable = useCallback((rmaRaw: string) => {
+    const derived = extractOrderIdFromAmazonStyleRa(rmaRaw);
+    if (!derived) return;
+    const cur = palletOrderIdRef.current.trim();
+    if (!cur || cur === lastOrderIdAutoFilledFromRaRef.current) {
+      setPalletOrderId(derived);
+      lastOrderIdAutoFilledFromRaRef.current = derived;
+    }
+  }, []);
+
+  const clearPalletOrderIdIfAutoFilledFromRa = useCallback(() => {
+    const cur = palletOrderIdRef.current.trim();
+    if (lastOrderIdAutoFilledFromRaRef.current != null && cur === lastOrderIdAutoFilledFromRaRef.current) {
+      setPalletOrderId("");
+    }
+    lastOrderIdAutoFilledFromRaRef.current = null;
+  }, []);
+
+  /** Compare RA-derived slip order token vs pallet `order_id` already persisted on the pallet row. */
+  const syncSlipVersusPalletOrderMismatchFromRma = useCallback((rmaRaw: string, palletSavedOrderId: string) => {
+    const palletSaved = palletSavedOrderId.trim();
+    if (!palletSaved) {
+      setSlipVersusPalletOrderMismatch(null);
+      return;
+    }
+    const slipOid = extractOrderIdFromAmazonStyleRa(rmaRaw);
+    if (!slipOid) {
+      setSlipVersusPalletOrderMismatch(null);
+      return;
+    }
+    if (slipOid.toLowerCase() === palletSaved.toLowerCase()) {
+      setSlipVersusPalletOrderMismatch(null);
+      return;
+    }
+    setSlipVersusPalletOrderMismatch({ slipOrderId: slipOid, palletOrderId: palletSaved });
+  }, []);
+
+  const onPalletOrderIdInputChange = useCallback((v: string) => {
+    setPalletOrderId(v);
+    const auto = lastOrderIdAutoFilledFromRaRef.current;
+    if (auto != null && v.trim() !== auto) lastOrderIdAutoFilledFromRaRef.current = null;
+  }, []);
+
   useEffect(() => {
     palletPhotoUrlsRef.current = palletPhotoUrls;
   }, [palletPhotoUrls]);
   useEffect(() => {
     bolPhotoUrlsRef.current = bolPhotoUrls;
   }, [bolPhotoUrls]);
+  useEffect(() => {
+    shippingLabelPhotoUrlsRef.current = shippingLabelPhotoUrls;
+  }, [shippingLabelPhotoUrls]);
 
   const [scannedBoxesSavedCount, setScannedBoxesSavedCount] = useState(0);
   const [activeBoxSession, setActiveBoxSession] = useState<{ barcode: string; packageId: string | null } | null>(null);
@@ -2352,6 +2458,7 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const [boxIntakeError, setBoxIntakeError] = useState<string | null>(null);
+  const [duplicatePackingSlip, setDuplicatePackingSlip] = useState<DuplicatePackingSlipInfo | null>(null);
   /** Last packing-slip barcode parse (identify gate / shipment context). */
   const [slipBarcodeExtract, setSlipBarcodeExtract] = useState<SlipExtractResult | null>(null);
   /** BOX SCAN — `packages.*_photo_urls` (max 3 each). */
@@ -2359,8 +2466,30 @@ function OperatorMobileScanPageContent() {
   const [insideBoxPhotoUrls, setInsideBoxPhotoUrls] = useState<string[]>([]);
   const [slipBoxPhotoUrls, setSlipBoxPhotoUrls] = useState<string[]>([]);
   const slipBoxPhotoUrlsRef = useRef<string[]>([]);
+  useEffect(() => {
+    outsideBoxPhotoUrlsRef.current = outsideBoxPhotoUrls;
+  }, [outsideBoxPhotoUrls]);
+  useEffect(() => {
+    insideBoxPhotoUrlsRef.current = insideBoxPhotoUrls;
+  }, [insideBoxPhotoUrls]);
   const [boxSlipCode, setBoxSlipCode] = useState("");
   const [boxSlipRma, setBoxSlipRma] = useState("");
+  const boxSlipRmaRef = useRef("");
+  useEffect(() => {
+    boxSlipRmaRef.current = boxSlipRma;
+  }, [boxSlipRma]);
+
+  /** From `slip_contents.conflicting_order_id` when RA-derived id disagreed with pallet `order_id`. */
+  const [boxSlipConflictingOrderId, setBoxSlipConflictingOrderId] = useState("");
+
+  useEffect(() => {
+    if (flowPhase !== "package_scan") {
+      setSlipVersusPalletOrderMismatch(null);
+      return;
+    }
+    syncSlipVersusPalletOrderMismatchFromRma(boxSlipRma, palletDbOrderId);
+  }, [flowPhase, boxSlipRma, palletDbOrderId, activePallet?.id, syncSlipVersusPalletOrderMismatchFromRma]);
+
   const [boxSlipVisionLines, setBoxSlipVisionLines] = useState<BoxSlipVisionLine[]>([]);
   const boxSlipVisionLinesPersistRef = useRef<BoxSlipVisionLine[]>([]);
   const commitBoxSlipVisionLinesFromSource = useCallback((lines: BoxSlipVisionLine[]) => {
@@ -2371,8 +2500,11 @@ function OperatorMobileScanPageContent() {
   const clearBoxSlipVisionLinesState = useCallback(() => {
     boxSlipVisionLinesPersistRef.current = [];
     setBoxSlipVisionLines([]);
+    setBoxSlipConflictingOrderId("");
   }, []);
   const [boxSlipVisionBusy, setBoxSlipVisionBusy] = useState(false);
+  /** Set when /api/scanner/extract-box-slip returns INVALID_SLIP_FORMAT — blocks Save until slip is replaced or removed. */
+  const [boxSlipInvalidFormatBlocksSave, setBoxSlipInvalidFormatBlocksSave] = useState(false);
   const [boxSaveBusy, setBoxSaveBusy] = useState(false);
   const [boxNotes, setBoxNotes] = useState("");
   const boxNotesRef = useRef("");
@@ -2865,6 +2997,7 @@ function OperatorMobileScanPageContent() {
 
   useEffect(() => {
     setEditAllMode(false);
+    setPalletMixedOrderIdsWarning(false);
   }, [activePallet?.id]);
 
   /** Hydrate carrier / order_id / shipment-slip / pallet / BOL photo URLs from the active pallet row. */
@@ -2899,10 +3032,19 @@ function OperatorMobileScanPageContent() {
       setPalletCarrier("");
       setPalletCarrierOtherSelected(false);
       setPalletOrderId("");
+      setPalletDbOrderId("");
+      lastOrderIdAutoFilledFromRaRef.current = null;
       setCurrentPalletTrackingId(null);
       setShippingLabelPhotoUrls([]);
       setPalletPhotoUrls([]);
       setBolPhotoUrls([]);
+      shippingLabelPhotoUrlsRef.current = [];
+      palletPhotoUrlsRef.current = [];
+      bolPhotoUrlsRef.current = [];
+      evidenceBaselineRef.current.shipping = [];
+      evidenceBaselineRef.current.pallet = [];
+      evidenceBaselineRef.current.bol = [];
+      pendingEvidenceStorageDeletesRef.current.clear();
       setSlipExtractMissing(null);
       parentPalletCarrierDefaultRef.current = "";
       setPalletNotes("");
@@ -2915,6 +3057,9 @@ function OperatorMobileScanPageContent() {
       setPalletCarrier("");
       setPalletCarrierOtherSelected(false);
       setPalletNotes("");
+      setPalletDbOrderId("");
+      setPalletOrderId("");
+      lastOrderIdAutoFilledFromRaRef.current = null;
     }
     palletHydrateStableKeyRef.current = stableKey;
 
@@ -3014,7 +3159,21 @@ function OperatorMobileScanPageContent() {
       } else if (switchedPalletOrOrg) {
         parentPalletCarrierDefaultRef.current = "";
       }
-      setPalletOrderId((prev) => (prev.trim() ? prev : (row.order_id ?? "").trim()));
+      const rowOrder = String(row.order_id ?? "").trim();
+      setPalletDbOrderId(rowOrder);
+      // When switching pallets, stale `palletPackagePickerList` can still be from the previous pallet
+      // for one tick — `palletMixedOrderIdsUiRef` may read true and incorrectly preserve the old input.
+      const lockOrderInput =
+        palletMixedOrderIdsUiRef.current && !switchedPalletOrOrg;
+      setPalletOrderId((prev) => (lockOrderInput ? prev : rowOrder));
+      lastOrderIdAutoFilledFromRaRef.current = null;
+      setActivePallet((p) => {
+        if (!p?.id || !isUuidString(p.id) || p.id !== fetchingFor) return p;
+        return { ...p, order_id: rowOrder.length ? rowOrder : null };
+      });
+      if (process.env.NODE_ENV === "development") {
+        console.log("Current Pallet Data from DB:", { palletId: fetchingFor, ...row });
+      }
       setPalletNotes((prev) => (prev.trim() ? prev : String(row.notes ?? "").trim()));
       // Do not hydrate `currentPalletTrackingId` from DB during the session — gate / operator edits own it.
       const hydrated = hydrateOperatorPalletDocumentationPhotoUrls(row, supabase);
@@ -3030,9 +3189,15 @@ function OperatorMobileScanPageContent() {
       setShippingLabelPhotoUrls(hydrated.shippingLabel);
       setPalletPhotoUrls(hydrated.pallet);
       setBolPhotoUrls(hydrated.bol);
+      shippingLabelPhotoUrlsRef.current = [...hydrated.shippingLabel];
+      palletPhotoUrlsRef.current = [...hydrated.pallet];
+      bolPhotoUrlsRef.current = [...hydrated.bol];
+      evidenceBaselineRef.current.shipping = [...hydrated.shippingLabel];
+      evidenceBaselineRef.current.pallet = [...hydrated.pallet];
+      evidenceBaselineRef.current.bol = [...hydrated.bol];
       const persistedSlip =
         Boolean((row.carrier_name ?? "").trim()) ||
-        Boolean((row.order_id ?? "").trim()) ||
+        Boolean(rowOrder) ||
         hydrated.shippingLabel.length > 0 ||
         hydrated.pallet.length > 0 ||
         hydrated.bol.length > 0;
@@ -3052,6 +3217,7 @@ function OperatorMobileScanPageContent() {
       setPalletPackagePickerList([]);
       return;
     }
+    setPalletPackagePickerList([]);
     let cancelled = false;
     void (async () => {
       const res = await listOperatorPackagesForPalletAction(oid, pid, sessionStoreId ?? null);
@@ -3439,10 +3605,12 @@ function OperatorMobileScanPageContent() {
       const num = String(r.row.pallet_number ?? "");
       if (id && num) {
         const cn = String(r.row.carrier_name ?? "").trim();
+        const oidRow = String((r.row as { order_id?: unknown }).order_id ?? "").trim();
         setActivePallet({
           id,
           pallet_number: num,
           ...(cn ? { carrier_name: cn } : {}),
+          ...(oidRow ? { order_id: oidRow } : {}),
         });
         // `currentPalletTrackingId` is set by the caller with the operator's scanned/typed code
         // (identify gate or runResolve) so Active Pallet edit shows that value, not only DB row.
@@ -3521,21 +3689,136 @@ function OperatorMobileScanPageContent() {
     });
   }, [searchParams, pathname, router]);
 
-  const handlePalletPhotoUrlsChange = useCallback((urls: string[]) => {
-    setPalletPhotoUrls(urls);
+  const capturePalletEvidenceBaseline = useCallback(() => {
+    const o = evidenceBaselineRef.current;
+    o.shipping = [...shippingLabelPhotoUrlsRef.current];
+    o.pallet = [...palletPhotoUrlsRef.current];
+    o.bol = [...bolPhotoUrlsRef.current];
   }, []);
 
-  const handleBolPhotoUrlsChange = useCallback((urls: string[]) => {
-    setBolPhotoUrls(urls);
+  const captureBoxEvidenceBaseline = useCallback(() => {
+    const o = evidenceBaselineRef.current;
+    o.slip = [...slipBoxPhotoUrlsRef.current];
+    o.outside = [...outsideBoxPhotoUrlsRef.current];
+    o.inside = [...insideBoxPhotoUrlsRef.current];
   }, []);
 
-  const handleShippingLabelPhotoUrlsChange = useCallback((urls: string[]) => {
-    setShippingLabelPhotoUrls(urls);
-  }, []);
+  const deleteOrphanEvidenceUploads = useCallback(async (urls: readonly string[]) => {
+    const oid = (orgId ?? "").trim();
+    const list = urls.filter((u) => {
+      const s = String(u ?? "").trim();
+      return /^https?:\/\//i.test(s) && isPersistableStoredMediaReference(s);
+    });
+    if (!isSupabaseConfigured() || !oid || !list.length) return;
+    const res = await deleteOperatorEvidenceStorageByPublicUrlsAction(oid, list);
+    if (!res.ok) {
+      console.warn("[operator-mobile] orphan evidence delete:", res.error);
+    }
+  }, [orgId]);
+
+  /** Restore pallet shipment photos to baseline, drop staged storage deletes, remove orphan uploads (session-only adds). */
+  const abandonUnsavedPalletShipmentEdits = useCallback(async () => {
+    const b = evidenceBaselineRef.current;
+    const ship = [...shippingLabelPhotoUrlsRef.current];
+    const p = [...palletPhotoUrlsRef.current];
+    const bl = [...bolPhotoUrlsRef.current];
+    pendingEvidenceStorageDeletesRef.current.clear();
+    const orphanCandidates = [...ship, ...p, ...bl].filter((u) => {
+      const s = String(u ?? "").trim();
+      if (!/^https?:\/\//i.test(s) || !isPersistableStoredMediaReference(s)) return false;
+      return !b.shipping.includes(s) && !b.pallet.includes(s) && !b.bol.includes(s);
+    });
+    setShippingLabelPhotoUrls([...b.shipping]);
+    shippingLabelPhotoUrlsRef.current = [...b.shipping];
+    setPalletPhotoUrls([...b.pallet]);
+    palletPhotoUrlsRef.current = [...b.pallet];
+    setBolPhotoUrls([...b.bol]);
+    bolPhotoUrlsRef.current = [...b.bol];
+    await deleteOrphanEvidenceUploads(orphanCandidates);
+  }, [deleteOrphanEvidenceUploads]);
+
+  const flushPendingEvidenceStorageDeletes = useCallback(async () => {
+    const oid = (orgId ?? "").trim();
+    const pending = [...pendingEvidenceStorageDeletesRef.current];
+    pendingEvidenceStorageDeletesRef.current.clear();
+    if (!isSupabaseConfigured() || !oid || !pending.length) return;
+    const res = await deleteOperatorEvidenceStorageByPublicUrlsAction(oid, pending);
+    if (!res.ok) {
+      console.warn("[operator-mobile] deferred evidence delete:", res.error);
+    }
+  }, [orgId]);
+
+  const recordEvidenceSlotRemoval = useCallback(
+    (slot: "slip" | "outside" | "inside" | "shipping" | "pallet" | "bol", prev: string[], next: string[]) => {
+      const base = evidenceBaselineRef.current[slot];
+      const removed = prev.filter((u) => !next.includes(u));
+      for (const u of removed) {
+        const s = String(u ?? "").trim();
+        if (!/^https?:\/\//i.test(s)) continue;
+        if (!isPersistableStoredMediaReference(s)) continue;
+        if (base.includes(s)) pendingEvidenceStorageDeletesRef.current.add(s);
+      }
+      if (slot === "slip" && removed.length > 0) {
+        const slipHadAi = boxSlipVisionLines.length > 0 || Boolean(boxSlipCode.trim());
+        if (slipHadAi) {
+          setIntakeToast(
+            "Warning: Deleting the slip image removes visual proof; detected items stay in the record until manually changed.",
+          );
+        }
+      }
+    },
+    [boxSlipVisionLines.length, boxSlipCode],
+  );
+
+  const handleShippingLabelPhotoUrlsChange = useCallback(
+    (urls: string[]) => {
+      recordEvidenceSlotRemoval("shipping", shippingLabelPhotoUrlsRef.current, urls);
+      shippingLabelPhotoUrlsRef.current = urls;
+      setShippingLabelPhotoUrls(urls);
+    },
+    [recordEvidenceSlotRemoval],
+  );
+
+  const handlePalletPhotoUrlsChange = useCallback(
+    (urls: string[]) => {
+      recordEvidenceSlotRemoval("pallet", palletPhotoUrlsRef.current, urls);
+      palletPhotoUrlsRef.current = urls;
+      setPalletPhotoUrls(urls);
+    },
+    [recordEvidenceSlotRemoval],
+  );
+
+  const handleBolPhotoUrlsChange = useCallback(
+    (urls: string[]) => {
+      recordEvidenceSlotRemoval("bol", bolPhotoUrlsRef.current, urls);
+      bolPhotoUrlsRef.current = urls;
+      setBolPhotoUrls(urls);
+    },
+    [recordEvidenceSlotRemoval],
+  );
+
+  const handleOutsideBoxPhotoUrlsChange = useCallback(
+    (urls: string[]) => {
+      recordEvidenceSlotRemoval("outside", outsideBoxPhotoUrlsRef.current, urls);
+      outsideBoxPhotoUrlsRef.current = urls;
+      setOutsideBoxPhotoUrls(urls);
+    },
+    [recordEvidenceSlotRemoval],
+  );
+
+  const handleInsideBoxPhotoUrlsChange = useCallback(
+    (urls: string[]) => {
+      recordEvidenceSlotRemoval("inside", insideBoxPhotoUrlsRef.current, urls);
+      insideBoxPhotoUrlsRef.current = urls;
+      setInsideBoxPhotoUrls(urls);
+    },
+    [recordEvidenceSlotRemoval],
+  );
 
   const runBoxSlipVisionOnPhotoUrl = useCallback(
     async (photoUrl: string) => {
       setBoxSlipVisionBusy(true);
+      setBoxSlipInvalidFormatBlocksSave(false);
       try {
         const apiKey = getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage();
         if (!apiKey && !orgId?.trim()) {
@@ -3564,11 +3847,37 @@ function OperatorMobileScanPageContent() {
           headers,
           body: JSON.stringify({ imageBase64, mimeType, organizationId: orgId }),
         });
-        const json = (await res.json()) as { error?: string; slip?: BoxSlipVisionExtract };
+        const json = (await res.json()) as { error?: string; message?: string; slip?: BoxSlipVisionExtract };
         if (!res.ok) {
+          if (json.error === INVALID_SLIP_FORMAT) {
+            setBoxSlipInvalidFormatBlocksSave(true);
+            setBoxSlipCode("");
+            setBoxSlipRma("");
+            clearPalletOrderIdIfAutoFilledFromRa();
+            clearBoxSlipVisionLinesState();
+            setDuplicatePackingSlip(null);
+            setSyncErrorToast(
+              json.message ??
+                "INVALID_SLIP_FORMAT: This photo is not a readable packing slip (slip id, item table, and barcodes).",
+            );
+            return;
+          }
           throw new Error(json.error ?? `BOX slip vision failed (${res.status})`);
         }
         if (!json.slip) throw new Error("Invalid BOX slip vision response.");
+        if (!isStructuredBoxSlipExtractValid(json.slip)) {
+          setBoxSlipInvalidFormatBlocksSave(true);
+          setBoxSlipCode("");
+          setBoxSlipRma("");
+          clearPalletOrderIdIfAutoFilledFromRa();
+          clearBoxSlipVisionLinesState();
+          setDuplicatePackingSlip(null);
+          setSyncErrorToast(
+            "INVALID_SLIP_FORMAT: This photo is not a readable packing slip (slip id, item table, and barcodes).",
+          );
+          return;
+        }
+        setBoxSlipInvalidFormatBlocksSave(false);
         const sid = (
           json.slip.id_slip_contents ??
           (json.slip as { slip_code?: string | null }).slip_code ??
@@ -3577,6 +3886,7 @@ function OperatorMobileScanPageContent() {
         if (sid) setBoxSlipCode(sid);
         const rma = json.slip.rma_number?.trim() ?? "";
         if (rma) setBoxSlipRma(rma);
+        if (rma) applyPalletOrderIdFromRaIfApplicable(rma);
         const items = Array.isArray(json.slip.items) ? json.slip.items : [];
         commitBoxSlipVisionLinesFromSource(items);
 
@@ -3592,43 +3902,90 @@ function OperatorMobileScanPageContent() {
         ) {
           const slipCodeForRow = sid.trim() || null;
           const rmaForRow = rma.trim() || null;
-          const manifestPayload = {
-            box_slip_vision: {
-              id_slip_contents: slipCodeForRow,
-              rma_number: rmaForRow,
-              items,
-              captured_at: new Date().toISOString(),
-            },
-          };
-          const pid = activePallet?.id?.trim() ?? "";
-          const palletIdPersist = isUuidString(pid) ? pid : null;
-          const linesPayload = items.map((line) => ({
-            upc: line.upc?.trim() || null,
-            fnsku: line.fnsku?.trim() || null,
-            description: line.description?.trim() || null,
-            expected_qty: line.expected_qty ?? 0,
-            condition: line.condition?.trim() || null,
-            missing: Boolean(line.missing),
-          }));
-          const persistRes = await updateOperatorIntakeBoxPackageAction({
-            requestedOrganizationId: oidPersist,
-            storeId: storePersist,
-            packageId: pkgIdPersist,
-            palletId: palletIdPersist,
-            palletUpdate: null,
-            packageUpdate: {
-              id_slip_contents: slipCodeForRow,
-              rma_number: rmaForRow,
-              manifest_data: manifestPayload,
-            },
-            slipContents: {
-              mode: "replace",
-              slipCode: slipCodeForRow,
-              lines: linesPayload,
-            },
-          });
-          if (!persistRes.ok) {
-            setSyncErrorToast(persistRes.message);
+
+          let blockVisionPersist = false;
+          if (slipCodeForRow) {
+            const dupChk = await checkOperatorSlipCodeDuplicateAction(oidPersist, slipCodeForRow, pkgIdPersist);
+            if (!dupChk.ok) {
+              setSyncErrorToast(dupChk.error);
+              blockVisionPersist = true;
+            } else if (dupChk.duplicate) {
+              setDuplicatePackingSlip({
+                slipCode: dupChk.slipCode,
+                otherPackageCode: dupChk.otherPackageCode,
+              });
+              setBoxIntakeError(null);
+              blockVisionPersist = true;
+            } else {
+              setDuplicatePackingSlip(null);
+            }
+          } else {
+            setDuplicatePackingSlip(null);
+          }
+
+          if (!blockVisionPersist) {
+            const manifestPayload = {
+              box_slip_vision: {
+                id_slip_contents: slipCodeForRow,
+                rma_number: rmaForRow,
+                items,
+                captured_at: new Date().toISOString(),
+              },
+            };
+            const pid = activePallet?.id?.trim() ?? "";
+            const palletIdPersist = isUuidString(pid) ? pid : null;
+            const linesPayload = items.map((line) => ({
+              upc: line.upc?.trim() || null,
+              fnsku: line.fnsku?.trim() || null,
+              description: line.description?.trim() || null,
+              expected_qty: line.expected_qty ?? 0,
+              condition: line.condition?.trim() || null,
+              missing: Boolean(line.missing),
+            }));
+            const persistRes = await updateOperatorIntakeBoxPackageAction({
+              requestedOrganizationId: oidPersist,
+              storeId: storePersist,
+              packageId: pkgIdPersist,
+              palletId: palletIdPersist,
+              palletUpdate: null,
+              packageUpdate: {
+                id_slip_contents: slipCodeForRow,
+                rma_number: rmaForRow,
+                order_id: palletOrderIdRef.current.trim() || null,
+                manifest_data: manifestPayload,
+              },
+              slipContents: {
+                mode: "replace",
+                slipCode: slipCodeForRow,
+                lines: linesPayload,
+              },
+            });
+            if (!persistRes.ok) {
+              if (persistRes.duplicatePackingSlip) {
+                setDuplicatePackingSlip(persistRes.duplicatePackingSlip);
+                setBoxIntakeError(null);
+              } else {
+                setSyncErrorToast(persistRes.message);
+              }
+            } else {
+              if (persistRes.palletMixedOrderIds) {
+                setPalletMixedOrderIdsWarning(true);
+              }
+              if ("palletOrderIdFromDb" in persistRes) {
+                const raw = persistRes.palletOrderIdFromDb;
+                const o = raw == null ? "" : String(raw).trim();
+                setPalletDbOrderId(o);
+                if (!persistRes.palletMixedOrderIds) {
+                  setPalletOrderId(o);
+                }
+              }
+              const sc =
+                "slipConflictingOrderId" in persistRes && persistRes.slipConflictingOrderId != null
+                  ? String(persistRes.slipConflictingOrderId).trim()
+                  : "";
+              setBoxSlipConflictingOrderId(sc);
+              setPalletDocHydrationNonce((n) => n + 1);
+            }
           }
         }
       } catch (e) {
@@ -3638,22 +3995,52 @@ function OperatorMobileScanPageContent() {
         scheduleFocusScanner();
       }
     },
-    [orgId, scheduleFocusScanner, sessionStoreId, activePallet?.id, commitBoxSlipVisionLinesFromSource],
+    [
+      orgId,
+      scheduleFocusScanner,
+      sessionStoreId,
+      activePallet?.id,
+      commitBoxSlipVisionLinesFromSource,
+      clearBoxSlipVisionLinesState,
+      applyPalletOrderIdFromRaIfApplicable,
+      clearPalletOrderIdIfAutoFilledFromRa,
+    ],
   );
 
   const handleSlipBoxPhotoUrlsChange = useCallback(
     (urls: string[]) => {
       const prev = slipBoxPhotoUrlsRef.current;
+      const prevHttps = prev.filter((u) => /^https?:\/\//i.test(String(u ?? "").trim()));
+      const nextHttps = urls.filter((u) => /^https?:\/\//i.test(String(u ?? "").trim()));
+      const prevPrimary = prevHttps[0] ? String(prevHttps[0]).trim() : "";
+      const nextPrimary = nextHttps[0] ? String(nextHttps[0]).trim() : "";
+      const slipPrimaryCleared = Boolean(prevPrimary) && !nextPrimary;
+      const slipPrimaryReplaced =
+        Boolean(prevPrimary) && Boolean(nextPrimary) && prevPrimary !== nextPrimary;
+
+      recordEvidenceSlotRemoval("slip", prev, urls);
       slipBoxPhotoUrlsRef.current = urls;
       setSlipBoxPhotoUrls(urls);
+
+      if (slipPrimaryCleared || slipPrimaryReplaced || nextHttps.length === 0) {
+        setBoxSlipInvalidFormatBlocksSave(false);
+        setBoxSlipCode("");
+        setBoxSlipRma("");
+        clearPalletOrderIdIfAutoFilledFromRa();
+        clearBoxSlipVisionLinesState();
+        setDuplicatePackingSlip(null);
+      }
+
       if (urls.length > prev.length) {
         const last = urls[urls.length - 1];
         if (last && /^https?:\/\//i.test(last)) {
-          void runBoxSlipVisionOnPhotoUrl(last);
+          void runBoxSlipVisionOnPhotoUrl(String(last).trim());
         }
+      } else if (slipPrimaryReplaced && nextPrimary) {
+        void runBoxSlipVisionOnPhotoUrl(nextPrimary);
       }
     },
-    [runBoxSlipVisionOnPhotoUrl],
+    [runBoxSlipVisionOnPhotoUrl, recordEvidenceSlotRemoval, clearBoxSlipVisionLinesState, clearPalletOrderIdIfAutoFilledFromRa],
   );
 
   useEffect(() => {
@@ -3664,8 +4051,16 @@ function OperatorMobileScanPageContent() {
       setInsideBoxPhotoUrls([]);
       setSlipBoxPhotoUrls([]);
       slipBoxPhotoUrlsRef.current = [];
+      outsideBoxPhotoUrlsRef.current = [];
+      insideBoxPhotoUrlsRef.current = [];
+      evidenceBaselineRef.current.slip = [];
+      evidenceBaselineRef.current.outside = [];
+      evidenceBaselineRef.current.inside = [];
+      pendingEvidenceStorageDeletesRef.current.clear();
+      setBoxSlipInvalidFormatBlocksSave(false);
       setBoxSlipCode("");
       setBoxSlipRma("");
+      clearPalletOrderIdIfAutoFilledFromRa();
       clearBoxSlipVisionLinesState();
       setBoxNotes("");
       return;
@@ -3679,6 +4074,7 @@ function OperatorMobileScanPageContent() {
     const fetchingFor = pid;
     let cancelled = false;
     void (async () => {
+      setBoxSlipConflictingOrderId("");
       const { data, error } = await supabase
         .from("packages")
         .select(
@@ -3714,6 +4110,12 @@ function OperatorMobileScanPageContent() {
       setInsideBoxPhotoUrls(ins);
       setSlipBoxPhotoUrls(s);
       slipBoxPhotoUrlsRef.current = [...s];
+      outsideBoxPhotoUrlsRef.current = [...o];
+      insideBoxPhotoUrlsRef.current = [...ins];
+      evidenceBaselineRef.current.slip = [...s];
+      evidenceBaselineRef.current.outside = [...o];
+      evidenceBaselineRef.current.inside = [...ins];
+      pendingEvidenceStorageDeletesRef.current.clear();
       setBoxNotes(String(row.notes ?? "").trim());
       const pkgCarrierRaw = String(row.carrier_name ?? "").trim();
       if (pkgCarrierRaw) {
@@ -3739,6 +4141,7 @@ function OperatorMobileScanPageContent() {
       let rma = rmaRow || fromManifest.rma;
       let slipRowsMapped: BoxSlipVisionLine[] | null = null;
       let slipCodeFromContents: string | null = null;
+      let slipConflictingHydrate = "";
 
       if (oidForSlip) {
         const slipRes = await listOperatorSlipContentsForPackageAction(oidForSlip, fetchingFor, sessionStoreId ?? null);
@@ -3755,13 +4158,14 @@ function OperatorMobileScanPageContent() {
           if (firstRma) rma = firstRma;
           const sc = String(slipRes.rows[0]?.slip_code ?? "").trim();
           slipCodeFromContents = sc.length ? sc : null;
+          slipConflictingHydrate = firstConflictingOrderIdFromSlipRows(slipRes.rows);
         }
       }
 
       if (!slipRowsMapped || slipRowsMapped.length === 0) {
         const { data: slipRows, error: slipErr } = await supabase
           .from("slip_contents")
-          .select("upc, fnsku, description, quantity, condition, rma_number, sort_index")
+          .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, conflicting_order_id")
           .eq("package_id", fetchingFor)
           .order("sort_index", { ascending: true });
         if (cancelled || hydrateBoxPackageIdRef.current !== fetchingFor) return;
@@ -3769,6 +4173,9 @@ function OperatorMobileScanPageContent() {
           slipRowsMapped = slipRows.map((sr) => mapSlipContentRowToVisionLine(sr as Record<string, unknown>));
           const firstRma = String((slipRows[0] as Record<string, unknown>).rma_number ?? "").trim();
           if (firstRma) rma = firstRma;
+          slipConflictingHydrate = firstConflictingOrderIdFromSlipRows(
+            (slipRows ?? []) as OperatorSlipContentsListRow[],
+          );
         }
       }
 
@@ -3780,7 +4187,10 @@ function OperatorMobileScanPageContent() {
 
       setBoxSlipCode(sidRow || fromManifest.slipCode || slipCodeFromContents || "");
       setBoxSlipRma(rma);
+      setBoxSlipConflictingOrderId(slipConflictingHydrate);
+      applyPalletOrderIdFromRaIfApplicable(rma);
       commitBoxSlipVisionLinesFromSource(lines);
+      setBoxSlipInvalidFormatBlocksSave(false);
     })();
     return () => {
       cancelled = true;
@@ -3788,7 +4198,7 @@ function OperatorMobileScanPageContent() {
     // Intentionally only `activeBoxSession` + `orgId`: mergeCarrier/persist in the async body are stable callbacks;
     // including them previously re-ran this effect and overwrote in-progress slip uploads from the UI.
     // `orgId` is required so server-side slip_contents hydration uses the current workspace org.
-  }, [activeBoxSession, orgId, sessionStoreId]);
+  }, [activeBoxSession, orgId, sessionStoreId, applyPalletOrderIdFromRaIfApplicable, clearPalletOrderIdIfAutoFilledFromRa]);
 
   useEffect(() => {
     if (flowPhase !== "package_scan") return;
@@ -3834,6 +4244,7 @@ function OperatorMobileScanPageContent() {
     async (code: string): Promise<boolean> => {
       const trimmed = code.trim();
       setBoxIntakeError(null);
+      setDuplicatePackingSlip(null);
       if (!trimmed) return false;
       if (activeBoxSession) {
         setBoxIntakeError("Save the current box before scanning another barcode.");
@@ -3917,6 +4328,7 @@ function OperatorMobileScanPageContent() {
             return false;
           }
           setActiveBoxSession({ barcode: pkgNum, packageId: pkgId });
+          setEditAllMode(false);
           setPackageCodeCardOpen(false);
           setCurrentPackageTrackingId(pkgNum);
           setBoxNotes(String(r.notes ?? "").trim());
@@ -3942,6 +4354,12 @@ function OperatorMobileScanPageContent() {
           setInsideBoxPhotoUrls(ins);
           setSlipBoxPhotoUrls(s);
           slipBoxPhotoUrlsRef.current = [...s];
+          outsideBoxPhotoUrlsRef.current = [...o];
+          insideBoxPhotoUrlsRef.current = [...ins];
+          evidenceBaselineRef.current.slip = [...s];
+          evidenceBaselineRef.current.outside = [...o];
+          evidenceBaselineRef.current.inside = [...ins];
+          pendingEvidenceStorageDeletesRef.current.clear();
           const sidRow = String(r.id_slip_contents ?? r.slip_code ?? r.slip_id ?? "").trim();
           const rmaRow = String(r.rma_number ?? "").trim();
           let manifestParsed: unknown = r.manifest_data;
@@ -3958,6 +4376,7 @@ function OperatorMobileScanPageContent() {
           let slipCodeFromContents: string | null = null;
           const oidSlipScan = orgId.trim();
           let slipRowsMapped: BoxSlipVisionLine[] | null = null;
+          let slipConflictingScan = "";
           if (oidSlipScan) {
             const slipRes = await listOperatorSlipContentsForPackageAction(oidSlipScan, pkgId, sessionStoreId ?? null);
             if (slipRes.ok && slipRes.rows.length > 0) {
@@ -3968,13 +4387,14 @@ function OperatorMobileScanPageContent() {
               if (firstRma) rma = firstRma;
               const sc = String(slipRes.rows[0]?.slip_code ?? "").trim();
               slipCodeFromContents = sc.length ? sc : null;
+              slipConflictingScan = firstConflictingOrderIdFromSlipRows(slipRes.rows);
             }
           }
           if (!slipRowsMapped || slipRowsMapped.length === 0) {
             try {
               const { data: slipRows, error: slipErr } = await supabase
                 .from("slip_contents")
-                .select("upc, fnsku, description, quantity, condition, rma_number, sort_index")
+                .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, conflicting_order_id")
                 .eq("package_id", pkgId)
                 .order("sort_index", { ascending: true });
               if (!slipErr && Array.isArray(slipRows) && slipRows.length > 0) {
@@ -3983,6 +4403,9 @@ function OperatorMobileScanPageContent() {
                 );
                 const firstRma = String((slipRows[0] as Record<string, unknown>).rma_number ?? "").trim();
                 if (firstRma) rma = firstRma;
+                slipConflictingScan = firstConflictingOrderIdFromSlipRows(
+                  (slipRows ?? []) as OperatorSlipContentsListRow[],
+                );
               }
             } catch {
               /* slip_contents optional — never block intake */
@@ -3993,7 +4416,10 @@ function OperatorMobileScanPageContent() {
           }
           setBoxSlipCode(sidRow || fromManifest.slipCode || slipCodeFromContents || trimmed);
           setBoxSlipRma(rma);
+          setBoxSlipConflictingOrderId(slipConflictingScan);
+          applyPalletOrderIdFromRaIfApplicable(rma);
           commitBoxSlipVisionLinesFromSource(lines);
+          setBoxSlipInvalidFormatBlocksSave(false);
           setIntakeToast("BOX loaded from slip id (local). Confirm & Save to write changes.");
           playOperatorSuccessBeep();
           setScanSuccessFlash(true);
@@ -4072,6 +4498,7 @@ function OperatorMobileScanPageContent() {
       persistOperatorSessionCarrier,
       scheduleFocusScanner,
       commitBoxSlipVisionLinesFromSource,
+      applyPalletOrderIdFromRaIfApplicable,
     ],
   );
 
@@ -4096,11 +4523,25 @@ function OperatorMobileScanPageContent() {
         setBoxIntakeError("Add at least one packing slip photo before saving this BOX.");
         return false;
       }
+      if (boxSlipInvalidFormatBlocksSave) {
+        setBoxIntakeError(
+          "INVALID_SLIP_FORMAT — use a clear packing slip photo (slip id, item lines, and barcodes visible).",
+        );
+        return false;
+      }
+      if (boxSlipVisionBusy) {
+        setBoxIntakeError("Wait for packing slip analysis to finish before saving.");
+        return false;
+      }
     const slipCodePersist = boxSlipCode.trim() || null;
     setBoxSaveBusy(true);
     let resolvedPalletIdForDetail: string | null =
       activePallet?.id && isUuidString(activePallet.id) ? activePallet.id : null;
+    /** Last successful {@link updateOperatorIntakeBoxPackageAction} result (pallet order re-read). */
+    let operatorPackageSaveResult: UpdateOperatorIntakeBoxPackageResult | null = null;
     try {
+      setDuplicatePackingSlip(null);
+      setBoxIntakeError(null);
       const orderPersist = palletOrderId.trim() || null;
       const rmaPersist = boxSlipRma.trim() || null;
       let notesForSave = boxNotesRef.current.trim();
@@ -4190,6 +4631,7 @@ function OperatorMobileScanPageContent() {
           packageUpdate: {
             package_code: pkgBarcode,
             tracking_number: parentShipmentTracking,
+            order_id: orderPersist,
             outside_photo_urls: outsideBoxPhotoUrls,
             inside_photo_urls: insideBoxPhotoUrls,
             slip_photo_urls: slipBoxPhotoUrls,
@@ -4212,13 +4654,24 @@ function OperatorMobileScanPageContent() {
           },
         });
         if (!saveRes.ok) {
-          setBoxIntakeError(saveRes.message);
+          if (saveRes.duplicatePackingSlip) {
+            setDuplicatePackingSlip(saveRes.duplicatePackingSlip);
+            setBoxIntakeError(null);
+          } else {
+            setDuplicatePackingSlip(null);
+            setBoxIntakeError(saveRes.message);
+          }
           return false;
         }
+        if (saveRes.palletMixedOrderIds) {
+          setPalletMixedOrderIdsWarning(true);
+        }
+        operatorPackageSaveResult = saveRes;
         setItemScanPackageId(packageId);
       } else {
         setItemScanPackageId(`demo-${Date.now()}`);
       }
+      await flushPendingEvidenceStorageDeletes();
       const slipQtySumForReceiving = slipLinesForPersist.reduce(
         (s, line) => s + Math.max(0, Math.floor(Number(line.expected_qty ?? 0))),
         0,
@@ -4229,12 +4682,29 @@ function OperatorMobileScanPageContent() {
       setActiveBoxSession(null);
       setCurrentPackageTrackingId(null);
       setBoxIntakeError(null);
+      setDuplicatePackingSlip(null);
+      setBoxSlipInvalidFormatBlocksSave(false);
       setOutsideBoxPhotoUrls([]);
       setInsideBoxPhotoUrls([]);
       setSlipBoxPhotoUrls([]);
       slipBoxPhotoUrlsRef.current = [];
+      outsideBoxPhotoUrlsRef.current = [];
+      insideBoxPhotoUrlsRef.current = [];
       setBoxSlipCode("");
       setBoxSlipRma("");
+      clearPalletOrderIdIfAutoFilledFromRa();
+      if (
+        operatorPackageSaveResult &&
+        operatorPackageSaveResult.ok &&
+        "palletOrderIdFromDb" in operatorPackageSaveResult
+      ) {
+        const raw = operatorPackageSaveResult.palletOrderIdFromDb;
+        const o = raw == null ? "" : String(raw).trim();
+        setPalletDbOrderId(o);
+        if (!operatorPackageSaveResult.palletMixedOrderIds) {
+          setPalletOrderId(o);
+        }
+      }
       clearBoxSlipVisionLinesState();
       hydrateBoxPackageIdRef.current = null;
       if (resolvedPalletIdForDetail && isUuidString(resolvedPalletIdForDetail)) {
@@ -4292,6 +4762,9 @@ function OperatorMobileScanPageContent() {
     shippingLabelPhotoUrls,
     slipBoxPhotoUrls,
     currentPalletTrackingId,
+    flushPendingEvidenceStorageDeletes,
+    boxSlipInvalidFormatBlocksSave,
+    boxSlipVisionBusy,
   ]);
 
   const populateDraftFromEpRow = useCallback(
@@ -5529,51 +6002,6 @@ function OperatorMobileScanPageContent() {
         ? "Find or add a box…"
         : (currentPackageTrackingId ?? "").trim() || "Pending Scan…");
 
-  const editParent = () => {
-    setPhysicalBoxCount(null);
-    setBoxScanTargetDenominator(null);
-    setScannedBoxesSavedCount(0);
-    setActiveBoxSession(null);
-    setPackageCodeCardOpen(false);
-    setPalletPackagePickerQuery("");
-    setBoxIntakeError(null);
-    resetItemInspectionForm();
-    setItemScanPackageId(null);
-    setItemScanPackageLabel(null);
-    setReceivingSlipExpectedItemQtyTotal(null);
-    setItemReceiveDemoScannedUnits(0);
-    setItemReceivePackageActualCount(null);
-    setItemReceiveCountSyncNonce(0);
-    setExpectedPkgDetailRows([]);
-    setItemTrackingExpectationsHint(null);
-    setCandidatePicker(null);
-    setItemBarcodeMiss(null);
-    modalOpenRef.current = false;
-    setOutsideBoxPhotoUrls([]);
-    setInsideBoxPhotoUrls([]);
-    setSlipBoxPhotoUrls([]);
-    slipBoxPhotoUrlsRef.current = [];
-    setBoxSlipCode("");
-    setBoxSlipRma("");
-    clearBoxSlipVisionLinesState();
-    hydrateBoxPackageIdRef.current = null;
-    setActivePallet(null);
-    setActiveTracking(null);
-    setCurrentPalletTrackingId(null);
-      setCurrentPackageTrackingId(null);
-      setPalletCreatedByLabel(null);
-      setPalletCreatedByProfileId(null);
-      setPalletCreatedAtIso(null);
-      setScanLine("");
-      setSlipBarcodeExtract(null);
-    setFlowPhase("scan");
-    setIsIdentified(false);
-    completedShipmentDialogShownForKeyRef.current = null;
-    setCompletedShipmentModal(null);
-    resetIdentifyGateForm();
-    scheduleFocusScanner();
-  };
-
   const hasPalletShippingLabelPhoto = shippingLabelPhotoUrls.some((u) => String(u ?? "").trim().length > 0);
 
   const isReadyForBoxScan =
@@ -5605,6 +6033,8 @@ function OperatorMobileScanPageContent() {
     if (!isSupabaseConfigured()) {
       const demoId = activePallet?.id?.trim() ?? "";
       parentPalletCarrierDefaultRef.current = carrierToPersist;
+      await flushPendingEvidenceStorageDeletes();
+      capturePalletEvidenceBaseline();
       return { ok: true, palletId: demoId };
     }
 
@@ -5651,6 +6081,8 @@ function OperatorMobileScanPageContent() {
     });
 
     if (!persisted.ok) return { ok: false, message: persisted.message };
+    await flushPendingEvidenceStorageDeletes();
+    capturePalletEvidenceBaseline();
     setPalletCreatedByLabel(persisted.creatorDisplayLabel.trim() || "Unknown");
     setPalletCreatedByProfileId(persisted.createdByUserId ?? null);
     parentPalletCarrierDefaultRef.current = carrierToPersist;
@@ -5669,6 +6101,8 @@ function OperatorMobileScanPageContent() {
     orgId,
     sessionStoreId,
     palletNotes,
+    flushPendingEvidenceStorageDeletes,
+    capturePalletEvidenceBaseline,
   ]);
 
   const liveDbForShipmentUx = isSupabaseConfigured();
@@ -5690,23 +6124,45 @@ function OperatorMobileScanPageContent() {
     }
   }, [palletShipmentCommittedStorageKey, palletShipmentCommitVersion]);
 
-  /** Backend pallet with no hydrated slip columns and no session commit — Carrier/Order stay editable; box/tracking locked until Edit All. */
+  /** Backend pallet with no hydrated slip columns and no session commit (used for other UX only). */
   const isInitialDraftShipmentUx =
     hasBackendPalletRow && !palletDbHasShipmentDetails && !hasSessionShipmentCommit;
 
-  /** Carrier + Order ID: editable on demo / no pallet row / initial draft / Edit All. */
+  /** Persisted pallet on receiving step: shipment strip read-only until Edit All (mirrors saved-box intake). */
+  const palletShipmentViewLocked =
+    flowPhase === "scan" &&
+    parentIdentified &&
+    hasBackendPalletRow &&
+    isUuidString(palletIdForShipmentUx) &&
+    !editAllMode;
+
+  /** Carrier + Order ID (+ pallet photos / notes): demo / no row / Edit All; on scan with a UUID row, Edit All only. */
   const slipCarrierOrderEditable =
     editAllMode ||
     !liveDbForShipmentUx ||
     !hasBackendPalletRow ||
-    isInitialDraftShipmentUx;
+    (isInitialDraftShipmentUx && !palletShipmentViewLocked);
 
   /** Box count + Tracking ID: read-only until Edit All. */
   const boxCountEditable = editAllMode;
   const trackingIdEditable = editAllMode;
 
-  /** Parent pallet carrier is fixed during carton documentation (package_scan). */
-  const boxIntakeCarrierReadOnly = flowPhase === "package_scan";
+  /**
+   * Saved UUID package on BOX intake: entire documentation strip is view-only until Edit All
+   * (photos, carrier, reference — AI “Detected Items” table stays non-editable regardless).
+   */
+  const savedBoxIntakeViewLocked =
+    flowPhase === "package_scan" &&
+    parentIdentified &&
+    Boolean(activeBoxSession) &&
+    isUuidString((activeBoxSession?.packageId ?? "").trim()) &&
+    !editAllMode;
+
+  /**
+   * On package_scan: carrier is read-only until a box session exists, or while a saved box is in view-only mode.
+   */
+  const boxIntakeCarrierReadOnly =
+    flowPhase === "package_scan" && (!activeBoxSession || savedBoxIntakeViewLocked);
 
   /** Shipment Entry: Edit All appears on pallet step and on box (package) step — toggles tracking, counts, carrier/order locks. */
   const showShipmentEntryEditAll =
@@ -5821,23 +6277,77 @@ function OperatorMobileScanPageContent() {
   ]);
   const boxScanDocumentationLocked =
     flowPhase === "package_scan" && parentIdentified && !activeBoxSession;
-  /** BOX intake reference fields: Order / RMA / notes — Edit All only once a box session exists (strict). */
+  /** BOX intake reference fields: Order / RMA / notes — locked for saved UUID boxes until Edit All; editable for drafts. */
   const boxIntakeReferenceEditable =
     !activeBoxSession
       ? slipCarrierOrderEditable && !boxScanDocumentationLocked
-      : editAllMode && !boxScanDocumentationLocked;
+      : !savedBoxIntakeViewLocked && !boxScanDocumentationLocked;
   const canSaveBoxScan =
     !boxScanDocumentationLocked &&
     Boolean(activeBoxSession?.barcode?.trim()) &&
     !busy &&
     !boxSaveBusy &&
+    !boxSlipVisionBusy &&
+    !boxSlipInvalidFormatBlocksSave &&
     Boolean(palletCarrier.trim()) &&
     slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0) &&
-    (!isSupabaseConfigured() || Boolean(sessionStoreId));
+    (!isSupabaseConfigured() || Boolean(sessionStoreId)) &&
+    !duplicatePackingSlip;
   /** Primary CTA: save current box and go to items, or resume items when a box is already saved. */
   const canContinueToItemInspection =
     (Boolean(activeBoxSession) && canSaveBoxScan) ||
     (!activeBoxSession && Boolean((itemScanPackageId ?? "").trim()));
+
+  /** Persisted pallet changed on receiving step — start in locked shipment view (Edit All off). */
+  useEffect(() => {
+    if (flowPhase !== "scan" || !parentIdentified) return;
+    const id = activePallet?.id?.trim() ?? "";
+    if (!isUuidString(id)) {
+      lastPalletIdForViewLockResetRef.current = id.length ? id : null;
+      return;
+    }
+    if (lastPalletIdForViewLockResetRef.current !== id) {
+      lastPalletIdForViewLockResetRef.current = id;
+      setEditAllMode(false);
+    }
+  }, [flowPhase, parentIdentified, activePallet?.id]);
+
+  /** Snapshot header tracking when Edit All enables pallet tracking edits (duplicate-check revert). */
+  useEffect(() => {
+    if (!trackingIdEditable || flowPhase !== "scan") return;
+    palletTrackingEditBaselineRef.current =
+      (currentPalletTrackingId ?? "").trim() || (activePallet?.pallet_number ?? "").trim();
+  }, [trackingIdEditable, flowPhase, currentPalletTrackingId, activePallet?.pallet_number]);
+
+  const handlePalletHeaderTrackingBlur = useCallback(
+    async (trimmed: string) => {
+      const t = trimmed.trim();
+      if (!t || !isSupabaseConfigured() || !orgId?.trim() || !sessionStoreId) return;
+      const selfId = activePallet?.id?.trim();
+      if (!isUuidString(selfId ?? "")) return;
+      const dupRes = await findOperatorPalletByTrackingNumberAction(orgId, t, sessionStoreId);
+      if (!dupRes.ok) {
+        setSyncErrorToast(dupRes.error);
+        const b = palletTrackingEditBaselineRef.current.trim();
+        setCurrentPalletTrackingId(b.length ? b : null);
+        return;
+      }
+      if (dupRes.wrongStore) {
+        setSyncErrorToast(dupRes.wrongStoreMessage ?? "That tracking belongs to another store.");
+        const b = palletTrackingEditBaselineRef.current.trim();
+        setCurrentPalletTrackingId(b.length ? b : null);
+        return;
+      }
+      const hitId = dupRes.pallet?.id != null ? String(dupRes.pallet.id).trim() : "";
+      if (hitId && isUuidString(hitId) && hitId !== selfId) {
+        setSyncErrorToast("That tracking is already on another pallet in this store.");
+        const b = palletTrackingEditBaselineRef.current.trim();
+        setCurrentPalletTrackingId(b.length ? b : null);
+      }
+    },
+    [orgId, sessionStoreId, activePallet?.id],
+  );
+
   const palletRegisteredBoxCount = palletPackagePickerList.length;
   const visionSlipExpectedQtySum = useMemo(
     () =>
@@ -5868,6 +6378,7 @@ function OperatorMobileScanPageContent() {
       const hay = [
         String(p.package_code ?? ""),
         String(p.tracking_number ?? ""),
+        String(p.order_id ?? ""),
         String(p.id_slip_contents ?? ""),
       ]
         .join("\n")
@@ -5875,6 +6386,36 @@ function OperatorMobileScanPageContent() {
       return hay.includes(q);
     });
   }, [palletPackagePickerList, palletPackagePickerQuery]);
+
+  const palletShowsMixedOrderIdsFromData = useMemo(() => {
+    const db = palletDbOrderId.trim().toLowerCase();
+    const distinct = new Set<string>();
+    for (const r of palletPackagePickerList) {
+      const o = String(r.order_id ?? "").trim();
+      if (o) distinct.add(o.toLowerCase());
+    }
+    const arr = [...distinct];
+    if (arr.length > 1) return true;
+    if (arr.length === 1 && db && arr[0] !== db) return true;
+    return false;
+  }, [palletDbOrderId, palletPackagePickerList]);
+
+  const palletMixedOrderIdsUi = palletMixedOrderIdsWarning || palletShowsMixedOrderIdsFromData;
+
+  useEffect(() => {
+    palletMixedOrderIdsUiRef.current = palletMixedOrderIdsUi;
+  }, [palletMixedOrderIdsUi]);
+
+  useEffect(() => {
+    if (palletShowsMixedOrderIdsFromData) setPalletMixedOrderIdsWarning(false);
+  }, [palletShowsMixedOrderIdsFromData]);
+
+  const palletOrderIdFieldColor = palletMixedOrderIdsUi ? AMBER_MIXED_ORDER : TEXT_PRIMARY;
+  /** Read-only / header: DB pallet `order_id` first, then operator input, then resolve payload. */
+  const palletOrderIdForDisplay =
+    palletDbOrderId.trim() ||
+    palletOrderId.trim() ||
+    String(activePallet?.order_id ?? "").trim();
 
   const boxProgressExpectedY =
     boxScanTargetDenominator != null
@@ -5907,6 +6448,13 @@ function OperatorMobileScanPageContent() {
       setInsideBoxPhotoUrls(ins);
       setSlipBoxPhotoUrls(s);
       slipBoxPhotoUrlsRef.current = [...s];
+      outsideBoxPhotoUrlsRef.current = [...o];
+      insideBoxPhotoUrlsRef.current = [...ins];
+      evidenceBaselineRef.current.slip = [...s];
+      evidenceBaselineRef.current.outside = [...o];
+      evidenceBaselineRef.current.inside = [...ins];
+      pendingEvidenceStorageDeletesRef.current.clear();
+      setBoxSlipInvalidFormatBlocksSave(false);
       setBoxNotes(String(p.notes ?? "").trim());
       clearBoxSlipVisionLinesState();
       setBoxSlipCode(String(p.id_slip_contents ?? "").trim());
@@ -5914,6 +6462,7 @@ function OperatorMobileScanPageContent() {
       setPackageCodeCardOpen(false);
       setCurrentPackageTrackingId(code);
       setReceivingSlipExpectedItemQtyTotal(null);
+      setEditAllMode(false);
       setActiveBoxSession({ barcode: code, packageId: p.id });
       const oidPick = (orgId ?? "").trim();
       const pickedId = p.id;
@@ -5926,9 +6475,16 @@ function OperatorMobileScanPageContent() {
           );
           const firstRma = String(slipRes.rows[0]?.rma_number ?? "").trim();
           commitBoxSlipVisionLinesFromSource(vision);
-          if (firstRma) setBoxSlipRma((prev) => (prev.trim() ? prev : firstRma));
+          if (firstRma) {
+            setBoxSlipRma((prev) => (prev.trim() ? prev : firstRma));
+            window.setTimeout(() => {
+              applyPalletOrderIdFromRaIfApplicable(boxSlipRmaRef.current);
+            }, 0);
+          }
           const slipCodeRow = String(slipRes.rows[0]?.slip_code ?? "").trim();
           if (slipCodeRow) setBoxSlipCode((prev) => (prev.trim() ? prev : slipCodeRow));
+          setBoxSlipConflictingOrderId(firstConflictingOrderIdFromSlipRows(slipRes.rows));
+          setBoxSlipInvalidFormatBlocksSave(false);
         });
       }
       setIntakeToast("Loaded saved box — review photos and slip lines, then save.");
@@ -5940,26 +6496,82 @@ function OperatorMobileScanPageContent() {
         });
       });
     },
-    [activeBoxSession, orgId, clearBoxSlipVisionLinesState, commitBoxSlipVisionLinesFromSource],
+    [activeBoxSession, orgId, clearBoxSlipVisionLinesState, commitBoxSlipVisionLinesFromSource, applyPalletOrderIdFromRaIfApplicable],
   );
 
   const closeActiveBoxPackageSession = useCallback(() => {
+    const b = evidenceBaselineRef.current;
+    const slip = [...slipBoxPhotoUrlsRef.current];
+    const out = [...outsideBoxPhotoUrlsRef.current];
+    const ins = [...insideBoxPhotoUrlsRef.current];
+    const orphanCandidates = [...slip, ...out, ...ins].filter((u) => {
+      const s = String(u ?? "").trim();
+      if (!/^https?:\/\//i.test(s) || !isPersistableStoredMediaReference(s)) return false;
+      return !b.slip.includes(s) && !b.outside.includes(s) && !b.inside.includes(s);
+    });
+    pendingEvidenceStorageDeletesRef.current.clear();
+    const oid = (orgId ?? "").trim();
+    if (isSupabaseConfigured() && oid && orphanCandidates.length) {
+      void deleteOperatorEvidenceStorageByPublicUrlsAction(oid, orphanCandidates).then((res) => {
+        if (!res.ok) console.warn("[operator-mobile] box session abandon orphan delete:", res.error);
+      });
+    }
     setActiveBoxSession(null);
     setCurrentPackageTrackingId(null);
     setPackageCodeCardOpen(false);
     setPalletPackagePickerQuery("");
     setBoxIntakeError(null);
+    setDuplicatePackingSlip(null);
+    setBoxSlipInvalidFormatBlocksSave(false);
     hydrateBoxPackageIdRef.current = null;
     setOutsideBoxPhotoUrls([]);
     setInsideBoxPhotoUrls([]);
     setSlipBoxPhotoUrls([]);
     slipBoxPhotoUrlsRef.current = [];
+    outsideBoxPhotoUrlsRef.current = [];
+    insideBoxPhotoUrlsRef.current = [];
     setBoxSlipCode("");
     setBoxSlipRma("");
+    clearPalletOrderIdIfAutoFilledFromRa();
     clearBoxSlipVisionLinesState();
     setBoxNotes("");
     scheduleFocusScanner();
-  }, [scheduleFocusScanner, clearBoxSlipVisionLinesState]);
+  }, [scheduleFocusScanner, clearBoxSlipVisionLinesState, orgId, clearPalletOrderIdIfAutoFilledFromRa]);
+
+  const editParent = () => {
+    closeActiveBoxPackageSession();
+    void abandonUnsavedPalletShipmentEdits();
+    setPhysicalBoxCount(null);
+    setBoxScanTargetDenominator(null);
+    setScannedBoxesSavedCount(0);
+    resetItemInspectionForm();
+    setItemScanPackageId(null);
+    setItemScanPackageLabel(null);
+    setReceivingSlipExpectedItemQtyTotal(null);
+    setItemReceiveDemoScannedUnits(0);
+    setItemReceivePackageActualCount(null);
+    setItemReceiveCountSyncNonce(0);
+    setExpectedPkgDetailRows([]);
+    setItemTrackingExpectationsHint(null);
+    setCandidatePicker(null);
+    setItemBarcodeMiss(null);
+    modalOpenRef.current = false;
+    setActivePallet(null);
+    setActiveTracking(null);
+    setCurrentPalletTrackingId(null);
+    setCurrentPackageTrackingId(null);
+    setPalletCreatedByLabel(null);
+    setPalletCreatedByProfileId(null);
+    setPalletCreatedAtIso(null);
+    setScanLine("");
+    setSlipBarcodeExtract(null);
+    setFlowPhase("scan");
+    setIsIdentified(false);
+    completedShipmentDialogShownForKeyRef.current = null;
+    setCompletedShipmentModal(null);
+    resetIdentifyGateForm();
+    scheduleFocusScanner();
+  };
 
   const activePackageSessionResolvedRow = useMemo((): OperatorPackageListRow | null => {
     if (!activeBoxSession) return null;
@@ -6457,6 +7069,29 @@ function OperatorMobileScanPageContent() {
             >
               {operatorIdentityOneLine}
             </p>
+            {palletOrderIdForDisplay || palletMixedOrderIdsUi ? (
+              <p
+                className="mt-0.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center font-mono text-[10px] font-semibold leading-snug tracking-wide text-sky-200/95 tabular-nums sm:text-[11px]"
+                style={{
+                  textShadow: "0 0 8px rgba(56,189,248,0.28), 0 1px 2px rgba(0,0,0,0.65)",
+                }}
+                aria-label={`Order ID ${palletOrderIdForDisplay || "not set"}`}
+              >
+                <span>
+                  <span className="font-bold uppercase tracking-widest text-sky-400/90">Order</span>{" "}
+                  <span className="text-sky-50">{palletOrderIdForDisplay || "—"}</span>
+                </span>
+                {palletMixedOrderIdsUi ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-400/55 bg-amber-500/15 px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-amber-100"
+                    title={MIXED_PALLET_ORDER_IDS_TITLE}
+                  >
+                    Mixed orders
+                    <Info className="h-3 w-3 text-amber-300" strokeWidth={2.25} aria-hidden />
+                  </span>
+                ) : null}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {isIdentified ? (
@@ -6643,6 +7278,7 @@ function OperatorMobileScanPageContent() {
                   onBlur={(e) => {
                     const t = e.target.value.trim();
                     setCurrentPalletTrackingId(t.length ? t : null);
+                    if (trackingIdEditable) void handlePalletHeaderTrackingBlur(t);
                   }}
                 />
               ) : (
@@ -7611,14 +8247,33 @@ function OperatorMobileScanPageContent() {
                     )}
                   </div>
                   <div>
-                    <label
-                      htmlFor={slipCarrierOrderEditable ? `${formId}-pallet-order-id` : undefined}
-                      className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
-                      style={{ color: MUTED_LABEL }}
-                    >
-                      Order ID{" "}
-                      <span className="font-normal normal-case opacity-70">(optional)</span>
-                    </label>
+                    <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                      <label
+                        htmlFor={slipCarrierOrderEditable ? `${formId}-pallet-order-id` : undefined}
+                        className="block text-[10px] font-semibold uppercase tracking-widest"
+                        style={{ color: MUTED_LABEL }}
+                      >
+                        Order ID{" "}
+                        <span className="font-normal normal-case opacity-70">(optional)</span>
+                      </label>
+                      {palletMixedOrderIdsUi ? (
+                        <>
+                          <span
+                            className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200"
+                            title={MIXED_PALLET_ORDER_IDS_TITLE}
+                          >
+                            Mixed orders
+                          </span>
+                          <span className="inline-flex shrink-0" title={MIXED_PALLET_ORDER_IDS_TITLE}>
+                            <Info
+                              className="h-3.5 w-3.5 text-amber-400"
+                              strokeWidth={2.25}
+                              aria-label={MIXED_PALLET_ORDER_IDS_TITLE}
+                            />
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
                     {slipCarrierOrderEditable ? (
                       <input
                         id={`${formId}-pallet-order-id`}
@@ -7626,18 +8281,20 @@ function OperatorMobileScanPageContent() {
                         autoComplete="off"
                         spellCheck={false}
                         value={palletOrderId}
-                        onChange={(e) => setPalletOrderId(e.target.value)}
+                        onChange={(e) => onPalletOrderIdInputChange(e.target.value)}
                         placeholder="114-XXXXXXX-XXXXXXX"
+                        title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
                         className="scanner-input-glass h-10 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
-                        style={{ color: TEXT_PRIMARY }}
+                        style={{ color: palletOrderIdFieldColor }}
                       />
                     ) : (
                       <div
                         className="block h-9 rounded-md border-2 border-slate-600/70 bg-[#060a10] px-3 font-mono leading-9 text-[13px] font-semibold text-white shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)]"
-                        aria-label={`Order ID: ${palletOrderId || "not set"}`}
+                        aria-label={`Order ID: ${palletOrderIdForDisplay || "not set"}`}
+                        title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
                       >
-                        {palletOrderId.trim().length > 0 ? (
-                          palletOrderId
+                        {palletOrderIdForDisplay.length > 0 ? (
+                          <span style={{ color: palletOrderIdFieldColor }}>{palletOrderIdForDisplay}</span>
                         ) : (
                           <span style={{ color: MUTED_LABEL }}>—</span>
                         )}
@@ -7649,6 +8306,9 @@ function OperatorMobileScanPageContent() {
                   <div className="rounded-xl border border-white/10 bg-[#060a10]/50 p-2 ring-1 ring-white/[0.06]">
                     <MasterUploader
                       variant="compact"
+                      compactShowTapSubtitle={
+                        shippingLabelPhotoUrls.length === 0 && !palletShipmentViewLocked
+                      }
                       label={
                         <>
                           SHIPPING LABEL <span className={REQ_MARK_CLASS}>(required)</span>
@@ -7667,13 +8327,19 @@ function OperatorMobileScanPageContent() {
                           : undefined
                       }
                       maxFiles={3}
-                      disabled={!slipCarrierOrderEditable || !orgId?.trim()}
+                      disabled={!orgId?.trim()}
+                      viewLocked={palletShipmentViewLocked}
                       className="[&>div:first-child]:rounded-xl"
                     />
                   </div>
                   <div className="rounded-xl border border-white/10 bg-[#060a10]/50 p-2 ring-1 ring-white/[0.06]">
                     <MasterUploader
                       variant="compact"
+                      compactShowTapSubtitle={
+                        shippingLabelPhotoUrls.length > 0 &&
+                        palletPhotoUrls.length === 0 &&
+                        !palletShipmentViewLocked
+                      }
                       label="Pallet photo (optional)"
                       hint={null}
                       value={palletPhotoUrls}
@@ -7688,13 +8354,19 @@ function OperatorMobileScanPageContent() {
                           : undefined
                       }
                       maxFiles={3}
-                      disabled={!slipCarrierOrderEditable || !orgId?.trim()}
+                      disabled={!orgId?.trim()}
+                      viewLocked={palletShipmentViewLocked}
                       className="[&>div:first-child]:rounded-xl"
                     />
                   </div>
                   <div className="rounded-xl border border-white/10 bg-[#060a10]/50 p-2 ring-1 ring-white/[0.06]">
                     <MasterUploader
                       variant="compact"
+                      compactShowTapSubtitle={
+                        palletPhotoUrls.length > 0 &&
+                        bolPhotoUrls.length === 0 &&
+                        !palletShipmentViewLocked
+                      }
                       label="Bill of Lading (optional)"
                       hint={null}
                       value={bolPhotoUrls}
@@ -7709,7 +8381,8 @@ function OperatorMobileScanPageContent() {
                           : undefined
                       }
                       maxFiles={3}
-                      disabled={!slipCarrierOrderEditable || !orgId?.trim()}
+                      disabled={!orgId?.trim()}
+                      viewLocked={palletShipmentViewLocked}
                       className="[&>div:first-child]:rounded-xl"
                     />
                   </div>
@@ -7731,8 +8404,10 @@ function OperatorMobileScanPageContent() {
                 onChange={(e) => setPalletNotes(e.target.value)}
                 rows={3}
                 placeholder="Team-visible notes for this pallet…"
-                disabled={!slipCarrierOrderEditable}
-                className="scanner-input-glass w-full resize-y rounded-lg border px-3 py-2 text-[13px] outline-none transition placeholder:opacity-45 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
+                readOnly={!slipCarrierOrderEditable}
+                tabIndex={slipCarrierOrderEditable ? undefined : -1}
+                aria-readonly={!slipCarrierOrderEditable}
+                className="scanner-input-glass w-full resize-y rounded-lg border px-3 py-2 text-[13px] outline-none transition placeholder:opacity-45 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] read-only:cursor-default"
                 style={{ color: TEXT_PRIMARY }}
               />
             </section>
@@ -8095,6 +8770,15 @@ function OperatorMobileScanPageContent() {
                   </p>
                 ) : null}
 
+                {duplicatePackingSlip ? (
+                  <OperatorDuplicatePackingSlipBanner
+                    slipCode={duplicatePackingSlip.slipCode}
+                    otherPackageCode={duplicatePackingSlip.otherPackageCode}
+                    onDismiss={() => setDuplicatePackingSlip(null)}
+                    className="mb-4"
+                  />
+                ) : null}
+
                 {boxIntakeError ? (
                   <OperatorCrossStoreScopeBanner message={boxIntakeError} className="mb-4" />
                 ) : null}
@@ -8128,13 +8812,13 @@ function OperatorMobileScanPageContent() {
                             setBoxIntakeError(null);
                             setPalletPackagePickerQuery("");
                           }}
-                          className="mb-2 flex min-h-[3.25rem] w-full items-center justify-center gap-2 rounded-xl border-2 border-teal-300/70 px-4 py-3 text-[14px] font-black uppercase tracking-wide text-white shadow-[0_10px_36px_rgba(45,212,191,0.35)] ring-2 ring-teal-400/25 transition hover:brightness-110 active:scale-[0.99]"
+                          className="mb-2 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl border-2 border-teal-300/70 px-4 py-3 text-[14px] font-black uppercase tracking-wide text-white shadow-[0_10px_36px_rgba(45,212,191,0.35)] ring-2 ring-teal-400/25 transition hover:brightness-110 active:scale-[0.99]"
                           style={{
                             background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
                           }}
                         >
-                          <Plus className="h-6 w-6 shrink-0" strokeWidth={2.5} />
-                          + Add New Box
+                          <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
+                          Add New Box
                         </button>
                         <div id="operator-saved-boxes-filter" className="scroll-mt-28">
                         <label
@@ -8373,7 +9057,7 @@ function OperatorMobileScanPageContent() {
                       )}
                     </div>
                   </div>
-                  ) : slipCarrierOrderEditable || palletCarrierOtherSelected || boxIntakeCarrierReadOnly ? (
+                  ) : activeBoxSession || slipCarrierOrderEditable || palletCarrierOtherSelected || boxIntakeCarrierReadOnly ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-1 sm:items-start">
                     <div className="relative z-30 min-w-0">
                       <label
@@ -8441,25 +9125,45 @@ function OperatorMobileScanPageContent() {
                   {!activeBoxSession ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="min-w-0">
-                      <label
-                        htmlFor={`${formId}-box-pallet-order-id`}
-                        className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
-                        style={{ color: MUTED_LABEL }}
-                      >
-                        Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
-                      </label>
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        <label
+                          htmlFor={`${formId}-box-pallet-order-id`}
+                          className="block text-[10px] font-semibold uppercase tracking-widest"
+                          style={{ color: MUTED_LABEL }}
+                        >
+                          Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
+                        </label>
+                        {palletMixedOrderIdsUi ? (
+                          <>
+                            <span
+                              className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200"
+                              title={MIXED_PALLET_ORDER_IDS_TITLE}
+                            >
+                              Mixed orders
+                            </span>
+                            <span className="inline-flex shrink-0" title={MIXED_PALLET_ORDER_IDS_TITLE}>
+                              <Info
+                                className="h-3.5 w-3.5 text-amber-400"
+                                strokeWidth={2.25}
+                                aria-label={MIXED_PALLET_ORDER_IDS_TITLE}
+                              />
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
                       <input
                         id={`${formId}-box-pallet-order-id`}
                         type="text"
                         autoComplete="off"
                         spellCheck={false}
                         value={palletOrderId}
-                        onChange={(e) => setPalletOrderId(e.target.value)}
+                        onChange={(e) => onPalletOrderIdInputChange(e.target.value)}
                         placeholder="114-XXXXXXX-XXXXXXX"
                         readOnly={!slipCarrierOrderEditable}
                         disabled={!slipCarrierOrderEditable || boxScanDocumentationLocked}
+                        title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
                         className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
-                        style={{ color: TEXT_PRIMARY }}
+                        style={{ color: palletOrderIdFieldColor }}
                       />
                     </div>
                     <div className="min-w-0">
@@ -8490,7 +9194,7 @@ function OperatorMobileScanPageContent() {
                       className="rounded-lg border border-white/10 bg-black/15 px-2 py-1.5"
                       style={{ borderColor: "rgba(148,163,184,0.22)" }}
                       open={Boolean(
-                        palletOrderId.trim() ||
+                        palletOrderIdForDisplay ||
                           boxSlipRma.trim() ||
                           editAllMode ||
                           slipCarrierOrderEditable,
@@ -8504,25 +9208,45 @@ function OperatorMobileScanPageContent() {
                       </summary>
                       <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="min-w-0">
-                          <label
-                            htmlFor={`${formId}-box-pallet-order-id`}
-                            className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
-                            style={{ color: MUTED_LABEL }}
-                          >
-                            Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
-                          </label>
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                            <label
+                              htmlFor={`${formId}-box-pallet-order-id`}
+                              className="block text-[10px] font-semibold uppercase tracking-widest"
+                              style={{ color: MUTED_LABEL }}
+                            >
+                              Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
+                            </label>
+                            {palletMixedOrderIdsUi ? (
+                              <>
+                                <span
+                                  className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200"
+                                  title={MIXED_PALLET_ORDER_IDS_TITLE}
+                                >
+                                  Mixed orders
+                                </span>
+                                <span className="inline-flex shrink-0" title={MIXED_PALLET_ORDER_IDS_TITLE}>
+                                  <Info
+                                    className="h-3.5 w-3.5 text-amber-400"
+                                    strokeWidth={2.25}
+                                    aria-label={MIXED_PALLET_ORDER_IDS_TITLE}
+                                  />
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
                           <input
                             id={`${formId}-box-pallet-order-id`}
                             type="text"
                             autoComplete="off"
                             spellCheck={false}
                             value={palletOrderId}
-                            onChange={(e) => setPalletOrderId(e.target.value)}
+                            onChange={(e) => onPalletOrderIdInputChange(e.target.value)}
                             placeholder="114-XXXXXXX-XXXXXXX"
                             readOnly={!boxIntakeReferenceEditable}
                             disabled={!boxIntakeReferenceEditable || boxScanDocumentationLocked}
+                            title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
                             className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
-                            style={{ color: TEXT_PRIMARY }}
+                            style={{ color: palletOrderIdFieldColor }}
                           />
                         </div>
                         <div className="min-w-0">
@@ -8570,6 +9294,30 @@ function OperatorMobileScanPageContent() {
                     <p className="text-[12px] font-bold text-white">Documentation photos</p>
                   </div>
                   <div className="space-y-1">
+                    {slipVersusPalletOrderMismatch ? (
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-500/45 bg-amber-500/10 px-2 py-1.5"
+                        role="status"
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-300" strokeWidth={2.25} aria-hidden />
+                        <span className="max-w-[min(100%,14rem)] text-[10px] font-semibold leading-snug text-amber-100/95 sm:max-w-none">
+                          شناسه سفارش داخل برگهٔ اسلیپ با شناسهٔ ذخیره‌شده روی این پلت فرق دارد.
+                        </span>
+                        <span
+                          className="shrink-0 rounded border border-amber-400/55 bg-amber-950/45 px-1.5 py-0.5 text-[9px] font-extrabold tracking-wide text-amber-200"
+                          title="Slip-derived order id differs from pallets.order_id"
+                        >
+                          متفاوت
+                        </span>
+                        <span
+                          className="min-w-0 w-full shrink-0 truncate text-[9px] font-mono text-slate-400 sm:w-auto"
+                          title="Pallet vs slip-derived order id"
+                        >
+                          پلت: {slipVersusPalletOrderMismatch.palletOrderId} · اسلیپ:{" "}
+                          {slipVersusPalletOrderMismatch.slipOrderId}
+                        </span>
+                      </div>
+                    ) : null}
                     <div className="relative rounded-xl border border-white/10 bg-[#060a10]/50 p-1.5 ring-1 ring-white/[0.06]">
                       {boxSlipVisionBusy ? (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-[inherit] bg-black/70 backdrop-blur-[1px]">
@@ -8580,7 +9328,9 @@ function OperatorMobileScanPageContent() {
                       <MasterUploader
                         variant="compact"
                         compactDensity="dense"
-                        compactShowTapSubtitle={slipBoxPhotoUrls.length === 0 && !boxScanDocumentationLocked}
+                        compactShowTapSubtitle={
+                          slipBoxPhotoUrls.length === 0 && !boxScanDocumentationLocked && !savedBoxIntakeViewLocked
+                        }
                         label={
                           <>
                             PACKING SLIP <span className={REQ_MARK_CLASS}>(required)</span>
@@ -8600,8 +9350,15 @@ function OperatorMobileScanPageContent() {
                         }
                         maxFiles={3}
                         disabled={!orgId?.trim() || boxSlipVisionBusy || boxScanDocumentationLocked}
+                        viewLocked={savedBoxIntakeViewLocked}
                         className="[&>div:first-child]:rounded-xl"
                       />
+                      {boxSlipInvalidFormatBlocksSave ? (
+                        <p className="mt-1.5 px-0.5 text-center text-[11px] font-semibold leading-snug text-amber-200/95">
+                          INVALID_SLIP_FORMAT — replace this photo with a clear packing slip (slip id, item lines, and
+                          barcodes). Save stays disabled until the slip is valid.
+                        </p>
+                      ) : null}
                     </div>
                     <div className="rounded-xl border border-white/10 bg-[#060a10]/50 p-1.5 ring-1 ring-white/[0.06]">
                       <MasterUploader
@@ -8610,12 +9367,13 @@ function OperatorMobileScanPageContent() {
                         compactShowTapSubtitle={
                           slipBoxPhotoUrls.length > 0 &&
                           outsideBoxPhotoUrls.length === 0 &&
-                          !boxScanDocumentationLocked
+                          !boxScanDocumentationLocked &&
+                          !savedBoxIntakeViewLocked
                         }
                         label="OUTSIDE BOX"
                         hint={null}
                         value={outsideBoxPhotoUrls}
-                        onChange={setOutsideBoxPhotoUrls}
+                        onChange={handleOutsideBoxPhotoUrlsChange}
                         organizationId={orgId}
                         alignedUpload={
                           operatorPackageAlignedUploadPaths
@@ -8627,6 +9385,7 @@ function OperatorMobileScanPageContent() {
                         }
                         maxFiles={3}
                         disabled={!orgId?.trim() || boxScanDocumentationLocked}
+                        viewLocked={savedBoxIntakeViewLocked}
                         className="[&>div:first-child]:rounded-xl"
                       />
                     </div>
@@ -8637,12 +9396,13 @@ function OperatorMobileScanPageContent() {
                         compactShowTapSubtitle={
                           outsideBoxPhotoUrls.length > 0 &&
                           insideBoxPhotoUrls.length === 0 &&
-                          !boxScanDocumentationLocked
+                          !boxScanDocumentationLocked &&
+                          !savedBoxIntakeViewLocked
                         }
                         label="INSIDE BOX"
                         hint={null}
                         value={insideBoxPhotoUrls}
-                        onChange={setInsideBoxPhotoUrls}
+                        onChange={handleInsideBoxPhotoUrlsChange}
                         organizationId={orgId}
                         alignedUpload={
                           operatorPackageAlignedUploadPaths
@@ -8654,6 +9414,7 @@ function OperatorMobileScanPageContent() {
                         }
                         maxFiles={3}
                         disabled={!orgId?.trim() || boxScanDocumentationLocked}
+                        viewLocked={savedBoxIntakeViewLocked}
                         className="[&>div:first-child]:rounded-xl"
                       />
                     </div>
@@ -8661,7 +9422,7 @@ function OperatorMobileScanPageContent() {
                 </section>
 
                 <section className={`relative z-30 mb-2 space-y-2.5 rounded-xl p-2 ${glassCard}`}>
-                  {boxSlipVisionLines.length > 0 || boxSlipVisionBusy || boxSlipRma.trim() ? (
+                  {boxSlipVisionLines.length > 0 || boxSlipVisionBusy || boxSlipCode.trim() || boxSlipRma.trim() ? (
                     <div
                       id="box-slip-verify-table"
                       className="scroll-mt-4 rounded-xl border border-white/10 bg-[#060a10]/50 px-2.5 py-2.5 ring-1 ring-white/[0.06]"
@@ -8682,11 +9443,21 @@ function OperatorMobileScanPageContent() {
                           </span>
                         ) : null}
                       </div>
-                      {boxSlipRma.trim() ? (
+                      {boxSlipCode.trim() ? (
                         <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.07] px-2.5 py-1.5">
-                          <p className="text-[9px] font-bold uppercase tracking-widest text-amber-200/80">Return authorization</p>
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-amber-200/80">Slip code</p>
                           <p className="mt-0.5 font-mono text-[13px] font-bold tabular-nums text-amber-100">
-                            {boxSlipRma.trim()}
+                            {boxSlipCode.trim()}
+                          </p>
+                        </div>
+                      ) : null}
+                      {boxSlipConflictingOrderId.trim() ? (
+                        <div className="mt-2 rounded-lg border border-amber-500/45 bg-amber-500/10 px-2.5 py-1.5 ring-1 ring-amber-400/20">
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-amber-200/90">
+                            Conflicting order ID
+                          </p>
+                          <p className="mt-0.5 break-all font-mono text-[13px] font-bold tabular-nums text-amber-50">
+                            {boxSlipConflictingOrderId.trim()}
                           </p>
                         </div>
                       ) : null}
@@ -8701,6 +9472,8 @@ function OperatorMobileScanPageContent() {
                           <table className="w-full table-fixed border-collapse text-left">
                             <caption className="sr-only">
                               Line items from packing slip vision. FNSKU, UPC, description, and quantity are read-only.
+                              Removing persisted slip lines (if offered in the UI) requires the can_delete_slip_items permission
+                              (see useRbacPermissions().canDeleteSlipItems).
                             </caption>
                             <thead className="sticky top-0 z-[1]" style={{ backgroundColor: CARD_INNER, color: MUTED_LABEL }}>
                               <tr>
@@ -9752,7 +10525,9 @@ function OperatorMobileScanPageContent() {
                 onClick={() => {
                   setCancelShipmentConfirmOpen(false);
                   modalOpenRef.current = false;
-                  router.push(SCANNER_OPERATOR_HOME_PATH);
+                  void abandonUnsavedPalletShipmentEdits().finally(() => {
+                    router.push(SCANNER_OPERATOR_HOME_PATH);
+                  });
                 }}
               >
                 Confirm

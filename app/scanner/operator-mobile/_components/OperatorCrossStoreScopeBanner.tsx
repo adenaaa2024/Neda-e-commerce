@@ -55,14 +55,8 @@ export function OperatorCrossStoreScopeBanner({
               </p>
               <p className="mt-0.5 min-w-0 truncate text-[10px] font-medium leading-snug text-red-200/55">
                 Found in:{" "}
-                <span className="text-red-200/50" aria-hidden>
-                  {"\""}
-                </span>
-                <span className="font-bold text-amber-300 dark:text-amber-200" title={parsed.storeName}>
+                <span className="font-bold text-amber-200 dark:text-amber-100" title={sanitizeStoreDisplayName(parsed.storeName)}>
                   {sanitizeStoreDisplayName(parsed.storeName)}
-                </span>
-                <span className="text-red-200/50" aria-hidden>
-                  {"\""}
                 </span>
               </p>
             </div>
