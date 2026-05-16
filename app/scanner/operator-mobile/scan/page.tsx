@@ -7,7 +7,6 @@ import {
   useEffect,
   useId,
   useMemo,
-  useLayoutEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -32,7 +31,6 @@ import {
   Info,
   Lock,
   Loader2,
-  Minus,
   Package,
   Package2,
   PackageOpen,
@@ -55,7 +53,6 @@ import {
   type OperatorResolveResult,
 } from "@/lib/scanner/operator-resolve-barcode";
 import {
-  EP_DETAIL_SELECT,
   fetchExpectedPackageDetailRowsByIds,
   fetchExpectedPackageDetailRowsForParent,
   fetchExpectedPackagesForTracking,
@@ -67,6 +64,8 @@ import {
   type TrackingExpectationTotals,
   type TrackingOperatorLine,
 } from "@/lib/scanner/operator-tracking-expectations";
+import { scannerProductResolutionBadges } from "@/lib/scanner/product-resolution-badges";
+import { useScannerProductResolutionBadges } from "@/hooks/use-scanner-product-resolution";
 import {
   aggregateInventoryStatus,
   fetchVInventoryItemStatusLinesExact,
@@ -82,7 +81,13 @@ import {
   type VInventoryStatusRow,
 } from "@/lib/scanner/v-inventory-status";
 import { resolveItemBarcodeAgainstExpectedRows, type ItemResolveTier } from "@/lib/scanner/operator-item-resolve";
+import {
+  resolveItemBarcodeAgainstSlipRows,
+  type SlipBarcodeMatchRow,
+  type SlipItemResolveTier,
+} from "@/lib/scanner/operator-slip-item-resolve";
 import { mergeReturnPhotoEvidence } from "@/lib/return-photo-evidence";
+import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isPersistableStoredMediaReference,
@@ -101,23 +106,29 @@ import { allowOperatorUnknownPackageCreate } from "@/lib/scanner/operator-unknow
 import {
   commitOperatorPalletShipmentStepAction,
   createOperatorPalletAction,
+  fetchOperatorPalletHydrationAction,
   findOperatorPalletByTrackingNumberAction,
   insertOperatorIntakeBoxPackageAction,
   listOperatorPackagesForPalletAction,
   listOperatorSlipContentsForPackageAction,
+  listOperatorPackageItemsForPackageAction,
+  insertOperatorPackageItemAction,
   updateOperatorIntakeBoxPackageAction,
+  saveOperatorSlipVisionAction,
   checkOperatorSlipCodeDuplicateAction,
   type DuplicatePackingSlipInfo,
+  type OperatorPackageItemRow,
   type OperatorPackageListRow,
   type OperatorSlipContentsListRow,
   type UpdateOperatorIntakeBoxPackageResult,
 } from "@/app/scanner/operator-mobile/_components/operator-store-actions";
+import { ItemUnitRecordModal, type ItemUnitRecordSavePayload } from "@/app/scanner/operator-mobile/_components/ItemUnitRecordModal";
 import { OperatorCrossStoreScopeBanner } from "@/app/scanner/operator-mobile/_components/OperatorCrossStoreScopeBanner";
 import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobile/_components/OperatorDuplicatePackingSlipBanner";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
-import { extractOrderIdFromAmazonStyleRa } from "@/lib/scanner/amazon-ra-order-id";
+import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
 import {
   INVALID_SLIP_FORMAT,
   isStructuredBoxSlipExtractValid,
@@ -205,10 +216,27 @@ const glassCard = "scanner-page-glass-card";
 /** Required markers in form labels — bright yellow on dark scanner UI. */
 const REQ_MARK_CLASS = "font-normal normal-case text-yellow-300";
 const REQ_STAR_CLASS = "font-bold text-yellow-300";
-/** Tooltip when pallet shipment order id disagrees with one or more saved packages. */
-const MIXED_PALLET_ORDER_IDS_TITLE =
-  "This pallet contains items from multiple Order IDs.";
+/** Tooltip when pallet shipment order id disagrees with saved packages or slip Order ID. */
+const PALLET_ORDER_CONFLICT_TOOLTIP =
+  "Different boxes reference different Order IDs, or they disagree with this pallet.";
+/** Generic confirmation copy for destructive save/discard flows on operator scan. */
+const CONFIRM_SAVE_MESSAGE = "Are you sure you want to save these changes?";
+const CONFIRM_DISCARD_MESSAGE = "Unsaved changes will be lost. Are you sure you want to discard?";
+/** Second gate when saving a BOX while slip snapshot records pallet Order ID conflict. */
+const PACKAGE_SAVE_ORDER_CONFLICT_WARNING =
+  "Order ID conflict: the packing slip does not match this pallet's assigned Order ID. Do you want to continue and save anyway?";
+/** Under Reference → Order ID when AI slip read disagrees with pallet. */
+const AI_SLIP_ORDER_ID_CONFLICT_SHORT_HINT =
+  "Order ID conflict: the packing slip does not match this pallet.";
 const AMBER_MIXED_ORDER = "#fbbf24";
+
+function firstSlipOrderIdFromSlipRows(rows: OperatorSlipContentsListRow[]): string {
+  for (const r of rows) {
+    const o = String(r.order_id ?? "").trim();
+    if (o) return o;
+  }
+  return "";
+}
 
 function firstConflictingOrderIdFromSlipRows(rows: OperatorSlipContentsListRow[]): string {
   for (const r of rows) {
@@ -216,6 +244,31 @@ function firstConflictingOrderIdFromSlipRows(rows: OperatorSlipContentsListRow[]
     if (c) return c;
   }
   return "";
+}
+
+/** When slip `order_id` equals `conflicting_order_id` (case-insensitive), treat as no conflict for UI. */
+function normalizeSlipOrderConflictPair(
+  slipOrder: string,
+  conflicting: string,
+): { slip: string; conflicting: string } {
+  const s = slipOrder.trim();
+  const c = conflicting.trim();
+  if (s && c && s.toLowerCase() === c.toLowerCase()) return { slip: s, conflicting: "" };
+  return { slip: s, conflicting: c };
+}
+
+/**
+ * Reference "Order ID" on package intake: slip token when present (or when slip vs pallet disagree),
+ * else package row `order_id`, else caller should fall back to RA-derived pallet token.
+ */
+function referenceOrderIdForPackageFieldAfterSlipLoad(
+  norm: { slip: string; conflicting: string },
+  packageOrderId: string,
+): string | null {
+  if (norm.slip && norm.conflicting) return norm.slip;
+  if (norm.slip) return norm.slip;
+  const p = packageOrderId.trim();
+  return p.length ? p : null;
 }
 
 /** Canonical pallet photo-array parser (`text[]` in DB) with legacy JSON-string tolerance. */
@@ -1020,7 +1073,7 @@ function ReceivingMasterStepper({
         {rail()}
         {itemsNode()}
       </div>
-      <div className="mt-1 grid grid-cols-3 gap-0.5 text-center text-[8px] font-bold uppercase tracking-widest text-slate-300/90">
+      <div className="mt-1 grid grid-cols-3 gap-0.5 text-center text-[8px] font-bold uppercase tracking-widest text-slate-200/95">
         <span>Pallet</span>
         <span>Box Info</span>
         <span>Item Scan</span>
@@ -1037,73 +1090,165 @@ function hasReceivableBoxForItems(
   return Boolean(String(itemScanPackageId ?? "").trim()) || Boolean(activeBoxSession);
 }
 
-/** Per-row qty reconciliation for item inspection (EP `expected_scan_quantity` vs `actual_scanned_count` / live draft). */
-type ItemInspectionQtyStatus = "pending" | "matched" | "shortage" | "surplus";
-
-function classifyItemInspectionQtyStatus(expectedQty: number, scannedQty: number): ItemInspectionQtyStatus {
-  const exp = Math.max(0, Math.floor(Number(expectedQty) || 0));
-  const scn = Math.max(0, Math.floor(Number(scannedQty) || 0));
-
-  if (scn === 0) return "pending";
-
-  if (exp <= 0) return "surplus";
-  if (scn === exp) return "matched";
-  if (scn < exp) return "shortage";
-  return "surplus";
-}
-
-function itemInspectionQtyStatusPresentation(status: ItemInspectionQtyStatus): {
+/**
+ * Visual state for one slip line vs scanned units (from `package_items` aggregate by `slip_content_id`).
+ * Pass `discrepancyMode` when the operator has opened finalize while totals mismatch (audit: under → red, over → amber).
+ */
+function itemInspectionSlipLinePresentation(
+  expectedQty: number,
+  scannedQty: number,
+  discrepancyMode: boolean,
+): {
   label: string;
   rowBg: string;
   rowBorder: string;
   badge: { borderColor: string; backgroundColor: string; color: string };
+  matchedRing: boolean;
 } {
-  switch (status) {
-    case "matched":
+  const exp = Math.max(0, Math.floor(Number(expectedQty) || 0));
+  const scn = Math.max(0, Math.floor(Number(scannedQty) || 0));
+
+  const neutralBadge = {
+    borderColor: "rgba(148,163,184,0.38)",
+    backgroundColor: "rgba(30,41,59,0.45)",
+    color: "rgba(226,232,240,0.92)",
+  };
+
+  const neutral = {
+    label: "Awaiting",
+    rowBg: "rgba(248,250,252,0.04)",
+    rowBorder: "rgba(148,163,184,0.22)",
+    badge: neutralBadge,
+    matchedRing: false,
+  };
+
+  if (discrepancyMode) {
+    if (scn < exp) {
       return {
-        label: "Matched",
-        rowBg: "rgba(6,78,59,0.2)",
-        rowBorder: "rgba(52,211,153,0.38)",
+        label: "UNDER",
+        rowBg: "rgba(127,29,29,0.22)",
+        rowBorder: "rgba(239,68,68,0.78)",
         badge: {
-          borderColor: "rgba(52,211,153,0.55)",
-          backgroundColor: "rgba(6,78,59,0.45)",
-          color: "#6ee7b7",
-        },
-      };
-    case "shortage":
-      return {
-        label: "Shortage",
-        rowBg: "rgba(69,26,3,0.28)",
-        rowBorder: "rgba(251,191,36,0.42)",
-        badge: {
-          borderColor: "rgba(251,191,36,0.55)",
-          backgroundColor: "rgba(120,53,15,0.4)",
-          color: "#fde68a",
-        },
-      };
-    case "surplus":
-      return {
-        label: "Surplus",
-        rowBg: "rgba(69,10,10,0.32)",
-        rowBorder: "rgba(248,113,113,0.45)",
-        badge: {
-          borderColor: "rgba(248,113,113,0.55)",
+          borderColor: "rgba(239,68,68,0.88)",
           backgroundColor: "rgba(127,29,29,0.42)",
           color: "#fecaca",
         },
+        matchedRing: false,
       };
-    default:
+    }
+    if (scn > exp) {
       return {
-        label: "Pending",
-        rowBg: "rgba(15,23,42,0.55)",
-        rowBorder: "rgba(148,163,184,0.22)",
+        label: "UNEXPECTED",
+        rowBg: "rgba(69,26,3,0.32)",
+        rowBorder: "rgba(245,158,11,0.82)",
         badge: {
-          borderColor: "rgba(148,163,184,0.4)",
-          backgroundColor: "rgba(30,41,59,0.55)",
-          color: "rgba(203,213,225,0.95)",
+          borderColor: "rgba(245,158,11,0.88)",
+          backgroundColor: "rgba(120,53,15,0.42)",
+          color: "#fde68a",
         },
+        matchedRing: false,
       };
+    }
+    if (exp > 0 && scn === exp) {
+      return {
+        label: "RECEIVED",
+        rowBg: "rgba(6,95,70,0.44)",
+        rowBorder: "rgba(16,185,129,0.88)",
+        badge: {
+          borderColor: "rgba(16,185,129,0.92)",
+          backgroundColor: "rgba(6,95,70,0.55)",
+          color: "#bbf7d0",
+        },
+        matchedRing: true,
+      };
+    }
+    return neutral;
   }
+
+  if (exp > 0 && scn === exp) {
+    return {
+      label: "RECEIVED",
+      rowBg: "rgba(6,95,70,0.42)",
+      rowBorder: "rgba(52,211,153,0.78)",
+      badge: {
+        borderColor: "rgba(52,211,153,0.82)",
+        backgroundColor: "rgba(6,95,70,0.52)",
+        color: "#bbf7d0",
+      },
+      matchedRing: true,
+    };
+  }
+  if (exp > 0 && scn > 0 && scn < exp) {
+    return {
+      label: "IN PROGRESS",
+      rowBg: "rgba(6,78,59,0.34)",
+      rowBorder: "rgba(6,95,70,0.42)",
+      badge: {
+        borderColor: "rgba(52,211,153,0.42)",
+        backgroundColor: "rgba(6,78,59,0.38)",
+        color: "#a7f3d0",
+      },
+      matchedRing: false,
+    };
+  }
+  if (exp > 0 && scn > exp) {
+    return {
+      label: "OVER",
+      rowBg: "rgba(69,26,3,0.22)",
+      rowBorder: "rgba(217,119,6,0.48)",
+      badge: {
+        borderColor: "rgba(251,191,36,0.55)",
+        backgroundColor: "rgba(120,53,15,0.32)",
+        color: "#fde68a",
+      },
+      matchedRing: false,
+    };
+  }
+  if (exp <= 0 && scn > 0) {
+    return {
+      label: "UNEXPECTED",
+      rowBg: "rgba(69,26,3,0.22)",
+      rowBorder: "rgba(245,158,11,0.55)",
+      badge: {
+        borderColor: "rgba(245,158,11,0.65)",
+        backgroundColor: "rgba(120,53,15,0.32)",
+        color: "#fde68a",
+      },
+      matchedRing: false,
+    };
+  }
+  return neutral;
+}
+
+/** Compact status for item slip rows: neutral = dot only; active states = tiny label. */
+function slipCardStatusMark(vis: ReturnType<typeof itemInspectionSlipLinePresentation>) {
+  const label = vis.label;
+  if (label === "Awaiting") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[9px] font-medium uppercase tracking-wide text-slate-500"
+        title="Awaiting scan"
+      >
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500 ring-1 ring-slate-600/70" aria-hidden />
+        <span className="sr-only">Awaiting scan</span>
+      </span>
+    );
+  }
+  const tone =
+    label === "RECEIVED"
+      ? "text-emerald-300"
+      : label === "IN PROGRESS"
+        ? "text-emerald-400/90"
+        : label === "UNDER"
+          ? "text-red-300"
+          : label === "OVER" || label === "UNEXPECTED"
+            ? "text-amber-200"
+            : "text-slate-400";
+  return (
+    <span className={`max-w-[6rem] truncate text-[9px] font-bold uppercase tracking-wide ${tone}`} title={label}>
+      {label}
+    </span>
+  );
 }
 
 function epRowMatchesItemDraft(row: Record<string, unknown>, draft: { epRow: Record<string, unknown> }): boolean {
@@ -1154,6 +1299,24 @@ function sumEpActualScanned(epList: Record<string, unknown>[]): number {
 function slipInspectionStableKey(slip: OperatorSlipContentsListRow, idx: number): string {
   if (slip.id && isUuidString(slip.id)) return `sc:${slip.id}`;
   return `k:${slip.sort_index}:${idx}:${slipTokenNorm(String(slip.upc ?? ""))}:${slipTokenNorm(String(slip.fnsku ?? ""))}`;
+}
+
+function aggregateOperatorPackageItemRows(rows: OperatorPackageItemRow[]): {
+  bySlipId: Record<string, number>;
+  unexpectedUnits: number;
+} {
+  const bySlipId: Record<string, number> = {};
+  let unexpectedUnits = 0;
+  for (const r of rows) {
+    const q = Math.max(1, Math.floor(Number(r.quantity ?? 1)));
+    const sid = r.slip_content_id?.trim();
+    if (sid && isUuidString(sid)) {
+      bySlipId[sid] = (bySlipId[sid] ?? 0) + q;
+    } else {
+      unexpectedUnits += q;
+    }
+  }
+  return { bySlipId, unexpectedUnits };
 }
 
 function ScanPageLoading(props: { message?: string }) {
@@ -1362,6 +1525,21 @@ function isIdentifyGateOcrAcceptable(confidence: number, cleaned: string): boole
 
 type InspectionCondition = "good" | "damaged" | "expired" | "open_box" | "missing_parts";
 
+/** Item-scan unit modal: slip-linked, EP-only, or unexpected `package_items` row. */
+type ItemUnitModalContext = {
+  scannedBarcode: string;
+  slip: SlipBarcodeMatchRow | null;
+  slipContentId: string | null;
+  slipDescription: string | null;
+  title: string;
+  subtitle: string | null;
+  /**
+   * When set, used as `package_items.match_kind` (EP / unexpected).
+   * When null, match kind is derived from slip + scanned barcode on save.
+   */
+  matchKindPreset: "fnsku" | "upc" | "unexpected" | null;
+};
+
 function inspectionConditionToClaims(c: InspectionCondition): string[] {
   switch (c) {
     case "good":
@@ -1392,6 +1570,20 @@ function epPackageRowCatalogSubtitle(row: Record<string, unknown>): string | nul
   const prod = row.products as { product_name?: string } | null | undefined;
   const name = prod?.product_name?.trim();
   return name || null;
+}
+
+function itemResolveTierToPackageMatchKind(tier: ItemResolveTier): "fnsku" | "upc" | "unexpected" {
+  if (tier === "fnsku") return "fnsku";
+  if (tier === "upc") return "upc";
+  return "unexpected";
+}
+
+/** Description string for perishable heuristic when there is no slip row (EP match). */
+function epRowToSlipDescriptionForItemModal(row: Record<string, unknown>): string | null {
+  const sub = epPackageRowCatalogSubtitle(row)?.trim();
+  if (sub) return sub;
+  const primary = epPackageRowPrimaryLabel(row);
+  return primary !== "—" ? primary : null;
 }
 
 type IdentifyGateEntity = "pallet" | "package" | "item" | "single_box";
@@ -1702,6 +1894,11 @@ function ExpectedInventoryLineRow(props: {
   accent: ExpectedInventoryAccent;
 }) {
   const { line, accent } = props;
+  const resolutionBadges = useScannerProductResolutionBadges(
+    line.identifier_resolution_status,
+    line.product_match_status,
+    line.product_review_required,
+  );
   const iconWrapStyle: CSSProperties =
     accent === "teal"
       ? {
@@ -1749,6 +1946,23 @@ function ExpectedInventoryLineRow(props: {
               <span style={{ color: accent === "purple" ? "rgba(196,181,253,0.85)" : "rgba(45,212,191,0.75)" }}>{line.disposition}</span>
             ) : null}
           </p>
+        ) : null}
+        {resolutionBadges.length ? (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {resolutionBadges.map((b) => (
+              <span
+                key={b.key}
+                className="rounded border px-1 py-0.5 text-[8px] font-bold uppercase leading-none tracking-wide"
+                style={{
+                  borderColor: b.borderColor,
+                  backgroundColor: b.backgroundColor,
+                  color: b.color,
+                }}
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
         ) : null}
       </div>
       <div className="flex shrink-0 gap-4 text-right">
@@ -2086,17 +2300,14 @@ function OperatorMobileScanPageContent() {
     activeStoreLabel,
   } = useOperatorSessionStore();
   const scannerRef = useRef<HTMLInputElement>(null);
+  /** Item phase: wedge input stays on the hidden laser buffer; unit capture uses {@link ItemUnitRecordModal}. */
   const physicalBoxCountInputRef = useRef<HTMLInputElement>(null);
   /** Chrome height for fixed Item-phase Active Context bar (`padding-top` under `top: 0`). */
   const scanPageHeaderRef = useRef<HTMLElement>(null);
   const operatorMobileMainScrollRef = useRef<HTMLElement | null>(null);
-  const itemsContextBarRef = useRef<HTMLElement>(null);
-  const [itemsContextBarInsetPx, setItemsContextBarInsetPx] = useState(0);
-  /**
-   * Items phase only: padding-top for `<main>` — fixed Active Context sits below the header (same inset as its own padding-top).
-   * Must be (fixedBar.offsetHeight − header.offsetHeight) + gap, not full bar height (main already starts below header).
-   */
-  const [itemsPhaseMainPadPx, setItemsPhaseMainPadPx] = useState(0);
+  const bindOperatorMainScrollEl = useCallback((el: HTMLElement | null) => {
+    operatorMobileMainScrollRef.current = el;
+  }, []);
   const modalOpenRef = useRef(false);
   /** After "all completed" dialog confirm: canonical tracking for the next resolve scan. */
   const postCompleteTrackingRef = useRef<string | null>(null);
@@ -2183,7 +2394,15 @@ function OperatorMobileScanPageContent() {
   const [saveShipmentConfirmOpen, setSaveShipmentConfirmOpen] = useState(false);
   const [cancelShipmentConfirmOpen, setCancelShipmentConfirmOpen] = useState(false);
   /** Finalize package (Confirm & Save / discrepancy) — shared copy, distinct actions on confirm. */
-  const [packageFinalizeConfirmKind, setPackageFinalizeConfirmKind] = useState<null | "save" | "discrepancy">(null);
+  const [packageFinalizeConfirmKind, setPackageFinalizeConfirmKind] = useState<
+    null | "save_items" | "save_hub" | "discrepancy"
+  >(null);
+  /** After generic save confirm, second gate when {@link boxSlipConflictingOrderId} is set. */
+  const [packageSaveOrderConflictGateOpen, setPackageSaveOrderConflictGateOpen] = useState(false);
+  const [pendingConflictPackageSaveKind, setPendingConflictPackageSaveKind] = useState<
+    null | "save_items" | "save_hub" | "discrepancy"
+  >(null);
+  const [pickerDismissConfirmOpen, setPickerDismissConfirmOpen] = useState(false);
   /** Exit active box intake without persisting. */
   const [packageSessionCancelConfirmOpen, setPackageSessionCancelConfirmOpen] = useState(false);
   /** Brief full-screen success after package save (before hub scroll or item phase). */
@@ -2199,14 +2418,8 @@ function OperatorMobileScanPageContent() {
   const [palletOrderId, setPalletOrderId] = useState("");
   /** Last `pallets.order_id` read from DB (not operator-sticky like `palletOrderId`). */
   const [palletDbOrderId, setPalletDbOrderId] = useState("");
-  /**
-   * BOX slip RMA embeds an order id (see {@link extractOrderIdFromAmazonStyleRa}) that disagrees with
-   * the pallet’s persisted `order_id` — informational only (small banner + badge).
-   */
-  const [slipVersusPalletOrderMismatch, setSlipVersusPalletOrderMismatch] = useState<null | {
-    slipOrderId: string;
-    palletOrderId: string;
-  }>(null);
+  /** Last barcode-resolve pallet `order_id` until DB hydrate overwrites {@link palletDbOrderId}. */
+  const [palletResolvedOrderId, setPalletResolvedOrderId] = useState("");
   /** True after a save detected package vs pallet order id conflict (until list hydrate clears it). */
   const [palletMixedOrderIdsWarning, setPalletMixedOrderIdsWarning] = useState(false);
   /** Mirrors {@link palletMixedOrderIdsUi} for pallet hydrate (declared before the memo). */
@@ -2326,7 +2539,7 @@ function OperatorMobileScanPageContent() {
   }, [palletOrderId]);
 
   const applyPalletOrderIdFromRaIfApplicable = useCallback((rmaRaw: string) => {
-    const derived = extractOrderIdFromAmazonStyleRa(rmaRaw);
+    const derived = extractSlipOrderTokenForPalletCompare(rmaRaw);
     if (!derived) return;
     const cur = palletOrderIdRef.current.trim();
     if (!cur || cur === lastOrderIdAutoFilledFromRaRef.current) {
@@ -2341,25 +2554,6 @@ function OperatorMobileScanPageContent() {
       setPalletOrderId("");
     }
     lastOrderIdAutoFilledFromRaRef.current = null;
-  }, []);
-
-  /** Compare RA-derived slip order token vs pallet `order_id` already persisted on the pallet row. */
-  const syncSlipVersusPalletOrderMismatchFromRma = useCallback((rmaRaw: string, palletSavedOrderId: string) => {
-    const palletSaved = palletSavedOrderId.trim();
-    if (!palletSaved) {
-      setSlipVersusPalletOrderMismatch(null);
-      return;
-    }
-    const slipOid = extractOrderIdFromAmazonStyleRa(rmaRaw);
-    if (!slipOid) {
-      setSlipVersusPalletOrderMismatch(null);
-      return;
-    }
-    if (slipOid.toLowerCase() === palletSaved.toLowerCase()) {
-      setSlipVersusPalletOrderMismatch(null);
-      return;
-    }
-    setSlipVersusPalletOrderMismatch({ slipOrderId: slipOid, palletOrderId: palletSaved });
   }, []);
 
   const onPalletOrderIdInputChange = useCallback((v: string) => {
@@ -2479,16 +2673,10 @@ function OperatorMobileScanPageContent() {
     boxSlipRmaRef.current = boxSlipRma;
   }, [boxSlipRma]);
 
-  /** From `slip_contents.conflicting_order_id` when RA-derived id disagreed with pallet `order_id`. */
+  /** `slip_contents.order_id` — slip-derived token (source of truth for this slip). */
+  const [boxSlipOrderId, setBoxSlipOrderId] = useState("");
+  /** `slip_contents.conflicting_order_id`: pallet-assigned order id when it disagreed with slip token at save (else ""). */
   const [boxSlipConflictingOrderId, setBoxSlipConflictingOrderId] = useState("");
-
-  useEffect(() => {
-    if (flowPhase !== "package_scan") {
-      setSlipVersusPalletOrderMismatch(null);
-      return;
-    }
-    syncSlipVersusPalletOrderMismatchFromRma(boxSlipRma, palletDbOrderId);
-  }, [flowPhase, boxSlipRma, palletDbOrderId, activePallet?.id, syncSlipVersusPalletOrderMismatchFromRma]);
 
   const [boxSlipVisionLines, setBoxSlipVisionLines] = useState<BoxSlipVisionLine[]>([]);
   const boxSlipVisionLinesPersistRef = useRef<BoxSlipVisionLine[]>([]);
@@ -2500,6 +2688,7 @@ function OperatorMobileScanPageContent() {
   const clearBoxSlipVisionLinesState = useCallback(() => {
     boxSlipVisionLinesPersistRef.current = [];
     setBoxSlipVisionLines([]);
+    setBoxSlipOrderId("");
     setBoxSlipConflictingOrderId("");
   }, []);
   const [boxSlipVisionBusy, setBoxSlipVisionBusy] = useState(false);
@@ -2547,10 +2736,7 @@ function OperatorMobileScanPageContent() {
   const [expectedPkgDetailRows, setExpectedPkgDetailRows] = useState<Record<string, unknown>[]>([]);
   /** `slip_contents` lines for Step 3 (refetched when entering item inspection for a UUID package). */
   const [itemInspectionSlipLines, setItemInspectionSlipLines] = useState<OperatorSlipContentsListRow[]>([]);
-  /** Manual per-slip-line qty adjustment (merged with EP scanned + draft preview). */
-  const [itemSlipRowManualDelta, setItemSlipRowManualDelta] = useState<Record<string, number>>({});
   /** Set when item-phase EP fetch returns zero rows for an active tracking (live DB only). */
-  const [itemTrackingExpectationsHint, setItemTrackingExpectationsHint] = useState<string | null>(null);
   const [itemDraft, setItemDraft] = useState<{
     barcode: string;
     tier: ItemResolveTier;
@@ -2589,6 +2775,20 @@ function OperatorMobileScanPageContent() {
   /** Shipment fully complete on the view — Yes/No before continuing or ending session. */
   const [completedShipmentModal, setCompletedShipmentModal] = useState<{ key: string; tracking: string } | null>(null);
   const [itemBarcodeMiss, setItemBarcodeMiss] = useState<string | null>(null);
+  /** Counts from `package_items` for the active item-scan package (slip_content_id keyed). */
+  const [packageItemScanState, setPackageItemScanState] = useState<{
+    bySlipId: Record<string, number>;
+    unexpectedUnits: number;
+  }>({ bySlipId: {}, unexpectedUnits: 0 });
+  const [packageItemsHydrationNonce, setPackageItemsHydrationNonce] = useState(0);
+  const [slipLineCandidatePicker, setSlipLineCandidatePicker] = useState<{
+    barcode: string;
+    tier: SlipItemResolveTier;
+    candidates: SlipBarcodeMatchRow[];
+  } | null>(null);
+  const [unexpectedPackageItemModal, setUnexpectedPackageItemModal] = useState<{ barcode: string } | null>(null);
+  const [itemUnitModal, setItemUnitModal] = useState<ItemUnitModalContext | null>(null);
+  const [itemOverscanWarning, setItemOverscanWarning] = useState<string | null>(null);
   const [syncErrorToast, setSyncErrorToast] = useState<string | null>(null);
 
   const [expectedPkgLines, setExpectedPkgLines] = useState<TrackingOperatorLine[]>([]);
@@ -3033,6 +3233,7 @@ function OperatorMobileScanPageContent() {
       setPalletCarrierOtherSelected(false);
       setPalletOrderId("");
       setPalletDbOrderId("");
+      setPalletResolvedOrderId("");
       lastOrderIdAutoFilledFromRaRef.current = null;
       setCurrentPalletTrackingId(null);
       setShippingLabelPhotoUrls([]);
@@ -3058,6 +3259,7 @@ function OperatorMobileScanPageContent() {
       setPalletCarrierOtherSelected(false);
       setPalletNotes("");
       setPalletDbOrderId("");
+      setPalletResolvedOrderId("");
       setPalletOrderId("");
       lastOrderIdAutoFilledFromRaRef.current = null;
     }
@@ -3074,41 +3276,8 @@ function OperatorMobileScanPageContent() {
     (async () => {
       const PALLET_DOC_SELECT =
         "carrier_name, order_id, notes, shipping_label_urls, pallet_photo_urls, bol_photo_urls, created_by, created_at, updated_at, store_id";
-      const { data, error } = await supabase.from("pallets").select(PALLET_DOC_SELECT).eq("id", palletId).maybeSingle();
-      if (cancelled) return;
-      if (hydrateActivePalletIdRef.current !== fetchingFor) return;
-      if (error) {
-        console.warn("[pallets] hydrate failed:", error.code ?? "", error.message, { palletId });
-        setPalletDbHasShipmentDetails(false);
-        setPalletCreatedByLabel(null);
-        setPalletCreatedByProfileId(null);
-        setPalletCreatedAtIso(null);
-        return;
-      }
-      if (!data && process.env.NODE_ENV === "development") {
-        console.debug("[operator] pallet hydrate: no row returned (missing id or RLS?)", { palletId });
-      }
-      if (!data) {
-        // Keep any already-hydrated state (e.g. from server search payload) when client read returns no row.
-        return;
-      }
-      const rowStore = String((data as { store_id?: string | null }).store_id ?? "").trim();
-      const sessionSid = (sessionStoreId ?? "").trim();
-      if (
-        sessionSid &&
-        isUuidString(sessionSid) &&
-        rowStore &&
-        isUuidString(rowStore) &&
-        rowStore !== sessionSid
-      ) {
-        console.warn("[pallets] hydrate skipped: pallet belongs to another store", {
-          palletId: fetchingFor,
-          rowStore,
-          sessionSid,
-        });
-        return;
-      }
-      const row = (data ?? {}) as {
+
+      type HydrateRow = {
         carrier_name?: string | null;
         order_id?: string | null;
         notes?: string | null;
@@ -3118,7 +3287,66 @@ function OperatorMobileScanPageContent() {
         created_by?: string | null;
         created_at?: string | null;
         updated_at?: string | null;
+        store_id?: string | null;
       };
+
+      let data: HydrateRow | null = null;
+
+      const srv = await fetchOperatorPalletHydrationAction(oid, fetchingFor, sessionStoreId ?? null);
+      if (cancelled) return;
+      if (hydrateActivePalletIdRef.current !== fetchingFor) return;
+
+      if (srv.ok) {
+        data = srv.row as HydrateRow;
+      } else if (srv.wrongStore) {
+        console.warn("[pallets] hydrate skipped (server store scope):", srv.message, {
+          palletId: fetchingFor,
+        });
+        return;
+      } else {
+        const { data: clientData, error } = await supabase
+          .from("pallets")
+          .select(PALLET_DOC_SELECT)
+          .eq("id", palletId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (hydrateActivePalletIdRef.current !== fetchingFor) return;
+        if (error) {
+          console.warn("[pallets] hydrate failed:", error.code ?? "", error.message, { palletId });
+          setPalletDbHasShipmentDetails(false);
+          setPalletCreatedByLabel(null);
+          setPalletCreatedByProfileId(null);
+          setPalletCreatedAtIso(null);
+          return;
+        }
+        if (!clientData && process.env.NODE_ENV === "development") {
+          console.debug("[operator] pallet hydrate: no row returned (missing id or RLS?)", { palletId });
+        }
+        if (!clientData) {
+          return;
+        }
+        const rowStore = String((clientData as { store_id?: string | null }).store_id ?? "").trim();
+        const sessionSid = (sessionStoreId ?? "").trim();
+        if (
+          sessionSid &&
+          isUuidString(sessionSid) &&
+          rowStore &&
+          isUuidString(rowStore) &&
+          rowStore !== sessionSid
+        ) {
+          console.warn("[pallets] hydrate skipped: pallet belongs to another store", {
+            palletId: fetchingFor,
+            rowStore,
+            sessionSid,
+          });
+          return;
+        }
+        data = clientData as HydrateRow;
+      }
+
+      if (!data) return;
+
+      const row = data;
       const createdAtRaw = row.created_at;
       const updatedAtRaw = row.updated_at;
       const activityIso =
@@ -3208,6 +3436,10 @@ function OperatorMobileScanPageContent() {
     };
   }, [activePallet?.id, orgId, palletDocHydrationNonce, flowPhase, currentPalletTrackingId, persistOperatorSessionCarrier, mergeCarrierIntoActivePalletState, sessionStoreId]);
 
+  useEffect(() => {
+    if (!activePallet) setPalletResolvedOrderId("");
+  }, [activePallet]);
+
   /** Loads `palletPackagePickerList` via {@link listOperatorPackagesForPalletAction} whenever the active pallet (UUID) or scan/box steps change; clears when leaving scan steps or pallet is not persisted yet. */
   useEffect(() => {
     const oid = (orgId ?? "").trim();
@@ -3230,10 +3462,63 @@ function OperatorMobileScanPageContent() {
     };
   }, [flowPhase, orgId, activePallet?.id, palletDocHydrationNonce, sessionStoreId]);
 
+  /** After pallet hydration refresh, re-read slip_contents so `conflicting_order_id` matches DB immediately. */
+  useEffect(() => {
+    if (flowPhase !== "package_scan") return;
+    const pkg = String(activeBoxSessionPackageIdRef.current ?? "").trim();
+    const oid = (orgId ?? "").trim();
+    if (!pkg || !oid || !isUuidString(pkg)) return;
+    let cancelled = false;
+    void listOperatorSlipContentsForPackageAction(oid, pkg, sessionStoreId ?? null).then((slipRes) => {
+      if (cancelled) return;
+      if (String(activeBoxSessionPackageIdRef.current ?? "").trim() !== pkg) return;
+      if (!slipRes.ok) return;
+      const so = firstSlipOrderIdFromSlipRows(slipRes.rows);
+      const sc = firstConflictingOrderIdFromSlipRows(slipRes.rows);
+      const norm = normalizeSlipOrderConflictPair(so, sc);
+      setBoxSlipOrderId(norm.slip);
+      setBoxSlipConflictingOrderId(norm.conflicting);
+      if (norm.slip) {
+        setPalletOrderId(norm.slip);
+        lastOrderIdAutoFilledFromRaRef.current = null;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [palletDocHydrationNonce, flowPhase, orgId, sessionStoreId, activeBoxSession?.packageId]);
+
   useEffect(() => {
     setItemReceiveDemoScannedUnits(0);
     setItemReceivePackageActualCount(null);
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemsHydrationNonce(0);
   }, [itemScanPackageId]);
+
+  /** Hydrate scanned counts from `package_items` (per `slip_content_id`); `return_items` has no slip-line FK for this UI. */
+  useEffect(() => {
+    if (flowPhase !== "items" || !itemScanPackageId || !isUuidString(itemScanPackageId)) {
+      setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+      return;
+    }
+    if (!isSupabaseConfigured()) {
+      return;
+    }
+    const oid = (orgId ?? "").trim();
+    if (!oid) return;
+    let cancelled = false;
+    void listOperatorPackageItemsForPackageAction(oid, itemScanPackageId, sessionStoreId ?? null).then((res) => {
+      if (cancelled) return;
+      if (!res.ok) {
+        setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+        return;
+      }
+      setPackageItemScanState(aggregateOperatorPackageItemRows(res.rows));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [flowPhase, itemScanPackageId, orgId, sessionStoreId, packageItemsHydrationNonce]);
 
   useEffect(() => {
     if (flowPhase !== "items" || !itemScanPackageId || !isUuidString(itemScanPackageId)) {
@@ -3272,10 +3557,6 @@ function OperatorMobileScanPageContent() {
       cancelled = true;
     };
   }, [flowPhase, itemScanPackageId, orgId]);
-
-  useEffect(() => {
-    setItemSlipRowManualDelta({});
-  }, [itemScanPackageId]);
 
   useEffect(() => {
     const hasPallet = Boolean(activePallet?.id);
@@ -3515,11 +3796,9 @@ function OperatorMobileScanPageContent() {
 
   useEffect(() => {
     if (flowPhase !== "items") {
-      setItemTrackingExpectationsHint(null);
       return;
     }
     let cancelled = false;
-    setItemTrackingExpectationsHint(null);
     void (async () => {
       try {
         if (!isSupabaseConfigured()) {
@@ -3527,14 +3806,12 @@ function OperatorMobileScanPageContent() {
             const mock = mockExpectedPackageDetailRows();
             const safe = mock ?? [];
             setExpectedPkgDetailRows(Array.isArray(safe) ? safe : []);
-            setItemTrackingExpectationsHint(null);
           }
           return;
         }
         if (!sessionStoreId) {
           if (!cancelled) {
             setExpectedPkgDetailRows([]);
-            setItemTrackingExpectationsHint(null);
           }
           return;
         }
@@ -3547,18 +3824,10 @@ function OperatorMobileScanPageContent() {
         const data = rows ?? [];
         const safe = Array.isArray(data) ? data : [];
         setExpectedPkgDetailRows(safe);
-        if (parentTn && safe.length === 0) {
-          setItemTrackingExpectationsHint(
-            "No items found for this Tracking. Please check Store ID and Org ID.",
-          );
-        } else {
-          setItemTrackingExpectationsHint(null);
-        }
       } catch (e) {
         console.error(e);
         if (!cancelled) {
           setExpectedPkgDetailRows([]);
-          setItemTrackingExpectationsHint(null);
         }
       }
     })();
@@ -3606,11 +3875,12 @@ function OperatorMobileScanPageContent() {
       if (id && num) {
         const cn = String(r.row.carrier_name ?? "").trim();
         const oidRow = String((r.row as { order_id?: unknown }).order_id ?? "").trim();
+        setPalletResolvedOrderId(oidRow);
         setActivePallet({
           id,
           pallet_number: num,
           ...(cn ? { carrier_name: cn } : {}),
-          ...(oidRow ? { order_id: oidRow } : {}),
+          order_id: oidRow.length ? oidRow : null,
         });
         // `currentPalletTrackingId` is set by the caller with the operator's scanned/typed code
         // (identify gate or runResolve) so Active Pallet edit shows that value, not only DB row.
@@ -3818,6 +4088,8 @@ function OperatorMobileScanPageContent() {
   const runBoxSlipVisionOnPhotoUrl = useCallback(
     async (photoUrl: string) => {
       setBoxSlipVisionBusy(true);
+      setBoxSlipOrderId("");
+      setBoxSlipConflictingOrderId("");
       setBoxSlipInvalidFormatBlocksSave(false);
       try {
         const apiKey = getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage();
@@ -3886,9 +4158,31 @@ function OperatorMobileScanPageContent() {
         if (sid) setBoxSlipCode(sid);
         const rma = json.slip.rma_number?.trim() ?? "";
         if (rma) setBoxSlipRma(rma);
-        if (rma) applyPalletOrderIdFromRaIfApplicable(rma);
         const items = Array.isArray(json.slip.items) ? json.slip.items : [];
         commitBoxSlipVisionLinesFromSource(items);
+
+        const slipExplicitOrder = String(json.slip.order_id ?? "").trim();
+        const rmaTrim = rma.trim();
+        const slipTokFromRma = rmaTrim ? extractSlipOrderTokenForPalletCompare(rmaTrim) : null;
+        const slipTok = (slipExplicitOrder || slipTokFromRma || "").trim();
+        const palletCanon =
+          palletDbOrderId.trim() ||
+          palletResolvedOrderId.trim() ||
+          String(activePallet?.order_id ?? "").trim();
+        let confForVision = "";
+        if (slipTok && palletCanon && slipTok.toLowerCase() !== palletCanon.toLowerCase()) {
+          confForVision = palletCanon;
+        }
+        const normVision = normalizeSlipOrderConflictPair(slipTok, confForVision);
+        setBoxSlipOrderId(normVision.slip);
+        setBoxSlipConflictingOrderId(normVision.conflicting);
+        const refVision = referenceOrderIdForPackageFieldAfterSlipLoad(normVision, "");
+        if (refVision != null) {
+          setPalletOrderId(refVision);
+          lastOrderIdAutoFilledFromRaRef.current = null;
+        } else if (rma) {
+          applyPalletOrderIdFromRaIfApplicable(rma);
+        }
 
         const pkgIdPersist = activeBoxSessionPackageIdRef.current;
         const oidPersist = (orgId ?? "").trim();
@@ -3942,7 +4236,7 @@ function OperatorMobileScanPageContent() {
               condition: line.condition?.trim() || null,
               missing: Boolean(line.missing),
             }));
-            const persistRes = await updateOperatorIntakeBoxPackageAction({
+            const persistRes = await saveOperatorSlipVisionAction({
               requestedOrganizationId: oidPersist,
               storeId: storePersist,
               packageId: pkgIdPersist,
@@ -3979,12 +4273,28 @@ function OperatorMobileScanPageContent() {
                   setPalletOrderId(o);
                 }
               }
+              const so =
+                "slipContentsOrderId" in persistRes && persistRes.slipContentsOrderId != null
+                  ? String(persistRes.slipContentsOrderId).trim()
+                  : "";
               const sc =
                 "slipConflictingOrderId" in persistRes && persistRes.slipConflictingOrderId != null
                   ? String(persistRes.slipConflictingOrderId).trim()
                   : "";
-              setBoxSlipConflictingOrderId(sc);
+              const normPersist = normalizeSlipOrderConflictPair(so, sc);
+              setBoxSlipOrderId(normPersist.slip);
+              setBoxSlipConflictingOrderId(normPersist.conflicting);
               setPalletDocHydrationNonce((n) => n + 1);
+              void listOperatorSlipContentsForPackageAction(oidPersist, pkgIdPersist, sessionStoreId ?? null).then(
+                (slipRes) => {
+                  if (!slipRes.ok) return;
+                  const so2 = firstSlipOrderIdFromSlipRows(slipRes.rows);
+                  const sc2 = firstConflictingOrderIdFromSlipRows(slipRes.rows);
+                  const norm2 = normalizeSlipOrderConflictPair(so2, sc2);
+                  setBoxSlipOrderId(norm2.slip);
+                  setBoxSlipConflictingOrderId(norm2.conflicting);
+                },
+              );
             }
           }
         }
@@ -4000,6 +4310,9 @@ function OperatorMobileScanPageContent() {
       scheduleFocusScanner,
       sessionStoreId,
       activePallet?.id,
+      activePallet?.order_id,
+      palletDbOrderId,
+      palletResolvedOrderId,
       commitBoxSlipVisionLinesFromSource,
       clearBoxSlipVisionLinesState,
       applyPalletOrderIdFromRaIfApplicable,
@@ -4075,10 +4388,11 @@ function OperatorMobileScanPageContent() {
     let cancelled = false;
     void (async () => {
       setBoxSlipConflictingOrderId("");
+      setBoxSlipOrderId("");
       const { data, error } = await supabase
         .from("packages")
         .select(
-          "outside_photo_urls, inside_photo_urls, slip_photo_urls, package_code, id_slip_contents, rma_number, manifest_data, notes, carrier_name",
+          "outside_photo_urls, inside_photo_urls, slip_photo_urls, package_code, id_slip_contents, rma_number, manifest_data, notes, carrier_name, order_id",
         )
         .eq("id", fetchingFor)
         .maybeSingle();
@@ -4099,6 +4413,7 @@ function OperatorMobileScanPageContent() {
             manifest_data: null,
             notes: fb.notes ?? null,
             carrier_name: null,
+            order_id: fb.order_id ?? null,
           };
         }
       }
@@ -4142,6 +4457,7 @@ function OperatorMobileScanPageContent() {
       let slipRowsMapped: BoxSlipVisionLine[] | null = null;
       let slipCodeFromContents: string | null = null;
       let slipConflictingHydrate = "";
+      let slipOrderHydrate = "";
 
       if (oidForSlip) {
         const slipRes = await listOperatorSlipContentsForPackageAction(oidForSlip, fetchingFor, sessionStoreId ?? null);
@@ -4159,13 +4475,14 @@ function OperatorMobileScanPageContent() {
           const sc = String(slipRes.rows[0]?.slip_code ?? "").trim();
           slipCodeFromContents = sc.length ? sc : null;
           slipConflictingHydrate = firstConflictingOrderIdFromSlipRows(slipRes.rows);
+          slipOrderHydrate = firstSlipOrderIdFromSlipRows(slipRes.rows);
         }
       }
 
       if (!slipRowsMapped || slipRowsMapped.length === 0) {
         const { data: slipRows, error: slipErr } = await supabase
           .from("slip_contents")
-          .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, conflicting_order_id")
+          .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, order_id, conflicting_order_id")
           .eq("package_id", fetchingFor)
           .order("sort_index", { ascending: true });
         if (cancelled || hydrateBoxPackageIdRef.current !== fetchingFor) return;
@@ -4176,6 +4493,7 @@ function OperatorMobileScanPageContent() {
           slipConflictingHydrate = firstConflictingOrderIdFromSlipRows(
             (slipRows ?? []) as OperatorSlipContentsListRow[],
           );
+          slipOrderHydrate = firstSlipOrderIdFromSlipRows((slipRows ?? []) as OperatorSlipContentsListRow[]);
         }
       }
 
@@ -4187,8 +4505,17 @@ function OperatorMobileScanPageContent() {
 
       setBoxSlipCode(sidRow || fromManifest.slipCode || slipCodeFromContents || "");
       setBoxSlipRma(rma);
-      setBoxSlipConflictingOrderId(slipConflictingHydrate);
-      applyPalletOrderIdFromRaIfApplicable(rma);
+      const normHydrate = normalizeSlipOrderConflictPair(slipOrderHydrate, slipConflictingHydrate);
+      setBoxSlipOrderId(normHydrate.slip);
+      setBoxSlipConflictingOrderId(normHydrate.conflicting);
+      const pkgOidHydrate = String(row.order_id ?? "").trim();
+      const refHydrate = referenceOrderIdForPackageFieldAfterSlipLoad(normHydrate, pkgOidHydrate);
+      if (refHydrate != null) {
+        setPalletOrderId(refHydrate);
+        lastOrderIdAutoFilledFromRaRef.current = null;
+      } else {
+        applyPalletOrderIdFromRaIfApplicable(rma);
+      }
       commitBoxSlipVisionLinesFromSource(lines);
       setBoxSlipInvalidFormatBlocksSave(false);
     })();
@@ -4377,6 +4704,7 @@ function OperatorMobileScanPageContent() {
           const oidSlipScan = orgId.trim();
           let slipRowsMapped: BoxSlipVisionLine[] | null = null;
           let slipConflictingScan = "";
+          let slipOrderScan = "";
           if (oidSlipScan) {
             const slipRes = await listOperatorSlipContentsForPackageAction(oidSlipScan, pkgId, sessionStoreId ?? null);
             if (slipRes.ok && slipRes.rows.length > 0) {
@@ -4388,13 +4716,14 @@ function OperatorMobileScanPageContent() {
               const sc = String(slipRes.rows[0]?.slip_code ?? "").trim();
               slipCodeFromContents = sc.length ? sc : null;
               slipConflictingScan = firstConflictingOrderIdFromSlipRows(slipRes.rows);
+              slipOrderScan = firstSlipOrderIdFromSlipRows(slipRes.rows);
             }
           }
           if (!slipRowsMapped || slipRowsMapped.length === 0) {
             try {
               const { data: slipRows, error: slipErr } = await supabase
                 .from("slip_contents")
-                .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, conflicting_order_id")
+                .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, order_id, conflicting_order_id")
                 .eq("package_id", pkgId)
                 .order("sort_index", { ascending: true });
               if (!slipErr && Array.isArray(slipRows) && slipRows.length > 0) {
@@ -4406,6 +4735,7 @@ function OperatorMobileScanPageContent() {
                 slipConflictingScan = firstConflictingOrderIdFromSlipRows(
                   (slipRows ?? []) as OperatorSlipContentsListRow[],
                 );
+                slipOrderScan = firstSlipOrderIdFromSlipRows((slipRows ?? []) as OperatorSlipContentsListRow[]);
               }
             } catch {
               /* slip_contents optional — never block intake */
@@ -4416,8 +4746,17 @@ function OperatorMobileScanPageContent() {
           }
           setBoxSlipCode(sidRow || fromManifest.slipCode || slipCodeFromContents || trimmed);
           setBoxSlipRma(rma);
-          setBoxSlipConflictingOrderId(slipConflictingScan);
-          applyPalletOrderIdFromRaIfApplicable(rma);
+          const normScan = normalizeSlipOrderConflictPair(slipOrderScan, slipConflictingScan);
+          setBoxSlipOrderId(normScan.slip);
+          setBoxSlipConflictingOrderId(normScan.conflicting);
+          const pkgOidScan = String(r.order_id ?? "").trim();
+          const refScan = referenceOrderIdForPackageFieldAfterSlipLoad(normScan, pkgOidScan);
+          if (refScan != null) {
+            setPalletOrderId(refScan);
+            lastOrderIdAutoFilledFromRaRef.current = null;
+          } else {
+            applyPalletOrderIdFromRaIfApplicable(rma);
+          }
           commitBoxSlipVisionLinesFromSource(lines);
           setBoxSlipInvalidFormatBlocksSave(false);
           setIntakeToast("BOX loaded from slip id (local). Confirm & Save to write changes.");
@@ -4767,6 +5106,15 @@ function OperatorMobileScanPageContent() {
     boxSlipVisionBusy,
   ]);
 
+  const dispatchPackageFinalizeSave = useCallback(
+    (kind: "save_items" | "save_hub" | "discrepancy") => {
+      if (kind === "save_items") void saveBoxAndContinue();
+      else if (kind === "save_hub") void saveBoxAndContinue({ stayOnPackageScanAfterSave: true });
+      else void saveBoxAndContinue({ appendDiscrepancyNote: true, stayOnPackageScanAfterSave: true });
+    },
+    [saveBoxAndContinue],
+  );
+
   const populateDraftFromEpRow = useCallback(
     async (barcode: string, tier: ItemResolveTier, row: Record<string, unknown>) => {
       const sku = String(row.sku ?? "").trim();
@@ -4814,6 +5162,159 @@ function OperatorMobileScanPageContent() {
     [expectedPkgLines],
   );
 
+  const queueItemUnitModal = useCallback(
+    (args: {
+      scannedBarcode: string;
+      slip: SlipBarcodeMatchRow | null;
+      title?: string;
+      subtitle?: string | null;
+      /** When slip is null, pass EP / shipment line text for perishable heuristic in the modal. */
+      slipDescription?: string | null;
+      matchKindPreset?: "fnsku" | "upc" | "unexpected" | null;
+    }) => {
+      const slip = args.slip;
+      if (!slip) {
+        setItemOverscanWarning(null);
+      } else {
+        const slipId = slip.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
+        const expectedQty = Math.max(0, Math.floor(Number(slip.quantity ?? 0)));
+        const currentForSlip = slipId ? (packageItemScanState.bySlipId[slipId] ?? 0) : 0;
+        if (expectedQty > 0 && currentForSlip >= expectedQty) {
+          setItemOverscanWarning(
+            `Over-scan: this slip line already shows ${currentForSlip} scanned (expected ${expectedQty}). The scan will still be recorded.`,
+          );
+        } else {
+          setItemOverscanWarning(null);
+        }
+      }
+
+      let slipDescription: string | null = null;
+      if (args.slipDescription !== undefined) {
+        slipDescription = String(args.slipDescription ?? "").trim() || null;
+      } else if (slip != null) {
+        slipDescription = String(slip.description ?? "").trim() || null;
+      }
+
+      const slipIdResolved =
+        slip?.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
+
+      setItemDraft(null);
+      setCandidatePicker(null);
+
+      modalOpenRef.current = true;
+      setItemUnitModal({
+        scannedBarcode: args.scannedBarcode.trim(),
+        slip,
+        slipContentId: slipIdResolved,
+        slipDescription,
+        title: args.title ?? "Record scanned unit",
+        subtitle: args.subtitle ?? null,
+        matchKindPreset: args.matchKindPreset ?? null,
+      });
+    },
+    [packageItemScanState.bySlipId],
+  );
+
+  const openAddScanItemModal = useCallback(() => {
+    if (!hasReceivableBoxForItems(itemScanPackageId, activeBoxSession)) {
+      setItemReceiveError("Select or scan a box before inspecting items.");
+      return;
+    }
+    if (busy) return;
+    setItemReceiveError(null);
+    setItemBarcodeMiss(null);
+    queueItemUnitModal({
+      scannedBarcode: "",
+      slip: null,
+      title: "➕ Add / Scan Item",
+      subtitle: "Scan the barcode (UPC / FNSKU), set condition, then save.",
+      matchKindPreset: null,
+    });
+  }, [itemScanPackageId, activeBoxSession, busy, queueItemUnitModal]);
+
+  const saveItemUnitModal = useCallback(
+    async (payload: ItemUnitRecordSavePayload) => {
+      const ctx = itemUnitModal;
+      if (!ctx) return;
+      const trimmed = payload.scannedBarcode.trim();
+      if (!trimmed) {
+        setItemReceiveError("Barcode is required.");
+        return;
+      }
+
+      setItemDraft(null);
+      setCandidatePicker(null);
+
+      const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
+
+      let matchKind: "fnsku" | "upc" | "unexpected" =
+        ctx.matchKindPreset != null ? ctx.matchKindPreset : "unexpected";
+      if (ctx.matchKindPreset == null && ctx.slip && ctx.slipContentId && isUuidString(ctx.slipContentId)) {
+        const outcome = resolveItemBarcodeAgainstSlipRows(trimmed, [ctx.slip]);
+        matchKind = outcome.kind === "single" ? outcome.tier : "upc";
+      }
+
+      if (!isSupabaseConfigured() || !pkgId) {
+        const sid = ctx.slipContentId;
+        if (sid && isUuidString(sid)) {
+          setPackageItemScanState((prev) => ({
+            ...prev,
+            bySlipId: {
+              ...prev.bySlipId,
+              [sid]: (prev.bySlipId[sid] ?? 0) + 1,
+            },
+          }));
+        } else {
+          setPackageItemScanState((prev) => ({ ...prev, unexpectedUnits: prev.unexpectedUnits + 1 }));
+        }
+        setItemReceiveDemoScannedUnits((u) => u + 1);
+        setScanSuccessFlash(true);
+        modalOpenRef.current = false;
+        setItemUnitModal(null);
+        scheduleFocusScanner();
+        return;
+      }
+
+      if (!sessionStoreId) {
+        setItemReceiveError("Select an active store before saving scans.");
+        return;
+      }
+
+      setBusy(true);
+      setItemReceiveError(null);
+      try {
+        const res = await insertOperatorPackageItemAction({
+          requestedOrganizationId: orgId,
+          packageId: pkgId,
+          storeId: sessionStoreId,
+          slipContentId: ctx.slipContentId,
+          scannedBarcode: trimmed,
+          matchKind,
+          quantity: 1,
+          discrepancyTags: payload.discrepancyTags,
+          expiryDate: payload.expiryDate,
+          lotNumber: payload.lotNumber,
+          evidenceUrls: payload.evidenceUrls,
+          traceabilityRequired: payload.traceabilityRequired,
+        });
+        if (!res.ok) {
+          setSyncErrorToast("Sync Error: Item scan not saved");
+          setItemReceiveError(res.message ?? "");
+          return;
+        }
+        setPackageItemsHydrationNonce((n) => n + 1);
+        setItemReceiveCountSyncNonce((n) => n + 1);
+        setScanSuccessFlash(true);
+        modalOpenRef.current = false;
+        setItemUnitModal(null);
+        scheduleFocusScanner();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [itemUnitModal, itemScanPackageId, orgId, sessionStoreId, scheduleFocusScanner],
+  );
+
   const handleItemBarcodeScan = useCallback(
     async (code: string) => {
       if (busy) return;
@@ -4824,10 +5325,56 @@ function OperatorMobileScanPageContent() {
       const trimmed = code.trim();
       setItemReceiveError(null);
       setItemBarcodeMiss(null);
+      setItemOverscanWarning(null);
       if (!trimmed) return;
+
+      const slipRowsForMatch: SlipBarcodeMatchRow[] = itemInspectionSlipLines
+        .filter((r) => Boolean(r.fnsku?.trim() || r.upc?.trim()))
+        .map((r) => ({
+          id: r.id,
+          upc: r.upc,
+          fnsku: r.fnsku,
+          description: r.description,
+          quantity: r.quantity,
+          sort_index: r.sort_index,
+        }));
+
+      const preferSlipMatching = slipRowsForMatch.length > 0;
+
+      if (preferSlipMatching) {
+        const outcome = resolveItemBarcodeAgainstSlipRows(trimmed, slipRowsForMatch);
+        if (outcome.kind === "none") {
+          modalOpenRef.current = true;
+          setUnexpectedPackageItemModal({ barcode: trimmed });
+          return;
+        }
+        if (outcome.kind === "ambiguous") {
+          modalOpenRef.current = true;
+          setSlipLineCandidatePicker({
+            barcode: outcome.barcode,
+            tier: outcome.tier,
+            candidates: outcome.candidates,
+          });
+          return;
+        }
+
+        queueItemUnitModal({
+          scannedBarcode: trimmed,
+          slip: outcome.slip,
+          title: "Record scanned unit",
+          subtitle:
+            String(outcome.slip.description ?? "").trim() ||
+            [outcome.slip.fnsku, outcome.slip.upc].filter(Boolean).join(" · ") ||
+            null,
+        });
+        return;
+      }
+
       const detailSafe = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
       if (!detailSafe.length) {
-        setItemBarcodeMiss("No expected lines loaded for this parent.");
+        setItemBarcodeMiss(
+          `No packing slip lines with UPC/FNSKU for this box, and no shipment expected lines loaded for "${trimmed}".`,
+        );
         return;
       }
       const outcome = resolveItemBarcodeAgainstExpectedRows(trimmed, detailSafe);
@@ -4840,15 +5387,24 @@ function OperatorMobileScanPageContent() {
         setCandidatePicker({ barcode: outcome.barcode, tier: outcome.tier, candidates: outcome.candidates });
         return;
       }
-      await populateDraftFromEpRow(outcome.barcode, outcome.tier, outcome.row);
+      queueItemUnitModal({
+        scannedBarcode: trimmed,
+        slip: null,
+        slipDescription: epRowToSlipDescriptionForItemModal(outcome.row as Record<string, unknown>),
+        matchKindPreset: itemResolveTierToPackageMatchKind(outcome.tier),
+        title: "Record scanned unit",
+        subtitle: epPackageRowPrimaryLabel(outcome.row as Record<string, unknown>),
+      });
       scheduleFocusScanner();
+      return;
     },
     [
       busy,
       itemScanPackageId,
       activeBoxSession,
+      itemInspectionSlipLines,
+      queueItemUnitModal,
       expectedPkgDetailRows,
-      populateDraftFromEpRow,
       scheduleFocusScanner,
     ],
   );
@@ -4963,7 +5519,6 @@ function OperatorMobileScanPageContent() {
       }
       bumpLocalRows(bumpId);
       setItemReceiveDemoScannedUnits((u) => u + qty);
-      setItemSlipRowManualDelta({});
       resetItemInspectionForm();
       if (beforeRemainTotal > qty) setScanSuccessFlash(true);
       focusScannerAggressive();
@@ -5006,7 +5561,6 @@ function OperatorMobileScanPageContent() {
         bumpLocalRows(resolvedEp);
       }
       setItemReceiveCountSyncNonce((n) => n + 1);
-      setItemSlipRowManualDelta({});
       resetItemInspectionForm();
       if (remainingOnRow > qty || beforeRemainTotal > qty) setScanSuccessFlash(true);
       focusScannerAggressive();
@@ -5511,10 +6065,13 @@ function OperatorMobileScanPageContent() {
             const pnum = String(lastResolve.row.pallet_number ?? "").trim();
             if (isUuidString(pid) && pnum) {
               const cn = String(lastResolve.row.carrier_name ?? "").trim();
+              const oidRow = String((lastResolve.row as { order_id?: unknown }).order_id ?? "").trim();
+              setPalletResolvedOrderId(oidRow);
               setActivePallet({
                 id: pid,
                 pallet_number: pnum,
                 ...(cn ? { carrier_name: cn } : {}),
+                order_id: oidRow.length ? oidRow : null,
               });
               setActiveTracking(null);
               const rowTn = String(lastResolve.row.tracking_number ?? "").trim();
@@ -5658,7 +6215,7 @@ function OperatorMobileScanPageContent() {
         setCurrentPackageTrackingId(code.trim());
         setFlowPhase("package_scan");
       } else {
-        const { error } = await supabase.from("returns").insert({
+        const { error } = await supabase.from(RETURN_ITEMS_TABLE).insert({
           organization_id: orgId,
           store_id: sessionStoreId,
           status: "received",
@@ -5734,16 +6291,6 @@ function OperatorMobileScanPageContent() {
     (s, r) => s + Number((r as { expected_scan_quantity?: number }).expected_scan_quantity ?? 0),
     0,
   );
-  const itemScannedUnitsTotal = expectedPkgDetailSafe.reduce(
-    (s, r) => s + Number((r as { actual_scanned_count?: number }).actual_scanned_count ?? 0),
-    0,
-  );
-  const itemReceivingFractionNumerator =
-    itemScanPackageId && isUuidString(itemScanPackageId)
-      ? (itemReceivePackageActualCount ?? 0)
-      : itemReceiveDemoScannedUnits;
-  const itemProgressDenom = Math.max(itemExpectedUnitsTotal, 1);
-  const itemProgressNumerator = Math.min(itemScannedUnitsTotal + 1, itemProgressDenom);
 
   const itemsLiveEpRow: Record<string, unknown> | null = itemDraft
     ? (expectedPkgDetailSafe.find((r) => String(r.id) === String(itemDraft.epRow.id ?? "")) ??
@@ -5776,8 +6323,7 @@ function OperatorMobileScanPageContent() {
           ? Math.max(1, Math.min(50, Math.floor(itemQtyStepper)))
           : 0;
       const scanned = persisted + draftExtra;
-      const status = classifyItemInspectionQtyStatus(expected, scanned);
-      return { row: r, expected, scanned, persisted, draftExtra, status };
+      return { row: r, expected, scanned, persisted, draftExtra };
     });
   }, [expectedPkgDetailRows, itemDraft, itemQtyStepper]);
 
@@ -5820,21 +6366,28 @@ function OperatorMobileScanPageContent() {
 
   const itemInspectionSlipCells = useMemo(() => {
     const epRows = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
+    const slipCounts = packageItemScanState.bySlipId;
     return slipLikeRowsForInspection.map((slip, idx) => {
       const key = slipInspectionStableKey(slip, idx);
       const matched = epRowsMatchingSlipLike(slip, epRows);
-      const epScanned = sumEpActualScanned(matched);
+      const slipId = slip.id && isUuidString(slip.id) ? slip.id : null;
+      const fromPackageItems = slipId ? (slipCounts[slipId] ?? 0) : 0;
+      const epScanned = slipId ? fromPackageItems : sumEpActualScanned(matched);
       const draftExtra =
         itemDraft && matched.some((r) => epRowMatchesItemDraft(r, itemDraft))
           ? Math.max(1, Math.min(50, Math.floor(itemQtyStepper)))
           : 0;
-      const manual = itemSlipRowManualDelta[key] ?? 0;
-      const scanned = Math.max(0, epScanned + draftExtra + manual);
+      const scanned = Math.max(0, epScanned + draftExtra);
       const expected = Math.max(0, Math.floor(Number(slip.quantity ?? 0)));
-      const status = classifyItemInspectionQtyStatus(expected, scanned);
-      return { key, slip, expected, scanned, epScanned, draftExtra, manual, status };
+      return { key, slip, expected, scanned, epScanned, draftExtra };
     });
-  }, [slipLikeRowsForInspection, expectedPkgDetailRows, itemDraft, itemQtyStepper, itemSlipRowManualDelta]);
+  }, [
+    slipLikeRowsForInspection,
+    expectedPkgDetailRows,
+    itemDraft,
+    itemQtyStepper,
+    packageItemScanState.bySlipId,
+  ]);
 
   const itemInspectionQtyBasisExpected = useMemo(() => {
     if (itemInspectionSlipCells.length > 0) {
@@ -5845,43 +6398,70 @@ function OperatorMobileScanPageContent() {
 
   const itemInspectionQtyBasisScanned = useMemo(() => {
     if (itemInspectionSlipCells.length > 0) {
-      return itemInspectionSlipCells.reduce((s, c) => s + c.scanned, 0);
+      const lineSum = itemInspectionSlipCells.reduce((s, c) => s + c.scanned, 0);
+      return lineSum + packageItemScanState.unexpectedUnits;
     }
-    return itemInspectionEpOnlyQtyRows.reduce((sum, cell) => sum + cell.scanned, 0);
-  }, [itemInspectionSlipCells, itemInspectionEpOnlyQtyRows]);
+    return itemInspectionEpOnlyQtyRows.reduce((sum, cell) => sum + cell.scanned, 0) + packageItemScanState.unexpectedUnits;
+  }, [itemInspectionSlipCells, itemInspectionEpOnlyQtyRows, packageItemScanState.unexpectedUnits]);
 
-  /** Items-phase context bar: live slip/inspection totals (includes row steppers). */
-  const itemsContextScannedForBar =
-    flowPhase === "items" && hasItemReceivableBox ? itemInspectionQtyBasisScanned : itemReceivingFractionNumerator;
-  const itemsContextExpectedForBar =
-    flowPhase === "items" && hasItemReceivableBox
-      ? itemInspectionQtyBasisExpected
-      : receivingSlipExpectedItemQtyTotal != null && receivingSlipExpectedItemQtyTotal > 0
-        ? receivingSlipExpectedItemQtyTotal
-        : itemExpectedUnitsTotal;
-  const itemsContextRemainingForBar = Math.max(0, itemsContextExpectedForBar - itemsContextScannedForBar);
+  const itemScanStatRemaining = Math.max(0, itemInspectionQtyBasisExpected - itemInspectionQtyBasisScanned);
+
+  const itemScanStatScannedValueColor = useMemo(() => {
+    const exp = itemInspectionQtyBasisExpected;
+    const scn = itemInspectionQtyBasisScanned;
+    if (exp <= 0) return TEXT_PRIMARY;
+    if (scn === 0) return MUTED_LABEL;
+    if (scn === exp) return SUCCESS;
+    if (scn > exp) return "#fca5a5";
+    return TEXT_PRIMARY;
+  }, [itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned]);
+
+  const itemScanStatRemainingValueColor = useMemo(() => {
+    const exp = itemInspectionQtyBasisExpected;
+    const rem = Math.max(0, exp - itemInspectionQtyBasisScanned);
+    const scn = itemInspectionQtyBasisScanned;
+    if (exp <= 0) return MUTED_LABEL;
+    if (scn === 0) return MUTED_LABEL;
+    if (rem > 0) return "#fbbf24";
+    return SUCCESS;
+  }, [itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned]);
+
+  const itemsSlipScanProgressPct = useMemo(() => {
+    const exp = itemInspectionQtyBasisExpected;
+    const scn = itemInspectionQtyBasisScanned;
+    if (exp <= 0) return 0;
+    return Math.min(100, Math.round((scn / exp) * 100));
+  }, [itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned]);
+
+  const itemsSlipScanProgressTrackColor = useMemo(() => {
+    const exp = itemInspectionQtyBasisExpected;
+    const scn = itemInspectionQtyBasisScanned;
+    if (exp <= 0) return "rgba(148,163,184,0.35)";
+    if (scn === 0) return "rgba(148,163,184,0.28)";
+    if (scn > exp) return "rgba(248,113,113,0.85)";
+    if (scn === exp) return "rgba(52,211,153,0.9)";
+    return "rgba(52,211,153,0.55)";
+  }, [itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned]);
 
   const itemsPhaseLiveTotalScanned = itemInspectionQtyBasisScanned;
   const isItemsQtyDiscrepancy = itemInspectionQtyBasisExpected !== itemInspectionQtyBasisScanned;
 
   const itemInspectionDiscrepancyKinds = useMemo(() => {
     const src = itemInspectionSlipCells.length ? itemInspectionSlipCells : itemInspectionEpOnlyQtyRows;
-    return {
-      hasShortage: src.some((x) => x.status === "shortage"),
-      hasSurplus: src.some((x) => x.status === "surplus"),
-    };
-  }, [itemInspectionSlipCells, itemInspectionEpOnlyQtyRows]);
+    const hasShortage = src.some((x) => x.scanned < x.expected);
+    const hasSurplus =
+      src.some((x) => x.scanned > x.expected) || packageItemScanState.unexpectedUnits > 0;
+    return { hasShortage, hasSurplus };
+  }, [itemInspectionSlipCells, itemInspectionEpOnlyQtyRows, packageItemScanState.unexpectedUnits]);
 
   const itemInspectionAggregateStatusLabel = useMemo(() => {
     if (isItemsQtyDiscrepancy) return "Quantity mismatch (expected vs scanned totals)";
     const src = itemInspectionSlipCells.length ? itemInspectionSlipCells : itemInspectionEpOnlyQtyRows;
     if (src.length === 0) return "No slip lines loaded";
     const { hasShortage, hasSurplus } = itemInspectionDiscrepancyKinds;
-    const hasPending = src.some((x) => x.status === "pending");
     if (hasShortage && hasSurplus) return "Mixed: shortage and surplus";
     if (hasSurplus) return "Surplus (over-scanned)";
     if (hasShortage) return "Shortage (under-scanned)";
-    if (hasPending) return "Pending (not all lines scanned)";
     return "All matched";
   }, [isItemsQtyDiscrepancy, itemInspectionSlipCells, itemInspectionEpOnlyQtyRows, itemInspectionDiscrepancyKinds]);
 
@@ -5937,10 +6517,14 @@ function OperatorMobileScanPageContent() {
     setItemReceiveDemoScannedUnits(0);
     setItemReceiveCountSyncNonce(0);
     setExpectedPkgDetailRows([]);
-    setItemTrackingExpectationsHint(null);
     setItemBarcodeMiss(null);
     setItemReceiveError(null);
     setCandidatePicker(null);
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemsHydrationNonce(0);
+    setSlipLineCandidatePicker(null);
+    setUnexpectedPackageItemModal(null);
+    setItemOverscanWarning(null);
     setItemsBoxFinalizeModalOpen(false);
     modalOpenRef.current = false;
     setFlowPhase("scan");
@@ -6402,6 +6986,20 @@ function OperatorMobileScanPageContent() {
 
   const palletMixedOrderIdsUi = palletMixedOrderIdsWarning || palletShowsMixedOrderIdsFromData;
 
+  /** Display order: DB hydrate → barcode resolve → active pallet snapshot (never operator draft). */
+  const palletIdentityOrderId =
+    palletDbOrderId.trim() ||
+    palletResolvedOrderId.trim() ||
+    String(activePallet?.order_id ?? "").trim();
+
+  const boxSlipConflictReferenceLine = useMemo(() => {
+    const slip = boxSlipOrderId.trim();
+    const conf = boxSlipConflictingOrderId.trim();
+    if (!slip || !conf || slip.toLowerCase() === conf.toLowerCase()) return "";
+    const pallet = palletIdentityOrderId.trim() || "—";
+    return `⚠️ Conflict: Slip belongs to ${slip}, but Pallet is ${pallet}.`;
+  }, [boxSlipConflictingOrderId, boxSlipOrderId, palletIdentityOrderId]);
+
   useEffect(() => {
     palletMixedOrderIdsUiRef.current = palletMixedOrderIdsUi;
   }, [palletMixedOrderIdsUi]);
@@ -6411,11 +7009,15 @@ function OperatorMobileScanPageContent() {
   }, [palletShowsMixedOrderIdsFromData]);
 
   const palletOrderIdFieldColor = palletMixedOrderIdsUi ? AMBER_MIXED_ORDER : TEXT_PRIMARY;
-  /** Read-only / header: DB pallet `order_id` first, then operator input, then resolve payload. */
-  const palletOrderIdForDisplay =
-    palletDbOrderId.trim() ||
-    palletOrderId.trim() ||
-    String(activePallet?.order_id ?? "").trim();
+
+  const packageScanOrderIdConflictHighlight = Boolean(
+    boxSlipOrderId.trim() &&
+      boxSlipConflictingOrderId.trim() &&
+      boxSlipOrderId.trim().toLowerCase() !== boxSlipConflictingOrderId.trim().toLowerCase(),
+  );
+  const packageScanOrderIdInputColor = packageScanOrderIdConflictHighlight
+    ? AMBER_MIXED_ORDER
+    : palletOrderIdFieldColor;
 
   const boxProgressExpectedY =
     boxScanTargetDenominator != null
@@ -6477,13 +7079,22 @@ function OperatorMobileScanPageContent() {
           commitBoxSlipVisionLinesFromSource(vision);
           if (firstRma) {
             setBoxSlipRma((prev) => (prev.trim() ? prev : firstRma));
-            window.setTimeout(() => {
-              applyPalletOrderIdFromRaIfApplicable(boxSlipRmaRef.current);
-            }, 0);
+          }
+          const slipO = firstSlipOrderIdFromSlipRows(slipRes.rows);
+          const slipC = firstConflictingOrderIdFromSlipRows(slipRes.rows);
+          const normPick = normalizeSlipOrderConflictPair(slipO, slipC);
+          setBoxSlipOrderId(normPick.slip);
+          setBoxSlipConflictingOrderId(normPick.conflicting);
+          const pkgOidPick = String(p.order_id ?? "").trim();
+          const refPick = referenceOrderIdForPackageFieldAfterSlipLoad(normPick, pkgOidPick);
+          if (refPick != null) {
+            setPalletOrderId(refPick);
+            lastOrderIdAutoFilledFromRaRef.current = null;
+          } else if (firstRma) {
+            applyPalletOrderIdFromRaIfApplicable(firstRma);
           }
           const slipCodeRow = String(slipRes.rows[0]?.slip_code ?? "").trim();
           if (slipCodeRow) setBoxSlipCode((prev) => (prev.trim() ? prev : slipCodeRow));
-          setBoxSlipConflictingOrderId(firstConflictingOrderIdFromSlipRows(slipRes.rows));
           setBoxSlipInvalidFormatBlocksSave(false);
         });
       }
@@ -6552,7 +7163,6 @@ function OperatorMobileScanPageContent() {
     setItemReceivePackageActualCount(null);
     setItemReceiveCountSyncNonce(0);
     setExpectedPkgDetailRows([]);
-    setItemTrackingExpectationsHint(null);
     setCandidatePicker(null);
     setItemBarcodeMiss(null);
     modalOpenRef.current = false;
@@ -6851,66 +7461,11 @@ function OperatorMobileScanPageContent() {
     headerIdentityBoxSurface,
   ]);
 
+  /** Hide center breadcrumb in header when box session open or identity strip rules (not item-scan body). */
   const hideHeaderWarehouseTrail =
-    (flowPhase === "package_scan" && Boolean(activeBoxSession)) ||
-    flowPhase === "items" ||
+    ((flowPhase === "package_scan" || flowPhase === "items") && Boolean(activeBoxSession)) ||
     (showIdentitySummaryStrip && (flowPhase === "scan" || flowPhase === "package_scan"));
   const showWarehouseTrail = isIdentified && (parentIdentified || directBox || flowPhase !== "scan");
-
-  useLayoutEffect(() => {
-    if (flowPhase !== "items") {
-      setItemsPhaseMainPadPx(0);
-      return;
-    }
-    const head = scanPageHeaderRef.current;
-    if (!head) return;
-    const ITEMS_FIRST_GAP_PX = 10; /* compact gap below Active Context before first card */
-    const GAP_BELOW_HEADER_PX = 8; /* breathing room below Shipment Entry before Active context */
-    const measure = () => {
-      const hh = head.offsetHeight;
-      setItemsContextBarInsetPx(hh + GAP_BELOW_HEADER_PX);
-      const b = itemsContextBarRef.current;
-      if (b) {
-        const stripBelowHeader = Math.max(0, b.offsetHeight - hh);
-        setItemsPhaseMainPadPx(stripBelowHeader + ITEMS_FIRST_GAP_PX);
-      } else {
-        setItemsPhaseMainPadPx(ITEMS_FIRST_GAP_PX);
-      }
-    };
-    let roBar: ResizeObserver | null = null;
-    const attachBarObserver = () => {
-      const b = itemsContextBarRef.current;
-      if (!b || roBar) return;
-      roBar = new ResizeObserver(measure);
-      roBar.observe(b);
-    };
-    measure();
-    attachBarObserver();
-    const raf = window.requestAnimationFrame(() => {
-      measure();
-      attachBarObserver();
-    });
-    const roHead = new ResizeObserver(measure);
-    roHead.observe(head);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      roHead.disconnect();
-      roBar?.disconnect();
-    };
-  }, [
-    flowPhase,
-    activeStoreLabel,
-    activePallet?.pallet_number,
-    activeTracking,
-    currentPalletTrackingId,
-    currentPackageTrackingId,
-    editAllMode,
-    itemScanPackageLabel,
-    activeBoxSession?.barcode,
-    itemsContextExpectedForBar,
-    itemsContextScannedForBar,
-    itemsContextRemainingForBar,
-  ]);
 
   const openOperatorAddNewBox = useCallback(() => {
     setPackageCodeCardOpen(true);
@@ -6990,6 +7545,8 @@ function OperatorMobileScanPageContent() {
     return <ScanPageLoading message="Restoring store session…" />;
   }
 
+  const itemsChromeStickyLayout = flowPhase === "items" && hasItemReceivableBox;
+
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-visible text-[15px] font-medium leading-snug [&_button]:touch-manipulation [&_button]:transition-transform [&_button]:duration-150 [&_button]:ease-out [&_button]:active:scale-95"
@@ -7044,7 +7601,7 @@ function OperatorMobileScanPageContent() {
         }}
         className="sr-only"
         aria-hidden
-        tabIndex={0}
+        tabIndex={flowPhase === "items" && hasItemReceivableBox ? -1 : 0}
       />
 
       <header
@@ -7069,24 +7626,24 @@ function OperatorMobileScanPageContent() {
             >
               {operatorIdentityOneLine}
             </p>
-            {palletOrderIdForDisplay || palletMixedOrderIdsUi ? (
+            {palletIdentityOrderId || palletMixedOrderIdsUi ? (
               <p
                 className="mt-0.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center font-mono text-[10px] font-semibold leading-snug tracking-wide text-sky-200/95 tabular-nums sm:text-[11px]"
                 style={{
                   textShadow: "0 0 8px rgba(56,189,248,0.28), 0 1px 2px rgba(0,0,0,0.65)",
                 }}
-                aria-label={`Order ID ${palletOrderIdForDisplay || "not set"}`}
+                aria-label={`Order ID ${palletIdentityOrderId || "not set"}`}
               >
                 <span>
                   <span className="font-bold uppercase tracking-widest text-sky-400/90">Order</span>{" "}
-                  <span className="text-sky-50">{palletOrderIdForDisplay || "—"}</span>
+                  <span className="text-sky-50">{palletIdentityOrderId || "—"}</span>
                 </span>
                 {palletMixedOrderIdsUi ? (
                   <span
                     className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-400/55 bg-amber-500/15 px-2 py-0.5 text-[8px] font-black uppercase tracking-wide text-amber-100"
-                    title={MIXED_PALLET_ORDER_IDS_TITLE}
+                    title={PALLET_ORDER_CONFLICT_TOOLTIP}
                   >
-                    Mixed orders
+                    ORDER CONFLICT
                     <Info className="h-3 w-3 text-amber-300" strokeWidth={2.25} aria-hidden />
                   </span>
                 ) : null}
@@ -7148,7 +7705,14 @@ function OperatorMobileScanPageContent() {
               >
                 {headerTitle}
               </h1>
-              <div className="mt-1 w-full max-w-[17rem] sm:max-w-xs">
+              <div
+                className="relative z-[1] isolate mx-auto mt-1 w-full max-w-[19rem] rounded-2xl px-3 py-2.5 sm:max-w-sm"
+                style={{
+                  backgroundColor: "rgba(6,10,16,0.94)",
+                  border: `1px solid ${BORDER}`,
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.45), inset 0 1px 0 0 rgba(255,255,255,0.04)",
+                }}
+              >
                 <ReceivingMasterStepper
                   flowPhase={flowPhase}
                   parentIdentified={parentIdentified}
@@ -7399,85 +7963,13 @@ function OperatorMobileScanPageContent() {
         ) : null}
       </header>
 
-      {flowPhase === "items" ? (
-        <section
-          ref={itemsContextBarRef}
-          aria-label="Active context"
-          className="fixed left-1/2 top-0 z-[100] w-full max-w-[430px] -translate-x-1/2 border-b border-white/15 shadow-[0_12px_32px_rgba(0,0,0,0.55)] backdrop-blur-md"
-          style={{
-            paddingTop: itemsContextBarInsetPx,
-            backgroundColor: "color-mix(in srgb, var(--scanner-card, #111827) 92%, transparent)",
-          }}
-        >
-          <div className="flex gap-2.5 px-3 py-3 sm:px-4">
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-lg ring-1"
-              style={{
-                backgroundColor: "rgba(45,212,191,0.1)",
-                borderColor: "rgba(45,212,191,0.24)",
-                color: TEAL_STEP,
-                boxShadow: "0 0 10px rgba(45,212,191,0.14)",
-              }}
-              aria-hidden
-            >
-              {trackingIdentified ? <ScanLine className="h-4 w-4" strokeWidth={2.25} /> : <Warehouse className="h-4 w-4" strokeWidth={2.25} />}
-            </div>
-            <div className="min-w-0 flex-1 space-y-1">
-              <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-500">Active context</p>
-              <WarehouseBreadcrumb
-                className="mt-0 justify-start px-0"
-                storeLabel={activeStoreLabel}
-                palletLabel={warehousePalletLabel}
-                shipmentIdLabel={warehouseBreadcrumbShipmentForTrail}
-                middleOverride={warehouseBreadcrumbMiddleOverride}
-                boxBarcode={warehouseBreadcrumbTrailingBarcode}
-              />
-              <div className="flex flex-wrap gap-x-4 gap-y-0.5 border-t border-white/10 pt-1.5 text-[11px] tabular-nums">
-                <span className="text-[11px] font-black tracking-tight text-white" aria-live="polite">
-                  Items:{" "}
-                  {itemsContextExpectedForBar <= 0 ? (
-                    <span style={{ color: MUTED_LABEL }}>--</span>
-                  ) : (
-                    <>
-                      <span>{itemsContextScannedForBar}</span>
-                      <span className="text-white/50"> / </span>
-                      <span>{itemsContextExpectedForBar}</span>
-                      <span className="font-black text-white"> Items Scanned</span>
-                    </>
-                  )}
-                </span>
-                <span
-                  className="font-bold"
-                  style={{ color: showSlipMatchedBadge ? "rgba(52,211,153,0.95)" : MUTED_LABEL }}
-                >
-                  Slip {showSlipMatchedBadge ? <span className="text-emerald-300">matched</span> : <span>pending</span>}
-                </span>
-                <span className="font-semibold text-white/70">
-                  Exp. <span className="font-extrabold text-teal-300">{itemsContextExpectedForBar}</span>
-                </span>
-                <span className="font-semibold text-white/70">
-                  Done <span className="font-extrabold text-emerald-300">{itemsContextScannedForBar}</span>
-                </span>
-                <span className="font-semibold text-white/70">
-                  Left{" "}
-                  <span
-                    className={`font-extrabold ${itemsContextRemainingForBar > 0 ? "text-amber-300" : "text-emerald-400"}`}
-                  >
-                    {itemsContextRemainingForBar}
-                  </span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
       <main
-        ref={operatorMobileMainScrollRef}
-        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 ${
-          flowPhase === "items" && hasItemReceivableBox ? "pb-44" : "pb-3"
-        } ${flowPhase === "items" ? "" : "pt-1"} ${mainScrollClass}`}
-        style={flowPhase === "items" ? { paddingTop: itemsPhaseMainPadPx } : undefined}
+        ref={itemsChromeStickyLayout ? undefined : bindOperatorMainScrollEl}
+        className={`min-h-0 flex-1 px-3 pt-1 ${
+          itemsChromeStickyLayout
+            ? "flex flex-col overflow-hidden overscroll-contain pb-44"
+            : `overflow-y-auto overscroll-contain pb-3 ${mainScrollClass}`
+        }`}
       >
         {!isIdentified ? (
           <>
@@ -7924,6 +8416,76 @@ function OperatorMobileScanPageContent() {
                     </dl>
                   ) : null}
 
+                  {identifyGatePhase === "matched" &&
+                  identifyGateRows.some((raw) => {
+                    const r = raw as Record<string, unknown>;
+                    return Boolean(
+                      String(r.identifier_resolution_status ?? "").trim() ||
+                        String(r.product_match_status ?? "").trim() ||
+                        r.product_review_required ||
+                        String(r.identifier_resolution_source ?? "").trim(),
+                    );
+                  }) ? (
+                    <div className="mt-5">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        Product resolution (expectation lines)
+                      </p>
+                      <ul className="space-y-2 rounded-xl ring-1 ring-white/10 bg-black/20 px-3 py-2.5">
+                        {identifyGateRows
+                          .filter((raw) => {
+                            const r = raw as Record<string, unknown>;
+                            return Boolean(
+                              String(r.identifier_resolution_status ?? "").trim() ||
+                                String(r.product_match_status ?? "").trim() ||
+                                r.product_review_required ||
+                                String(r.identifier_resolution_source ?? "").trim(),
+                            );
+                          })
+                          .slice(0, 12)
+                          .map((raw, idx) => {
+                            const r = raw as Record<string, unknown>;
+                            const sku = String(r.sku ?? "").trim();
+                            const fnsku = String(r.fnsku ?? "").trim();
+                            const disp = String(r.disposition ?? "").trim();
+                            const label = sku || fnsku || disp || `Line ${idx + 1}`;
+                            const badges = scannerProductResolutionBadges({
+                              identifier_resolution_status: r.identifier_resolution_status as string | null | undefined,
+                              product_match_status: r.product_match_status as string | null | undefined,
+                              product_review_required: r.product_review_required as boolean | null | undefined,
+                              identifier_resolution_source: r.identifier_resolution_source as string | null | undefined,
+                            });
+                            return (
+                              <li
+                                key={`ep-res-${String(r.id ?? idx)}`}
+                                className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2 last:border-b-0 last:pb-0"
+                              >
+                                <span className="min-w-0 font-mono text-[11px] font-semibold text-white/90">{label}</span>
+                                <div className="flex flex-wrap justify-end gap-1">
+                                  {badges.length ? (
+                                    badges.map((b) => (
+                                      <span
+                                        key={b.key}
+                                        className="rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase leading-none tracking-wide"
+                                        style={{
+                                          borderColor: b.borderColor,
+                                          backgroundColor: b.backgroundColor,
+                                          color: b.color,
+                                        }}
+                                      >
+                                        {b.label}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-[10px] font-medium text-slate-500">—</span>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                      </ul>
+                    </div>
+                  ) : null}
+
                   {identifyGatePhase === "matched" && identifyGateShipmentLines.length > 0 ? (
                     <div className="mt-5">
                       <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
@@ -8256,23 +8818,6 @@ function OperatorMobileScanPageContent() {
                         Order ID{" "}
                         <span className="font-normal normal-case opacity-70">(optional)</span>
                       </label>
-                      {palletMixedOrderIdsUi ? (
-                        <>
-                          <span
-                            className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200"
-                            title={MIXED_PALLET_ORDER_IDS_TITLE}
-                          >
-                            Mixed orders
-                          </span>
-                          <span className="inline-flex shrink-0" title={MIXED_PALLET_ORDER_IDS_TITLE}>
-                            <Info
-                              className="h-3.5 w-3.5 text-amber-400"
-                              strokeWidth={2.25}
-                              aria-label={MIXED_PALLET_ORDER_IDS_TITLE}
-                            />
-                          </span>
-                        </>
-                      ) : null}
                     </div>
                     {slipCarrierOrderEditable ? (
                       <input
@@ -8283,18 +8828,18 @@ function OperatorMobileScanPageContent() {
                         value={palletOrderId}
                         onChange={(e) => onPalletOrderIdInputChange(e.target.value)}
                         placeholder="114-XXXXXXX-XXXXXXX"
-                        title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
+                        title={palletMixedOrderIdsUi ? PALLET_ORDER_CONFLICT_TOOLTIP : undefined}
                         className="scanner-input-glass h-10 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
                         style={{ color: palletOrderIdFieldColor }}
                       />
                     ) : (
                       <div
                         className="block h-9 rounded-md border-2 border-slate-600/70 bg-[#060a10] px-3 font-mono leading-9 text-[13px] font-semibold text-white shadow-[inset_0_1px_8px_rgba(0,0,0,0.55)]"
-                        aria-label={`Order ID: ${palletOrderIdForDisplay || "not set"}`}
-                        title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
+                        aria-label={`Order ID: ${palletIdentityOrderId || "not set"}`}
+                        title={palletMixedOrderIdsUi ? PALLET_ORDER_CONFLICT_TOOLTIP : undefined}
                       >
-                        {palletOrderIdForDisplay.length > 0 ? (
-                          <span style={{ color: palletOrderIdFieldColor }}>{palletOrderIdForDisplay}</span>
+                        {palletIdentityOrderId.length > 0 ? (
+                          <span style={{ color: palletOrderIdFieldColor }}>{palletIdentityOrderId}</span>
                         ) : (
                           <span style={{ color: MUTED_LABEL }}>—</span>
                         )}
@@ -8787,7 +9332,10 @@ function OperatorMobileScanPageContent() {
                   <div className="mb-1 flex justify-end">
                     <button
                       type="button"
-                      onClick={() => closeActiveBoxPackageSession()}
+                      onClick={() => {
+                        modalOpenRef.current = true;
+                        setPickerDismissConfirmOpen(true);
+                      }}
                       className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-white/90 transition hover:bg-white/[0.06] active:scale-[0.98]"
                       style={{ borderColor: BORDER, backgroundColor: CARD_INNER }}
                     >
@@ -9123,81 +9671,88 @@ function OperatorMobileScanPageContent() {
                   ) : null}
 
                   {!activeBoxSession ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="min-w-0">
-                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                        <label
-                          htmlFor={`${formId}-box-pallet-order-id`}
-                          className="block text-[10px] font-semibold uppercase tracking-widest"
-                          style={{ color: MUTED_LABEL }}
-                        >
-                          Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
-                        </label>
-                        {palletMixedOrderIdsUi ? (
-                          <>
-                            <span
-                              className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200"
-                              title={MIXED_PALLET_ORDER_IDS_TITLE}
+                    <>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="min-w-0">
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                            <label
+                              htmlFor={`${formId}-box-pallet-order-id`}
+                              className="block text-[10px] font-semibold uppercase tracking-widest"
+                              style={{ color: MUTED_LABEL }}
                             >
-                              Mixed orders
-                            </span>
-                            <span className="inline-flex shrink-0" title={MIXED_PALLET_ORDER_IDS_TITLE}>
-                              <Info
-                                className="h-3.5 w-3.5 text-amber-400"
-                                strokeWidth={2.25}
-                                aria-label={MIXED_PALLET_ORDER_IDS_TITLE}
-                              />
-                            </span>
-                          </>
-                        ) : null}
+                              Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
+                            </label>
+                          </div>
+                          <input
+                            id={`${formId}-box-pallet-order-id`}
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={palletOrderId}
+                            onChange={(e) => onPalletOrderIdInputChange(e.target.value)}
+                            placeholder="114-XXXXXXX-XXXXXXX"
+                            readOnly={!slipCarrierOrderEditable}
+                            disabled={!slipCarrierOrderEditable || boxScanDocumentationLocked}
+                            title={
+                              packageScanOrderIdConflictHighlight || palletMixedOrderIdsUi
+                                ? PALLET_ORDER_CONFLICT_TOOLTIP
+                                : undefined
+                            }
+                            className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
+                            style={{ color: packageScanOrderIdInputColor }}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label
+                            htmlFor={`${formId}-box-slip-rma`}
+                            className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                            style={{ color: MUTED_LABEL }}
+                          >
+                            RMA # <span className="font-normal normal-case opacity-70">(optional)</span>
+                          </label>
+                          <input
+                            id={`${formId}-box-slip-rma`}
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={boxSlipRma}
+                            onChange={(e) => setBoxSlipRma(e.target.value)}
+                            placeholder="RMA / RA / return #"
+                            readOnly={!slipCarrierOrderEditable}
+                            disabled={!slipCarrierOrderEditable || boxScanDocumentationLocked}
+                            className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
+                            style={{ color: TEXT_PRIMARY }}
+                          />
+                        </div>
                       </div>
-                      <input
-                        id={`${formId}-box-pallet-order-id`}
-                        type="text"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={palletOrderId}
-                        onChange={(e) => onPalletOrderIdInputChange(e.target.value)}
-                        placeholder="114-XXXXXXX-XXXXXXX"
-                        readOnly={!slipCarrierOrderEditable}
-                        disabled={!slipCarrierOrderEditable || boxScanDocumentationLocked}
-                        title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
-                        className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
-                        style={{ color: palletOrderIdFieldColor }}
-                      />
-                    </div>
-                    <div className="min-w-0">
-                      <label
-                        htmlFor={`${formId}-box-slip-rma`}
-                        className="mb-1 block text-[10px] font-semibold uppercase tracking-widest"
-                        style={{ color: MUTED_LABEL }}
-                      >
-                        RMA # <span className="font-normal normal-case opacity-70">(optional)</span>
-                      </label>
-                      <input
-                        id={`${formId}-box-slip-rma`}
-                        type="text"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={boxSlipRma}
-                        onChange={(e) => setBoxSlipRma(e.target.value)}
-                        placeholder="RMA / RA / return #"
-                        readOnly={!slipCarrierOrderEditable}
-                        disabled={!slipCarrierOrderEditable || boxScanDocumentationLocked}
-                        className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
-                        style={{ color: TEXT_PRIMARY }}
-                      />
-                    </div>
-                  </div>
+                      {boxSlipVisionLines.length > 0 && packageScanOrderIdConflictHighlight ? (
+                        <p
+                          className="mt-2 text-[10px] font-medium leading-snug text-amber-200/95 sm:text-[11px]"
+                          role="status"
+                        >
+                          {AI_SLIP_ORDER_ID_CONFLICT_SHORT_HINT}
+                        </p>
+                      ) : null}
+                      {boxSlipConflictReferenceLine ? (
+                        <p
+                          className="mt-2 text-[10px] font-medium leading-snug text-amber-400/95 sm:text-[11px]"
+                          role="status"
+                        >
+                          {boxSlipConflictReferenceLine}
+                        </p>
+                      ) : null}
+                    </>
                   ) : (
                     <details
                       className="rounded-lg border border-white/10 bg-black/15 px-2 py-1.5"
                       style={{ borderColor: "rgba(148,163,184,0.22)" }}
                       open={Boolean(
-                        palletOrderIdForDisplay ||
+                        palletIdentityOrderId ||
+                          palletOrderId.trim() ||
                           boxSlipRma.trim() ||
                           editAllMode ||
-                          slipCarrierOrderEditable,
+                          slipCarrierOrderEditable ||
+                          boxSlipConflictReferenceLine,
                       )}
                     >
                       <summary
@@ -9216,23 +9771,6 @@ function OperatorMobileScanPageContent() {
                             >
                               Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
                             </label>
-                            {palletMixedOrderIdsUi ? (
-                              <>
-                                <span
-                                  className="rounded border border-amber-500/50 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200"
-                                  title={MIXED_PALLET_ORDER_IDS_TITLE}
-                                >
-                                  Mixed orders
-                                </span>
-                                <span className="inline-flex shrink-0" title={MIXED_PALLET_ORDER_IDS_TITLE}>
-                                  <Info
-                                    className="h-3.5 w-3.5 text-amber-400"
-                                    strokeWidth={2.25}
-                                    aria-label={MIXED_PALLET_ORDER_IDS_TITLE}
-                                  />
-                                </span>
-                              </>
-                            ) : null}
                           </div>
                           <input
                             id={`${formId}-box-pallet-order-id`}
@@ -9244,9 +9782,13 @@ function OperatorMobileScanPageContent() {
                             placeholder="114-XXXXXXX-XXXXXXX"
                             readOnly={!boxIntakeReferenceEditable}
                             disabled={!boxIntakeReferenceEditable || boxScanDocumentationLocked}
-                            title={palletMixedOrderIdsUi ? MIXED_PALLET_ORDER_IDS_TITLE : undefined}
+                            title={
+                              packageScanOrderIdConflictHighlight || palletMixedOrderIdsUi
+                                ? PALLET_ORDER_CONFLICT_TOOLTIP
+                                : undefined
+                            }
                             className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)] disabled:opacity-45"
-                            style={{ color: palletOrderIdFieldColor }}
+                            style={{ color: packageScanOrderIdInputColor }}
                           />
                         </div>
                         <div className="min-w-0">
@@ -9272,6 +9814,22 @@ function OperatorMobileScanPageContent() {
                           />
                         </div>
                       </div>
+                      {boxSlipVisionLines.length > 0 && packageScanOrderIdConflictHighlight ? (
+                        <p
+                          className="mt-2 text-[10px] font-medium leading-snug text-amber-200/95 sm:text-[11px]"
+                          role="status"
+                        >
+                          {AI_SLIP_ORDER_ID_CONFLICT_SHORT_HINT}
+                        </p>
+                      ) : null}
+                      {boxSlipConflictReferenceLine ? (
+                        <p
+                          className="mt-2 text-[10px] font-medium leading-snug text-amber-400/95 sm:text-[11px]"
+                          role="status"
+                        >
+                          {boxSlipConflictReferenceLine}
+                        </p>
+                      ) : null}
                     </details>
                   )}
 
@@ -9294,30 +9852,6 @@ function OperatorMobileScanPageContent() {
                     <p className="text-[12px] font-bold text-white">Documentation photos</p>
                   </div>
                   <div className="space-y-1">
-                    {slipVersusPalletOrderMismatch ? (
-                      <div
-                        className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-500/45 bg-amber-500/10 px-2 py-1.5"
-                        role="status"
-                      >
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-300" strokeWidth={2.25} aria-hidden />
-                        <span className="max-w-[min(100%,14rem)] text-[10px] font-semibold leading-snug text-amber-100/95 sm:max-w-none">
-                          شناسه سفارش داخل برگهٔ اسلیپ با شناسهٔ ذخیره‌شده روی این پلت فرق دارد.
-                        </span>
-                        <span
-                          className="shrink-0 rounded border border-amber-400/55 bg-amber-950/45 px-1.5 py-0.5 text-[9px] font-extrabold tracking-wide text-amber-200"
-                          title="Slip-derived order id differs from pallets.order_id"
-                        >
-                          متفاوت
-                        </span>
-                        <span
-                          className="min-w-0 w-full shrink-0 truncate text-[9px] font-mono text-slate-400 sm:w-auto"
-                          title="Pallet vs slip-derived order id"
-                        >
-                          پلت: {slipVersusPalletOrderMismatch.palletOrderId} · اسلیپ:{" "}
-                          {slipVersusPalletOrderMismatch.slipOrderId}
-                        </span>
-                      </div>
-                    ) : null}
                     <div className="relative rounded-xl border border-white/10 bg-[#060a10]/50 p-1.5 ring-1 ring-white/[0.06]">
                       {boxSlipVisionBusy ? (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-[inherit] bg-black/70 backdrop-blur-[1px]">
@@ -9354,7 +9888,7 @@ function OperatorMobileScanPageContent() {
                         className="[&>div:first-child]:rounded-xl"
                       />
                       {boxSlipInvalidFormatBlocksSave ? (
-                        <p className="mt-1.5 px-0.5 text-center text-[11px] font-semibold leading-snug text-amber-200/95">
+                        <p className="mt-1.5 px-0.5 text-left text-[11px] font-semibold leading-snug text-amber-200/95">
                           INVALID_SLIP_FORMAT — replace this photo with a clear packing slip (slip id, item lines, and
                           barcodes). Save stays disabled until the slip is valid.
                         </p>
@@ -9422,14 +9956,19 @@ function OperatorMobileScanPageContent() {
                 </section>
 
                 <section className={`relative z-30 mb-2 space-y-2.5 rounded-xl p-2 ${glassCard}`}>
-                  {boxSlipVisionLines.length > 0 || boxSlipVisionBusy || boxSlipCode.trim() || boxSlipRma.trim() ? (
+                  {boxSlipVisionLines.length > 0 ||
+                  boxSlipVisionBusy ||
+                  boxSlipCode.trim() ||
+                  boxSlipRma.trim() ||
+                  boxSlipOrderId.trim() ||
+                  boxSlipConflictingOrderId.trim() ? (
                     <div
                       id="box-slip-verify-table"
-                      className="scroll-mt-4 rounded-xl border border-white/10 bg-[#060a10]/50 px-2.5 py-2.5 ring-1 ring-white/[0.06]"
+                      className="scroll-mt-4 rounded-xl border border-white/10 bg-[#060a10]/50 px-2.5 py-2.5 text-left ring-1 ring-white/[0.06]"
                       style={{ color: TEXT_PRIMARY }}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-[12px] font-bold tracking-tight text-white">Slip Content Info</h3>
+                      <div className="flex flex-wrap items-start justify-between gap-2 text-left">
+                        <h3 className="text-left text-[12px] font-bold tracking-tight text-white">Slip Content Info</h3>
                         {boxSlipVisionLines.length > 0 || boxSlipVisionBusy ? (
                           <span
                             className="shrink-0 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase leading-tight tracking-wide"
@@ -9444,20 +9983,20 @@ function OperatorMobileScanPageContent() {
                         ) : null}
                       </div>
                       {boxSlipCode.trim() ? (
-                        <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.07] px-2.5 py-1.5">
+                        <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.07] px-2.5 py-1.5 text-left">
                           <p className="text-[9px] font-bold uppercase tracking-widest text-amber-200/80">Slip code</p>
                           <p className="mt-0.5 font-mono text-[13px] font-bold tabular-nums text-amber-100">
                             {boxSlipCode.trim()}
                           </p>
                         </div>
                       ) : null}
-                      {boxSlipConflictingOrderId.trim() ? (
-                        <div className="mt-2 rounded-lg border border-amber-500/45 bg-amber-500/10 px-2.5 py-1.5 ring-1 ring-amber-400/20">
-                          <p className="text-[9px] font-bold uppercase tracking-widest text-amber-200/90">
-                            Conflicting order ID
+                      {boxSlipOrderId.trim() ? (
+                        <div className="mt-2 rounded-lg border border-sky-500/35 bg-sky-500/[0.08] px-2.5 py-1.5 text-left ring-1 ring-sky-400/15">
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-sky-200/85">
+                            Slip order ID
                           </p>
-                          <p className="mt-0.5 break-all font-mono text-[13px] font-bold tabular-nums text-amber-50">
-                            {boxSlipConflictingOrderId.trim()}
+                          <p className="mt-0.5 break-all font-mono text-[13px] font-bold tabular-nums text-sky-50">
+                            {boxSlipOrderId.trim()}
                           </p>
                         </div>
                       ) : null}
@@ -9626,7 +10165,7 @@ function OperatorMobileScanPageContent() {
                       onClick={() => {
                         if (activeBoxSession && canSaveBoxScan) {
                           modalOpenRef.current = true;
-                          setPackageFinalizeConfirmKind("save");
+                          setPackageFinalizeConfirmKind("save_items");
                         } else if (!activeBoxSession && (itemScanPackageId ?? "").trim()) {
                           beginItemPhase();
                         }
@@ -9651,7 +10190,8 @@ function OperatorMobileScanPageContent() {
                         type="button"
                         disabled={!canSaveBoxScan || boxSaveBusy}
                         onClick={() => {
-                          void saveBoxAndContinue({ stayOnPackageScanAfterSave: true });
+                          modalOpenRef.current = true;
+                          setPackageFinalizeConfirmKind("save_hub");
                         }}
                         className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-400/45 px-2 text-[12px] font-bold leading-tight text-white shadow-[0_2px_10px_rgba(16,185,129,0.2)] transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35"
                         style={{
@@ -9702,8 +10242,8 @@ function OperatorMobileScanPageContent() {
         ) : null}
 
         {flowPhase === "items" ? (
-          <div className="flex flex-col gap-5">
-            {!hasItemReceivableBox ? (
+          !hasItemReceivableBox ? (
+            <div className="flex flex-col gap-4">
               <section className={`rounded-[24px] border p-5 ${glassCard}`} style={{ borderColor: BORDER }}>
                 <p className="text-[15px] font-bold leading-snug text-zinc-900 dark:text-white">
                   Select or scan a box before inspecting items.
@@ -9721,11 +10261,13 @@ function OperatorMobileScanPageContent() {
                   Back to BOX intake
                 </button>
               </section>
-            ) : (
-              <>
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+              <div className="shrink-0 space-y-2">
                 {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
               <p
-                className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+                className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
               >
                 No active stores for this organization — add a store in Settings before receiving items.
@@ -9734,34 +10276,95 @@ function OperatorMobileScanPageContent() {
 
             {isSupabaseConfigured() && !operatorStoresLoading && operatorStores.length > 0 && !sessionStoreId ? (
               <p
-                className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+                className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
               >
-                Select an active store above to save returns and update receiving data.
+                Select an active store above to save return items and update receiving data.
               </p>
             ) : null}
 
             {itemScanPackageId && !isUuidString(itemScanPackageId) && isSupabaseConfigured() ? (
               <p
-                className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+                className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
               >
                 Demo mode — saves are not linked to a live box record until you intake one.
               </p>
             ) : null}
 
-            {itemTrackingExpectationsHint ? (
-              <p
-                className="mb-2 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold leading-snug"
-                style={{ borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
-              >
-                {itemTrackingExpectationsHint}
-              </p>
-            ) : null}
+                <div className="mb-1 grid w-full grid-cols-3 gap-2" aria-label="Item scan summary counts">
+                  <div
+                    className="rounded-xl border px-2 py-2 text-center sm:px-2.5 sm:py-2"
+                    style={{
+                      backgroundColor: "rgba(6,10,16,0.78)",
+                      borderColor: BORDER,
+                      boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
+                      Total expected
+                    </p>
+                    <p
+                      className="mt-1 text-[20px] font-black tabular-nums leading-none sm:text-[22px]"
+                      style={{ color: TEXT_PRIMARY }}
+                    >
+                      {itemInspectionQtyBasisExpected}
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-xl border px-2 py-2 text-center sm:px-2.5 sm:py-2"
+                    style={{
+                      backgroundColor: "rgba(6,10,16,0.78)",
+                      borderColor: BORDER,
+                      boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
+                      Scanned
+                    </p>
+                    <p
+                      className="mt-1 text-[20px] font-black tabular-nums leading-none sm:text-[22px]"
+                      style={{ color: itemScanStatScannedValueColor }}
+                    >
+                      {itemInspectionQtyBasisScanned}
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-xl border px-2 py-2 text-center sm:px-2.5 sm:py-2"
+                    style={{
+                      backgroundColor: "rgba(6,10,16,0.78)",
+                      borderColor: BORDER,
+                      boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
+                      Remaining
+                    </p>
+                    <p
+                      className="mt-1 text-[20px] font-black tabular-nums leading-none sm:text-[22px]"
+                      style={{ color: itemScanStatRemainingValueColor }}
+                    >
+                      {itemScanStatRemaining}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => openAddScanItemModal()}
+                  className="mb-0 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl border-2 border-teal-300/70 px-4 py-3 text-[14px] font-black uppercase tracking-wide text-white shadow-[0_10px_36px_rgba(45,212,191,0.35)] ring-2 ring-teal-400/25 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{
+                    background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
+                  }}
+                >
+                  <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
+                  Add / Scan Item
+                </button>
 
             {itemBarcodeMiss ? (
               <p
-                className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+                className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
               >
                 {itemBarcodeMiss}
@@ -9770,559 +10373,165 @@ function OperatorMobileScanPageContent() {
 
             {itemReceiveError ? (
               <p
-                className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
+                className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
                 style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
               >
                 {itemReceiveError}
               </p>
             ) : null}
 
-            {itemDraft ? (
-              <section
-                className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}
-                style={{ borderColor: "rgba(45,212,191,0.22)" }}
+            {itemOverscanWarning ? (
+              <p
+                className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold leading-snug"
+                style={{ borderColor: "rgba(248,113,113,0.55)", backgroundColor: "rgba(127,29,29,0.38)", color: "#fecaca" }}
+                role="alert"
               >
-                <div className="flex gap-3">
-                  <div
-                    className="relative h-[88px] w-[88px] shrink-0 overflow-hidden rounded-[18px] ring-1 ring-white/10"
-                    style={{ backgroundColor: "#090E1A" }}
-                  >
-                    {itemDraft.catalogImageUrl ? (
-                      <img src={itemDraft.catalogImageUrl} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center">
-                        <Package className="h-10 w-10 opacity-40" style={{ color: MUTED_LABEL }} strokeWidth={1.25} />
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="text-[15px] font-bold leading-snug text-white">
-                        {itemDraft.catalogName ??
-                          expectedPkgLines.find(
-                            (l) => l.sku === String(itemDraft.epRow.sku ?? "").trim() && l.fnsku === String(itemDraft.epRow.fnsku ?? "").trim(),
-                          )?.productLabel ??
-                          String(itemDraft.epRow.sku ?? "SKU")}
-                      </p>
-                      <span
-                        className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold"
-                        style={{
-                          borderColor: "rgba(56,189,248,0.35)",
-                          backgroundColor: "rgba(56,189,248,0.12)",
-                          color: ACCENT_BLUE,
-                        }}
-                      >
-                        In Progress
-                      </span>
-                    </div>
-                    <p className="mt-2 font-mono text-[11px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
-                      SKU {String(itemDraft.epRow.sku ?? "—")} · FNSKU {String(itemDraft.epRow.fnsku ?? "—")}
-                      {String((itemDraft.epRow as { asin?: string }).asin ?? "").trim()
-                        ? ` · ASIN ${String((itemDraft.epRow as { asin?: string }).asin)}`
-                        : ""}
-                    </p>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-xl py-2 ring-1 ring-white/10" style={{ backgroundColor: "#090E1A" }}>
-                        <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                          Expected
-                        </p>
-                        <p className="mt-0.5 text-[18px] font-black tabular-nums text-white">
-                          {Number(itemsLiveEpRow?.expected_scan_quantity ?? 0)}
-                        </p>
-                      </div>
-                      <div className="rounded-xl py-2 ring-1 ring-emerald-500/25" style={{ backgroundColor: "#090E1A" }}>
-                        <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                          Scanned
-                        </p>
-                        <p className="mt-0.5 text-[18px] font-black tabular-nums" style={{ color: SUCCESS }}>
-                          {Number(itemsLiveEpRow?.actual_scanned_count ?? 0)}
-                        </p>
-                      </div>
-                      <div className="rounded-xl py-2 ring-1 ring-white/10" style={{ backgroundColor: "#090E1A" }}>
-                        <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                          Remaining
-                        </p>
-                        <p className="mt-0.5 text-[18px] font-black tabular-nums" style={{ color: "#fbbf24" }}>
-                          {Math.max(
-                            0,
-                            Number(itemsLiveEpRow?.expected_scan_quantity ?? 0) -
-                              Number(itemsLiveEpRow?.actual_scanned_count ?? 0),
-                          )}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span
-                        className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
-                        style={
-                          itemsIdentifierPerfect
-                            ? {
-                                borderColor: "rgba(52,211,153,0.45)",
-                                backgroundColor: "rgba(6,78,59,0.35)",
-                                color: "#6ee7b7",
-                              }
-                            : {
-                                borderColor: "rgba(251,191,36,0.45)",
-                                backgroundColor: "rgba(69,26,3,0.45)",
-                                color: "#fde68a",
-                              }
-                        }
-                      >
-                        {itemsIdentifierPerfect
-                          ? `Identifier matched (${itemDraft.tier.toUpperCase()})`
-                          : `Verify identifier (${itemDraft.tier.toUpperCase()})`}
-                      </span>
-                      {itemsProductNamePerfect ? (
-                        <span
-                          className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
-                          style={{
-                            borderColor: "rgba(52,211,153,0.45)",
-                            backgroundColor: "rgba(6,78,59,0.35)",
-                            color: "#6ee7b7",
-                          }}
-                        >
-                          Product name matched
-                        </span>
-                      ) : itemDraft.catalogName?.trim() && itemsLineForDraft?.productLabel?.trim() ? (
-                        <span
-                          className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
-                          style={{
-                            borderColor: "rgba(248,113,113,0.45)",
-                            backgroundColor: "rgba(127,29,29,0.35)",
-                            color: "#fecaca",
-                          }}
-                        >
-                          Product name differs
-                        </span>
-                      ) : (
-                        <span
-                          className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
-                          style={{
-                            borderColor: "rgba(56,189,248,0.35)",
-                            backgroundColor: "rgba(14,165,233,0.12)",
-                            color: ACCENT_BLUE,
-                          }}
-                        >
-                          Name check pending
-                        </span>
-                      )}
-                      <span
-                        className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
-                        style={
-                          itemsIdentifierPerfect
-                            ? {
-                                borderColor: "rgba(52,211,153,0.45)",
-                                backgroundColor: "rgba(6,78,59,0.35)",
-                                color: "#6ee7b7",
-                              }
-                            : {
-                                borderColor: "rgba(56,189,248,0.35)",
-                                backgroundColor: "rgba(14,165,233,0.12)",
-                                color: ACCENT_BLUE,
-                              }
-                        }
-                      >
-                        {itemsIdentifierPerfect ? "OCR not needed" : "Confirm barcode"}
-                      </span>
-                      {inspectionCondition !== "good" ? (
-                        <span
-                          className="rounded-full border px-2.5 py-1 text-[10px] font-bold"
-                          style={{
-                            borderColor: "rgba(251,191,36,0.45)",
-                            backgroundColor: "rgba(69,26,3,0.45)",
-                            color: "#fde68a",
-                          }}
-                        >
-                          Review: issue selected
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </section>
-            ) : null}
-
-            <section
-              className={`mb-4 rounded-[24px] p-4 ${glassCard}`}
-              style={{
-                borderColor: "rgba(45,212,191,0.35)",
-                boxShadow: `inset 0 0 0 1px rgba(45,212,191,0.08)`,
-              }}
-            >
-              <p className="text-center text-[16px] font-bold text-zinc-900 dark:text-white">Scan product barcode</p>
-              <p className="mt-1 text-center text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
-                Units in the open carton — UPC, FNSKU, ASIN, or SKU on expected lines.
+                {itemOverscanWarning}
               </p>
-              <div className="mt-4">
-                <ScanFrameWithLaser
-                  laserColor={TEAL_STEP}
-                  cornerColor="rgba(45,212,191,0.55)"
-                  subtleSweep
-                  successFlash={scanSuccessFlash}
-                  frameStyle={{
-                    borderColor: "rgba(45,212,191,0.32)",
-                    borderWidth: 1,
-                    backgroundColor: "#090E1A",
-                    boxShadow: "inset 0 1px 10px rgba(0,0,0,0.4)",
-                  }}
-                >
-                  <Barcode className="mb-2 h-12 w-12 opacity-80" strokeWidth={1.25} style={{ color: TEAL_STEP }} />
-                </ScanFrameWithLaser>
+            ) : null}
               </div>
-              <button
-                type="button"
-                disabled={busy || !scanLine.trim()}
-                onClick={() => void onSubmitScan()}
-                className="mt-4 flex h-[50px] w-full items-center justify-center gap-2 rounded-[16px] text-[15px] font-bold text-white transition hover:brightness-110 disabled:opacity-40"
-                style={{
-                  background: `linear-gradient(180deg, ${TEAL_STEP} 0%, #14b8a6 100%)`,
-                  boxShadow: "0 8px 24px rgba(45,212,191,0.35)",
-                }}
-              >
-                <ScanLine className="h-5 w-5" strokeWidth={2} />
-                {busy ? "Working…" : "Apply scan"}
-              </button>
-            </section>
 
             <section
-              className={`mb-6 rounded-[24px] border p-4 ${glassCard}`}
-              style={{ borderColor: "rgba(56,189,248,0.22)" }}
+              className={`mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border p-3 ${glassCard}`}
+              style={{ borderColor: "rgba(167,139,250,0.28)" }}
             >
-              <div className="mb-3">
-                <h3 className="text-[14px] font-bold text-white">Item inspection</h3>
-                <p className="mt-1 text-[10px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
-                  Lines from <span className="font-semibold text-slate-300">slip_contents</span> (saved packing slip).
-                  Scanned counts follow laser saves and the row steppers. Scroll the list — it stays above the action
-                  bar.
+              <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-2">
+                <div className="min-w-0 pr-2">
+                  <h3 className="text-[13px] font-bold leading-tight text-white">Expected Items</h3>
+                  <p className="mt-0.5 line-clamp-2 text-[9px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
+                    Slip lines follow the packing list. Use <span className="font-semibold text-slate-300">Add / Scan Item</span>{" "}
+                    for each unit.
+                  </p>
+                </div>
+                <p className="shrink-0 text-[10px] font-black tabular-nums text-white">
+                  {itemInspectionQtyBasisScanned}
+                  <span className="font-semibold text-white/45"> / </span>
+                  {itemInspectionQtyBasisExpected}
                 </p>
               </div>
-              {itemInspectionSlipCells.length === 0 ? (
-                <p className="rounded-lg border px-3 py-2 text-[11px] font-semibold" style={{ borderColor: BORDER, color: MUTED_LABEL }}>
-                  No slip lines yet — add a packing slip on BOX intake (Confirm &amp; Save) or wait for sync. Expected
-                  shipment lines may still appear once expectations load.
-                </p>
-              ) : (
-                <div className="max-h-[min(48vh,340px)] space-y-2.5 overflow-y-auto overscroll-contain pb-8 pr-0.5">
-                  {itemInspectionSlipCells.map((cell) => {
-                    const vis = itemInspectionQtyStatusPresentation(cell.status);
-                    const slip = cell.slip;
-                    const desc =
-                      String(slip.description ?? "").trim() ||
-                      [slip.fnsku, slip.upc].filter(Boolean).join(" · ") ||
-                      "Line item";
-                    const upcLabel = slip.upc?.trim() ? slip.upc.trim() : "—";
-                    const fnskuLabel = slip.fnsku?.trim() ? slip.fnsku.trim() : "—";
-                    const manual = cell.manual;
-                    return (
-                      <div
-                        key={cell.key}
-                        className="rounded-2xl border px-3 py-2.5 shadow-sm"
-                        style={{
-                          backgroundColor: vis.rowBg,
-                          borderColor: vis.rowBorder,
-                          boxShadow: `inset 3px 0 0 0 ${vis.rowBorder}`,
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-semibold leading-snug text-white">{desc}</p>
-                            <p className="mt-1 font-mono text-[10px] leading-relaxed" style={{ color: MUTED_LABEL }}>
-                              <span className="font-bold text-slate-400">UPC</span> {upcLabel}
-                              <span className="mx-1.5 text-white/25">·</span>
-                              <span className="font-bold text-slate-400">FNSKU</span> {fnskuLabel}
+              <div className="mb-2 h-2 w-full shrink-0 overflow-hidden rounded-full" style={{ backgroundColor: "rgba(15,23,42,0.85)" }}>
+                <div
+                  className="h-full rounded-full transition-[width] duration-300 ease-out"
+                  style={{
+                    width: `${itemsSlipScanProgressPct}%`,
+                    backgroundColor: itemsSlipScanProgressTrackColor,
+                    boxShadow: `0 0 14px ${itemsSlipScanProgressTrackColor}`,
+                  }}
+                />
+              </div>
+              <div
+                ref={bindOperatorMainScrollEl}
+                className={`min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-1.5 px-0.5 pb-1 ${mainScrollClass}`}
+              >
+                {itemInspectionSlipCells.length === 0 ? (
+                  <p className="rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold" style={{ borderColor: BORDER, color: MUTED_LABEL }}>
+                    No slip lines yet — add a packing slip on BOX intake (Confirm &amp; Save) or wait for sync. Expected
+                    shipment lines may still appear once expectations load.
+                  </p>
+                ) : (
+                  <>
+                    {itemInspectionSlipCells.map((cell) => {
+                      const vis = itemInspectionSlipLinePresentation(
+                        cell.expected,
+                        cell.scanned,
+                        isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen,
+                      );
+                      const slip = cell.slip;
+                      const desc =
+                        String(slip.description ?? "").trim() ||
+                        [slip.fnsku, slip.upc].filter(Boolean).join(" · ") ||
+                        "Line item";
+                      const upcLabel = slip.upc?.trim() ? slip.upc.trim() : "—";
+                      const fnskuLabel = slip.fnsku?.trim() ? slip.fnsku.trim() : "—";
+                      const matchedRing = vis.matchedRing ? " ring-2 ring-emerald-400/65" : "";
+                      return (
+                        <div
+                          key={cell.key}
+                          className={"rounded-xl border px-3 py-2 shadow-sm" + matchedRing}
+                          style={{
+                            backgroundColor: vis.rowBg,
+                            borderColor: vis.rowBorder,
+                            boxShadow: `inset 2px 0 0 0 ${vis.rowBorder}`,
+                          }}
+                        >
+                          <p className="line-clamp-2 text-sm font-medium leading-snug text-white">{desc}</p>
+                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                            <p className="min-w-0 flex-1 truncate font-mono text-[10px] leading-tight" style={{ color: MUTED_LABEL }}>
+                              <span className="font-bold text-slate-500">UPC</span> {upcLabel}
+                              <span className="mx-1 text-white/20">·</span>
+                              <span className="font-bold text-slate-500">FNSKU</span> {fnskuLabel}
                             </p>
-                          </div>
-                          <span
-                            className="shrink-0 rounded-md border px-2 py-0.5 text-[8px] font-black uppercase tracking-wide"
-                            style={vis.badge}
-                          >
-                            {vis.label}
-                          </span>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                            Qty
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={busy || cell.scanned <= 0}
-                              onClick={() => {
-                                setItemSlipRowManualDelta((prev) => {
-                                  const cur = prev[cell.key] ?? 0;
-                                  const minM = -(cell.epScanned + cell.draftExtra);
-                                  const next = Math.max(minM, cur - 1);
-                                  if (next === 0) {
-                                    const { [cell.key]: _, ...rest } = prev;
-                                    return rest;
-                                  }
-                                  return { ...prev, [cell.key]: next };
-                                });
-                              }}
-                              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-lg font-black text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
-                              style={{ borderColor: TEAL_STEP, color: TEAL_STEP }}
-                              aria-label="Decrease scanned count"
-                            >
-                              <Minus className="h-5 w-5" strokeWidth={2.5} />
-                            </button>
-                            <div className="flex min-w-[5.5rem] flex-col items-center tabular-nums">
-                              <span className="text-[18px] font-black leading-none text-white">{cell.scanned}</span>
-                              <span className="mt-0.5 text-[10px] font-semibold text-white/45">
-                                of {cell.expected}
+                            <div className="flex shrink-0 items-center gap-2">
+                              {slipCardStatusMark(vis)}
+                              <span className="font-mono text-[10px] font-bold tabular-nums text-white/90">
+                                Qty <span className="text-white">{cell.scanned}</span>
+                                <span className="text-white/40">/</span>
+                                {cell.expected}
                               </span>
                             </div>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                setItemSlipRowManualDelta((prev) => ({
-                                  ...prev,
-                                  [cell.key]: (prev[cell.key] ?? 0) + 1,
-                                }));
-                              }}
-                              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-lg font-black transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
-                              style={{ borderColor: TEAL_STEP, color: TEAL_STEP }}
-                              aria-label="Increase scanned count"
-                            >
-                              <Plus className="h-5 w-5" strokeWidth={2.5} />
-                            </button>
+                          </div>
+                          {cell.draftExtra > 0 ? (
+                            <p className="mt-1 text-[9px] font-semibold text-amber-200/90">+{cell.draftExtra} staged (open draft)</p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    {packageItemScanState.unexpectedUnits > 0 ? (() => {
+                      const u = packageItemScanState.unexpectedUnits;
+                      const vis = itemInspectionSlipLinePresentation(
+                        0,
+                        u,
+                        isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen,
+                      );
+                      return (
+                        <div
+                          key="unexpected-package-items"
+                          className={"rounded-xl border px-3 py-2 shadow-sm" + (vis.matchedRing ? " ring-2 ring-emerald-400/65" : "")}
+                          style={{
+                            backgroundColor: vis.rowBg,
+                            borderColor: vis.rowBorder,
+                            boxShadow: `inset 2px 0 0 0 ${vis.rowBorder}`,
+                          }}
+                        >
+                          <p className="line-clamp-2 text-sm font-medium leading-snug text-white">Not on packing slip</p>
+                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+                            <p className="min-w-0 flex-1 truncate text-[10px] leading-tight" style={{ color: MUTED_LABEL }}>
+                              No slip line match · {u} unit{u === 1 ? "" : "s"}
+                            </p>
+                            <div className="flex shrink-0 items-center gap-2">
+                              {slipCardStatusMark(vis)}
+                              <span className="font-mono text-[10px] font-bold tabular-nums text-white/90">
+                                Qty <span className="text-white">{u}</span>
+                                <span className="text-white/40">/</span>0
+                              </span>
+                            </div>
                           </div>
                         </div>
-                        {cell.draftExtra > 0 ? (
-                          <p className="mt-2 text-[9px] font-semibold text-amber-200/90">
-                            +{cell.draftExtra} staged in receive form (laser)
-                          </p>
-                        ) : null}
-                        {manual !== 0 ? (
-                          <p className="mt-1 text-[9px] font-semibold text-sky-200/85">
-                            Manual adjustment {manual > 0 ? "+" : ""}
-                            {manual} (not saved until you receive with the laser)
-                          </p>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            <section className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}>
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-[14px] font-bold text-yellow-300">Required photos</h3>
-                <span className="text-[11px] font-bold tabular-nums" style={{ color: TEAL_STEP }}>
-                  {[itemPhotoFrontUrl, itemPhotoBarcodeUrl, itemPhotoDamageUrl].filter(Boolean).length} of 3 captured
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    ["front", "Item front", itemPhotoFrontRef, itemPhotoFrontUrl, "front"] as const,
-                    ["barcode", "Barcode label", itemPhotoBarcodeRef, itemPhotoBarcodeUrl, "barcode"] as const,
-                    ["damage", "Damage detail", itemPhotoDamageRef, itemPhotoDamageUrl, "damage"] as const,
-                  ] as const
-                ).map(([key, label, ref, url, which]) => (
-                  <div key={key} className="flex flex-col items-center rounded-xl border px-2 py-3 text-center" style={{ borderColor: BORDER, backgroundColor: "#090E1A" }}>
-                    <input
-                      ref={ref}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="sr-only"
-                      onChange={(e) => onItemPhotoFile(which, e.target.files?.[0])}
-                    />
-                    <button type="button" onClick={() => ref.current?.click()} className="flex flex-col items-center gap-1">
-                      <Camera className="h-7 w-7 opacity-80" style={{ color: TEAL_STEP }} strokeWidth={2} />
-                      <span className="text-[10px] font-bold text-white">
-                        {label}
-                        <span className={REQ_STAR_CLASS}> *</span>
-                      </span>
-                      {url ? (
-                        <span className="mt-1 inline-flex items-center gap-0.5 text-[9px] font-bold" style={{ color: SUCCESS }}>
-                          <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
-                          Captured
-                        </span>
-                      ) : (
-                        <span className="mt-1 text-[9px] font-semibold" style={{ color: MUTED_LABEL }}>
-                          Not captured
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                ))}
+                      );
+                    })() : null}
+                  </>
+                )}
+                {!directBox && parentIdentified && expectedPkgLines.length > 0 ? (
+                  <section className={`mt-3 rounded-xl border p-3 ${glassCard}`} style={{ borderColor: BORDER }}>
+                    <h3 className="mb-1 text-[12px] font-bold text-white">Shipment summary</h3>
+                    <ul className="divide-y divide-[#243241]">
+                      {expectedPkgLines.slice(0, 8).map((line) => (
+                        <li key={line.groupKey} className="flex justify-between gap-2 py-1.5 text-[11px]">
+                          <span className="min-w-0 truncate font-semibold text-white">{line.productLabel}</span>
+                          <span className="shrink-0 font-mono text-[10px] font-bold tabular-nums" style={{ color: ACTION_BLUE }}>
+                            Exp {line.expectedQty}
+                            <span className="text-emerald-300"> · Scn {line.scannedQty}</span>
+                            <span className="text-violet-200"> · Rem {line.remainingQty}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
               </div>
             </section>
-
-            <section className={`mb-4 rounded-[24px] border p-4 ${glassCard}`}>
-              <h3 className="mb-3 text-[14px] font-bold text-white">Item condition</h3>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {(
-                  [
-                    ["good", "Good", ThumbsUp],
-                    ["damaged", "Damaged", AlertTriangle],
-                    ["expired", "Expired", Calendar],
-                    ["open_box", "Open box", Package2],
-                    ["missing_parts", "Missing parts", Puzzle],
-                  ] as const
-                ).map(([id, label, Icon]) => {
-                  const selected = inspectionCondition === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setInspectionCondition(id as InspectionCondition)}
-                      className="flex min-h-[58px] items-center justify-center gap-2.5 rounded-xl border px-2 py-4 text-[13px] font-bold transition active:scale-95"
-                      style={{
-                        borderColor: selected ? TEAL_STEP : BORDER,
-                        backgroundColor: selected ? "rgba(45,212,191,0.12)" : "#090E1A",
-                        color: selected ? TEAL_STEP : TEXT_PRIMARY,
-                        boxShadow: selected ? `0 0 0 1px ${TEAL_STEP}` : undefined,
-                      }}
-                    >
-                      <Icon className="h-5 w-5 shrink-0" strokeWidth={2} />
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {itemDraft?.expirationSupported || inspectionCondition === "expired" ? (
-                <div className="mt-4">
-                  <label className="text-[11px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                    Expiration date{" "}
-                    {itemDraft?.expirationSupported || inspectionCondition === "expired" ? (
-                      <span className={REQ_MARK_CLASS}>(required)</span>
-                    ) : null}
-                  </label>
-                  <input
-                    type="date"
-                    value={itemExpiryDate}
-                    onChange={(e) => setItemExpiryDate(e.target.value)}
-                    className="mt-2 h-12 w-full rounded-xl border-2 px-3 font-mono text-sm text-white outline-none focus:ring-2 focus:ring-teal-500/40"
-                    style={{
-                      borderColor: itemsExpiryFieldInvalid ? "#ef4444" : BORDER,
-                      backgroundColor: BG,
-                      boxShadow: itemsExpiryFieldInvalid ? "0 0 0 3px rgba(239,68,68,0.28)" : undefined,
-                    }}
-                  />
-                  {itemsExpiryFieldInvalid ? (
-                    <p className="mt-1.5 text-[11px] font-bold text-red-400">
-                      {inspectionCondition === "expired"
-                        ? "Expiration date is required when Expired is selected."
-                        : "Expiration date is required for this product."}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="mt-4">
-                <label className="text-[11px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                  Lot / batch (optional)
-                </label>
-                <input
-                  value={itemBatch}
-                  onChange={(e) => setItemBatch(e.target.value)}
-                  className="mt-2 h-11 w-full rounded-xl border px-3 text-sm text-white outline-none focus:ring-2 focus:ring-teal-500/40"
-                  style={{ borderColor: BORDER, backgroundColor: BG }}
-                  placeholder="Lot code"
-                />
-              </div>
-
-              <div className="mt-4">
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                  Quantity scanned now
-                </p>
-                <div className="mt-2 flex items-center justify-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setItemQtyStepper((n) => Math.max(1, n - 1))}
-                    className="flex h-14 w-14 items-center justify-center rounded-2xl border text-2xl font-black text-white transition hover:bg-white/5"
-                    style={{ borderColor: TEAL_STEP, color: TEAL_STEP }}
-                  >
-                    <Minus className="h-7 w-7" strokeWidth={2.5} />
-                  </button>
-                  <span className="min-w-[3rem] text-center text-[28px] font-black tabular-nums text-white">{itemQtyStepper}</span>
-                  <button
-                    type="button"
-                    onClick={() => setItemQtyStepper((n) => Math.min(50, n + 1))}
-                    className="flex h-14 w-14 items-center justify-center rounded-2xl border text-2xl font-black transition hover:bg-white/5"
-                    style={{ borderColor: TEAL_STEP, color: TEAL_STEP }}
-                  >
-                    <Plus className="h-7 w-7" strokeWidth={2.5} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label className="text-[11px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
-                  Notes (optional)
-                </label>
-                <textarea
-                  value={itemNotes}
-                  onChange={(e) => setItemNotes(e.target.value)}
-                  rows={3}
-                  className="mt-2 w-full resize-none rounded-xl border px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-teal-500/40"
-                  style={{ borderColor: BORDER, backgroundColor: BG }}
-                  placeholder="Add any notes or details about this item…"
-                />
-              </div>
-            </section>
-
-            <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => {
-                  resetItemInspectionForm();
-                  scheduleFocusScanner();
-                }}
-                className="flex h-10 flex-1 items-center justify-center gap-2 rounded-[14px] border-2 text-[13px] font-bold transition hover:bg-white/5"
-                style={{ borderColor: "rgba(45,212,191,0.35)", color: TEAL_STEP }}
-              >
-                <Save className="h-4 w-4" strokeWidth={2} />
-                Clear draft
-              </button>
-              <button
-                type="button"
-                disabled={busy || !itemDraft}
-                onClick={() => void handleSaveAndNextItem()}
-                className="flex h-10 flex-[1.25] items-center justify-center gap-2 rounded-[14px] border-2 border-transparent text-[13px] font-black text-[#042f2e] shadow-[0_6px_18px_rgba(45,212,191,0.28)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35"
-                style={{
-                  background: `linear-gradient(180deg, ${TEAL_STEP} 0%, #14b8a6 55%, #0d9488 100%)`,
-                }}
-                aria-label="Save scanned item and continue"
-              >
-                Save Item &amp; Continue
-                <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
-              </button>
             </div>
-
-            <p className="mb-6 flex items-center justify-start gap-2 rounded-[16px] border px-3 py-2.5 text-[11px] font-semibold leading-relaxed" style={{ borderColor: "rgba(56,189,248,0.25)", backgroundColor: "rgba(14,165,233,0.08)", color: ACCENT_BLUE }}>
-              <span className="operator-info-icon-pulse flex shrink-0 rounded-full">
-                <Info className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-              </span>
-              If photos or identifiers do not match the expected item, mark review and add notes. Green flash after save means ready for the next scan.
-            </p>
-
-            {!directBox && parentIdentified && expectedPkgLines.length > 0 ? (
-              <section className={`mb-6 rounded-[24px] p-4 ${glassCard}`}>
-                <h3 className="mb-2 text-[14px] font-bold text-white">Shipment summary</h3>
-                <ul className="divide-y divide-[#243241]">
-                  {expectedPkgLines.slice(0, 8).map((line) => (
-                    <li key={line.groupKey} className="flex justify-between gap-2 py-2 text-[12px]">
-                      <span className="min-w-0 truncate font-semibold text-white">{line.productLabel}</span>
-                      <span className="shrink-0 font-mono text-[11px] font-bold tabular-nums" style={{ color: ACTION_BLUE }}>
-                        Exp {line.expectedQty}
-                        <span className="text-emerald-300"> · Scn {line.scannedQty}</span>
-                        <span className="text-violet-200"> · Rem {line.remainingQty}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-              </>
-            )}
-          </div>
+          )
         ) : null}
         </>
         )}
@@ -10451,7 +10660,10 @@ function OperatorMobileScanPageContent() {
             style={{ borderColor: "rgba(56,189,248,0.45)", backgroundColor: CARD }}
           >
             <p id={`${formId}-save-ship-confirm-title`} className="text-center text-[16px] font-black leading-snug text-white">
-              Are you sure you want to save this record and begin scanning boxes?
+              {CONFIRM_SAVE_MESSAGE}
+            </p>
+            <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
+              You will save this shipment record and begin scanning boxes.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
@@ -10482,7 +10694,7 @@ function OperatorMobileScanPageContent() {
                   void handleConfirmStartBoxScan();
                 }}
               >
-                Confirm
+                Confirm save
               </button>
             </div>
           </div>
@@ -10501,7 +10713,10 @@ function OperatorMobileScanPageContent() {
             style={{ borderColor: "rgba(248,113,113,0.45)", backgroundColor: CARD }}
           >
             <p id={`${formId}-cancel-ship-confirm-title`} className="text-center text-[16px] font-black leading-snug text-white">
-              Discard changes? You will return to the search screen.
+              {CONFIRM_DISCARD_MESSAGE}
+            </p>
+            <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
+              You will return to the search screen.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
@@ -10530,7 +10745,7 @@ function OperatorMobileScanPageContent() {
                   });
                 }}
               >
-                Confirm
+                Discard
               </button>
             </div>
           </div>
@@ -10552,14 +10767,14 @@ function OperatorMobileScanPageContent() {
               id={`${formId}-pkg-finalize-title`}
               className="text-center text-[16px] font-black leading-snug text-white"
             >
-              {packageFinalizeConfirmKind === "discrepancy"
-                ? "Complete with discrepancy?"
-                : "Save & continue to items?"}
+              {CONFIRM_SAVE_MESSAGE}
             </p>
             <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
               {packageFinalizeConfirmKind === "discrepancy"
                 ? "Photos and notes will be saved. The record will be flagged and you will return to the pallet hub."
-                : "Photos and notes will be saved. You will move on to item inspection for this box."}
+                : packageFinalizeConfirmKind === "save_hub"
+                  ? "Photos and notes will be saved. You will return to the pallet hub."
+                  : "Photos and notes will be saved. You will move on to item inspection for this box."}
             </p>
             {packageFinalizeConfirmKind === "discrepancy" ? (
               <p className="mt-2 text-center text-[11px] font-semibold leading-snug text-amber-200/90">
@@ -10593,12 +10808,130 @@ function OperatorMobileScanPageContent() {
                   const kind = packageFinalizeConfirmKind;
                   setPackageFinalizeConfirmKind(null);
                   modalOpenRef.current = false;
-                  if (kind === "save") void saveBoxAndContinue();
-                  else if (kind === "discrepancy")
-                    void saveBoxAndContinue({ appendDiscrepancyNote: true, stayOnPackageScanAfterSave: true });
+                  if (!kind) return;
+                  if (packageScanOrderIdConflictHighlight) {
+                    setPendingConflictPackageSaveKind(kind);
+                    setPackageSaveOrderConflictGateOpen(true);
+                    modalOpenRef.current = true;
+                    return;
+                  }
+                  dispatchPackageFinalizeSave(kind);
                 }}
               >
-                {packageFinalizeConfirmKind === "discrepancy" ? "Save with discrepancy" : "Save & continue"}
+                {packageFinalizeConfirmKind === "discrepancy"
+                  ? "Save with discrepancy"
+                  : packageFinalizeConfirmKind === "save_hub"
+                    ? "Save & exit to hub"
+                    : "Save & continue"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {packageSaveOrderConflictGateOpen ? (
+        <div
+          className="fixed inset-0 z-[144] flex items-center justify-center bg-black/82 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-pkg-order-conflict-title`}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border-2 p-5 shadow-[0_0_56px_rgba(251,191,36,0.22)]"
+            style={{ borderColor: "rgba(251,191,36,0.55)", backgroundColor: CARD }}
+          >
+            <p
+              id={`${formId}-pkg-order-conflict-title`}
+              className="text-center text-[15px] font-black leading-snug text-amber-50"
+            >
+              {PACKAGE_SAVE_ORDER_CONFLICT_WARNING}
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="h-11 rounded-xl border-2 text-[13px] font-bold transition hover:brightness-110"
+                style={{
+                  borderColor: BORDER,
+                  backgroundColor: CARD_INNER,
+                  color: TEXT_PRIMARY,
+                }}
+                onClick={() => {
+                  setPackageSaveOrderConflictGateOpen(false);
+                  setPendingConflictPackageSaveKind(null);
+                  modalOpenRef.current = false;
+                }}
+              >
+                No
+              </button>
+              <button
+                type="button"
+                className="h-11 rounded-xl border-2 border-amber-400/55 text-[13px] font-bold text-[#422006] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  background:
+                    "linear-gradient(180deg, rgba(253,230,138,0.95) 0%, rgba(251,191,36,0.88) 50%, rgba(217,119,6,0.95) 100%)",
+                }}
+                disabled={boxSaveBusy}
+                onClick={() => {
+                  const kind = pendingConflictPackageSaveKind;
+                  setPackageSaveOrderConflictGateOpen(false);
+                  setPendingConflictPackageSaveKind(null);
+                  modalOpenRef.current = false;
+                  if (kind) dispatchPackageFinalizeSave(kind);
+                }}
+              >
+                Yes, Save Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pickerDismissConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-[143] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-picker-dismiss-title`}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border-2 p-5 shadow-[0_0_48px_rgba(248,113,113,0.12)]"
+            style={{ borderColor: "rgba(248,113,113,0.4)", backgroundColor: CARD }}
+          >
+            <p
+              id={`${formId}-picker-dismiss-title`}
+              className="text-center text-[16px] font-black leading-snug text-white"
+            >
+              {CONFIRM_DISCARD_MESSAGE}
+            </p>
+            <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
+              Your unsaved picker selection will be cleared.
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="h-11 rounded-xl border-2 text-[13px] font-bold transition hover:brightness-110"
+                style={{
+                  borderColor: BORDER,
+                  backgroundColor: CARD_INNER,
+                  color: TEXT_PRIMARY,
+                }}
+                onClick={() => {
+                  setPickerDismissConfirmOpen(false);
+                  modalOpenRef.current = false;
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="h-11 rounded-xl border-2 border-red-400/55 bg-transparent text-[13px] font-bold text-red-100 transition hover:bg-red-500/12"
+                onClick={() => {
+                  setPickerDismissConfirmOpen(false);
+                  modalOpenRef.current = false;
+                  closeActiveBoxPackageSession();
+                }}
+              >
+                Discard
               </button>
             </div>
           </div>
@@ -10620,10 +10953,10 @@ function OperatorMobileScanPageContent() {
               id={`${formId}-pkg-cancel-session-title`}
               className="text-center text-[16px] font-black leading-snug text-white"
             >
-              Are you sure?
+              {CONFIRM_DISCARD_MESSAGE}
             </p>
             <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
-              Changes will be lost.
+              You will lose edits on this open box session.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
@@ -10679,7 +11012,10 @@ function OperatorMobileScanPageContent() {
               id={`${formId}-items-finalize-title`}
               className="text-center text-[16px] font-black leading-snug text-white"
             >
-              Finalize this box?
+              {CONFIRM_SAVE_MESSAGE}
+            </p>
+            <p className="mt-2 text-center text-[13px] font-semibold leading-snug text-white/90">
+              Finalize this box and return to the pallet hub?
             </p>
             <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed tabular-nums" style={{ color: MUTED_LABEL }}>
               Items:{" "}
@@ -10747,12 +11083,12 @@ function OperatorMobileScanPageContent() {
                 {isItemsQtyDiscrepancy ? (
                   <>
                     <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
-                    {itemsFinalizeBusy ? "Saving…" : "Confirm"}
+                    {itemsFinalizeBusy ? "Saving…" : "Confirm save"}
                   </>
                 ) : (
                   <>
                     <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
-                    {itemsFinalizeBusy ? "Working…" : "Confirm"}
+                    {itemsFinalizeBusy ? "Working…" : "Confirm save"}
                   </>
                 )}
               </button>
@@ -10886,13 +11222,21 @@ function OperatorMobileScanPageContent() {
               </button>
             </div>
             <div className="mt-4 flex max-h-[40vh] flex-col gap-2 overflow-auto">
-              {(Array.isArray(candidatePicker.candidates) ? candidatePicker.candidates : []).map((row) => (
+              {(Array.isArray(candidatePicker.candidates) ? candidatePicker.candidates : []).map((epRow) => (
                 <button
-                  key={String(row.id)}
+                  key={String(epRow.id)}
                   type="button"
                   onClick={() => {
                     void (async () => {
-                      await populateDraftFromEpRow(candidatePicker.barcode, candidatePicker.tier, row);
+                      const r = epRow as Record<string, unknown>;
+                      queueItemUnitModal({
+                        scannedBarcode: candidatePicker.barcode,
+                        slip: null,
+                        slipDescription: epRowToSlipDescriptionForItemModal(r),
+                        matchKindPreset: itemResolveTierToPackageMatchKind(candidatePicker.tier),
+                        title: "Record scanned unit",
+                        subtitle: epPackageRowPrimaryLabel(r),
+                      });
                       modalOpenRef.current = false;
                       setCandidatePicker(null);
                       scheduleFocusScanner();
@@ -10906,19 +11250,185 @@ function OperatorMobileScanPageContent() {
                   }}
                 >
                   <span className="font-mono text-[12px]" style={{ color: TEAL_STEP }}>
-                    {epPackageRowPrimaryLabel(row as Record<string, unknown>)}
+                    {epPackageRowPrimaryLabel(epRow as Record<string, unknown>)}
                   </span>
-                  {epPackageRowCatalogSubtitle(row as Record<string, unknown>) ? (
+                  {epPackageRowCatalogSubtitle(epRow as Record<string, unknown>) ? (
                     <span className="mt-1 block text-[11px] font-semibold normal-case" style={{ color: MUTED_LABEL }}>
-                      {epPackageRowCatalogSubtitle(row as Record<string, unknown>)}
+                      {epPackageRowCatalogSubtitle(epRow as Record<string, unknown>)}
                     </span>
                   ) : null}
                   <span className="mt-1 block text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
-                    Disposition {String(row.disposition ?? "—")} · Expected qty{" "}
-                    {String(row.expected_scan_quantity ?? "—")}
+                    Disposition {String(epRow.disposition ?? "—")} · Expected qty{" "}
+                    {String(epRow.expected_scan_quantity ?? "—")}
                   </span>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {slipLineCandidatePicker ? (
+        <div
+          className="fixed inset-0 z-[121] flex items-end justify-center bg-black/70 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-slip-pick-title`}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border p-4 shadow-[0_0_40px_rgba(167,139,250,0.14)]"
+            style={{ borderColor: "rgba(167,139,250,0.4)", backgroundColor: CARD }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p id={`${formId}-slip-pick-title`} className="text-lg font-black text-white">
+                  Pick slip line
+                </p>
+                <p className="mt-1 font-mono text-xs font-bold" style={{ color: ACCENT_PURPLE }}>
+                  {slipLineCandidatePicker.tier.toUpperCase()} · {slipLineCandidatePicker.barcode}
+                </p>
+                <p className="mt-2 text-[12px] font-semibold" style={{ color: MUTED_LABEL }}>
+                  Multiple packing-slip lines share this code — choose the row to record this scan against.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  modalOpenRef.current = false;
+                  setSlipLineCandidatePicker(null);
+                  scheduleFocusScanner();
+                }}
+                className="rounded-xl p-2 text-white/80 transition hover:bg-white/10"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-4 flex max-h-[40vh] flex-col gap-2 overflow-auto">
+              {(Array.isArray(slipLineCandidatePicker.candidates) ? slipLineCandidatePicker.candidates : []).map(
+                (slip, i) => (
+                  <button
+                    key={slip.id ?? `cand-${i}`}
+                    type="button"
+                    onClick={() => {
+                      void (async () => {
+                        queueItemUnitModal({
+                          scannedBarcode: slipLineCandidatePicker.barcode,
+                          slip,
+                          title: "Record scanned unit",
+                          subtitle:
+                            String(slip.description ?? "").trim() ||
+                            [slip.fnsku, slip.upc].filter(Boolean).join(" · ") ||
+                            null,
+                        });
+                        modalOpenRef.current = false;
+                        setSlipLineCandidatePicker(null);
+                        scheduleFocusScanner();
+                      })();
+                    }}
+                    className="rounded-xl border px-3 py-3 text-left text-[13px] font-bold transition hover:brightness-110"
+                    style={{
+                      borderColor: "rgba(167,139,250,0.35)",
+                      backgroundColor: "#090E1A",
+                      color: TEXT_PRIMARY,
+                    }}
+                  >
+                    <span className="block text-[12px] font-semibold leading-snug text-white">
+                      {String(slip.description ?? "").trim() ||
+                        [slip.fnsku, slip.upc].filter(Boolean).join(" · ") ||
+                        "Line item"}
+                    </span>
+                    <span className="mt-1 block font-mono text-[11px] font-semibold" style={{ color: MUTED_LABEL }}>
+                      UPC {slip.upc?.trim() || "—"} · FNSKU {slip.fnsku?.trim() || "—"} · Qty{" "}
+                      {Math.max(0, Math.floor(Number(slip.quantity ?? 0)))}
+                    </span>
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <ItemUnitRecordModal
+        open={Boolean(itemUnitModal)}
+        title={itemUnitModal?.title}
+        subtitle={itemUnitModal?.subtitle ?? undefined}
+        initialBarcode={itemUnitModal?.scannedBarcode ?? ""}
+        organizationId={(orgId ?? "").trim()}
+        slipDescription={itemUnitModal?.slipDescription ?? undefined}
+        busy={busy}
+        onClose={() => {
+          if (busy) return;
+          modalOpenRef.current = false;
+          setItemUnitModal(null);
+          scheduleFocusScanner();
+        }}
+        onSave={saveItemUnitModal}
+      />
+
+      {unexpectedPackageItemModal ? (
+        <div
+          className="fixed inset-0 z-[121] flex items-end justify-center bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-unexpected-slip-title`}
+        >
+          <div
+            className="w-full max-w-md rounded-[24px] border-2 p-5 shadow-[0_0_40px_rgba(251,191,36,0.12)]"
+            style={{ borderColor: "rgba(251,191,36,0.45)", backgroundColor: CARD }}
+          >
+            <p id={`${formId}-unexpected-slip-title`} className="text-center text-[16px] font-black text-white">
+              Item not found in Packing Slip
+            </p>
+            <p className="mt-2 text-center font-mono text-[12px] font-bold" style={{ color: TEAL_STEP }}>
+              {unexpectedPackageItemModal.barcode}
+            </p>
+            <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed" style={{ color: MUTED_LABEL }}>
+              Are you sure you want to add it? This records an unexpected unit on the box (not linked to a slip line).
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="h-12 rounded-2xl border-2 text-sm font-semibold transition hover:brightness-110"
+                style={{
+                  borderColor: BORDER,
+                  backgroundColor: CARD_INNER,
+                  color: TEXT_PRIMARY,
+                }}
+                onClick={() => {
+                  modalOpenRef.current = false;
+                  setUnexpectedPackageItemModal(null);
+                  scheduleFocusScanner();
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="flex h-12 items-center justify-center gap-2 rounded-2xl border-2 border-amber-400/55 text-sm font-black text-[#422006] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{
+                  background:
+                    "linear-gradient(180deg, rgba(253,230,138,0.95) 0%, rgba(251,191,36,0.88) 50%, rgba(217,119,6,0.95) 100%)",
+                }}
+                onClick={() => {
+                  void (async () => {
+                    const code = unexpectedPackageItemModal.barcode;
+                    modalOpenRef.current = false;
+                    setUnexpectedPackageItemModal(null);
+                    queueItemUnitModal({
+                      scannedBarcode: code,
+                      slip: null,
+                      matchKindPreset: "unexpected",
+                      title: "Unexpected unit",
+                      subtitle: "Not on packing slip — saved without a slip line link.",
+                    });
+                  })();
+                }}
+              >
+                Add anyway
+              </button>
             </div>
           </div>
         </div>

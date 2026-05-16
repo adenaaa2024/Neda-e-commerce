@@ -5,13 +5,17 @@ import { getSessionUserIdFromCookies } from "@/lib/supabase-server-auth";
 import { loadTenantProfile, resolveWriteOrganizationId } from "@/lib/server-tenant";
 import { canPickWorkspaceOrganizationForTenantBranding } from "@/lib/tenant-branding-permissions";
 import { isUuidString } from "@/lib/uuid";
+import {
+  filterPackageItemDiscrepancyTags,
+  packageItemRequiresEvidencePhotos,
+} from "@/lib/scanner/item-unit-discrepancy-tags";
 import type { OperatorStoreOption } from "@/lib/scanner/operator-session";
 import {
   findPalletByTrackingNormalized,
   type OperatorPalletTrackingRow,
 } from "@/lib/scanner/operator-pallet-tracking";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
-import { extractOrderIdFromAmazonStyleRa } from "@/lib/scanner/amazon-ra-order-id";
+import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
 import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib/server-audit-actor";
 import { sanitizePublicMediaUrlStrings } from "@/lib/entity-photo-evidence";
 import { insertIntakeBoxPackage } from "@/lib/scanner/operator-box-intake";
@@ -22,6 +26,7 @@ import {
   formatUnauthorizedTrackingInStoreMessage,
 } from "@/lib/scanner/operator-store-display";
 import { formatDuplicatePackingSlipMessage } from "@/lib/scanner/operator-slip-duplicate";
+import { enrichSlipContentsProductLinksAfterReplace } from "@/lib/scanner/enrich-slip-contents-product-links";
 
 export type OperatorStoreScopeSnapshot = {
   stores: OperatorStoreOption[];
@@ -221,6 +226,76 @@ export async function listOperatorPackagesForPalletAction(
   return { ok: true, packages };
 }
 
+const OPERATOR_PALLET_HYDRATION_SELECT =
+  "carrier_name, order_id, notes, shipping_label_urls, pallet_photo_urls, bol_photo_urls, created_by, created_at, updated_at, store_id";
+
+/** Row returned by {@link fetchOperatorPalletHydrationAction} — mirrors client pallet hydrate column list. */
+export type OperatorPalletHydrationRow = {
+  carrier_name?: string | null;
+  order_id?: string | null;
+  notes?: string | null;
+  shipping_label_urls?: unknown;
+  pallet_photo_urls?: unknown;
+  bol_photo_urls?: unknown;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  store_id?: string | null;
+};
+
+/**
+ * Service-role pallet row for operator UI hydrate (browser RLS often hides `pallets.order_id`).
+ * Validates org and optional active-store scope like {@link listOperatorPackagesForPalletAction}.
+ */
+export async function fetchOperatorPalletHydrationAction(
+  requestedOrganizationId: string,
+  palletId: string,
+  storeId?: string | null,
+): Promise<
+  | { ok: true; row: OperatorPalletHydrationRow }
+  | { ok: false; message: string; wrongStore?: boolean }
+> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const pid = String(palletId ?? "").trim();
+  if (!isUuidString(pid)) {
+    return { ok: false, message: "Invalid pallet id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const { data, error } = await supabaseServer
+    .from("pallets")
+    .select(OPERATOR_PALLET_HYDRATION_SELECT)
+    .eq("id", pid)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  if (!data) {
+    return { ok: false, message: "Pallet not found for this organization." };
+  }
+  const storeScope = String(storeId ?? "").trim();
+  const rowStore = String((data as { store_id?: string | null }).store_id ?? "").trim();
+  if (
+    storeScope &&
+    isUuidString(storeScope) &&
+    rowStore &&
+    isUuidString(rowStore) &&
+    rowStore !== storeScope
+  ) {
+    return {
+      ok: false,
+      message: "This pallet belongs to another store — select the correct store.",
+      wrongStore: true,
+    };
+  }
+  return { ok: true, row: data as OperatorPalletHydrationRow };
+}
+
 /** PostgREST when `slip_contents.notes` exists in app but not yet migrated on the project DB. */
 function isMissingSlipContentsNotesSchemaError(message: string): boolean {
   const m = String(message ?? "").toLowerCase();
@@ -240,6 +315,16 @@ function isMissingSlipContentsConflictingOrderIdSchemaError(message: string): bo
   );
 }
 
+function isMissingSlipContentsOrderIdSchemaError(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    m.includes("slip_contents") &&
+    m.includes("order_id") &&
+    !m.includes("conflicting_order_id") &&
+    (m.includes("schema cache") || m.includes("could not find") || m.includes("column"))
+  );
+}
+
 /** Row shape for hydrating BOX slip lines (matches `slip_contents` + client `mapSlipContentRowToVisionLine`). */
 export type OperatorSlipContentsListRow = {
   /** `slip_contents.id` when loaded from DB — stable key for UI. */
@@ -254,7 +339,9 @@ export type OperatorSlipContentsListRow = {
   rma_number: string | null;
   sort_index: number;
   slip_code: string | null;
-  /** RA-derived token that disagreed with `pallets.order_id` when slip was saved (same on each line row). */
+  /** Slip-derived token (`slip_contents.order_id`). */
+  order_id?: string | null;
+  /** When slip token disagreed with pallet at save: parent pallet `order_id` (differs from {@link order_id}). Otherwise null. */
   conflicting_order_id?: string | null;
 };
 
@@ -297,37 +384,34 @@ export async function listOperatorSlipContentsForPackageAction(
     return { ok: false, message: "This package belongs to another store — select the correct store." };
   }
 
-  const slipContentsSelectWithNotesAndConflict =
-    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, conflicting_order_id";
-  const slipContentsSelectWithNotes =
-    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes";
-  const slipContentsSelectBase =
-    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code";
+  const slipSelectAttempts = [
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, order_id, conflicting_order_id",
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, conflicting_order_id",
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, order_id",
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes",
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code",
+  ];
 
-  let slipFirst = await supabaseServer
-    .from("slip_contents")
-    .select(slipContentsSelectWithNotesAndConflict)
-    .eq("package_id", pkgId)
-    .order("sort_index", { ascending: true });
-  if (slipFirst.error && isMissingSlipContentsConflictingOrderIdSchemaError(slipFirst.error.message)) {
-    slipFirst = (await supabaseServer
+  let slipRes: {
+    data: unknown;
+    error: { message: string } | null;
+  } | null = null;
+  for (const sel of slipSelectAttempts) {
+    const r = await supabaseServer
       .from("slip_contents")
-      .select(slipContentsSelectWithNotes)
+      .select(sel)
       .eq("package_id", pkgId)
-      .order("sort_index", { ascending: true })) as typeof slipFirst;
+      .order("sort_index", { ascending: true });
+    slipRes = r;
+    if (!r.error) break;
   }
-  const slipFinal =
-    slipFirst.error && isMissingSlipContentsNotesSchemaError(slipFirst.error.message)
-      ? await supabaseServer
-          .from("slip_contents")
-          .select(slipContentsSelectBase)
-          .eq("package_id", pkgId)
-          .order("sort_index", { ascending: true })
-      : slipFirst;
-  if (slipFinal.error) return { ok: false, message: slipFinal.error.message };
-  const rows = slipFinal.data;
+  if (!slipRes || slipRes.error) {
+    return { ok: false, message: slipRes?.error?.message ?? "slip_contents load failed." };
+  }
+  const rowsRaw = slipRes.data;
+  const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
 
-  const normalized: OperatorSlipContentsListRow[] = (rows ?? []).map((raw) => {
+  const normalized: OperatorSlipContentsListRow[] = rows.map((raw: unknown) => {
     const r = raw as Record<string, unknown>;
     const q = Number(r.quantity ?? 0);
     const idRaw = typeof r.id === "string" ? r.id.trim() : "";
@@ -342,6 +426,8 @@ export async function listOperatorSlipContentsForPackageAction(
       rma_number: typeof r.rma_number === "string" && r.rma_number.trim() ? r.rma_number.trim() : null,
       sort_index: Number.isFinite(Number(r.sort_index)) ? Math.floor(Number(r.sort_index)) : 0,
       slip_code: typeof r.slip_code === "string" && r.slip_code.trim() ? r.slip_code.trim() : null,
+      order_id:
+        typeof r.order_id === "string" && r.order_id.trim() ? r.order_id.trim() : null,
       conflicting_order_id:
         typeof r.conflicting_order_id === "string" && r.conflicting_order_id.trim()
           ? r.conflicting_order_id.trim()
@@ -841,7 +927,9 @@ export type UpdateOperatorIntakeBoxPackageResult =
       ok: true;
       palletMixedOrderIds?: boolean;
       palletOrderIdFromDb?: string | null;
-      /** Set when slip RMA token disagreed with pallet `order_id` (persisted on `slip_contents`). */
+      /** Token stored on every `slip_contents` row for this slip (RMA-derived). */
+      slipContentsOrderId?: string | null;
+      /** When set, equals `slip_contents.conflicting_order_id` (pallet side of a recorded mismatch). */
       slipConflictingOrderId?: string | null;
     }
   | { ok: false; message: string; duplicatePackingSlip?: DuplicatePackingSlipInfo };
@@ -944,6 +1032,19 @@ export type UpdateOperatorIntakeBoxPackageInput = {
     | { mode: "replace"; lines: UpdateOperatorIntakeBoxPackageSlipLine[]; slipCode: string | null }
     | { mode: "skip" };
 };
+
+/** RMA / RA string sent with slip replace (field + manifest fallback when OCR omitted `rma_number`). */
+function probeSlipReferenceFromPackageUpdate(
+  pu: UpdateOperatorIntakeBoxPackageInput["packageUpdate"],
+): string {
+  const fromField = pu.rma_number !== undefined ? String(pu.rma_number ?? "").trim() : "";
+  if (fromField) return fromField;
+  const md = pu.manifest_data;
+  if (!md || typeof md !== "object" || Array.isArray(md)) return "";
+  const box = (md as Record<string, unknown>).box_slip_vision;
+  if (!box || typeof box !== "object" || Array.isArray(box)) return "";
+  return String((box as Record<string, unknown>).rma_number ?? "").trim();
+}
 
 /**
  * BOX intake package update (+ optional pallet + slip_contents replace).
@@ -1052,16 +1153,22 @@ export async function updateOperatorIntakeBoxPackageAction(
   const palletRaw = input.palletId != null ? String(input.palletId).trim() : "";
   const hasPalletUuid = Boolean(palletRaw && isUuidString(palletRaw));
 
+  let slipContentsOrderIdForInsert: string | null = null;
   let slipConflictingOrderIdForInsert: string | null = null;
   let smartRaCaseA = false;
   let palletMixedOrderIds = false;
 
   const linesPreview =
     input.slipContents.mode === "replace" ? input.slipContents.lines : [];
-  const rmaSmart = pu.rma_number !== undefined ? String(pu.rma_number ?? "").trim() : "";
-  if (input.slipContents.mode === "replace" && linesPreview.length > 0 && hasPalletUuid && rmaSmart) {
-    const extracted = extractOrderIdFromAmazonStyleRa(rmaSmart);
-    if (extracted) {
+  const slipReferenceRaw =
+    input.slipContents.mode === "replace" ? probeSlipReferenceFromPackageUpdate(pu) : "";
+  const extractedForCompare =
+    slipReferenceRaw.length > 0 ? extractSlipOrderTokenForPalletCompare(slipReferenceRaw) : null;
+
+  if (input.slipContents.mode === "replace" && linesPreview.length > 0 && extractedForCompare) {
+    /** Canonical slip token on every line (`slip_contents.order_id`). */
+    slipContentsOrderIdForInsert = extractedForCompare;
+    if (hasPalletUuid) {
       const { data: pltSmart, error: pltSmartErr } = await supabaseServer
         .from("pallets")
         .select("order_id")
@@ -1069,12 +1176,15 @@ export async function updateOperatorIntakeBoxPackageAction(
         .eq("organization_id", organizationId)
         .maybeSingle();
       if (!pltSmartErr && pltSmart) {
-        const palOrder = normalizeMarketplaceOrderId((pltSmart as { order_id?: unknown }).order_id);
-        if (!palOrder) {
+        const palletOrderId = normalizeMarketplaceOrderId((pltSmart as { order_id?: unknown }).order_id);
+        const extractedId = extractedForCompare;
+        console.log("Comparing Slip:", extractedId, "with Pallet:", palletOrderId ?? "(empty)");
+        if (!palletOrderId) {
           smartRaCaseA = true;
-          pkgPatch.order_id = extracted;
-        } else if (palOrder.toLowerCase() !== extracted.toLowerCase()) {
-          slipConflictingOrderIdForInsert = extracted;
+          pkgPatch.order_id = extractedForCompare;
+        } else if (palletOrderId.toLowerCase() !== extractedForCompare.toLowerCase()) {
+          // Slip line: order_id = slip token; conflicting_order_id = pallet’s assigned id (never duplicate when match).
+          slipConflictingOrderIdForInsert = palletOrderId;
           palletMixedOrderIds = true;
         }
       }
@@ -1143,6 +1253,7 @@ export async function updateOperatorIntakeBoxPackageAction(
         condition: line.condition?.trim() || null,
         notes: line.missing ? JSON.stringify({ missing: true }) : null,
         sort_index: i,
+        ...(slipContentsOrderIdForInsert ? { order_id: slipContentsOrderIdForInsert } : {}),
         ...(slipConflictingOrderIdForInsert
           ? { conflicting_order_id: slipConflictingOrderIdForInsert }
           : {}),
@@ -1150,19 +1261,41 @@ export async function updateOperatorIntakeBoxPackageAction(
       }));
       type SlipInsertRow = Record<string, unknown>;
       let insertRows: SlipInsertRow[] = rows as SlipInsertRow[];
-      let { error: insE } = await supabaseServer.from("slip_contents").insert(insertRows);
-      if (insE && isMissingSlipContentsConflictingOrderIdSchemaError(insE.message)) {
-        insertRows = insertRows.map(({ conflicting_order_id: _c, ...rest }) => rest);
-        ({ error: insE } = await supabaseServer.from("slip_contents").insert(insertRows));
-      }
-      if (insE && isMissingSlipContentsNotesSchemaError(insE.message)) {
-        insertRows = insertRows.map(({ notes: _n, ...rest }) => rest);
-        ({ error: insE } = await supabaseServer.from("slip_contents").insert(insertRows));
+      let insE: { message: string } | null = null;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const { error } = await supabaseServer.from("slip_contents").insert(insertRows);
+        insE = error;
+        if (!insE) break;
+        const msg = insE.message;
+        if (isMissingSlipContentsOrderIdSchemaError(msg)) {
+          insertRows = insertRows.map(({ order_id: _o, ...rest }) => rest);
+          continue;
+        }
+        if (isMissingSlipContentsConflictingOrderIdSchemaError(msg)) {
+          insertRows = insertRows.map(({ conflicting_order_id: _c, ...rest }) => rest);
+          continue;
+        }
+        if (isMissingSlipContentsNotesSchemaError(msg)) {
+          insertRows = insertRows.map(({ notes: _n, ...rest }) => rest);
+          continue;
+        }
+        break;
       }
       if (insE) {
         console.log("[updateOperatorIntakeBoxPackageAction] slip insert FAIL", insE.message);
         return { ok: false, message: insE.message };
       }
+      void enrichSlipContentsProductLinksAfterReplace(supabaseServer, {
+        packageId,
+        organizationId,
+        storeId: slipStoreId,
+        lines: lines.map((line, i) => ({
+          sort_index: i,
+          upc: line.upc,
+          fnsku: line.fnsku,
+          description: line.description,
+        })),
+      });
     }
     console.log("[updateOperatorIntakeBoxPackageAction] slip_contents: OK");
   }
@@ -1316,6 +1449,7 @@ export async function updateOperatorIntakeBoxPackageAction(
     ok: true,
     ...(palletMixedOrderIds ? { palletMixedOrderIds: true } : {}),
     ...(palletOrderIdFromDb !== undefined ? { palletOrderIdFromDb } : {}),
+    ...(slipContentsOrderIdForInsert ? { slipContentsOrderId: slipContentsOrderIdForInsert } : {}),
     ...(slipConflictingOrderIdForInsert
       ? { slipConflictingOrderId: slipConflictingOrderIdForInsert }
       : {}),
@@ -1324,3 +1458,286 @@ export async function updateOperatorIntakeBoxPackageAction(
 
 /** Same implementation as {@link updateOperatorIntakeBoxPackageAction} — alias for docs / external naming. */
 export const saveOperatorPackageAction = updateOperatorIntakeBoxPackageAction;
+
+/** BOX slip AI persist entrypoint — delegates to {@link updateOperatorIntakeBoxPackageAction} (smart order-id logic + slip_contents write). */
+export async function saveOperatorSlipVisionAction(
+  input: UpdateOperatorIntakeBoxPackageInput,
+): Promise<UpdateOperatorIntakeBoxPackageResult> {
+  return updateOperatorIntakeBoxPackageAction(input);
+}
+
+// ---------------------------------------------------------------------------
+// package_items (ITEM SCAN — per-unit persistence)
+// ---------------------------------------------------------------------------
+
+export type OperatorPackageItemRow = {
+  id: string;
+  slip_content_id: string | null;
+  scanned_barcode: string;
+  match_kind: "fnsku" | "upc" | "unexpected";
+  quantity: number;
+  discrepancy_tags: string[] | null;
+  expiry_date: string | null;
+  lot_number: string | null;
+  evidence_urls: string[] | null;
+};
+
+/**
+ * List scanned line items for a package (service role + org / store scope).
+ */
+export async function listOperatorPackageItemsForPackageAction(
+  requestedOrganizationId: string,
+  packageId: string,
+  storeId?: string | null,
+): Promise<{ ok: true; rows: OperatorPackageItemRow[] } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const pkgId = String(packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+    .from("packages")
+    .select("id, store_id")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+  if (!pkgRow) {
+    return { ok: false, message: "Package not found for this organization." };
+  }
+  const scope = String(storeId ?? "").trim();
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  const { data, error } = await supabaseServer
+    .from("package_items")
+    .select("id, slip_content_id, scanned_barcode, match_kind, quantity, discrepancy_tags, expiry_date, lot_number, evidence_urls")
+    .eq("package_id", pkgId)
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    const m = String(error.message ?? "");
+    if (m.includes("package_items") && (m.includes("schema cache") || m.includes("Could not find"))) {
+      return { ok: false, message: "package_items table not available — apply database migrations." };
+    }
+    return { ok: false, message: error.message };
+  }
+
+  const raw = Array.isArray(data) ? data : [];
+  const rows: OperatorPackageItemRow[] = raw.map((r: unknown) => {
+    const row = r as Record<string, unknown>;
+    const id = typeof row.id === "string" && isUuidString(row.id.trim()) ? row.id.trim() : "";
+    const sid = typeof row.slip_content_id === "string" && isUuidString(row.slip_content_id.trim())
+      ? row.slip_content_id.trim()
+      : null;
+    const mk = String(row.match_kind ?? "").trim();
+    const match_kind =
+      mk === "fnsku" || mk === "upc" || mk === "unexpected" ? (mk as OperatorPackageItemRow["match_kind"]) : "unexpected";
+    const q = Math.max(1, Math.floor(Number(row.quantity ?? 1)));
+    const dt = Array.isArray(row.discrepancy_tags)
+      ? row.discrepancy_tags.map((x) => String(x ?? "").trim()).filter(Boolean)
+      : null;
+    const ev = Array.isArray(row.evidence_urls)
+      ? row.evidence_urls.map((x) => String(x ?? "").trim()).filter(Boolean)
+      : null;
+    const exp =
+      row.expiry_date === null || row.expiry_date === undefined
+        ? null
+        : String(row.expiry_date).trim().slice(0, 32) || null;
+    const lot = typeof row.lot_number === "string" ? row.lot_number.trim().slice(0, 500) : null;
+    return {
+      id,
+      slip_content_id: sid,
+      scanned_barcode: typeof row.scanned_barcode === "string" ? row.scanned_barcode.trim() : "",
+      match_kind,
+      quantity: Number.isFinite(q) ? q : 1,
+      discrepancy_tags: dt?.length ? dt : null,
+      expiry_date: exp,
+      lot_number: lot?.length ? lot : null,
+      evidence_urls: ev?.length ? ev : null,
+    };
+  });
+
+  return { ok: true, rows: rows.filter((r) => r.id) };
+}
+
+export type InsertOperatorPackageItemInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  storeId: string | null;
+  slipContentId: string | null;
+  scannedBarcode: string;
+  matchKind: "fnsku" | "upc" | "unexpected";
+  quantity?: number;
+  discrepancyTags?: string[] | null;
+  expiryDate?: string | null;
+  lotNumber?: string | null;
+  evidenceUrls?: string[] | null;
+  /** When true, expiry date + lot # are required (perishable / grocery path). */
+  traceabilityRequired?: boolean;
+};
+
+function normalizeEvidenceUrls(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const u of raw) {
+    const s = String(u ?? "").trim().slice(0, 2000);
+    if (s && /^https?:\/\//i.test(s) && out.length < 24) out.push(s);
+  }
+  return out;
+}
+
+function normalizeOptionalDate(raw: string | null | undefined): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return s;
+}
+
+/**
+ * Insert one package_items row (bumps `packages.actual_item_count` via DB trigger).
+ */
+export async function insertOperatorPackageItemAction(
+  input: InsertOperatorPackageItemInput,
+): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const barcode = String(input.scannedBarcode ?? "").trim();
+  if (!barcode) {
+    return { ok: false, message: "Barcode is required." };
+  }
+  const mk = String(input.matchKind ?? "").trim();
+  const matchKind: InsertOperatorPackageItemInput["matchKind"] =
+    mk === "fnsku" || mk === "upc" || mk === "unexpected" ? mk : "unexpected";
+
+  const qtyRaw = Number(input.quantity ?? 1);
+  const quantity = Number.isFinite(qtyRaw) ? Math.max(1, Math.min(500, Math.floor(qtyRaw))) : 1;
+
+  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+    .from("packages")
+    .select("id, store_id, organization_id")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+  if (!pkgRow) {
+    return { ok: false, message: "Package not found for this organization." };
+  }
+
+  const pkgOrg = String((pkgRow as { organization_id?: string | null }).organization_id ?? "").trim();
+  if (pkgOrg && isUuidString(pkgOrg) && pkgOrg !== organizationId) {
+    return { ok: false, message: "Package organization mismatch." };
+  }
+
+  const scope = String(input.storeId ?? "").trim();
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  const storeIdResolved =
+    scope && isUuidString(scope) ? scope : pkgStore && isUuidString(pkgStore) ? pkgStore : null;
+  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  let slipContentId: string | null = null;
+  const slipHint = String(input.slipContentId ?? "").trim();
+  if (slipHint && isUuidString(slipHint)) {
+    const { data: slipRow, error: slipErr } = await supabaseServer
+      .from("slip_contents")
+      .select("id, package_id")
+      .eq("id", slipHint)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (slipErr) return { ok: false, message: slipErr.message };
+    const spkg = String((slipRow as { package_id?: string | null } | null)?.package_id ?? "").trim();
+    if (!slipRow || spkg !== pkgId) {
+      return { ok: false, message: "Slip line does not belong to this package." };
+    }
+    slipContentId = slipHint;
+  } else if (slipHint) {
+    return { ok: false, message: "Invalid slip line id." };
+  }
+
+  const actor = await resolveAuditActorForSession();
+  const createdBy = actor.userId && isUuidString(actor.userId) ? actor.userId : null;
+
+  const tags = filterPackageItemDiscrepancyTags(input.discrepancyTags);
+  if (tags.length === 0) {
+    return { ok: false, message: "Select at least one condition for this unit." };
+  }
+
+  const evidence = normalizeEvidenceUrls(input.evidenceUrls);
+  if (packageItemRequiresEvidencePhotos(tags) && evidence.length === 0) {
+    return { ok: false, message: "Add at least one evidence photo for the selected issue(s)." };
+  }
+
+  const exp = normalizeOptionalDate(input.expiryDate ?? null);
+  const lotRaw = String(input.lotNumber ?? "").trim();
+  const lot = lotRaw ? lotRaw.slice(0, 500) : null;
+
+  const traceabilityRequired = Boolean(input.traceabilityRequired);
+  if (traceabilityRequired || tags.includes("expired")) {
+    if (!exp) {
+      return { ok: false, message: "Expiration date is required for this item." };
+    }
+    if (!lot) {
+      return { ok: false, message: "Batch / lot # is required for this item." };
+    }
+  }
+
+  const insertPayload: Record<string, unknown> = {
+    organization_id: organizationId,
+    package_id: pkgId,
+    store_id: storeIdResolved,
+    slip_content_id: slipContentId,
+    scanned_barcode: barcode.slice(0, 500),
+    match_kind: matchKind,
+    quantity,
+    discrepancy_tags: tags,
+    expiry_date: exp,
+    lot_number: lot,
+    evidence_urls: evidence,
+    ...(createdBy ? { created_by: createdBy } : {}),
+  };
+
+  const { data: ins, error: insErr } = await supabaseServer
+    .from("package_items")
+    .insert(insertPayload)
+    .select("id")
+    .maybeSingle();
+
+  if (insErr) {
+    const m = String(insErr.message ?? "");
+    if (m.includes("package_items") && (m.includes("schema cache") || m.includes("Could not find"))) {
+      return { ok: false, message: "package_items table not available — apply database migrations." };
+    }
+    return { ok: false, message: insErr.message };
+  }
+  const newId = String((ins as { id?: string } | null)?.id ?? "").trim();
+  if (!isUuidString(newId)) {
+    return { ok: false, message: "Insert did not return an id." };
+  }
+  return { ok: true, id: newId };
+}
