@@ -12,6 +12,8 @@ import {
   ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, Zap, ZoomIn,
 } from "lucide-react";
 import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColumn";
+import { ReturnItemProductLinkage } from "../../components/returns/ReturnItemProductLinkage";
+import { ManifestLineProductLinkage } from "../../components/returns/ManifestLineProductLinkage";
 import { SmartCameraUpload } from "../../components/ui/SmartCameraUpload";
 import { BarcodeScannerModal } from "../../components/ui/BarcodeScannerModal";
 import {
@@ -20,7 +22,7 @@ import {
   createPackage, updatePackage, closePackage, deletePackage,
   getAmazonExpectedItems,
 } from "./actions";
-import { RETURN_SELECT } from "./returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SELECT } from "./returns-constants";
 import type {
   ExpectedItem,
   OrgSettings,
@@ -977,8 +979,8 @@ function sortKeyItem(
     case "rma_number": return (r.rma_number ?? "").toLowerCase();
     case "marketplace":
     case "store_name": return (r.stores?.name ?? r.marketplace ?? "").toLowerCase();
-    case "item_name": return r.item_name.toLowerCase();
-    case "item_conditions": return [...r.conditions].sort().join(",");
+    case "item_name": return (r.item_name ?? "").toLowerCase();
+    case "item_conditions": return [...(r.conditions ?? [])].sort().join(",");
     case "status": return r.status.toLowerCase();
     case "hierarchy_key": {
       if (!linkedPkg) return "\uffff";
@@ -1631,7 +1633,15 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
                         {r.lpn ? <InlineCopy value={r.lpn} label="LPN" onToast={showToast} stopPropagation /> : null}
                       </div>
                     </td>
-                    <td className="min-w-0 max-w-none truncate px-3 py-2.5 text-slate-600 dark:text-slate-300">{r.item_name}</td>
+                    <td className="min-w-0 max-w-[220px] px-3 py-2.5 text-slate-600 dark:text-slate-300">
+                      <p className="truncate font-medium">{r.item_name}</p>
+                      <ReturnItemProductLinkage
+                        organizationId={r.organization_id}
+                        fields={r}
+                        compact
+                        showCanonical={false}
+                      />
+                    </td>
                     <td className="hidden px-3 py-2.5 sm:table-cell"><StatusBadge status={r.status} /></td>
                     <td className="px-3 py-2.5 text-slate-400">{fmt(r.created_at)}</td>
                     <td className="px-3 py-2.5">
@@ -2372,6 +2382,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
               </div>
             ) : (
               <div className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-4 dark:border-slate-700 dark:bg-slate-900/50">
@@ -2388,6 +2399,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
               </div>
             )}
             {record.lpn && (
@@ -2469,7 +2481,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Conditions</p>
-            <div className="flex flex-wrap gap-1.5">{record.conditions.map((c) => <ConditionBadge key={c} value={c} />)}</div>
+            <div className="flex flex-wrap gap-1.5">{(record.conditions ?? []).map((c) => <ConditionBadge key={c} value={c} />)}</div>
           </div>
           {(record.expiration_date || record.batch_number) && (
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-700/40 dark:bg-orange-950/30 grid grid-cols-2 gap-3 text-sm">
@@ -2813,7 +2825,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     }
 
     let cancelled = false;
-    void getAmazonExpectedItems(tn, pkg.organization_id).then((res) => {
+    void getAmazonExpectedItems(tn, pkg.organization_id, { storeId: pkg.store_id ?? undefined }).then((res) => {
       if (cancelled) return;
       if (res.ok && res.data.length > 0) {
         setReconciliationLines(
@@ -2842,7 +2854,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     }
     let cancelled = false;
     void supabaseBrowser
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_SELECT)
       .eq("package_id", pkg.id)
       .order("created_at", { ascending: false })
@@ -3393,11 +3405,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                     const need = exp.expected_qty ?? 1;
                     const matched = displayItems.filter((it) => physicalItemMatchesExpectedLine(it, exp));
                     const isMatch = matched.length >= need;
+                    const manifestLine = pkg.manifest_data?.[slipIdx];
                     return (
                       <tr key={`slip-${slipIdx}-${exp.barcode}`} className={isMatch ? "bg-emerald-50/70 dark:bg-emerald-950/20" : "bg-rose-50/70 dark:bg-rose-950/20"}>
                         <td className="px-3 py-2.5">
                           <p className="font-mono font-semibold text-slate-700 dark:text-slate-300">{exp.barcode}</p>
                           <p className="text-slate-500">{exp.name}</p>
+                          {manifestLine ? <ManifestLineProductLinkage line={manifestLine} /> : null}
                         </td>
                         <td className="px-3 py-2.5 text-center font-bold text-slate-600 dark:text-slate-300">{need}</td>
                         <td className="px-3 py-2.5 text-center font-bold">
@@ -3423,6 +3437,12 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                             {(it as { product_identifier?: string | null }).product_identifier?.trim()
                               || (it.asin ?? it.fnsku ?? it.sku ?? it.lpn ?? "—")}
                           </p>
+                          <ReturnItemProductLinkage
+                            organizationId={it.organization_id}
+                            fields={it}
+                            compact
+                            showCanonical={false}
+                          />
                         </td>
                         <td className="px-3 py-2.5 text-center text-slate-400">—</td>
                         <td className="px-3 py-2.5 text-center font-bold text-amber-600">1</td>
@@ -5921,6 +5941,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
         pallet_id: palletId || undefined,
         store_id: pkgStoreId || undefined,
         created_by: actor,
+        ...(manifestParsedLines && manifestParsedLines.length > 0 ? { manifest_data: manifestParsedLines } : {}),
         ...(manifestPhotoUrl ? { manifest_photo_url: manifestPhotoUrl } : {}),
         ...(photo_evidence ? { photo_evidence } : {}),
       });
@@ -6669,6 +6690,11 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         storePlatform={r.stores?.platform}
                         onToast={onToast}
                       />
+                      <ReturnItemProductLinkage
+                        organizationId={r.organization_id}
+                        fields={r}
+                        compact
+                      />
                     </td>
                     <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
@@ -6689,7 +6715,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         fallback="—"
                       />
                     </td>
-                    <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{r.conditions.slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                    <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     {/* ── Expiry Date cell (FEFO) ── */}
                     <td className="hidden px-4 py-3 md:table-cell">
@@ -7002,7 +7028,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                             <span className="text-[11px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
                                           )}
                                         </td>
-                                        <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{r.conditions.slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                                        <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                         <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
                                         <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(r, pkgTableOperatorNames)}</td>
                                       </tr>
@@ -7320,7 +7346,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                                   <span className="text-[10px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
                                                                 )}
                                                               </td>
-                                                              <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{r.conditions.slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                                                              <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                                               <td className="px-2 py-1.5"><StatusBadge status={r.status} /></td>
                                                               <td className="px-2 py-1.5 capitalize text-slate-400">{operatorDisplayLabel(r, pltTableOperatorNames)}</td>
                                                             </tr>

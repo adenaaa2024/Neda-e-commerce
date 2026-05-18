@@ -64,7 +64,18 @@ export type PalletUpdatePayload = Partial<Pick<
 
 export type PackageStatus = "open" | "closed" | "suspicious" | "submitted";
 
-export type ExpectedItem = { sku: string; expected_qty: number; description?: string };
+export type ExpectedItem = {
+  sku: string;
+  expected_qty: number;
+  description?: string;
+  asin?: string | null;
+  fnsku?: string | null;
+  /** Deterministic resolver output when `store_id` + identifiers allow a map lookup. */
+  resolved_product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
+  identifier_resolution_status?: string | null;
+  identifier_resolution_confidence?: number | null;
+};
 
 export type PackageRecord = {
   id: string; organization_id: string;
@@ -97,6 +108,8 @@ export type PackageInsertPayload = {
   carrier_name?: string; rma_number?: string; expected_item_count?: number;
   pallet_id?: string; store_id?: string; organization_id?: string; created_by?: string;
   manifest_url?: string;
+  /** Optional slip lines — persisted on `packages.manifest_data` with resolver fields when store is known. */
+  manifest_data?: ExpectedItem[] | null;
   order_id?: string | null;
   photo_url?: string | null;
   photo_return_label_url?: string | null;
@@ -113,11 +126,12 @@ export type PackageUpdatePayload = Partial<Pick<
   | "order_id"
   | "photo_url" | "photo_return_label_url" | "photo_opened_url" | "photo_closed_url" | "manifest_photo_url"
   | "photo_evidence"
+  | "manifest_data"
 >>;
 
 export type ReturnInsertPayload = {
   lpn?: string;
-  /** Seller RMA / authorization — `returns.rma_number`. */
+  /** Seller RMA / authorization — `return_items.rma_number`. */
   rma_number?: string | null;
   marketplace: string; item_name: string;
   asin?: string;
@@ -140,7 +154,7 @@ export type ReturnInsertPayload = {
 export type ReturnRecord = {
   id: string; organization_id: string;
   lpn: string | null;
-  /** Seller RMA / authorization — column on `returns` (optional). */
+  /** Seller RMA / authorization — column on `return_items` (optional). */
   rma_number?: string | null;
   inherited_tracking_number?: string | null;
   inherited_carrier?: string | null;
@@ -153,6 +167,8 @@ export type ReturnRecord = {
   fnsku?: string | null;
   sku?: string | null;
   product_identifier?: string | null;
+  /** Legacy catalog FK — compared to resolver output for `mismatch` status. */
+  product_id?: string | null;
   conditions: string[]; status: string;
   notes: string | null;
   photo_evidence: ReturnPhotoEvidenceRow;
@@ -166,6 +182,10 @@ export type ReturnRecord = {
   updated_by?: string | null;
   created_at: string; updated_at: string;
   estimated_value?: number | null;
+  resolved_product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
+  identifier_resolution_status?: string | null;
+  identifier_resolution_confidence?: number | null;
 };
 
 export type ReturnUpdatePayload = Partial<Pick<
