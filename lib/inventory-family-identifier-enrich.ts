@@ -327,7 +327,7 @@ export async function enrichIdentifierMapFromInventoryFamilyUpload(params: {
     const normalized = rows.map((r) => {
       const raw =
         r.raw_data && typeof r.raw_data === "object" && !Array.isArray(r.raw_data)
-          ? (r.raw_data as Record<string, unknown>)
+          ? (r.raw_data as unknown as Record<string, unknown>)
           : {};
       const fnsku = n(r.fnsku) ?? (pickRawPayloadFields(raw, spec.rawDataFnskuKeys) || null);
       const sku = n(r.sku) ?? (pickRawPayloadFields(raw, spec.rawDataSkuKeys) || null);

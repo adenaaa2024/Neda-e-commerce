@@ -192,7 +192,7 @@ async function fetchPaged<T extends Record<string, unknown>>(
       .order(orderCol, { ascending: true })
       .range(from, hi);
     if (error) return { rows, error: error.message };
-    const batch = (data ?? []) as T[];
+    const batch = (data ?? []) as unknown as T[];
     rows.push(...batch);
     if (batch.length < take) break;
     from += take;
@@ -241,7 +241,7 @@ function collectJsonKeys(obj: unknown, prefix: string, out: Set<string>): void {
     return;
   }
   if (typeof obj === "object") {
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(obj as unknown as Record<string, unknown>)) {
       const p = prefix ? `${prefix}.${k}` : k;
       out.add(p);
       if (typeof v === "object" && v != null && !Array.isArray(v)) collectJsonKeys(v, p, out);
@@ -259,7 +259,7 @@ function redactUrlsInShape(obj: unknown): unknown {
   if (Array.isArray(obj)) return obj.map((x) => redactUrlsInShape(x));
   if (typeof obj === "object") {
     const o: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(obj as unknown as Record<string, unknown>)) {
       o[k] = redactUrlsInShape(v);
     }
     return o;

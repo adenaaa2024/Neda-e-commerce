@@ -87,9 +87,9 @@ export function readImportUploadDescriptorMetadata(
   metadata: unknown,
 ): ImportUploadDescriptorMetadata | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const block = (metadata as Record<string, unknown>)[IMPORT_DESCRIPTOR_METADATA_KEY];
+  const block = (metadata as unknown as Record<string, unknown>)[IMPORT_DESCRIPTOR_METADATA_KEY];
   if (!block || typeof block !== "object" || Array.isArray(block)) return null;
-  const o = block as Record<string, unknown>;
+  const o = block as unknown as Record<string, unknown>;
   const descriptor_id = typeof o.descriptor_id === "string" ? o.descriptor_id.trim() : "";
   if (!descriptor_id) return null;
   const descriptor_version =

@@ -303,7 +303,7 @@ function readNdjsonLines(p: string): Record<string, unknown>[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      out.push(JSON.parse(trimmed) as Record<string, unknown>);
+      out.push(JSON.parse(trimmed) as unknown as Record<string, unknown>);
     } catch {
       // skip malformed
     }
@@ -478,8 +478,8 @@ function boolOf(s: string | undefined): boolean {
 function loadNext18kSnapshot(runDir: string, runId: string): Next18kSnapshot {
   const read = (rel: string): string => fs.readFileSync(path.join(runDir, rel), "utf8");
 
-  const manifest = JSON.parse(read("manifest.json")) as Record<string, unknown>;
-  const runSummary = JSON.parse(read("run-summary.json")) as Record<string, unknown>;
+  const manifest = JSON.parse(read("manifest.json")) as unknown as Record<string, unknown>;
+  const runSummary = JSON.parse(read("run-summary.json")) as unknown as Record<string, unknown>;
   const validationChecks = JSON.parse(read("10-validation-checks.json")) as Array<{
     name: string;
     pass: boolean;
@@ -1215,10 +1215,10 @@ function runNChecks(args: {
   let evidenceComplete = true;
   let evidenceMissing = 0;
   for (const rec of args.ndjsonRecords) {
-    const snaps = (rec.members_evidence_snapshots as Record<string, unknown>) ?? {};
+    const snaps = (rec.members_evidence_snapshots as unknown as Record<string, unknown>) ?? {};
     const dispute = rec as unknown as DisputeCandidate;
     for (const m of dispute.members) {
-      if (!snaps[m] || Object.keys(snaps[m] as Record<string, unknown>).length === 0) {
+      if (!snaps[m] || Object.keys(snaps[m] as unknown as Record<string, unknown>).length === 0) {
         evidenceComplete = false;
         evidenceMissing++;
       }
@@ -1400,7 +1400,7 @@ function runNChecks(args: {
   let c2SoftOk = true;
   let c2Refs = 0;
   for (const rec of args.ndjsonRecords) {
-    const reasoning = rec.reasoning as Record<string, unknown> | undefined;
+    const reasoning = rec.reasoning as unknown as Record<string, unknown> | undefined;
     const c2 = (reasoning?.c2_evidence as Array<{ other_group_ids: string[] }>) ?? [];
     for (const c of c2) {
       c2Refs += c.other_group_ids.length;
@@ -1547,7 +1547,7 @@ async function main(): Promise<void> {
   trace.push(`[next-18m] N15 input gate satisfied (strict NEXT-18K checks: ${snap.validationChecks.filter((c) => c.strict).length})`);
 
   // Tenant resolution.
-  const manifestTenant = (snap.manifest.tenant as Record<string, unknown> | undefined) ?? {};
+  const manifestTenant = (snap.manifest.tenant as unknown as Record<string, unknown> | undefined) ?? {};
   const organizationId = cli.organizationId ?? String(manifestTenant.organization_id ?? "");
   const storeId = cli.storeId ?? (manifestTenant.store_id_filter as string | null) ?? null;
   if (!organizationId) {

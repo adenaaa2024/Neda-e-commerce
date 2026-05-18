@@ -21,7 +21,7 @@ const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
 /** PostgREST may embed `stores` as an object or a one-element array — normalize for `ReturnRecord`. */
 function normalizeReturnRow(raw: unknown): ReturnRecord {
-  const r = raw as Record<string, unknown>;
+  const r = raw as unknown as Record<string, unknown>;
   const sr = r.stores;
   let stores: ReturnRecord["stores"];
   if (Array.isArray(sr)) {
@@ -120,7 +120,7 @@ export async function updateClaimFields(
     if (fetchErr) throw new Error(fetchErr.message);
     if (!row) return { ok: false, error: "Claim not found." };
 
-    const sp = { ...((row.source_payload as Record<string, unknown>) ?? {}) };
+    const sp = { ...((row.source_payload as unknown as Record<string, unknown>) ?? {}) };
     if (patch.marketplace_link_status !== undefined) {
       sp.marketplace_link_status = patch.marketplace_link_status;
     }
@@ -167,7 +167,7 @@ export async function getClaimDetail(
       .maybeSingle();
     if (cErr) throw new Error(cErr.message);
     if (!subRaw) return { ok: false, error: "Claim not found for this company." };
-    const sub = subRaw as Record<string, unknown>;
+    const sub = subRaw as unknown as Record<string, unknown>;
 
     let returnRow: ReturnRecord | null = null;
     const rid = sub[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string | null | undefined;
@@ -245,7 +245,7 @@ export async function getClaimDetailForReturn(
       .maybeSingle();
 
     if (subRow) {
-      return getClaimDetail((subRow as Record<string, unknown>).id as string, organizationId);
+      return getClaimDetail((subRow as unknown as Record<string, unknown>).id as string, organizationId);
     }
 
     const palletId = returnRow.pallet_id ?? null;

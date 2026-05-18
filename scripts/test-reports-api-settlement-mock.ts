@@ -89,7 +89,11 @@ function testSettlementListQuery(): void {
 }
 
 class MockSettlementReportsClient {
-  async listSettlementReportsInWindow(): Promise<{
+  async listSettlementReportsInWindow(_params?: {
+    marketplaceIds: string[];
+    windowStart: string;
+    windowEnd: string;
+  }): Promise<{
     reports: ReturnType<typeof parseListedReportsFromResponse>;
     nextToken: string | null;
     raw: unknown;

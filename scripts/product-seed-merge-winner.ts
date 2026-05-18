@@ -468,7 +468,7 @@ async function pageProducts(args: {
       args.warnings.push({ source: "products", reason: `page ${pageIndex}: ${error.message}` });
       throw new Error(`[NEXT-18K] products page ${pageIndex} failed: ${error.message}`);
     }
-    const rows = (data ?? []).map((r) => asProductRow(r as Record<string, unknown>));
+    const rows = (data ?? []).map((r) => asProductRow(r as unknown as Record<string, unknown>));
     args.cursorWriter.write({
       table: "products",
       page_index: pageIndex,
@@ -512,7 +512,7 @@ async function pageActiveMap(args: {
       });
       throw new Error(`[NEXT-18K] active imap page ${pageIndex} failed: ${error.message}`);
     }
-    const rows = (data ?? []).map((r) => asActiveMapRow(r as Record<string, unknown>));
+    const rows = (data ?? []).map((r) => asActiveMapRow(r as unknown as Record<string, unknown>));
     args.cursorWriter.write({
       table: "product_identifier_map.active",
       page_index: pageIndex,
@@ -658,7 +658,7 @@ async function aggregateSurface(args: {
           `[NEXT-18K] aggregate ${args.table} chunk ${i} offset ${offset} failed: ${error.message}`,
         );
       }
-      const rows = (data ?? []) as Array<Record<string, unknown>>;
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
       for (const r of rows) {
         const pid = stringOrNull(r[args.idColumn]);
         if (!pid) continue;
@@ -732,11 +732,11 @@ type Next18jDecisionEntry = {
 
 function reasoningHasFields(reasoning: unknown): boolean {
   if (!reasoning || typeof reasoning !== "object") return false;
-  const r = reasoning as Record<string, unknown>;
+  const r = reasoning as unknown as Record<string, unknown>;
   return (
     r.score_breakdown != null &&
     typeof r.score_breakdown === "object" &&
-    Object.keys(r.score_breakdown as Record<string, unknown>).length >= DIMENSION_NAMES.length &&
+    Object.keys(r.score_breakdown as unknown as Record<string, unknown>).length >= DIMENSION_NAMES.length &&
     typeof r.composite_score === "number" &&
     Array.isArray(r.tiebreak_path) &&
     Array.isArray(r.block_reason_chain)
@@ -745,7 +745,7 @@ function reasoningHasFields(reasoning: unknown): boolean {
 
 function snapshotHasFields(snapshot: unknown): boolean {
   if (!snapshot || typeof snapshot !== "object") return false;
-  const s = snapshot as Record<string, unknown>;
+  const s = snapshot as unknown as Record<string, unknown>;
   return (
     typeof s.product_id === "string" &&
     "merge_status" in s &&

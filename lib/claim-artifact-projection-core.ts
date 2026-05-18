@@ -192,7 +192,7 @@ export async function fetchSourceRowsByIds(
     if (scope) q = q.eq("organization_id", scope);
     const { data, error } = await q;
     if (error) return { map, error: error.message };
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = n(row.id);
       if (id) map.set(id, row);
     }
@@ -214,7 +214,7 @@ export async function fetchCandidateSourceContextMap(
       .select("*")
       .in("claim_candidate_id", slice);
     if (error) continue;
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const cid = n(row.claim_candidate_id);
       if (cid) m.set(cid, row);
     }
@@ -263,7 +263,7 @@ async function fetchMapRowsForHints(
   const collected: ProductIdentifierMapRow[] = [];
   const seen = new Set<string>();
   const push = (data: unknown) => {
-    for (const r of (data as Record<string, unknown>[]) ?? []) {
+    for (const r of (data as unknown as Record<string, unknown>[]) ?? []) {
       const id = n(r.id);
       if (!id || seen.has(id)) continue;
       if (r.deleted_at != null) continue;

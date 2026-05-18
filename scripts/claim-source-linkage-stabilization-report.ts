@@ -111,7 +111,7 @@ async function fetchSourceRowsByIds(
       traceNd(tracePath, { phase: "fetch_source_ids_error", table, error: error.message });
       continue;
     }
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = n(row.id);
       if (id) map.set(id, row);
     }
@@ -134,7 +134,7 @@ async function fetchCandidateSourceContext(
       traceNd(tracePath, { phase: "fetch_source_context_error", error: error.message });
       continue;
     }
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const cid = n(row.claim_candidate_id);
       if (cid) m.set(cid, row);
     }
@@ -273,7 +273,7 @@ async function main(): Promise<void> {
       traceNd(tracePath, { phase: "claim_candidates_error", error: error.message });
       break;
     }
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     if (batch.length === 0) break;
     total += batch.length;
 
@@ -303,9 +303,9 @@ async function main(): Promise<void> {
       const sourceTable = sourceTableRaw.toLowerCase();
       const sourceRowId = n(c.source_row_id);
       const ctx = contextByCandidateId.get(claimCandidateId) ?? null;
-      const pack = await resolveClaimCandidateSourcePack(client, c as Record<string, unknown>, sourceMaps, ctx);
+      const pack = await resolveClaimCandidateSourcePack(client, c as unknown as Record<string, unknown>, sourceMaps, ctx);
 
-      const hints = mergeOperationalHints(c as Record<string, unknown>, ctx);
+      const hints = mergeOperationalHints(c as unknown as Record<string, unknown>, ctx);
       const resolvedId = pack.row ? n(pack.row.id) : null;
       const alternateVia = pack.alternateTier?.replace(/^operational_/, "") ?? "";
 

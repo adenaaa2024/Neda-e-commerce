@@ -14,7 +14,7 @@ function readNumeric(v: unknown): number | null {
 
 function readCurrencyFromPayload(raw: unknown): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   for (const k of ["currency", "Currency", "currency_code", "currencyCode", "price_currency", "Price Currency"]) {
     const v = o[k];
     if (typeof v === "string" && v.trim().length === 3) return v.trim().toUpperCase();
@@ -33,7 +33,7 @@ function readMoneyNode(node: unknown): { amount: number; currency: string } | nu
     return null;
   }
   if (typeof node === "object" && !Array.isArray(node)) {
-    const o = node as Record<string, unknown>;
+    const o = node as unknown as Record<string, unknown>;
     const rawAmt = o.Amount ?? o.amount ?? o.Value ?? o.value;
     const rawCur = o.CurrencyCode ?? o.currencyCode ?? o.currency;
     const currency =
@@ -66,7 +66,7 @@ const OFFER_LIKE_PAYLOAD_KEYS = [
 
 function extractOfferLikeFromRawPayload(raw: unknown): { amount: number; currency: string } | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   const keys = new Map<string, unknown>();
   for (const [k, v] of Object.entries(o)) {
     keys.set(k.trim().toLowerCase().replace(/\s+/g, "_"), v);

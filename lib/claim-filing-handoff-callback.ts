@@ -86,7 +86,7 @@ export async function filingCallbackReplayNonceUsed(
   for (const row of data ?? []) {
     const p = (row as { payload?: unknown }).payload;
     if (p && typeof p === "object" && !Array.isArray(p)) {
-      const v = (p as Record<string, unknown>).replay_nonce;
+      const v = (p as unknown as Record<string, unknown>).replay_nonce;
       if (typeof v === "string" && v === n) return true;
     }
   }

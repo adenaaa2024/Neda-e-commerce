@@ -63,7 +63,7 @@ const DEFAULT_ORG = resolveOrganizationId();
 
 /** Ensures new nullable columns never surface as `undefined` to the client. */
 function normalizeReturnRecordFromRow(raw: unknown): ReturnRecord {
-  const base = raw as Record<string, unknown>;
+  const base = raw as unknown as Record<string, unknown>;
   const r = raw as ReturnRecord;
   const condRaw = base.conditions;
   const conditions = Array.isArray(condRaw)
@@ -550,7 +550,7 @@ export async function updatePallet(
     if (!id) throw new Error("Invalid pallet id.");
     const org = await resolveWriteOrganizationId(actorProfileId, organizationId);
     const row: Record<string, unknown> = {
-      ...omitUndefined(updates as Record<string, unknown>),
+      ...omitUndefined(updates as unknown as Record<string, unknown>),
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
     };
     delete row.created_by;
@@ -687,12 +687,12 @@ export async function updatePackage(
     const pkgId = uuidOrNull(packageId);
     if (!pkgId) throw new Error("Invalid package id.");
     const scope = await resolveTenantListScope({ actorProfileId });
-    const safeUpdates = { ...(updates as Record<string, unknown>) };
+    const safeUpdates = { ...(updates as unknown as Record<string, unknown>) };
     delete safeUpdates.updated_by;
     const payload = omitUndefined({
       ...safeUpdates,
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
-    } as Record<string, unknown>);
+    } as unknown as Record<string, unknown>);
     delete payload.created_by;
     if ("pallet_id" in payload) payload.pallet_id = uuidOrNull(payload.pallet_id as string);
     if ("store_id" in payload) {
@@ -1046,7 +1046,7 @@ export async function updateReturn(
     const ex = existing as unknown as ReturnRecord;
     await assertRowOrgAccess(actorProfileId, ex.organization_id);
 
-    const safeUpdates = { ...(updates as Record<string, unknown>) };
+    const safeUpdates = { ...(updates as unknown as Record<string, unknown>) };
     delete safeUpdates.updated_by;
     const patch: Record<string, unknown> = { ...safeUpdates };
     delete patch.created_by;

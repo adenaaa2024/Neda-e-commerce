@@ -170,7 +170,7 @@ export async function getClaimEnrichmentDiff(args: {
     .limit(1)
     .maybeSingle();
   if (lErr) return { ok: false, status: 500, error: lErr.message };
-  const latest_generation = latestRow ? asGen(latestRow as Record<string, unknown>) : null;
+  const latest_generation = latestRow ? asGen(latestRow as unknown as Record<string, unknown>) : null;
 
   const { data: sinceRows, error: sErr } = await args.client
     .from(GENERATIONS_TABLE)
@@ -180,7 +180,7 @@ export async function getClaimEnrichmentDiff(args: {
     .gt("generation_number", args.sinceGeneration)
     .order("generation_number", { ascending: true });
   if (sErr) return { ok: false, status: 500, error: sErr.message };
-  const changes_since_generation = (sinceRows ?? []).map((r) => asGen(r as Record<string, unknown>));
+  const changes_since_generation = (sinceRows ?? []).map((r) => asGen(r as unknown as Record<string, unknown>));
 
   const genIds = changes_since_generation.map((g) => g.id).filter(Boolean);
 
@@ -195,7 +195,7 @@ export async function getClaimEnrichmentDiff(args: {
       .order("created_at", { ascending: true })
       .limit(args.maxEdges);
     if (eErr) return { ok: false, status: 500, error: eErr.message };
-    new_reference_edges = (eRows ?? []).map((r) => asEdge(r as Record<string, unknown>));
+    new_reference_edges = (eRows ?? []).map((r) => asEdge(r as unknown as Record<string, unknown>));
   }
 
   let lineage_events_sample: EnrichmentLineageEventSummary[] = [];
@@ -209,7 +209,7 @@ export async function getClaimEnrichmentDiff(args: {
       .order("created_at", { ascending: true })
       .limit(args.maxEvents);
     if (evErr) return { ok: false, status: 500, error: evErr.message };
-    lineage_events_sample = (evRows ?? []).map((r) => asEvent(r as Record<string, unknown>));
+    lineage_events_sample = (evRows ?? []).map((r) => asEvent(r as unknown as Record<string, unknown>));
   }
 
   let changed_confidence: number | null = null;
@@ -263,7 +263,7 @@ export async function getClaimEnrichmentDiff(args: {
       .eq("organization_id", args.organizationId)
       .maybeSingle();
     if (!fzErr && fz && typeof fz === "object") {
-      const o = fz as Record<string, unknown>;
+      const o = fz as unknown as Record<string, unknown>;
       freeze_state = {
         state: String(o.freeze_state ?? "open"),
         reason: o.freeze_reason != null ? String(o.freeze_reason) : null,

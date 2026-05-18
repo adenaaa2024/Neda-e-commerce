@@ -130,7 +130,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const row = cand as Record<string, unknown>;
+    const row = cand as unknown as Record<string, unknown>;
     const resolved = await resolveDraftForCandidate(client, orgId, {
       id: candidateId,
       source_table: row.source_table != null ? String(row.source_table) : null,

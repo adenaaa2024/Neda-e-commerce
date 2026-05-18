@@ -149,7 +149,7 @@ export async function POST(req: Request) {
       },
     },
     body.product_attributes != null && typeof body.product_attributes === "object" && !Array.isArray(body.product_attributes)
-      ? (body.product_attributes as Record<string, unknown>)
+      ? (body.product_attributes as unknown as Record<string, unknown>)
       : null,
   );
 

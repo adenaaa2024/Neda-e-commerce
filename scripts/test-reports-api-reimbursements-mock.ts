@@ -143,7 +143,7 @@ async function testMockClientPollResume(): Promise<void> {
   assert(mid.processingStatus === "IN_PROGRESS", "in progress");
 
   const done = await mock.getReport();
-  assert(done.processingStatus === "DONE" && done.reportDocumentId, "done");
+  assert(done.processingStatus === "DONE" && Boolean(done.reportDocumentId), "done");
   assert(mock.createCalls === 0, "no create in resume-only poll simulation");
 }
 

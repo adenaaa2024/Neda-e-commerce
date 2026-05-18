@@ -9,12 +9,12 @@ function trimHost(h: string): string {
 
 function readAsinFromCatalogItemNode(node: unknown): string | null {
   if (!node || typeof node !== "object" || Array.isArray(node)) return null;
-  const o = node as Record<string, unknown>;
+  const o = node as unknown as Record<string, unknown>;
   const direct = o.asin;
   if (typeof direct === "string" && isLikelyAsin(direct)) return direct.trim().toUpperCase();
   const summaries = o.summaries;
   if (Array.isArray(summaries) && summaries[0] && typeof summaries[0] === "object") {
-    const s0 = summaries[0] as Record<string, unknown>;
+    const s0 = summaries[0] as unknown as Record<string, unknown>;
     const a = s0.asin ?? s0.ASIN;
     if (typeof a === "string" && isLikelyAsin(a)) return a.trim().toUpperCase();
   }
@@ -68,7 +68,7 @@ export async function fetchAmazonCatalogSearchItemsJson(params: {
       return { ok: false, status: res.status, error: "Invalid JSON from search" };
     }
   }
-  const root = json && typeof json === "object" && !Array.isArray(json) ? (json as Record<string, unknown>) : {};
+  const root = json && typeof json === "object" && !Array.isArray(json) ? (json as unknown as Record<string, unknown>) : {};
   const nr = root.numberOfResults;
   const numberOfResults = typeof nr === "number" && Number.isFinite(nr) ? nr : 0;
   const itemsRaw = root.items;

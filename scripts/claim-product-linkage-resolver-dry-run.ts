@@ -218,7 +218,7 @@ async function fetchMapRowsForHints(
   const collected: ProductIdentifierMapRow[] = [];
   const seen = new Set<string>();
   const push = (data: unknown) => {
-    for (const r of (data as Record<string, unknown>[]) ?? []) {
+    for (const r of (data as unknown as Record<string, unknown>[]) ?? []) {
       const id = n(r.id);
       if (!id || seen.has(id)) continue;
       if (r.deleted_at != null) continue;
@@ -339,7 +339,7 @@ async function fetchSourceRowsByIds(
     if (scope) q = q.eq("organization_id", scope);
     const { data, error } = await q;
     if (error) return { map, error: error.message };
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = n(row.id);
       if (id) map.set(id, row);
     }
@@ -363,7 +363,7 @@ async function fetchCandidateSourceContext(
       warn("SOURCE_CONTEXT_FETCH", error.message);
       continue;
     }
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const cid = n(row.claim_candidate_id);
       if (cid) m.set(cid, row);
     }
@@ -531,7 +531,7 @@ async function main(): Promise<void> {
       warn("CLAIM_CANDIDATES", error.message);
       break;
     }
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     if (batch.length === 0) break;
     totalCandidates += batch.length;
 
@@ -560,7 +560,7 @@ async function main(): Promise<void> {
     for (const c of batch) {
       const claimCandidateId = n(c.id) ?? "";
       const ctx = contextByCandidateId.get(claimCandidateId) ?? null;
-      const pack = await resolveClaimCandidateSourcePack(client, c as Record<string, unknown>, sourceMaps, ctx);
+      const pack = await resolveClaimCandidateSourcePack(client, c as unknown as Record<string, unknown>, sourceMaps, ctx);
       sourcePackByCandidateId.set(claimCandidateId, pack);
     }
 

@@ -243,7 +243,7 @@ async function main(): Promise<void> {
   let executeEligible = 0;
 
   for (const r of remainingCandidates) {
-    const adapted = adaptResolverImportRow(TABLE, r as Record<string, unknown>);
+    const adapted = adaptResolverImportRow(TABLE, r as unknown as Record<string, unknown>);
     if (!adapted.fnsku && !adapted.sku && !adapted.asin) continue;
     const pool = await prefetchIdentifierMapCandidatesForBatch(supabase, PILOT_ORG, PILOT_STORE, [
       { fnsku: adapted.fnsku, msku: adapted.sku, asin: adapted.asin },

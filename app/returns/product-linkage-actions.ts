@@ -60,9 +60,9 @@ export async function fetchCanonicalProductDisplay(input: {
       .eq("organization_id", orgId)
       .maybeSingle();
     pErr = fallback.error;
-    product = (fallback.data as Record<string, unknown> | null) ?? null;
+    product = (fallback.data as unknown as Record<string, unknown> | null) ?? null;
   } else {
-    product = (primary.data as Record<string, unknown> | null) ?? null;
+    product = (primary.data as unknown as Record<string, unknown> | null) ?? null;
   }
 
   if (pErr) return { ok: false, error: pErr.message };

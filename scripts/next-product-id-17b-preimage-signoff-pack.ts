@@ -93,7 +93,7 @@ function loadNdjsonRowsById(ndPath: string): Map<string, Record<string, unknown>
   if (!fs.existsSync(ndPath)) return m;
   for (const line of fs.readFileSync(ndPath, "utf8").split(/\r?\n/)) {
     if (!line.trim()) continue;
-    const o = JSON.parse(line) as Record<string, unknown>;
+    const o = JSON.parse(line) as unknown as Record<string, unknown>;
     const id = String(o.source_row_id ?? "");
     if (id) m.set(id, o);
   }
@@ -266,7 +266,7 @@ async function main(): Promise<void> {
     missingDryRow === 0 &&
     productHitMismatch === 0;
 
-  const preimageCsvRows = dbRows.map((r) => ({ ...r } as Record<string, unknown>));
+  const preimageCsvRows = dbRows.map((r) => ({ ...r } as unknown as Record<string, unknown>));
   writeCsv(path.join(outDir, "wave-1b-preimage-export.csv"), SELECT_COLS.split(", ") as unknown as string[], preimageCsvRows);
 
   fs.writeFileSync(path.join(outDir, "wave-1b-preimage-select-columns.sql"), buildPreimageSql(ids), "utf8");

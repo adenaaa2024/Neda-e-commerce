@@ -26,7 +26,7 @@ export type JsonResult = { readonly status: number; readonly body: Record<string
 
 function claimFamilyFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const v = (payload as Record<string, unknown>).claim_family_key;
+  const v = (payload as unknown as Record<string, unknown>).claim_family_key;
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
@@ -153,7 +153,7 @@ export async function createClaimFilingRequest(args: {
   const automationMode = String(config.filing_automation_mode ?? "disabled");
   const initialStatus = automationMode === "manual_only" ? "draft" : "pending_approval";
   const safePayload =
-    payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
+    payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as unknown as Record<string, unknown>) : {};
 
   const insertRow: Record<string, unknown> = {
     organization_id: organizationId,
@@ -354,7 +354,7 @@ export async function receiveClaimFilingCallback(args: {
     if (!j || typeof j !== "object" || Array.isArray(j)) {
       return { status: 400, body: { error: "Callback body must be a JSON object." } };
     }
-    parsed = j as Record<string, unknown>;
+    parsed = j as unknown as Record<string, unknown>;
   } catch {
     return { status: 400, body: { error: "Invalid JSON body." } };
   }

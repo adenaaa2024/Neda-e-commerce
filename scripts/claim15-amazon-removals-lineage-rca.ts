@@ -88,12 +88,12 @@ async function lookupAmazonRemovalOrderKey(
       .eq(keyCol, keyVal);
   if (storeId) {
     const { data: d1 } = await base().eq("store_id", storeId).limit(8);
-    const s1 = (d1 ?? []) as Record<string, unknown>[];
+    const s1 = (d1 ?? []) as unknown as Record<string, unknown>[];
     if (s1.length === 1) return { row: s1[0]!, ambiguous: false };
     if (s1.length > 1) return { row: null, ambiguous: true };
   }
   const { data: d2 } = await base().limit(8);
-  const s2 = (d2 ?? []) as Record<string, unknown>[];
+  const s2 = (d2 ?? []) as unknown as Record<string, unknown>[];
   if (s2.length === 1) return { row: s2[0]!, ambiguous: false };
   if (s2.length > 1) return { row: null, ambiguous: true };
   return { row: null, ambiguous: false };
@@ -133,9 +133,9 @@ async function fetchInChunks<T extends Record<string, unknown>>(
     const { data, error } = await q;
     traceNd(tracePath, { phase: "fetch", table, col, chunk: i, n: slice.length, err: error?.message });
     if (error) continue;
-    for (const row of (data ?? []) as T[]) {
-      const rid = n((row as Record<string, unknown>).id);
-      const sid = n((row as Record<string, unknown>).source_staging_id);
+    for (const row of (data ?? []) as unknown as T[]) {
+      const rid = n((row as unknown as Record<string, unknown>).id);
+      const sid = n((row as unknown as Record<string, unknown>).source_staging_id);
       if (col === "id" && rid) out.set(rid, row);
       else if (col === "source_staging_id" && sid) {
         if (!out.has(sid)) out.set(sid, row);
@@ -371,7 +371,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     if (batch.length === 0) break;
 
     const candIds = batch.map((r) => n(r.id)).filter(Boolean) as string[];
@@ -382,7 +382,7 @@ async function main(): Promise<void> {
         .select("*")
         .in("claim_candidate_id", slice);
       traceNd(tracePath, { phase: "source_context", chunk: i, err: ctxErr?.message });
-      for (const row of (ctxData ?? []) as Record<string, unknown>[]) {
+      for (const row of (ctxData ?? []) as unknown as Record<string, unknown>[]) {
         const cid = n(row.claim_candidate_id);
         if (cid) contextByCand.set(cid, row);
       }
@@ -446,7 +446,7 @@ async function main(): Promise<void> {
       .in("source_staging_id", slice);
     const { data, error } = await q;
     traceNd(tracePath, { phase: "removals_by_source_staging", chunk: i, err: error?.message });
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const ss = n(row.source_staging_id);
       if (ss && !removalBySourceStaging.has(ss)) removalBySourceStaging.set(ss, row);
     }
@@ -467,7 +467,7 @@ async function main(): Promise<void> {
     const slice = missingPtrs.slice(i, i + IN_CHUNK);
     const { data, error } = await client.from("expected_packages").select(expectedPackagesSelect).eq("organization_id", orgId).in("source_detail_row_id", slice);
     traceNd(tracePath, { phase: "expected_by_detail", chunk: i, err: error?.message });
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const d = n(row.source_detail_row_id);
       if (d && !expectedByDetail.has(d)) expectedByDetail.set(d, row);
     }

@@ -47,9 +47,9 @@ function parsePrimaryAmount(fragment: Record<string, unknown>): { amount: number
   ];
   for (const c of candidates) {
     if (!c || typeof c !== "object") continue;
-    const o = c as Record<string, unknown>;
+    const o = c as unknown as Record<string, unknown>;
     const amountRaw = o.CurrencyAmount ?? o.currencyAmount ?? o.Amount ?? o.amount;
-    const currency = readNullableStr(o as Record<string, unknown>, "CurrencyCode", "currencyCode");
+    const currency = readNullableStr(o as unknown as Record<string, unknown>, "CurrencyCode", "currencyCode");
     if (typeof amountRaw === "number" && !Number.isNaN(amountRaw)) {
       return { amount: amountRaw, currency };
     }
@@ -117,7 +117,7 @@ export function flattenFinancialEventsV0(
 
     for (const item of value) {
       if (!item || typeof item !== "object") continue;
-      const fragment = item as Record<string, unknown>;
+      const fragment = item as unknown as Record<string, unknown>;
       const { amount, currency } = parsePrimaryAmount(fragment);
       const used = new Set([
         "PostedDate",
@@ -171,10 +171,10 @@ export function flattenFinancialEventsV0(
 export function extractFinancialEventsFromEventsPage(
   rawBody: Record<string, unknown>,
 ): Record<string, unknown> {
-  const payload = (rawBody.payload ?? rawBody) as Record<string, unknown>;
+  const payload = (rawBody.payload ?? rawBody) as unknown as Record<string, unknown>;
   const events = payload.FinancialEvents ?? payload.financialEvents;
   if (events && typeof events === "object" && !Array.isArray(events)) {
-    return events as Record<string, unknown>;
+    return events as unknown as Record<string, unknown>;
   }
   return {};
 }

@@ -13,12 +13,12 @@ export function extractSummaryItemNameBrand(body: unknown): { product_name: stri
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { product_name: null, brand: null };
   }
-  const root = body as Record<string, unknown>;
+  const root = body as unknown as Record<string, unknown>;
   const summaries = root.summaries;
   let product_name: string | null = null;
   let brand: string | null = null;
   if (Array.isArray(summaries) && summaries[0] && typeof summaries[0] === "object") {
-    const s0 = summaries[0] as Record<string, unknown>;
+    const s0 = summaries[0] as unknown as Record<string, unknown>;
     const n = s0.itemName ?? s0.item_name;
     const b = s0.brand;
     if (typeof n === "string" && n.trim()) product_name = n.trim();
@@ -55,7 +55,7 @@ function flattenAmazonAttrValues(v: unknown): string[] {
     return acc;
   }
   if (typeof v === "object") {
-    const o = v as Record<string, unknown>;
+    const o = v as unknown as Record<string, unknown>;
     if ("value" in o) return flattenAmazonAttrValues(o.value);
     return [];
   }
@@ -93,22 +93,22 @@ export function dedupeAmazonCategoryCandidatesByMaxScore(list: AmazonCategoryCan
 export function extractAmazonCategoryCandidates(body: unknown): AmazonCategoryCandidate[] {
   const out: AmazonCategoryCandidate[] = [];
   if (!body || typeof body !== "object" || Array.isArray(body)) return out;
-  const root = body as Record<string, unknown>;
+  const root = body as unknown as Record<string, unknown>;
 
   const browse = extractBrowseCategoryDisplayName(body);
   if (browse) out.push({ label: browse, source: "browse_classification", score: 0.92 });
 
   const summaries = root.summaries;
   if (Array.isArray(summaries) && summaries[0] && typeof summaries[0] === "object") {
-    const s0 = summaries[0] as Record<string, unknown>;
+    const s0 = summaries[0] as unknown as Record<string, unknown>;
     const bc = s0.browseClassification ?? s0.browse_classification;
     if (bc && typeof bc === "object" && !Array.isArray(bc)) {
-      const b = bc as Record<string, unknown>;
+      const b = bc as unknown as Record<string, unknown>;
       const hierarchy = b.classificationHierarchy ?? b.classification_hierarchy;
       if (Array.isArray(hierarchy)) {
         for (const node of hierarchy) {
           if (!node || typeof node !== "object" || Array.isArray(node)) continue;
-          const d = (node as Record<string, unknown>).displayName ?? (node as Record<string, unknown>).display_name;
+          const d = (node as unknown as Record<string, unknown>).displayName ?? (node as unknown as Record<string, unknown>).display_name;
           if (typeof d === "string" && d.trim().length > 1) {
             const label = d.trim();
             if (!browse || label.toLowerCase() !== browse.toLowerCase()) {
@@ -127,12 +127,12 @@ export function extractAmazonCategoryCandidates(body: unknown): AmazonCategoryCa
         const label = humanizeProductTypeLabel(pt);
         if (label) out.push({ label, source: "product_type", score: 0.78 });
       } else if (pt && typeof pt === "object" && !Array.isArray(pt)) {
-        const o = pt as Record<string, unknown>;
+        const o = pt as unknown as Record<string, unknown>;
         const raw =
           (typeof o.productType === "string" && o.productType) ||
           (typeof o.displayName === "string" && o.displayName) ||
           (typeof o.productType === "object" && o.productType != null
-            ? String((o.productType as Record<string, unknown>).displayName ?? "")
+            ? String((o.productType as unknown as Record<string, unknown>).displayName ?? "")
             : "");
         const label = humanizeProductTypeLabel(String(raw));
         if (label) out.push({ label, source: "product_type", score: 0.79 });
@@ -144,11 +144,11 @@ export function extractAmazonCategoryCandidates(body: unknown): AmazonCategoryCa
   if (Array.isArray(salesRanks)) {
     for (const block of salesRanks) {
       if (!block || typeof block !== "object" || Array.isArray(block)) continue;
-      const ranks = (block as Record<string, unknown>).ranks;
+      const ranks = (block as unknown as Record<string, unknown>).ranks;
       if (!Array.isArray(ranks)) continue;
       for (const r of ranks) {
         if (!r || typeof r !== "object" || Array.isArray(r)) continue;
-        const title = (r as Record<string, unknown>).title ?? (r as Record<string, unknown>).displayName;
+        const title = (r as unknown as Record<string, unknown>).title ?? (r as unknown as Record<string, unknown>).displayName;
         if (typeof title !== "string" || title.trim().length < 3) continue;
         const t = title.trim();
         if (/^\d+$/.test(t)) continue;
@@ -159,7 +159,7 @@ export function extractAmazonCategoryCandidates(body: unknown): AmazonCategoryCa
 
   const attrs = root.attributes;
   if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
-    const a = attrs as Record<string, unknown>;
+    const a = attrs as unknown as Record<string, unknown>;
     const pushAttr = (key: string, source: AmazonCategoryCandidate["source"], score: number) => {
       for (const s of flattenAmazonAttrValues(a[key])) {
         if (s.length > 1) out.push({ label: s, source, score });
@@ -196,20 +196,20 @@ export function pimCategorySourceFromCandidate(
 /** Best-effort browse / classification display label for matching local categories. */
 export function extractBrowseCategoryDisplayName(body: unknown): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  const root = body as Record<string, unknown>;
+  const root = body as unknown as Record<string, unknown>;
   const summaries = root.summaries;
   if (!Array.isArray(summaries) || !summaries[0] || typeof summaries[0] !== "object") return null;
-  const s0 = summaries[0] as Record<string, unknown>;
+  const s0 = summaries[0] as unknown as Record<string, unknown>;
   const bc = s0.browseClassification ?? s0.browse_classification;
   if (bc && typeof bc === "object" && !Array.isArray(bc)) {
-    const b = bc as Record<string, unknown>;
+    const b = bc as unknown as Record<string, unknown>;
     const display = b.displayName ?? b.display_name;
     if (typeof display === "string" && display.trim()) return display.trim();
     const hierarchy = b.classificationHierarchy ?? b.classification_hierarchy;
     if (Array.isArray(hierarchy) && hierarchy.length) {
       const last = hierarchy[hierarchy.length - 1];
       if (last && typeof last === "object") {
-        const d = (last as Record<string, unknown>).displayName ?? (last as Record<string, unknown>).display_name;
+        const d = (last as unknown as Record<string, unknown>).displayName ?? (last as unknown as Record<string, unknown>).display_name;
         if (typeof d === "string" && d.trim()) return d.trim();
       }
     }
@@ -219,10 +219,10 @@ export function extractBrowseCategoryDisplayName(body: unknown): string | null {
 
 export function extractListPriceFromCatalog(body: unknown): { amount: number; currency: string } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  const root = body as Record<string, unknown>;
+  const root = body as unknown as Record<string, unknown>;
   const tryPrice = (node: unknown): { amount: number; currency: string } | null => {
     if (!node || typeof node !== "object" || Array.isArray(node)) return null;
-    const o = node as Record<string, unknown>;
+    const o = node as unknown as Record<string, unknown>;
     const amount = o.amount ?? o.value ?? o.price;
     const currency = typeof o.currency === "string" && o.currency.trim() ? o.currency.trim() : "USD";
     const n = typeof amount === "number" ? amount : typeof amount === "string" ? Number.parseFloat(amount) : Number.NaN;
@@ -232,7 +232,7 @@ export function extractListPriceFromCatalog(body: unknown): { amount: number; cu
 
   const summaries = root.summaries;
   if (Array.isArray(summaries) && summaries[0] && typeof summaries[0] === "object") {
-    const s0 = summaries[0] as Record<string, unknown>;
+    const s0 = summaries[0] as unknown as Record<string, unknown>;
     const lp = s0.listPrice ?? s0.list_price ?? s0.listingPrice ?? s0.listing_price;
     const hit = tryPrice(lp);
     if (hit) return hit;
@@ -240,7 +240,7 @@ export function extractListPriceFromCatalog(body: unknown): { amount: number; cu
 
   const attrs = root.attributes;
   if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
-    const a = attrs as Record<string, unknown>;
+    const a = attrs as unknown as Record<string, unknown>;
     for (const k of ["list_price", "listPrice", "purchasable_offer", "your_price"]) {
       const hit = tryPrice(a[k]);
       if (hit) return hit;
@@ -263,7 +263,7 @@ export function mergeEnrichmentProvenance(
 ): Record<string, unknown> | null {
   const base =
     existing && typeof existing === "object" && !Array.isArray(existing)
-      ? { ...(existing as Record<string, unknown>) }
+      ? { ...(existing as unknown as Record<string, unknown>) }
       : {};
   const now = new Date().toISOString();
   for (const f of fields) {

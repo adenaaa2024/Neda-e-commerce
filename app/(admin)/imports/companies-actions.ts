@@ -54,7 +54,7 @@ export async function listStoresForImports(
 
       if (error) return { ok: false, error: error.message };
 
-      const rows = (data ?? []) as Record<string, unknown>[];
+      const rows = (data ?? []) as unknown as Record<string, unknown>[];
       const out: StoreImportOption[] = rows.map((r) => ({
         id: String(r.id ?? ""),
         organization_id: String(r.organization_id ?? ""),
@@ -116,7 +116,7 @@ export async function listCompaniesForImports(
 
       if (error) return { ok: false, error: error.message };
 
-      const rows = (data ?? []) as Record<string, unknown>[];
+      const rows = (data ?? []) as unknown as Record<string, unknown>[];
       const out = rows.map(mapOrgSettingsRow);
       out.sort((a, b) => a.display_name.localeCompare(b.display_name));
       return { ok: true, rows: out };
@@ -149,7 +149,7 @@ export async function listCompaniesForImports(
     if (error) return { ok: false, error: error.message };
     if (!data) return { ok: true, rows: [] };
 
-    return { ok: true, rows: [mapOrgSettingsRow(data as Record<string, unknown>)] };
+    return { ok: true, rows: [mapOrgSettingsRow(data as unknown as Record<string, unknown>)] };
   } catch (e) {
     return {
       ok: false,

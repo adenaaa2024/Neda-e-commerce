@@ -39,8 +39,8 @@ export async function findUploadBySourceRunIdempotencyKey(
   if (error || !data?.length) return null;
 
   for (const row of data) {
-    const meta = row.metadata as Record<string, unknown> | null;
-    const sr = meta?.source_run as Record<string, unknown> | undefined;
+    const meta = row.metadata as unknown as Record<string, unknown> | null;
+    const sr = meta?.source_run as unknown as Record<string, unknown> | undefined;
     if (!sr || typeof sr !== "object") continue;
     if (String(sr.idempotency_key ?? "") !== idempotencyKey) continue;
     const uploadId = String(row.id ?? "");

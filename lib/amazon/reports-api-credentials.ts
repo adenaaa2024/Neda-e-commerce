@@ -148,7 +148,7 @@ export async function resolveReportsApiContext(
   const storeMpRaw = n((store as { marketplace_id?: string | null }).marketplace_id) || null;
   const mpRel = (store as { marketplaces?: { provider?: string; credentials?: unknown } | null }).marketplaces;
   if (mpRel?.credentials && typeof mpRel.credentials === "object" && !Array.isArray(mpRel.credentials)) {
-    const credObj = mpRel.credentials as Record<string, unknown>;
+    const credObj = mpRel.credentials as unknown as Record<string, unknown>;
     if (n(mpRel.provider) === "amazon_sp_api") {
       const built = contextFromCredRecord(credObj, storeMpRaw);
       if (built.ok) {
@@ -175,7 +175,7 @@ export async function resolveReportsApiContext(
     try {
       const parsed = JSON.parse(rawKey) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const built = contextFromCredRecord(parsed as Record<string, unknown>, storeMpRaw);
+        const built = contextFromCredRecord(parsed as unknown as Record<string, unknown>, storeMpRaw);
         if (built.ok) {
           try {
             const t = await getAmazonAccessToken(built.ctx.credentials);
@@ -201,7 +201,7 @@ export async function resolveReportsApiContext(
   for (const row of mpRows ?? []) {
     const credObj = (row as { credentials?: unknown }).credentials;
     if (!credObj || typeof credObj !== "object" || Array.isArray(credObj)) continue;
-    const built = contextFromCredRecord(credObj as Record<string, unknown>, storeMpRaw);
+    const built = contextFromCredRecord(credObj as unknown as Record<string, unknown>, storeMpRaw);
     if (built.ok) {
       try {
         const t = await getAmazonAccessToken(built.ctx.credentials);

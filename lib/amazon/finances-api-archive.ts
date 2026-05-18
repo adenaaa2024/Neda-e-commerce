@@ -116,14 +116,14 @@ function readNullableString(obj: Record<string, unknown>, key: string): string |
 
 function readJsonObject(obj: Record<string, unknown>, key: string): Record<string, unknown> {
   const v = obj[key];
-  if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+  if (v && typeof v === "object" && !Array.isArray(v)) return v as unknown as Record<string, unknown>;
   return {};
 }
 
 /** Parse a PostgREST / Supabase row into a typed source run (no I/O). */
 export function parseAmazonFinancesSourceRunRow(row: unknown): AmazonFinancesSourceRunRow | null {
   if (!row || typeof row !== "object" || Array.isArray(row)) return null;
-  const o = row as Record<string, unknown>;
+  const o = row as unknown as Record<string, unknown>;
   const id = readString(o, "id");
   const organization_id = readString(o, "organization_id");
   const stateRaw = readString(o, "state");

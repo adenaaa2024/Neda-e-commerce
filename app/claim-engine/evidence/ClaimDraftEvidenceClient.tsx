@@ -24,7 +24,7 @@ export function ClaimDraftEvidenceClient({ organizationId, draftId }: Props) {
         `/api/claims/drafts/${encodeURIComponent(draftId)}/evidence-graph?organization_id=${encodeURIComponent(organizationId)}&include_persisted_edges=true`,
         { credentials: "include" },
       );
-      const j = (await res.json()) as Record<string, unknown>;
+      const j = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setPayload(null);
         setError(typeof j.error === "string" ? j.error : `HTTP ${res.status}`);

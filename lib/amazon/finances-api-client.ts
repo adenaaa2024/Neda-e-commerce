@@ -84,11 +84,11 @@ export class FinancesApiClient {
     if (!res.ok) {
       throw new FinancesApiError("listFinancialEventGroups_failed", res.status, res.text.slice(0, 500));
     }
-    const json = (res.json ?? {}) as Record<string, unknown>;
-    const payload = (json.payload ?? json) as Record<string, unknown>;
+    const json = (res.json ?? {}) as unknown as Record<string, unknown>;
+    const payload = (json.payload ?? json) as unknown as Record<string, unknown>;
     const list = payload.FinancialEventGroupList;
     const groups = Array.isArray(list)
-      ? (list.filter((x) => x && typeof x === "object") as Record<string, unknown>[])
+      ? (list.filter((x) => x && typeof x === "object") as unknown as Record<string, unknown>[])
       : [];
     const nextToken =
       typeof payload.NextToken === "string" && payload.NextToken.trim()
@@ -117,11 +117,11 @@ export class FinancesApiClient {
     if (!res.ok) {
       throw new FinancesApiError("listFinancialEventsByGroup_failed", res.status, res.text.slice(0, 500));
     }
-    const json = (res.json ?? {}) as Record<string, unknown>;
-    const payload = (json.payload ?? json) as Record<string, unknown>;
+    const json = (res.json ?? {}) as unknown as Record<string, unknown>;
+    const payload = (json.payload ?? json) as unknown as Record<string, unknown>;
     const events =
       payload.FinancialEvents && typeof payload.FinancialEvents === "object"
-        ? (payload.FinancialEvents as Record<string, unknown>)
+        ? (payload.FinancialEvents as unknown as Record<string, unknown>)
         : {};
     const nextToken =
       typeof payload.NextToken === "string" && payload.NextToken.trim()

@@ -168,7 +168,7 @@ async function fetchAllDrafts(client: SupabaseClient, orgId: string, tables: str
       .order("id", { ascending: true })
       .range(from, from + DRAFT_PAGE - 1);
     if (error) throw new Error(`claim_candidate_drafts: ${error.message}`);
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     for (const r of batch) {
       const id = nv(r.id);
       const org = nv(r.organization_id);
@@ -200,7 +200,7 @@ async function fetchRemovals(client: SupabaseClient, orgId: string, ids: string[
       .eq("organization_id", orgId)
       .in("id", slice);
     if (error) throw new Error(`amazon_removals: ${error.message}`);
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = nv(r.id);
       if (!id) continue;
       map.set(id, { id, order_id: nv(r.order_id), sku: nv(r.sku), fnsku: nv(r.fnsku) });
@@ -226,7 +226,7 @@ async function fetchExpectedByDetailIds(
       if (error.message.includes("does not exist") || error.code === "42P01") return map;
       throw new Error(`expected_packages: ${error.message}`);
     }
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const did = nv(r.source_detail_row_id);
       if (!did) continue;
       const cur = map.get(did) ?? { count: 0, sample_id: null };
@@ -255,7 +255,7 @@ async function fetchAllocations(
       if (error.message.includes("does not exist") || error.code === "42P01") return byRemoval;
       throw new Error(`removal_item_allocations: ${error.message}`);
     }
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const rid = nv(r.removal_id);
       if (!rid) continue;
       const arr = byRemoval.get(rid) ?? [];
@@ -283,7 +283,7 @@ async function fetchBoxItems(
       if (error.message.includes("does not exist") || error.code === "42P01") return map;
       throw new Error(`shipment_box_items: ${error.message}`);
     }
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = nv(r.id);
       if (id) map.set(id, r);
     }
@@ -302,7 +302,7 @@ async function fetchFrrByOrderIds(client: SupabaseClient, orgId: string, orderId
       .eq("organization_id", orgId)
       .in("order_id", chunk);
     if (error) throw new Error(`financial_reference_resolver: ${error.message}`);
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const oid = nv(row.order_id);
       if (!oid) continue;
       const arr = byOrder.get(oid) ?? [];
@@ -332,7 +332,7 @@ async function fetchFinancesEvents(
       if (error.message.includes("does not exist") || error.code === "42P01") return byOrder;
       throw new Error(`amazon_finances_events: ${error.message}`);
     }
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const oid = nv(row.order_id) ?? nv(row.removal_order_id);
       if (!oid) continue;
       const arr = byOrder.get(oid) ?? [];
@@ -362,7 +362,7 @@ async function fetchReturnItemsByOrders(
       if (error.message.includes("does not exist") || error.code === "42P01") return byOrder;
       throw new Error(`return_items: ${error.message}`);
     }
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const oid = nv(row.order_id);
       if (!oid) continue;
       const arr = byOrder.get(oid) ?? [];
@@ -391,7 +391,7 @@ async function fetchSlipsByPackageIds(
       if (error.message.includes("does not exist") || error.code === "42P01") return byPkg;
       throw new Error(`slip_contents: ${error.message}`);
     }
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const pid = nv(row.package_id);
       if (!pid) continue;
       const arr = byPkg.get(pid) ?? [];

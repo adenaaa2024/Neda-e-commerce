@@ -166,7 +166,7 @@ async function prefetchCatalogSnapshots(
     const rows = page ?? [];
     if (rows.length === 0) break;
     for (const r of rows) {
-      const row = r as Record<string, unknown>;
+      const row = r as unknown as Record<string, unknown>;
       const sku = String(row.seller_sku ?? "").trim();
       const a = String(row.asin ?? "").trim();
       if (!sku || !a) continue;

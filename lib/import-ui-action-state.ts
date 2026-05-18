@@ -67,7 +67,7 @@ function phaseComplete(v: unknown): boolean {
 }
 
 function metaObj(m: unknown): Record<string, unknown> | null {
-  return m && typeof m === "object" && !Array.isArray(m) ? (m as Record<string, unknown>) : null;
+  return m && typeof m === "object" && !Array.isArray(m) ? (m as unknown as Record<string, unknown>) : null;
 }
 
 export type ImportUiActionState = {

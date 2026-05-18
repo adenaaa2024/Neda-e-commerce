@@ -20,7 +20,7 @@ export function resolvePimDisplayImageUrl(
   if (fromMain) return fromMain;
 
   if (!amazonRaw || typeof amazonRaw !== "object" || Array.isArray(amazonRaw)) return null;
-  const raw = amazonRaw as Record<string, unknown>;
+  const raw = amazonRaw as unknown as Record<string, unknown>;
 
   const fromKeys = [
     raw.main_image_url,
@@ -59,7 +59,7 @@ export function collectPimAmazonRawGalleryUrls(amazonRaw: unknown, max = 16): st
     if (typeof u === "string" && u.trim()) merged.add(u.trim());
   }
   if (amazonRaw && typeof amazonRaw === "object" && !Array.isArray(amazonRaw)) {
-    const extra = (amazonRaw as Record<string, unknown>).pim_image_candidates;
+    const extra = (amazonRaw as unknown as Record<string, unknown>).pim_image_candidates;
     if (Array.isArray(extra)) {
       for (const x of extra) {
         if (typeof x === "string" && x.trim()) merged.add(x.trim());

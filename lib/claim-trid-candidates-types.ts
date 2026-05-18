@@ -103,7 +103,7 @@ export function validateOperatorTridSelectionEventPayload(
     return { ok: false, error: "trid_selection must be an object." };
   }
 
-  const obj = input as Record<string, unknown>;
+  const obj = input as unknown as Record<string, unknown>;
   const draftId = readStringField(obj, "draft_id");
   const workItemId = readStringField(obj, "work_item_id");
   const selectedReferenceValue = readStringField(obj, "selected_reference_value");

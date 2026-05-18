@@ -78,7 +78,7 @@ function main() {
   if (packedAll.length !== 1) {
     throw new Error(`expected packed length 1, got ${packedAll.length}`);
   }
-  const packed = packedAll[0] as Record<string, unknown>;
+  const packed = packedAll[0] as unknown as Record<string, unknown>;
 
   assertEqual("packed: store_id", packed.store_id, STORE_ID);
   assertEqual("packed: organization_id", packed.organization_id, ORG_ID);
@@ -95,7 +95,7 @@ function main() {
   // ── 3) raw_data must NOT contain store_id (proves the allow-list took effect) ─
   const rawData =
     packed.raw_data && typeof packed.raw_data === "object" && !Array.isArray(packed.raw_data)
-      ? (packed.raw_data as Record<string, unknown>)
+      ? (packed.raw_data as unknown as Record<string, unknown>)
       : {};
   if (Object.prototype.hasOwnProperty.call(rawData, "store_id")) {
     throw new Error(
@@ -119,7 +119,7 @@ function main() {
     const packedEmpty = packPayloadForSupabase(
       [insertEmpty as unknown as Record<string, unknown>],
       NATIVE_COLUMNS_TRANSACTIONS,
-    )[0] as Record<string, unknown>;
+    )[0] as unknown as Record<string, unknown>;
     // packPayloadForSupabase keeps native keys as-is; empty string is preserved
     // (it does NOT redirect empty strings on native keys).
     assertEqual("packed empty: store_id is empty string", packedEmpty.store_id, "");

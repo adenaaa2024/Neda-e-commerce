@@ -58,7 +58,7 @@ export function ClaimDraftsReviewClient({ organizationId }: { organizationId: st
     const p = new URLSearchParams(baseParams);
     try {
       const res = await fetch(`/api/claims/drafts?${p.toString()}`, { credentials: "include" });
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setItems([]);
         setTotalMatching(null);
@@ -84,7 +84,7 @@ export function ClaimDraftsReviewClient({ organizationId }: { organizationId: st
     p.set("cursor", nextCursor);
     try {
       const res = await fetch(`/api/claims/drafts?${p.toString()}`, { credentials: "include" });
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setError(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
         return;

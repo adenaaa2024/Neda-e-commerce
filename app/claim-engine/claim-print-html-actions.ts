@@ -35,7 +35,7 @@ export async function collectReturnPhotoUrls(
   if (Array.isArray(raw)) {
     for (const x of raw) add(x);
   } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    for (const v of Object.values(raw as Record<string, unknown>)) add(v);
+    for (const v of Object.values(raw as unknown as Record<string, unknown>)) add(v);
   } else if (typeof raw === "string") {
     try {
       const p = JSON.parse(raw) as unknown;
@@ -113,7 +113,7 @@ export async function fetchReadyToSendSubmissionsForHtmlPrint(
     }
     const returnIds = [
       ...new Set(
-        list.map((s) => String((s as Record<string, unknown>)[CLAIM_SUBMISSION_RETURN_ID_COLUMN] ?? "")),
+        list.map((s) => String((s as unknown as Record<string, unknown>)[CLAIM_SUBMISSION_RETURN_ID_COLUMN] ?? "")),
       ),
     ].filter(Boolean);
 
@@ -124,12 +124,12 @@ export async function fetchReadyToSendSubmissionsForHtmlPrint(
         .select(RETURN_SELECT)
         .in("id", returnIds);
       if (rErr) throw new Error(rErr.message);
-      retMap = new Map((rets ?? []).map((row) => [row.id as string, row as Record<string, unknown>]));
+      retMap = new Map((rets ?? []).map((row) => [row.id as string, row as unknown as Record<string, unknown>]));
     }
 
     const rows: ReadyToSendPrintRow[] = [];
     for (const raw of list) {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const rid = r[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string;
       const ret = retMap.get(rid) ?? null;
       const rawStores = ret?.stores as

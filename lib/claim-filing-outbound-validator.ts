@@ -46,7 +46,7 @@ function walkForForbiddenKeys(value: unknown, path: string): string | null {
     return null;
   }
   if (typeof value === "object") {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(value as unknown as Record<string, unknown>)) {
       if (FORBIDDEN_KEY_RE.test(k)) {
         return `Forbidden key near ${path}.${k}`;
       }
@@ -77,7 +77,7 @@ export function validateClaimFilingOutboundPayloadV1(
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, errors: ["Root payload must be an object."] };
   }
-  const o = input as Record<string, unknown>;
+  const o = input as unknown as Record<string, unknown>;
 
   const keyHit = walkForForbiddenKeys(o, "$");
   if (keyHit) errors.push(keyHit);
@@ -113,7 +113,7 @@ export function validateClaimFilingOutboundPayloadV1(
   } else if (typeof leaseRaw !== "object" || Array.isArray(leaseRaw)) {
     errors.push("lease_context must be an object or null.");
   } else {
-    const lc = leaseRaw as Record<string, unknown>;
+    const lc = leaseRaw as unknown as Record<string, unknown>;
     const holder = typeof lc.lease_holder === "string" ? lc.lease_holder.trim() : "";
     const exp = typeof lc.lease_expires_at === "string" ? lc.lease_expires_at.trim() : "";
     if (!holder) errors.push("lease_context.lease_holder is required when lease_context is set.");
@@ -125,7 +125,7 @@ export function validateClaimFilingOutboundPayloadV1(
   if (!idem || typeof idem !== "object" || Array.isArray(idem)) {
     errors.push("idempotency must be an object.");
   } else {
-    const id = idem as Record<string, unknown>;
+    const id = idem as unknown as Record<string, unknown>;
     const frk = typeof id.filing_request_idempotency_key === "string" ? id.filing_request_idempotency_key.trim() : "";
     if (!frk) errors.push("idempotency.filing_request_idempotency_key is required.");
     const odid = typeof id.outbound_delivery_id === "string" ? id.outbound_delivery_id.trim() : "";
@@ -142,7 +142,7 @@ export function validateClaimFilingOutboundPayloadV1(
   if (!claim || typeof claim !== "object" || Array.isArray(claim)) {
     errors.push("claim_context must be an object.");
   } else {
-    const c = claim as Record<string, unknown>;
+    const c = claim as unknown as Record<string, unknown>;
     const wi = c.claim_review_work_item_id;
     const dr = c.claim_candidate_draft_id;
     const sub = c.claim_submission_id;
@@ -169,7 +169,7 @@ export function validateClaimFilingOutboundPayloadV1(
   if (!fi || typeof fi !== "object" || Array.isArray(fi)) {
     errors.push("filing_instructions must be an object.");
   } else {
-    const f = fi as Record<string, unknown>;
+    const f = fi as unknown as Record<string, unknown>;
     if (f.marketplace_submission_allowed === true) {
       errors.push("filing_instructions.marketplace_submission_allowed must be false for Agent 06 payloads.");
     }
@@ -186,14 +186,14 @@ export function validateClaimFilingOutboundPayloadV1(
   if (!ev || typeof ev !== "object" || Array.isArray(ev)) {
     errors.push("evidence_package must be an object.");
   } else {
-    const e = ev as Record<string, unknown>;
+    const e = ev as unknown as Record<string, unknown>;
     if (!Array.isArray(e.pdf_refs)) errors.push("evidence_package.pdf_refs must be an array.");
     if (!Array.isArray(e.artifact_refs)) errors.push("evidence_package.artifact_refs must be an array.");
     const m = e.manifest;
     if (!m || typeof m !== "object" || Array.isArray(m)) {
       errors.push("evidence_package.manifest must be an object.");
     } else {
-      const man = m as Record<string, unknown>;
+      const man = m as unknown as Record<string, unknown>;
       const eh = typeof man.evidence_hash === "string" ? man.evidence_hash.trim() : "";
       if (!eh.startsWith("sha256:")) errors.push("evidence_package.manifest.evidence_hash must start with sha256:.");
       const ga = typeof man.generated_at === "string" ? man.generated_at.trim() : "";
@@ -207,12 +207,12 @@ export function validateClaimFilingOutboundPayloadV1(
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     errors.push("payload must be an object.");
   } else {
-    const p = payload as Record<string, unknown>;
+    const p = payload as unknown as Record<string, unknown>;
     const trid = p.trid;
     if (trid != null && (typeof trid !== "object" || Array.isArray(trid))) {
       errors.push("payload.trid must be an object or null.");
     } else if (trid && typeof trid === "object" && !Array.isArray(trid)) {
-      const t = trid as Record<string, unknown>;
+      const t = trid as unknown as Record<string, unknown>;
       const status = t.trid_selection_status;
       if (status != null && (typeof status !== "string" || !TRID_SELECTION.has(status as TridSelectionStatus))) {
         errors.push("payload.trid.trid_selection_status must be a valid TridSelectionStatus.");

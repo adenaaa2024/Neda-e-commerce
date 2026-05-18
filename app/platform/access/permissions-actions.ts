@@ -146,7 +146,7 @@ async function loadModulesCatalog(): Promise<{
     if (featsWithOrder.error && featsFallback?.error) {
       return {
         modules: mods.map((raw) => {
-          const r = raw as Record<string, unknown>;
+          const r = raw as unknown as Record<string, unknown>;
           return {
             id: String(r.id ?? ""),
             key: String(r.key ?? "").trim(),
@@ -161,7 +161,7 @@ async function loadModulesCatalog(): Promise<{
 
     const modules = (mods ?? [])
       .map((raw) => {
-        const r = raw as Record<string, unknown>;
+        const r = raw as unknown as Record<string, unknown>;
         return {
           id: String(r.id ?? ""),
           key: String(r.key ?? "").trim(),
@@ -172,7 +172,7 @@ async function loadModulesCatalog(): Promise<{
       .filter((m) => m.id && m.key);
     const features = (feats ?? [])
       .map((raw) => {
-        const r = raw as Record<string, unknown>;
+        const r = raw as unknown as Record<string, unknown>;
         return {
           id: String(r.id ?? ""),
           module_id: String(r.module_id ?? "").trim(),
@@ -221,8 +221,8 @@ async function loadOrgEntitlementRows(organizationId: string): Promise<{
       .eq("organization_id", organizationId);
     if (e2) return null;
     return {
-      orgModules: (om ?? []) as Record<string, unknown>[],
-      orgFeatures: (omf ?? []) as Record<string, unknown>[],
+      orgModules: (om ?? []) as unknown as Record<string, unknown>[],
+      orgFeatures: (omf ?? []) as unknown as Record<string, unknown>[],
     };
   } catch {
     return null;
@@ -259,7 +259,7 @@ async function buildLicensedModuleFeatureTreeForOrg(
       .order("name", { ascending: true });
     if (error) return { ok: false, error: error.message };
     const rows: PermissionCatalogRow[] = (data ?? [])
-      .map((raw) => toPermissionRow(raw as Record<string, unknown>))
+      .map((raw) => toPermissionRow(raw as unknown as Record<string, unknown>))
       .filter((x) => x.id && x.key);
     const mergedMods = mergeModulesWithPermissionKeys(dbMods, rows);
     const asAccess: AccessPermissionRow[] = rows.map((r) => ({ ...r }));
@@ -304,7 +304,7 @@ async function buildLicensedModuleFeatureTreeForOrg(
     if (mfErr) return { ok: false, error: mfErr.message };
     const mfRows = (mfLite ?? [])
       .map((raw) => {
-        const r = raw as Record<string, unknown>;
+        const r = raw as unknown as Record<string, unknown>;
         return { id: String(r.id ?? "").trim(), module_id: String(r.module_id ?? "").trim() };
       })
       .filter((x) => x.id && x.module_id);
@@ -343,7 +343,7 @@ export async function listPermissionsCatalogAction(): Promise<
       .order("name", { ascending: true });
     if (error) return { ok: false, error: error.message };
     const rows: PermissionCatalogRow[] = (data ?? [])
-      .map((raw) => toPermissionRow(raw as Record<string, unknown>))
+      .map((raw) => toPermissionRow(raw as unknown as Record<string, unknown>))
       .filter((x) => x.id && x.key);
 
     const mergedMods = mergeModulesWithPermissionKeys(dbMods, rows);
@@ -411,7 +411,7 @@ export async function listProfilesForAccessInspectorAction(): Promise<
     if (error) return { ok: false, error: error.message };
 
     const rows: AccessInspectorUserRow[] = (data ?? []).map((raw) => {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const id = String(r.id ?? "").trim();
       const oid = String(r.organization_id ?? "").trim();
       const orgJoin = splitJoined<{ name?: string | null }>(r.organizations);
@@ -507,7 +507,7 @@ export async function getUserEffectiveAccessAction(
     if (perr) return { ok: false, error: perr.message };
     if (!prof) return { ok: false, error: "User not found." };
 
-    const r = prof as Record<string, unknown>;
+    const r = prof as unknown as Record<string, unknown>;
     const profileHomeOrgId = String(r.organization_id ?? "").trim();
     const ctxOrg = (context?.organizationId ?? "").trim();
     const effectiveOrgId =
@@ -581,7 +581,7 @@ export async function getUserEffectiveAccessAction(
       if (gErr) return { ok: false, error: gErr.message };
       const orgGroupIds: string[] = [];
       for (const raw of gRows ?? []) {
-        const gr = raw as Record<string, unknown>;
+        const gr = raw as unknown as Record<string, unknown>;
         const gid = String(gr.id ?? "").trim();
         const k = String(gr.key ?? "").trim();
         const n = String(gr.name ?? "").trim() || k;
@@ -701,7 +701,7 @@ export async function getUserEffectiveAccessAction(
         .in("id", [...permIdSet]);
       if (permErr) return { ok: false, error: permErr.message };
       permissions = (permRows ?? []).map((raw) => {
-        const p = toPermissionRow(raw as Record<string, unknown>);
+        const p = toPermissionRow(raw as unknown as Record<string, unknown>);
         return {
           ...p,
           fromRole: fromRoleIds.has(p.id),
@@ -1065,7 +1065,7 @@ async function buildPrimaryModuleFeatureTree(): Promise<
     .order("name", { ascending: true });
   if (error) return { ok: false, error: error.message };
   const rows: PermissionCatalogRow[] = (data ?? [])
-    .map((raw) => toPermissionRow(raw as Record<string, unknown>))
+    .map((raw) => toPermissionRow(raw as unknown as Record<string, unknown>))
     .filter((x) => x.id && x.key);
   const mergedMods = mergeModulesWithPermissionKeys(dbMods, rows);
   const asAccess: AccessPermissionRow[] = rows.map((r) => ({ ...r }));

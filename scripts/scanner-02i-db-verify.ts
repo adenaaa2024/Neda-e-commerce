@@ -120,10 +120,10 @@ async function main(): Promise<void> {
     if (fallback.error) productProbeError = fallback.error.message;
     else {
       usedNameColumnFallback = true;
-      productRow = (fallback.data as Record<string, unknown> | null) ?? null;
+      productRow = (fallback.data as unknown as Record<string, unknown> | null) ?? null;
     }
   } else {
-    productRow = (primary.data as Record<string, unknown> | null) ?? null;
+    productRow = (primary.data as unknown as Record<string, unknown> | null) ?? null;
   }
 
   const nameVal = typeof productRow?.name === "string" ? productRow.name : null;

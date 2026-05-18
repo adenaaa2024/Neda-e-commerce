@@ -87,7 +87,7 @@ export async function getMarketplaceCredentialsForEdit(
     if (!canAccess(row.role_required, rbac.user_role)) {
       throw new Error("Insufficient role to view this connection.");
     }
-    const raw = (row.credentials ?? {}) as Record<string, unknown>;
+    const raw = (row.credentials ?? {}) as unknown as Record<string, unknown>;
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(raw)) {
       if (v != null && String(v).trim() !== "") out[k] = String(v).trim();
@@ -195,7 +195,7 @@ export async function syncClaims(
     const { CLAIM_SUBMISSIONS_TABLE } = await import("../../claim-engine/claim-submissions-constants");
 
     const rows = claims.map((claim) => {
-      const c = claim as Record<string, unknown>;
+      const c = claim as unknown as Record<string, unknown>;
       const rawStatus = String(c.status ?? "pending");
       const status =
         rawStatus === "recovered"
@@ -452,7 +452,7 @@ export async function listStores(
     // Widen to a loose row shape: retry path omits `is_default` (pre-migration DBs)
     // and must not be assigned to the narrow type inferred from the first select().
     let data: Record<string, unknown>[] | null =
-      (first.data as Record<string, unknown>[] | null) ?? null;
+      (first.data as unknown as Record<string, unknown>[] | null) ?? null;
     let error = first.error;
 
     if (error && isMissingColumnError(error, "is_default")) {
@@ -461,7 +461,7 @@ export async function listStores(
         .select(STORES_LIST_SELECT_BASE)
         .eq("organization_id", rbac.organization_id)
         .order("created_at", { ascending: false });
-      data = (retry.data as Record<string, unknown>[] | null) ?? null;
+      data = (retry.data as unknown as Record<string, unknown>[] | null) ?? null;
       error = retry.error;
     }
 

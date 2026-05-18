@@ -119,7 +119,7 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
   if (!bodyRaw || typeof bodyRaw !== "object" || Array.isArray(bodyRaw)) {
     return NextResponse.json({ error: "Body must be an object." }, { status: 400 });
   }
-  const body = bodyRaw as Record<string, unknown>;
+  const body = bodyRaw as unknown as Record<string, unknown>;
   const organizationId = String(body.organization_id ?? "").trim();
   const storeId = String(body.store_id ?? "").trim();
   const action = String(body.action ?? "").trim();
@@ -168,11 +168,11 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
     handoff_to_user_id: typeof body.handoff_to_user_id === "string" ? body.handoff_to_user_id : undefined,
     trid_selection:
       body.trid_selection && typeof body.trid_selection === "object" && !Array.isArray(body.trid_selection)
-        ? (body.trid_selection as Record<string, unknown>)
+        ? (body.trid_selection as unknown as Record<string, unknown>)
         : undefined,
     ai_classification:
       body.ai_classification && typeof body.ai_classification === "object" && !Array.isArray(body.ai_classification)
-        ? (body.ai_classification as Record<string, unknown>)
+        ? (body.ai_classification as unknown as Record<string, unknown>)
         : undefined,
     ai_confidence: typeof body.ai_confidence === "number" ? body.ai_confidence : undefined,
     ai_model_version: typeof body.ai_model_version === "string" ? body.ai_model_version : undefined,

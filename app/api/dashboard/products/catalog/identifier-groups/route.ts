@@ -52,7 +52,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const payload = (data ?? {}) as Record<string, unknown>;
+  const payload = (data ?? {}) as unknown as Record<string, unknown>;
   return NextResponse.json({
     ok: true,
     mode: payload.mode,

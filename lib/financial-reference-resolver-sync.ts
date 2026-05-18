@@ -14,7 +14,7 @@ function normStr(v: unknown): string {
 
 function tryAsinFromRawData(raw: unknown): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   const keys = ["asin", "asin1", "asin1-value", "product-id", "product_id", "ASIN"];
   for (const k of keys) {
     const v = o[k];
@@ -25,7 +25,7 @@ function tryAsinFromRawData(raw: unknown): string | null {
 
 function tryCurrencyFromRawData(raw: unknown): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   for (const k of ["currency", "currency-code", "currency_code"]) {
     const v = o[k];
     if (typeof v === "string" && v.trim()) return v.trim();
@@ -35,7 +35,7 @@ function tryCurrencyFromRawData(raw: unknown): string | null {
 
 function tryPostedDateFromRawData(raw: unknown): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   for (const k of ["posted-date", "posted_date", "approval-date", "approval_date"]) {
     const v = o[k];
     if (typeof v === "string" && v.trim()) return v.trim();

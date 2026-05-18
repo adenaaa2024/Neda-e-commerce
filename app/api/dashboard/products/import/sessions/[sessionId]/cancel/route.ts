@@ -51,7 +51,7 @@ export async function POST(req: Request, ctx: Ctx) {
   const prevJob = base.pim_import_job;
   const j =
     typeof prevJob === "object" && prevJob !== null && !Array.isArray(prevJob)
-      ? { ...(prevJob as Record<string, unknown>) }
+      ? { ...(prevJob as unknown as Record<string, unknown>) }
       : {};
   const meta = {
     ...base,

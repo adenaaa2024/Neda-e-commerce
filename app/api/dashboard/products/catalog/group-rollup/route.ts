@@ -322,7 +322,7 @@ export async function GET(req: Request) {
     const prodById = new Map(plist.map((x) => [x.id, x]));
     const prodSets = new Map<string, Set<string>>();
     for (const row of mapsAccum) {
-      const r = row as Record<string, unknown>;
+      const r = row as unknown as Record<string, unknown>;
       const pid = String(r.product_id ?? "").trim();
       const val = String(r[col] ?? "").trim();
       if (!val || !pid) continue;

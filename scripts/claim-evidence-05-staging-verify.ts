@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   let candidateId: string | null = null;
   let candidateGraph: Awaited<ReturnType<typeof buildClaimEvidencePreview>> | null = null;
   for (const c of candidates ?? []) {
-    const row = c as Record<string, unknown>;
+    const row = c as unknown as Record<string, unknown>;
     const cid = String(row.id ?? "");
     const resolved = await resolveDraftForCandidate(client, ORG_ID, {
       id: cid,

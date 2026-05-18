@@ -68,12 +68,12 @@ export async function upsertProductIdentifierMapFromCatalogRows(
       .eq("organization_id", orgId)
       .in("catalog_product_id", idSlice);
     if (exErr) throw new Error(`product_identifier_map prefetch failed: ${exErr.message}`);
-    if (page?.length) existing.push(...(page as Record<string, unknown>[]));
+    if (page?.length) existing.push(...(page as unknown as Record<string, unknown>[]));
   }
 
   const existingByTuple = new Map<string, string>();
   for (const e of existing) {
-    const row = e as Record<string, unknown>;
+    const row = e as unknown as Record<string, unknown>;
     const id = String(row.id ?? "");
     const cid = String(row.catalog_product_id ?? "");
     if (!id || !cid) continue;

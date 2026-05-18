@@ -79,7 +79,7 @@ async function syncSlipContentsResolverForPackage(
     return { ok: false, error: error.message };
   }
 
-  const rows = (slips ?? []) as Record<string, unknown>[];
+  const rows = (slips ?? []) as unknown as Record<string, unknown>[];
   let patched = 0;
 
   for (const slip of rows) {

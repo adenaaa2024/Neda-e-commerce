@@ -510,7 +510,7 @@ export function packPayloadForSupabase(
     // Merge existing raw_data (from mapper) with any overflow keys from above
     const existingRawData =
       row.raw_data && typeof row.raw_data === "object" && !Array.isArray(row.raw_data)
-        ? (row.raw_data as Record<string, unknown>)
+        ? (row.raw_data as unknown as Record<string, unknown>)
         : {};
 
     const mergedRawData = { ...overflow, ...existingRawData };

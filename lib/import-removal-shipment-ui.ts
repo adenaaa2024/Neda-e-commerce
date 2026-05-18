@@ -147,7 +147,7 @@ export function buildRemovalShipmentProgressModel(
     ),
   );
 
-  const fileRowResolved = resolveImportFileRowTotal({ fps: f as Record<string, unknown>, metadata: m });
+  const fileRowResolved = resolveImportFileRowTotal({ fps: f as unknown as Record<string, unknown>, metadata: m });
   const fileRowPlan = fileRowResolved.total;
   const dataRowsTotal = Math.max(0, fileRowPlan ?? 0);
   const stagedRowsWritten = Math.max(0, num(f.staged_rows_written, 0) || num(f.processed_rows, 0));

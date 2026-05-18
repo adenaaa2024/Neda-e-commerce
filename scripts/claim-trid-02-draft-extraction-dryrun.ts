@@ -110,7 +110,7 @@ async function fetchAllDrafts(client: SupabaseClient, orgId: string, includeRetu
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`claim_candidate_drafts: ${error.message}`);
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     for (const r of batch) {
       const id = nv(r.id);
       const org = nv(r.organization_id);
@@ -142,7 +142,7 @@ async function fetchRemovalsByIds(client: SupabaseClient, orgId: string, ids: st
       .eq("organization_id", orgId)
       .in("id", slice);
     if (error) throw new Error(`amazon_removals: ${error.message}`);
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = nv(r.id);
       if (!id) continue;
       map.set(id, { id, order_id: nv(r.order_id), sku: nv(r.sku) });
@@ -164,7 +164,7 @@ async function fetchReturnsByIds(client: SupabaseClient, orgId: string, ids: str
       /** Returns table may use different column names — skip if probe fails */
       return map;
     }
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = nv(r.id);
       if (!id) continue;
       map.set(id, { id, order_id: nv(r.order_id), sku: nv(r.sku) });
@@ -208,7 +208,7 @@ async function countWorkItemsForDrafts(client: SupabaseClient, orgId: string, dr
       /** Table may be absent in some envs */
       return m;
     }
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const did = nv(r.draft_id);
       const wid = nv(r.id);
       if (did && wid) m.set(did, wid);

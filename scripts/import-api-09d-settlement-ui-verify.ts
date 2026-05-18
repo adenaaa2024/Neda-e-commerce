@@ -5,10 +5,10 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createRequire } from "node:module";
+import { createRequire, type Module } from "node:module";
 
 const require = createRequire(import.meta.url);
-require.cache[require.resolve("server-only")] = { exports: {} };
+require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
 const ENV_LOCAL = join(process.cwd(), ".env.local");
 const STAGING_REF = "kxsvedvpjldygtdbylsy";
@@ -62,7 +62,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const view = buildImportHistorySourceRunView(row);
+  const view = buildImportHistorySourceRunView(
+    row as Parameters<typeof buildImportHistorySourceRunView>[0],
+  );
   const completion = await assessReportsApiPipelineCompletion(
     supabaseServer,
     ORG_ID,
@@ -73,10 +75,10 @@ async function main(): Promise<void> {
   const kind = resolveAmazonImportSyncKind(row.report_type);
   const frrAutomatic = requiresPhase4Generic(kind);
 
-  const meta = row.metadata as Record<string, unknown> | null;
+  const meta = row.metadata as unknown as Record<string, unknown> | null;
   const sr =
     meta?.source_run && typeof meta.source_run === "object"
-      ? (meta.source_run as Record<string, unknown>)
+      ? (meta.source_run as unknown as Record<string, unknown>)
       : null;
 
   let frrForUpload = 0;

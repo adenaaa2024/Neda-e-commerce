@@ -116,7 +116,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const rows = (((data ?? []) as unknown) as Record<string, unknown>[]) ?? [];
+    const rows = (((data ?? []) as unknown) as unknown as Record<string, unknown>[]) ?? [];
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const last = page.length > 0 ? page[page.length - 1] : null;

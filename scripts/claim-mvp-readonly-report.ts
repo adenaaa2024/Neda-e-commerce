@@ -237,7 +237,7 @@ async function fetchPaged<T extends Record<string, unknown>>(
     if (error) {
       return { rows, error: error.message };
     }
-    const batch = (data ?? []) as T[];
+    const batch = (data ?? []) as unknown as T[];
     rows.push(...batch);
     if (batch.length < PAGE) break;
     from += PAGE;
@@ -260,7 +260,7 @@ async function trySelect(
   }
   const { data, error } = await q;
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as Record<string, unknown>[], error: null };
+  return { rows: (data ?? []) as unknown as Record<string, unknown>[], error: null };
 }
 
 /** Capped read for heavy views (avoids PostgREST statement timeout on full scans). */
@@ -281,7 +281,7 @@ async function fetchLimited<T extends Record<string, unknown>>(
   }
   const { data, error } = await q;
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as T[], error: null };
+  return { rows: (data ?? []) as unknown as T[], error: null };
 }
 
 async function countExact(
@@ -334,7 +334,7 @@ async function fetchPagedWhere<T extends Record<string, unknown>>(
     }
     const { data, error } = await q;
     if (error) return { rows, error: error.message };
-    const batch = (data ?? []) as T[];
+    const batch = (data ?? []) as unknown as T[];
     rows.push(...batch);
     if (batch.length < PAGE) break;
     from += PAGE;
@@ -676,7 +676,7 @@ async function main(): Promise<void> {
           );
           continue;
         }
-        sourceContextByCandidateId.set(id, r as Record<string, unknown>);
+        sourceContextByCandidateId.set(id, r as unknown as Record<string, unknown>);
       }
     }
   }

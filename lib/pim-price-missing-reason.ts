@@ -4,9 +4,9 @@
 
 export function readPimPriceEnrichmentFromMetadata(metadata: unknown): Record<string, unknown> | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const pe = (metadata as Record<string, unknown>).pim_price_enrichment;
+  const pe = (metadata as unknown as Record<string, unknown>).pim_price_enrichment;
   if (!pe || typeof pe !== "object" || Array.isArray(pe)) return null;
-  return pe as Record<string, unknown>;
+  return pe as unknown as Record<string, unknown>;
 }
 
 export function readPimPriceMissingReasonFromMetadata(metadata: unknown): string | null {
@@ -18,9 +18,9 @@ export function readPimPriceMissingReasonFromMetadata(metadata: unknown): string
 
 export function legacyPricingOutcomeHint(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const ce = (metadata as Record<string, unknown>).pim_catalog_enrichment;
+  const ce = (metadata as unknown as Record<string, unknown>).pim_catalog_enrichment;
   if (!ce || typeof ce !== "object" || Array.isArray(ce)) return null;
-  const o = (ce as Record<string, unknown>).pricing_outcome;
+  const o = (ce as unknown as Record<string, unknown>).pricing_outcome;
   return typeof o === "string" && o.trim() ? `Last Amazon pricing API outcome: ${o.trim()}.` : null;
 }
 

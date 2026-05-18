@@ -63,7 +63,7 @@ async function testSimulatedLatency(): Promise<void> {
 }
 
 function testRowPreservesRawFragment(): void {
-  const raw = JSON.parse(readFileSync(FIXTURE, "utf8")) as Record<string, unknown>;
+  const raw = JSON.parse(readFileSync(FIXTURE, "utf8")) as unknown as Record<string, unknown>;
   const flat = flattenFinancialEventsV0(extractFinancialEventsFromEventsPage(raw));
   const row = toFinancesEventInsertRow(
     { id: "00000000-0000-4000-8000-000000000099", organization_id: "00000000-0000-4000-8000-000000000001" },
@@ -81,7 +81,7 @@ function testRowPreservesRawFragment(): void {
 }
 
 function testIdempotencyKeyFields(): void {
-  const raw = JSON.parse(readFileSync(FIXTURE, "utf8")) as Record<string, unknown>;
+  const raw = JSON.parse(readFileSync(FIXTURE, "utf8")) as unknown as Record<string, unknown>;
   const flat = flattenFinancialEventsV0(extractFinancialEventsFromEventsPage(raw));
   const row = toFinancesEventInsertRow(
     { id: "run-1", organization_id: "org-1" },

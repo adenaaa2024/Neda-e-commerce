@@ -3,10 +3,10 @@
  * Run: npm run test:reports-api-pipeline-completion
  */
 
-import { createRequire } from "node:module";
+import { createRequire, type Module } from "node:module";
 
 const require = createRequire(import.meta.url);
-require.cache[require.resolve("server-only")] = { exports: {} };
+require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);

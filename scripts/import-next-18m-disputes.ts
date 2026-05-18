@@ -187,7 +187,7 @@ function validateRecord(
   }
   const ai = row.ai_advice;
   if (ai != null && typeof ai === "object" && !Array.isArray(ai)) {
-    const adv = (ai as Record<string, unknown>).advisory_only;
+    const adv = (ai as unknown as Record<string, unknown>).advisory_only;
     if (adv !== true) {
       return { ok: false, fingerprint, line: lineNo, error: "ai_advice must have advisory_only: true when present" };
     }
@@ -196,7 +196,7 @@ function validateRecord(
 }
 
 function buildClassifierPayload(row: DisputeNdjsonRow): Record<string, unknown> {
-  return { ...row } as Record<string, unknown>;
+  return { ...row } as unknown as Record<string, unknown>;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {

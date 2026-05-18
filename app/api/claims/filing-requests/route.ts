@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   if (!bodyRaw || typeof bodyRaw !== "object" || Array.isArray(bodyRaw)) {
     return NextResponse.json({ error: "Body must be an object." }, { status: 400 });
   }
-  const body = bodyRaw as Record<string, unknown>;
+  const body = bodyRaw as unknown as Record<string, unknown>;
   const organizationId = String(body.organization_id ?? "").trim();
 
   const gate = await assertUserCanAccessOrganization(organizationId);

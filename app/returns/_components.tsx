@@ -5922,7 +5922,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
       const photo_evidence = noBoxMode
         ? (polyOnly ?? undefined)
         : struct
-          ? (struct as Record<string, unknown>)
+          ? (struct as unknown as Record<string, unknown>)
           : undefined;
       const res = await createPackage({
         organization_id: pkgOrgId,

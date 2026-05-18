@@ -62,7 +62,7 @@ function main(): void {
 
   process.env.ENABLE_CLAIM_FILING_OUTBOUND_ADAPTER_DRY_RUN = "true";
   const stubOn = runClaimFilingOutboundAdapterDryRun(OUTBOUND_FIXTURE_DETERMINISTIC_TRID);
-  assert(stubOn.ok && !stubOn.disabled, "stub should validate when dry run enabled");
+  if (!stubOn.ok || stubOn.disabled) throw new Error("stub should validate when dry run enabled");
   assert(stubOn.dryRunLog.includes("amazon_calls: none"), "dry run log should assert no Amazon");
 
   if (origDry === undefined) delete process.env.ENABLE_CLAIM_FILING_OUTBOUND_ADAPTER_DRY_RUN;

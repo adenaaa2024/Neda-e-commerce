@@ -303,7 +303,7 @@ export function parseNdjsonBucket5(
     if (!line || line.length === 0) continue;
     let row: Record<string, unknown>;
     try {
-      row = JSON.parse(line) as Record<string, unknown>;
+      row = JSON.parse(line) as unknown as Record<string, unknown>;
     } catch (e) {
       warnings.push({
         source: filePath,
@@ -315,9 +315,9 @@ export function parseNdjsonBucket5(
     }
     if (Number(row.bucket_id) !== 5) continue;
 
-    const identifiers = (row.identifiers as Record<string, unknown> | undefined) ?? {};
-    const matchEvidence = (row.match_evidence as Record<string, unknown> | undefined) ?? {};
-    const shapeRaw = (matchEvidence.shape as Record<string, unknown> | undefined) ?? null;
+    const identifiers = (row.identifiers as unknown as Record<string, unknown> | undefined) ?? {};
+    const matchEvidence = (row.match_evidence as unknown as Record<string, unknown> | undefined) ?? {};
+    const shapeRaw = (matchEvidence.shape as unknown as Record<string, unknown> | undefined) ?? null;
 
     out.push({
       source_table: sourceTable,
@@ -387,7 +387,7 @@ export function parseConflictCsv(
     let identifiersObj: Record<string, unknown> = {};
     let conflictIds: string[] = [];
     try {
-      identifiersObj = JSON.parse(fields[idx.identifiers_json] ?? "{}") as Record<string, unknown>;
+      identifiersObj = JSON.parse(fields[idx.identifiers_json] ?? "{}") as unknown as Record<string, unknown>;
     } catch (e) {
       warnings.push({
         source: filePath,

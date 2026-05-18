@@ -198,7 +198,7 @@ export function ClaimInboxClient({
       try {
         const params = new URLSearchParams({ organization_id: organizationId });
         const res = await fetch(`/api/claims/my-stores?${params.toString()}`, { credentials: "include" });
-        const body = (await res.json()) as Record<string, unknown>;
+        const body = (await res.json()) as unknown as Record<string, unknown>;
         if (!res.ok) {
           if (!cancelled) {
             setStoresError(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
@@ -210,7 +210,7 @@ export function ClaimInboxClient({
         }
         const raw = body.stores;
         const list: AllowedStoreRow[] = Array.isArray(raw)
-          ? (raw as Record<string, unknown>[]).map((r) => ({
+          ? (raw as unknown as Record<string, unknown>[]).map((r) => ({
               store_id: String(r.store_id ?? ""),
               name: String(r.name ?? ""),
               platform: String(r.platform ?? ""),
@@ -284,7 +284,7 @@ export function ClaimInboxClient({
 
     try {
       const res = await fetch(`/api/claims/inbox?${params.toString()}`, { credentials: "include" });
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setItems([]);
         setNextCursor(null);
@@ -338,7 +338,7 @@ export function ClaimInboxClient({
       credentials: "include",
     })
       .then(async (res) => {
-        const j = (await res.json()) as Record<string, unknown>;
+        const j = (await res.json()) as unknown as Record<string, unknown>;
         if (!res.ok) {
           setDetailErr(typeof j.error === "string" ? j.error : `HTTP ${res.status}`);
           return;
@@ -365,7 +365,7 @@ export function ClaimInboxClient({
       { credentials: "include" },
     )
       .then(async (res) => {
-        const j = (await res.json()) as Record<string, unknown>;
+        const j = (await res.json()) as unknown as Record<string, unknown>;
         if (!res.ok) {
           setEvidenceErr(typeof j.error === "string" ? j.error : `HTTP ${res.status}`);
           return;
@@ -376,12 +376,12 @@ export function ClaimInboxClient({
       .finally(() => setEvidenceLoading(false));
   }, [detailId, organizationId]);
 
-  const projection = detailJson?.projection as Record<string, unknown> | undefined;
+  const projection = detailJson?.projection as unknown as Record<string, unknown> | undefined;
   const legacyAlert = isLegacySourceBroken({
     inbox_queue: typeof projection?.inbox_queue === "string" ? projection.inbox_queue : null,
     lineage_warning_code: typeof projection?.lineage_warning_code === "string" ? projection.lineage_warning_code : null,
   });
-  const candidate = (detailJson?.candidate as Record<string, unknown> | undefined) ?? null;
+  const candidate = (detailJson?.candidate as unknown as Record<string, unknown> | undefined) ?? null;
 
   const noStoreAccess = storesReady && !storesError && allowedStores.length === 0 && !hasVirtualCoverage;
 
@@ -748,7 +748,7 @@ export function ClaimInboxClient({
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Product identity</h3>
                     <ul className="mt-2 space-y-2 text-xs">
                       {(Array.isArray(detailJson.product_badges) ? detailJson.product_badges : []).map((p, i) => {
-                        const row = p as Record<string, unknown>;
+                        const row = p as unknown as Record<string, unknown>;
                         return (
                           <li
                             key={i}

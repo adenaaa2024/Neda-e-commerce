@@ -133,7 +133,7 @@ const csvRows = [
   const productPayload = captured.products[0] ?? [];
   const productSkus = productPayload.map((row) => (row as any).sku);
   const catalogPayload = captured.catalog[0] ?? [];
-  const identifierInserted = (captured.identifierInserts.flat() ?? []) as Record<string, unknown>[];
+  const identifierInserted = (captured.identifierInserts.flat() ?? []) as unknown as Record<string, unknown>[];
   const identifierIds = identifierInserted.map((row) => row.external_listing_id as string);
 
   const summary = {

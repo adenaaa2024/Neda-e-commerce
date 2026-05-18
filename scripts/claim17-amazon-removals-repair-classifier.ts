@@ -322,7 +322,7 @@ async function fetchCandidateSourceContext(
     const { data, error } = await client.from("v_claim_candidate_source_context").select("*").in("claim_candidate_id", slice);
     traceNd(tracePath, { phase: "fetch_source_context", chunk: i, count: slice.length, error: error?.message });
     if (error) continue;
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const id = n(row.claim_candidate_id);
       if (id) out.set(id, row);
     }

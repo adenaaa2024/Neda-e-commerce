@@ -57,7 +57,7 @@ function firstString(arr: unknown): string | null {
 
 function structUrls(raw: unknown, key: string): string[] {
   if (!raw || typeof raw !== "object") return [];
-  const v = (raw as Record<string, unknown>)[key];
+  const v = (raw as unknown as Record<string, unknown>)[key];
   if (!Array.isArray(v)) return [];
   return v.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
 }

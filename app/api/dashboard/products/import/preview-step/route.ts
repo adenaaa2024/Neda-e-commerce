@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     row_chunk: body.row_chunk,
     scan_data_row_hint: body.scan_data_row_hint,
   });
-  const payload = (r.json ?? { ok: false, error: "empty_etl_response" }) as Record<string, unknown>;
+  const payload = (r.json ?? { ok: false, error: "empty_etl_response" }) as unknown as Record<string, unknown>;
   const retryable = payload.retryable === true;
   const status = r.timedOut ? 504 : r.status;
   if (!r.ok && retryable && status === 503) {

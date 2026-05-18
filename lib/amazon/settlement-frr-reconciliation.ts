@@ -101,7 +101,7 @@ async function countFrrRowsForSettlementIds(
       .eq("source_table", "amazon_settlements")
       .in("source_row_id", part);
     if (error) return { frrRows: [], error: error.message };
-    all.push(...((data ?? []) as Record<string, unknown>[]));
+    all.push(...((data ?? []) as unknown as Record<string, unknown>[]));
   }
   return { frrRows: all, error: null };
 }
@@ -173,7 +173,7 @@ export async function computeSettlementFrrReconciliation(
     const { data: sidPage, error: sidErr } = await sidQ;
     if (sidErr) return { ok: false, error: sidErr.message, code: "settlement_read_failed" };
 
-    const settlements = (sidPage ?? []) as Record<string, unknown>[];
+    const settlements = (sidPage ?? []) as unknown as Record<string, unknown>[];
     if (!settlements.length) break;
 
     lastSid = String(settlements[settlements.length - 1]?.id ?? "") || lastSid;

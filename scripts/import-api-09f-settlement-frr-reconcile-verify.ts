@@ -5,10 +5,10 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createRequire } from "node:module";
+import { createRequire, type Module } from "node:module";
 
 const require = createRequire(import.meta.url);
-require.cache[require.resolve("server-only")] = { exports: {} };
+require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
 const ENV_LOCAL = join(process.cwd(), ".env.local");
 const STAGING_REF = "kxsvedvpjldygtdbylsy";

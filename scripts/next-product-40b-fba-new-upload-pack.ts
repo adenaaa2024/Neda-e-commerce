@@ -4,7 +4,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import pg from "pg";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { adaptResolverImportRow } from "../lib/amazon-import-product-resolver";
 import { runIncrementalResolverForUpload } from "../lib/amazon-resolver-incremental-orchestrator";
 import {
@@ -69,7 +69,7 @@ function escCsv(v: unknown): string {
 }
 
 async function simulateEligible(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   org: string,
   store: string,
   upload: string,

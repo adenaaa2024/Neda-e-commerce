@@ -36,7 +36,7 @@ const CLAIM_HISTORY_SELECT =
   "id, organization_id, claim_id, action, details, actor, created_at";
 
 function asDetailsObj(raw: unknown): Record<string, unknown> {
-  if (raw != null && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (raw != null && typeof raw === "object" && !Array.isArray(raw)) return raw as unknown as Record<string, unknown>;
   return {};
 }
 
@@ -197,7 +197,7 @@ export async function getClaimHistoryLogsForSubmission(
 
     if (error) throw new Error(error.message);
 
-    const logs: ClaimHistoryLogRow[] = (data ?? []).map((row) => mapClaimHistoryLogRow(row as Record<string, unknown>));
+    const logs: ClaimHistoryLogRow[] = (data ?? []).map((row) => mapClaimHistoryLogRow(row as unknown as Record<string, unknown>));
 
     return { ok: true, data: logs };
   } catch (e) {
@@ -230,7 +230,7 @@ export async function getClaimInvestigationPayload(
     if (sErr) throw new Error(sErr.message);
     if (!sub) return { ok: false, error: "Submission not found." };
 
-    const subRow = sub as Record<string, unknown>;
+    const subRow = sub as unknown as Record<string, unknown>;
     const returnId = subRow[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string | null | undefined;
 
     const { data: ret } = returnId
@@ -247,7 +247,7 @@ export async function getClaimInvestigationPayload(
     if (lErr) throw new Error(lErr.message);
 
     const logs: ClaimHistoryLogRow[] = (logsRaw ?? []).map((row) =>
-      mapClaimHistoryLogRow(row as Record<string, unknown>),
+      mapClaimHistoryLogRow(row as unknown as Record<string, unknown>),
     );
 
     const preview_url = await signedUrlForReport(subRow.report_url as string | null);
@@ -257,7 +257,7 @@ export async function getClaimInvestigationPayload(
       data: {
         submission: subRow,
         logs,
-        returnRow: ret ? (ret as Record<string, unknown>) : null,
+        returnRow: ret ? (ret as unknown as Record<string, unknown>) : null,
         preview_url,
       },
     };

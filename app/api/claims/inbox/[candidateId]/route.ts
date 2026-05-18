@@ -67,7 +67,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
       .eq("organization_id", organizationId)
       .in("id", [...productIds]);
     if (!pErr && prows) {
-      for (const p of (prows as unknown) as Record<string, unknown>[]) {
+      for (const p of (prows as unknown) as unknown as Record<string, unknown>[]) {
         productBadges.push({
           id: claimInboxStr(p.id),
           title: claimInboxStr(p.title),
@@ -158,7 +158,7 @@ async function loadRelatedSubmissionSummary(
 
   if (error) return { return_id: returnId, rows: [] };
 
-  const rows = (subs ?? []) as Record<string, unknown>[];
+  const rows = (subs ?? []) as unknown as Record<string, unknown>[];
   return {
     return_id: returnId,
     rows: rows.map((r) => ({

@@ -211,8 +211,8 @@ export function buildUnifiedPipeline(input: UnifiedPipelineInput): UnifiedPipeli
   }
 
   const fileRowResolved = resolveImportFileRowTotal({
-    fps: f as Record<string, unknown>,
-    metadata: m as Record<string, unknown>,
+    fps: f as unknown as Record<string, unknown>,
+    metadata: m as unknown as Record<string, unknown>,
   });
   const fileRowPlan = fileRowResolved.total;
   const dataRowsTotal = Math.max(0, fileRowPlan ?? 0);
@@ -629,7 +629,7 @@ export function buildUnifiedPipeline(input: UnifiedPipelineInput): UnifiedPipeli
   } else if (genericWritten > 0) {
     parts.push(`generic ${fmtRows(genericWritten)}`);
   }
-  const dupSkipped = Math.max(0, num(f.duplicate_rows_skipped ?? (m.import_metrics as Record<string, unknown> | undefined)?.rows_duplicate_against_existing, 0));
+  const dupSkipped = Math.max(0, num(f.duplicate_rows_skipped ?? (m.import_metrics as unknown as Record<string, unknown> | undefined)?.rows_duplicate_against_existing, 0));
   if (dupSkipped > 0) parts.push(`dup ${fmtRows(dupSkipped)}`);
 
   const rowMetricsLine = parts.join(" · ") || "—";

@@ -151,7 +151,7 @@ export async function GET(req: Request) {
 
   const payload =
     data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
+      ? (data as unknown as Record<string, unknown>)
       : { total: 0, rows: [], page, page_size: pageSize };
 
   return NextResponse.json({

@@ -130,7 +130,7 @@ async function fetchRows(sb: SupabaseClient, ids: string[]): Promise<Map<string,
     const slice = ids.slice(i, i + 100);
     const { data, error } = await sb.from(TABLE).select(SELECT_COLS).in("id", slice);
     if (error) throw new Error(`SELECT ${TABLE}: ${error.message}`);
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       map.set(String(r.id), r);
     }
   }

@@ -158,9 +158,9 @@ export function createInitialSourceRun(input: {
 
 export function parseSourceRun(metadata: unknown): SourceRunV1 | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const raw = (metadata as Record<string, unknown>).source_run;
+  const raw = (metadata as unknown as Record<string, unknown>).source_run;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   const source_run_id = typeof o.source_run_id === "string" ? o.source_run_id.trim() : "";
   if (!source_run_id) return null;
   const state = typeof o.state === "string" ? (o.state as SourceRunState) : "requested";

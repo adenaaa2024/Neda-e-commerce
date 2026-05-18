@@ -94,7 +94,7 @@ function parseNdjsonLines(filePath: string): InventoryNdRow[] {
     const t = line.trim();
     if (!t) continue;
     try {
-      const o = JSON.parse(t) as Record<string, unknown>;
+      const o = JSON.parse(t) as unknown as Record<string, unknown>;
       out.push({
         bucket: String(o.bucket ?? ""),
         object_name: String(o.object_name ?? ""),

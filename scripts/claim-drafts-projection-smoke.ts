@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function runFlagCase(envValue: string | undefined, expectEnabled: boolean): void {
-  const env = { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS ?? "" };
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS ?? "" };
   if (envValue === undefined) delete env.ENABLE_CLAIM_DRAFTS_REVIEW;
   else env.ENABLE_CLAIM_DRAFTS_REVIEW = envValue;
 

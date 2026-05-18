@@ -123,7 +123,7 @@ export type ExtractedIdentifiers = {
 
 function rawPayloadString(raw: unknown, ...keys: string[]): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const obj = raw as Record<string, unknown>;
+  const obj = raw as unknown as Record<string, unknown>;
   for (const k of keys) {
     const v = obj[k];
     if (v == null) continue;

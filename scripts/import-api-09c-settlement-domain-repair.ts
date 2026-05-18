@@ -5,10 +5,10 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createRequire } from "node:module";
+import { createRequire, type Module } from "node:module";
 
 const require = createRequire(import.meta.url);
-require.cache[require.resolve("server-only")] = { exports: {} };
+require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
 const ENV_LOCAL = join(process.cwd(), ".env.local");
 const STAGING_REF = "kxsvedvpjldygtdbylsy";
@@ -119,7 +119,13 @@ async function main(): Promise<void> {
     run_id: rid,
     upload_id: uploadId,
     organization_id: orgId,
-    repair: { ok: pipe.ok, state: pipe.state, error: pipe.error, error_code: pipe.error_code, wall_ms: wallMs },
+    repair: {
+      ok: pipe.ok,
+      state: pipe.state,
+      error: pipe.ok ? undefined : pipe.error,
+      error_code: pipe.ok ? undefined : pipe.error_code,
+      wall_ms: wallMs,
+    },
     before,
     after,
     upload_status_after: upAfter?.status ?? null,

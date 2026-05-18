@@ -27,18 +27,22 @@ function clampLimit(raw: string | null): number {
   return Math.min(MAX_LIMIT, Math.max(1, n));
 }
 
-async function countWorkItems(
-  organizationId: string,
-  storeId: string,
-  apply: (q: ReturnType<typeof supabaseServer.from>) => ReturnType<typeof supabaseServer.from>,
-): Promise<number> {
-  let q = supabaseServer
+function buildWorkItemCountQuery(organizationId: string, storeId: string) {
+  return supabaseServer
     .from("claim_review_work_items")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
     .eq("store_id", storeId);
-  q = apply(q);
-  const { count, error } = await q;
+}
+
+type WorkItemCountQuery = ReturnType<typeof buildWorkItemCountQuery>;
+
+async function countWorkItems(
+  organizationId: string,
+  storeId: string,
+  apply: (q: WorkItemCountQuery) => WorkItemCountQuery,
+): Promise<number> {
+  const { count, error } = await apply(buildWorkItemCountQuery(organizationId, storeId));
   if (error) return -1;
   return typeof count === "number" ? count : 0;
 }
@@ -297,7 +301,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: dErr.message }, { status: 500 });
       }
       draftById = Object.fromEntries(
-        ((drafts ?? []) as Record<string, unknown>[]).map((d) => {
+        ((drafts ?? []) as unknown as Record<string, unknown>[]).map((d) => {
           const id = typeof d.id === "string" ? d.id : "";
           return [id, d] as const;
         }),

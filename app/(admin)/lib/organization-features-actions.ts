@@ -59,7 +59,7 @@ export async function listOrganizationFeatures(
     if (setErr) return { ok: false, error: setErr.message };
 
     const rows: OrganizationFeatureRow[] = (sets ?? []).map((raw) => {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const id = String(r.organization_id ?? "");
       const displayName =
         (typeof r.company_display_name === "string" && r.company_display_name.trim()) || id;

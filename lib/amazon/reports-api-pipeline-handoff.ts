@@ -47,7 +47,7 @@ async function postImportRoute(
     try {
       const parsed = (await res.json()) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        json = parsed as Record<string, unknown>;
+        json = parsed as unknown as Record<string, unknown>;
       }
     } catch {
       json = null;
@@ -80,7 +80,7 @@ async function postImportRouteInProcess(
   try {
     const parsed = (await res.json()) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      json = parsed as Record<string, unknown>;
+      json = parsed as unknown as Record<string, unknown>;
     }
   } catch {
     json = null;
@@ -153,12 +153,16 @@ export async function runReportsApiImportPipeline(params: {
       upload_id: params.uploadId,
       import_full_file: params.importFullFile ?? true,
     });
-    const stageJson = (await stageRes.json().catch(() => null)) as Record<string, unknown> | null;
+    const stageJson = (await stageRes.json().catch(() => null)) as unknown as Record<string, unknown> | null;
     if (!stageRes.ok || stageJson?.ok === false) {
       const msg = String(stageJson?.error ?? "Phase 2 staging failed.");
       sr = patchSourceRun(sr, {
         state: "failed",
-        attempt: { last_error_code: "process_failed", count: sr.attempt.count + 1 },
+        attempt: {
+          last_error_code: "process_failed",
+          count: sr.attempt.count + 1,
+          next_retry_at: null,
+        },
       });
       await patchUploadSourceRun(params.uploadId, params.organizationId, sr);
       return { ok: false, state: sr.state, error: msg, error_code: "process_failed" };
@@ -175,7 +179,11 @@ export async function runReportsApiImportPipeline(params: {
       const msg = String(syncRes.json?.error ?? "Phase 3 sync failed.");
       sr = patchSourceRun(sr, {
         state: "failed",
-        attempt: { last_error_code: "sync_failed", count: sr.attempt.count + 1 },
+        attempt: {
+          last_error_code: "sync_failed",
+          count: sr.attempt.count + 1,
+          next_retry_at: null,
+        },
       });
       await patchUploadSourceRun(params.uploadId, params.organizationId, sr);
       return { ok: false, state: sr.state, error: msg, error_code: "sync_failed" };
@@ -215,7 +223,11 @@ export async function runReportsApiImportPipeline(params: {
         const msg = e instanceof Error ? e.message : "Phase 4 generic failed.";
         sr = patchSourceRun(sr, {
           state: "failed",
-          attempt: { last_error_code: "generic_failed", count: sr.attempt.count + 1 },
+          attempt: {
+            last_error_code: "generic_failed",
+            count: sr.attempt.count + 1,
+            next_retry_at: null,
+          },
         });
         await patchUploadSourceRun(params.uploadId, params.organizationId, sr);
         return { ok: false, state: sr.state, error: msg, error_code: "generic_failed" };
@@ -228,7 +240,11 @@ export async function runReportsApiImportPipeline(params: {
         const msg = String(genericRes.json?.error ?? "Phase 4 generic failed.");
         sr = patchSourceRun(sr, {
           state: "failed",
-          attempt: { last_error_code: "generic_failed", count: sr.attempt.count + 1 },
+          attempt: {
+            last_error_code: "generic_failed",
+            count: sr.attempt.count + 1,
+            next_retry_at: null,
+          },
         });
         await patchUploadSourceRun(params.uploadId, params.organizationId, sr);
         return { ok: false, state: sr.state, error: msg, error_code: "generic_failed" };
@@ -247,6 +263,7 @@ export async function runReportsApiImportPipeline(params: {
         attempt: {
           last_error_code: "domain_sync_incomplete",
           count: sr.attempt.count + 1,
+          next_retry_at: null,
         },
       });
       await patchUploadSourceRun(params.uploadId, params.organizationId, sr);

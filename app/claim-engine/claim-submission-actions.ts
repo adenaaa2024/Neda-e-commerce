@@ -215,7 +215,7 @@ function returnRowFromSubmissionEmbed(sub: Record<string, unknown>): Record<stri
   const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
   const r = Array.isArray(raw) ? raw[0] : raw;
-  return r as Record<string, unknown>;
+  return r as unknown as Record<string, unknown>;
 }
 
 export type ListClaimSubmissionsOpts = {
@@ -255,7 +255,7 @@ export async function listClaimSubmissions(
 
     const rows: ClaimSubmissionListRow[] = [];
     for (const raw of list) {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const path = r.report_url as string | null;
       const preview_url = await signedUrlForPath(path);
       const rid = r[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string;

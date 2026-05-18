@@ -75,7 +75,7 @@ function main(): void {
   const roundTrip = readImportUploadDescriptorMetadata(merged);
   assert(roundTrip?.import_kind === "SETTLEMENT", "round-trip SETTLEMENT");
   assert(
-    (merged as Record<string, unknown>)[IMPORT_DESCRIPTOR_METADATA_KEY] != null,
+    (merged as unknown as Record<string, unknown>)[IMPORT_DESCRIPTOR_METADATA_KEY] != null,
     "metadata key present",
   );
   passed++;

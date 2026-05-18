@@ -106,12 +106,12 @@ function readPreviousIncrementalSnapshot(
   prev: unknown,
   table: ResolveTargetTable,
 ): { run_sequence: number; previous_run_at: string | null } {
-  const root = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as Record<string, unknown>) : {};
+  const root = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as unknown as Record<string, unknown>) : {};
   const last = root.resolver_incremental_last_run;
   if (!last || typeof last !== "object" || Array.isArray(last)) {
     return { run_sequence: 0, previous_run_at: null };
   }
-  const o = last as Record<string, unknown>;
+  const o = last as unknown as Record<string, unknown>;
   const prevTable = typeof o.table === "string" ? o.table : "";
   const prevAt = typeof o.at === "string" ? o.at : null;
   const seq = o.run_sequence;
@@ -326,6 +326,7 @@ export async function runIncrementalResolverForUpload(
         orchestration_completed_ok: orchestrationOk,
         orchestration_error: orchestrationError,
         persist_metadata_ok: true,
+        onlyRowIdsCount: onlyRowIdsCount > 0 ? onlyRowIdsCount : null,
       });
     let merged = mergeUploadMetadata(prev, { resolver_incremental_last_run: baseLastRun() });
     const { error: upErr } = await params.supabase

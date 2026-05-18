@@ -179,7 +179,7 @@ async function fetchRemoval(
     .eq("id", id)
     .maybeSingle();
   if (error || !data) return null;
-  const r = data as Record<string, unknown>;
+  const r = data as unknown as Record<string, unknown>;
   const rid = nv(r.id);
   if (!rid) return null;
   return { id: rid, order_id: nv(r.order_id), sku: nv(r.sku), fnsku: nv(r.fnsku) };
@@ -201,7 +201,7 @@ async function fetchExpected(
   }
   let count = 0;
   let sample_id: string | null = null;
-  for (const r of (data ?? []) as Record<string, unknown>[]) {
+  for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
     count += 1;
     if (!sample_id) sample_id = nv(r.id);
   }
@@ -222,7 +222,7 @@ async function fetchAllocations(
     if (error.message.includes("does not exist") || error.code === "42P01") return [];
     throw new Error(`removal_item_allocations: ${error.message}`);
   }
-  return (data ?? []) as Record<string, unknown>[];
+  return (data ?? []) as unknown as Record<string, unknown>[];
 }
 
 async function fetchFrrByOrderId(
@@ -236,7 +236,7 @@ async function fetchFrrByOrderId(
     .eq("organization_id", orgId)
     .eq("order_id", orderId);
   if (error) throw new Error(`financial_reference_resolver: ${error.message}`);
-  return (data ?? []) as Record<string, unknown>[];
+  return (data ?? []) as unknown as Record<string, unknown>[];
 }
 
 async function fetchFinancesEvents(
@@ -254,7 +254,7 @@ async function fetchFinancesEvents(
     if (error.message.includes("does not exist") || error.code === "42P01") return [];
     throw new Error(`amazon_finances_events: ${error.message}`);
   }
-  return (data ?? []) as Record<string, unknown>[];
+  return (data ?? []) as unknown as Record<string, unknown>[];
 }
 
 async function fetchReturnItemsByOrder(
@@ -276,7 +276,7 @@ async function fetchReturnItemsByOrder(
     if (error.message.includes("does not exist") || error.code === "42P01") return [];
     throw new Error(`return_items: ${error.message}`);
   }
-  return (data ?? []) as Record<string, unknown>[];
+  return (data ?? []) as unknown as Record<string, unknown>[];
 }
 
 async function fetchSlipsByPackageIds(
@@ -297,7 +297,7 @@ async function fetchSlipsByPackageIds(
       if (error.message.includes("does not exist") || error.code === "42P01") return byPkg;
       throw new Error(`slip_contents: ${error.message}`);
     }
-    for (const row of (data ?? []) as Record<string, unknown>[]) {
+    for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const pid = nv(row.package_id);
       if (!pid) continue;
       const arr = byPkg.get(pid) ?? [];
@@ -758,7 +758,7 @@ export async function loadPersistedReferenceEdges(
   const { data, error } = await q;
   if (error) return empty;
 
-  const rows = (data ?? []) as Record<string, unknown>[];
+  const rows = (data ?? []) as unknown as Record<string, unknown>[];
   const total = totalCount ?? rows.length;
   const truncated = total > limit;
   const slice = rows;
@@ -912,7 +912,7 @@ export async function resolveDraftForCandidate(
       .limit(1)
       .maybeSingle();
     if (!error && data) {
-      const r = data as Record<string, unknown>;
+      const r = data as unknown as Record<string, unknown>;
       const id = nv(r.id);
       if (id) {
         return {
@@ -949,7 +949,7 @@ export async function fetchDraftRow(
     .eq("id", draftId)
     .maybeSingle();
   if (error || !data) return null;
-  const r = data as Record<string, unknown>;
+  const r = data as unknown as Record<string, unknown>;
   const id = nv(r.id);
   const st = nv(r.source_table);
   const sid = nv(r.source_row_id);

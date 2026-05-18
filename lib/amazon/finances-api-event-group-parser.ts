@@ -27,7 +27,7 @@ function readNullableStr(obj: Record<string, unknown>, ...keys: string[]): strin
 
 function readMoney(obj: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!obj || typeof obj !== "object") return null;
-  return obj as Record<string, unknown>;
+  return obj as unknown as Record<string, unknown>;
 }
 
 function parseIsoDate(obj: Record<string, unknown>, ...keys: string[]): string | null {
@@ -49,10 +49,10 @@ export function parseFinancialEventGroupV0(
     processing_status: readNullableStr(group, "ProcessingStatus", "processingStatus"),
     fund_transfer_status: readNullableStr(group, "FundTransferStatus", "fundTransferStatus"),
     original_total: readMoney(
-      (group.OriginalTotal ?? group.originalTotal) as Record<string, unknown> | null,
+      (group.OriginalTotal ?? group.originalTotal) as unknown as Record<string, unknown> | null,
     ),
     converted_total: readMoney(
-      (group.ConvertedTotal ?? group.convertedTotal) as Record<string, unknown> | null,
+      (group.ConvertedTotal ?? group.convertedTotal) as unknown as Record<string, unknown> | null,
     ),
     financial_event_group_start: parseIsoDate(
       group,
@@ -69,13 +69,13 @@ export function parseFinancialEventGroupV0(
 export function extractFinancialEventGroupsFromListPage(
   rawBody: Record<string, unknown>,
 ): ParsedFinancialEventGroup[] {
-  const payload = (rawBody.payload ?? rawBody) as Record<string, unknown>;
+  const payload = (rawBody.payload ?? rawBody) as unknown as Record<string, unknown>;
   const list = payload.FinancialEventGroupList ?? payload.financialEventGroupList;
   if (!Array.isArray(list)) return [];
   const out: ParsedFinancialEventGroup[] = [];
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
-    const parsed = parseFinancialEventGroupV0(item as Record<string, unknown>);
+    const parsed = parseFinancialEventGroupV0(item as unknown as Record<string, unknown>);
     if (parsed) out.push(parsed);
   }
   return out;

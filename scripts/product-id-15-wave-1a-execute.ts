@@ -104,7 +104,7 @@ async function fetchPreimageBatched(sb: SupabaseClient, ids: string[]): Promise<
       .select(SELECT_COLS)
       .in("id", slice);
     if (error) throw new Error(`Preimage select: ${error.message}`);
-    for (const r of (data ?? []) as Record<string, unknown>[]) out.push(r);
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) out.push(r);
   }
   return out;
 }

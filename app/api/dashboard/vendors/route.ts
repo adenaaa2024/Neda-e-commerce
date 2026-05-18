@@ -65,7 +65,7 @@ export async function GET(req: Request) {
     if (m) return true;
     const raw = row.amazon_raw;
     if (!raw || typeof raw !== "object") return false;
-    const o = raw as Record<string, unknown>;
+    const o = raw as unknown as Record<string, unknown>;
     const u =
       (typeof o.main_image_url === "string" && o.main_image_url.trim()) ||
       (typeof o.mainImageUrl === "string" && o.mainImageUrl.trim());

@@ -97,8 +97,8 @@ export function buildFinancesSourceRunUiSnapshot(params: {
   if (!id || !stateRaw) return null;
 
   const state = stateRaw as AmazonFinancesSourceRunState;
-  const meta = (params.row.metadata ?? {}) as Record<string, unknown>;
-  const attempt = (params.row.attempt ?? {}) as Record<string, unknown>;
+  const meta = (params.row.metadata ?? {}) as unknown as Record<string, unknown>;
+  const attempt = (params.row.attempt ?? {}) as unknown as Record<string, unknown>;
   const needs_resume = computeFinancesNeedsResume(state, params.apiNeedsResume);
 
   return {

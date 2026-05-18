@@ -107,7 +107,7 @@ export class ReportsApiClient {
     if (!res.ok) {
       throw new ReportsApiError("create_report_failed", res.status, res.text.slice(0, 500));
     }
-    const json = res.json as Record<string, unknown> | null;
+    const json = res.json as unknown as Record<string, unknown> | null;
     const reportId = typeof json?.reportId === "string" ? json.reportId : "";
     if (!reportId) throw new ReportsApiError("create_report_missing_id", res.status, res.text.slice(0, 300));
     return { reportId, raw: json };
@@ -194,7 +194,7 @@ export class ReportsApiClient {
     if (!res.ok) {
       throw new ReportsApiError("get_report_failed", res.status, res.text.slice(0, 500));
     }
-    const json = res.json as Record<string, unknown> | null;
+    const json = res.json as unknown as Record<string, unknown> | null;
     const processingStatus = String(json?.processingStatus ?? "");
     const reportDocumentId =
       typeof json?.reportDocumentId === "string" ? json.reportDocumentId : null;
@@ -212,7 +212,7 @@ export class ReportsApiClient {
     if (!res.ok) {
       throw new ReportsApiError("get_report_document_failed", res.status, res.text.slice(0, 500));
     }
-    const json = res.json as Record<string, unknown> | null;
+    const json = res.json as unknown as Record<string, unknown> | null;
     const url = typeof json?.url === "string" ? json.url : "";
     if (!url) throw new ReportsApiError("document_missing_url", res.status, res.text.slice(0, 300));
     const compressionAlgorithm =

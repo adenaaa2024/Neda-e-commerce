@@ -54,11 +54,11 @@ export async function pickAmazonCategoryLabelWithOpenAI(params: {
     }),
     cache: "no-store",
   });
-  const raw = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const raw = (await res.json().catch(() => null)) as unknown as Record<string, unknown> | null;
   if (!res.ok || !raw) return null;
   const choice = raw.choices;
   if (!Array.isArray(choice) || !choice[0] || typeof choice[0] !== "object") return null;
-  const msg = (choice[0] as Record<string, unknown>).message as Record<string, unknown> | undefined;
+  const msg = (choice[0] as unknown as Record<string, unknown>).message as unknown as Record<string, unknown> | undefined;
   const content = typeof msg?.content === "string" ? msg.content.trim() : "";
   if (!content) return null;
   let parsed: { label?: string | null } | null = null;

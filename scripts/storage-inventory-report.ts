@@ -527,8 +527,8 @@ async function loadDbRefIndex(
     if (error) throw error;
     const prefs: string[] = [];
     for (const row of data ?? []) {
-      const r = row as Record<string, unknown>;
-      const meta = r.metadata as Record<string, unknown> | null | undefined;
+      const r = row as unknown as Record<string, unknown>;
+      const meta = r.metadata as unknown as Record<string, unknown> | null | undefined;
       const sp =
         (typeof meta?.storage_prefix === "string" ? meta.storage_prefix.trim() : "") ||
         (typeof meta?.storagePrefix === "string" ? String(meta.storagePrefix).trim() : "") ||
@@ -549,7 +549,10 @@ async function loadDbRefIndex(
     const sel = "report_url, company_id, organization_id";
     let res = await client.from("claim_submissions").select(sel).limit(DB_SAMPLE_ROWS);
     if (res.error) {
-      res = await client.from("claim_submissions").select("report_url").limit(DB_SAMPLE_ROWS);
+      res = (await client
+        .from("claim_submissions")
+        .select("report_url")
+        .limit(DB_SAMPLE_ROWS)) as typeof res;
     }
     trace(tracePath, `DB claim_submissions rows=${(res.data ?? []).length} err=${res.error?.message ?? "none"}`);
     if (res.error) throw res.error;
@@ -617,7 +620,7 @@ async function loadDbRefIndex(
       if (!error) {
         for (const row of data ?? []) {
           for (const c of mediaCols) {
-            const url = String((row as Record<string, unknown>)[c] ?? "").trim();
+            const url = String((row as unknown as Record<string, unknown>)[c] ?? "").trim();
             if (!url) continue;
             for (const b of ["media", "manifests"] as const) {
               const p = extractPublicStoragePath(url, b);
@@ -637,7 +640,7 @@ async function loadDbRefIndex(
       if (!error) {
         for (const row of data ?? []) {
           for (const c of ["photo_url", "manifest_photo_url"] as const) {
-            const url = String((row as Record<string, unknown>)[c] ?? "").trim();
+            const url = String((row as unknown as Record<string, unknown>)[c] ?? "").trim();
             if (!url) continue;
             for (const b of ["media", "manifests"] as const) {
               const p = extractPublicStoragePath(url, b);
@@ -671,7 +674,7 @@ async function loadDbRefIndex(
       if (!error) {
         for (const row of data ?? []) {
           for (const c of ["photo_url", "bol_photo_url", "manifest_photo_url"] as const) {
-            const url = String((row as Record<string, unknown>)[c] ?? "").trim();
+            const url = String((row as unknown as Record<string, unknown>)[c] ?? "").trim();
             if (!url) continue;
             for (const b of ["media", "manifests"] as const) {
               const p = extractPublicStoragePath(url, b);

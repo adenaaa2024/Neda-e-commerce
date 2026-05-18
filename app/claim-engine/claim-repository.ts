@@ -14,7 +14,7 @@ import type { ClaimRecord } from "./claim-types";
 
 function normalizeReturnEmbed(raw: unknown): ReturnRecord | null {
   if (!raw) return null;
-  const r = raw as Record<string, unknown>;
+  const r = raw as unknown as Record<string, unknown>;
   const sr = r.stores;
   let stores: ReturnRecord["stores"];
   if (Array.isArray(sr)) {
@@ -82,7 +82,7 @@ export async function fetchClaimWorkspaceRows(
     const list = subs ?? [];
 
     const rows: ClaimRecord[] = list.map((raw) => {
-      const sub = raw as Record<string, unknown>;
+      const sub = raw as unknown as Record<string, unknown>;
       const ret = returnFromSubmissionEmbed(sub);
       return mapSubmissionToClaimRecord(sub, ret);
     });
@@ -102,7 +102,7 @@ export function mapSubmissionToClaimRecord(
   sub: Record<string, unknown>,
   ret: ReturnRecord | null,
 ): ClaimRecord {
-  const payload = (sub.source_payload as Record<string, unknown>) ?? {};
+  const payload = (sub.source_payload as unknown as Record<string, unknown>) ?? {};
   const amount = Number(sub.claim_amount ?? payload.amount ?? 0) || 0;
   const reimbursementRaw = sub.reimbursement_amount;
   const reimbursement_amount =
@@ -154,7 +154,7 @@ export async function fetchClaimSubmissionsWithReturns(
     const list = subs ?? [];
 
     const rows: ClaimRecord[] = list.map((raw) => {
-      const sub = raw as Record<string, unknown>;
+      const sub = raw as unknown as Record<string, unknown>;
       const ret = returnFromSubmissionEmbed(sub);
       return mapSubmissionToClaimRecord(sub, ret);
     });

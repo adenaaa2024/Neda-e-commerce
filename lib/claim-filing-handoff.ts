@@ -24,7 +24,7 @@ export function isClaimFilingHandoffApiActive(): boolean {
 export function mergeClaimAgentFilingConfig(raw: unknown): ClaimAgentConfig {
   const base = { ...DEFAULT_CLAIM_AGENT_CONFIG };
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   const out: ClaimAgentConfig = { ...base, ...(o as ClaimAgentConfig) };
   const allowedModes = new Set<string>([
     "disabled",

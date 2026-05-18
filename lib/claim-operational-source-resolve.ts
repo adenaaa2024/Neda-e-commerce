@@ -190,7 +190,7 @@ export async function resolveAmazonRemovalsOperationalRow(
     else if (data && typeof data === "object") {
       pushReason(reason_codes, "exact_id_hit");
       return {
-        row: data as Record<string, unknown>,
+        row: data as unknown as Record<string, unknown>,
         matched_via: "exact_id",
         ambiguous: false,
         match_count: 1,
@@ -217,7 +217,7 @@ export async function resolveAmazonRemovalsOperationalRow(
       .limit(8);
     if (error) pushReason(reason_codes, `staging_line:${error.message}`);
     else {
-      const rows = (data ?? []) as Record<string, unknown>[];
+      const rows = (data ?? []) as unknown as Record<string, unknown>[];
       if (rows.length === 1) {
         pushReason(reason_codes, "alternate_hit_staging_line");
         return { row: rows[0]!, matched_via: "staging_line", ambiguous: false, match_count: 1, reason_codes };
@@ -232,7 +232,7 @@ export async function resolveAmazonRemovalsOperationalRow(
   const store = nv(candidateStoreId);
 
   const fetchOrderSku = async (useFnsku: boolean) => {
-    if (!oid) return [] as Record<string, unknown>[];
+    if (!oid) return [] as unknown as Record<string, unknown>[];
     const keyCol = useFnsku && fnsku ? "fnsku" : "sku";
     const keyVal = useFnsku && fnsku ? fnsku : sku;
     if (!keyVal) return [];
@@ -245,7 +245,7 @@ export async function resolveAmazonRemovalsOperationalRow(
         .eq(keyCol, keyVal)
         .eq("store_id", store)
         .limit(8);
-      const scoped = (data ?? []) as Record<string, unknown>[];
+      const scoped = (data ?? []) as unknown as Record<string, unknown>[];
       if (scoped.length > 0) return scoped;
     }
     const { data } = await client
@@ -255,7 +255,7 @@ export async function resolveAmazonRemovalsOperationalRow(
       .eq("order_id", oid)
       .eq(keyCol, keyVal)
       .limit(8);
-    return (data ?? []) as Record<string, unknown>[];
+    return (data ?? []) as unknown as Record<string, unknown>[];
   };
 
   if (oid && sku) {
@@ -292,7 +292,7 @@ export async function resolveAmazonRemovalsOperationalRow(
       .limit(8);
     if (error) pushReason(reason_codes, `order_id_asin:${error.message}`);
     else {
-      const rows = (data ?? []) as Record<string, unknown>[];
+      const rows = (data ?? []) as unknown as Record<string, unknown>[];
       if (rows.length === 1) {
         pushReason(reason_codes, "alternate_hit_order_id_asin");
         return { row: rows[0]!, matched_via: "order_id_asin", ambiguous: false, match_count: 1, reason_codes };
@@ -335,7 +335,7 @@ export async function resolveAmazonReturnsOperationalRow(
     else if (data && typeof data === "object") {
       pushReason(reason_codes, "exact_id_hit");
       return {
-        row: data as Record<string, unknown>,
+        row: data as unknown as Record<string, unknown>,
         matched_via: "exact_id",
         ambiguous: false,
         match_count: 1,
@@ -356,7 +356,7 @@ export async function resolveAmazonReturnsOperationalRow(
       .eq("sku", sku)
       .limit(8);
     if (!error) {
-      const rows = (data ?? []) as Record<string, unknown>[];
+      const rows = (data ?? []) as unknown as Record<string, unknown>[];
       if (rows.length === 1) {
         pushReason(reason_codes, "alternate_hit_amazon_order_id_sku");
         return {
@@ -389,7 +389,7 @@ export async function resolveAmazonReturnsOperationalRow(
       .ilike("lpn", lpn)
       .limit(8);
     if (!error) {
-      const rows = (data ?? []) as Record<string, unknown>[];
+      const rows = (data ?? []) as unknown as Record<string, unknown>[];
       if (rows.length === 1) {
         pushReason(reason_codes, "alternate_hit_lpn");
         return {
@@ -435,7 +435,7 @@ export async function resolveReturnsOperationalRow(
   if (data && typeof data === "object") {
     pushReason(reason_codes, "exact_id_hit");
     return {
-      row: data as Record<string, unknown>,
+      row: data as unknown as Record<string, unknown>,
       matched_via: "exact_id",
       ambiguous: false,
       match_count: 1,
@@ -470,7 +470,7 @@ export async function resolveAmazonRemovalShipmentsOperationalRow(
   if (data && typeof data === "object") {
     pushReason(reason_codes, "exact_id_hit");
     return {
-      row: data as Record<string, unknown>,
+      row: data as unknown as Record<string, unknown>,
       matched_via: "exact_id",
       ambiguous: false,
       match_count: 1,

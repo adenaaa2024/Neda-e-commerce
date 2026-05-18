@@ -175,7 +175,7 @@ type PimCatalogSeedQuality = {
 /** Accepts ETL `preview_quality` (rows_total) or persisted public slice (rows_scanned). */
 function normalizePimPreviewQuality(pq: unknown): PimCatalogSeedQuality | null {
   if (!pq || typeof pq !== "object" || Array.isArray(pq)) return null;
-  const o = pq as Record<string, unknown>;
+  const o = pq as unknown as Record<string, unknown>;
   const rt =
     typeof o.rows_total === "number"
       ? o.rows_total
@@ -757,7 +757,7 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
       const raw = String(r.preview_status ?? "").trim();
       const key = raw ? raw.toLowerCase() : "—";
       byStatus[key] = (byStatus[key] ?? 0) + 1;
-      const m = r.metadata as Record<string, unknown> | undefined;
+      const m = r.metadata as unknown as Record<string, unknown> | undefined;
       if (
         key === "reset" ||
         key === "deleted" ||
@@ -821,10 +821,10 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
       if (!oid) return;
       const r = await getPimImportFileProcessingMetrics({ organizationId: oid, uploadId });
       if (!r.ok || !r.import_metrics) return;
-      const im = r.import_metrics as Record<string, unknown>;
+      const im = r.import_metrics as unknown as Record<string, unknown>;
       const pb = im.price_backfill;
       if (pb && typeof pb === "object") {
-        setFpsPriceBackfillByUpload((m) => ({ ...m, [uploadId]: pb as Record<string, unknown> }));
+        setFpsPriceBackfillByUpload((m) => ({ ...m, [uploadId]: pb as unknown as Record<string, unknown> }));
       }
     },
     [organizationId],
@@ -1843,7 +1843,7 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
         : {};
     // Detect if this session was originally safe-rows-only and preserve the flag
     const rowSafeOnly =
-      Boolean((row.metadata as Record<string, unknown> | null)?.pim_import_safe_rows_only) ||
+      Boolean((row.metadata as unknown as Record<string, unknown> | null)?.pim_import_safe_rows_only) ||
       Boolean((snap as unknown as Record<string, unknown>)?.pim_import_safe_rows_only);
     if (rowSafeOnly) setWasSafeRowsOnly(true);
     if ((pstat === "preview_ready" || life === "waiting_for_confirmation") && pqNorm) {
@@ -3141,9 +3141,9 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
                             ) : null}
                             {/* Category cards — show friendly message when column is blank */}
                             {(() => {
-                              const catDbg = previewQuality.category_import_debug as Record<string, unknown> | undefined;
-                              const reasons = Array.isArray((catDbg as Record<string, unknown> | undefined)?.why_categories_zero)
-                                ? ((catDbg as Record<string, unknown>).why_categories_zero as string[])
+                              const catDbg = previewQuality.category_import_debug as unknown as Record<string, unknown> | undefined;
+                              const reasons = Array.isArray((catDbg as unknown as Record<string, unknown> | undefined)?.why_categories_zero)
+                                ? ((catDbg as unknown as Record<string, unknown>).why_categories_zero as string[])
                                 : [];
                               const noCatInFile =
                                 reasons.includes("category_cells_empty_on_accepted_rows") ||
@@ -3303,7 +3303,7 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
                                     // RFC 4180: wrap in double-quotes, escape embedded double-quotes
                                     return `"${s.replace(/"/g, '""')}"`;
                                   };
-                                  const rows = detail.map((r) => cols.map((c) => csvEscape((r as Record<string, unknown>)[c])).join(","));
+                                  const rows = detail.map((r) => cols.map((c) => csvEscape((r as unknown as Record<string, unknown>)[c])).join(","));
                                   const csv = [cols.map((c) => `"${c}"`).join(","), ...rows].join("\r\n");
                                   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
                                   const url = URL.createObjectURL(blob);
@@ -3555,7 +3555,7 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
                     const pq = (job as { preview_quality?: Record<string, unknown> }).preview_quality;
                     const pub = (meta as { pim_preview_result?: { quality?: Record<string, unknown> } }).pim_preview_result?.quality;
                     const pm = row.preview_metrics && typeof row.preview_metrics === "object" ? row.preview_metrics : null;
-                    const qm = ((pub && typeof pub === "object" ? pub : pq) ?? pm) as Record<string, unknown> | undefined;
+                    const qm = ((pub && typeof pub === "object" ? pub : pq) ?? pm) as unknown as Record<string, unknown> | undefined;
                     const storeId = String((meta as { import_store_id?: string }).import_store_id ?? "").trim();
                     const storeNm = pimStores.find((s) => s.id === storeId)?.display_name ?? (storeId ? `${storeId.slice(0, 8)}…` : "—");
                     const life = String(job.lifecycle ?? "").toLowerCase();
@@ -3568,7 +3568,7 @@ function AiCsvImportPanel({ organizationId, organizationName, profileLoading }: 
                       ss === "preview_running" ||
                       ss === "importing";
                     const am = row.apply_metrics;
-                    const amObj = am && typeof am === "object" ? (am as Record<string, unknown>) : null;
+                    const amObj = am && typeof am === "object" ? (am as unknown as Record<string, unknown>) : null;
                     const rowsScannedHist =
                       typeof qm?.rows_scanned === "number"
                         ? qm.rows_scanned

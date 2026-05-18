@@ -797,11 +797,11 @@ const HistoryRow = React.memo(function HistoryRow({
   const rt = coerceReportType(r.report_type);
   const metaObj =
     r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata)
-      ? (r.metadata as Record<string, unknown>)
+      ? (r.metadata as unknown as Record<string, unknown>)
       : null;
   const importMetricsPoll =
     metaObj?.import_metrics && typeof metaObj.import_metrics === "object" && !Array.isArray(metaObj.import_metrics)
-      ? (metaObj.import_metrics as Record<string, unknown>)
+      ? (metaObj.import_metrics as unknown as Record<string, unknown>)
       : null;
   const phase2OperatorLine =
     typeof importMetricsPoll?.phase2_operator_line === "string" && importMetricsPoll.phase2_operator_line.trim() !== ""
@@ -813,7 +813,7 @@ const HistoryRow = React.memo(function HistoryRow({
     reportType: String(r.report_type ?? ""),
     status: r.status,
     metadata: metaObj,
-    fps: r.file_processing_status as Record<string, unknown> | null,
+    fps: r.file_processing_status as unknown as Record<string, unknown> | null,
     ui:
       busyPhase === "syncing"
         ? { isSyncing: true }

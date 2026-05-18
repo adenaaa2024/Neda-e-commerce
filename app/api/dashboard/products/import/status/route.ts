@@ -36,14 +36,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: error?.message ?? "Job not found." }, { status: 404 });
   }
 
-  const meta = (data as { metadata?: unknown }).metadata as Record<string, unknown>;
+  const meta = (data as { metadata?: unknown }).metadata as unknown as Record<string, unknown>;
   const payload = buildPimImportJobStatusPayload({
     jobId: job_id,
     metadata: meta,
   });
 
   const job = typeof meta.pim_import_job === "object" && meta.pim_import_job !== null && !Array.isArray(meta.pim_import_job)
-    ? (meta.pim_import_job as Record<string, unknown>)
+    ? (meta.pim_import_job as unknown as Record<string, unknown>)
     : {};
 
   return NextResponse.json({

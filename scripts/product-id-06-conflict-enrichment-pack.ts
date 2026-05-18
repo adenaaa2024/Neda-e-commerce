@@ -135,7 +135,7 @@ async function fetchInChunks<T>(
     const slice = uniq.slice(i, i + chunk);
     const { data, error } = await sb.from(table).select(select).in(col, slice);
     if (error) throw new Error(`${table}.${col} fetch: ${error.message}`);
-    out.push(...((data ?? []) as T[]));
+    out.push(...((data ?? []) as unknown as T[]));
   }
   return out;
 }

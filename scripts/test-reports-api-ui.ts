@@ -16,7 +16,7 @@ function assert(cond: boolean, msg: string): void {
 
 function testDateWindow(): void {
   const ok = dateInputToWindowIso("2026-01-01", "2026-01-31");
-  assert(!("error" in ok), "valid range");
+  if ("error" in ok) throw new Error("valid range");
   assert(ok.window_start.endsWith("Z"), "start iso");
   const bad = dateInputToWindowIso("2026-02-01", "2026-01-01");
   assert("error" in bad, "invalid range");

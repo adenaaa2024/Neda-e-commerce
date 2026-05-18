@@ -388,7 +388,7 @@ export function parseRawReportMetadata(raw: unknown): {
   errorMessage: string | null;
   rowCount: number | null;
 } {
-  const m = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const m = raw && typeof raw === "object" ? (raw as unknown as Record<string, unknown>) : {};
   const rc = m.row_count;
   const tr = m.total_rows;
   const rowCountFromRowCount =
@@ -419,7 +419,7 @@ export function mergeUploadMetadata(
 ): RawReportUploadMetadata {
   const base =
     prev && typeof prev === "object" && !Array.isArray(prev)
-      ? { ...(prev as Record<string, unknown>) }
+      ? { ...(prev as unknown as Record<string, unknown>) }
       : {};
   return { ...base, ...patch } as RawReportUploadMetadata;
 }
@@ -428,7 +428,7 @@ export function mergeUploadMetadata(
 export function resolveImportStoreIdFromMetadata(metadata: unknown): string | null {
   const m =
     metadata && typeof metadata === "object" && !Array.isArray(metadata)
-      ? (metadata as Record<string, unknown>)
+      ? (metadata as unknown as Record<string, unknown>)
       : {};
   const a = typeof m.import_store_id === "string" ? m.import_store_id.trim() : "";
   if (a && isUuidString(a)) return a;

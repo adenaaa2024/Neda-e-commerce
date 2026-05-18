@@ -216,7 +216,7 @@ async function fetchAllRemovals(
       .range(from, from + PAGE - 1);
     const { data, error } = await q;
     if (error) throw new Error(`amazon_removals: ${error.message}`);
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     out.push(...batch);
     if (batch.length < PAGE) break;
     from += PAGE;
@@ -240,7 +240,7 @@ async function fetchAllDraftIdempotency(
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`claim_candidate_drafts: ${error.message}`);
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     for (const row of batch) {
       const idem = nv(row.idempotency_key);
       const id = nv(row.id);
@@ -270,7 +270,7 @@ async function fetchLegacyRemovalsCandidates(
       .order("created_at", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`claim_candidates: ${error.message}`);
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     out.push(...batch);
     if (batch.length < PAGE) break;
     from += PAGE;

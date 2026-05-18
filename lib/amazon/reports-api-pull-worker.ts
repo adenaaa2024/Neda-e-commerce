@@ -232,7 +232,7 @@ export async function runReportsApiPullWorker(
       };
     }
     sourceRun = parseSourceRun(row.data.metadata);
-    const meta = row.data.metadata as Record<string, unknown> | null;
+    const meta = row.data.metadata as unknown as Record<string, unknown> | null;
     storagePrefix = typeof meta?.storage_prefix === "string" ? meta.storage_prefix : null;
   } else {
     const existing = await findUploadBySourceRunIdempotencyKey(
@@ -409,7 +409,7 @@ export async function runReportsApiPullWorker(
         const sha = sha256Hex(plain);
         if (!storagePrefix) {
           const row = await loadUploadRow(uploadId, req.organizationId);
-          const meta = row.data?.metadata as Record<string, unknown> | null;
+          const meta = row.data?.metadata as unknown as Record<string, unknown> | null;
           storagePrefix = typeof meta?.storage_prefix === "string" ? meta.storage_prefix : null;
         }
         if (!storagePrefix) {

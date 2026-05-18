@@ -104,7 +104,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
       .eq("id", returnId)
       .maybeSingle();
     if (ret && typeof ret === "object") {
-      const r = ret as Record<string, unknown>;
+      const r = ret as unknown as Record<string, unknown>;
       returns_evidence = {
         id: claimInboxStr(r.id),
         conditions: r.conditions ?? null,
@@ -162,7 +162,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
       .limit(500);
     if (storeId) sq = sq.eq("store_id", storeId);
     const { data: slips, error: slipErr } = await sq;
-    if (!slipErr && slips) slip_contents = slips as Record<string, unknown>[];
+    if (!slipErr && slips) slip_contents = slips as unknown as Record<string, unknown>[];
   }
 
   let claim_submissions: unknown[] = [];
@@ -175,7 +175,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
       .order("created_at", { ascending: false })
       .limit(5);
     if (!subErr && subs) {
-      claim_submissions = (subs as Record<string, unknown>[]).map((s) => {
+      claim_submissions = (subs as unknown as Record<string, unknown>[]).map((s) => {
         const payload = s.source_payload;
         const parsed = typeof payload === "string" ? safeJsonParse(payload) : payload;
         const urls =

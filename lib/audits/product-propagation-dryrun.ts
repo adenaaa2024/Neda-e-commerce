@@ -372,7 +372,7 @@ function readNext18MDisputeOverlay(inputDir: string | null | undefined): Dispute
     if (!trimmed) continue;
     let row: Record<string, unknown>;
     try {
-      row = JSON.parse(trimmed) as Record<string, unknown>;
+      row = JSON.parse(trimmed) as unknown as Record<string, unknown>;
     } catch {
       continue;
     }
@@ -696,7 +696,7 @@ async function processTenantTable(args: {
 
     const { data, error } = await query;
     if (error) throw new Error(`${descriptor.name} read failed: ${error.message}`);
-    const sourceRows = (data ?? []) as Array<Record<string, unknown>>;
+    const sourceRows = (data ?? []) as unknown as Array<Record<string, unknown>>;
     if (sourceRows.length === 0) break;
 
     for (const sourceRow of sourceRows) {

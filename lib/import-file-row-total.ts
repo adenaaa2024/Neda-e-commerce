@@ -43,7 +43,7 @@ export function resolveImportFileRowTotal(input: {
     input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)
       ? input.metadata
       : {};
-  const im = m.import_metrics as Record<string, unknown> | undefined;
+  const im = m.import_metrics as unknown as Record<string, unknown> | undefined;
 
   const verificationPending =
     m.staging_final_count_verify_pending === true ||

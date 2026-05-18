@@ -39,7 +39,7 @@ export async function completeInventoryLedgerProductIdentifierMapPhase(opts: {
     import_metrics: { current_phase: "complete" },
     etl_phase: "complete",
     error_message: "",
-  }) as Record<string, unknown>;
+  }) as unknown as Record<string, unknown>;
   mergedInv.inventory_ledger_generic_map_upserts = mapUpserts;
   mergedInv.inventory_ledger_identifier_enrich = {
     ledger_bridge_rows_inserted: enriched.ledger_bridge_rows_inserted,

@@ -120,7 +120,7 @@ async function main(): Promise<void> {
   }
 
   const { data: fps0 } = await sb.from("file_processing_status").select("*").eq("upload_id", uploadId).maybeSingle();
-  const fps = (fps0 ?? {}) as Record<string, unknown>;
+  const fps = (fps0 ?? {}) as unknown as Record<string, unknown>;
   const phase3Done = String(fps.phase3_status ?? "").toLowerCase() === "complete";
   const phase4Done = String(fps.phase4_status ?? "").toLowerCase() === "complete";
   const fpsOnly = hasFlag("fps-only");
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
       import_metrics: { current_phase: "complete" },
       etl_phase: "complete",
       error_message: "",
-    }) as Record<string, unknown>;
+    }) as unknown as Record<string, unknown>;
     delete mergedFin.failed_phase;
 
     const { error: ruErr } = await sb
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
       .eq("organization_id", orgId);
     if (ruErr) throw new Error(`raw_report_uploads update: ${ruErr.message}`);
 
-    const priorFpsOnly = (fps0 ?? {}) as Record<string, unknown>;
+    const priorFpsOnly = (fps0 ?? {}) as unknown as Record<string, unknown>;
     const { error: fpsFinErr } = await sb.from("file_processing_status").upsert(
       {
         upload_id: uploadId,
@@ -298,7 +298,7 @@ async function main(): Promise<void> {
       import_metrics: { current_phase: "complete" },
       etl_phase: "complete",
       error_message: "",
-    }) as Record<string, unknown>;
+    }) as unknown as Record<string, unknown>;
     delete mergedFin.failed_phase;
 
     const { error: ruErr } = await sb
@@ -314,7 +314,7 @@ async function main(): Promise<void> {
     if (ruErr) throw new Error(`raw_report_uploads update: ${ruErr.message}`);
 
     // Mirror app/api/settings/imports/generic/route.ts SETTLEMENT branch (FPS shape).
-    const priorFps2 = (fps0 ?? {}) as Record<string, unknown>;
+    const priorFps2 = (fps0 ?? {}) as unknown as Record<string, unknown>;
     const { error: fpsFinErr } = await sb.from("file_processing_status").upsert(
       {
         upload_id: uploadId,

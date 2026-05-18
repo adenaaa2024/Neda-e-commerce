@@ -404,14 +404,14 @@ async function readStagingMinRowNumberNullable(orgId: string, uploadId: string):
 
 function parseMetadataStagingFallbackRowCount(metadataFallback: unknown): number | null {
   if (!metadataFallback || typeof metadataFallback !== "object" || Array.isArray(metadataFallback)) return null;
-  const o = metadataFallback as Record<string, unknown>;
+  const o = metadataFallback as unknown as Record<string, unknown>;
   const wm = o.staging_contiguous_watermark;
   if (typeof wm === "number" && Number.isFinite(wm) && wm >= 0) return Math.floor(wm);
   const direct = o.staging_row_count;
   if (typeof direct === "number" && Number.isFinite(direct) && direct >= 0) return Math.floor(direct);
   const im = o.import_metrics;
   if (im && typeof im === "object" && !Array.isArray(im)) {
-    const rs = (im as Record<string, unknown>).rows_staged;
+    const rs = (im as unknown as Record<string, unknown>).rows_staged;
     if (typeof rs === "number" && Number.isFinite(rs) && rs >= 0) return Math.floor(rs);
   }
   return null;
@@ -1070,7 +1070,7 @@ export async function executeAmazonPhase2Staging(reqOrBody: Request | StageReque
       );
     }
     const metaObj =
-      meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+      meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as unknown as Record<string, unknown>) : {};
 
     const storagePrefix = parsed.storagePrefix?.trim() ?? "";
     const rawFilePath = typeof metaObj.raw_file_path === "string" ? metaObj.raw_file_path.trim() : "";
@@ -1383,10 +1383,10 @@ export async function executeAmazonPhase2Staging(reqOrBody: Request | StageReque
     });
 
     const patchPhase2Ui = (imPatch: Partial<ImportRunMetrics>) => {
-      const r = rollingUploadMetadata as Record<string, unknown>;
+      const r = rollingUploadMetadata as unknown as Record<string, unknown>;
       const prevIm =
         r.import_metrics && typeof r.import_metrics === "object" && !Array.isArray(r.import_metrics)
-          ? { ...(r.import_metrics as Record<string, unknown>) }
+          ? { ...(r.import_metrics as unknown as Record<string, unknown>) }
           : {};
       rollingUploadMetadata = mergeUploadMetadata(rollingUploadMetadata, {
         import_metrics: { ...prevIm, ...imPatch } as ImportRunMetrics,
@@ -1394,10 +1394,10 @@ export async function executeAmazonPhase2Staging(reqOrBody: Request | StageReque
     };
 
     const mergeRollingImportMetrics = (next: ImportRunMetrics): ImportRunMetrics => {
-      const r = rollingUploadMetadata as Record<string, unknown>;
+      const r = rollingUploadMetadata as unknown as Record<string, unknown>;
       const prevIm =
         r.import_metrics && typeof r.import_metrics === "object" && !Array.isArray(r.import_metrics)
-          ? { ...(r.import_metrics as Record<string, unknown>) }
+          ? { ...(r.import_metrics as unknown as Record<string, unknown>) }
           : {};
       return { ...prevIm, ...next } as ImportRunMetrics;
     };
@@ -2206,7 +2206,7 @@ export async function executeAmazonPhase2Staging(reqOrBody: Request | StageReque
         .eq("id", uploadIdForFail)
         .maybeSingle();
       const prevMeta = (prevRow as { metadata?: unknown } | null)?.metadata;
-      const prevRec = prevMeta && typeof prevMeta === "object" && !Array.isArray(prevMeta) ? (prevMeta as Record<string, unknown>) : {};
+      const prevRec = prevMeta && typeof prevMeta === "object" && !Array.isArray(prevMeta) ? (prevMeta as unknown as Record<string, unknown>) : {};
       const failPreserveTotalRows = ((): number | null => {
         if (progressFileTotalRowsSnapshot != null && progressFileTotalRowsSnapshot > 0) {
           return progressFileTotalRowsSnapshot;
@@ -2223,7 +2223,7 @@ export async function executeAmazonPhase2Staging(reqOrBody: Request | StageReque
       const prevImRaw = prevRec.import_metrics;
       const prevIm =
         prevImRaw && typeof prevImRaw === "object" && !Array.isArray(prevImRaw)
-          ? { ...(prevImRaw as Record<string, unknown>) }
+          ? { ...(prevImRaw as unknown as Record<string, unknown>) }
           : {};
       // The diagnostic-only keys `phase2_*` are stored as runtime extras inside
       // the JSONB `metadata` column. They are not part of the strict

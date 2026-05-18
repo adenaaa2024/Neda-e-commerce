@@ -88,7 +88,7 @@ export async function loadTenantProfile(
     .eq("id", id)
     .maybeSingle();
   if (error || !data) return null;
-  const row = data as Record<string, unknown>;
+  const row = data as unknown as Record<string, unknown>;
   const oid = row.organization_id;
   const rawGroups = row.team_groups;
   const team_groups: string[] = Array.isArray(rawGroups)
@@ -108,7 +108,7 @@ export async function loadTenantProfile(
       .eq("id", roleId)
       .maybeSingle();
     if (roleData) {
-      const roleRow = roleData as Record<string, unknown>;
+      const roleRow = roleData as unknown as Record<string, unknown>;
       const k = String(roleRow.key ?? "").trim();
       const s = String(roleRow.scope ?? "").trim();
       roleKeyFromCatalog = k || null;

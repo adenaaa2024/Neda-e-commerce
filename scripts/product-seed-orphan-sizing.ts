@@ -464,7 +464,7 @@ async function* pageProducts(args: {
       warnings.push({ source: "products", reason: `page ${pageIndex} error: ${error.message}`, detail: error });
       throw new Error(`[orphan-sizing] products page ${pageIndex} failed: ${error.message}`);
     }
-    const rows = (data ?? []).map((r) => asProductRow(r as Record<string, unknown>));
+    const rows = (data ?? []).map((r) => asProductRow(r as unknown as Record<string, unknown>));
     const lastId = rows.length > 0 ? rows[rows.length - 1].id : null;
     cursorWriter.write({
       table: "products",
@@ -500,7 +500,7 @@ async function fetchActiveMapForPids(
       warnings.push({ source: "product_identifier_map.active", reason: error.message, detail: error });
       throw new Error(`[orphan-sizing] active map chunk failed: ${error.message}`);
     }
-    for (const r of data ?? []) out.push(asActiveMapRow(r as Record<string, unknown>));
+    for (const r of data ?? []) out.push(asActiveMapRow(r as unknown as Record<string, unknown>));
   }
   return out;
 }
@@ -524,7 +524,7 @@ async function fetchInactiveMapForPids(
       warnings.push({ source: "product_identifier_map.inactive", reason: error.message, detail: error });
       throw new Error(`[orphan-sizing] inactive map chunk failed: ${error.message}`);
     }
-    for (const r of data ?? []) out.push(asInactiveMapRow(r as Record<string, unknown>));
+    for (const r of data ?? []) out.push(asInactiveMapRow(r as unknown as Record<string, unknown>));
   }
   return out;
 }
@@ -555,7 +555,7 @@ async function* pageCatalogBridgeOrphans(args: {
       warnings.push({ source: "product_identifier_map.bridge", reason: `page ${pageIndex} error: ${error.message}`, detail: error });
       throw new Error(`[orphan-sizing] bridge page ${pageIndex} failed: ${error.message}`);
     }
-    const rows = (data ?? []).map((r) => asCatalogBridgeRow(r as Record<string, unknown>));
+    const rows = (data ?? []).map((r) => asCatalogBridgeRow(r as unknown as Record<string, unknown>));
     const lastId = rows.length > 0 ? rows[rows.length - 1].id : null;
     cursorWriter.write({
       table: "product_identifier_map.bridge",

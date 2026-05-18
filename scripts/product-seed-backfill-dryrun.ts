@@ -437,7 +437,7 @@ async function pageProducts(args: {
       args.warnings.push({ source: "products", reason: `page ${pageIndex}: ${error.message}` });
       throw new Error(`[backfill-dryrun] products page ${pageIndex} failed: ${error.message}`);
     }
-    const rows = (data ?? []).map((r) => asProductRow(r as Record<string, unknown>));
+    const rows = (data ?? []).map((r) => asProductRow(r as unknown as Record<string, unknown>));
     args.cursorWriter.write({
       table: "products",
       page_index: pageIndex,
@@ -478,7 +478,7 @@ async function pageActiveMap(args: {
       args.warnings.push({ source: "product_identifier_map.active", reason: `page ${pageIndex}: ${error.message}` });
       throw new Error(`[backfill-dryrun] active map page ${pageIndex} failed: ${error.message}`);
     }
-    const rows = (data ?? []).map((r) => asActiveMapRow(r as Record<string, unknown>));
+    const rows = (data ?? []).map((r) => asActiveMapRow(r as unknown as Record<string, unknown>));
     args.cursorWriter.write({
       table: "product_identifier_map.active",
       page_index: pageIndex,

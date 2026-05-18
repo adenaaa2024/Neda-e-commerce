@@ -140,7 +140,7 @@ export async function fetchClaimReviewWorkItemDetailForOrg(
       .eq("organization_id", args.organizationId)
       .maybeSingle();
     if (dErr) return { ok: false, error: dErr.message, status: 500 };
-    if (d && typeof d === "object" && !Array.isArray(d)) draft = d as Record<string, unknown>;
+    if (d && typeof d === "object" && !Array.isArray(d)) draft = d as unknown as Record<string, unknown>;
   }
 
   const { data: evRows, error: eErr } = await supabase
@@ -438,7 +438,7 @@ export async function executeClaimReviewWorkItemPatch(args: {
       if (!ent.aiDraft) return deny("AI draft features are not entitled for this store.", 403);
       const prev =
         row.ai_classification && typeof row.ai_classification === "object" && !Array.isArray(row.ai_classification)
-          ? (row.ai_classification as Record<string, unknown>)
+          ? (row.ai_classification as unknown as Record<string, unknown>)
           : {};
       const incoming = body.ai_classification && typeof body.ai_classification === "object" ? body.ai_classification : {};
       patch = {

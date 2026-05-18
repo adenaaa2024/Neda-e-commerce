@@ -115,7 +115,7 @@ export function parseListedReportsFromResponse(raw: unknown): ListedReportSummar
   const out: ListedReportSummary[] = [];
   for (const row of reports) {
     if (!row || typeof row !== "object") continue;
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     const reportId = typeof r.reportId === "string" ? r.reportId : "";
     const reportType = typeof r.reportType === "string" ? r.reportType : "";
     if (!reportId || !reportType) continue;

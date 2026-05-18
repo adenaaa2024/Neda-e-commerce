@@ -522,9 +522,9 @@ const DESCRIPTORS: Record<string, SourceTableDescriptor> = {
       extractFromAmazonAmazonFulfilledInventoryRow(
         row as unknown as AmazonAmazonFulfilledInventoryRowProjection,
       ),
-    existingResolvedProductId: (row) => nonEmptyString((row as Record<string, unknown>).resolved_product_id),
+    existingResolvedProductId: (row) => nonEmptyString((row as unknown as Record<string, unknown>).resolved_product_id),
     existingResolvedCatalogProductId: (row) =>
-      nonEmptyString((row as Record<string, unknown>).resolved_catalog_product_id),
+      nonEmptyString((row as unknown as Record<string, unknown>).resolved_catalog_product_id),
     allowNullStoreId: true,
   },
   amazon_manage_fba_inventory: {
@@ -537,9 +537,9 @@ const DESCRIPTORS: Record<string, SourceTableDescriptor> = {
       extractFromAmazonManageFbaInventoryRow(
         row as unknown as AmazonManageFbaInventoryRowProjection,
       ),
-    existingResolvedProductId: (row) => nonEmptyString((row as Record<string, unknown>).resolved_product_id),
+    existingResolvedProductId: (row) => nonEmptyString((row as unknown as Record<string, unknown>).resolved_product_id),
     existingResolvedCatalogProductId: (row) =>
-      nonEmptyString((row as Record<string, unknown>).resolved_catalog_product_id),
+      nonEmptyString((row as unknown as Record<string, unknown>).resolved_catalog_product_id),
     allowNullStoreId: true,
   },
   amazon_fba_inventory: {
@@ -552,9 +552,9 @@ const DESCRIPTORS: Record<string, SourceTableDescriptor> = {
       extractFromAmazonFbaInventoryRow(
         row as unknown as AmazonFbaInventoryRowProjection,
       ),
-    existingResolvedProductId: (row) => nonEmptyString((row as Record<string, unknown>).resolved_product_id),
+    existingResolvedProductId: (row) => nonEmptyString((row as unknown as Record<string, unknown>).resolved_product_id),
     existingResolvedCatalogProductId: (row) =>
-      nonEmptyString((row as Record<string, unknown>).resolved_catalog_product_id),
+      nonEmptyString((row as unknown as Record<string, unknown>).resolved_catalog_product_id),
     allowNullStoreId: true,
   },
 };
@@ -657,7 +657,7 @@ async function processTenantSlice(
     else q = q.eq("store_id", "__never__");
     const { data, error } = await q;
     if (error) throw new Error(`${descriptor.name} read failed: ${error.message}`);
-    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
     pageCount++;
     if (rows.length === 0) break;
 

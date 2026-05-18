@@ -281,7 +281,7 @@ export function ManualProductForm({
             setSaving(false);
             return;
           }
-          product_attributes = parsed as Record<string, unknown>;
+          product_attributes = parsed as unknown as Record<string, unknown>;
         } catch {
           setErr("Invalid JSON in product attributes.");
           setSaving(false);

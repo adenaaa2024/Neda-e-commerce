@@ -112,6 +112,6 @@ export async function loadFinancesApiPages(
   if (error) throw new Error(`loadFinancesApiPages failed: ${error.message}`);
   return (data ?? []).map((row) => ({
     sequence: row.sequence as number,
-    raw_body: (row.raw_body ?? {}) as Record<string, unknown>,
+    raw_body: (row.raw_body ?? {}) as unknown as Record<string, unknown>,
   }));
 }

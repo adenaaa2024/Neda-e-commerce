@@ -133,14 +133,14 @@ export function ClaimReviewOperationsClient({
       try {
         const params = new URLSearchParams({ organization_id: organizationId });
         const res = await fetch(`/api/claims/my-stores?${params.toString()}`, { credentials: "include" });
-        const body = (await res.json()) as Record<string, unknown>;
+        const body = (await res.json()) as unknown as Record<string, unknown>;
         if (!res.ok) {
           if (!cancelled) setStoresError(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
           return;
         }
         const raw = body.stores;
         const list: AllowedStoreRow[] = Array.isArray(raw)
-          ? (raw as Record<string, unknown>[]).map((r) => ({
+          ? (raw as unknown as Record<string, unknown>[]).map((r) => ({
               store_id: String(r.store_id ?? ""),
               name: String(r.name ?? ""),
               platform: String(r.platform ?? ""),
@@ -175,8 +175,8 @@ export function ClaimReviewOperationsClient({
       summary: "true",
     });
     const res = await fetch(`/api/claims/review-work-items?${p.toString()}`, { credentials: "include" });
-    const body = (await res.json()) as Record<string, unknown>;
-    if (res.ok) setSummary((body.summary as Record<string, unknown>) ?? null);
+    const body = (await res.json()) as unknown as Record<string, unknown>;
+    if (res.ok) setSummary((body.summary as unknown as Record<string, unknown>) ?? null);
   }, [organizationId, storeId]);
 
   const loadVerification = useCallback(async () => {
@@ -185,12 +185,12 @@ export function ClaimReviewOperationsClient({
     try {
       const p = new URLSearchParams({ organization_id: organizationId, store_id: storeId });
       const res = await fetch(`/api/claims/review-work-items/verification?${p.toString()}`, { credentials: "include" });
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setVerification(null);
         return;
       }
-      setVerification(body.snapshot as Record<string, unknown>);
+      setVerification(body.snapshot as unknown as Record<string, unknown>);
     } finally {
       setVerifyLoading(false);
     }
@@ -211,7 +211,7 @@ export function ClaimReviewOperationsClient({
       else if (t?.slice) p.set("dashboard_slice", t.slice);
 
       const res = await fetch(`/api/claims/review-work-items?${p.toString()}`, { credentials: "include" });
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setItems([]);
         setListError(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
@@ -282,12 +282,12 @@ export function ClaimReviewOperationsClient({
           confirm_execute: dryRun ? false : confirmBootstrap,
         }),
       });
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setBootstrapMsg(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
         return;
       }
-      setBootstrapPlan((body.plan as Record<string, unknown>) ?? null);
+      setBootstrapPlan((body.plan as unknown as Record<string, unknown>) ?? null);
       const plan = body.plan as { missing_draft_count?: number } | undefined;
       const missingCount = typeof plan?.missing_draft_count === "number" ? plan.missing_draft_count : null;
       setBootstrapMsg(
@@ -325,7 +325,7 @@ export function ClaimReviewOperationsClient({
           follow_up_interval_hours: bulkAction === "bulk_schedule_follow_up" ? bulkFollowUpHrs : undefined,
         }),
       });
-      const body = (await res.json()) as Record<string, unknown>;
+      const body = (await res.json()) as unknown as Record<string, unknown>;
       if (!res.ok) {
         setBulkPreview({ error: body.error });
         return;
@@ -401,13 +401,13 @@ export function ClaimReviewOperationsClient({
         const res = await fetch(`/api/claims/review-work-items/${workItemId}?${p.toString()}`, {
           credentials: "include",
         });
-        const body = (await res.json()) as Record<string, unknown>;
+        const body = (await res.json()) as unknown as Record<string, unknown>;
         if (!res.ok) {
           setDrawerData(null);
           setDrawerError(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
           return;
         }
-        const wi = body.work_item as Record<string, unknown> | undefined;
+        const wi = body.work_item as unknown as Record<string, unknown> | undefined;
         const pr = typeof wi?.priority === "string" ? wi.priority : "p2";
         const detailStoreId = typeof wi?.store_id === "string" ? wi.store_id : "";
         setDrawerStoreId(detailStoreId || null);
@@ -422,9 +422,9 @@ export function ClaimReviewOperationsClient({
         startTransition(() => {
           setDrawerData({
             work_item: wi ?? {},
-            draft: (body.draft as Record<string, unknown> | null) ?? null,
-            events: Array.isArray(body.events) ? (body.events as Record<string, unknown>[]) : [],
-            entitlements: (body.entitlements as Record<string, unknown>) ?? {},
+            draft: (body.draft as unknown as Record<string, unknown> | null) ?? null,
+            events: Array.isArray(body.events) ? (body.events as unknown as Record<string, unknown>[]) : [],
+            entitlements: (body.entitlements as unknown as Record<string, unknown>) ?? {},
           });
         });
       } catch (e) {
@@ -467,7 +467,7 @@ export function ClaimReviewOperationsClient({
             ...extra,
           }),
         });
-        const body = (await res.json()) as Record<string, unknown>;
+        const body = (await res.json()) as unknown as Record<string, unknown>;
         if (!res.ok) {
           setPatchStatus({
             status: "error",
@@ -477,7 +477,7 @@ export function ClaimReviewOperationsClient({
           return false;
         }
         setPatchStatus({ status: "success", action, message: `${actionLabel(action)} saved.` });
-        const wi = body.work_item as Record<string, unknown> | undefined;
+        const wi = body.work_item as unknown as Record<string, unknown> | undefined;
         if (wi && typeof wi.priority === "string") setDrawerPriority(wi.priority);
         void loadDrawer(drawerWorkId, { preservePatchStatus: true, forceStoreId: actionStoreId });
         void loadItems();
@@ -1082,7 +1082,7 @@ function TimelineActorRow({ ev }: { ev: Record<string, unknown> }) {
     secondary = "No signed-in actor on this event";
     initials = "SYS";
   } else if (actor && typeof actor === "object" && !Array.isArray(actor)) {
-    const a = actor as Record<string, unknown>;
+    const a = actor as unknown as Record<string, unknown>;
     const name = typeof a.full_name === "string" && a.full_name.trim() ? a.full_name.trim() : "";
     const role = typeof a.role === "string" && a.role.trim() ? a.role.trim() : "";
     primary = name || "Organization member";
@@ -1423,7 +1423,7 @@ const ReviewDrawerBody = memo(function ReviewDrawerBody({
             disabled={!taskOk || !aiOk || patchBusy}
             onClick={() => {
               try {
-                const parsed = JSON.parse(drawerAiJson || "{}") as Record<string, unknown>;
+                const parsed = JSON.parse(drawerAiJson || "{}") as unknown as Record<string, unknown>;
                 void patchWorkItem("record_ai_placeholder", { ai_classification: parsed });
               } catch {
                 /* invalid JSON — ignore */
@@ -1475,7 +1475,7 @@ function actionLabel(action: string): string {
 function eventLabel(ev: Record<string, unknown>): string {
   const payload = ev.payload;
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    const action = (payload as Record<string, unknown>).action;
+    const action = (payload as unknown as Record<string, unknown>).action;
     if (action === "operator_note") return "Operator note / handoff";
   }
   const eventType = String(ev.event_type ?? "");
@@ -1492,7 +1492,7 @@ function formatTimestamp(v: unknown): string {
 
 function payloadSummary(payload: unknown): string {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "No payload.";
-  const p = payload as Record<string, unknown>;
+  const p = payload as unknown as Record<string, unknown>;
   const parts: string[] = [];
   for (const key of ["action", "from", "to", "priority", "assignee_user_id", "quarantine_reason", "escalation_level", "follow_up_interval_hours", "next_follow_up_at", "note"]) {
     const v = p[key];
@@ -1505,7 +1505,7 @@ function payloadSummary(payload: unknown): string {
 function num(obj: Record<string, unknown>, path: string[]): number {
   let cur: unknown = obj;
   for (const k of path) {
-    if (cur && typeof cur === "object" && k in (cur as object)) cur = (cur as Record<string, unknown>)[k];
+    if (cur && typeof cur === "object" && k in (cur as object)) cur = (cur as unknown as Record<string, unknown>)[k];
     else return 0;
   }
   return typeof cur === "number" ? cur : 0;

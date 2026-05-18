@@ -168,7 +168,7 @@ export async function patchFinancesSourceRun(
       .eq("id", sourceRunId)
       .eq("organization_id", organizationId)
       .maybeSingle();
-    const prior = (current?.attempt ?? {}) as Record<string, unknown>;
+    const prior = (current?.attempt ?? {}) as unknown as Record<string, unknown>;
     update.attempt = { ...prior, ...patch.attempt };
   }
 

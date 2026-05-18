@@ -207,7 +207,7 @@ async function runListGroupsPhase(
       nextTokenIn: nextToken,
       nextTokenOut: res.nextToken,
       httpStatus: 200,
-      rawBody: res.raw as Record<string, unknown>,
+      rawBody: res.raw as unknown as Record<string, unknown>,
     });
 
     nextToken = res.nextToken;
@@ -259,7 +259,7 @@ async function runListEventsPhase(
       nextTokenIn: nextToken,
       nextTokenOut: res.nextToken,
       httpStatus: 200,
-      rawBody: res.raw as Record<string, unknown>,
+      rawBody: res.raw as unknown as Record<string, unknown>,
     });
 
     nextToken = res.nextToken;

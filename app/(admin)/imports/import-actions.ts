@@ -29,7 +29,7 @@ function isPimCatalogOrAsyncUploadRow(raw: Record<string, unknown>): boolean {
   if (isPimRawReportType(String(raw.report_type ?? "").trim())) return true;
   const md = raw.metadata;
   if (md && typeof md === "object" && !Array.isArray(md)) {
-    const m = md as Record<string, unknown>;
+    const m = md as unknown as Record<string, unknown>;
     if (m.module === "pim") return true;
     if (m.pim_async_import === true) return true;
     if (m.pim_catalog_seed === true) return true;
@@ -243,7 +243,7 @@ export async function findActiveProductIdentityImport(input: {
     if (!row) return { ok: true, existing: null };
 
     const meta = (row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata))
-      ? (row.metadata as Record<string, unknown>)
+      ? (row.metadata as unknown as Record<string, unknown>)
       : {};
     const importStoreId =
       typeof meta.import_store_id === "string" && isUuidString(meta.import_store_id)
@@ -477,7 +477,7 @@ export async function listRawReportUploads(input?: {
 
     if (error) return { ok: false, error: error.message };
 
-    const base = (data ?? []) as Record<string, unknown>[];
+    const base = (data ?? []) as unknown as Record<string, unknown>[];
     const baseFiltered = base.filter((raw) => !isPimCatalogOrAsyncUploadRow(raw)).slice(0, 100);
 
     const uploadIds = baseFiltered
@@ -566,11 +566,11 @@ export async function listRawReportUploads(input?: {
     }
 
     const rows: RawReportUploadRow[] = baseFiltered.map((raw) => {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const meta = parseRawReportMetadata(r.metadata);
       const metaObj =
         r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata)
-          ? (r.metadata as Record<string, unknown>)
+          ? (r.metadata as unknown as Record<string, unknown>)
           : null;
       const id = String(r.id);
       return {
@@ -1657,7 +1657,7 @@ export async function deleteRawReportUpload(
   const metaRaw = (row as { metadata?: unknown }).metadata;
   const metaObj =
     metaRaw && typeof metaRaw === "object" && !Array.isArray(metaRaw)
-      ? (metaRaw as Record<string, unknown>)
+      ? (metaRaw as unknown as Record<string, unknown>)
       : {};
 
   // ── 1. Storage cleanup ────────────────────────────────────────────────────
@@ -1748,7 +1748,7 @@ export async function removeOlderRemovalImportsWithSameFileContent(
     return { ok: false, error: "Invalid ids." };
   }
   const m = metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? (metadata as Record<string, unknown>)
+    ? (metadata as unknown as Record<string, unknown>)
     : {};
   const contentSha256 =
     typeof m.content_sha256 === "string" ? m.content_sha256.trim().toLowerCase() : "";

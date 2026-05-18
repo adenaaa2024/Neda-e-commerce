@@ -217,7 +217,7 @@ async function loadExistingEdgeKeys(
   if (error) throw new Error(`claim_reference_edges load: ${error.message}`);
   const keys = new Set<string>();
   for (const row of data ?? []) {
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     keys.add(
       edgeNaturalKey({
         edge_type: String(r.edge_type ?? ""),

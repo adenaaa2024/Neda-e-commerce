@@ -248,7 +248,7 @@ async function fetchAllPaged(
     if (orgId) q = q.eq("organization_id", orgId);
     const { data, error } = await q;
     if (error) throw new Error(`${table}: ${error.message}`);
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     out.push(...batch);
     if (batch.length < PAGE) break;
     from += PAGE;
@@ -271,7 +271,7 @@ async function fetchLegacyCandidates(sb: SupabaseClient, orgId: string | null): 
     if (orgId) q = q.eq("organization_id", orgId);
     const { data, error } = await q;
     if (error) throw new Error(`claim_candidates: ${error.message}`);
-    const batch = (data ?? []) as Record<string, unknown>[];
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
     out.push(...batch);
     if (batch.length < PAGE) break;
     from += PAGE;
@@ -358,7 +358,7 @@ async function evidenceProbeReturns(
     }
     const returnIds = new Set<string>();
     const pkToReturn = new Map<string, string>();
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
       const pk = nv(r.id);
       const rid = nv(r.return_id) ?? nv(r.returns_id);
       if (pk && rid) {
@@ -377,7 +377,7 @@ async function evidenceProbeReturns(
         trace(`evidence_probe returns: ${r2.error.message}`);
         continue;
       }
-      for (const row of (r2.data ?? []) as Record<string, unknown>[]) {
+      for (const row of (r2.data ?? []) as unknown as Record<string, unknown>[]) {
         const id = nv(row.id);
         if (id && nv(row.package_id)) withPackage.add(id);
       }

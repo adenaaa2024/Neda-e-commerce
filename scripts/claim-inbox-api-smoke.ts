@@ -104,7 +104,7 @@ async function pickCandidatesByQueue(
       .range(from, from + PAGE - 1);
     appendNd(logPath, { phase: "page_fetch", from, error: error?.message ?? null, batch: (data ?? []).length });
     if (error) break;
-    const batch = ((data ?? []) as unknown) as Record<string, unknown>[];
+    const batch = ((data ?? []) as unknown) as unknown as Record<string, unknown>[];
     if (batch.length === 0) break;
     read += batch.length;
     const proj = await projectClaimCandidatesBatch(client, batch, organizationId);
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   const testIds = [...new Set(Object.values(byQueue).filter(Boolean))] as string[];
   if (testIds.length === 0) {
     const { data: one } = await client.from("claim_candidates").select("id").eq("organization_id", orgId).limit(1);
-    const row0 = (one ?? [])[0] as Record<string, unknown> | undefined;
+    const row0 = (one ?? [])[0] as unknown as Record<string, unknown> | undefined;
     const fallback = row0 ? claimInboxStr(row0.id) : null;
     if (fallback) testIds.push(fallback);
   }
@@ -311,13 +311,13 @@ function summarizeBody(body: unknown): unknown {
     return body;
   }
   if (!body || typeof body !== "object") return body;
-  const o = body as Record<string, unknown>;
+  const o = body as unknown as Record<string, unknown>;
   if ("error" in o) return { error: o.error };
   if ("items" in o && Array.isArray(o.items)) {
     return {
       item_count: o.items.length,
       next_cursor: o.next_cursor ?? null,
-      sample_queues: (o.items as Record<string, unknown>[]).slice(0, 5).map((r) => ({
+      sample_queues: (o.items as unknown as Record<string, unknown>[]).slice(0, 5).map((r) => ({
         id: r.id,
         inbox_queue: r.inbox_queue,
         lineage_warning_code: r.lineage_warning_code,
@@ -328,7 +328,7 @@ function summarizeBody(body: unknown): unknown {
   if ("candidate" in o) {
     return {
       has_candidate: !!o.candidate,
-      projection_inbox_queue: (o.projection as Record<string, unknown> | undefined)?.inbox_queue,
+      projection_inbox_queue: (o.projection as unknown as Record<string, unknown> | undefined)?.inbox_queue,
       lineage_warning: o.lineage_warning ?? null,
       product_badges_count: Array.isArray(o.product_badges) ? o.product_badges.length : 0,
     };

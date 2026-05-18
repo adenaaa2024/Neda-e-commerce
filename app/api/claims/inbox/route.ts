@@ -128,7 +128,7 @@ export async function GET(req: Request) {
         if (!built.ok) return NextResponse.json({ error: built.error }, { status: 400 });
         const { data, error } = await built.q.range(scan, scan + SCAN_BATCH - 1);
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-        const batch = ((data ?? []) as unknown) as Record<string, unknown>[];
+        const batch = ((data ?? []) as unknown) as unknown as Record<string, unknown>[];
         lastBatchLen = batch.length;
         if (batch.length === 0) break;
         scanned += batch.length;
@@ -165,7 +165,7 @@ export async function GET(req: Request) {
     const from = (page - 1) * pageSize;
     const { data, error } = await builtPage.q.range(from, from + pageSize - 1);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const batch = ((data ?? []) as unknown) as Record<string, unknown>[];
+    const batch = ((data ?? []) as unknown) as unknown as Record<string, unknown>[];
     const proj = await projectClaimCandidatesBatch(supabaseServer, batch, organizationId);
     const items = batch.map((row) => shapeListItem(row, proj.get(claimInboxStr(row.id) ?? "") ?? null));
     const next_cursor =

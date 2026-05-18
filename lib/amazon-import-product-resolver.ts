@@ -113,7 +113,7 @@ function n(v: unknown): string | null {
 function pickFromRaw(raw: Record<string, unknown> | null, keys: string[]): string | null {
   if (!raw || typeof raw !== "object") return null;
   for (const k of keys) {
-    const v = (raw as Record<string, unknown>)[k];
+    const v = (raw as unknown as Record<string, unknown>)[k];
     if (v !== null && v !== undefined && String(v).trim() !== "") return String(v).trim();
   }
   return null;
@@ -129,7 +129,7 @@ export function adaptResolverImportRow(
 
 function adaptRow(table: ResolveTargetTable, raw: Record<string, unknown>): ResolverRow {
   const rd = (raw.raw_data && typeof raw.raw_data === "object" && !Array.isArray(raw.raw_data))
-    ? (raw.raw_data as Record<string, unknown>)
+    ? (raw.raw_data as unknown as Record<string, unknown>)
     : null;
   switch (table) {
     case "amazon_all_orders":
