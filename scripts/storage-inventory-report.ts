@@ -610,7 +610,7 @@ async function loadDbRefIndex(
       "manifest_url",
     ];
     try {
-      let q = client.from("returns").select(`id, organization_id, ${mediaCols.join(",")}`).limit(400);
+      let q = client.from("return_items").select(`id, organization_id, ${mediaCols.join(",")}`).limit(400);
       if (orgId) q = q.eq("organization_id", orgId);
       const { data, error } = await q;
       trace(tracePath, `DB returns photo cols rows=${(data ?? []).length} err=${error?.message ?? "none"}`);
@@ -621,7 +621,7 @@ async function loadDbRefIndex(
             if (!url) continue;
             for (const b of ["media", "manifests"] as const) {
               const p = extractPublicStoragePath(url, b);
-              if (p) pathNeedles.push({ bucket: b, needle: p, table: "returns", column: c });
+              if (p) pathNeedles.push({ bucket: b, needle: p, table: "return_items", column: c });
             }
           }
         }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -180,6 +181,7 @@ export function ClaimDraftsReviewClient({ organizationId }: { organizationId: st
                 <th className="border-b border-slate-200 px-2 py-2 dark:border-slate-700">Family / reason</th>
                 <th className="border-b border-slate-200 px-2 py-2 dark:border-slate-700">Evidence</th>
                 <th className="border-b border-slate-200 px-2 py-2 dark:border-slate-700">Recommended</th>
+                <th className="border-b border-slate-200 px-2 py-2 dark:border-slate-700">Evidence</th>
               </tr>
             </thead>
             <tbody>
@@ -202,6 +204,14 @@ export function ClaimDraftsReviewClient({ organizationId }: { organizationId: st
                   <td className="px-2 py-1.5">{row.evidence_status ?? "—"}</td>
                   <td className="max-w-[200px] truncate px-2 py-1.5" title={row.recommended_action ?? ""}>
                     {(row.recommended_action ?? "").slice(0, 60) || "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5">
+                    <Link
+                      href={`/claim-engine/evidence?draft_id=${encodeURIComponent(row.id)}`}
+                      className="font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+                    >
+                      View
+                    </Link>
                   </td>
                 </tr>
               ))}

@@ -7,10 +7,17 @@ import { REPORT_TYPE_SPECS } from "../../../lib/csv-import-mapping";
 import { parseCsvToMatrix } from "../../../lib/csv-parse-basic";
 import { RAW_REPORT_TYPE_ORDER, type RawReportType } from "../../../lib/raw-report-types";
 import {
+  buildImportDescriptorUiSummary,
+  formatImportDescriptorDebugLog,
+  type ClassifyHeadersDescriptorPayload,
+  type ImportDescriptorUiSummary,
+} from "../../../lib/import/import-classify-response";
+import {
   createRawReportUploadSession,
   finalizeRawReportUpload,
   updateUploadSessionClassification,
 } from "./import-actions";
+import { ImportDescriptorClassifyPanel } from "./ImportDescriptorClassifyPanel";
 
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
 
@@ -64,6 +71,8 @@ export function RawReportUploader({ onUploadComplete }: RawReportUploaderProps) 
   const [processPct, setProcessPct] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [descriptorClassifySummary, setDescriptorClassifySummary] =
+    useState<ImportDescriptorUiSummary | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef(false);
 
@@ -73,6 +82,7 @@ export function RawReportUploader({ onUploadComplete }: RawReportUploaderProps) 
     setUploadPct(0);
     setProcessPct(0);
     setErr(null);
+    setDescriptorClassifySummary(null);
     abortRef.current = false;
   }, []);
 
@@ -153,11 +163,8 @@ export function RawReportUploader({ onUploadComplete }: RawReportUploaderProps) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ headers, actor_user_id: actorUserId }),
       });
-      const clsJson = (await clsRes.json()) as {
-        ok?: boolean;
-        report_type?: string;
+      const clsJson = (await clsRes.json()) as ClassifyHeadersDescriptorPayload & {
         column_mapping?: Record<string, string>;
-        needs_mapping?: boolean;
         error?: string;
       };
       if (!clsRes.ok || !clsJson.ok) {
@@ -167,6 +174,16 @@ export function RawReportUploader({ onUploadComplete }: RawReportUploaderProps) 
       const resolvedColumnMapping = clsJson.column_mapping ?? {};
       const needsManualMapping = clsJson.needs_mapping ?? false;
       setReportType(resolvedReportType);
+
+      const descriptorSummary = buildImportDescriptorUiSummary({
+        ...clsJson,
+        report_type: resolvedReportType,
+        needs_mapping: needsManualMapping,
+      });
+      setDescriptorClassifySummary(descriptorSummary);
+      if (process.env.NODE_ENV === "development") {
+        console.info(formatImportDescriptorDebugLog(descriptorSummary));
+      }
 
       // ── Patch the existing session row with classification results.
       // This also saves csv_headers into metadata for the mapping modal dropdowns.
@@ -364,6 +381,11 @@ export function RawReportUploader({ onUploadComplete }: RawReportUploaderProps) 
             />
           </div>
         </div>
+
+        {descriptorClassifySummary &&
+          (phase === "done" || phase === "needs_mapping" || phase === "processing" || phase === "uploading") && (
+            <ImportDescriptorClassifyPanel summary={descriptorClassifySummary} compact />
+          )}
 
         {/* Error */}
         {err && (

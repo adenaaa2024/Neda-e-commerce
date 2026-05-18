@@ -18,6 +18,7 @@ import {
   CLAIM_SUBMISSIONS_TABLE,
   CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED,
 } from "./claim-submissions-constants";
+import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
 import { assertClaimSubmissionBelongsToOrganization, assertStoreBelongsToOrganization } from "../../lib/claim-org-scope";
 import {
   appendClaimHistoryTimelineEntry,
@@ -118,7 +119,7 @@ export async function generateDailyClaimReports(
   }
   try {
     const { data: readyRows, error: rErr } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(
         "id, organization_id, store_id, estimated_value, marketplace, conditions, order_id, package_id, expiration_date, batch_number, notes, stores(platform)",
       )
@@ -211,7 +212,7 @@ function resolveReturnSku(ret: Record<string, unknown> | null): string | null {
 }
 
 function returnRowFromSubmissionEmbed(sub: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = sub.returns;
+  const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
   const r = Array.isArray(raw) ? raw[0] : raw;
   return r as Record<string, unknown>;

@@ -5,7 +5,7 @@ import {
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
   CLAIM_SUBMISSIONS_TABLE,
 } from "./claim-submissions-constants";
-import { RETURN_SELECT } from "../returns/returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SELECT } from "../returns/returns-constants";
 import {
   getReturnPhotoEvidenceUrls,
   type ReturnPhotoEvidenceRow,
@@ -18,7 +18,7 @@ function resolveSkuFromReturnRow(ret: Record<string, unknown> | null): string | 
   return null;
 }
 
-/** Collect image URLs from `returns` (`photo_evidence` URL slots + optional `photo_urls` JSON/array). */
+/** Collect image URLs from `return_items` (`photo_evidence` URL slots + optional `photo_urls` JSON/array). */
 export async function collectReturnPhotoUrls(
   ret: Record<string, unknown> | null,
 ): Promise<string[]> {
@@ -120,7 +120,7 @@ export async function fetchReadyToSendSubmissionsForHtmlPrint(
     let retMap = new Map<string, Record<string, unknown>>();
     if (returnIds.length > 0) {
       const { data: rets, error: rErr } = await supabaseServer
-        .from("returns")
+        .from(RETURN_ITEMS_TABLE)
         .select(RETURN_SELECT)
         .in("id", returnIds);
       if (rErr) throw new Error(rErr.message);

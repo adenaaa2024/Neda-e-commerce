@@ -125,7 +125,7 @@ function isoRunId(): string {
 /** PostgREST sources this script reads: whether organization_id / store_id filters apply. */
 const RELATION_TENANT_COLUMNS: Record<string, { organization_id: boolean; store_id: boolean }> = {
   claim_candidates: { organization_id: true, store_id: true },
-  returns: { organization_id: true, store_id: true },
+  return_items: { organization_id: true, store_id: true },
   packages: { organization_id: true, store_id: true },
   pallets: { organization_id: true, store_id: true },
   pim_identifier_dispute: { organization_id: true, store_id: true },
@@ -754,8 +754,8 @@ async function main(): Promise<void> {
     }
   }
 
-  const retFilters = tenantFiltersForSource("returns", organizationId, storeId, warn);
-  const returnsRes = await fetchPaged(client, "returns", "*", "created_at", tracePath, retFilters);
+  const retFilters = tenantFiltersForSource("return_items", organizationId, storeId, warn);
+  const returnsRes = await fetchPaged(client, "return_items", "*", "created_at", tracePath, retFilters);
   if (returnsRes.error) warn("TABLE_QUERY", `returns: ${returnsRes.error}`);
   const pkgFilters = tenantFiltersForSource("packages", organizationId, storeId, warn);
   const packagesRes = await fetchPaged(client, "packages", "*", "created_at", tracePath, pkgFilters);
@@ -768,13 +768,13 @@ async function main(): Promise<void> {
     const id = asStr(ret.id);
     const org = asStr(ret.organization_id);
     if (!ret.package_id) {
-      gapRows.push(["missing_package_id", "returns", id ?? "", "returns.package_id is null", "medium"]);
+      gapRows.push(["missing_package_id", "return_items", id ?? "", "return_items.package_id is null", "medium"]);
       appendCandidate({
         run_id: runId,
         bucket: "operational_return_gap",
         organization_id: org,
         store_id: asStr(ret.store_id),
-        source_table: "returns",
+        source_table: "return_items",
         source_row_id: id,
         claim_candidate_id: null,
         order_id: asStr(ret.order_id),
@@ -791,13 +791,13 @@ async function main(): Promise<void> {
       });
     }
     if (!ret.product_id) {
-      gapRows.push(["missing_product_id", "returns", id ?? "", "returns.product_id is null", "low"]);
+      gapRows.push(["missing_product_id", "return_items", id ?? "", "return_items.product_id is null", "low"]);
       appendCandidate({
         run_id: runId,
         bucket: "operational_return_gap",
         organization_id: org,
         store_id: asStr(ret.store_id),
-        source_table: "returns",
+        source_table: "return_items",
         source_row_id: id,
         claim_candidate_id: null,
         order_id: asStr(ret.order_id),
@@ -985,16 +985,16 @@ async function main(): Promise<void> {
       arFilters,
     );
     if (e1) warn("TABLE_QUERY", `amazon_returns sample: ${e1}`);
-    const opFilters = tenantFiltersForSource("returns", organizationId, storeId, warn);
+    const opFilters = tenantFiltersForSource("return_items", organizationId, storeId, warn);
     const { rows: op, error: e2 } = await trySelect(
       client,
-      "returns",
+      "return_items",
       "id,organization_id,store_id,lpn,order_id,sku,asin",
       tracePath,
       5000,
       opFilters,
     );
-    if (e2) warn("TABLE_QUERY", `returns sample: ${e2}`);
+    if (e2) warn("TABLE_QUERY", `return_items sample: ${e2}`);
     const opByLpn = new Map<string, Record<string, unknown>>();
     for (const r of op) {
       const lpn = asStr(r.lpn)?.trim();
@@ -1081,7 +1081,7 @@ async function main(): Promise<void> {
   for (const t of [
     "claim_candidates",
     "claim_submissions",
-    "returns",
+    "return_items",
     "packages",
     "pallets",
     "expected_packages",

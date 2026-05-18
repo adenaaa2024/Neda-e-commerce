@@ -1,6 +1,6 @@
 /**
  * Data layer: all Claim Engine reads/writes go through `claim_submissions` (not legacy `claims`).
- * Joins `returns` for ASIN/FNSKU/SKU whenever `return_id` is set.
+ * Joins `return_items` for ASIN/FNSKU/SKU whenever `return_id` is set.
  */
 import { supabaseServer } from "../../lib/supabase-server";
 import { isUuidString } from "../../lib/uuid";
@@ -39,9 +39,9 @@ function resolveSkuFromReturn(ret: ReturnRecord | null): string | null {
   return null;
 }
 
-/** PostgREST `returns` FK embed on `claim_submissions` (object or one-element array). */
+/** PostgREST `return_items` FK embed on `claim_submissions` (object or one-element array). */
 function returnFromSubmissionEmbed(sub: Record<string, unknown>): ReturnRecord | null {
-  const raw = sub.returns;
+  const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
   const r = Array.isArray(raw) ? raw[0] : raw;
   return normalizeReturnEmbed(r);

@@ -1,0 +1,11 @@
+{
+  "id": "transactions_fee_preview",
+  "description": "Fee Preview / standard transactions (transaction type + total product charges)",
+  "headers": [
+    "transaction-type",
+    "order-id",
+    "total-product-charges",
+    "sku"
+  ],
+  "expect_report_type": "TRANSACTIONS"
+}

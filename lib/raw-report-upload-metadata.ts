@@ -174,6 +174,8 @@ export type RawReportUploadMetadata = {
   import_store_id?: string;
   /** e.g. `amazon_ledger_uploader` — distinguishes client-only ledger sessions */
   source?: string;
+  /** Amazon Reports API / Finances pull control plane (IMPORT-API-02). */
+  source_run?: Record<string, unknown>;
   /** Original CSV header row captured on upload — used to populate manual mapping dropdowns. */
   csv_headers?: string[];
   /**
@@ -302,6 +304,69 @@ export type RawReportUploadMetadata = {
   pim_csv_scan_cache_storage?: string | null;
   /** Optional legacy key; PIM UI uses `raw_report_uploads.id` as the import job id. */
   pim_import_session_id?: string;
+  /**
+   * Last incremental resolver orchestration run for this upload (NEXT-UNIVERSAL-RESOLVER-06).
+   * Upload-scoped only; no org-wide sweeps.
+   */
+  resolver_incremental_last_run?: ResolverIncrementalLastRunMetadata;
+  /**
+   * ImportDescriptorV1 advisory slice (NEXT-IMPORT-04). Does not drive sync until explicitly wired.
+   * @see lib/import/import-upload-descriptor-metadata.ts
+   */
+  import_descriptor?: {
+    descriptor_id: string;
+    descriptor_version: number;
+    classify_profile: string;
+    import_kind: string | null;
+    source_family: string;
+    provider: string;
+    classification_source?: string;
+    matched_rule?: string;
+  };
+};
+
+/** Persisted under `metadata.resolver_incremental_last_run` after orchestrated resolver runs. */
+export type ResolverIncrementalLastRunMetadata = {
+  at: string;
+  /** Same as `raw_report_uploads.id` — explicit for log export / cross-system joins. */
+  upload_id?: string;
+  /** Monotonic per (upload, table) orchestration attempts (incremented on each persisted run). */
+  run_sequence?: number;
+  /** ISO timestamp of the prior persisted run for the same table on this upload, if any. */
+  previous_run_at?: string | null;
+  table: string;
+  lane: "A" | "B";
+  verify_only?: boolean;
+  /** Lane B blocked the execute pass due to ambiguity ratio — ambiguity isolation preserved (no auto-resolve). */
+  lane_b_ambiguity_execute_skipped?: boolean;
+  /** Orchestration finished without fatal error (individual row patch warnings may still exist). */
+  orchestration_completed_ok?: boolean;
+  /** Set when `AbortError` fires between phases or fatal throw from resolver. */
+  orchestration_error?: string | null;
+  /** False when metadata merge/update failed after a run (observability). */
+  persist_metadata_ok?: boolean;
+  /** Count of UUIDs passed as `onlyRowIds` to the resolver (governed sub-batch). */
+  only_row_ids_count?: number | null;
+  phases: Array<{
+    name: "preflight_dry_run" | "execute" | "verify_only";
+    duration_ms: number;
+    metrics?: {
+      rows_scanned: number;
+      rows_resolved: number;
+      rows_ambiguous: number;
+      rows_unresolved: number;
+    };
+    aborted_reason?: string;
+  }>;
+  duration_ms_total: number;
+  rows_scanned?: number | null;
+  rows_resolved?: number | null;
+  rows_ambiguous?: number | null;
+  rows_unresolved?: number | null;
+  /** Reserved — bridge “safe new” counts when a dedicated counter exists. */
+  safe_new_count?: number | null;
+  rollback_event_count?: number;
+  aborted_execute?: string;
 };
 
 function num(v: unknown, fallback = 0): number {

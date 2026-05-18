@@ -172,6 +172,17 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
           },
           {
             kind: "leaf",
+            id: "claim_review_ops",
+            label: "Review operations",
+            path: "/claim-engine/review-ops",
+            featureKey: "claims.engine",
+            permissionBase: "claims.engine",
+            icon: "ClipboardList",
+            rbac: "canSeeClaimEngine",
+            order: 2.55,
+          },
+          {
+            kind: "leaf",
             id: "report_history",
             label: "Report History",
             path: "/claim-engine/report-history",

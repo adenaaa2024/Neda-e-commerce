@@ -32,9 +32,32 @@ export async function assertClaimSubmissionBelongsToOrganization(
     .from("claim_submissions")
     .select("id")
     .eq("id", submissionId)
-    .eq("organization_id", organizationId)
+    .or(`organization_id.eq.${organizationId},company_id.eq.${organizationId}`)
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!data) return { ok: false, error: "Submission not found for this organization." };
   return { ok: true };
+}
+
+/** Load store + status for a submission in this tenant (organization / company id). */
+export async function fetchClaimSubmissionScopeForOrganization(
+  submissionId: string,
+  organizationId: string,
+): Promise<
+  | { ok: true; store_id: string | null; status: string | null }
+  | { ok: false; error: string; status: number }
+> {
+  if (!isUuidString(submissionId) || !isUuidString(organizationId)) {
+    return { ok: false, error: "Invalid submission or organization id.", status: 400 };
+  }
+  const { data, error } = await supabaseServer
+    .from("claim_submissions")
+    .select("store_id, status")
+    .eq("id", submissionId)
+    .or(`organization_id.eq.${organizationId},company_id.eq.${organizationId}`)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message, status: 500 };
+  if (!data) return { ok: false, error: "Submission not found for this organization.", status: 404 };
+  const row = data as { store_id?: string | null; status?: string | null };
+  return { ok: true, store_id: row.store_id ?? null, status: row.status ?? null };
 }

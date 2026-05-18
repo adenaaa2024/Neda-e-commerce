@@ -1,0 +1,14 @@
+{
+  "id": "reports_repository",
+  "description": "Reports Repository wide transaction CSV (no transaction type header)",
+  "headers": [
+    "Date/Time",
+    "Settlement ID",
+    "Type",
+    "Order ID",
+    "SKU",
+    "Description",
+    "Total"
+  ],
+  "expect_report_type": "REPORTS_REPOSITORY"
+}

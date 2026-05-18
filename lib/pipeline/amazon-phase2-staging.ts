@@ -1228,7 +1228,7 @@ export async function executeAmazonPhase2Staging(reqOrBody: Request | StageReque
     const metaFileExt =
       typeof metaObj.file_extension === "string" ? metaObj.file_extension.replace(/^\./, "").toLowerCase() : "";
     const fileExt = metaFileExt || rawFileExt;
-    const csvSeparator: string = fileExt === "txt" ? "\t" : ",";
+    const csvSeparator: string = fileExt === "txt" || fileExt === "tsv" ? "\t" : ",";
 
     if (fileExt === "xlsx") {
       return NextResponse.json(
@@ -1236,7 +1236,7 @@ export async function executeAmazonPhase2Staging(reqOrBody: Request | StageReque
         { status: 415 },
       );
     }
-    if (fileExt && fileExt !== "csv" && fileExt !== "txt") {
+    if (fileExt && fileExt !== "csv" && fileExt !== "txt" && fileExt !== "tsv") {
       return NextResponse.json(
         { ok: false, error: `Unsupported file type for processing: .${fileExt || "unknown"}` },
         { status: 415 },

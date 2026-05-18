@@ -222,6 +222,14 @@ export const MODULE_CATALOG = {
     dependencies: ["core_platform", "claims_workflow"],
     standaloneBehavior: "Packaged submission payload and operator checklist when API submit is disabled.",
   },
+  claim_filing_handoff: {
+    displayName: "Claim filing handoff",
+    scope: "store",
+    description:
+      "External agent filing envelopes, signed callbacks, and audit events — no in-app browser filing.",
+    dependencies: ["core_platform", "claims_workflow"],
+    standaloneBehavior: "Manual PDF + case ID flow only; filing request APIs return 404 until flags and entitlements allow.",
+  },
   reimbursements: {
     displayName: "Reimbursements",
     scope: "tenant",
@@ -375,6 +383,25 @@ export const FEATURE_CATALOG = {
     meterKeys: ["ai.agent_run", "ai.credit"],
     dependencies: ["claims.ai.draft"],
     disabledBehavior: "Manual triage queue; agent runner not scheduled.",
+  },
+  "claims.filing.handoff": {
+    moduleKey: "claim_filing_handoff",
+    scope: "store",
+    risk: "high",
+    requiresStore: true,
+    meterKeys: ["api.call"],
+    dependencies: ["claims.workflow.task_create"],
+    disabledBehavior: "Filing request create/get/approve routes deny; manual PDF and external agent unchanged.",
+  },
+  "claims.filing.callback": {
+    moduleKey: "claim_filing_handoff",
+    scope: "store",
+    risk: "high",
+    requiresStore: false,
+    meterKeys: ["api.call"],
+    dependencies: ["claims.workflow.task_create"],
+    disabledBehavior:
+      "Callback route remains off unless migration + env secret; machine auth is HMAC, not this catalog alone.",
   },
   "returns.scanner.capture": {
     moduleKey: "smart_scanner",

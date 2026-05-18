@@ -714,6 +714,31 @@ function main(): void {
     console.log("[PASS] FBA_INVENTORY: physical-row identity attach survives");
   }
 
+  // B2) Resolver quad columns survive pack (NEXT-PRODUCT-36 native-column parity).
+  {
+    assertNonNull("FBA_INVENTORY: resolver quad pre-state", fbaInventoryOut);
+    const mutable = fbaInventoryOut as unknown as Record<string, unknown>;
+    mutable.resolved_product_id = "00000000-0000-4000-8000-000000000099";
+    mutable.resolved_catalog_product_id = null;
+    mutable.identifier_resolution_status = "resolved";
+    mutable.identifier_resolution_confidence = 0.95;
+    const packed = packPayloadForSupabase(
+      [mutable],
+      NATIVE_COLUMNS_FBA_INVENTORY,
+    )[0] as Record<string, unknown>;
+    assertEqual(
+      "FBA_INVENTORY: resolved_product_id at root",
+      packed.resolved_product_id,
+      "00000000-0000-4000-8000-000000000099",
+    );
+    assertEqual(
+      "FBA_INVENTORY: identifier_resolution_status at root",
+      packed.identifier_resolution_status,
+      "resolved",
+    );
+    console.log("[PASS] FBA_INVENTORY: resolver quad columns survive pack");
+  }
+
   // C) Empty-row null-return gate (sanity check on a newer mapper).
   //    Confirms the empty-content guard at the top of the newer mappers (e.g.
   //    mapRowToAmazonFbaInventory) still gates correctly.

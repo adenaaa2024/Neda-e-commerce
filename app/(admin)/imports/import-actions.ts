@@ -17,6 +17,12 @@ import type { RawReportType } from "../../../lib/raw-report-types";
 import { isPimRawReportType } from "../../../lib/pim-import-report-types";
 import { isUuidString } from "../../../lib/uuid";
 import { DB_TABLES, RAW_REPORTS_BUCKET, RAW_REPORT_UPLOADS_SELECT } from "../lib/constants";
+import {
+  buildImportUploadDescriptorMetadataFromReportType,
+  isImportDescriptorMetadataEnabled,
+  mergeImportDescriptorIntoUploadMetadata,
+  type ImportUploadDescriptorMetadata,
+} from "../../../lib/import/import-upload-descriptor-metadata";
 
 /** PIM Quick Import / catalog seed rows — excluded from generic Amazon/raw Import History. */
 function isPimCatalogOrAsyncUploadRow(raw: Record<string, unknown>): boolean {
@@ -914,6 +920,8 @@ export async function updateUploadSessionClassification(input: {
    * Sync maps via `mapLedgerPositionalRawRowToAmazonInventoryLedgerInsert` — not semantic synthetic headers.
    */
   inventoryLedgerPositional?: boolean | null;
+  /** When set (or when ENABLE_IMPORT_DESCRIPTOR_METADATA), merged into metadata.import_descriptor. */
+  importDescriptor?: ImportUploadDescriptorMetadata | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const userId = await resolveActorForImportAction(input.actorUserId);
   if (!isUuidString(input.uploadId)) return { ok: false, error: "Invalid upload id." };
@@ -1000,7 +1008,17 @@ export async function updateUploadSessionClassification(input: {
     metaPatch.inventory_ledger_positional = false;
   }
 
-  const mergedForWrite = mergeUploadMetadata((row as { metadata?: unknown }).metadata, metaPatch);
+  let mergedForWrite = mergeUploadMetadata((row as { metadata?: unknown }).metadata, metaPatch);
+  const descriptorToPersist =
+    input.importDescriptor ??
+    (isImportDescriptorMetadataEnabled()
+      ? buildImportUploadDescriptorMetadataFromReportType(input.reportType, {
+          classification_source: "report_type",
+        })
+      : null);
+  if (descriptorToPersist) {
+    mergedForWrite = mergeImportDescriptorIntoUploadMetadata(mergedForWrite, descriptorToPersist);
+  }
   const updateRow: Record<string, unknown> = {
     report_type: input.reportType,
     column_mapping: serializeColumnMappingJson(input.columnMapping ?? null),

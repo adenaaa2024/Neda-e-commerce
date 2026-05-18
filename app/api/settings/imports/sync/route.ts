@@ -105,7 +105,7 @@ import {
 import { rawRowUsesInventoryLedgerPositionalKeys } from "../../../../../lib/inventory-ledger-positional";
 import { completeInventoryLedgerProductIdentifierMapPhase } from "../../../../../lib/inventory-ledger-generic-completion";
 import { completeReportsRepositoryGenericPhase } from "../../../../../lib/reports-repository-generic-completion";
-import { resolveAmazonImportProducts } from "../../../../../lib/amazon-import-product-resolver";
+import { runPostSyncProductResolverForTable } from "../../../../../lib/amazon-resolver-post-sync-import";
 import { removalShipmentArchiveBusinessKey } from "../../../../../lib/pipeline/removal-shipment-archive-key";
 import {
   measureBatchUpsertMetrics,
@@ -2454,7 +2454,7 @@ export async function POST(req: Request): Promise<Response> {
     // status on the row, never block the sync.
     try {
       if (kind === "ALL_ORDERS") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
@@ -2462,7 +2462,7 @@ export async function POST(req: Request): Promise<Response> {
           table: "amazon_all_orders",
         });
       } else if (kind === "SETTLEMENT") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
@@ -2470,7 +2470,7 @@ export async function POST(req: Request): Promise<Response> {
           table: "amazon_settlements",
         });
       } else if (kind === "TRANSACTIONS") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
@@ -2481,20 +2481,41 @@ export async function POST(req: Request): Promise<Response> {
           joinAllOrders: true,
         });
       } else if (kind === "MANAGE_FBA_INVENTORY") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
           storeId: importStoreId!,
           table: "amazon_manage_fba_inventory",
         });
+      } else if (kind === "FBA_INVENTORY") {
+        await runPostSyncProductResolverForTable({
+          supabase: supabaseServer,
+          organizationId: orgId,
+          uploadId,
+          storeId: importStoreId!,
+          table: "amazon_fba_inventory",
+        });
       } else if (kind === "AMAZON_FULFILLED_INVENTORY") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
           storeId: importStoreId!,
           table: "amazon_amazon_fulfilled_inventory",
+        });
+      } else if (
+        kind === "FBA_RETURNS" &&
+        (process.env.AMAZON_RETURNS_POST_SYNC_RESOLVER === "true" ||
+          process.env.AMAZON_RETURNS_POST_SYNC_RESOLVER === "1")
+      ) {
+        await runPostSyncProductResolverForTable({
+          supabase: supabaseServer,
+          organizationId: orgId,
+          uploadId,
+          storeId: importStoreId!,
+          table: "amazon_returns",
+          returnsPostSyncResolverActive: true,
         });
       }
     } catch (resolverErr) {

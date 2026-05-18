@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
+import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
+
 type AllowedStoreRow = {
   store_id: string;
   name: string;
@@ -41,8 +43,11 @@ export type InboxListItem = {
   claim_reason: string | null;
   created_at: string | null;
   inbox_queue: string;
+  queue_label?: string | null;
   badges: string[];
   lineage_warning_code: string | null;
+  lineage_warning_message?: string | null;
+  source_lineage_status?: string | null;
   automation_allowed: boolean;
 };
 
@@ -55,7 +60,10 @@ const QUEUE_TABS: { id: InboxQueueTab; label: string }[] = [
   { id: "legacy_source_broken", label: "Legacy Source Broken" },
 ];
 
-const SOURCE_TABLE_OPTIONS = ["", "amazon_returns", "amazon_removals", "amazon_removal_shipments", "returns"];
+const SOURCE_TABLE_OPTIONS = ["", "amazon_returns", "amazon_removals", "amazon_removal_shipments", "return_items", "returns"];
+
+const LEGACY_SOURCE_BROKEN_COPY =
+  "This claim candidate points to an older Amazon removal source row that no longer exists in the current operational table. The system cannot safely auto-repair the source link. Review or regenerate from current source data instead.";
 
 function formatWhen(iso: string | null): string {
   if (!iso) return "—";
@@ -79,7 +87,7 @@ function whyClaimExists(row: {
   const family = row.claim_family?.trim();
   const reason = row.claim_reason?.trim();
   const hints: string[] = [];
-  if (st === "amazon_returns" || st === "returns") hints.push("Return-based");
+  if (st === "amazon_returns" || st === "returns" || st === "return_items") hints.push("Return-based");
   else if (st === "amazon_removals" || st === "amazon_removal_shipments") hints.push("Removal / inventory movement");
   else if (st) hints.push(`Source: ${st.replace(/_/g, " ")}`);
   if (family) hints.push(family);
@@ -96,6 +104,18 @@ function queueLabel(q: string): string {
     legacy_source_broken: "Legacy source broken",
   };
   return m[q] ?? q.replace(/_/g, " ");
+}
+
+function isLegacySourceBroken(row: {
+  inbox_queue?: string | null;
+  lineage_warning_code?: string | null;
+  source_lineage_status?: string | null;
+}): boolean {
+  return (
+    row.inbox_queue === "legacy_source_broken" ||
+    row.lineage_warning_code === "stale_or_wrong_source_row_id" ||
+    row.source_lineage_status === "legacy_source_broken"
+  );
 }
 
 function SourceTableBadge({ table }: { table: string | null }) {
@@ -123,9 +143,13 @@ function DisabledAction({ label }: { label: string }) {
 export function ClaimInboxClient({
   organizationId,
   defaultStoreId,
+  initialCandidateId = null,
+  initialDraftId = null,
 }: {
   organizationId: string;
   defaultStoreId: string | null;
+  initialCandidateId?: string | null;
+  initialDraftId?: string | null;
 }) {
   const [allowedStores, setAllowedStores] = useState<AllowedStoreRow[]>([]);
   const [hasVirtualCoverage, setHasVirtualCoverage] = useState(false);
@@ -325,12 +349,19 @@ export function ClaimInboxClient({
       .finally(() => setDetailLoading(false));
   };
 
+  useEffect(() => {
+    if (!initialCandidateId) return;
+    openDetail(initialCandidateId);
+    // Deep-link only on first mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const loadEvidence = useCallback(() => {
     if (!detailId) return;
     setEvidenceLoading(true);
     setEvidenceErr(null);
     void fetch(
-      `/api/claims/inbox/${encodeURIComponent(detailId)}/evidence?organization_id=${encodeURIComponent(organizationId)}`,
+      `/api/claims/inbox/${encodeURIComponent(detailId)}/evidence-graph?organization_id=${encodeURIComponent(organizationId)}&include_persisted_edges=true`,
       { credentials: "include" },
     )
       .then(async (res) => {
@@ -346,8 +377,10 @@ export function ClaimInboxClient({
   }, [detailId, organizationId]);
 
   const projection = detailJson?.projection as Record<string, unknown> | undefined;
-  const legacyAlert =
-    projection?.inbox_queue === "legacy_source_broken" || projection?.lineage_warning_code === "stale_or_wrong_source_row_id";
+  const legacyAlert = isLegacySourceBroken({
+    inbox_queue: typeof projection?.inbox_queue === "string" ? projection.inbox_queue : null,
+    lineage_warning_code: typeof projection?.lineage_warning_code === "string" ? projection.lineage_warning_code : null,
+  });
   const candidate = (detailJson?.candidate as Record<string, unknown> | undefined) ?? null;
 
   const noStoreAccess = storesReady && !storesError && allowedStores.length === 0 && !hasVirtualCoverage;
@@ -365,6 +398,14 @@ export function ClaimInboxClient({
           <p className="text-xs text-muted-foreground">
             Read-only claim candidates — queues, identifiers, and lineage. No marketplace actions in v1.
           </p>
+          {initialDraftId ? (
+            <Link
+              href={`/claim-engine/evidence?draft_id=${encodeURIComponent(initialDraftId)}`}
+              className="mt-0.5 inline-flex text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+            >
+              Persisted evidence — draft {initialDraftId.slice(0, 8)}…
+            </Link>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/claim-engine" className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400">
@@ -396,6 +437,21 @@ export function ClaimInboxClient({
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
                   All allowed stores — results are not filtered to a single marketplace location. (Administrators may see
                   every store in the organization in this view.)
+                </div>
+              ) : null}
+
+              {queueTab === "legacy_source_broken" ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                  <div className="flex gap-2">
+                    <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Legacy source broken queue</p>
+                      <p className="mt-1">
+                        These rows have stale Amazon removal lineage. Automation and source repair are disabled; use this
+                        queue to isolate historical candidates before reviewing or regenerating from current source rows.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
@@ -526,9 +582,7 @@ export function ClaimInboxClient({
                 ) : (
                   items.map((row) => {
                     const st = row.store_id ? storeById.get(row.store_id) : null;
-                    const legacyRow =
-                      row.inbox_queue === "legacy_source_broken" ||
-                      row.lineage_warning_code === "stale_or_wrong_source_row_id";
+                    const legacyRow = isLegacySourceBroken(row);
                     return (
                       <tr
                         key={row.id}
@@ -546,7 +600,14 @@ export function ClaimInboxClient({
                             </div>
                           ) : null}
                         </td>
-                        <td className="px-3 py-2 align-top text-[11px]">{queueLabel(row.inbox_queue)}</td>
+                        <td className="px-3 py-2 align-top text-[11px]">
+                          <div>{row.queue_label ?? queueLabel(row.inbox_queue)}</div>
+                          {legacyRow ? (
+                            <div className="mt-1 max-w-[12rem] text-[10px] leading-snug text-amber-700 dark:text-amber-200">
+                              Stale source link · no auto-repair
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="px-3 py-2 align-top text-[11px]">
                           {st ? st.name : row.store_id ? `${row.store_id.slice(0, 8)}…` : "—"}
                         </td>
@@ -569,8 +630,12 @@ export function ClaimInboxClient({
                               </span>
                             ) : null}
                             {legacyRow ? (
-                              <span title="Stale or broken legacy source pointer">
+                              <span
+                                className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[10px] text-amber-800 dark:text-amber-100"
+                                title={row.lineage_warning_message ?? LEGACY_SOURCE_BROKEN_COPY}
+                              >
                                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                                Legacy broken
                               </span>
                             ) : null}
                             {!row.automation_allowed ? (
@@ -651,7 +716,11 @@ export function ClaimInboxClient({
                   {legacyAlert ? (
                     <div className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-50">
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                      <p>Historical amazon_removals source pointer is stale. Automated repair is disabled.</p>
+                      <div>
+                        <p className="font-semibold">Legacy source broken</p>
+                        <p className="mt-1">{LEGACY_SOURCE_BROKEN_COPY}</p>
+                        <p className="mt-1">Automation, claim submission, and source repair are disabled for this row.</p>
+                      </div>
                     </div>
                   ) : null}
 
@@ -736,7 +805,7 @@ export function ClaimInboxClient({
                     className="flex w-full items-center gap-1 text-left text-xs font-semibold text-sky-600 dark:text-sky-400"
                   >
                     <ChevronRight className={`h-4 w-4 shrink-0 transition ${evidenceOpen ? "rotate-90" : ""}`} />
-                    Evidence (loads when expanded)
+                    Evidence graph (persisted + live preview)
                   </button>
                   {evidenceOpen ? (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-900/60">
@@ -745,7 +814,7 @@ export function ClaimInboxClient({
                       ) : evidenceErr ? (
                         <p className="text-rose-600">{evidenceErr}</p>
                       ) : evidenceJson ? (
-                        <pre className="max-h-80 overflow-auto text-[10px]">{JSON.stringify(evidenceJson, null, 2)}</pre>
+                        <ClaimEvidenceViewer payload={evidenceJson} organizationId={organizationId} />
                       ) : (
                         <p className="text-muted-foreground">No evidence loaded.</p>
                       )}

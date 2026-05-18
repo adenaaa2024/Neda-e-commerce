@@ -13,6 +13,7 @@ export const CLAIM_SUPPORTED_SOURCE_TABLES = new Set([
   "amazon_returns",
   "amazon_removals",
   "amazon_removal_shipments",
+  "return_items",
   "returns",
 ]);
 
@@ -93,7 +94,7 @@ export async function resolveClaimCandidateSourcePack(
     }
   }
 
-  if (!row && orgForResolve && sourceTable === "returns" && sourceRowId) {
+  if (!row && orgForResolve && (sourceTable === "returns" || sourceTable === "return_items") && sourceRowId) {
     const alt = await resolveReturnsOperationalRow(client, orgForResolve, storeId, sourceRowId);
     opReasonCodes.push(...alt.reason_codes.map((x) => `op:${x}`));
     if (alt.row && !alt.ambiguous) {
@@ -308,7 +309,7 @@ export async function resolveAmazonRemovalsOperationalRow(
 }
 
 /**
- * Resolve `amazon_returns` row: exact id, then org + amazon_order_id + sku, then org + lpn ilike.
+ * Resolve `amazon_returns` row: exact id, then org + order_id + sku (hint may use amazon_order_id or order_id value), then org + lpn ilike.
  */
 export async function resolveAmazonReturnsOperationalRow(
   client: SupabaseClient,
@@ -351,7 +352,7 @@ export async function resolveAmazonReturnsOperationalRow(
       .from("amazon_returns")
       .select("*")
       .eq("organization_id", org)
-      .eq("amazon_order_id", amzOrder)
+      .eq("order_id", amzOrder)
       .eq("sku", sku)
       .limit(8);
     if (!error) {
@@ -410,7 +411,7 @@ export async function resolveAmazonReturnsOperationalRow(
   return { row: null, matched_via: "none", ambiguous: false, match_count: 0, reason_codes };
 }
 
-/** `returns` — exact id + tenant scope; optional store_id when present on candidate. */
+/** `return_items` (legacy name `returns`) — exact id + tenant scope; optional store_id when present on candidate. */
 export async function resolveReturnsOperationalRow(
   client: SupabaseClient,
   organizationId: string,
@@ -423,7 +424,7 @@ export async function resolveReturnsOperationalRow(
     pushReason(reason_codes, "missing_org_or_source_row_id");
     return { row: null, matched_via: "none", ambiguous: false, match_count: 0, reason_codes };
   }
-  let q = client.from("returns").select("*").eq("id", sourceRowId).eq("organization_id", org);
+  let q = client.from("return_items").select("*").eq("id", sourceRowId).eq("organization_id", org);
   const store = nv(candidateStoreId);
   if (store) q = q.eq("store_id", store);
   const { data, error } = await q.maybeSingle();
@@ -441,7 +442,7 @@ export async function resolveReturnsOperationalRow(
       reason_codes,
     };
   }
-  pushReason(reason_codes, "exact_id_miss_returns_no_alternate_in_claim13");
+  pushReason(reason_codes, "exact_id_miss_return_items_no_alternate_in_claim13");
   return { row: null, matched_via: "none", ambiguous: false, match_count: 0, reason_codes };
 }
 

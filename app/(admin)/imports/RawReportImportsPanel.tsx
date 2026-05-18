@@ -29,6 +29,12 @@ import { REPORT_TYPE_SPECS } from "../../../lib/csv-import-mapping";
 import { RAW_REPORT_TYPE_ORDER } from "../../../lib/raw-report-types";
 import { DatabaseTag } from "../../../components/DatabaseTag";
 import {
+  buildImportHistorySourceRunView,
+  filterImportHistoryRows,
+  IMPORT_HISTORY_FILTER_LABELS,
+  type ImportHistoryFilter,
+} from "../../../lib/amazon/import-history-source-run";
+import {
   buildUnifiedPipeline,
   pipelineBadgeColor,
   stepBarColor,
@@ -36,6 +42,8 @@ import {
   type PipelineStep,
   type UnifiedPipelineModel,
 } from "../../../lib/pipeline/unified-import-pipeline";
+import { SourceRunHistoryBadge } from "./SourceRunHistoryBadge";
+import { SettlementFrrReconciliationDrawer } from "./SettlementFrrReconciliationDrawer";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -141,6 +149,11 @@ export function RawReportImportsPanel({
   const [rows, setRows] = useState<RawReportUploadRow[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [tableSearch, setTableSearch] = useState("");
+  const [historyFilter, setHistoryFilter] = useState<ImportHistoryFilter>("all");
+  const [frrReconTarget, setFrrReconTarget] = useState<{
+    uploadId: string;
+    fileName: string;
+  } | null>(null);
   const [reportTypeSaveFlash, setReportTypeSaveFlash] = useState<Record<string, boolean>>({});
 
   const [busyIds, setBusyIds] = useState<Record<string, string>>({});
@@ -464,14 +477,25 @@ export function RawReportImportsPanel({
 
   // ── Filter rows ─────────────────────────────────────────────────────────────
 
-  const q = tableSearch.trim().toLowerCase();
-  const filteredRows = q
-    ? rows.filter(
-        (r) =>
-          r.file_name.toLowerCase().includes(q) ||
-          (r.report_type ?? "").toLowerCase().includes(q),
-      )
-    : rows;
+  const filteredRows = filterImportHistoryRows(rows, historyFilter, tableSearch);
+
+  const historyFilterCounts = React.useMemo(() => {
+    const counts: Record<ImportHistoryFilter, number> = {
+      all: rows.length,
+      api: 0,
+      manual: 0,
+      failed: 0,
+      needs_resume: 0,
+    };
+    for (const r of rows) {
+      const v = buildImportHistorySourceRunView(r);
+      if (v.origin === "api") counts.api++;
+      if (v.origin === "manual" || v.origin === "ledger") counts.manual++;
+      if (v.isFailed) counts.failed++;
+      if (v.needsResume) counts.needs_resume++;
+    }
+    return counts;
+  }, [rows]);
 
   return (
     <>
@@ -543,10 +567,46 @@ export function RawReportImportsPanel({
           )}
         </div>
 
-        {/* Info text */}
-        <div className="px-5 pt-2 pb-3 text-[11px] text-muted-foreground">
-          <p>
-            Every file follows: <strong className="text-foreground">Upload</strong> → <strong className="text-foreground">Process</strong> → <strong className="text-foreground">Sync</strong> → <strong className="text-foreground">Generic</strong> (when applicable).
+        {/* Filters + info */}
+        <div className="space-y-2 px-5 pt-2 pb-3">
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            role="group"
+            aria-label="Import history filters"
+          >
+            {(
+              ["all", "api", "manual", "failed", "needs_resume"] as ImportHistoryFilter[]
+            ).map((key) => {
+              const active = historyFilter === key;
+              const count = historyFilterCounts[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setHistoryFilter(key)}
+                  className={[
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-medium transition",
+                    active
+                      ? "border-primary/50 bg-primary/10 text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground",
+                  ].join(" ")}
+                  aria-pressed={active}
+                >
+                  {IMPORT_HISTORY_FILTER_LABELS[key]}
+                  <span
+                    className={[
+                      "tabular-nums rounded-full px-1.5 py-px text-[9px]",
+                      active ? "bg-primary/20" : "bg-muted",
+                    ].join(" ")}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Every file follows: <strong className="text-foreground">Upload</strong> → <strong className="text-foreground">Process</strong> → <strong className="text-foreground">Sync</strong> → <strong className="text-foreground">Generic</strong> (when applicable). API pull rows show Reports API source-run status.
           </p>
         </div>
 
@@ -602,7 +662,7 @@ export function RawReportImportsPanel({
                   >
                     {rows.length === 0
                       ? "No imports yet."
-                      : `No results for "${tableSearch}".`}
+                      : `No imports match the current filter or search.`}
                   </td>
                 </tr>
               ) : (
@@ -665,6 +725,9 @@ export function RawReportImportsPanel({
                       }
                     }}
                     reportTypeSaved={!!reportTypeSaveFlash[r.id]}
+                    onOpenFrrReconciliation={() =>
+                      setFrrReconTarget({ uploadId: r.id, fileName: r.file_name })
+                    }
                   />
                 ))
               )}
@@ -672,6 +735,16 @@ export function RawReportImportsPanel({
           </table>
         </div>
       </div>
+
+      {organizationId && frrReconTarget ? (
+        <SettlementFrrReconciliationDrawer
+          open
+          organizationId={organizationId}
+          uploadId={frrReconTarget.uploadId}
+          fileName={frrReconTarget.fileName}
+          onClose={() => setFrrReconTarget(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -697,6 +770,7 @@ type HistoryRowProps = {
   onMapColumns: () => void;
   onReportTypeChange: (v: RawReportType) => void;
   reportTypeSaved: boolean;
+  onOpenFrrReconciliation: () => void;
 };
 
 const HistoryRow = React.memo(function HistoryRow({
@@ -717,7 +791,8 @@ const HistoryRow = React.memo(function HistoryRow({
   onClearImportPipeline,
   onMapColumns,
   onReportTypeChange,
-  reportTypeSaved
+  reportTypeSaved,
+  onOpenFrrReconciliation,
 }: HistoryRowProps) {
   const rt = coerceReportType(r.report_type);
   const metaObj =
@@ -749,6 +824,8 @@ const HistoryRow = React.memo(function HistoryRow({
             : undefined,
   });
 
+  const sourceRunView = buildImportHistorySourceRunView(r);
+
   const anyBusy = busy || isDeleting;
 
   const showMapColumns = r.status === "needs_mapping";
@@ -778,6 +855,14 @@ const HistoryRow = React.memo(function HistoryRow({
     !isLedgerSession &&
     (r.status === "failed" || r.status === "staged") &&
     !busy;
+
+  const showFrrReconciliation =
+    rt === "SETTLEMENT" &&
+    !isLedgerSession &&
+    (r.status === "raw_synced" ||
+      r.status === "complete" ||
+      r.status === "synced" ||
+      sourceRunView.sourceRun?.state === "complete");
 
   return (
     <tr
@@ -820,6 +905,7 @@ const HistoryRow = React.memo(function HistoryRow({
           <span className="font-mono text-[9px] text-muted-foreground">
             {r.id.slice(0, 8)}…
           </span>
+          <SourceRunHistoryBadge view={sourceRunView} compact />
         </div>
       </td>
 
@@ -1043,6 +1129,17 @@ const HistoryRow = React.memo(function HistoryRow({
               small
             >
               Clear staging
+            </ActionButton>
+          )}
+
+          {showFrrReconciliation && (
+            <ActionButton
+              onClick={onOpenFrrReconciliation}
+              disabled={anyBusy}
+              color="emerald"
+              small
+            >
+              FRR recon
             </ActionButton>
           )}
 

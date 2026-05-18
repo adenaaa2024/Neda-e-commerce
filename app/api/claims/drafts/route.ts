@@ -8,6 +8,7 @@ import {
   isAllowedDraftSourceTable,
   isClaimDraftsReviewEnabled,
 } from "../../../../lib/claim-drafts-api";
+import { projectClaimCandidateDraftsBatch, type ProjectedClaimDraft } from "../../../../lib/claim-inbox-projection";
 import { assertStoreBelongsToOrganization } from "../../../../lib/claim-org-scope";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { isUuidString } from "../../../../lib/uuid";
@@ -86,6 +87,10 @@ export async function GET(req: Request) {
     String(url.searchParams.get("include_total") ?? "").trim().toLowerCase(),
   );
 
+  const projectionRequested = ["1", "true", "yes"].includes(
+    String(url.searchParams.get("projection") ?? "").trim().toLowerCase(),
+  );
+
   const cursor = decodeKeysetCursor(url.searchParams.get("cursor")?.trim() || null);
 
   try {
@@ -133,10 +138,22 @@ export async function GET(req: Request) {
       if (!cErr) total_matching = count ?? 0;
     }
 
-    return NextResponse.json({
+    const base = {
       items: page,
       next_cursor,
       total_matching,
+    };
+
+    if (!projectionRequested) {
+      return NextResponse.json(base);
+    }
+
+    const projMap = await projectClaimCandidateDraftsBatch(supabaseServer, page, organizationId);
+    const draft_projections: Record<string, ProjectedClaimDraft> = Object.fromEntries(projMap);
+
+    return NextResponse.json({
+      ...base,
+      draft_projections,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Query failed.";

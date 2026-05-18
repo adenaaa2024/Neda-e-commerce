@@ -7,6 +7,7 @@ import {
 } from "../returns/claim-queue-helpers";
 import { generateDailyClaimReports } from "./claim-submission-actions";
 import { CLAIM_SUBMISSION_RETURN_ID_COLUMN, CLAIM_SUBMISSIONS_TABLE } from "./claim-submissions-constants";
+import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
 
 const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
@@ -25,7 +26,7 @@ export async function getClaimQueueSyncStatus(
 }> {
   try {
     const { data: retRows, error: rErr } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select("id, marketplace, conditions, stores(platform)")
       .eq("organization_id", organizationId)
       .eq("status", "ready_for_claim")

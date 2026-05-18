@@ -370,7 +370,7 @@ async function evidenceProbeReturns(
     const withPackage = new Set<string>();
     for (let j = 0; j < returnList.length; j += SOURCE_FETCH_CHUNK) {
       const rslice = returnList.slice(j, j + SOURCE_FETCH_CHUNK);
-      let q2 = sb.from("returns").select("id, package_id").in("id", rslice);
+      let q2 = sb.from("return_items").select("id, package_id").in("id", rslice);
       if (orgId) q2 = q2.eq("organization_id", orgId);
       const r2 = await q2;
       if (r2.error) {

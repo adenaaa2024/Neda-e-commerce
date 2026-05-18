@@ -343,7 +343,7 @@ async function main(): Promise<void> {
     resolvedCol?: string;
     idKeys?: ("sku" | "fnsku" | "asin" | "product_identifier" | "upc")[];
   }[] = [
-    { name: "returns", role: "operational_item", productCol: "product_id", resolvedCol: "resolved_product_id", idKeys: ["sku", "fnsku", "asin", "product_identifier"] },
+    { name: "return_items", role: "operational_item", productCol: "product_id", resolvedCol: "resolved_product_id", idKeys: ["sku", "fnsku", "asin", "product_identifier"] },
     { name: "packages", role: "container_carton" },
     { name: "pallets", role: "container_tracking" },
     { name: "slip_contents", role: "slip_line", productCol: "product_id", resolvedCol: "resolved_product_id", idKeys: ["sku", "fnsku", "asin"] },
@@ -462,41 +462,41 @@ async function main(): Promise<void> {
   }
 
   // --- 01 operational return linkage ---
-  const retTotal = await countExact(client, "returns", tracePath);
+  const retTotal = await countExact(client, "return_items", tracePath);
   let retActive = retTotal;
   const retActiveF = await countFiltered(
     client,
-    "returns",
+    "return_items",
     [{ col: "deleted_at", op: "is", val: null }],
     tracePath,
   );
   if (!retActiveF.error) retActive = retActiveF;
   else warn("RETURNS_ACTIVE", `deleted_at filter: ${retActiveF.error}`);
 
-  const pkgNull = await tryCountNull(client, "returns", "package_id", tracePath);
-  const palNull = await tryCountNull(client, "returns", "pallet_id", tracePath);
-  const prodNull = await tryCountNull(client, "returns", "product_id", tracePath);
-  const resNull = await tryCountNull(client, "returns", "resolved_product_id", tracePath);
-  if (resNull.error) warn("RETURNS_RESOLVED", `returns.resolved_product_id: ${resNull.error}`);
+  const pkgNull = await tryCountNull(client, "return_items", "package_id", tracePath);
+  const palNull = await tryCountNull(client, "return_items", "pallet_id", tracePath);
+  const prodNull = await tryCountNull(client, "return_items", "product_id", tracePath);
+  const resNull = await tryCountNull(client, "return_items", "resolved_product_id", tracePath);
+  if (resNull.error) warn("RETURNS_RESOLVED", `return_items.resolved_product_id: ${resNull.error}`);
 
-  const orgNull = await tryCountNull(client, "returns", "organization_id", tracePath);
-  const storeNull = await tryCountNull(client, "returns", "store_id", tracePath);
+  const orgNull = await tryCountNull(client, "return_items", "organization_id", tracePath);
+  const storeNull = await tryCountNull(client, "return_items", "store_id", tracePath);
 
-  const condNN = await tryCountNotNull(client, "returns", "conditions", tracePath);
-  const notesNN = await tryCountNotNull(client, "returns", "notes", tracePath);
-  const cbNN = await tryCountNotNull(client, "returns", "created_by", tracePath);
-  const ubNN = await tryCountNotNull(client, "returns", "updated_by", tracePath);
+  const condNN = await tryCountNotNull(client, "return_items", "conditions", tracePath);
+  const notesNN = await tryCountNotNull(client, "return_items", "notes", tracePath);
+  const cbNN = await tryCountNotNull(client, "return_items", "created_by", tracePath);
+  const ubNN = await tryCountNotNull(client, "return_items", "updated_by", tracePath);
 
   fs.writeFileSync(
     opRetPath,
-    rowToCsvLine(["metric", "value", "pct_of_returns_total", "notes"]),
+    rowToCsvLine(["metric", "value", "pct_of_return_items_total", "notes"]),
     "utf8",
   );
   const rt = retTotal.count ?? 0;
   const ra = retActive.count ?? rt;
   const lines01: [string, string, string, string][] = [
-    ["returns_row_count_total", String(rt), "", "head count"],
-    ["returns_row_count_active_deleted_at_null", String(ra), pct(ra, rt) || "", "if filter unsupported see warnings"],
+    ["return_items_row_count_total", String(rt), "", "head count"],
+    ["return_items_row_count_active_deleted_at_null", String(ra), pct(ra, rt) || "", "if filter unsupported see warnings"],
     ["package_id_null_count", String(pkgNull.nullCount ?? ""), pct(pkgNull.nullCount, ra) || "", ""],
     ["pallet_id_null_count", String(palNull.nullCount ?? ""), pct(palNull.nullCount, ra) || "", ""],
     ["product_id_null_count", String(prodNull.nullCount ?? ""), pct(prodNull.nullCount, ra) || "", ""],
@@ -522,10 +522,10 @@ async function main(): Promise<void> {
   const palN = palTot.count ?? 0;
 
   const evSpecs: { surface: string; field: string; den: number }[] = [
-    { surface: "returns", field: "photo_evidence", den: ra },
-    { surface: "returns", field: "photo_item_url", den: ra },
-    { surface: "returns", field: "photo_expiry_url", den: ra },
-    { surface: "returns", field: "photo_return_label_url", den: ra },
+    { surface: "return_items", field: "photo_evidence", den: ra },
+    { surface: "return_items", field: "photo_item_url", den: ra },
+    { surface: "return_items", field: "photo_expiry_url", den: ra },
+    { surface: "return_items", field: "photo_return_label_url", den: ra },
     { surface: "packages", field: "photo_evidence", den: pkgN },
     { surface: "packages", field: "photo_url", den: pkgN },
     { surface: "packages", field: "photo_return_label_url", den: pkgN },
@@ -798,8 +798,8 @@ async function main(): Promise<void> {
     ["packages", "pallet_id_null", String(pkgPalletNull.nullCount ?? ""), String(pkgN), pct(pkgPalletNull.nullCount, pkgN), pkgPalletNull.error ?? ""],
     ["packages", "store_id_null", String(pkgStoreNull.nullCount ?? ""), String(pkgN), pct(pkgStoreNull.nullCount, pkgN), pkgStoreNull.error ?? ""],
     ["pallets", "store_id_null", String(palStoreNull.nullCount ?? ""), String(palN), pct(palStoreNull.nullCount, palN), palStoreNull.error ?? ""],
-    ["returns", "package_id_null", String(pkgNull.nullCount ?? ""), String(ra), pct(pkgNull.nullCount, ra), ""],
-    ["returns", "pallet_id_null", String(palNull.nullCount ?? ""), String(ra), pct(palNull.nullCount, ra), ""],
+    ["return_items", "package_id_null", String(pkgNull.nullCount ?? ""), String(ra), pct(pkgNull.nullCount, ra), ""],
+    ["return_items", "pallet_id_null", String(palNull.nullCount ?? ""), String(ra), pct(palNull.nullCount, ra), ""],
   ];
   for (const ln of gapLines) fs.appendFileSync(gapPath, rowToCsvLine(ln), "utf8");
 
@@ -823,11 +823,11 @@ async function main(): Promise<void> {
       validation: "10-validation-checks.json",
     },
     summary: {
-      returns_total: retTotal.count,
-      returns_active_approx: retActive.count,
-      returns_product_id_null: prodNull.nullCount,
-      returns_package_id_null: pkgNull.nullCount,
-      returns_pallet_id_null: palNull.nullCount,
+      return_items_total: retTotal.count,
+      return_items_active_approx: retActive.count,
+      return_items_product_id_null: prodNull.nullCount,
+      return_items_package_id_null: pkgNull.nullCount,
+      return_items_pallet_id_null: palNull.nullCount,
       claim_candidates_resolved_overlap_open_pim_members: pimJoinCandidatesOverlapping,
       pallets_row_count: palN,
       packages_row_count: pkgN,
@@ -871,7 +871,7 @@ async function main(): Promise<void> {
   checks.push({
     id: "J3",
     passed: retOk && pkgOk && palOk,
-    detail: retOk && pkgOk && palOk ? "returns, packages, pallets counted." : "One of returns/packages/pallets count failed.",
+    detail: retOk && pkgOk && palOk ? "return_items, packages, pallets counted." : "One of return_items/packages/pallets count failed.",
   });
   checks.push({
     id: "J4",

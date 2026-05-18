@@ -152,6 +152,8 @@ export const NATIVE_COLUMNS_RETURNS = new Set([
   "source_file_sha256", "source_physical_row_number",
   "order_id", "sku", "asin", "lpn",
   "product_name", "disposition", "reason", "status",
+  "resolved_product_id", "resolved_catalog_product_id",
+  "identifier_resolution_status", "identifier_resolution_confidence",
   "created_at", "raw_data",
 ]);
 
@@ -365,6 +367,8 @@ export const NATIVE_COLUMNS_FBA_INVENTORY = new Set([
   "total_days_of_supply_including_open_shipments",
   "supplier", "is_seasonal_in_next_3_months", "season_name", "season_start_date", "season_end_date",
   "quantity",
+  "resolved_product_id", "resolved_catalog_product_id",
+  "identifier_resolution_status", "identifier_resolution_confidence",
   "raw_data", "created_at", "updated_at",
 ]);
 

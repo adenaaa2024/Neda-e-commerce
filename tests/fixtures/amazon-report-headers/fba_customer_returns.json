@@ -1,0 +1,12 @@
+{
+  "id": "fba_customer_returns",
+  "description": "GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA",
+  "headers": [
+    "license-plate-number",
+    "detailed-disposition",
+    "order-id",
+    "sku",
+    "asin"
+  ],
+  "expect_report_type": "FBA_RETURNS"
+}

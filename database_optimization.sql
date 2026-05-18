@@ -50,28 +50,28 @@ CREATE INDEX IF NOT EXISTS idx_organizations_active
 ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS organization_id TEXT;
 ALTER TABLE public.pallets ADD COLUMN IF NOT EXISTS organization_id TEXT;
 ALTER TABLE public.packages ADD COLUMN IF NOT EXISTS organization_id TEXT;
-ALTER TABLE public.returns ADD COLUMN IF NOT EXISTS organization_id TEXT;
+ALTER TABLE public.return_items ADD COLUMN IF NOT EXISTS organization_id TEXT;
 ALTER TABLE public.workspace_settings ADD COLUMN IF NOT EXISTS organization_id TEXT;
 
 -- NUCLEAR CLEANUP: Explicitly cast to ::text for regex check
 UPDATE public.stores SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' OR organization_id IS NULL;
 UPDATE public.pallets SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' OR organization_id IS NULL;
 UPDATE public.packages SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' OR organization_id IS NULL;
-UPDATE public.returns SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' OR organization_id IS NULL;
+UPDATE public.return_items SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' OR organization_id IS NULL;
 UPDATE public.workspace_settings SET organization_id = '00000000-0000-0000-0000-000000000001' WHERE organization_id::text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' OR organization_id IS NULL;
 
 -- Safe Type Cast
 ALTER TABLE public.stores ALTER COLUMN organization_id TYPE UUID USING organization_id::uuid;
 ALTER TABLE public.pallets ALTER COLUMN organization_id TYPE UUID USING organization_id::uuid;
 ALTER TABLE public.packages ALTER COLUMN organization_id TYPE UUID USING organization_id::uuid;
-ALTER TABLE public.returns ALTER COLUMN organization_id TYPE UUID USING organization_id::uuid;
+ALTER TABLE public.return_items ALTER COLUMN organization_id TYPE UUID USING organization_id::uuid;
 ALTER TABLE public.workspace_settings ALTER COLUMN organization_id TYPE UUID USING organization_id::uuid;
 
 -- Set Defaults
 ALTER TABLE public.stores ALTER COLUMN organization_id SET DEFAULT '00000000-0000-0000-0000-000000000001'::uuid;
 ALTER TABLE public.pallets ALTER COLUMN organization_id SET DEFAULT '00000000-0000-0000-0000-000000000001'::uuid;
 ALTER TABLE public.packages ALTER COLUMN organization_id SET DEFAULT '00000000-0000-0000-0000-000000000001'::uuid;
-ALTER TABLE public.returns ALTER COLUMN organization_id SET DEFAULT '00000000-0000-0000-0000-000000000001'::uuid;
+ALTER TABLE public.return_items ALTER COLUMN organization_id SET DEFAULT '00000000-0000-0000-0000-000000000001'::uuid;
 ALTER TABLE public.workspace_settings ALTER COLUMN organization_id SET DEFAULT '00000000-0000-0000-0000-000000000001'::uuid;
 
 -- Add Constraints Safely
@@ -84,8 +84,8 @@ ALTER TABLE public.pallets ADD CONSTRAINT fk_pallets_organization FOREIGN KEY (o
 ALTER TABLE public.packages DROP CONSTRAINT IF EXISTS fk_packages_organization;
 ALTER TABLE public.packages ADD CONSTRAINT fk_packages_organization FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE RESTRICT NOT VALID;
 
-ALTER TABLE public.returns DROP CONSTRAINT IF EXISTS fk_returns_organization;
-ALTER TABLE public.returns ADD CONSTRAINT fk_returns_organization FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE RESTRICT NOT VALID;
+ALTER TABLE public.return_items DROP CONSTRAINT IF EXISTS fk_returns_organization;
+ALTER TABLE public.return_items ADD CONSTRAINT fk_returns_organization FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE RESTRICT NOT VALID;
 
 ALTER TABLE public.workspace_settings DROP CONSTRAINT IF EXISTS fk_workspace_settings_organization;
 ALTER TABLE public.workspace_settings ADD CONSTRAINT fk_workspace_settings_organization FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE RESTRICT NOT VALID;
@@ -94,7 +94,7 @@ ALTER TABLE public.workspace_settings ADD CONSTRAINT fk_workspace_settings_organ
 -- ─────────────────────────────────────────────────────────────────────────────
 -- §3  SCHEMA AUGMENTATION (ADDING MISSING COLUMNS FOR INDEXES)
 -- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE public.returns
+ALTER TABLE public.return_items
   ADD COLUMN IF NOT EXISTS asin         TEXT DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS fnsku        TEXT DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS sku          TEXT DEFAULT NULL,
@@ -124,7 +124,7 @@ ALTER TABLE public.packages
   ADD COLUMN IF NOT EXISTS created_by_id   UUID        DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS updated_by_id   UUID        DEFAULT NULL;
 
-ALTER TABLE public.returns
+ALTER TABLE public.return_items
   ADD COLUMN IF NOT EXISTS deleted_at      TIMESTAMPTZ DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS created_by_id   UUID        DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS updated_by_id   UUID        DEFAULT NULL;
@@ -138,7 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_packages_active
   WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_returns_active
-  ON public.returns (organization_id, created_at DESC)
+  ON public.return_items (organization_id, created_at DESC)
   WHERE deleted_at IS NULL;
 
 
@@ -154,23 +154,23 @@ CREATE INDEX IF NOT EXISTS idx_packages_org_store
   WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_returns_org_store
-  ON public.returns (organization_id, store_id, created_at DESC)
+  ON public.return_items (organization_id, store_id, created_at DESC)
   WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_returns_org_store_status
-  ON public.returns (organization_id, store_id, status, created_at DESC)
+  ON public.return_items (organization_id, store_id, status, created_at DESC)
   WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_returns_asin
-  ON public.returns (asin)
+  ON public.return_items (asin)
   WHERE asin IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_returns_fnsku
-  ON public.returns (fnsku)
+  ON public.return_items (fnsku)
   WHERE fnsku IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_returns_rma
-  ON public.returns (rma_number);
+  ON public.return_items (rma_number);
 
 CREATE INDEX IF NOT EXISTS idx_packages_tracking
   ON public.packages (tracking_number)
@@ -186,7 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_workspace_settings_module_gin
   ON public.workspace_settings USING GIN (module_configs);
 
 CREATE INDEX IF NOT EXISTS idx_returns_photo_evidence_gin
-  ON public.returns USING GIN (photo_evidence)
+  ON public.return_items USING GIN (photo_evidence)
   WHERE photo_evidence IS NOT NULL;
 
 
@@ -265,9 +265,9 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_audit_returns   ON public.returns;
+DROP TRIGGER IF EXISTS trg_audit_returns   ON public.return_items;
 CREATE TRIGGER trg_audit_returns
-  AFTER UPDATE OR DELETE ON public.returns
+  AFTER UPDATE OR DELETE ON public.return_items
   FOR EACH ROW EXECUTE FUNCTION public.log_audit_event();
 
 DROP TRIGGER IF EXISTS trg_audit_pallets   ON public.pallets;
@@ -310,7 +310,7 @@ SELECT
   COUNT(r.id)  FILTER (WHERE r.condition = 'empty_box')               AS items_empty_box,
   COUNT(DISTINCT r.package_id) FILTER (WHERE r.package_id IS NOT NULL) AS distinct_packages,
   COUNT(DISTINCT r.pallet_id)  FILTER (WHERE r.pallet_id  IS NOT NULL) AS distinct_pallets
-FROM public.returns r
+FROM public.return_items r
 GROUP BY
   r.organization_id,
   COALESCE(r.store_id, '00000000-0000-0000-0000-000000000000'::uuid),

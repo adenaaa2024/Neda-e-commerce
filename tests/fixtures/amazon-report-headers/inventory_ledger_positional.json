@@ -1,0 +1,22 @@
+{
+  "id": "inventory_ledger_positional",
+  "description": "Headerless ledger staged as ledger_pos_01..15",
+  "headers": [
+    "ledger_pos_01",
+    "ledger_pos_02",
+    "ledger_pos_03",
+    "ledger_pos_04",
+    "ledger_pos_05",
+    "ledger_pos_06",
+    "ledger_pos_07",
+    "ledger_pos_08",
+    "ledger_pos_09",
+    "ledger_pos_10",
+    "ledger_pos_11",
+    "ledger_pos_12",
+    "ledger_pos_13",
+    "ledger_pos_14",
+    "ledger_pos_15"
+  ],
+  "expect_report_type": "INVENTORY_LEDGER"
+}

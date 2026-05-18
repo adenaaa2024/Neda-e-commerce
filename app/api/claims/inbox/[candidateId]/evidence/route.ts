@@ -10,7 +10,7 @@ import { getClaimInboxListSelect } from "../../../../../../lib/claim-inbox-schem
 import { resolveClaimCandidateSourcePack, CLAIM_SUPPORTED_SOURCE_TABLES } from "../../../../../../lib/claim-operational-source-resolve";
 import { supabaseServer } from "../../../../../../lib/supabase-server";
 import { isUuidString } from "../../../../../../lib/uuid";
-import { RETURN_LIST_SELECT, PACKAGE_LIST_SELECT, PALLET_LIST_SELECT } from "../../../../../returns/returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_LIST_SELECT, PACKAGE_LIST_SELECT, PALLET_LIST_SELECT } from "../../../../../returns/returns-constants";
 
 const SLIP_CONTENTS_SELECT = "id, organization_id, store_id, package_id, sort_index, slip_code";
 
@@ -98,7 +98,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
 
   if (returnId) {
     const { data: ret } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_LIST_SELECT)
       .eq("organization_id", organizationId)
       .eq("id", returnId)
@@ -241,7 +241,7 @@ async function resolveReturnIdForEvidence(
 ): Promise<string | null> {
   const st = claimInboxStr(candidate.source_table)?.toLowerCase() ?? "";
   const sid = claimInboxStr(candidate.source_row_id);
-  if (st === "returns" && sid) return sid;
+  if ((st === "returns" || st === "return_items") && sid) return sid;
   if (st === "amazon_returns" && sid) {
     const { data: ar } = await supabaseServer
       .from("amazon_returns")

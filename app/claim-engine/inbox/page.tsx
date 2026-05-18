@@ -5,7 +5,14 @@ import { ClaimInboxClient } from "./ClaimInboxClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClaimInboxPage() {
+type PageProps = {
+  searchParams: Promise<{ candidate_id?: string; draft_id?: string }>;
+};
+
+export default async function ClaimInboxPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const initialCandidateId = String(sp.candidate_id ?? "").trim() || null;
+  const initialDraftId = String(sp.draft_id ?? "").trim() || null;
   const organizationId = resolveOrganizationId();
 
   const { data: osRow } = await supabaseServer
@@ -18,5 +25,12 @@ export default async function ClaimInboxPage() {
   const defaultStoreId =
     typeof rawDefault === "string" && isUuidString(rawDefault) ? rawDefault : null;
 
-  return <ClaimInboxClient organizationId={organizationId} defaultStoreId={defaultStoreId} />;
+  return (
+    <ClaimInboxClient
+      organizationId={organizationId}
+      defaultStoreId={defaultStoreId}
+      initialCandidateId={initialCandidateId}
+      initialDraftId={initialDraftId}
+    />
+  );
 }

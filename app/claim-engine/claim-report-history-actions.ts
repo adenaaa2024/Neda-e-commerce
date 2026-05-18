@@ -26,7 +26,7 @@ export type ClaimReportHistoryRow = {
 };
 
 function returnFromSubmissionEmbed(sub: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = sub.returns;
+  const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
   return (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown>;
 }

@@ -49,20 +49,6 @@ next-env.d.ts
 # generated audit reports and local outputs
 .cursor/audit-reports/
 .cursor/audit-reports/**
-.cursor/audit-reports/**/*.csv
-.cursor/audit-reports/**/*.ndjson
-.cursor/audit-reports/**/*.tsv
-.cursor/audit-reports/**/*.parquet
-.cursor/audit-reports/**/*.jsonl
-.cursor/audit-reports/**/*.xlsx
-.cursor/audit-reports/**/logs/**
-.cursor/audit-reports/**/snapshots/**
-.cursor/audit-reports/**/*-preimage.csv
-.cursor/audit-reports/**/*-preimage.ndjson
-
-# keep lightweight documentation if intentionally added later
-!.cursor/audit-reports/**/*.md
-!.cursor/audit-reports/**/manifest.json
 
 # Python generated cache
 backend-python/__pycache__/

@@ -23,6 +23,9 @@ const MAX_PAGE_SIZE = 100;
 const SCAN_BATCH = 120;
 const MAX_SCAN_ROWS = 4000;
 
+const LEGACY_SOURCE_BROKEN_MESSAGE =
+  "This claim candidate points to an older Amazon removal source row that no longer exists in the current operational table. The system cannot safely auto-repair the source link.";
+
 type PageCursor = { m: "p"; page: number };
 type ScanCursor = { m: "s"; offset: number };
 
@@ -177,6 +180,10 @@ export async function GET(req: Request) {
 
 function shapeListItem(row: Record<string, unknown>, proj: ProjectedCandidate | null) {
   const id = claimInboxStr(row.id);
+  const inboxQueue = proj?.inbox_queue ?? ("needs_product_link" as const);
+  const lineageWarningCode = proj?.lineage_warning_code ?? null;
+  const legacySourceBroken =
+    inboxQueue === "legacy_source_broken" || lineageWarningCode === "stale_or_wrong_source_row_id";
   return {
     id,
     organization_id: claimInboxStr(row.organization_id),
@@ -194,9 +201,23 @@ function shapeListItem(row: Record<string, unknown>, proj: ProjectedCandidate | 
     claim_family: claimInboxStr(row.claim_family),
     claim_reason: claimInboxStr(row.claim_reason),
     created_at: row.created_at ?? null,
-    inbox_queue: proj?.inbox_queue ?? ("needs_product_link" as const),
+    inbox_queue: inboxQueue,
+    queue_label: queueLabel(inboxQueue),
     badges: proj?.badges ?? [],
-    lineage_warning_code: proj?.lineage_warning_code ?? null,
+    lineage_warning_code: lineageWarningCode,
+    lineage_warning_message: legacySourceBroken ? LEGACY_SOURCE_BROKEN_MESSAGE : null,
+    source_lineage_status: legacySourceBroken ? "legacy_source_broken" : "source_lineage_ok_or_unknown",
     automation_allowed: proj?.automation_allowed ?? false,
   };
+}
+
+function queueLabel(q: string): string {
+  const m: Record<string, string> = {
+    ready_for_review: "Ready for review",
+    evidence_missing: "Evidence missing",
+    needs_product_link: "Needs product link",
+    pim_blocked: "PIM blocked",
+    legacy_source_broken: "Legacy source broken",
+  };
+  return m[q] ?? q.replace(/_/g, " ");
 }

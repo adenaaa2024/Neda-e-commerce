@@ -4,7 +4,7 @@ import { supabaseServer } from "../../lib/supabase-server";
 import { isUuidString } from "../../lib/uuid";
 import type { PackageRecord, PalletRecord, ReturnRecord } from "../returns/returns-action-types";
 import { listPackages, listPallets } from "../returns/actions";
-import { RETURN_SELECT } from "../returns/returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SELECT } from "../returns/returns-constants";
 import { fetchClaimWorkspaceRows, mapSubmissionToClaimRecord } from "./claim-repository";
 import { resolveInitialClaimAmountUsd, resolveClaimAmountFromReturnSync } from "./claim-amount-utils";
 import { ClaimObject } from "./claim-object";
@@ -173,7 +173,7 @@ export async function getClaimDetail(
     const rid = sub[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string | null | undefined;
     if (rid) {
       const { data: ret, error: rErr } = await supabaseServer
-        .from("returns")
+        .from(RETURN_ITEMS_TABLE)
         .select(RETURN_SELECT)
         .eq("id", rid)
         .maybeSingle();
@@ -226,7 +226,7 @@ export async function getClaimDetailForReturn(
   }
   try {
     const { data: retRaw, error: rErr } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_SELECT)
       .eq("id", returnId)
       .eq("organization_id", organizationId)

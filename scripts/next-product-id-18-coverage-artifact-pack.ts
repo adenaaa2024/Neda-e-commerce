@@ -27,7 +27,7 @@ const MATRIX: MatrixRow[] = [
   { table: "amazon_inventory_ledger", resolverCols: "Y", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "Y", claimsSurface: "if linked", lane: "A+C", notes: "resolve* supports table but sync calls Phase 4 enrich (map+ledger PATCH) not post-sync block." },
   { table: "amazon_reserved_inventory", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "—", lane: "—", notes: "Archive table; no resolved_* migration in 20260642 set; needs design." },
   { table: "amazon_all_orders", resolverCols: "Y", dryRunSlice4: "N", postSyncResolver: "Y", ledgerPhase4: "N", claimsSurface: "context joins", lane: "A", notes: "20260642; ALL_ORDERS post-sync resolver; transactions can inherit." },
-  { table: "amazon_returns", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "operational resolve", lane: "—", notes: "CLAIM_SUPPORTED; alternate keys; add resolver cols + policy for writeback." },
+  { table: "amazon_returns", resolverCols: "Y", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "operational resolve", lane: "B", notes: "20260815140000 resolver cols; resolveAmazonImportProducts supports amazon_returns; FBA_RETURNS post-sync behind AMAZON_RETURNS_POST_SYNC_RESOLVER; claim order_id fix (NEXT-UNIVERSAL-RESOLVER-04)." },
   { table: "amazon_removals", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "operational resolve", lane: "—", notes: "CLAIM_SUPPORTED; high-touch removals domain." },
   { table: "amazon_removal_shipments", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "operational resolve", lane: "—", notes: "CLAIM_SUPPORTED; shipment tree / expected_packages." },
   { table: "amazon_reimbursements", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "—", lane: "—", notes: "Financial archive; sku column; resolver pattern TBD." },
@@ -37,7 +37,7 @@ const MATRIX: MatrixRow[] = [
   { table: "catalog_products", resolverCols: "N", dryRunSlice4: "Y", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "PIM / listings", lane: "—", notes: "Listing snapshot; dry-run bucket 1 uses product rows, not resolved_* on table." },
   { table: "claim_candidate_drafts", resolverCols: "Y", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "V2 staging", lane: "—", notes: "20260814120000 resolved_product_id + product_id; promotion workflow." },
   { table: "claim_candidates (legacy)", resolverCols: "Partial", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "inbox + schema", lane: "—", notes: "claim-inbox-schema / projection; resolved_product_id on candidates." },
-  { table: "returns", resolverCols: "Partial", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "operational", lane: "—", notes: "product_id + identifiers; no resolved_product_id column pattern." },
+  { table: "return_items", resolverCols: "Partial", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "operational", lane: "—", notes: "product_id + identifiers; resolver columns on return_items (migration 20260815150000)." },
   { table: "packages", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "evidence API", lane: "—", notes: "Warehouse; link via pallet/order/LPN; product resolution via joins not row resolver." },
   { table: "pallets", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "evidence API", lane: "—", notes: "Carrier/order metadata; inherit to packages." },
   { table: "slip_contents", resolverCols: "N", dryRunSlice4: "N", postSyncResolver: "N", ledgerPhase4: "N", claimsSurface: "evidence API", lane: "—", notes: "Parsed slip lines; SKU text not same as amazon_fba_inventory resolver grain." },
@@ -100,7 +100,7 @@ Used where automatic post-sync is **not** enabled or risk requires CSV eligibili
 
 ## Claims and inbox
 
-[\`lib/claim-inbox-projection.ts\`](../../lib/claim-inbox-projection.ts) consumes \`resolved_product_id\` on supported source rows when present. [\`lib/claim-inbox-schema.ts\`](../../lib/claim-inbox-schema.ts) probes column sets. [\`lib/claim-operational-source-resolve.ts\`](../../lib/claim-operational-source-resolve.ts) resolves operational \`amazon_returns\` / \`amazon_removals\` / \`amazon_removal_shipments\` / \`returns\` when \`source_row_id\` is fragile — **never auto-merge** ambiguous operational hits.
+[\`lib/claim-inbox-projection.ts\`](../../lib/claim-inbox-projection.ts) consumes \`resolved_product_id\` on supported source rows when present. [\`lib/claim-inbox-schema.ts\`](../../lib/claim-inbox-schema.ts) probes column sets. [\`lib/claim-operational-source-resolve.ts\`](../../lib/claim-operational-source-resolve.ts) resolves operational \`amazon_returns\` / \`amazon_removals\` / \`amazon_removal_shipments\` / \`return_items\` (legacy \`returns\`) when \`source_row_id\` is fragile — **never auto-merge** ambiguous operational hits.
 
 ## Ten key rules (normative)
 
@@ -152,7 +152,7 @@ For archive/operational Amazon domain rows aligned with Lane A/B:
 |-------|-----|
 | \`amazon_returns\`, \`amazon_removals\`, \`amazon_removal_shipments\` | Add same resolver quad + indexes when policy approves writeback; today claims use operational alternate keys without row resolver columns. |
 | \`amazon_reserved_inventory\`, \`amazon_reimbursements\` | No \`resolved_product_id\` in 20260642 set; need additive columns + join keys documented per report shape. |
-| \`packages\`, \`pallets\`, \`slip_contents\` | Optional \`resolved_product_id\` **only** if product-backed UX requires it; otherwise join \`returns\` / \`amazon_*\` / LPN paths. |
+| \`packages\`, \`pallets\`, \`slip_contents\` | Optional \`resolved_product_id\` **only** if product-backed UX requires it; otherwise join \`return_items\` / \`amazon_*\` / LPN paths. |
 
 ## Dry-run coverage gap
 
@@ -308,7 +308,7 @@ Add resolver columns + extend \`ResolveTargetTable\` **or** explicit alternate r
 
 ## Phase 5 — Claims + drafts
 
-Align \`claim_candidate_drafts\` promotion with resolved source rows; keep operational resolver for removals/returns as guard against broken \`source_row_id\`.
+Align \`claim_candidate_drafts\` promotion with resolved source rows; keep operational resolver for removals/return_items as guard against broken \`source_row_id\`.
 
 ## Phase 6 — Warehouse evidence
 

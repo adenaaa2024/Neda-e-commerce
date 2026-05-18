@@ -9,6 +9,9 @@ import { getClaimInboxDetailSelect, getClaimInboxProductBadgeSelect } from "../.
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { isUuidString } from "../../../../../lib/uuid";
 
+const STALE_REMOVALS_LINEAGE_MESSAGE =
+  "This claim candidate points to an older Amazon removal source row that no longer exists in the current operational table. The system cannot safely auto-repair the source link.";
+
 export async function GET(req: Request, ctx: { params: Promise<{ candidateId: string }> }) {
   const { candidateId } = await ctx.params;
   if (!isUuidString(candidateId)) {
@@ -103,8 +106,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
           code: projection.lineage_warning_code,
           message:
             projection.lineage_warning_code === "stale_or_wrong_source_row_id"
-              ? "Source pointer does not resolve to a live operational row; do not auto-remap source_row_id."
+              ? STALE_REMOVALS_LINEAGE_MESSAGE
               : projection.lineage_warning_code,
+          automation_allowed: projection.automation_allowed,
+          source_lineage_status:
+            projection.lineage_warning_code === "stale_or_wrong_source_row_id"
+              ? "legacy_source_broken"
+              : "source_lineage_warning",
         }
       : null,
     product_badges: productBadges,
@@ -120,7 +128,7 @@ async function loadRelatedSubmissionSummary(
   const st = claimInboxStr(candidate.source_table)?.toLowerCase() ?? "";
   const sid = claimInboxStr(candidate.source_row_id);
   let returnId: string | null = null;
-  if (st === "returns" && sid) returnId = sid;
+  if ((st === "returns" || st === "return_items") && sid) returnId = sid;
   else if (st === "amazon_returns" && sid) {
     const { data: ar } = await supabaseServer
       .from("amazon_returns")

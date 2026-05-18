@@ -58,6 +58,14 @@ import { formatImportPhaseLabel } from "../../../lib/pipeline/import-phase-label
 import { resolveImportFileRowTotal } from "../../../lib/import-file-row-total";
 import { AMAZON_LEDGER_UPLOAD_SOURCE } from "../../../lib/raw-report-upload-metadata";
 import {
+  buildImportDescriptorUiSummary,
+  formatImportDescriptorDebugLog,
+  hydrateImportDescriptorUiSummaryFromUploadMetadata,
+  type ClassifyHeadersDescriptorPayload,
+  type ImportDescriptorUiSummary,
+} from "../../../lib/import/import-classify-response";
+import { ImportDescriptorClassifyPanel } from "./ImportDescriptorClassifyPanel";
+import {
   inferUniversalImporterPhase,
   resolveImportUiActionState,
   type ImportUiActionInput,
@@ -311,6 +319,8 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
 
   // What the AI detected — shown as a label after Phase 1
   const [detectedType, setDetectedType] = useState<string | null>(null);
+  const [descriptorClassifySummary, setDescriptorClassifySummary] =
+    useState<ImportDescriptorUiSummary | null>(null);
 
   // Row counting: total from Phase 1, processed/pct from Phase 2 polling
   const [totalRows, setTotalRows] = useState(0);
@@ -574,6 +584,13 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
         window.localStorage.setItem(lsKey, String(restored.id));
       }
       setDetectedType(rt && rt !== "UNKNOWN" ? rt : null);
+      setDescriptorClassifySummary(
+        hydrateImportDescriptorUiSummaryFromUploadMetadata({
+          reportType: rt,
+          status: st,
+          metadata: meta,
+        }),
+      );
       setServerImportInput({
         reportType: rt,
         status: st,
@@ -1029,6 +1046,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
     }
     setSessionUploadId(null);
     setDetectedType(null);
+    setDescriptorClassifySummary(null);
     setTotalRows(0);
     setProcessedRows(0);
     setProcessPct(0);
@@ -1854,14 +1872,8 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
           content_sample: contentSample,
         }),
       });
-      const clsJson = (await clsRes.json()) as {
-        ok?: boolean;
-        report_type?: string;
+      const clsJson = (await clsRes.json()) as ClassifyHeadersDescriptorPayload & {
         column_mapping?: Record<string, string>;
-        needs_mapping?: boolean;
-        detected_file_type?: string;
-        is_supported?: boolean;
-        message?: string;
         error?: string;
       };
 
@@ -1904,6 +1916,17 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
       const detectedFileTypeName = clsJson.detected_file_type ?? (resolvedType !== "UNKNOWN" ? resolvedType : null);
       const isSupported = clsJson.is_supported !== false; // default true for backward-compat
       const aiMessage = clsJson.message ?? "";
+
+      const descriptorSummary = buildImportDescriptorUiSummary({
+        ...clsJson,
+        report_type: resolvedType,
+        needs_mapping: needsMapping,
+        is_supported: isSupported,
+      });
+      setDescriptorClassifySummary(descriptorSummary);
+      if (process.env.NODE_ENV === "development") {
+        console.info(formatImportDescriptorDebugLog(descriptorSummary));
+      }
 
       // ── STEP 6: Update DB — classification + file path + store + row count ──
       // Read the result. If the UPDATE was rejected (e.g. CHECK violation on
@@ -2351,13 +2374,16 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
           </div>
 
           {/* AI detected label */}
-          {detectedType && !["idle", "uploading", "error", "needs_mapping", "unsupported"].includes(phase) && (
+          {detectedType && !["idle", "uploading", "error"].includes(phase) && (
             <div className="flex items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2">
               <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
               <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                 AI Detected File Type: <span className="font-bold">{detectedType}</span>
               </span>
             </div>
+          )}
+          {descriptorClassifySummary && phase !== "idle" && phase !== "uploading" && (
+            <ImportDescriptorClassifyPanel summary={descriptorClassifySummary} />
           )}
           {productIdentityStats && (
             <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3">
