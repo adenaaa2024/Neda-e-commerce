@@ -311,7 +311,7 @@ async function fetchProducts(
       throw new Error(`[enrich] products chunk ${i + 1} failed: ${error.message}`);
     }
     for (const row of data ?? []) {
-      const r = row as Record<string, unknown>;
+      const r = row as unknown as Record<string, unknown>;
       const id = String(r.id);
       out.set(id, {
         product_id: id,
@@ -374,7 +374,7 @@ async function fetchIdentifierMap(
       throw new Error(`[enrich] product_identifier_map chunk ${i + 1} failed: ${error.message}`);
     }
     for (const row of data ?? []) {
-      const r = row as Record<string, unknown>;
+      const r = row as unknown as Record<string, unknown>;
       const pid = String(r.product_id ?? "");
       if (!pid) continue;
       const entry: IdentifierMapSnapshot = {
