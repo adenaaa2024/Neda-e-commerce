@@ -211,6 +211,8 @@ const BOX_PURPLE_SOFT_BG = "rgba(167, 139, 250, 0.18)";
 
 /** Theme-aware glass panels (see globals.css `.scanner-page-glass-card`) */
 const glassCard = "scanner-page-glass-card";
+/** Gold accent links — reserved for navigation, not success states */
+const viewAllLinkClass = "operator-view-all-link text-[11px] font-bold";
 
 /** Required markers in form labels — bright yellow on dark scanner UI. */
 const REQ_MARK_CLASS = "font-normal normal-case text-yellow-300";
@@ -981,7 +983,7 @@ function ReceivingMasterStepper({
 
   const rail = () => (
     <div
-      className="mx-1 h-[2px] min-w-[1.25rem] flex-1 max-w-[3rem] shrink rounded-full bg-gradient-to-r from-transparent via-sky-400/55 to-transparent shadow-[0_0_10px_rgba(56,189,248,0.35)]"
+      className="operator-stepper-rail mx-1 h-[2px] min-w-[1.25rem] flex-1 max-w-[3rem] shrink rounded-full"
       aria-hidden
     />
   );
@@ -999,20 +1001,14 @@ function ReceivingMasterStepper({
     }
     if (palletActive) {
       return (
-        <span
-          className={`${ringBase} border-sky-300 bg-sky-500/30 text-sky-100 shadow-[0_0_24px_rgba(56,189,248,0.75),0_0_10px_rgba(14,165,233,0.45)]`}
-          aria-hidden
-        >
-          <Circle className="h-4 w-4 fill-sky-200 text-sky-100" strokeWidth={2.2} />
+        <span className={`${ringBase} operator-stepper-node--active`} aria-hidden>
+          <Warehouse className="h-4 w-4 fill-[var(--op-gold-accent)]/30 text-[var(--op-gold-accent)]" strokeWidth={2.5} />
         </span>
       );
     }
     return (
-      <span
-        className={`${ringBase} border-slate-600/80 bg-slate-900/90 text-slate-400 shadow-none`}
-        aria-hidden
-      >
-        <Lock className="h-3.5 w-3.5 opacity-90" strokeWidth={2.35} />
+      <span className={`${ringBase} operator-stepper-node--locked`} aria-hidden>
+        <Lock className="h-3.5 w-3.5" strokeWidth={2.5} />
       </span>
     );
   };
@@ -1030,17 +1026,14 @@ function ReceivingMasterStepper({
     }
     if (boxActive) {
       return (
-        <span
-          className={`${ringBase} border-sky-300 bg-sky-500/30 text-sky-50 shadow-[0_0_26px_rgba(56,189,248,0.8),0_0_12px_rgba(14,165,233,0.5)]`}
-          aria-hidden
-        >
-          <Circle className="h-4 w-4 fill-sky-200 text-sky-50" strokeWidth={2.2} />
+        <span className={`${ringBase} operator-stepper-node--active`} aria-hidden>
+          <Package className="h-4 w-4 fill-[var(--op-gold-accent)]/30 text-[var(--op-gold-accent)]" strokeWidth={2.5} />
         </span>
       );
     }
     return (
-      <span className={`${ringBase} border-slate-600/80 bg-slate-900/90 text-slate-400`} aria-hidden>
-        <Lock className="h-3.5 w-3.5 opacity-90" strokeWidth={2.35} />
+      <span className={`${ringBase} operator-stepper-node--locked`} aria-hidden>
+        <Lock className="h-3.5 w-3.5" strokeWidth={2.5} />
       </span>
     );
   };
@@ -1048,17 +1041,14 @@ function ReceivingMasterStepper({
   const itemsNode = () => {
     if (itemsActive) {
       return (
-        <span
-          className={`${ringBase} border-sky-300 bg-sky-500/30 text-sky-50 shadow-[0_0_26px_rgba(56,189,248,0.8),0_0_12px_rgba(14,165,233,0.5)]`}
-          aria-hidden
-        >
-          <Circle className="h-4 w-4 fill-sky-200 text-sky-50" strokeWidth={2.2} />
+        <span className={`${ringBase} operator-stepper-node--active`} aria-hidden>
+          <ScanLine className="h-4 w-4 fill-[var(--op-gold-accent)]/30 text-[var(--op-gold-accent)]" strokeWidth={2.5} />
         </span>
       );
     }
     return (
-      <span className={`${ringBase} border-slate-600/80 bg-slate-900/90 text-slate-400`} aria-hidden>
-        <Lock className="h-4 w-4 opacity-90" strokeWidth={2.35} />
+      <span className={`${ringBase} operator-stepper-node--locked`} aria-hidden>
+        <Lock className="h-4 w-4" strokeWidth={2.5} />
       </span>
     );
   };
@@ -1072,7 +1062,10 @@ function ReceivingMasterStepper({
         {rail()}
         {itemsNode()}
       </div>
-      <div className="mt-1 grid grid-cols-3 gap-0.5 text-center text-[8px] font-bold uppercase tracking-widest text-slate-200/95">
+      <div
+        className="mt-1 grid grid-cols-3 gap-0.5 text-center text-[8px] font-bold uppercase tracking-widest"
+        style={{ color: "var(--op-text-secondary)" }}
+      >
         <span>Pallet</span>
         <span>Box Info</span>
         <span>Item Scan</span>
@@ -2087,11 +2080,10 @@ function ScanProgressDashboard(props: {
           ? "#fb923c"
           : MUTED_LABEL;
 
-  const renderStaticCell = (label: string, value: number, accent: string, border: string, bg: string) => (
+  const renderStaticCell = (label: string, value: number, accent: string, _border: string, _bg: string) => (
     <div
       key={label}
-      className="flex min-w-0 flex-col items-stretch justify-center rounded-lg border px-1.5 py-1"
-      style={{ borderColor: border, backgroundColor: bg }}
+      className="operator-dashboard-metric-cell flex min-w-0 flex-col items-stretch justify-center rounded-lg px-1.5 py-1"
     >
       <p
         className="text-center text-[8.5px] font-bold uppercase tracking-widest leading-tight"
@@ -2141,8 +2133,7 @@ function ScanProgressDashboard(props: {
       return (
         <div
           key={label}
-          className="flex min-w-0 flex-col items-stretch justify-center rounded-lg border px-1.5 py-1"
-          style={{ borderColor: border, backgroundColor: bg }}
+          className="operator-dashboard-metric-cell flex min-w-0 flex-col items-stretch justify-center rounded-lg px-1.5 py-1"
         >
           {body}
         </div>
@@ -2153,8 +2144,7 @@ function ScanProgressDashboard(props: {
         key={label}
         type="button"
         onClick={() => void onClick?.()}
-        className="flex min-w-0 flex-col items-stretch justify-center rounded-lg border px-1.5 py-1 text-left outline-none transition-transform duration-150 ease-out hover:scale-105 focus-visible:ring-2 focus-visible:ring-sky-400/40 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:hover:scale-100"
-        style={{ borderColor: border, backgroundColor: bg }}
+        className="operator-dashboard-metric-cell flex min-w-0 flex-col items-stretch justify-center rounded-lg px-1.5 py-1 text-left outline-none transition-transform duration-150 ease-out hover:scale-105 focus-visible:ring-2 focus-visible:ring-[var(--scanner-focus-ring)] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:hover:scale-100"
         aria-label={label === "Scanned Boxes" ? "Jump to saved boxes list" : "Start a new box"}
       >
         {body}
@@ -7581,13 +7571,17 @@ function OperatorMobileScanPageContent() {
       >
         {showIdentitySummaryStrip ? (
           <div
-            className="border-b border-teal-400/35 px-3 py-1 sm:px-4"
-            style={{ backgroundColor: "rgba(0,0,0,0.55)" }}
+            className="border-b px-3 py-1 sm:px-4"
+            style={{
+              borderColor: "var(--scanner-border)",
+              backgroundColor: "var(--scanner-card-inner)",
+            }}
           >
             <p
-              className="text-center text-[10px] font-semibold leading-snug tracking-wide text-teal-100/95 tabular-nums sm:text-[11px]"
+              className="text-center text-[10px] font-semibold leading-snug tracking-wide tabular-nums sm:text-[11px]"
               style={{
-                textShadow: "0 0 10px rgba(45,212,191,0.35), 0 1px 2px rgba(0,0,0,0.7)",
+                color: "var(--scanner-text)",
+                textShadow: "0 1px 2px rgba(0,0,0,0.35)",
               }}
               aria-label="Pallet, box operator, and last activity time"
             >
@@ -7731,11 +7725,14 @@ function OperatorMobileScanPageContent() {
           <div
             id="operator-mobile-box-summary-bar"
             className="border-t px-3 py-2 sm:px-4"
-            style={{ borderColor: BORDER, backgroundColor: "rgba(6,10,16,0.72)" }}
+            style={{ borderColor: BORDER, backgroundColor: "var(--scanner-card-inner)" }}
           >
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
-                <span className="font-mono text-[15px] font-black leading-none tracking-tight text-teal-200/95">
+            <div className="operator-compact-row flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="operator-compact-row flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+                <span
+                  className="font-mono text-[15px] font-black leading-none tracking-tight"
+                  style={{ color: "var(--op-gold-accent)" }}
+                >
                   {(activeBoxSession.barcode ?? "").trim() || "—"}
                 </span>
                 <span
@@ -10217,11 +10214,10 @@ function OperatorMobileScanPageContent() {
                     <div className="mt-2 flex flex-wrap justify-end">
                       <button
                         type="button"
-                        className="text-[11px] font-bold transition hover:brightness-125"
-                        style={{ color: ACTION_PURPLE }}
+                        className={viewAllLinkClass}
                         onClick={() => document.getElementById("expected-intake-table")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                       >
-                        View all items &gt;
+                        View all items
                       </button>
                     </div>
                   </section>

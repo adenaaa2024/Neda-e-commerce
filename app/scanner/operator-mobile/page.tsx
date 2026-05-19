@@ -5,20 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  AlertTriangle,
   Bell,
   CheckCircle2,
   ChevronRight,
   Circle,
   Lock,
-  Package,
-  PackageOpen,
   Pencil,
   PlusSquare,
   ScanBarcode,
   Search,
   Trash2,
-  Warehouse,
   X,
 } from "lucide-react";
 import {
@@ -27,7 +23,6 @@ import {
 } from "./_components/ScannerBottomNav";
 import { operatorHapticTap, operatorUiAcknowledge } from "./_lib/operator-haptics";
 
-/** Industrial glass panels — blur + 0.5px edge (see `.operator-glass-card-home` in globals.css) */
 const glassCard = "operator-glass-card-home rounded-2xl";
 
 const mainScrollClass =
@@ -39,32 +34,181 @@ type TaskRow = {
   done: number;
   total: number;
   complete: boolean;
-  tube: "sky" | "violet" | "emerald";
+  tube: "gold" | "blue" | "success";
 };
 
 const TASKS: TaskRow[] = [
-  { id: "pallets", label: "Receive assigned pallets", done: 12, total: 18, complete: true, tube: "sky" },
-  { id: "boxes", label: "Open and scan boxes", done: 24, total: 37, complete: true, tube: "violet" },
-  { id: "inspect", label: "Inspect items", done: 68, total: 142, complete: false, tube: "emerald" },
+  { id: "pallets", label: "Receive assigned pallets", done: 12, total: 18, complete: true, tube: "gold" },
+  { id: "boxes", label: "Open and scan boxes", done: 24, total: 37, complete: true, tube: "blue" },
+  { id: "inspect", label: "Inspect items", done: 68, total: 142, complete: false, tube: "success" },
 ];
 
-const RECENT = [
-  { sku: "SKU-20034", name: "Wireless Headset Pro", pallet: "PLT-000123", status: "In Progress" as const },
-  { sku: "SKU-08891", name: "USB-C Hub 7-port", pallet: "PLT-000104", status: "Received" as const },
-];
+type RecentRow = {
+  sku: string;
+  name: string;
+  pallet: string;
+  status: "In Progress" | "Received";
+  kind: "pallet" | "box" | "item";
+  imageUrl?: string | null;
+};
 
-const PalletStatIcon = Warehouse;
+const homeMetricArtClass = "operator-home-metric-art h-[34px] w-[34px] shrink-0";
+const homeRecentArtClass = "operator-home-recent-art h-[32px] w-[32px] shrink-0";
+
+function HomeMetricIconPallet() {
+  return (
+    <svg viewBox="0 0 32 32" className={homeMetricArtClass} aria-hidden>
+      <ellipse cx="16" cy="27.5" rx="10" ry="1.6" fill="#000" fillOpacity="0.35" />
+      <rect x="6.5" y="22.5" width="2.2" height="4.2" rx="0.45" fill="#6b5a38" stroke="#c9ab6a" strokeWidth="0.65" />
+      <rect x="14" y="22.5" width="2.2" height="4.2" rx="0.45" fill="#6b5a38" stroke="#c9ab6a" strokeWidth="0.65" />
+      <rect x="21.5" y="22.5" width="2.2" height="4.2" rx="0.45" fill="#6b5a38" stroke="#c9ab6a" strokeWidth="0.65" />
+      <rect x="4" y="19.2" width="24" height="3.4" rx="0.55" fill="#8a7348" stroke="#e8d4a8" strokeWidth="0.85" />
+      <path d="M5.5 20.1h21" stroke="#f5ecd4" strokeWidth="0.55" strokeOpacity="0.65" />
+      <rect x="5" y="15.2" width="22" height="3" rx="0.45" fill="#7a6842" stroke="#d6b76e" strokeWidth="0.75" />
+      <path d="M6.5 15.9h19M6.5 16.8h19M6.5 17.7h19" stroke="#3d3422" strokeWidth="0.55" strokeOpacity="0.55" />
+      <rect x="5.5" y="11.2" width="21" height="2.8" rx="0.4" fill="#6f5f3d" stroke="#c4a96a" strokeWidth="0.7" />
+      <path d="M7 12h18M7 12.85h18M7 13.7h18" stroke="#2e2818" strokeWidth="0.5" strokeOpacity="0.5" />
+      <rect x="6" y="7.4" width="20" height="2.6" rx="0.38" fill="#5c5034" stroke="#b89958" strokeWidth="0.65" />
+      <path d="M7.5 8.1h17M7.5 8.85h17" stroke="#252018" strokeWidth="0.48" strokeOpacity="0.45" />
+      <path d="M6 7.2h20" stroke="#f0e2bc" strokeWidth="0.7" strokeLinecap="round" strokeOpacity="0.5" />
+    </svg>
+  );
+}
+
+function HomeMetricIconBox() {
+  return (
+    <svg viewBox="0 0 32 32" className={homeMetricArtClass} aria-hidden>
+      <path d="M6 12.5 16 7.5 26 12.5v11L16 28.5 6 23.5v-11z" fill="#4a4030" stroke="#8a7348" strokeWidth="0.7" />
+      <path d="M16 7.5 26 12.5v11L16 28.5V7.5z" fill="#6b5a38" stroke="#c9ab6a" strokeWidth="0.75" />
+      <path d="M6 12.5 16 17.5 26 12.5 16 7.5 6 12.5z" fill="#9a8458" stroke="#e8d4a8" strokeWidth="0.85" />
+      <path d="M11 12.5 16 9.8 21 12.5 16 15.2 11 12.5z" fill="#b89958" stroke="#f0e2bc" strokeWidth="0.65" />
+      <path d="M13.5 10.2 18.5 12.5 13.5 14.8 8.5 12.5 13.5 10.2z" fill="#d6b76e" stroke="#faf6ed" strokeWidth="0.55" />
+      <path d="M10 14.5h12" stroke="#3d3422" strokeWidth="0.55" strokeOpacity="0.4" />
+      <path d="M14 17.5v5.5M18 16.8v6.2" stroke="#e8d4a8" strokeWidth="1.1" strokeLinecap="round" />
+      <rect x="13.5" y="18.8" width="5" height="0.9" rx="0.2" fill="#c4a96a" />
+    </svg>
+  );
+}
+
+function HomeMetricIconItemInspect() {
+  return (
+    <svg viewBox="0 0 32 32" className={homeMetricArtClass} aria-hidden>
+      <rect x="5.5" y="6.5" width="14.5" height="19.5" rx="1.4" fill="#5c5034" stroke="#d6b76e" strokeWidth="0.9" />
+      <path d="M9.5 6.5V4.8a1.6 1.6 0 0 1 1.6-1.6h5.8a1.6 1.6 0 0 1 1.6 1.6V6.5" fill="#8a7348" stroke="#e8d4a8" strokeWidth="0.8" />
+      <rect x="8" y="10.5" width="9.5" height="1.1" rx="0.25" fill="#c4a96a" />
+      <rect x="8" y="13.2" width="7" height="1" rx="0.2" fill="#9a8458" fillOpacity="0.85" />
+      <rect x="8" y="15.6" width="8.5" height="1" rx="0.2" fill="#9a8458" fillOpacity="0.7" />
+      <circle cx="11.5" cy="19.2" r="1.1" fill="none" stroke="#e8d4a8" strokeWidth="0.75" />
+      <path d="M10.8 19.2l.5.5 1.4-1.4" stroke="#f0e2bc" strokeWidth="0.7" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="19" y="11.5" width="7.5" height="12" rx="1" fill="#6b5a38" stroke="#e8d4a8" strokeWidth="0.85" />
+      <rect x="20.2" y="13" width="1" height="9" fill="#2a2418" />
+      <rect x="22" y="13" width="1.6" height="9" fill="#1a1610" />
+      <rect x="24.2" y="13" width="0.9" height="9" fill="#2a2418" />
+      <rect x="25.6" y="13" width="1.4" height="9" fill="#1a1610" />
+      <path d="M6.5 8.5h12.5" stroke="#f5ecd4" strokeWidth="0.55" strokeOpacity="0.45" />
+    </svg>
+  );
+}
+
+function HomeMetricIconAlert() {
+  return (
+    <svg viewBox="0 0 32 32" className={homeMetricArtClass} aria-hidden>
+      <path
+        d="M16 4.5 27.2 24.8a1.8 1.8 0 0 1-1.56 2.7H6.36a1.8 1.8 0 0 1-1.56-2.7L16 4.5z"
+        fill="#8b4a3a"
+        stroke="#f0b090"
+        strokeWidth="1.05"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M16 6.8 24.8 23.2H7.2L16 6.8z"
+        fill="#c46850"
+        fillOpacity="0.55"
+      />
+      <path d="M13.2 6.5 16 4.5 18.8 6.5" stroke="#ffd4c4" strokeWidth="0.65" strokeLinecap="round" strokeOpacity="0.55" />
+      <rect x="14.85" y="12.5" width="2.3" height="6.2" rx="0.55" fill="#fff5f0" />
+      <circle cx="16" cy="21.8" r="1.35" fill="#fff5f0" />
+    </svg>
+  );
+}
+
+function HomeRecentIconPallet() {
+  return (
+    <svg viewBox="0 0 32 32" className={homeRecentArtClass} aria-hidden>
+      <rect x="5" y="20.5" width="22" height="3.2" rx="0.5" fill="#8a7348" stroke="#e8d4a8" strokeWidth="0.75" />
+      <path d="M6.5 21.3h19" stroke="#f5ecd4" strokeWidth="0.5" strokeOpacity="0.55" />
+      <rect x="5.5" y="16.2" width="21" height="2.8" rx="0.4" fill="#6f5f3d" stroke="#d6b76e" strokeWidth="0.65" />
+      <path d="M7 17h18M7 17.9h18" stroke="#2e2818" strokeWidth="0.45" strokeOpacity="0.5" />
+      <rect x="6" y="12.5" width="20" height="2.5" rx="0.38" fill="#5c5034" stroke="#c4a96a" strokeWidth="0.6" />
+      <rect x="7" y="23.2" width="2" height="3" rx="0.35" fill="#6b5a38" stroke="#c9ab6a" strokeWidth="0.55" />
+      <rect x="14" y="23.2" width="2" height="3" rx="0.35" fill="#6b5a38" stroke="#c9ab6a" strokeWidth="0.55" />
+      <rect x="21" y="23.2" width="2" height="3" rx="0.35" fill="#6b5a38" stroke="#c9ab6a" strokeWidth="0.55" />
+    </svg>
+  );
+}
+
+function HomeRecentIconBox() {
+  return (
+    <svg viewBox="0 0 32 32" className={homeRecentArtClass} aria-hidden>
+      <path d="M6 13 16 8 26 13v10L16 28 6 23V13z" fill="#6b5a38" stroke="#d6b76e" strokeWidth="0.75" />
+      <path d="M16 8 26 13v10L16 28V8z" fill="#8a7348" stroke="#e8d4a8" strokeWidth="0.7" />
+      <path d="M6 13 16 18 26 13 16 8 6 13z" fill="#b89958" stroke="#f0e2bc" strokeWidth="0.7" />
+      <path d="M11.5 11.5 16 9.2 20.5 11.5 16 13.8 11.5 11.5z" fill="#d6b76e" stroke="#faf6ed" strokeWidth="0.55" />
+      <path d="M13 20v4.5M19 19.2v5.3" stroke="#e8d4a8" strokeWidth="0.9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function HomeRecentIconItem() {
+  return (
+    <svg viewBox="0 0 32 32" className={homeRecentArtClass} aria-hidden>
+      <rect x="5" y="7" width="16" height="18" rx="1.5" fill="#5c5034" stroke="#d6b76e" strokeWidth="0.85" />
+      <path d="M7 8.2h12" stroke="#f0e2bc" strokeWidth="0.55" strokeOpacity="0.5" />
+      <path d="M18 7 22.5 9.5v15.5l-4.5 2.2H5V7l3.5-1.8 9.5 1.8z" fill="#6f5f3d" fillOpacity="0.45" />
+      <rect x="8" y="11" width="10" height="8" rx="0.8" fill="#3d3422" stroke="#c4a96a" strokeWidth="0.65" />
+      <circle cx="13" cy="15" r="2.8" fill="#b89958" stroke="#f5ecd4" strokeWidth="0.6" />
+      <path d="M11.5 15h3v3.2" stroke="#2a2418" strokeWidth="0.65" strokeLinecap="round" />
+      <rect x="19.5" y="14" width="5.5" height="9" rx="0.8" fill="#4a4030" stroke="#c9ab6a" strokeWidth="0.65" />
+      <rect x="20.5" y="15.2" width="0.9" height="6.5" fill="#1a1610" />
+      <rect x="22" y="15.2" width="1.3" height="6.5" fill="#2a2418" />
+      <rect x="23.8" y="15.2" width="0.8" height="6.5" fill="#1a1610" />
+      <rect x="7" y="22.5" width="14" height="1.6" rx="0.25" fill="#8a7348" />
+      <path d="M8 23.1h2M10.8 23.1h1.2M12.8 23.1h2M15.4 23.1h1.4M17.4 23.1h2" stroke="#2a2418" strokeWidth="0.55" />
+    </svg>
+  );
+}
+
+const RECENT: RecentRow[] = [
+  {
+    sku: "SKU-20034",
+    name: "Wireless Headset Pro",
+    pallet: "PLT-000123",
+    status: "In Progress",
+    kind: "item",
+  },
+  {
+    sku: "SKU-08891",
+    name: "USB-C Hub 7-port",
+    pallet: "PLT-000104",
+    status: "Received",
+    kind: "box",
+  },
+];
 
 function BellHeader({ count }: { count: number }) {
   return (
     <button
       type="button"
-      className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-800 transition hover:bg-black/[0.05] active:scale-95 dark:text-zinc-50 dark:hover:bg-white/5"
+      className="operator-icon-plate relative flex h-10 w-10 shrink-0 items-center justify-center transition active:scale-95"
+      style={{ color: "var(--scanner-text)" }}
       aria-label={`Notifications, ${count} unread`}
     >
-      <Bell className="h-5 w-5" strokeWidth={2} />
+      <Bell className="h-5 w-5" strokeWidth={2.65} aria-hidden />
       {count > 0 ? (
-        <span className="absolute right-0 top-0 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold text-white">
+        <span
+          className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-bold text-white"
+          style={{ backgroundColor: "var(--op-danger)" }}
+        >
           {count > 9 ? "9+" : count}
         </span>
       ) : null}
@@ -75,29 +219,21 @@ function BellHeader({ count }: { count: number }) {
 function StatCard({
   value,
   label,
-  accentRing,
+  wellClass,
   children,
 }: {
   value: string;
   label: string;
-  accentRing: string;
+  wellClass: string;
   children: ReactNode;
 }) {
   return (
-    <div
-      className={`operator-glass-card-home flex min-w-0 flex-1 flex-col gap-1.5 rounded-xl px-3 py-3.5 sm:px-3.5`}
-      style={{
-        boxShadow: `
-          0 0 0 0.5px rgba(34, 211, 238, 0.1),
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
-          inset 0 0 0 1px ${accentRing},
-          0 12px 36px -18px rgba(0, 0, 0, 0.45)
-        `,
-      }}
-    >
-      {children}
-      <p className="text-xl font-bold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">{value}</p>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-400">{label}</p>
+    <div className="operator-stat-card-premium flex min-w-0 flex-1 flex-col gap-2 px-3 py-3.5 sm:px-3.5">
+      <div className={`operator-home-stat-well ${wellClass}`}>
+        <span className="operator-home-stat-icon flex items-center justify-center">{children}</span>
+      </div>
+      <p className="operator-stat-value tabular-nums">{value}</p>
+      <p className="operator-stat-label">{label}</p>
     </div>
   );
 }
@@ -105,11 +241,11 @@ function StatCard({
 function ProgressBar({ ratio, tube }: { ratio: number; tube: TaskRow["tube"] }) {
   const pct = Math.min(100, Math.max(0, ratio * 100));
   const fill =
-    tube === "sky"
-      ? "operator-progress-fill operator-progress-fill--sky"
-      : tube === "violet"
-        ? "operator-progress-fill operator-progress-fill--violet"
-        : "operator-progress-fill operator-progress-fill--emerald";
+    tube === "gold"
+      ? "operator-progress-fill operator-progress-fill--gold"
+      : tube === "blue"
+        ? "operator-progress-fill operator-progress-fill--blue"
+        : "operator-progress-fill operator-progress-fill--success";
   return (
     <div className="operator-progress-shell" aria-hidden>
       <div className={fill} style={{ width: `${pct}%` }} />
@@ -117,24 +253,30 @@ function ProgressBar({ ratio, tube }: { ratio: number; tube: TaskRow["tube"] }) 
   );
 }
 
-function StatusPill({ status }: { status: (typeof RECENT)[number]["status"] }) {
-  const base =
-    "mt-1 inline-flex w-fit rounded-full px-1.5 py-px text-[8px] font-bold uppercase tracking-wide backdrop-blur-sm";
+function StatusPill({ status }: { status: RecentRow["status"] }) {
   if (status === "Received") {
+    return <span className="operator-status-pill operator-status-pill--received">{status}</span>;
+  }
+  return <span className="operator-status-pill operator-status-pill--progress">{status}</span>;
+}
+
+function RecentThumbnail({ row }: { row: RecentRow }) {
+  if (row.imageUrl) {
     return (
-      <span
-        className={`${base} border border-emerald-600/35 bg-emerald-500/12 text-emerald-800 shadow-none dark:border-emerald-500/35 dark:bg-emerald-500/15 dark:text-emerald-400 dark:shadow-[0_0_10px_rgba(16,185,129,0.22)]`}
-      >
-        {status}
-      </span>
+      <div className="operator-home-thumbnail" aria-hidden>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={row.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+      </div>
     );
   }
+
+  const Icon =
+    row.kind === "pallet" ? HomeRecentIconPallet : row.kind === "box" ? HomeRecentIconBox : HomeRecentIconItem;
+
   return (
-    <span
-      className={`${base} border border-sky-600/35 bg-sky-500/12 text-sky-800 shadow-none dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-300 dark:shadow-[0_0_10px_rgba(14,165,233,0.2)]`}
-    >
-      {status}
-    </span>
+    <div className="operator-home-thumbnail" aria-hidden>
+      <Icon />
+    </div>
   );
 }
 
@@ -176,22 +318,29 @@ function SearchCodeOverlay(props: {
         onClick={onClose}
       />
       <div
-        className="relative z-[2] w-full max-w-md rounded-2xl border border-white/10 bg-slate-950/85 p-4 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+        className="relative z-[2] w-full max-w-md rounded-2xl border p-4 backdrop-blur-xl"
+        style={{
+          borderColor: "var(--scanner-border)",
+          backgroundColor: "var(--scanner-card-inner)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.1), 0 24px 48px -12px rgba(0,0,0,0.55)",
+        }}
       >
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h2 id="operator-search-title" className="text-lg font-bold tracking-tight text-white">
+            <h2 id="operator-search-title" className="text-lg font-bold tracking-tight" style={{ color: "var(--scanner-text)" }}>
               Find record
             </h2>
-            <p className="mt-0.5 text-sm text-slate-400">Type or scan a pallet, box, or item code</p>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--op-text-secondary)" }}>
+              Type or scan a pallet, box, or item code
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white active:scale-95"
+            className="operator-action-icon-btn"
             aria-label="Close"
           >
-            <X className="h-5 w-5" strokeWidth={2} />
+            <X className="h-5 w-5" strokeWidth={2.5} />
           </button>
         </div>
         <input
@@ -209,13 +358,14 @@ function SearchCodeOverlay(props: {
           spellCheck={false}
           enterKeyHint="search"
           placeholder="Barcode, tracking, SKU…"
-          className="mt-4 w-full rounded-xl border border-white/10 bg-slate-900/60 px-3 py-3 font-mono text-sm tracking-tight text-white outline-none ring-0 placeholder:text-slate-500 focus:border-teal-500/40 focus:shadow-[0_0_0_3px_rgba(45,212,191,0.15)]"
+          className="scanner-input-glass mt-4 w-full rounded-xl border px-3 py-3 font-mono text-sm tracking-tight outline-none ring-0"
+          style={{ color: "var(--scanner-text)" }}
         />
         <div className="mt-3 flex gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-xl border border-white/10 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/5 active:scale-95"
+            className="operator-secondary-btn flex-1 py-2.5 text-sm font-semibold"
           >
             Cancel
           </button>
@@ -223,9 +373,9 @@ function SearchCodeOverlay(props: {
             type="button"
             onClick={submit}
             disabled={!draft.trim()}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-500 py-2.5 text-sm font-bold text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.25),inset_0_-2px_8px_rgba(0,0,0,0.15)] transition hover:brightness-110 active:scale-95 disabled:opacity-40"
+            className="operator-primary-chassis-btn flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-bold disabled:opacity-45"
           >
-            <ScanBarcode className="h-4 w-4" strokeWidth={2} />
+            <ScanBarcode className="h-4 w-4" strokeWidth={2.5} />
             Search
           </button>
         </div>
@@ -264,7 +414,7 @@ export default function OperatorMobileHomePage() {
 
   return (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col font-sans tracking-tight antialiased"
+      className="operator-home-page flex min-h-0 min-w-0 flex-1 flex-col font-sans tracking-tight antialiased"
       style={{
         backgroundColor: "var(--scanner-bg)",
         color: "var(--scanner-text)",
@@ -278,55 +428,43 @@ export default function OperatorMobileHomePage() {
         onSubmitCode={goSearch}
       />
 
-      {/* Slim single-row header — Home title and "Warehouse receiving" subtitle merged
-          into one line to save vertical space (per mobile-operator UX request). */}
       <header
-        className="shrink-0 border-b px-4 pb-1.5 pt-1.5"
+        className="operator-home-header shrink-0 border-b px-4 pb-1.5 pt-1.5"
         style={{
           borderColor: "var(--scanner-border)",
           background: "var(--scanner-header-gradient)",
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <h1 className="operator-heading text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-lg">
-              Home
+          <div className="operator-home-header-row flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+            <h1 className="operator-heading text-base font-semibold tracking-tight sm:text-lg" style={{ color: "var(--scanner-text)" }}>
+              HOME
             </h1>
-            <span className="rounded-full border border-black/10 bg-black/[0.04] px-1.5 py-0.5 text-[10px] font-semibold text-zinc-900 backdrop-blur-md dark:border-white/10 dark:bg-white/5 dark:text-zinc-50">
-              Operator
+            <span className="operator-home-role-pill">Operator</span>
+            <span className="operator-home-header-sep" aria-hidden>
+              ·
             </span>
-            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-500">·</span>
-            <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-400">
+            <span className="truncate text-xs font-medium" style={{ color: "var(--op-text-secondary)" }}>
               Warehouse receiving
             </span>
           </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <BellHeader count={2} />
-          </div>
+          <BellHeader count={2} />
         </div>
       </header>
 
       <main className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 ${mainScrollClass}`}>
         <section className="flex flex-row gap-2.5" aria-label="Receiving stats">
-          <StatCard value="18" label="Assigned Pallets" accentRing="rgba(59, 130, 246, 0.22)">
-            <div className="operator-stat-well operator-stat-well--blue">
-              <PalletStatIcon className="operator-stat-icon-neon-blue h-5 w-5 text-blue-700 dark:text-blue-300" strokeWidth={2.25} />
-            </div>
+          <StatCard value="18" label="Assigned Pallets" wellClass="operator-home-stat-well--gold">
+            <HomeMetricIconPallet />
           </StatCard>
-          <StatCard value="37" label="Open Boxes" accentRing="rgba(168, 85, 247, 0.22)">
-            <div className="operator-stat-well operator-stat-well--violet">
-              <Package className="operator-stat-icon-neon-violet h-5 w-5 text-violet-700 dark:text-violet-300" strokeWidth={2.25} />
-            </div>
+          <StatCard value="37" label="Open Boxes" wellClass="operator-home-stat-well--gold">
+            <HomeMetricIconBox />
           </StatCard>
-          <StatCard value="142" label="Items to Inspect" accentRing="rgba(16, 185, 129, 0.18)">
-            <div className="operator-stat-well operator-stat-well--emerald">
-              <Search className="operator-stat-icon-neon-emerald h-5 w-5 text-emerald-700 dark:text-emerald-300" strokeWidth={2.25} />
-            </div>
+          <StatCard value="142" label="Items to Inspect" wellClass="operator-home-stat-well--gold">
+            <HomeMetricIconItemInspect />
           </StatCard>
-          <StatCard value="5" label="Alerts" accentRing="rgba(248, 113, 113, 0.2)">
-            <div className="operator-stat-well operator-stat-well--red">
-              <AlertTriangle className="operator-stat-icon-neon-red h-5 w-5 text-red-700 dark:text-red-300" strokeWidth={2.25} />
-            </div>
+          <StatCard value="5" label="Alerts" wellClass="operator-home-stat-well--alert">
+            <HomeMetricIconAlert />
           </StatCard>
         </section>
 
@@ -337,18 +475,16 @@ export default function OperatorMobileHomePage() {
               operatorUiAcknowledge();
               router.push(SCANNER_OPERATOR_SCAN_PATH);
             }}
-            className="operator-neumo-blue relative flex min-h-[92px] items-stretch gap-2.5 overflow-hidden px-3 py-3.5 text-left"
+            className="operator-primary-chassis-btn relative flex min-h-[92px] items-stretch gap-2.5 px-3 py-3.5 text-left"
           >
-            <span
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_65%_at_28%_0%,rgba(255,255,255,0.2),transparent_58%)]"
-              aria-hidden
-            />
             <span className="relative flex shrink-0 items-center justify-center">
-              <PlusSquare className="h-10 w-10 text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)]" strokeWidth={2.35} />
+              <span className="operator-primary-chassis-btn__icon-plate">
+                <PlusSquare className="h-6 w-6" strokeWidth={2.65} aria-hidden />
+              </span>
             </span>
-            <span className="relative min-w-0">
-              <span className="block text-[13px] font-bold leading-snug text-white">Start New Receiving</span>
-              <span className="mt-0.5 block text-[11px] font-medium leading-snug text-blue-100/90">New pallet / box</span>
+            <span className="relative z-[1] min-w-0">
+              <span className="block text-[13px] font-bold leading-snug">Start New Receiving</span>
+              <span className="operator-primary-chassis-btn__sub mt-0.5 block">New pallet / box</span>
             </span>
           </button>
           <button
@@ -357,16 +493,14 @@ export default function OperatorMobileHomePage() {
               operatorUiAcknowledge();
               router.push(SCANNER_OPERATOR_SCAN_PATH);
             }}
-            className="operator-neumo-continue relative flex min-h-[92px] items-stretch gap-2.5 px-3 py-3.5 text-left"
+            className="operator-secondary-btn relative flex min-h-[92px] items-stretch gap-2.5 px-3 py-3.5 text-left"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-300/90 text-zinc-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] ring-[0.5px] ring-zinc-400/50 dark:bg-white/15 dark:text-white dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] dark:ring-white/12">
-              <ScanBarcode className="h-5 w-5" strokeWidth={2.1} />
+            <span className="operator-secondary-btn__icon-plate operator-home-continue-scan-plate">
+              <ScanBarcode className="h-5 w-5" strokeWidth={2.75} fill="currentColor" fillOpacity={0.14} aria-hidden />
             </span>
             <span className="min-w-0">
-              <span className="block text-[13px] font-bold leading-snug text-zinc-900 dark:text-white">Continue Scan</span>
-              <span className="mt-0.5 block text-[11px] font-medium leading-snug text-zinc-600 dark:text-zinc-400">
-                Resume session
-              </span>
+              <span className="block text-[13px] font-bold leading-snug">Continue Scan</span>
+              <span className="operator-secondary-btn__sub mt-0.5 block">Resume session</span>
             </span>
           </button>
         </section>
@@ -377,22 +511,24 @@ export default function OperatorMobileHomePage() {
             operatorUiAcknowledge();
             openSearchOverlay();
           }}
-          className={`mt-4 flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left ${glassCard}`}
+          className={`operator-search-trigger mt-4 flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left ${glassCard}`}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-700 ring-1 ring-sky-600/25 dark:bg-sky-500/10 dark:text-sky-400 dark:ring-sky-500/15">
-            <Search className="h-4 w-4" strokeWidth={2.25} />
+          <span className="operator-icon-plate h-10 w-10" style={{ color: "var(--op-accent-gold)" }}>
+            <Search className="h-5 w-5" strokeWidth={2.65} aria-hidden />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-50">Search pallet / box / item</span>
-            <span className="mt-0.5 block text-xs font-medium text-zinc-700 dark:text-zinc-400">
+            <span className="block text-sm font-semibold" style={{ color: "var(--scanner-text)" }}>
+              Search pallet / box / item
+            </span>
+            <span className="mt-0.5 block text-[13px] font-medium" style={{ color: "var(--op-text-secondary)" }}>
               Barcode, label, or serial
             </span>
           </span>
-          <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-500" strokeWidth={2} />
+          <ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2.5} style={{ color: "var(--op-text-secondary)" }} />
         </button>
 
         <section className="mt-6">
-          <h2 className="operator-heading text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+          <h2 className="operator-heading text-[15px] font-semibold tracking-tight" style={{ color: "var(--scanner-text)" }}>
             Today&apos;s tasks
           </h2>
           <ul className="mt-3 space-y-3">
@@ -407,24 +543,23 @@ export default function OperatorMobileHomePage() {
                   >
                     <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center">
                       {task.complete ? (
-                        <CheckCircle2
-                          className="h-7 w-7 text-emerald-500 drop-shadow-[0_0_6px_rgba(16,185,129,0.45)]"
-                          strokeWidth={2.35}
-                        />
+                        <CheckCircle2 className="h-7 w-7" strokeWidth={2.65} style={{ color: "var(--op-success)" }} />
                       ) : (
-                        <Circle className="h-7 w-7 text-zinc-400 dark:text-zinc-500" strokeWidth={2} />
+                        <Circle className="h-7 w-7" strokeWidth={2.5} style={{ color: "var(--op-text-secondary)" }} />
                       )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-2">
-                        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{task.label}</span>
-                        <span className="shrink-0 text-xs font-bold tabular-nums text-zinc-700 dark:text-zinc-400">
+                        <span className="text-sm font-semibold" style={{ color: "var(--scanner-text)" }}>
+                          {task.label}
+                        </span>
+                        <span className="shrink-0 text-xs font-bold tabular-nums" style={{ color: "var(--op-text-secondary)" }}>
                           {task.done} / {task.total}
                         </span>
                       </span>
                       <ProgressBar ratio={ratio} tube={task.tube} />
                     </span>
-                    <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-zinc-500 dark:text-zinc-500" strokeWidth={2} />
+                    <ChevronRight className="mt-1 h-4 w-4 shrink-0" strokeWidth={2.5} style={{ color: "var(--op-text-secondary)" }} />
                   </button>
                 </li>
               );
@@ -434,13 +569,10 @@ export default function OperatorMobileHomePage() {
 
         <section className="mt-6">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="operator-heading text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            <h2 className="operator-heading text-[15px] font-semibold tracking-tight" style={{ color: "var(--scanner-text)" }}>
               Recent items
             </h2>
-            <Link
-              href="#"
-              className="text-sm font-semibold text-teal-700 transition hover:text-teal-900 dark:text-teal-400 dark:hover:text-teal-300"
-            >
+            <Link href="#" className="operator-view-all-link">
               View all
             </Link>
           </div>
@@ -450,44 +582,32 @@ export default function OperatorMobileHomePage() {
                 {i > 0 ? <div className="operator-recent-divider-glow my-3 w-full" aria-hidden /> : null}
                 <div className="operator-recent-row px-4 py-3.5">
                   <div className="flex gap-3">
-                  <div
-                    className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-gradient-to-br from-amber-50 via-white to-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] dark:border-white/10 dark:from-amber-950/35 dark:via-slate-900/80 dark:to-[#0c1220] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                    aria-hidden
-                  >
-                    <PackageOpen className="h-6 w-6 text-amber-800 dark:text-amber-400" strokeWidth={2} />
-                  </div>
+                  <RecentThumbnail row={row} />
                   <div className="min-w-0 flex-1">
-                    <p className="font-mono text-[11px] font-bold text-zinc-900 dark:text-zinc-50">{row.sku}</p>
-                    <p className="mt-0.5 truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">{row.name}</p>
-                    <p className="mt-0.5 font-mono text-[11px] font-bold uppercase tracking-wide text-sky-700 dark:text-cyan-200 dark:drop-shadow-[0_0_10px_rgba(34,211,238,0.35)]">
+                    <p className="font-mono text-[11px] font-bold" style={{ color: "var(--scanner-text)" }}>
+                      {row.sku}
+                    </p>
+                    <p className="mt-0.5 truncate text-sm font-medium" style={{ color: "var(--scanner-text)" }}>
+                      {row.name}
+                    </p>
+                    <p
+                      className="mt-0.5 font-mono text-[11px] font-bold uppercase tracking-wide"
+                      style={{ color: "var(--op-text-secondary)" }}
+                    >
                       Pallet {row.pallet}
                     </p>
                     <StatusPill status={row.status} />
                   </div>
-                  <div className="flex shrink-0 flex-col items-end justify-start gap-1">
-                    <div className="flex items-center gap-0.5 text-zinc-600 dark:text-zinc-400">
-                      <button
-                        type="button"
-                        className="rounded-md p-1 transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/10"
-                        aria-label="Locked"
-                      >
-                        <Lock className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md p-1 transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/10"
-                        aria-label="Edit"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md p-1 transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/10"
-                        aria-label="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                  <div className="flex shrink-0 items-start gap-0.5">
+                    <button type="button" className="operator-action-icon-btn operator-home-recent-action-btn" aria-label="Locked">
+                      <Lock className="h-4 w-4" strokeWidth={2.65} />
+                    </button>
+                    <button type="button" className="operator-action-icon-btn operator-home-recent-action-btn" aria-label="Edit">
+                      <Pencil className="h-4 w-4" strokeWidth={2.65} />
+                    </button>
+                    <button type="button" className="operator-action-icon-btn operator-home-recent-action-btn" aria-label="Delete">
+                      <Trash2 className="h-4 w-4" strokeWidth={2.65} />
+                    </button>
                   </div>
                   </div>
                 </div>
@@ -501,14 +621,17 @@ export default function OperatorMobileHomePage() {
         <div
           className="pointer-events-none fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-1/2 z-[130] w-[min(calc(100vw-2rem),22rem)] -translate-x-1/2 rounded-2xl border px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
           style={{
-            borderColor: "rgba(52,211,153,0.45)",
-            backgroundColor: "rgba(15,23,42,0.96)",
-            boxShadow: "0 0 24px rgba(45,212,191,0.22), 0 12px 40px rgba(0,0,0,0.45)",
+            borderColor: "color-mix(in srgb, var(--op-success) 45%, transparent)",
+            backgroundColor: "var(--scanner-card-inner)",
+            boxShadow: "var(--op-shadow-soft)",
           }}
           role="status"
         >
-          <p className="flex items-center gap-2 text-center text-[13px] font-bold leading-snug text-white">
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" strokeWidth={2.25} aria-hidden />
+          <p
+            className="flex items-center gap-2 text-center text-[13px] font-bold leading-snug"
+            style={{ color: "var(--scanner-text)" }}
+          >
+            <CheckCircle2 className="h-5 w-5 shrink-0" strokeWidth={2.5} style={{ color: "var(--op-success)" }} aria-hidden />
             {hubFlashToast}
           </p>
         </div>

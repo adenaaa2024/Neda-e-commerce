@@ -62,14 +62,13 @@ export const PACKAGE_LIST_SELECT =
   "id, organization_id, package_code, id_slip_contents, tracking_number, carrier_name, rma_number, " +
   "expected_item_count, actual_item_count, pallet_id, status, notes, " +
   "store_id, order_id, created_at, updated_at, created_by, updated_by, " +
-  "photo_url, photo_return_label_url, photo_opened_url, photo_closed_url, " +
-  "manifest_photo_url, deleted_at, " +
+  "manifest_url, outside_photo_urls, inside_photo_urls, slip_photo_urls, deleted_at, " +
   "stores(name,platform)";
 
-/** Same as list + `photo_evidence` — used for insert/update responses so clients receive gallery JSONB. */
+/** Insert/update/select-one packages — includes manifest_data when reconciliation UI needs it. */
 export const PACKAGE_MUTATION_SELECT = PACKAGE_LIST_SELECT.replace(
-  "stores(name,platform)",
-  "photo_evidence,stores(name,platform)",
+  "deleted_at, ",
+  "manifest_data, deleted_at, ",
 );
 
 /**
@@ -80,8 +79,8 @@ export const PALLET_LIST_SELECT =
   "id, organization_id, pallet_number, tracking_number, notes, status, item_count, " +
   "carrier_name, order_id, " +
   "created_at, updated_at, created_by, updated_by, store_id, " +
-  "photo_url, bol_photo_url, manifest_photo_url, deleted_at, " +
+  "pallet_photo_urls, bol_photo_urls, shipping_label_urls, deleted_at, " +
   "stores(name,platform)";
 
-/** Insert/update/select-one pallets — same columns as list (`photo_url`, `bol_photo_url`, no JSONB). */
+/** Insert/update/select-one pallets — same columns as list. */
 export const PALLET_MUTATION_SELECT = PALLET_LIST_SELECT;

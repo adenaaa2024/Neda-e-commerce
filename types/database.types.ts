@@ -132,23 +132,16 @@ export type PackagesRow = {
   created_by: string | null;
   updated_by: string | null;
   updated_at: string | null;
-  photo_url: string | null;
-  photo_return_label_url: string | null;
-  photo_opened_url: string | null;
-  photo_closed_url: string | null;
-  manifest_photo_url: string | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
-  /** Structured photo gallery JSONB. */
-  photo_evidence: Json | null;
+  /** Exterior / damage — up to 3 public media URLs (canonical; replaces legacy `photo_url`). */
+  outside_photo_urls: string[] | null;
+  /** Interior contents — up to 3 public media URLs (canonical; replaces legacy `photo_opened_url`). */
+  inside_photo_urls: string[] | null;
+  /** Packing slip pages — up to 3 public media URLs (canonical; replaces legacy slip/label columns). */
+  slip_photo_urls: string[] | null;
   /** Parsed packing-slip lines [{sku, expected_qty, description}]. */
   manifest_data: Json | null;
-  /** Exterior / damage — up to 3 public media URLs. */
-  outside_photo_urls: string[] | null;
-  /** Interior contents — up to 3 public media URLs. */
-  inside_photo_urls: string[] | null;
-  /** Packing slip pages for GPT — up to 3 public media URLs. */
-  slip_photo_urls: string[] | null;
   /**
    * Physical carton / box barcode (operator lock field).
    * Renamed from legacy `slip_id` (migration 20260511140000).
@@ -186,10 +179,12 @@ export type PalletsRow = {
   created_by: string | null;
   updated_by: string | null;
   updated_at: string | null;
-  photo_url: string | null;
-  /** Bill of lading photo URL. */
-  bol_photo_url: string | null;
-  manifest_photo_url: string | null;
+  /** Pallet overview images (canonical; replaces legacy `photo_url`). */
+  pallet_photo_urls: string[] | null;
+  /** Bill of lading images (canonical; replaces legacy `bol_photo_url`). */
+  bol_photo_urls: string[] | null;
+  /** Shipping label / manifest scans (canonical; replaces legacy `manifest_photo_url`). */
+  shipping_label_urls: string[] | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
   // --- PostgREST embed ---

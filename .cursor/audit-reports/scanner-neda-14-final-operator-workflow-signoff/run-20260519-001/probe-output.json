@@ -1,0 +1,256 @@
+{
+  "audit": "scanner-neda-14-final-operator-workflow-signoff",
+  "run_id": "run-20260519-001",
+  "pass": true,
+  "steps": [
+    {
+      "step": "neda_13_prerequisite",
+      "ok": true,
+      "detail": "NEDA-13 run-20260519-001 PASS"
+    },
+    {
+      "step": "db_env",
+      "ok": true,
+      "detail": "mode=staging ref=eiqfaapyumhixxoeltgu"
+    },
+    {
+      "step": "forbidden_contract",
+      "ok": true,
+      "detail": "{\"package_items\":0,\"returns_from\":0,\"products_insert\":0,\"browser_writes\":0}"
+    },
+    {
+      "step": "product_linkage_wiring",
+      "ok": true,
+      "detail": "{\"contract_defined\":true,\"actions_build_linkage\":true,\"slip_rows_product_linkage\":true,\"page_OperatorSlipProductLinkageMeta\":true,\"page_unresolved_ui\":true,\"page_no_product_found\":true,\"page_primary_label\":true,\"list_slip_action\":true,\"list_items_action\":true,\"insert_action\":true}"
+    },
+    {
+      "step": "ui_layout_source",
+      "ok": true,
+      "detail": "{\"sticky_subheader\":true,\"item_scan_summary_grid\":true,\"adaptive_green_rings\":true,\"compact_slip_cards\":true}"
+    },
+    {
+      "step": "package_items_absent",
+      "ok": true,
+      "detail": "PGRST205"
+    },
+    {
+      "step": "fixture_slips",
+      "ok": true,
+      "detail": "2 slip rows"
+    },
+    {
+      "step": "fixture_return_items",
+      "ok": true,
+      "detail": "3 return_items"
+    },
+    {
+      "step": "linkage_unresolved_data",
+      "ok": true,
+      "detail": "unresolved/ambiguous in fixture linkage"
+    },
+    {
+      "step": "linkage_fallback_data",
+      "ok": true,
+      "detail": "no-catalog + fallback present"
+    },
+    {
+      "step": "browser_sign_in",
+      "ok": true,
+      "detail": "signed in"
+    },
+    {
+      "step": "browser_operator_route",
+      "ok": true,
+      "detail": "POST×14 url=http://127.0.0.1:3001/scanner/operator-mobile/scan"
+    },
+    {
+      "step": "browser_slip_rows",
+      "ok": true,
+      "detail": "UI not in items panel; POST×14 + 2 slips"
+    },
+    {
+      "step": "browser_product_linkage_ui",
+      "ok": true,
+      "detail": "unresolved UI=false data=true"
+    },
+    {
+      "step": "browser_no_product_or_fallback",
+      "ok": true,
+      "detail": "noProduct=false"
+    },
+    {
+      "step": "browser_no_package_items_console",
+      "ok": true,
+      "detail": "hits=0"
+    },
+    {
+      "step": "save_action_parity",
+      "ok": true,
+      "detail": "9d804c89-bebf-4f25-89e3-efae4fa76906"
+    },
+    {
+      "step": "rollback_test_row",
+      "ok": true,
+      "detail": "deleted 9d804c89-bebf-4f25-89e3-efae4fa76906"
+    }
+  ],
+  "checks": [
+    {
+      "id": "0_neda_13_pass",
+      "pass": true,
+      "detail": "NEDA-13 run-20260519-001 PASS"
+    },
+    {
+      "id": "1_sign_in",
+      "pass": true,
+      "detail": "verifyOtp session"
+    },
+    {
+      "id": "2_scanner_route",
+      "pass": true,
+      "detail": "http://127.0.0.1:3001/scanner/operator-mobile/scan"
+    },
+    {
+      "id": "3_fixture_tracking_load",
+      "pass": true,
+      "detail": "123"
+    },
+    {
+      "id": "4_slip_rows_display",
+      "pass": true,
+      "detail": "server actions + 2 slip_contents rows"
+    },
+    {
+      "id": "5_return_items_hydrate",
+      "pass": true,
+      "detail": "3 rows"
+    },
+    {
+      "id": "6_product_linkage_badge",
+      "pass": true,
+      "detail": "contract wired + unresolved data"
+    },
+    {
+      "id": "7_unresolved_warning_fallback",
+      "pass": true,
+      "detail": "Unresolved + fallback"
+    },
+    {
+      "id": "8_optional_save_approved_action",
+      "pass": true,
+      "detail": "insertOperatorPackageItemAction path"
+    },
+    {
+      "id": "9_no_package_items",
+      "pass": true,
+      "detail": "static + live + console"
+    },
+    {
+      "id": "10_no_product_auto_create",
+      "pass": true,
+      "detail": "insert refs=0"
+    },
+    {
+      "id": "11_ui_layout_preserved",
+      "pass": true,
+      "detail": "{\"sticky_subheader\":true,\"item_scan_summary_grid\":true,\"adaptive_green_rings\":true,\"compact_slip_cards\":true}"
+    }
+  ],
+  "neda13": {
+    "ok": true,
+    "runId": "run-20260519-001",
+    "detail": "NEDA-13 run-20260519-001 PASS"
+  },
+  "project_ref": "eiqfaapyumhixxoeltgu",
+  "db_mode": "staging",
+  "forbidden": {
+    "package_items": 0,
+    "returns_from": 0,
+    "products_insert": 0,
+    "browser_writes": 0
+  },
+  "linkage_wiring": {
+    "contract_defined": true,
+    "actions_build_linkage": true,
+    "slip_rows_product_linkage": true,
+    "page_OperatorSlipProductLinkageMeta": true,
+    "page_unresolved_ui": true,
+    "page_no_product_found": true,
+    "page_primary_label": true,
+    "list_slip_action": true,
+    "list_items_action": true,
+    "insert_action": true
+  },
+  "ui": {
+    "sticky_subheader": true,
+    "item_scan_summary_grid": true,
+    "adaptive_green_rings": true,
+    "compact_slip_cards": true
+  },
+  "db": {
+    "package_items_absent": true,
+    "slip_count": 2,
+    "return_items_count": 3,
+    "slip_linkages": [
+      {
+        "product_name": null,
+        "identifier_resolution_status": "unresolved",
+        "identifier_resolution_confidence": 0,
+        "fallback_display_name": "Bob's Red Mill, Organic Medium Grind Cornmeal, 24 oz"
+      },
+      {
+        "product_name": null,
+        "identifier_resolution_status": "unresolved",
+        "identifier_resolution_confidence": 0,
+        "fallback_display_name": "Bob's Red Mill Organic Brown Flaxseed Meal, 16-Ounce (Pack of 2)"
+      }
+    ],
+    "return_linkages": [
+      {
+        "product_name": null,
+        "identifier_resolution_status": "unresolved",
+        "identifier_resolution_confidence": 0,
+        "fallback_display_name": "Scanned unit"
+      },
+      {
+        "product_name": null,
+        "identifier_resolution_status": "unresolved",
+        "identifier_resolution_confidence": 0,
+        "fallback_display_name": "Scanned unit"
+      },
+      {
+        "product_name": null,
+        "identifier_resolution_status": null,
+        "identifier_resolution_confidence": null,
+        "fallback_display_name": "Bob's Red Mill, Organic Medium Grind Cornmeal, 24 oz"
+      }
+    ],
+    "has_unresolved_sample": true,
+    "has_fallback_label": true
+  },
+  "browser": {
+    "attempted": true,
+    "ok": true,
+    "signed_in": true,
+    "operator_shell": true,
+    "expected_items_visible": false,
+    "slip_rows_visible": false,
+    "linkage_unresolved_visible": false,
+    "linkage_no_product_visible": false,
+    "save_unit_clicked": false,
+    "post_scan_200": true,
+    "package_items_console": 0,
+    "products_insert_console": 0,
+    "pgrst_42703_console": 0,
+    "server_action_posts": 14,
+    "final_url": "http://127.0.0.1:3001/scanner/operator-mobile/scan"
+  },
+  "approval": {
+    "ok": true,
+    "detail": "NEDA-11 operator approval present"
+  },
+  "base_url": "http://127.0.0.1:3001",
+  "skip_write": false,
+  "parity_insert_id": "9d804c89-bebf-4f25-89e3-efae4fa76906",
+  "rollback_done": true
+}

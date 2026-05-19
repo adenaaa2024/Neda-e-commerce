@@ -101,8 +101,7 @@ function InlineStoreSelector() {
 
   const baseChip =
     "max-w-[min(9rem,38vw)] truncate rounded-md border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums tracking-tight";
-  const labelClass =
-    "text-[8px] font-bold uppercase tracking-widest text-teal-700/90 dark:text-teal-200/70";
+  const labelClass = "operator-store-label";
 
   if (!isSupabaseConfigured()) {
     return (
@@ -123,7 +122,12 @@ function InlineStoreSelector() {
       <div className="flex shrink-0 items-center gap-1.5">
         <span className={labelClass}>Store</span>
         <span
-          className={`${baseChip} border-teal-600/20 bg-white/75 text-zinc-700 dark:border-teal-400/20 dark:bg-zinc-900/90 dark:text-zinc-400`}
+          className={baseChip}
+          style={{
+            borderColor: "var(--scanner-border)",
+            backgroundColor: "var(--scanner-card)",
+            color: "var(--scanner-text)",
+          }}
         >
           …
         </span>
@@ -225,19 +229,27 @@ function LockedStoreChip(props: {
   const { baseChip, name, title, showLock, warn } = props;
   const tone = warn
     ? "border-amber-500/40 bg-amber-50/90 text-amber-950 dark:border-amber-400/35 dark:bg-amber-950/30 dark:text-amber-100"
-    : "border-teal-600/20 bg-white/65 text-zinc-900 dark:border-teal-400/20 dark:bg-zinc-900/80 dark:text-zinc-50";
+    : "";
   return (
     <span
       className={`${baseChip} inline-flex max-w-[min(11rem,46vw)] cursor-default items-center gap-1 ${tone}`}
+      style={
+        warn
+          ? undefined
+          : {
+              borderColor: "var(--scanner-border)",
+              backgroundColor: "var(--scanner-card)",
+              color: "var(--scanner-text)",
+            }
+      }
       title={title}
       role="status"
       aria-label={`Active store: ${name}`}
     >
       {showLock ? (
         <Lock
-          className={`h-2.5 w-2.5 shrink-0 ${
-            warn ? "text-amber-600 dark:text-amber-300" : "text-teal-700/80 dark:text-teal-300/80"
-          }`}
+          className={`h-2.5 w-2.5 shrink-0 ${warn ? "text-amber-600 dark:text-amber-300" : ""}`}
+          style={warn ? undefined : { color: "var(--op-accent-gold)" }}
           strokeWidth={2.75}
           aria-hidden
         />
@@ -326,13 +338,20 @@ function StoreCombobox(props: {
         aria-expanded={open}
         aria-invalid={triggerInvalid}
         title={triggerLabel}
-        className={`${baseChip} flex max-w-[min(11rem,46vw)] cursor-pointer items-center gap-1 border-teal-600/25 bg-white/80 pl-2 pr-1.5 text-left text-zinc-900 outline-none transition hover:bg-white/95 focus-visible:ring-2 focus-visible:ring-teal-400/45 dark:border-teal-400/25 dark:bg-zinc-900/95 dark:text-zinc-50 dark:hover:bg-zinc-800/95 ${
+        className={`${baseChip} flex max-w-[min(11rem,46vw)] cursor-pointer items-center gap-1 pl-2 pr-1.5 text-left outline-none transition focus-visible:ring-2 ${
           triggerInvalid ? "border-amber-500/45 dark:border-amber-400/45" : ""
         }`}
+        style={{
+          borderColor: triggerInvalid ? undefined : "var(--scanner-border)",
+          backgroundColor: "var(--scanner-card)",
+          color: "var(--scanner-text)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+        }}
       >
         <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
         <ChevronDown
-          className={`h-3 w-3 shrink-0 text-teal-700/80 transition dark:text-teal-300/80 ${open ? "rotate-180" : ""}`}
+          className={`h-3 w-3 shrink-0 transition ${open ? "rotate-180" : ""}`}
+          style={{ color: "var(--op-accent-gold)" }}
           strokeWidth={2.5}
         />
       </button>
@@ -395,15 +414,19 @@ function StoreCombobox(props: {
                           setOpen(false);
                           triggerRef.current?.focus();
                         }}
-                        className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[12px] font-semibold transition hover:bg-white/5 ${
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[12px] font-semibold transition hover:bg-white/5"
+                        style={
                           isSelected
-                            ? "bg-teal-500/10 text-teal-200"
-                            : ""
-                        }`}
+                            ? {
+                                backgroundColor: "color-mix(in srgb, var(--op-accent-gold) 14%, transparent)",
+                                color: "var(--scanner-text)",
+                              }
+                            : { color: "var(--scanner-text)" }
+                        }
                       >
                         <span className="min-w-0 break-words">{s.name}</span>
                         {isSelected ? (
-                          <Check className="h-3.5 w-3.5 shrink-0 text-teal-300" strokeWidth={2.5} />
+                          <Check className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--op-accent-gold)" }} strokeWidth={2.5} />
                         ) : null}
                       </button>
                     </li>

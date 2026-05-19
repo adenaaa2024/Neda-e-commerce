@@ -27,16 +27,16 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
       lang="en"
       className="operator-mobile-canvas flex min-h-dvh w-full justify-center p-0 antialiased"
       style={{
-        backgroundColor: "var(--op-canvas-bg, #030712)",
-        color: "var(--scanner-text, #f1f5f9)",
+        backgroundColor: "var(--op-canvas-bg, #050607)",
+        color: "var(--scanner-text, #faf6ed)",
       }}
     >
       <div
         className={`${operatorDisplay.variable} operator-mobile-app-shell flex h-[100dvh] max-h-[100dvh] w-full max-w-[430px] flex-col overflow-hidden shadow-[0_0_0_1px_rgba(31,41,55,0.35),0_28px_64px_-12px_rgba(0,0,0,0.55)] ring-1 ring-black/25 dark:shadow-[0_0_0_1px_rgba(31,41,55,0.9),0_28px_64px_-12px_rgba(0,0,0,0.72)] dark:ring-black/40`}
         style={{
-          background: "var(--op-app-bg, #0b1218)",
-          borderLeft: "1px solid var(--scanner-border, #243241)",
-          borderRight: "1px solid var(--scanner-border, #243241)",
+          background: "var(--op-app-bg, #050607)",
+          borderLeft: "1px solid var(--scanner-border, #323c48)",
+          borderRight: "1px solid var(--scanner-border, #323c48)",
         }}
       >
         <OperatorSessionStoreProvider>
@@ -46,7 +46,7 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
           <div
             className="shrink-0 border-b px-3 sm:px-4 pb-1 pt-[max(0.15rem,env(safe-area-inset-top))]"
             style={{
-              borderColor: "var(--scanner-border, #243241)",
+              borderColor: "var(--scanner-border, #323c48)",
               background: "var(--scanner-header-gradient)",
             }}
           >
@@ -56,7 +56,7 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
           <div
             className="shrink-0 border-b px-3 sm:px-4 py-1.5"
             style={{
-              borderColor: "var(--scanner-border, #243241)",
+              borderColor: "var(--scanner-border, #323c48)",
               background: "var(--scanner-header-gradient)",
             }}
           >

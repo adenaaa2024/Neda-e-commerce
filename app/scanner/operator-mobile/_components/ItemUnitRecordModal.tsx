@@ -12,6 +12,8 @@ import {
   packageItemRequiresEvidencePhotos,
   packageItemRequiresExpiryBlock,
 } from "@/lib/scanner/item-unit-discrepancy-tags";
+import { productLinkagePrimaryLabel, type ProductLinkageDisplayContract } from "@/lib/scanner/product-linkage-display-contract";
+import { OperatorProductLinkageMeta } from "@/app/scanner/operator-mobile/_components/OperatorProductLinkageMeta";
 
 const CHIP_LABEL: Record<ItemUnitDiscrepancyTagKey, string> = {
   damaged_product: "Damaged Product",
@@ -40,6 +42,8 @@ type ItemUnitRecordModalProps = {
   organizationId: string;
   /** Packing-slip line description (perishable keyword heuristic). */
   slipDescription?: string | null;
+  /** Server-built catalog linkage for the active slip line (when known). */
+  productLinkage?: ProductLinkageDisplayContract | null;
   busy: boolean;
   onClose: () => void;
   onSave: (payload: ItemUnitRecordSavePayload) => Promise<void>;
@@ -53,6 +57,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     initialBarcode,
     organizationId,
     slipDescription,
+    productLinkage = null,
     busy,
     onClose,
     onSave,
@@ -236,6 +241,14 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               <p className="mt-1 text-[12px] font-semibold leading-snug" style={{ color: MUTED }}>
                 {subtitle}
               </p>
+            ) : null}
+            {productLinkage ? (
+              <div className="mt-2">
+                <p className="text-[12px] font-bold leading-snug text-white">
+                  {productLinkagePrimaryLabel(productLinkage)}
+                </p>
+                <OperatorProductLinkageMeta linkage={productLinkage} />
+              </div>
             ) : null}
           </div>
           <button

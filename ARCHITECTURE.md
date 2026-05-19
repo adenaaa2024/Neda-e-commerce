@@ -27,5 +27,3 @@
 - Claim Engine UI & PDF (In Progress)
 - Python Agent / SP-API (Starting Tomorrow)
 - D2C CRM & Advanced Analytics (Future)
-
-Farsi Summary: این فایل را به عنوان نقشه راه دائمی سیستم ایجاد کن. از این پس تمام کدها باید با این ساختار هماهنگ باشند و از JSONB برای ذخیره دیتای لایو آمازون استفاده شود تا مهاجرت به پایتون بدون مشکل انجام شود.

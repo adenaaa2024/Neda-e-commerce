@@ -37,7 +37,7 @@ export function OperatorUtilityRow({ className }: { className?: string }) {
   };
 
   const btn =
-    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 transition hover:bg-black/[0.06] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 dark:text-zinc-400 dark:hover:bg-white/[0.06]";
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition hover:bg-black/[0.06] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--scanner-focus-ring)] dark:hover:bg-white/[0.06]";
 
   return (
     <div
@@ -67,7 +67,7 @@ export function OperatorUtilityRow({ className }: { className?: string }) {
           title="Refresh"
           className={btn}
         >
-          <RotateCcw className="h-3.5 w-3.5" strokeWidth={2.25} />
+          <RotateCcw className="h-4 w-4" strokeWidth={2.65} style={{ color: "var(--scanner-text)" }} />
         </button>
         <button
           type="button"
@@ -79,9 +79,9 @@ export function OperatorUtilityRow({ className }: { className?: string }) {
           {!mounted ? (
             <span className="h-3.5 w-3.5" aria-hidden />
           ) : isDark ? (
-            <Sun className="h-3.5 w-3.5" strokeWidth={2.25} />
+            <Sun className="h-4 w-4" strokeWidth={2.65} style={{ color: "var(--op-accent-gold)" }} />
           ) : (
-            <Moon className="h-3.5 w-3.5" strokeWidth={2.25} />
+            <Moon className="h-4 w-4" strokeWidth={2.65} style={{ color: "var(--op-accent-gold)" }} />
           )}
         </button>
       </div>

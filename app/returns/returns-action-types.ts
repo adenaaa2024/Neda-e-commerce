@@ -25,7 +25,11 @@ export type PalletRecord = {
    * Column `pallets.order_id` (migration 20260705120000_pallets_order_id; replaces legacy amazon_order_id).
    */
   order_id?: string | null;
-  /** Primary pallet overview image (media bucket). */
+  /** Canonical array columns on live DB. */
+  pallet_photo_urls?: string[] | null;
+  bol_photo_urls?: string[] | null;
+  shipping_label_urls?: string[] | null;
+  /** Derived from `pallet_photo_urls[0]` for UI/claims compatibility. */
   photo_url?: string | null;
   bol_photo_url?: string | null;
   manifest_photo_url?: string | null;
@@ -41,6 +45,9 @@ export type PalletRecord = {
 
 export type PalletInsertPayload = {
   pallet_number: string;
+  pallet_photo_urls?: string[];
+  bol_photo_urls?: string[];
+  shipping_label_urls?: string[];
   photo_url?: string | null;
   bol_photo_url?: string | null;
   manifest_photo_url?: string | null;
@@ -84,12 +91,16 @@ export type PackageRecord = {
   updated_by?: string | null;
   created_at: string; updated_at: string;
   order_id?: string | null;
+  outside_photo_urls?: string[] | null;
+  inside_photo_urls?: string[] | null;
+  slip_photo_urls?: string[] | null;
+  /** Derived from array columns for UI/claims compatibility. */
   photo_url?: string | null;
   photo_return_label_url?: string | null;
   photo_opened_url?: string | null;
   photo_closed_url?: string | null;
   manifest_photo_url?: string | null;
-  /** Structured gallery — `{ urls }` and/or `label_urls`, `outer_box_urls`, `inside_content_urls`, `sealed_box_urls`. */
+  /** Client-side structured gallery mirror (not persisted on live `packages` row). */
   photo_evidence?: unknown | null;
   /** Parsed packing-slip lines (JSONB) — normalized in `normalizePackageRow` for reconciliation UI. */
   manifest_data?: ExpectedItem[] | null;

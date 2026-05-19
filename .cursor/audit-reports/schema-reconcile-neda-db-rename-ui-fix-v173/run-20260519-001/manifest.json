@@ -1,0 +1,18 @@
+{
+  "run_id": "run-20260519-001",
+  "prompt": "SCHEMA-RECONCILE-NEDA-DB-RENAME-AND-UI-FIX-V173",
+  "owner": "Main/user",
+  "staging_project_ref": "eiqfaapyumhixxoeltgu",
+  "started_at": "2026-05-19T00:00:00Z",
+  "completed_at": "2026-05-19T00:00:00Z",
+  "verdict": "PASS",
+  "artifacts": [
+    "db-schema-diff.md",
+    "stale-query-list.md",
+    "files-fixed.md",
+    "runtime-errors-before-after.md",
+    "canonical-column-map.md",
+    "validation-results.md",
+    "blockers.md"
+  ]
+}

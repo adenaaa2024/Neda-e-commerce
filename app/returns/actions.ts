@@ -31,6 +31,12 @@ import {
   RETURN_SELECT,
 } from "./returns-constants";
 import {
+  packageCanonicalPhotoPatch,
+  packageLegacyPhotosFromRow,
+  palletCanonicalPhotoPatch,
+  palletLegacyPhotosFromRow,
+} from "../../lib/returns-canonical-photos";
+import {
   hasReturnPhotoEvidenceCounts,
   hasReturnPhotoEvidenceUrlSlots,
   type ReturnPhotoEvidenceRow,
@@ -401,7 +407,8 @@ function normalizePackageRow(row: Record<string, unknown>): PackageRecord {
     idSlipRaw == null || idSlipRaw === ""
       ? null
       : String(idSlipRaw).trim() || null;
-  const base = { ...raw, package_code, id_slip_contents } as PackageRecord;
+  const photos = packageLegacyPhotosFromRow(raw);
+  const base = { ...raw, package_code, id_slip_contents, ...photos } as PackageRecord;
   const next: PackageRecord = {
     ...base,
     rma_number: (base.rma_number as string | null | undefined) ?? null,
@@ -415,7 +422,8 @@ function normalizePackageRow(row: Record<string, unknown>): PackageRecord {
 }
 
 function normalizePalletRow(row: Record<string, unknown>): PalletRecord {
-  const base = row as PalletRecord;
+  const photos = palletLegacyPhotosFromRow(row);
+  const base = { ...row, ...photos } as PalletRecord;
   return {
     ...base,
     notes: (base.notes as string | null | undefined) ?? null,
@@ -446,11 +454,17 @@ export async function createPallet(
       status: "open",
       created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
     };
-    if (payload.photo_url !== undefined) insertRow.photo_url = String(payload.photo_url ?? "").trim() || null;
-    if (payload.bol_photo_url !== undefined) insertRow.bol_photo_url = String(payload.bol_photo_url ?? "").trim() || null;
-    if (payload.manifest_photo_url !== undefined) {
-      insertRow.manifest_photo_url = String(payload.manifest_photo_url ?? "").trim() || null;
-    }
+    Object.assign(
+      insertRow,
+      palletCanonicalPhotoPatch({
+        pallet_photo_urls: payload.pallet_photo_urls,
+        bol_photo_urls: payload.bol_photo_urls,
+        shipping_label_urls: payload.shipping_label_urls,
+        photo_url: payload.photo_url,
+        bol_photo_url: payload.bol_photo_url,
+        manifest_photo_url: payload.manifest_photo_url,
+      }),
+    );
     const sid = uuidFkOrNull(payload.store_id ?? null, "store_id");
     if (sid) insertRow.store_id = sid;
     insertRow.carrier_name = payload.carrier_name?.trim() || null;
@@ -549,12 +563,11 @@ export async function updatePallet(
     const id = uuidOrNull(palletId);
     if (!id) throw new Error("Invalid pallet id.");
     const org = await resolveWriteOrganizationId(actorProfileId, organizationId);
-    const row: Record<string, unknown> = {
+    const row: Record<string, unknown> = palletCanonicalPhotoPatch({
       ...omitUndefined(updates as Record<string, unknown>),
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
-    };
+    });
     delete row.created_by;
-    delete row.photo_evidence;
     if ("notes" in row && row.notes !== undefined && row.notes !== null) {
       row.notes = String(row.notes).trim() || null;
     }
@@ -636,20 +649,17 @@ export async function createPackage(
       created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
     };
     if (storeIdFk) insertRow.store_id = storeIdFk;
-    if (payload.photo_evidence != null) insertRow.photo_evidence = payload.photo_evidence;
-    if (payload.photo_url !== undefined) insertRow.photo_url = String(payload.photo_url ?? "").trim() || null;
-    if (payload.photo_return_label_url !== undefined) {
-      insertRow.photo_return_label_url = String(payload.photo_return_label_url ?? "").trim() || null;
-    }
-    if (payload.photo_opened_url !== undefined) {
-      insertRow.photo_opened_url = String(payload.photo_opened_url ?? "").trim() || null;
-    }
-    if (payload.photo_closed_url !== undefined) {
-      insertRow.photo_closed_url = String(payload.photo_closed_url ?? "").trim() || null;
-    }
-    if (payload.manifest_photo_url !== undefined) {
-      insertRow.manifest_photo_url = String(payload.manifest_photo_url ?? "").trim() || null;
-    }
+    Object.assign(
+      insertRow,
+      packageCanonicalPhotoPatch({
+        photo_url: payload.photo_url,
+        photo_return_label_url: payload.photo_return_label_url,
+        photo_opened_url: payload.photo_opened_url,
+        photo_closed_url: payload.photo_closed_url,
+        manifest_photo_url: payload.manifest_photo_url,
+        photo_evidence: payload.photo_evidence,
+      }),
+    );
     if (payload.order_id?.trim()) insertRow.order_id = payload.order_id.trim();
 
     const { data, error } = await supabaseServer.from("packages")
@@ -690,8 +700,9 @@ export async function updatePackage(
     if ("expected_item_count" in payload) {
       payload.expected_item_count = coerceNonNegativeInt(payload.expected_item_count, 0);
     }
+    const dbPayload = packageCanonicalPhotoPatch(payload);
     let q = supabaseServer.from("packages")
-      .update(payload)
+      .update(dbPayload)
       .eq("id", pkgId);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q.select(PACKAGE_MUTATION_SELECT).single();

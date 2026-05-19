@@ -141,12 +141,24 @@ export function palletPhotoEvidenceUrlsFromRow(p: {
   manifest_photo_url?: string | null;
   bol_photo_url?: string | null;
   photo_url?: string | null;
+  shipping_label_urls?: string[] | null;
+  pallet_photo_urls?: string[] | null;
+  bol_photo_urls?: string[] | null;
 } | null | undefined): string[] {
   if (!p) return [];
-  const m = String(p.manifest_photo_url ?? "").trim();
-  const bol = String(p.bol_photo_url ?? "").trim();
-  const ov = String(p.photo_url ?? "").trim();
-  return [m, bol, ov].filter(Boolean);
+  const labels = Array.isArray(p.shipping_label_urls)
+    ? p.shipping_label_urls.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+  const bolArr = Array.isArray(p.bol_photo_urls)
+    ? p.bol_photo_urls.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+  const palletArr = Array.isArray(p.pallet_photo_urls)
+    ? p.pallet_photo_urls.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+  const m = labels[0] ?? String(p.manifest_photo_url ?? "").trim();
+  const bol = bolArr[0] ?? String(p.bol_photo_url ?? "").trim();
+  const ov = palletArr[0] ?? String(p.photo_url ?? "").trim();
+  return [m, bol, ov, ...labels.slice(1), ...bolArr.slice(1), ...palletArr.slice(1)].filter(Boolean);
 }
 
 /** Boxed package flow: prefer dedicated columns, then structured JSONB keys, then flat `urls`. */
@@ -154,13 +166,21 @@ export function resolvePackageClaimPhotoUrls(pkg: {
   photo_evidence?: unknown;
   photo_opened_url?: string | null;
   photo_return_label_url?: string | null;
+  inside_photo_urls?: string[] | null;
+  slip_photo_urls?: string[] | null;
 }): {
   opened: string | null;
   label: string | null;
 } {
   const pe = pkg.photo_evidence;
-  const openedCol = String(pkg.photo_opened_url ?? "").trim();
-  const labelCol = String(pkg.photo_return_label_url ?? "").trim();
+  const insideArr = Array.isArray(pkg.inside_photo_urls)
+    ? pkg.inside_photo_urls.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+  const slipArr = Array.isArray(pkg.slip_photo_urls)
+    ? pkg.slip_photo_urls.map((s) => String(s ?? "").trim()).filter(Boolean)
+    : [];
+  const openedCol = insideArr[0] ?? String(pkg.photo_opened_url ?? "").trim();
+  const labelCol = slipArr[0] ?? String(pkg.photo_return_label_url ?? "").trim();
   const inside = structUrls(pe, "inside_content_urls");
   const labels = structUrls(pe, "label_urls");
   const flat = normalizeEntityPhotoEvidenceUrls(pe);

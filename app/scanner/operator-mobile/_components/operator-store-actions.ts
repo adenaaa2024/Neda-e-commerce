@@ -39,6 +39,13 @@ import {
   resolveItemBarcodeAgainstSlipRows,
   type SlipBarcodeMatchRow,
 } from "@/lib/scanner/operator-slip-item-resolve";
+import {
+  buildProductLinkageDisplayContract,
+  fetchProductNamesByResolvedIds,
+  type ProductsLookupClient,
+  type ProductLinkageDisplayContract,
+} from "@/lib/scanner/product-linkage-display-contract";
+import { RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns/returns-constants";
 
 export type OperatorStoreScopeSnapshot = {
   stores: OperatorStoreOption[];
@@ -355,6 +362,8 @@ export type OperatorSlipContentsListRow = {
   order_id?: string | null;
   /** When slip token disagreed with pallet at save: parent pallet `order_id` (differs from {@link order_id}). Otherwise null. */
   conflicting_order_id?: string | null;
+  /** Server-built product linkage display (PRODUCT-API contract). */
+  product_linkage: ProductLinkageDisplayContract;
 };
 
 /**
@@ -424,7 +433,7 @@ export async function listOperatorSlipContentsForPackageAction(
   const rowsRaw = slipRes.data;
   const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
 
-  const normalized: OperatorSlipContentsListRow[] = rows.map((raw: unknown) => {
+  const linkageStubs = rows.map((raw: unknown) => {
     const r = raw as Record<string, unknown>;
     const q = Number(r.quantity ?? 0);
     const idRaw = typeof r.id === "string" ? r.id.trim() : "";
@@ -445,6 +454,42 @@ export async function listOperatorSlipContentsForPackageAction(
         typeof r.conflicting_order_id === "string" && r.conflicting_order_id.trim()
           ? r.conflicting_order_id.trim()
           : null,
+      resolved_product_id:
+        typeof r.resolved_product_id === "string" && isUuidString(r.resolved_product_id.trim())
+          ? r.resolved_product_id.trim()
+          : null,
+      identifier_resolution_status:
+        typeof r.identifier_resolution_status === "string" ? r.identifier_resolution_status : null,
+      identifier_resolution_confidence: (() => {
+        const n = Number(r.identifier_resolution_confidence);
+        return Number.isFinite(n) ? n : null;
+      })(),
+    };
+  });
+
+  const productIds = linkageStubs
+    .map((s) => s.resolved_product_id)
+    .filter((id): id is string => Boolean(id));
+  const productNameById = await fetchProductNamesByResolvedIds(
+    supabaseServer as unknown as ProductsLookupClient,
+    productIds,
+  );
+
+  const normalized: OperatorSlipContentsListRow[] = linkageStubs.map((stub) => {
+    const { resolved_product_id, identifier_resolution_status, identifier_resolution_confidence, ...rest } = stub;
+    return {
+      ...rest,
+      product_linkage: buildProductLinkageDisplayContract(
+        {
+          resolved_product_id,
+          identifier_resolution_status,
+          identifier_resolution_confidence,
+          description: stub.description,
+          fnsku: stub.fnsku,
+          upc: stub.upc,
+        },
+        productNameById,
+      ),
     };
   });
 
@@ -1503,6 +1548,7 @@ export type OperatorPackageItemRow = {
   expiry_date: string | null;
   lot_number: string | null;
   evidence_urls: string[] | null;
+  product_linkage: ProductLinkageDisplayContract;
 };
 
 function inferMatchKindFromReturnItemRow(row: {
@@ -1569,35 +1615,54 @@ export async function listOperatorPackageItemsForPackageAction(
       }))
     : [];
 
-  const { data, error } = await supabaseServer
-    .from(RETURN_ITEMS_TABLE)
-    .select(
-      "id, fnsku, sku, product_identifier, conditions, expiration_date, batch_number, photo_evidence, created_at",
-    )
-    .eq("package_id", pkgId)
-    .eq("organization_id", organizationId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
+  const returnItemSelectAttempts = [
+    `id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, created_at, ${RETURN_SCANNER_LINKAGE_SELECT}`,
+    "id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, created_at",
+  ];
 
-  if (error) {
-    return { ok: false, message: error.message };
+  let returnRes: { data: unknown; error: { message: string } | null } | null = null;
+  for (const sel of returnItemSelectAttempts) {
+    const r = await supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select(sel)
+      .eq("package_id", pkgId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+    returnRes = r;
+    if (!r.error) break;
+  }
+  if (!returnRes || returnRes.error) {
+    return { ok: false, message: returnRes?.error?.message ?? "return_items load failed." };
   }
 
-  const raw = Array.isArray(data) ? data : [];
-  const rows: OperatorPackageItemRow[] = raw.map((r: unknown) => {
+  const raw = Array.isArray(returnRes.data) ? returnRes.data : [];
+  const stubs: {
+    id: string;
+    slip_content_id: string | null;
+    scanned_barcode: string;
+    match_kind: OperatorPackageItemRow["match_kind"];
+    quantity: number;
+    discrepancy_tags: string[] | null;
+    expiry_date: string | null;
+    lot_number: string | null;
+    evidence_urls: string[] | null;
+    resolved_product_id: string | null;
+    identifier_resolution_status: string | null;
+    identifier_resolution_confidence: number | null;
+    item_name: string | null;
+    fnsku: string | null;
+    sku: string | null;
+    product_identifier: string | null;
+  }[] = raw.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     const id = typeof row.id === "string" && isUuidString(row.id.trim()) ? row.id.trim() : "";
-    const scanned_barcode = scannedBarcodeFromReturnItemRow({
-      fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
-      sku: typeof row.sku === "string" ? row.sku : null,
-      product_identifier: typeof row.product_identifier === "string" ? row.product_identifier : null,
-    });
+    const fnsku = typeof row.fnsku === "string" ? row.fnsku : null;
+    const sku = typeof row.sku === "string" ? row.sku : null;
+    const product_identifier = typeof row.product_identifier === "string" ? row.product_identifier : null;
+    const scanned_barcode = scannedBarcodeFromReturnItemRow({ fnsku, sku, product_identifier });
     const slip_content_id = slipContentIdForReturnItemBarcode(scanned_barcode, slipMatchRows);
-    const match_kind = inferMatchKindFromReturnItemRow({
-      fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
-      sku: typeof row.sku === "string" ? row.sku : null,
-      product_identifier: typeof row.product_identifier === "string" ? row.product_identifier : null,
-    });
+    const match_kind = inferMatchKindFromReturnItemRow({ fnsku, sku, product_identifier });
     const dt = Array.isArray(row.conditions)
       ? row.conditions.map((x) => String(x ?? "").trim()).filter(Boolean)
       : null;
@@ -1608,6 +1673,10 @@ export async function listOperatorPackageItemsForPackageAction(
         ? null
         : String(row.expiration_date).trim().slice(0, 32) || null;
     const lot = typeof row.batch_number === "string" ? row.batch_number.trim().slice(0, 500) : null;
+    const resolvedRaw =
+      typeof row.resolved_product_id === "string" && isUuidString(row.resolved_product_id.trim())
+        ? row.resolved_product_id.trim()
+        : null;
     return {
       id,
       slip_content_id,
@@ -1618,6 +1687,51 @@ export async function listOperatorPackageItemsForPackageAction(
       expiry_date: exp,
       lot_number: lot?.length ? lot : null,
       evidence_urls: ev.length ? ev : null,
+      resolved_product_id: resolvedRaw,
+      identifier_resolution_status:
+        typeof row.identifier_resolution_status === "string" ? row.identifier_resolution_status : null,
+      identifier_resolution_confidence: (() => {
+        const n = Number(row.identifier_resolution_confidence);
+        return Number.isFinite(n) ? n : null;
+      })(),
+      item_name: typeof row.item_name === "string" ? row.item_name : null,
+      fnsku,
+      sku,
+      product_identifier,
+    };
+  });
+
+  const productIds = stubs.map((s) => s.resolved_product_id).filter((id): id is string => Boolean(id));
+  const productNameById = await fetchProductNamesByResolvedIds(
+    supabaseServer as unknown as ProductsLookupClient,
+    productIds,
+  );
+
+  const rows: OperatorPackageItemRow[] = stubs.map((stub) => {
+    const {
+      resolved_product_id,
+      identifier_resolution_status,
+      identifier_resolution_confidence,
+      item_name,
+      fnsku,
+      sku,
+      product_identifier,
+      ...rest
+    } = stub;
+    return {
+      ...rest,
+      product_linkage: buildProductLinkageDisplayContract(
+        {
+          resolved_product_id,
+          identifier_resolution_status,
+          identifier_resolution_confidence,
+          item_name,
+          fnsku,
+          sku,
+          product_identifier,
+        },
+        productNameById,
+      ),
     };
   });
 

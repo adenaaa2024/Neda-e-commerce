@@ -47,6 +47,10 @@ import {
   palletPhotoEvidenceUrlsFromRow,
   resolvePackageClaimPhotoUrls,
 } from "../../lib/entity-photo-evidence";
+import {
+  packageLegacyPhotosFromRow,
+  palletLegacyPhotosFromRow,
+} from "../../lib/returns-canonical-photos";
 import { fetchProductFromAmazon } from "../../lib/api/amazon-mock";
 import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
@@ -65,19 +69,22 @@ import { manualOverrideReturnItemProductResolution } from "../scanner/operator-m
 /** Seeded MVP org — use in client `stores` queries so RLS returns rows for local dev. */
 export const MVP_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001";
 
-/** Wizard / review summary — legacy TEXT columns first, then `urls` tail from `photo_evidence` JSONB. */
+/** Wizard / review summary — canonical arrays, derived scalars, then client `photo_evidence` mirror. */
 function packageEvidenceGalleryUrls(pkg: PackageRecord | undefined | null): string[] {
   if (!pkg) return [];
+  const outside = (pkg.outside_photo_urls ?? []).map((s) => String(s).trim()).filter(Boolean);
+  const inside = (pkg.inside_photo_urls ?? []).map((s) => String(s).trim()).filter(Boolean);
+  const slip = (pkg.slip_photo_urls ?? []).map((s) => String(s).trim()).filter(Boolean);
   const pe = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
-  const o = pkg.photo_opened_url?.trim() || pe[0] || "";
-  const l = pkg.photo_return_label_url?.trim() || pe[1] || "";
-  const c = pkg.photo_closed_url?.trim() || pe[2] || "";
-  const u = pkg.photo_url?.trim() || pe[3] || "";
+  const o = (inside[0] ?? pkg.photo_opened_url?.trim()) || pe[0] || "";
+  const l = (slip[0] ?? pkg.photo_return_label_url?.trim()) || pe[1] || "";
+  const c = (outside[1] ?? pkg.photo_closed_url?.trim()) || pe[2] || "";
+  const u = (outside[0] ?? pkg.photo_url?.trim()) || pe[3] || "";
   const head = [o, l, c, u].filter(Boolean);
-  return [...head, ...pe.slice(4)];
+  return [...head, ...outside.slice(2), ...inside.slice(1), ...slip.slice(1), ...pe.slice(4)];
 }
 
-/** Pallet gallery — `pallets.manifest_photo_url`, `bol_photo_url`, `photo_url` (ordered for summary / claims). */
+/** Pallet gallery — shipping_label_urls, bol_photo_urls, pallet_photo_urls (ordered for summary / claims). */
 function palletEvidenceValue(p: PalletRecord | null | undefined): unknown | null {
   if (!p) return null;
   const urls = palletPhotoEvidenceUrlsFromRow(p);
@@ -2938,18 +2945,26 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     return () => { cancelled = true; };
   }, [editing, editPalletId, pkg.pallet_id, pkg.id]);
 
-  /** List queries omit `photo_evidence` — load JSONB once for edit/reconciliation UI. */
+  /** List queries omit box photo arrays — load once for edit/reconciliation UI. */
   useEffect(() => {
     let cancelled = false;
     void supabaseBrowser
       .from("packages")
-      .select("photo_evidence")
+      .select("outside_photo_urls, inside_photo_urls, slip_photo_urls, manifest_url")
       .eq("id", initPkg.id)
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelled || error || !data) return;
-        const pe = (data as { photo_evidence?: unknown }).photo_evidence;
-        setPkg((p) => ({ ...p, photo_evidence: pe ?? null }));
+        const photos = packageLegacyPhotosFromRow(data as Record<string, unknown>);
+        setPkg((p) => ({
+          ...p,
+          ...photos,
+          photo_evidence: buildStructuredPackagePhotoEvidence({
+            label_urls: photos.slip_photo_urls,
+            outer_box_urls: photos.outside_photo_urls,
+            inside_content_urls: photos.inside_photo_urls,
+          }),
+        }));
       });
     return () => { cancelled = true; };
   }, [initPkg.id]);
@@ -5440,7 +5455,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
       }
       void supabaseBrowser
         .from("pallets")
-        .select("photo_url, bol_photo_url, manifest_photo_url")
+        .select("pallet_photo_urls, bol_photo_urls, shipping_label_urls")
         .eq("id", pid)
         .maybeSingle()
         .then(({ data }) => {
@@ -5449,15 +5464,12 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
             setFetchedPalletEvidence(null);
             return;
           }
-          const row = data as {
-            photo_url?: string | null;
-            bol_photo_url?: string | null;
-            manifest_photo_url?: string | null;
-          };
+          const row = data as Record<string, unknown>;
+          const photos = palletLegacyPhotosFromRow(row);
           setFetchedPalletEvidence({
-            photo_url: row.photo_url ?? null,
-            bol_photo_url: row.bol_photo_url ?? null,
-            manifest_photo_url: row.manifest_photo_url ?? null,
+            photo_url: photos.photo_url,
+            bol_photo_url: photos.bol_photo_url,
+            manifest_photo_url: photos.manifest_photo_url,
           });
         });
     }
@@ -5465,7 +5477,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
     /** Load pallet link + marketplace order id + legacy package photo columns only (no `photo_evidence` JSONB). */
     void supabaseBrowser
       .from("packages")
-      .select("order_id, pallet_id, photo_opened_url, photo_return_label_url, photo_closed_url, photo_url")
+      .select("order_id, pallet_id, outside_photo_urls, inside_photo_urls, slip_photo_urls")
       .eq("id", pkgKey)
       .maybeSingle()
       .then(({ data }) => {
@@ -5475,25 +5487,19 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
           setFetchedPalletEvidence(null);
           return;
         }
-        const row = data as {
-          order_id?: string | null;
-          pallet_id?: string | null;
-          photo_opened_url?: string | null;
-          photo_return_label_url?: string | null;
-          photo_closed_url?: string | null;
-          photo_url?: string | null;
-        };
+        const row = data as Record<string, unknown>;
+        const photos = packageLegacyPhotosFromRow(row);
         setFetchedPkgMeta({
-          pallet_id: row.pallet_id ?? null,
-          order_id: row.order_id ?? null,
-          photo_opened_url: row.photo_opened_url ?? null,
-          photo_return_label_url: row.photo_return_label_url ?? null,
-          photo_closed_url: row.photo_closed_url ?? null,
-          photo_url: row.photo_url ?? null,
+          pallet_id: (row.pallet_id as string | null | undefined) ?? null,
+          order_id: (row.order_id as string | null | undefined) ?? null,
+          photo_opened_url: photos.photo_opened_url,
+          photo_return_label_url: photos.photo_return_label_url,
+          photo_closed_url: photos.photo_closed_url,
+          photo_url: photos.photo_url,
         });
-        const oid = row.order_id?.trim();
+        const oid = String(row.order_id ?? "").trim();
         if (oid) setState((p) => (p.amazon_order_id.trim() ? p : { ...p, amazon_order_id: oid }));
-        applyPalletEvidence(row.pallet_id ?? null);
+        applyPalletEvidence((row.pallet_id as string | null | undefined) ?? null);
       });
     return () => { cancelled = true; };
   }, [resolvedPkgId, openPallets, openPackages, workspaceOrgId]);
@@ -6549,9 +6555,9 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
         organization_id: pltOrgId,
         actor_profile_id: actorProfileId,
         pallet_number: palletNum.trim(),
-        photo_url: palletPhotoUrls[0]?.trim() || null,
-        bol_photo_url: bolUrls[0]?.trim() || null,
-        ...(manifestPhotoUrl ? { manifest_photo_url: manifestPhotoUrl } : {}),
+        pallet_photo_urls: palletPhotoUrls.map((u) => u.trim()).filter(Boolean),
+        bol_photo_urls: bolUrls.map((u) => u.trim()).filter(Boolean),
+        ...(manifestPhotoUrl ? { shipping_label_urls: [manifestPhotoUrl] } : {}),
         store_id: palletStoreId,
         notes,
         created_by: actor,
@@ -6648,7 +6654,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
             </div>
             <MasterUploader
               label="Pallet photo (optional)"
-              hint="Up to 3 images — first is saved to photo_url (extras are not stored on the pallet row)."
+              hint="Up to 3 images — stored in pallet_photo_urls."
               value={palletPhotoUrls}
               onChange={setPalletPhotoUrls}
               organizationId={organizationId}
@@ -6656,7 +6662,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
             />
             <MasterUploader
               label="Bill of Lading (optional)"
-              hint="Up to 3 images — first is saved to bol_photo_url (extras are not stored on the pallet row)."
+              hint="Up to 3 images — stored in bol_photo_urls."
               value={bolUrls}
               onChange={setBolUrls}
               organizationId={organizationId}

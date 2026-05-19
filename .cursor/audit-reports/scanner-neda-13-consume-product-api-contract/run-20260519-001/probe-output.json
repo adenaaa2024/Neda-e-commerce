@@ -1,0 +1,148 @@
+{
+  "runId": "run-20260519-001",
+  "steps": [
+    {
+      "step": "forbidden_package_items_zero",
+      "ok": true,
+      "detail": "refs=0"
+    },
+    {
+      "step": "forbidden_products_insert_zero",
+      "ok": true,
+      "detail": "refs=0"
+    },
+    {
+      "step": "forbidden_returns_table_zero",
+      "ok": true,
+      "detail": "refs=0"
+    },
+    {
+      "step": "wiring_contract_type_defined",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_contract_has_product_name",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_contract_has_fallback_display_name",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_contract_has_confidence",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_slip_row_has_product_linkage",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_package_item_row_has_product_linkage",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_list_slip_builds_linkage",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_list_items_builds_linkage",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_page_imports_contract",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_page_primary_label",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_page_linkage_meta_ui",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_page_no_product_found_ui",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_page_unresolved_warning_ui",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "wiring_page_no_client_products_for_slip_linkage",
+      "ok": true,
+      "detail": "true"
+    },
+    {
+      "step": "db_slip_linkage_select",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "step": "db_return_items_linkage_select",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "step": "db_fixture_hydrate_rows",
+      "ok": true,
+      "detail": "count=3"
+    },
+    {
+      "step": "db_unresolved_sample",
+      "ok": true,
+      "detail": "{\"id\":\"e08156b5-6f59-4bad-9a33-330c500df9cd\",\"status\":\"unresolved\",\"resolved_product_id\":null}"
+    },
+    {
+      "step": "db_resolved_or_null_sample",
+      "ok": true,
+      "detail": "\"none on fixture — unresolved-only ok\""
+    }
+  ],
+  "wiring": {
+    "contract_type_defined": true,
+    "contract_has_product_name": true,
+    "contract_has_fallback_display_name": true,
+    "contract_has_confidence": true,
+    "slip_row_has_product_linkage": true,
+    "package_item_row_has_product_linkage": true,
+    "list_slip_builds_linkage": true,
+    "list_items_builds_linkage": true,
+    "page_imports_contract": true,
+    "page_primary_label": true,
+    "page_linkage_meta_ui": true,
+    "page_no_product_found_ui": true,
+    "page_unresolved_warning_ui": true,
+    "page_no_client_products_for_slip_linkage": true
+  },
+  "forbidden": {
+    "package_items": 0,
+    "products_insert": 0,
+    "returns_table": 0
+  },
+  "db": {
+    "slip_linkage_ok": true,
+    "return_items_linkage_ok": true,
+    "resolved_sample": null,
+    "unresolved_sample": {
+      "id": "e08156b5-6f59-4bad-9a33-330c500df9cd",
+      "status": "unresolved",
+      "resolved_product_id": null
+    },
+    "fixture_return_items": 3
+  },
+  "pass": true
+}

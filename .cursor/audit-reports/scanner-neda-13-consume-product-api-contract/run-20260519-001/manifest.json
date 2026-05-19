@@ -1,0 +1,10 @@
+{
+  "audit": "scanner-neda-13-consume-product-api-contract",
+  "runId": "run-20260519-001",
+  "pass": true,
+  "files": [
+    "lib/scanner/product-linkage-display-contract.ts",
+    "app/scanner/operator-mobile/_components/operator-store-actions.ts",
+    "app/scanner/operator-mobile/scan/page.tsx"
+  ]
+}
