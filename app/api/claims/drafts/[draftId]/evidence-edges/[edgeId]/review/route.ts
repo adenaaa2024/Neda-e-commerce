@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { assertUserCanAccessOrganization } from "../../../../../../../dashboard/products/pim-actions";
+import { assertUserCanAccessOrganization } from "@/app/dashboard/products/pim-actions";
 import {
   applyEdgeOperatorReview,
   parseEdgeReviewStatus,
-} from "../../../../../../../../lib/claim-evidence-edge-review";
-import { fetchDraftRow } from "../../../../../../../../lib/claim-evidence-preview";
-import { supabaseServer } from "../../../../../../../../lib/supabase-server";
-import { isUuidString } from "../../../../../../../../lib/uuid";
+} from "@/lib/claim-evidence-edge-review";
+import { fetchDraftRow } from "@/lib/claim-evidence-preview";
+import { supabaseServer } from "@/lib/supabase-server";
+import { isUuidString } from "@/lib/uuid";
 
 export const dynamic = "force-dynamic";
 

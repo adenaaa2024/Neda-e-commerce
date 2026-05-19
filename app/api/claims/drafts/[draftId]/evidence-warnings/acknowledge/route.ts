@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { assertUserCanAccessOrganization } from "../../../../../../../dashboard/products/pim-actions";
+import { assertUserCanAccessOrganization } from "@/app/dashboard/products/pim-actions";
 import {
   acknowledgeEvidenceWarnings,
   filterActionableWarnings,
-} from "../../../../../../../../lib/claim-evidence-filing-readiness";
+} from "@/lib/claim-evidence-filing-readiness";
 import {
   buildClaimEvidencePreview,
   fetchDraftRow,
-} from "../../../../../../../../lib/claim-evidence-preview";
-import { supabaseServer } from "../../../../../../../../lib/supabase-server";
-import { isUuidString } from "../../../../../../../../lib/uuid";
+} from "@/lib/claim-evidence-preview";
+import { supabaseServer } from "@/lib/supabase-server";
+import { isUuidString } from "@/lib/uuid";
 
 export const dynamic = "force-dynamic";
 
