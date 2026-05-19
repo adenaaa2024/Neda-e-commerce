@@ -4,6 +4,7 @@
 
 import { validateClaimFilingPacket } from "../lib/claim-filing-packet-validation";
 import type { ClaimFilingPacketPreview } from "../lib/claim-filing-packet-preview";
+import { buildOperatorStatusSummary } from "../lib/claim-trid-operator-status";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -85,6 +86,15 @@ function minimalPacket(overrides: Partial<ClaimFilingPacketPreview> = {}): Claim
         linked_edge_ids: ["e1"],
       },
     ],
+    reference_candidates: [],
+    reference_candidates_count: 0,
+    trid_outcome: null,
+    missing_references_warning: null,
+    operator_status_summary: buildOperatorStatusSummary({
+      edgeReview: { accepted: 0, rejected: 0, needs_review: 2, total: 2 },
+      tridOutcome: null,
+      referenceCandidateCount: 0,
+    }),
     unresolved_warnings: [],
     filing_readiness: {
       ready: false,

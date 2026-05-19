@@ -18,6 +18,9 @@ import {
   type ClaimEvidencePreviewGroup,
   type ClaimEvidenceWarning,
 } from "./claim-evidence-preview";
+import { loadAndBuildReferenceCandidatesForDraft } from "./claim-reference-candidates";
+import type { TridCandidateOutcome } from "./claim-trid-candidates-types";
+import { buildOperatorStatusSummary } from "./claim-trid-operator-status";
 
 export const CLAIM_FILING_PACKET_PREVIEW_SCHEMA_VERSION = "claim-filing-packet-preview-v1" as const;
 
@@ -60,6 +63,19 @@ export type ClaimFilingPacketTridReference = {
   linked_edge_ids: string[];
 };
 
+export type ClaimFilingPacketReferenceCandidate = {
+  reference_value: string;
+  reference_type: string;
+  source_table: string;
+  source_row_id: string;
+  event_date: string | null;
+  amount: number | null;
+  currency: string | null;
+  confidence: number;
+  claim_case_join_reason: string;
+  operator_selected: boolean;
+};
+
 export type ClaimFilingPacketPreview = {
   schema_version: typeof CLAIM_FILING_PACKET_PREVIEW_SCHEMA_VERSION;
   generated_at: string;
@@ -84,6 +100,11 @@ export type ClaimFilingPacketPreview = {
   evidence_groups: ClaimFilingPacketEvidenceGroup[];
   lineage_links: ClaimFilingPacketLineageLink[];
   trid_references: ClaimFilingPacketTridReference[];
+  reference_candidates: ClaimFilingPacketReferenceCandidate[];
+  reference_candidates_count: number;
+  trid_outcome: TridCandidateOutcome | null;
+  missing_references_warning: ClaimEvidenceWarning | null;
+  operator_status_summary: ReturnType<typeof buildOperatorStatusSummary>;
   unresolved_warnings: ClaimEvidenceWarning[];
   filing_readiness: FilingReadinessGate;
   operator_state: ClaimEvidenceDraftOperatorState | null;
@@ -257,7 +278,51 @@ export async function buildClaimFilingPacketPreview(
   );
 
   const trid_references = buildTridFromGraph(graph.trid_candidates, persistedEdges);
-  const unresolved_warnings = filterActionableWarnings(graph.warnings);
+  const refBundle = await loadAndBuildReferenceCandidatesForDraft(client, draft);
+  const reference_candidates: ClaimFilingPacketReferenceCandidate[] = refBundle.candidates
+    .slice(0, 24)
+    .map((c) => ({
+      reference_value: c.reference_value,
+      reference_type: c.reference_type,
+      source_table: c.source_table,
+      source_row_id: c.source_row_id,
+      event_date: c.event_date,
+      amount: c.amount,
+      currency: c.currency,
+      confidence: c.confidence,
+      claim_case_join_reason: c.claim_case_join_reason,
+      operator_selected: c.operator_selected,
+    }));
+
+  const missing_references_warning: ClaimEvidenceWarning | null =
+    refBundle.outcome === "missing_frr" || refBundle.outcome === "missing_operational_row"
+      ? {
+          code: "missing_references",
+          message:
+            refBundle.outcome === "missing_frr"
+              ? "No financial reference resolver candidates for this draft."
+              : "Operational source row missing — cannot resolve references.",
+          severity: "warn",
+        }
+      : refBundle.outcome === "ambiguous_multiple"
+        ? {
+            code: "ambiguous_trid",
+            message: `${refBundle.candidate_count} reference candidates — operator must select before filing.`,
+            severity: "warn",
+          }
+        : null;
+
+  const unresolved_warnings = filterActionableWarnings([
+    ...graph.warnings,
+    ...(missing_references_warning ? [missing_references_warning] : []),
+  ]);
+
+  const operator_status_summary = buildOperatorStatusSummary({
+    edgeReview: filingReadiness.review_summary,
+    tridOutcome: refBundle.outcome,
+    referenceCandidateCount: refBundle.candidate_count,
+    copiedToAmazonFormAt: null,
+  });
 
   const edgeAudit = await listEdgeReviewAuditEvents(client, draft.organization_id, draft.id, 10);
   let bulkAuditIds: string[] = [];
@@ -307,6 +372,11 @@ export async function buildClaimFilingPacketPreview(
     evidence_groups: persistedGroups.map(mapGroup),
     lineage_links,
     trid_references,
+    reference_candidates,
+    reference_candidates_count: refBundle.candidate_count,
+    trid_outcome: refBundle.outcome,
+    missing_references_warning,
+    operator_status_summary,
     unresolved_warnings,
     filing_readiness: filingReadiness,
     operator_state: graphBody.operator_state ?? null,

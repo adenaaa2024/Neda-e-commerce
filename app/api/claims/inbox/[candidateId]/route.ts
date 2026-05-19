@@ -6,6 +6,7 @@ import {
   projectClaimCandidatesBatch,
 } from "../../../../../lib/claim-inbox-projection";
 import { getClaimInboxDetailSelect, getClaimInboxProductBadgeSelect } from "../../../../../lib/claim-inbox-schema";
+import { fetchProductLinkageDisplayContract } from "../../../../../lib/product-linkage-display-enrich";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { isUuidString } from "../../../../../lib/uuid";
 
@@ -84,8 +85,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
 
   const related_submissions = await loadRelatedSubmissionSummary(organizationId, row, sourceContext);
 
+  const product_linkage = await fetchProductLinkageDisplayContract({
+    organizationId,
+    source_table: claimInboxStr(row.source_table) ?? "claim_candidates",
+    source_row_id: claimInboxStr(row.source_row_id) ?? candidateId,
+    row,
+  });
+
   return NextResponse.json({
     candidate: row,
+    product_linkage,
     source_context: sourceContext,
     projection: projection
       ? {

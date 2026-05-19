@@ -4,9 +4,12 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { ClaimDraftProductLinkagePanel } from "@/components/claims/ClaimDraftProductLinkagePanel";
 import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
+import { ClaimReferenceCandidatesPanel } from "@/components/claims/ClaimReferenceCandidatesPanel";
 import { ClaimFilingPacketPreviewPanel } from "@/components/claims/ClaimFilingPacketPreviewPanel";
 import { ClaimFilingPacketValidationPanel } from "@/components/claims/ClaimFilingPacketValidationPanel";
+import { ClaimTridOperatorStatusPanel } from "@/components/claims/ClaimTridOperatorStatusPanel";
 
 type Props = {
   organizationId: string;
@@ -60,7 +63,11 @@ export function ClaimDraftEvidenceClient({ organizationId, draftId }: Props) {
           {" · "}
           <span className="font-medium text-slate-700 dark:text-slate-300">Draft evidence</span>
         </p>
-        <h1 className="text-lg font-semibold">Persisted evidence viewer</h1>
+        <h1 className="text-lg font-semibold">Claim evidence &amp; TRID read path</h1>
+        <p className="text-[11px] text-slate-600 dark:text-slate-400">
+          Read-only: evidence graph, product linkage, reference candidates, filing packet preview. Does not submit
+          claims.
+        </p>
         <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400">draft_id: {draftId}</p>
         {candidateId ? (
           <p className="text-xs text-emerald-700 dark:text-emerald-300">
@@ -90,6 +97,9 @@ export function ClaimDraftEvidenceClient({ organizationId, draftId }: Props) {
         <>
           <ClaimFilingPacketValidationPanel organizationId={organizationId} draftId={draftId} />
           <ClaimFilingPacketPreviewPanel organizationId={organizationId} draftId={draftId} />
+          <ClaimTridOperatorStatusPanel organizationId={organizationId} draftId={draftId} />
+          <ClaimDraftProductLinkagePanel organizationId={organizationId} draftId={draftId} />
+          <ClaimReferenceCandidatesPanel organizationId={organizationId} draftId={draftId} />
           <ClaimEvidenceViewer
             payload={payload}
             organizationId={organizationId}

@@ -17,6 +17,25 @@ const APPROVAL_PATH = path.join(
 type BucketMeta = { id: string; public: boolean };
 type ObjRow = { path: string; size: number | null };
 
+type CloneRetryResult = {
+  run_id: string;
+  approval: ReturnType<typeof parseApproval>;
+  refs: { original: string | null; staging: string | null };
+  credentials: {
+    original_url: boolean;
+    original_key: boolean;
+    staging_url: boolean;
+    staging_key: boolean;
+  };
+  bucket_create_log: string[];
+  copy_log: { bucket: string; copied: number; failed: number }[];
+  errors: string[];
+  status?: string;
+  source_buckets?: BucketMeta[];
+  source_inventory?: unknown;
+  staging_inventory?: unknown;
+};
+
 function loadEnvLocal(): void {
   const p = path.join(process.cwd(), ".env.local");
   if (!fs.existsSync(p)) return;
@@ -183,7 +202,7 @@ async function main(): Promise<void> {
   const stagUrl = process.env.STAGING_SUPABASE_URL?.trim() ?? "";
   const stagKey = process.env.STAGING_SERVICE_ROLE_KEY?.trim() ?? "";
 
-  const result: Record<string, unknown> = {
+  const result: CloneRetryResult = {
     run_id: runId,
     approval,
     refs: {
@@ -196,9 +215,9 @@ async function main(): Promise<void> {
       staging_url: !!stagUrl,
       staging_key: !!stagKey,
     },
-    bucket_create_log: [] as string[],
-    copy_log: [] as { bucket: string; copied: number; failed: number }[],
-    errors: [] as string[],
+    bucket_create_log: [],
+    copy_log: [],
+    errors: [],
   };
 
   if (!approval.prepare || !approval.execute) {
@@ -236,12 +255,12 @@ async function main(): Promise<void> {
   const sourceBuckets = await getSourceBuckets(src);
   result.source_buckets = sourceBuckets;
 
-  const bucketLog = result.bucket_create_log as string[];
+  const bucketLog = result.bucket_create_log;
   for (const meta of sourceBuckets) {
     await ensureStagingBucket(dst, meta, bucketLog);
   }
 
-  const copyLog = result.copy_log as { bucket: string; copied: number; failed: number }[];
+  const copyLog = result.copy_log;
   for (const meta of sourceBuckets) {
     const files = await listAllFiles(src, meta.id);
     let copied = 0;
@@ -255,7 +274,7 @@ async function main(): Promise<void> {
         }
       } catch (e) {
         failed++;
-        (result.errors as string[]).push(
+        result.errors.push(
           `${meta.id}/${f.path}: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
@@ -275,8 +294,7 @@ async function main(): Promise<void> {
   result.source_inventory = sourceInv;
   result.staging_inventory = stagingInv;
   result.status =
-    (result.errors as string[]).length === 0 &&
-    sourceInv.totalObjects === stagingInv.totalObjects
+    result.errors.length === 0 && sourceInv.totalObjects === stagingInv.totalObjects
       ? "PASS"
       : "FAIL";
 

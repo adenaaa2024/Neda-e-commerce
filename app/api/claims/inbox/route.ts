@@ -8,6 +8,8 @@ import {
 } from "../../../../lib/claim-inbox-projection";
 import { getClaimInboxListSelect } from "../../../../lib/claim-inbox-schema";
 import { assertStoreBelongsToOrganization } from "../../../../lib/claim-org-scope";
+import { buildProductLinkageDisplayContracts } from "../../../../lib/product-linkage-display-enrich";
+import type { ProductLinkageDisplayContract } from "../../../../lib/product-linkage-display-contract";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { isUuidString } from "../../../../lib/uuid";
 
@@ -146,7 +148,7 @@ export async function GET(req: Request) {
       }
 
       const projOut = await projectClaimCandidatesBatch(supabaseServer, collected, organizationId);
-      const items = collected.map((row) => shapeListItem(row, projOut.get(claimInboxStr(row.id) ?? "") ?? null));
+      const items = await shapeListItemsWithLinkage(organizationId, collected, projOut);
       const hasMoreDbRows = lastBatchLen === SCAN_BATCH && scanned < MAX_SCAN_ROWS;
       const next_cursor =
         (collected.length === pageSize || (collected.length < pageSize && hasMoreDbRows)) && lastBatchLen > 0
@@ -167,7 +169,7 @@ export async function GET(req: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const batch = ((data ?? []) as unknown) as unknown as Record<string, unknown>[];
     const proj = await projectClaimCandidatesBatch(supabaseServer, batch, organizationId);
-    const items = batch.map((row) => shapeListItem(row, proj.get(claimInboxStr(row.id) ?? "") ?? null));
+    const items = await shapeListItemsWithLinkage(organizationId, batch, proj);
     const next_cursor =
       batch.length === pageSize ? encodeCursorJson({ m: "p", page: page + 1 }) : null;
 
@@ -178,7 +180,27 @@ export async function GET(req: Request) {
   }
 }
 
-function shapeListItem(row: Record<string, unknown>, proj: ProjectedCandidate | null) {
+async function shapeListItemsWithLinkage(
+  organizationId: string,
+  rows: Record<string, unknown>[],
+  proj: Map<string, ProjectedCandidate>,
+) {
+  const inputs = rows.map((row) => ({
+    source_table: claimInboxStr(row.source_table) ?? "claim_candidates",
+    source_row_id: claimInboxStr(row.source_row_id) ?? claimInboxStr(row.id) ?? "",
+    row,
+  }));
+  const linkages = await buildProductLinkageDisplayContracts(organizationId, inputs);
+  return rows.map((row, i) =>
+    shapeListItem(row, proj.get(claimInboxStr(row.id) ?? "") ?? null, linkages[i] ?? null),
+  );
+}
+
+function shapeListItem(
+  row: Record<string, unknown>,
+  proj: ProjectedCandidate | null,
+  product_linkage: ProductLinkageDisplayContract | null,
+) {
   const id = claimInboxStr(row.id);
   const inboxQueue = proj?.inbox_queue ?? ("needs_product_link" as const);
   const lineageWarningCode = proj?.lineage_warning_code ?? null;
@@ -208,6 +230,7 @@ function shapeListItem(row: Record<string, unknown>, proj: ProjectedCandidate | 
     lineage_warning_message: legacySourceBroken ? LEGACY_SOURCE_BROKEN_MESSAGE : null,
     source_lineage_status: legacySourceBroken ? "legacy_source_broken" : "source_lineage_ok_or_unknown",
     automation_allowed: proj?.automation_allowed ?? false,
+    product_linkage,
   };
 }
 

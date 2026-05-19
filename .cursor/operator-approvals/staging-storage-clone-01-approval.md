@@ -26,11 +26,11 @@ STAGING_PROJECT_REF=eiqfaapyumhixxoeltgu
 
 ## Signoff
 
-**Status: PARTIAL EXECUTED** — 136/144 objects copied (`20260527T120000Z`); 8 large `raw-reports` pending 04B-R2.
+**Status: PASS** — 144/144 objects on staging (`20260527T120000Z` initial + `storage-8-files-retry-after-limit-v172/20260519T180000Z` for 8 large `raw-reports`).
 
 ```
 Environment: STAGING STORAGE CLONE
-Status: PARTIAL
+Status: PASS
 Approved by: operator
-Approved at UTC: 2026-05-27T12:00:00Z
+Approved at UTC: 2026-05-19T18:00:00Z
 ```

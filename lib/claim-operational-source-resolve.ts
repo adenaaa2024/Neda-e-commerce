@@ -15,6 +15,8 @@ export const CLAIM_SUPPORTED_SOURCE_TABLES = new Set([
   "amazon_removal_shipments",
   "return_items",
   "returns",
+  /** CLAIM-CANDIDATE-RESOLVER-V175 — scanner slip lines (join by source_row_id). */
+  "slip_contents",
 ]);
 
 export type ClaimSourcePack = {

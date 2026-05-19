@@ -10,9 +10,14 @@ import { getClaimInboxListSelect } from "../../../../../../lib/claim-inbox-schem
 import { resolveClaimCandidateSourcePack, CLAIM_SUPPORTED_SOURCE_TABLES } from "../../../../../../lib/claim-operational-source-resolve";
 import { supabaseServer } from "../../../../../../lib/supabase-server";
 import { isUuidString } from "../../../../../../lib/uuid";
+import { buildProductLinkageDisplayContracts } from "../../../../../../lib/product-linkage-display-enrich";
+import type { ProductLinkageDisplayContract } from "../../../../../../lib/product-linkage-display-contract";
 import { RETURN_ITEMS_TABLE, RETURN_LIST_SELECT, PACKAGE_LIST_SELECT, PALLET_LIST_SELECT } from "../../../../../returns/returns-constants";
 
-const SLIP_CONTENTS_SELECT = "id, organization_id, store_id, package_id, sort_index, slip_code";
+const SLIP_CONTENTS_SELECT =
+  "id, organization_id, store_id, package_id, sort_index, slip_code, " +
+  "fnsku, upc, asin, sku, product_id, " +
+  "resolved_product_id, resolved_catalog_product_id, identifier_resolution_status, identifier_resolution_confidence";
 
 const HEAVY_ROW_KEYS = new Set(["raw_data", "source_payload", "manifest_data", "photo_evidence"]);
 
@@ -86,6 +91,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
   }
   const pack = await resolveClaimCandidateSourcePack(supabaseServer, candidate, sourceMaps, contextRow);
   const operational_source_row = stripHeavyJson(pack.row);
+  let operational_product_linkage: ProductLinkageDisplayContract | null = null;
+  if (pack.row && sid && st) {
+    const [opLink] = await buildProductLinkageDisplayContracts(organizationId, [
+      { source_table: st, source_row_id: sid, row: pack.row },
+    ]);
+    operational_product_linkage = opLink ?? null;
+  }
 
   const projMap = await projectClaimCandidatesBatch(supabaseServer, [candidate], organizationId);
   const projection = projMap.get(candidateId) ?? null;
@@ -105,14 +117,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
       .maybeSingle();
     if (ret && typeof ret === "object") {
       const r = ret as unknown as Record<string, unknown>;
+      const returnIdStr = claimInboxStr(r.id) ?? returnId;
+      const [returnLinkage] = await buildProductLinkageDisplayContracts(organizationId, [
+        { source_table: RETURN_ITEMS_TABLE, source_row_id: returnIdStr ?? "", row: r },
+      ]);
       returns_evidence = {
-        id: claimInboxStr(r.id),
+        id: returnIdStr,
         conditions: r.conditions ?? null,
         photo_evidence: truncateJson(r.photo_evidence),
         package_id: claimInboxStr(r.package_id),
         pallet_id: claimInboxStr(r.pallet_id),
         store_id: claimInboxStr(r.store_id),
         status: claimInboxStr(r.status),
+        product_linkage: returnLinkage ?? null,
       };
       const pkgId = claimInboxStr(r.package_id);
       const pltId = claimInboxStr(r.pallet_id);
@@ -162,7 +179,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
       .limit(500);
     if (storeId) sq = sq.eq("store_id", storeId);
     const { data: slips, error: slipErr } = await sq;
-    if (!slipErr && slips) slip_contents = slips as unknown as Record<string, unknown>[];
+    if (!slipErr && slips) {
+      const rawSlips = slips as unknown as Record<string, unknown>[];
+      const slipLinkages = await buildProductLinkageDisplayContracts(
+        organizationId,
+        rawSlips.map((s) => ({
+          source_table: "slip_contents",
+          source_row_id: claimInboxStr(s.id) ?? "",
+          row: s,
+        })),
+      );
+      slip_contents = rawSlips.map((s, i) => ({
+        id: claimInboxStr(s.id),
+        organization_id: claimInboxStr(s.organization_id),
+        store_id: claimInboxStr(s.store_id),
+        package_id: claimInboxStr(s.package_id),
+        sort_index: s.sort_index ?? null,
+        slip_code: claimInboxStr(s.slip_code),
+        product_linkage: slipLinkages[i] ?? null,
+      }));
+    }
   }
 
   let claim_submissions: unknown[] = [];
@@ -200,9 +236,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ candidateId: st
       ? (claim_submissions[0] as { selected_claim_evidence_urls?: unknown }).selected_claim_evidence_urls
       : null;
 
+  const candidate_product_linkage = (
+    await buildProductLinkageDisplayContracts(organizationId, [
+      {
+        source_table: claimInboxStr(candidate.source_table) ?? "claim_candidates",
+        source_row_id: claimInboxStr(candidate.source_row_id) ?? candidateId,
+        row: candidate,
+      },
+    ])
+  )[0];
+
   return NextResponse.json({
     claim_candidate_id: candidateId,
+    candidate_product_linkage: candidate_product_linkage ?? null,
     operational_source_row,
+    operational_product_linkage,
     operational_resolution: {
       alternate_tier: pack.alternateTier,
       id_lookup_hit: pack.id_lookup_hit,

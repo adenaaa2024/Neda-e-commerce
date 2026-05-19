@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const BUCKET = "raw-reports";
 const FAILED_PATHS = [
@@ -54,7 +54,7 @@ function refFromUrl(url: string): string | null {
   return m?.[1] ?? null;
 }
 
-async function listCount(client: ReturnType<typeof createClient>, bucket: string): Promise<number> {
+async function listCount(client: SupabaseClient, bucket: string): Promise<number> {
   const rows: { path: string }[] = [];
   const queue = [""];
   while (queue.length > 0) {

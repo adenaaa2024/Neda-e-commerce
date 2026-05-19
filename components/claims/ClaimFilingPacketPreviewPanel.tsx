@@ -179,10 +179,48 @@ export function ClaimFilingPacketPreviewPanel({ organizationId, draftId }: Props
         </div>
       </div>
 
+      {packet.missing_references_warning ? (
+        <div className="rounded border border-rose-300 bg-rose-50 px-2 py-1.5 text-[10px] text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
+          <p className="font-semibold">Missing / ambiguous references</p>
+          <p className="mt-0.5">{packet.missing_references_warning.message}</p>
+          {packet.trid_outcome ? (
+            <p className="mt-1 font-mono text-[9px] opacity-80">outcome: {packet.trid_outcome}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {packet.reference_candidates.length > 0 ? (
+        <div>
+          <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200">
+            Reference candidates ({packet.reference_candidates_count})
+          </h4>
+          <ul className="max-h-36 space-y-1 overflow-y-auto text-[10px]">
+            {packet.reference_candidates.slice(0, 12).map((c) => (
+              <li
+                key={`${c.reference_value}:${c.source_row_id}`}
+                className="rounded border border-slate-200 px-2 py-1 font-mono dark:border-slate-700"
+              >
+                <span className="text-sky-700 dark:text-sky-300">{c.reference_value.slice(0, 56)}</span>
+                <span className="text-slate-500">
+                  {" "}
+                  · {c.reference_type} · {c.source_table} · conf {Math.round(c.confidence * 100)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="text-[10px] text-slate-600 dark:text-slate-400">
+        Edge review: {packet.operator_status_summary.edge_review.accepted} accepted ·{" "}
+        {packet.operator_status_summary.edge_review.rejected} rejected ·{" "}
+        {packet.operator_status_summary.edge_review.needs_review} needs review
+      </div>
+
       {packet.trid_references.length > 0 ? (
         <div>
           <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200">
-            TRID / reference IDs
+            TRID / reference IDs (persisted edges)
           </h4>
           <ul className="max-h-32 space-y-1 overflow-y-auto text-[10px]">
             {packet.trid_references.slice(0, 20).map((t) => (

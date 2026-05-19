@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
 import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
+import { ClaimReferenceCandidatesPanel } from "@/components/claims/ClaimReferenceCandidatesPanel";
 
 type AllowedStoreRow = {
   store_id: string;
@@ -808,7 +809,16 @@ export function ClaimInboxClient({
                     Evidence graph (persisted + live preview)
                   </button>
                   {evidenceOpen ? (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-900/60">
+                      <ClaimReferenceCandidatesPanel
+                        organizationId={organizationId}
+                        claimCandidateId={detailId}
+                        draftId={
+                          typeof evidenceJson?.draft_id === "string"
+                            ? evidenceJson.draft_id
+                            : undefined
+                        }
+                      />
                       {evidenceLoading ? (
                         <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
                       ) : evidenceErr ? (
