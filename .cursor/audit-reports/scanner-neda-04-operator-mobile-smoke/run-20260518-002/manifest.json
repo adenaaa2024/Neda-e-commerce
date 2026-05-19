@@ -1,0 +1,35 @@
+{
+  "audit": "scanner-neda-04-operator-mobile-smoke",
+  "run_id": "run-20260518-002",
+  "date": "2026-05-18",
+  "goal": "Verify Neda operator-mobile scanner flow after package_items → return_items repair",
+  "prerequisite": "scanner-neda-03-package-items-repair/run-20260518-001",
+  "linked_supabase_project_ref": "kxsvedvpjldygtdbylsy",
+  "constraints": [
+    "no migrations",
+    "no broad DB writes",
+    "no product creation from OCR/title",
+    "no production",
+    "no Amazon API",
+    "no AI"
+  ],
+  "e2e_result": "pass_with_notes",
+  "package_items_error_absent": true,
+  "operator_selects_42703_free": true,
+  "script": "scripts/scanner-neda-04-operator-mobile-smoke.ts",
+  "artifacts": [
+    "manifest.json",
+    "validation-results.md",
+    "operator-mobile-route-smoke.md",
+    "package-items-verification.md",
+    "postgrest-column-check.md",
+    "identify-gate-fixture.md",
+    "hydrate-and-boxes.md",
+    "receive-save-path.md",
+    "product-linkage.md",
+    "ui-layout-preservation.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "probe-output.json"
+  ]
+}

@@ -1,13 +1,14 @@
 /**
  * Data layer: all Claim Engine reads/writes go through `claim_submissions` (not legacy `claims`).
- * Joins `returns` for ASIN/FNSKU/SKU whenever `return_id` is set.
+ * Joins `return_items` for ASIN/FNSKU/SKU whenever `return_id` is set.
  */
 import { supabaseServer } from "../../lib/supabase-server";
 import type { ReturnRecord } from "../returns/returns-action-types";
 import {
+  CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY,
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
   CLAIM_SUBMISSIONS_TABLE,
-  CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED,
+  CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED,
 } from "./claim-submissions-constants";
 import type { ClaimRecord } from "./claim-types";
 
@@ -38,9 +39,9 @@ function resolveSkuFromReturn(ret: ReturnRecord | null): string | null {
   return null;
 }
 
-/** PostgREST `returns` FK embed on `claim_submissions` (object or one-element array). */
+/** PostgREST `return_items` FK embed on `claim_submissions` (object or one-element array). */
 function returnFromSubmissionEmbed(sub: Record<string, unknown>): ReturnRecord | null {
-  const raw = sub.returns;
+  const raw = sub[CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY];
   if (!raw) return null;
   const r = Array.isArray(raw) ? raw[0] : raw;
   return normalizeReturnEmbed(r);
@@ -68,7 +69,7 @@ export async function fetchClaimWorkspaceRows(
   try {
     const { data: subs, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
       .in("status", [...WORKSPACE_STATUSES])
       .order("updated_at", { ascending: false })
       .limit(limit);
@@ -78,7 +79,7 @@ export async function fetchClaimWorkspaceRows(
     const list = subs ?? [];
 
     const rows: ClaimRecord[] = list.map((raw) => {
-      const sub = raw as Record<string, unknown>;
+      const sub = raw as unknown as Record<string, unknown>;
       const ret = returnFromSubmissionEmbed(sub);
       return mapSubmissionToClaimRecord(sub, ret);
     });
@@ -93,7 +94,7 @@ export async function fetchClaimWorkspaceRows(
   }
 }
 
-/** Maps `claim_submissions` + optional `returns` row + source_payload → UI `ClaimRecord`. */
+/** Maps `claim_submissions` + optional `return_items` row + source_payload → UI `ClaimRecord`. */
 export function mapSubmissionToClaimRecord(
   sub: Record<string, unknown>,
   ret: ReturnRecord | null,
@@ -129,7 +130,7 @@ export function mapSubmissionToClaimRecord(
 }
 
 /**
- * Lists submissions with returns embedded (PostgREST FK). Falls back to `select` + batch returns fetch.
+ * Lists submissions with return_items embedded (PostgREST FK). Falls back to `select` + batch return_items fetch.
  */
 export async function fetchClaimSubmissionsWithReturns(
   organizationId: string,
@@ -138,7 +139,7 @@ export async function fetchClaimSubmissionsWithReturns(
   try {
     const { data: subs, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -147,7 +148,7 @@ export async function fetchClaimSubmissionsWithReturns(
     const list = subs ?? [];
 
     const rows: ClaimRecord[] = list.map((raw) => {
-      const sub = raw as Record<string, unknown>;
+      const sub = raw as unknown as Record<string, unknown>;
       const ret = returnFromSubmissionEmbed(sub);
       return mapSubmissionToClaimRecord(sub, ret);
     });

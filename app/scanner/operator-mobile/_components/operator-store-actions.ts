@@ -26,7 +26,19 @@ import {
   formatUnauthorizedTrackingInStoreMessage,
 } from "@/lib/scanner/operator-store-display";
 import { formatDuplicatePackingSlipMessage } from "@/lib/scanner/operator-slip-duplicate";
+import { formatSupabaseActionError } from "@/lib/supabase-action-error";
 import { enrichSlipContentsProductLinksAfterReplace } from "@/lib/scanner/enrich-slip-contents-product-links";
+import { insertReturn } from "@/app/returns/actions";
+import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
+import {
+  mergeReturnPhotoEvidence,
+  getReturnPhotoEvidenceGalleryUrls,
+  type ReturnPhotoEvidenceRow,
+} from "@/lib/return-photo-evidence";
+import {
+  resolveItemBarcodeAgainstSlipRows,
+  type SlipBarcodeMatchRow,
+} from "@/lib/scanner/operator-slip-item-resolve";
 
 export type OperatorStoreScopeSnapshot = {
   stores: OperatorStoreOption[];
@@ -385,6 +397,7 @@ export async function listOperatorSlipContentsForPackageAction(
   }
 
   const slipSelectAttempts = [
+    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, order_id, conflicting_order_id, resolved_product_id, resolved_catalog_product_id, identifier_resolution_status, identifier_resolution_confidence",
     "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, order_id, conflicting_order_id",
     "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, conflicting_order_id",
     "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, notes, order_id",
@@ -649,20 +662,6 @@ export async function findOperatorPalletByTrackingNumberAction(
     console.error("[findOperatorPalletByTrackingNumberAction]", msg, e);
     return { ok: false, error: msg };
   }
-}
-
-function formatSupabaseActionError(e: unknown, fallback: string): string {
-  if (e instanceof Error && e.message.trim()) return e.message.trim();
-  if (e && typeof e === "object") {
-    const o = e as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
-    const parts: string[] = [];
-    if (typeof o.message === "string" && o.message.trim()) parts.push(o.message.trim());
-    if (typeof o.details === "string" && o.details.trim()) parts.push(o.details.trim());
-    if (typeof o.hint === "string" && o.hint.trim()) parts.push(o.hint.trim());
-    if (typeof o.code === "string" && o.code.trim()) parts.push(`(${o.code})`);
-    if (parts.length) return parts.join(" — ");
-  }
-  return fallback;
 }
 
 export async function createOperatorPalletAction(
@@ -1467,8 +1466,32 @@ export async function saveOperatorSlipVisionAction(
 }
 
 // ---------------------------------------------------------------------------
-// package_items (ITEM SCAN — per-unit persistence)
+// Item scan units — persisted on `return_items` (live DB); UI adapter shape unchanged.
 // ---------------------------------------------------------------------------
+
+function scannedBarcodeFromReturnItemRow(row: {
+  fnsku?: string | null;
+  sku?: string | null;
+  product_identifier?: string | null;
+}): string {
+  const f = String(row.fnsku ?? "").trim();
+  if (f) return f;
+  const s = String(row.sku ?? "").trim();
+  if (s) return s;
+  return String(row.product_identifier ?? "").trim();
+}
+
+function slipContentIdForReturnItemBarcode(
+  barcode: string,
+  slipRows: SlipBarcodeMatchRow[],
+): string | null {
+  const trimmed = barcode.trim();
+  if (!trimmed || slipRows.length === 0) return null;
+  const outcome = resolveItemBarcodeAgainstSlipRows(trimmed, slipRows);
+  if (outcome.kind !== "single") return null;
+  const sid = String(outcome.slip.id ?? "").trim();
+  return sid && isUuidString(sid) ? sid : null;
+}
 
 export type OperatorPackageItemRow = {
   id: string;
@@ -1482,8 +1505,18 @@ export type OperatorPackageItemRow = {
   evidence_urls: string[] | null;
 };
 
+function inferMatchKindFromReturnItemRow(row: {
+  fnsku?: string | null;
+  sku?: string | null;
+  product_identifier?: string | null;
+}): OperatorPackageItemRow["match_kind"] {
+  if (String(row.fnsku ?? "").trim()) return "fnsku";
+  if (String(row.sku ?? "").trim()) return "upc";
+  return "unexpected";
+}
+
 /**
- * List scanned line items for a package (service role + org / store scope).
+ * List scanned units for a package from `return_items`, matched to slip lines by barcode.
  */
 export async function listOperatorPackageItemsForPackageAction(
   requestedOrganizationId: string,
@@ -1520,18 +1553,33 @@ export async function listOperatorPackageItemsForPackageAction(
     return { ok: false, message: "This package belongs to another store — select the correct store." };
   }
 
+  const slipRes = await listOperatorSlipContentsForPackageAction(
+    requestedOrganizationId,
+    pkgId,
+    storeId ?? null,
+  );
+  const slipMatchRows: SlipBarcodeMatchRow[] = slipRes.ok
+    ? slipRes.rows.map((s) => ({
+        id: s.id,
+        upc: s.upc,
+        fnsku: s.fnsku,
+        description: s.description,
+        quantity: s.quantity,
+        sort_index: s.sort_index,
+      }))
+    : [];
+
   const { data, error } = await supabaseServer
-    .from("package_items")
-    .select("id, slip_content_id, scanned_barcode, match_kind, quantity, discrepancy_tags, expiry_date, lot_number, evidence_urls")
+    .from(RETURN_ITEMS_TABLE)
+    .select(
+      "id, fnsku, sku, product_identifier, conditions, expiration_date, batch_number, photo_evidence, created_at",
+    )
     .eq("package_id", pkgId)
     .eq("organization_id", organizationId)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
   if (error) {
-    const m = String(error.message ?? "");
-    if (m.includes("package_items") && (m.includes("schema cache") || m.includes("Could not find"))) {
-      return { ok: false, message: "package_items table not available — apply database migrations." };
-    }
     return { ok: false, message: error.message };
   }
 
@@ -1539,34 +1587,37 @@ export async function listOperatorPackageItemsForPackageAction(
   const rows: OperatorPackageItemRow[] = raw.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     const id = typeof row.id === "string" && isUuidString(row.id.trim()) ? row.id.trim() : "";
-    const sid = typeof row.slip_content_id === "string" && isUuidString(row.slip_content_id.trim())
-      ? row.slip_content_id.trim()
+    const scanned_barcode = scannedBarcodeFromReturnItemRow({
+      fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
+      sku: typeof row.sku === "string" ? row.sku : null,
+      product_identifier: typeof row.product_identifier === "string" ? row.product_identifier : null,
+    });
+    const slip_content_id = slipContentIdForReturnItemBarcode(scanned_barcode, slipMatchRows);
+    const match_kind = inferMatchKindFromReturnItemRow({
+      fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
+      sku: typeof row.sku === "string" ? row.sku : null,
+      product_identifier: typeof row.product_identifier === "string" ? row.product_identifier : null,
+    });
+    const dt = Array.isArray(row.conditions)
+      ? row.conditions.map((x) => String(x ?? "").trim()).filter(Boolean)
       : null;
-    const mk = String(row.match_kind ?? "").trim();
-    const match_kind =
-      mk === "fnsku" || mk === "upc" || mk === "unexpected" ? (mk as OperatorPackageItemRow["match_kind"]) : "unexpected";
-    const q = Math.max(1, Math.floor(Number(row.quantity ?? 1)));
-    const dt = Array.isArray(row.discrepancy_tags)
-      ? row.discrepancy_tags.map((x) => String(x ?? "").trim()).filter(Boolean)
-      : null;
-    const ev = Array.isArray(row.evidence_urls)
-      ? row.evidence_urls.map((x) => String(x ?? "").trim()).filter(Boolean)
-      : null;
+    const pe = (row.photo_evidence ?? null) as ReturnPhotoEvidenceRow;
+    const ev = getReturnPhotoEvidenceGalleryUrls(pe);
     const exp =
-      row.expiry_date === null || row.expiry_date === undefined
+      row.expiration_date === null || row.expiration_date === undefined
         ? null
-        : String(row.expiry_date).trim().slice(0, 32) || null;
-    const lot = typeof row.lot_number === "string" ? row.lot_number.trim().slice(0, 500) : null;
+        : String(row.expiration_date).trim().slice(0, 32) || null;
+    const lot = typeof row.batch_number === "string" ? row.batch_number.trim().slice(0, 500) : null;
     return {
       id,
-      slip_content_id: sid,
-      scanned_barcode: typeof row.scanned_barcode === "string" ? row.scanned_barcode.trim() : "",
+      slip_content_id,
+      scanned_barcode,
       match_kind,
-      quantity: Number.isFinite(q) ? q : 1,
+      quantity: 1,
       discrepancy_tags: dt?.length ? dt : null,
       expiry_date: exp,
       lot_number: lot?.length ? lot : null,
-      evidence_urls: ev?.length ? ev : null,
+      evidence_urls: ev.length ? ev : null,
     };
   });
 
@@ -1607,7 +1658,7 @@ function normalizeOptionalDate(raw: string | null | undefined): string | null {
 }
 
 /**
- * Insert one package_items row (bumps `packages.actual_item_count` via DB trigger).
+ * Insert one item-scan unit as a `return_items` row (`packages.actual_item_count` via DB trigger).
  */
 export async function insertOperatorPackageItemAction(
   input: InsertOperatorPackageItemInput,
@@ -1661,12 +1712,12 @@ export async function insertOperatorPackageItemAction(
     return { ok: false, message: "This package belongs to another store — select the correct store." };
   }
 
-  let slipContentId: string | null = null;
   const slipHint = String(input.slipContentId ?? "").trim();
+  let slipDescription: string | null = null;
   if (slipHint && isUuidString(slipHint)) {
     const { data: slipRow, error: slipErr } = await supabaseServer
       .from("slip_contents")
-      .select("id, package_id")
+      .select("id, package_id, description")
       .eq("id", slipHint)
       .eq("organization_id", organizationId)
       .maybeSingle();
@@ -1675,13 +1726,13 @@ export async function insertOperatorPackageItemAction(
     if (!slipRow || spkg !== pkgId) {
       return { ok: false, message: "Slip line does not belong to this package." };
     }
-    slipContentId = slipHint;
+    slipDescription =
+      typeof (slipRow as { description?: string | null }).description === "string"
+        ? (slipRow as { description: string }).description.trim()
+        : null;
   } else if (slipHint) {
     return { ok: false, message: "Invalid slip line id." };
   }
-
-  const actor = await resolveAuditActorForSession();
-  const createdBy = actor.userId && isUuidString(actor.userId) ? actor.userId : null;
 
   const tags = filterPackageItemDiscrepancyTags(input.discrepancyTags);
   if (tags.length === 0) {
@@ -1707,37 +1758,51 @@ export async function insertOperatorPackageItemAction(
     }
   }
 
-  const insertPayload: Record<string, unknown> = {
+  if (!storeIdResolved || !isUuidString(storeIdResolved)) {
+    return { ok: false, message: "Store is required to save item scans." };
+  }
+
+  const itemName = (slipDescription || "Scanned unit").slice(0, 500);
+  const photo_evidence = mergeReturnPhotoEvidence(null, {}, { galleryUrls: evidence });
+
+  const ins = await insertReturn({
     organization_id: organizationId,
-    package_id: pkgId,
     store_id: storeIdResolved,
-    slip_content_id: slipContentId,
-    scanned_barcode: barcode.slice(0, 500),
-    match_kind: matchKind,
-    quantity,
-    discrepancy_tags: tags,
-    expiry_date: exp,
-    lot_number: lot,
-    evidence_urls: evidence,
-    ...(createdBy ? { created_by: createdBy } : {}),
-  };
+    package_id: pkgId,
+    marketplace: "amazon",
+    item_name: itemName,
+    conditions: [...tags],
+    expiration_date: exp ?? undefined,
+    batch_number: lot ?? undefined,
+    photo_evidence,
+    fnsku: matchKind === "fnsku" ? barcode.slice(0, 500) : undefined,
+    sku: matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : undefined,
+  });
 
-  const { data: ins, error: insErr } = await supabaseServer
-    .from("package_items")
-    .insert(insertPayload)
-    .select("id")
-    .maybeSingle();
+  if (!ins.ok || !ins.data?.id) {
+    return { ok: false, message: ins.error ?? "Failed to save item scan." };
+  }
 
-  if (insErr) {
-    const m = String(insErr.message ?? "");
-    if (m.includes("package_items") && (m.includes("schema cache") || m.includes("Could not find"))) {
-      return { ok: false, message: "package_items table not available — apply database migrations." };
+  if (quantity > 1) {
+    for (let i = 1; i < quantity; i++) {
+      const extra = await insertReturn({
+        organization_id: organizationId,
+        store_id: storeIdResolved,
+        package_id: pkgId,
+        marketplace: "amazon",
+        item_name: itemName,
+        conditions: [...tags],
+        expiration_date: exp ?? undefined,
+        batch_number: lot ?? undefined,
+        photo_evidence,
+        fnsku: matchKind === "fnsku" ? barcode.slice(0, 500) : undefined,
+        sku: matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : undefined,
+      });
+      if (!extra.ok) {
+        return { ok: false, message: extra.error ?? "Failed to save item scan." };
+      }
     }
-    return { ok: false, message: insErr.message };
   }
-  const newId = String((ins as { id?: string } | null)?.id ?? "").trim();
-  if (!isUuidString(newId)) {
-    return { ok: false, message: "Insert did not return an id." };
-  }
-  return { ok: true, id: newId };
+
+  return { ok: true, id: ins.data.id };
 }

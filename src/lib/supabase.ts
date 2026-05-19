@@ -25,5 +25,5 @@ export const supabase: SupabaseClient = createBrowserClient(
   isSupabaseConfigured() ? supabaseAnonKey : "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder",
 );
 
-/** See `@/types/database.types` for `returns` / `packages` / `pallets` row shapes. */
+/** See `@/types/database.types` for `return_items` / `packages` / `pallets` row shapes. */
 

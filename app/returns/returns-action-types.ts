@@ -21,10 +21,10 @@ export type PalletRecord = {
    */
   carrier_name?: string | null;
   /**
-   * Amazon / marketplace order ID for this pallet — inherited by child packages and items.
-   * Added in migration 20260418_pallets_carrier_amazon_order_id.
+   * Marketplace / removal order ID for this pallet — inherited by child packages and items.
+   * Column `pallets.order_id` (migration 20260705120000_pallets_order_id; replaces legacy amazon_order_id).
    */
-  amazon_order_id?: string | null;
+  order_id?: string | null;
   /** Primary pallet overview image (media bucket). */
   photo_url?: string | null;
   bol_photo_url?: string | null;
@@ -48,8 +48,8 @@ export type PalletInsertPayload = {
   notes?: string;
   /** Shipping carrier — auto-fills child Package forms. */
   carrier_name?: string | null;
-  /** Amazon / marketplace order ID — inherits to child packages and items. */
-  amazon_order_id?: string | null;
+  /** Marketplace / removal order ID — inherits to child packages and items (`pallets.order_id`). */
+  order_id?: string | null;
   organization_id?: string; created_by?: string;
   /** Resolves tenant + super-admin target org on the server */
   actor_profile_id?: string | null;
@@ -59,6 +59,7 @@ export type PalletUpdatePayload = Partial<Pick<
   PalletRecord,
   | "status" | "notes" | "tracking_number"
   | "photo_url" | "bol_photo_url" | "manifest_photo_url"
+  | "carrier_name" | "order_id"
 >>;
 
 export type PackageStatus = "open" | "closed" | "suspicious" | "submitted";
@@ -67,12 +68,15 @@ export type ExpectedItem = { sku: string; expected_qty: number; description?: st
 
 export type PackageRecord = {
   id: string; organization_id: string;
-  package_number: string; tracking_number: string | null;
+  package_code: string;
+  tracking_number: string | null;
   carrier_name: string | null;
   rma_number: string | null;
+  /** Printed slip / document id (`packages.id_slip_contents`). */
+  id_slip_contents: string | null;
   expected_item_count: number; actual_item_count: number;
   pallet_id: string | null; status: PackageStatus;
-  discrepancy_note: string | null;
+  notes: string | null;
   manifest_url?: string | null;
   store_id?: string | null;
   stores?: { name: string; platform: string } | null;
@@ -92,7 +96,9 @@ export type PackageRecord = {
 };
 
 export type PackageInsertPayload = {
-  package_number: string; tracking_number?: string;
+  package_code: string;
+  id_slip_contents?: string | null;
+  tracking_number?: string;
   carrier_name?: string; rma_number?: string; expected_item_count?: number;
   pallet_id?: string; store_id?: string; organization_id?: string; created_by?: string;
   manifest_url?: string;
@@ -108,7 +114,7 @@ export type PackageInsertPayload = {
 
 export type PackageUpdatePayload = Partial<Pick<
   PackageRecord,
-  | "carrier_name" | "tracking_number" | "rma_number" | "expected_item_count" | "status" | "discrepancy_note" | "pallet_id" | "manifest_url"
+  | "package_code" | "id_slip_contents" | "carrier_name" | "tracking_number" | "rma_number" | "expected_item_count" | "status" | "notes" | "pallet_id" | "manifest_url"
   | "order_id"
   | "photo_url" | "photo_return_label_url" | "photo_opened_url" | "photo_closed_url" | "manifest_photo_url"
   | "photo_evidence"
@@ -116,7 +122,7 @@ export type PackageUpdatePayload = Partial<Pick<
 
 export type ReturnInsertPayload = {
   lpn?: string;
-  /** Seller RMA / authorization — `returns.rma_number`. */
+  /** Seller RMA / authorization — `return_items.rma_number`. */
   rma_number?: string | null;
   marketplace: string; item_name: string;
   asin?: string;
@@ -128,6 +134,10 @@ export type ReturnInsertPayload = {
   expiration_date?: string; batch_number?: string;
   pallet_id?: string; package_id?: string;
   store_id?: string;
+  /** Scanner receive — `expected_packages.id` for resolver context (not a `return_items` column on live DB). */
+  expected_package_id?: string | null;
+  /** @deprecated Use `expected_package_id`. */
+  expected_item_id?: string | null;
   amazon_order_id?: string | null;
   order_id?: string | null;
   customer_id?: string | null;
@@ -139,7 +149,7 @@ export type ReturnInsertPayload = {
 export type ReturnRecord = {
   id: string; organization_id: string;
   lpn: string | null;
-  /** Seller RMA / authorization — column on `returns` (optional). */
+  /** Seller RMA / authorization — column on `return_items` (optional). */
   rma_number?: string | null;
   inherited_tracking_number?: string | null;
   inherited_carrier?: string | null;
@@ -165,6 +175,20 @@ export type ReturnRecord = {
   updated_by?: string | null;
   created_at: string; updated_at: string;
   estimated_value?: number | null;
+  /** NEXT-SCANNER-02 — nullable product linkage / resolution (present when migration applied). */
+  expected_item_id?: string | null;
+  expected_product_id?: string | null;
+  scanned_product_id?: string | null;
+  resolved_product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
+  identifier_resolution_status?: string | null;
+  identifier_resolution_confidence?: number | null;
+  identifier_resolution_source?: string | null;
+  identifier_resolution_meta?: Record<string, unknown> | null;
+  product_match_status?: string | null;
+  product_review_required?: boolean | null;
+  product_resolved_at?: string | null;
+  product_resolved_by?: string | null;
 };
 
 export type ReturnUpdatePayload = Partial<Pick<

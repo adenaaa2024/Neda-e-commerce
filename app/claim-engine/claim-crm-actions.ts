@@ -3,6 +3,7 @@
 import { supabaseServer } from "../../lib/supabase-server";
 import { estimateClaimSuccessProbability } from "./claim-crm-utils";
 import { CLAIM_SUBMISSION_RETURN_ID_COLUMN, CLAIM_SUBMISSIONS_TABLE } from "./claim-submissions-constants";
+import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
 import type { ClaimSubmissionStatus } from "./claim-submission-actions";
 
 const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
@@ -217,7 +218,7 @@ export async function getClaimInvestigationPayload(
     const returnId = subRow[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string | null | undefined;
 
     const { data: ret } = returnId
-      ? await supabaseServer.from("returns").select("*").eq("id", returnId).maybeSingle()
+      ? await supabaseServer.from(RETURN_ITEMS_TABLE).select("*").eq("id", returnId).maybeSingle()
       : { data: null };
 
     const { data: logsRaw, error: lErr } = await supabaseServer

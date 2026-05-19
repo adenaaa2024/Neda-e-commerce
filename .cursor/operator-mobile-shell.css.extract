@@ -1,0 +1,187 @@
+/*
+ * ── Operator mobile device shell (scanner home + scan) ─────────────────────────
+ * html.dark / html.light come from next-themes on <html>.
+ */
+html.dark .operator-mobile-canvas {
+  --op-canvas-bg: #050607;
+}
+
+html.light .operator-mobile-canvas {
+  --op-canvas-bg: #d2d2d7;
+}
+
+html.dark .operator-mobile-app-shell {
+  color-scheme: dark;
+  --op-app-bg: radial-gradient(
+    ellipse 145% 110% at 50% -28%,
+    #1e2128 0%,
+    #17191e 38%,
+    #12151a 72%,
+    #0f1115 100%
+  );
+  --scanner-bg: transparent;
+  --scanner-card: #151b22;
+  --scanner-card-inner: #1a222c;
+  --scanner-border: #2d3745;
+  --scanner-muted: #8ba3b8;
+  --scanner-text: #f1f5f9;
+  --scanner-header-gradient: linear-gradient(180deg, rgba(30, 33, 40, 0.96) 0%, rgba(15, 17, 21, 0.55) 100%);
+  --scanner-input-glass-bg: rgba(255, 255, 255, 0.055);
+  --scanner-input-glass-border: rgba(255, 255, 255, 0.11);
+  --scanner-bracket-cyan: rgba(34, 211, 238, 0.88);
+  --scanner-bracket-glow: drop-shadow(0 0 10px rgba(34, 211, 238, 0.45)) drop-shadow(0 0 4px rgba(34, 211, 238, 0.35));
+  --gate-new-border: rgba(56, 189, 248, 0.48);
+  --gate-new-shadow:
+    0 0 0 0.5px rgba(56, 189, 248, 0.22), 0 0 36px rgba(56, 189, 248, 0.14), 0 14px 42px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --gate-new-chip: rgba(14, 165, 233, 0.22);
+  --gate-new-headline: #e0f2fe;
+  --gate-manual-border: rgba(56, 189, 248, 0.48);
+  --gate-manual-shadow:
+    0 0 0 0.5px rgba(56, 189, 248, 0.22), 0 0 36px rgba(56, 189, 248, 0.14), 0 14px 42px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --gate-manual-chip: rgba(14, 165, 233, 0.22);
+  --gate-manual-headline: #e0f2fe;
+  --gate-unexpected-border: rgba(168, 85, 247, 0.52);
+  --gate-unexpected-shadow:
+    0 0 0 0.5px rgba(168, 85, 247, 0.22), 0 0 34px rgba(168, 85, 247, 0.14), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --gate-unexpected-chip: rgba(147, 51, 234, 0.22);
+  --gate-unexpected-headline: #f3e8ff;
+  --gate-progress-border: rgba(250, 204, 21, 0.52);
+  --gate-progress-shadow:
+    0 0 0 0.5px rgba(250, 204, 21, 0.2), 0 0 34px rgba(250, 204, 21, 0.12), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --gate-progress-chip: rgba(234, 179, 8, 0.22);
+  --gate-progress-headline: #fef9c3;
+  --gate-done-border: rgba(52, 211, 153, 0.52);
+  --gate-done-shadow:
+    0 0 0 0.5px rgba(52, 211, 153, 0.22), 0 0 34px rgba(52, 211, 153, 0.14), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --gate-done-chip: rgba(16, 185, 129, 0.22);
+  --gate-done-headline: #d1fae5;
+  --gate-over-border: rgba(249, 115, 22, 0.55);
+  --gate-over-shadow:
+    0 0 0 0.5px rgba(249, 115, 22, 0.22), 0 0 34px rgba(249, 115, 22, 0.14), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --gate-over-chip: rgba(234, 88, 12, 0.24);
+  --gate-over-headline: #ffedd5;
+}
+
+html.light .operator-mobile-app-shell {
+  color-scheme: light;
+  --op-app-bg: linear-gradient(180deg, #ffffff 0%, #f5f5f7 45%, #ebebed 100%);
+  --scanner-bg: #f5f5f7;
+  --scanner-card: #ffffff;
+  --scanner-card-inner: #fafafa;
+  --scanner-border: #d2d2d7;
+  --scanner-muted: #424245;
+  --scanner-text: #1d1d1f;
+  --scanner-header-gradient: linear-gradient(180deg, #ffffff 0%, #f5f5f7 100%);
+  --scanner-input-glass-bg: rgba(255, 255, 255, 0.78);
+  --scanner-input-glass-border: rgba(0, 0, 0, 0.1);
+  --scanner-bracket-cyan: rgba(8, 145, 178, 0.92);
+  --scanner-bracket-glow: drop-shadow(0 0 8px rgba(8, 145, 178, 0.35)) drop-shadow(0 0 3px rgba(6, 182, 212, 0.28));
+  --gate-new-border: rgba(14, 165, 233, 0.45);
+  --gate-new-shadow:
+    0 0 0 0.5px rgba(14, 165, 233, 0.18), 0 4px 28px rgba(14, 165, 233, 0.1), 0 10px 36px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --gate-new-chip: rgba(14, 165, 233, 0.14);
+  --gate-new-headline: #0369a1;
+  --gate-manual-border: rgba(14, 165, 233, 0.45);
+  --gate-manual-shadow:
+    0 0 0 0.5px rgba(14, 165, 233, 0.18), 0 4px 28px rgba(14, 165, 233, 0.1), 0 10px 36px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --gate-manual-chip: rgba(14, 165, 233, 0.14);
+  --gate-manual-headline: #0369a1;
+  --gate-unexpected-border: rgba(126, 34, 206, 0.42);
+  --gate-unexpected-shadow:
+    0 0 0 0.5px rgba(126, 34, 206, 0.15), 0 4px 26px rgba(126, 34, 206, 0.08), 0 10px 32px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --gate-unexpected-chip: rgba(126, 34, 206, 0.12);
+  --gate-unexpected-headline: #6b21a8;
+  --gate-progress-border: rgba(202, 138, 4, 0.45);
+  --gate-progress-shadow:
+    0 0 0 0.5px rgba(202, 138, 4, 0.16), 0 4px 26px rgba(202, 138, 4, 0.08), 0 10px 32px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --gate-progress-chip: rgba(202, 138, 4, 0.14);
+  --gate-progress-headline: #854d0e;
+  --gate-done-border: rgba(5, 150, 105, 0.42);
+  --gate-done-shadow:
+    0 0 0 0.5px rgba(5, 150, 105, 0.16), 0 4px 26px rgba(5, 150, 105, 0.08), 0 10px 32px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --gate-done-chip: rgba(5, 150, 105, 0.12);
+  --gate-done-headline: #047857;
+  --gate-over-border: rgba(234, 88, 12, 0.42);
+  --gate-over-shadow:
+    0 0 0 0.5px rgba(234, 88, 12, 0.16), 0 4px 26px rgba(234, 88, 12, 0.08), 0 10px 32px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --gate-over-chip: rgba(234, 88, 12, 0.12);
+  --gate-over-headline: #c2410c;
+}
+
+.scanner-glass-surface {
+  box-shadow:
+    0 12px 40px -18px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+html.light .scanner-glass-surface {
+  box-shadow:
+    0 8px 28px -14px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.98);
+}
+
+.scanner-input-glass {
+  background: var(--scanner-input-glass-bg) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-color: var(--scanner-input-glass-border) !important;
+}
+
+@keyframes operator-info-soft-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+    opacity: 0.85;
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12), 0 0 18px rgba(56, 189, 248, 0.18);
+    opacity: 1;
+  }
+}
+
+.operator-info-icon-pulse {
+  animation: operator-info-soft-glow 2.6s ease-in-out infinite;
+}
+
+html.light .operator-info-icon-pulse {
+  animation: operator-info-soft-glow-light 2.6s ease-in-out infinite;
+}
+
+@keyframes operator-info-soft-glow-light {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0);
+    opacity: 0.88;
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.14), 0 0 14px rgba(14, 165, 233, 0.12);
+    opacity: 1;
+  }
+}
+
+@keyframes scanner-results-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-scanner-results-enter {
+  animation: scanner-results-slide-up 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}

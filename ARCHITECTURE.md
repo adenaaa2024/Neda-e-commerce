@@ -4,7 +4,7 @@
 
 ## 🗄️ Data Strategy (5-Layer Engine)
 1. **Operational (PostgreSQL):** Main DB for items, pallets, and claims.
-2. **Landing Zone:** Using JSONB columns (`raw_data`) in `marketplace_orders` and `returns` for flexible API integration.
+2. **Landing Zone:** Using JSONB columns (`raw_data`) in `marketplace_orders` and `return_items` for flexible API integration.
 3. **Analytics (Planned):** Google BigQuery for Helium 10 style BI.
 4. **Storage:** AWS S3 for all images/PDFs.
 5. **Search:** Algolia/Elasticsearch for instant code lookup.

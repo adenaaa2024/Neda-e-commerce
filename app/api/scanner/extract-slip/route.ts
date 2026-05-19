@@ -10,6 +10,8 @@ Read the image carefully and return ONLY valid JSON — no markdown, no code fen
 {
   "vret_id": string | null,
   "shipment_id": string | null,
+  "carrier": string | null,
+  "amazon_order_id": string | null,
   "items": [
     {
       "sku": string | null,
@@ -24,6 +26,8 @@ Read the image carefully and return ONLY valid JSON — no markdown, no code fen
 Rules:
 - vret_id: Amazon removal / RMA style IDs like VRET7623723875531 when visible; otherwise null.
 - shipment_id: Carrier tracking (e.g. UPS starting with 1Z), Amazon TRACK-..., or primary outbound tracking; otherwise null.
+- carrier: Shipping carrier name when visible (e.g. "UPS", "FedEx", "USPS", "Amazon", "DHL"). Use the exact label printed on the slip. Otherwise null.
+- amazon_order_id: Amazon marketplace order id printed on the slip in the format 111-1234567-8901234 (three digits, dash, seven digits, dash, seven digits). Otherwise null.
 - items: one entry per distinct product line on the slip with quantities from the slip (non-negative integers).
 - barcode: UPC, EAN, or FNSKU printed on the slip when visible; otherwise null.
 - Use null for unknown strings. If no line items are readable, use "items": [].`;

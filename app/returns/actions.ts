@@ -26,7 +26,8 @@ import {
   PACKAGE_MUTATION_SELECT,
   PALLET_LIST_SELECT,
   PALLET_MUTATION_SELECT,
-  RETURN_LIST_SELECT,
+  RETURN_ITEMS_TABLE,
+  RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT,
   RETURN_SELECT,
 } from "./returns-constants";
 import {
@@ -34,6 +35,7 @@ import {
   hasReturnPhotoEvidenceUrlSlots,
   type ReturnPhotoEvidenceRow,
 } from "../../lib/return-photo-evidence";
+import { applyReturnItemProductEnrichmentAfterInsert } from "../../lib/scanner/apply-return-item-product-enrichment";
 import type {
   AuditLogRecord,
   DashboardSnapshot,
@@ -175,7 +177,7 @@ function deriveStatus(
   conditions: string[],
   photoEvidence: ReturnPhotoEvidenceRow | undefined,
   _opts?: {
-    /** @deprecated Claim readiness uses `returns.photo_evidence` only — package inheritance removed. */
+    /** @deprecated Claim readiness uses `return_items.photo_evidence` only — package inheritance removed. */
     packageHasInheritedClaimPhotos?: boolean;
   },
 ): string {
@@ -391,14 +393,24 @@ function parseManifestData(raw: unknown): ExpectedItem[] | null | undefined {
 }
 
 function normalizePackageRow(row: Record<string, unknown>): PackageRecord {
-  const base = row as PackageRecord;
-  const md = parseManifestData(row.manifest_data);
+  const raw = row as Record<string, unknown>;
+  const md = parseManifestData(raw.manifest_data);
+  const package_code = String(raw.package_code ?? raw.slip_id ?? raw.package_number ?? "").trim();
+  const idSlipRaw = raw.id_slip_contents ?? raw.slip_code ?? null;
+  const id_slip_contents =
+    idSlipRaw == null || idSlipRaw === ""
+      ? null
+      : String(idSlipRaw).trim() || null;
+  const base = { ...raw, package_code, id_slip_contents } as PackageRecord;
   const next: PackageRecord = {
     ...base,
     rma_number: (base.rma_number as string | null | undefined) ?? null,
     carrier_name: (base.carrier_name as string | null | undefined) ?? null,
     tracking_number: (base.tracking_number as string | null | undefined) ?? null,
   };
+  delete (next as Record<string, unknown>).package_number;
+  delete (next as Record<string, unknown>).slip_id;
+  delete (next as Record<string, unknown>).slip_code;
   return md !== undefined ? { ...next, manifest_data: md } : next;
 }
 
@@ -407,6 +419,8 @@ function normalizePalletRow(row: Record<string, unknown>): PalletRecord {
   return {
     ...base,
     notes: (base.notes as string | null | undefined) ?? null,
+    carrier_name: (base.carrier_name as string | null | undefined) ?? null,
+    order_id: (base.order_id as string | null | undefined) ?? null,
     tracking_number: (base.tracking_number as string | null | undefined) ?? null,
   };
 }
@@ -417,6 +431,9 @@ export async function createPallet(
   payload: PalletInsertPayload,
 ): Promise<{ ok: boolean; data?: PalletRecord; error?: string }> {
   try {
+    if (!(payload.carrier_name ?? "").trim()) {
+      return { ok: false, error: "Carrier is required." };
+    }
     const orgId = await resolveWriteOrganizationId(
       payload.actor_profile_id,
       payload.organization_id,
@@ -436,6 +453,8 @@ export async function createPallet(
     }
     const sid = uuidFkOrNull(payload.store_id ?? null, "store_id");
     if (sid) insertRow.store_id = sid;
+    insertRow.carrier_name = payload.carrier_name?.trim() || null;
+    insertRow.order_id = payload.order_id?.trim() || null;
     const { data, error } = await supabaseServer.from("pallets")
       .insert(insertRow)
       .select(PALLET_MUTATION_SELECT).single();
@@ -603,7 +622,10 @@ export async function createPackage(
     const storeIdFk = uuidFkOrNull(payload.store_id ?? null, "store_id");
     const insertRow: Record<string, unknown> = {
       organization_id:     orgId,
-      package_number:      payload.package_number.trim(),
+      package_code:        payload.package_code.trim(),
+      ...(payload.id_slip_contents?.trim()
+        ? { id_slip_contents: payload.id_slip_contents.trim() }
+        : {}),
       tracking_number:     payload.tracking_number?.trim() || null,
       carrier_name:        payload.carrier_name?.trim() || null,
       rma_number:          payload.rma_number?.trim() || null,
@@ -675,14 +697,14 @@ export async function updatePackage(
     const { data, error } = await q.select(PACKAGE_MUTATION_SELECT).single();
     if (error) throw new Error(parseDuplicateError(error.message));
     const row = normalizePackageRow(data as unknown as Record<string, unknown>);
-    // Keep denormalized returns.pallet_id in sync when package moves between pallets
+    // Keep denormalized return_items.pallet_id in sync when package moves between pallets
     if ("pallet_id" in payload) {
-      let syncQ = supabaseServer.from("returns")
+      let syncQ = supabaseServer.from(RETURN_ITEMS_TABLE)
         .update({ pallet_id: row.pallet_id })
         .eq("package_id", pkgId);
       if (scope.mode === "single") syncQ = syncQ.eq("organization_id", scope.organizationId);
       const { error: syncErr } = await syncQ;
-      if (syncErr) console.error("[updatePackage] sync returns.pallet_id:", syncErr.message);
+      if (syncErr) console.error("[updatePackage] sync return_items.pallet_id:", syncErr.message);
     }
     void logPackageAudit({
       organizationId: row.organization_id ?? DEFAULT_ORG,
@@ -746,7 +768,7 @@ export async function listReturnsByPackage(
     const id = uuidOrNull(packageId);
     if (!id) return { ok: true, data: [] };
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns").select(RETURN_LIST_SELECT)
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT)
       .eq("package_id", id).is("deleted_at", null).order("created_at", { ascending: false });
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
@@ -776,7 +798,7 @@ export async function closePackage(
     const hasDiscrepancy = (pkg.expected_item_count > 0 && pkg.expected_item_count !== pkg.actual_item_count) || !!opts?.discrepancyNote;
     const newStatus: PackageStatus = hasDiscrepancy ? "suspicious" : "closed";
     let q = supabaseServer.from("packages")
-      .update({ status: newStatus, discrepancy_note: opts?.discrepancyNote ?? null, updated_by: resolveActorUserId(actor) })
+      .update({ status: newStatus, notes: opts?.discrepancyNote ?? null, updated_by: resolveActorUserId(actor) })
       .eq("id", id);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { error } = await q;
@@ -824,7 +846,7 @@ export async function insertReturn(
       payload.organization_id,
     );
     const packageIdFk = uuidFkOrNull(payload.package_id ?? null, "package_id");
-    /** Status / claims use `returns.photo_evidence` only — do not read packages.photo_evidence here. */
+    /** Status / claims use `return_items.photo_evidence` only — do not read packages.photo_evidence here. */
     const status = deriveStatus(payload.conditions, payload.photo_evidence ?? null, {});
 
     /** Pallet FK only when linked to a real package — inherit from package row (never raw user text). */
@@ -879,11 +901,23 @@ export async function insertReturn(
     if (payload.sku)              insertRow.sku              = payload.sku.trim();
     if (effectiveAmazonOrderId) insertRow.order_id = String(effectiveAmazonOrderId);
 
-    const { data, error } = await supabaseServer.from("returns")
+    const { data, error } = await supabaseServer.from(RETURN_ITEMS_TABLE)
       .insert(insertRow).select(RETURN_SELECT).single();
 
     if (error) throw new Error(parseDuplicateError(error.message));
     const rec = normalizeReturnRecordFromRow(data);
+
+    const epHint = uuidOrNull(payload.expected_package_id ?? payload.expected_item_id ?? null);
+    await applyReturnItemProductEnrichmentAfterInsert(supabaseServer, {
+      returnItemId: rec.id,
+      organizationId: orgId,
+      storeId: resolvedStoreId,
+      asin: payload.asin,
+      fnsku: payload.fnsku,
+      sku: payload.sku,
+      expectedPackageId: epHint,
+      actorProfileId: payload.actor_profile_id ?? null,
+    });
 
     if (status === "ready_for_claim") {
       let storePlat: string | null | undefined;
@@ -920,7 +954,7 @@ export async function insertReturn(
           returnHint: { store_id: rec.store_id ?? resolvedStoreId ?? null, package_id: rec.package_id ?? packageIdFk },
         });
         if (subErr) {
-          await supabaseServer.from("returns").delete().eq("id", rec.id);
+          await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", rec.id);
           throw new Error(
             `Return could not be queued for claim_submissions: ${subErr.message}. Check claim_submissions columns and RLS.`,
           );
@@ -953,7 +987,7 @@ export async function updateReturn(
     const rid = uuidOrNull(returnId);
     if (!rid) throw new Error("Invalid return id.");
     const { data: existing, error: loadErr } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_SELECT)
       .eq("id", rid)
       .single();
@@ -1030,7 +1064,7 @@ export async function updateReturn(
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
     });
     const scope = await resolveTenantListScope({ actorProfileId });
-    let uq = supabaseServer.from("returns")
+    let uq = supabaseServer.from(RETURN_ITEMS_TABLE)
       .update(clean)
       .eq("id", rid);
     if (scope.mode === "single") uq = uq.eq("organization_id", scope.organizationId);
@@ -1089,7 +1123,7 @@ export async function deleteReturn(
       action: "deleted",
       actor: actor ?? DEFAULT_ACTOR,
     });
-    let q = supabaseServer.from("returns").delete().eq("id", returnId);
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", returnId);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { error } = await q;
     if (error) throw new Error(error.message);
@@ -1099,7 +1133,7 @@ export async function deleteReturn(
   }
 }
 
-/** Deletes many returns in one round-trip; only returns ok after Supabase confirms success. */
+/** Deletes many return_items rows in one round-trip; only returns ok after Supabase confirms success. */
 export async function bulkDeleteReturns(
   returnIds: string[],
   actor?: string,
@@ -1120,7 +1154,7 @@ export async function bulkDeleteReturns(
         actor: a,
       });
     }
-    let q = supabaseServer.from("returns").delete().in("id", validIds);
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).delete().in("id", validIds);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { error } = await q;
     if (error) {
@@ -1135,14 +1169,14 @@ export async function bulkDeleteReturns(
   }
 }
 
-/** Exact row count for returns (non-deleted) — use with `listReturns()` to detect truncation from `.limit()`. */
+/** Exact row count for return_items (non-deleted) — use with `listReturns()` to detect truncation from `.limit()`. */
 export async function countReturns(
   tenant?: TenantQueryOpts,
 ): Promise<{ ok: boolean; count: number; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
     let q = supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
@@ -1159,14 +1193,14 @@ export async function countReturns(
   }
 }
 
-/** Returns in the claim workflow (evidence gathering or ready to file). */
+/** Return items in the claim workflow (evidence gathering or ready to file). */
 export async function listClaimPipelineReturns(
   tenant?: TenantQueryOpts,
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns")
-      .select(RETURN_LIST_SELECT)
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE)
+      .select(RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT)
       .in("status", ["ready_for_claim", "pending_evidence"])
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
@@ -1185,7 +1219,7 @@ export async function listReturns(
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns").select(RETURN_LIST_SELECT)
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT)
       .is("deleted_at", null)
       .order("created_at", { ascending: false }).limit(200);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
@@ -1208,7 +1242,7 @@ export async function listReturnsByPallet(
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns").select(RETURN_LIST_SELECT)
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT)
       .eq("pallet_id", palletId).is("deleted_at", null).order("created_at", { ascending: false });
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
@@ -1246,14 +1280,14 @@ export async function getDashboardSnapshot(
   const iso = startUtc.toISOString();
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qReturnsToday = supabaseServer.from("returns").select("id", { count: "exact", head: true }).gte("created_at", iso).is("deleted_at", null);
+    let qReturnsToday = supabaseServer.from(RETURN_ITEMS_TABLE).select("id", { count: "exact", head: true }).gte("created_at", iso).is("deleted_at", null);
     let qPallets = supabaseServer.from("pallets").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qPackages = supabaseServer.from("packages").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qClaims = supabaseServer
       .from("claim_submissions")
       .select("id", { count: "exact", head: true })
       .eq("status", "ready_to_send");
-    let qEst = supabaseServer.from("returns").select("estimated_value").is("deleted_at", null).limit(10000);
+    let qEst = supabaseServer.from(RETURN_ITEMS_TABLE).select("estimated_value").is("deleted_at", null).limit(10000);
     if (scope.mode === "single") {
       qReturnsToday = qReturnsToday.eq("organization_id", scope.organizationId);
       qPallets = qPallets.eq("organization_id", scope.organizationId);
@@ -1312,7 +1346,7 @@ export async function getReturnsAnalyticsData(
 ): Promise<{ ok: boolean; data?: ReturnsAnalyticsPayload; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qRet = supabaseServer.from("returns").select("id,conditions,created_at,updated_at,package_id,created_by").limit(500);
+    let qRet = supabaseServer.from(RETURN_ITEMS_TABLE).select("id,conditions,created_at,updated_at,package_id,created_by").limit(500);
     let qPkg = supabaseServer.from("packages").select("id,carrier_name").limit(500);
     let qPlt = supabaseServer.from("pallets").select("id").limit(500);
     if (scope.mode === "single") {

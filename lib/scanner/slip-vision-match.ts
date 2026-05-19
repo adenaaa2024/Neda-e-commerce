@@ -41,8 +41,8 @@ function slipDescriptionMatchesRowSkuFnsku(descRaw: string | null | undefined, r
   const dAlpha = alphanumericLower(desc);
   const rSku = normCompact(String(row.sku ?? ""));
   const rFnsku = normCompact(String(row.fnsku ?? ""));
-  const rSkuAlpha = alphanumericLower(row.sku);
-  const rFnskuAlpha = alphanumericLower(row.fnsku);
+  const rSkuAlpha = alphanumericLower(String(row.sku ?? ""));
+  const rFnskuAlpha = alphanumericLower(String(row.fnsku ?? ""));
 
   const MIN_ID = 4;
 

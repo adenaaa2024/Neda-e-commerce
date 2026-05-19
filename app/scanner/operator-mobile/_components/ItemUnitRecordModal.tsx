@@ -76,12 +76,23 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     setLotNumber("");
     setEvidenceUrls([]);
     setLocalError(null);
-    const fid = window.requestAnimationFrame(() => {
-      queueMicrotask(() => {
-        barcodeInputRef.current?.focus({ preventScroll: true });
-      });
-    });
-    return () => window.cancelAnimationFrame(fid);
+    const focusBarcode = () => {
+      const el = barcodeInputRef.current;
+      if (!el) return;
+      el.focus({ preventScroll: true });
+      try {
+        el.select();
+      } catch {
+        /* read-only inputs may reject select */
+      }
+    };
+    focusBarcode();
+    const t0 = window.setTimeout(focusBarcode, 0);
+    const t1 = window.setTimeout(focusBarcode, 50);
+    return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+    };
   }, [open, initialBarcode]);
 
   const normalizedTags = useMemo(() => normalizeItemUnitDiscrepancySelection(selectedTags), [selectedTags]);
@@ -259,6 +270,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               style={{ borderColor: "rgba(45,212,191,0.45)", backgroundColor: "#090E1A" }}
               placeholder="Scan or type…"
               autoComplete="off"
+              autoFocus
               enterKeyHint="done"
             />
           </form>

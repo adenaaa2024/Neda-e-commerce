@@ -13,6 +13,8 @@ export type SlipVisionLine = {
 export type SlipVisionExtract = {
   vret_id: string | null;
   shipment_id: string | null;
+  carrier: string | null;
+  amazon_order_id: string | null;
   items: SlipVisionLine[];
 };
 
@@ -43,6 +45,15 @@ export function parseSlipVisionExtractFromContent(content: string): SlipVisionEx
 
   const vret_id = normStr(obj.vret_id ?? obj.VRET_ID ?? obj.vretId);
   const shipment_id = normStr(obj.shipment_id ?? obj.Shipment_ID ?? obj.shipmentId);
+  const carrier = normStr(obj.carrier ?? obj.Carrier ?? obj.carrier_name ?? obj.carrierName);
+  const amazon_order_id = normStr(
+    obj.amazon_order_id ??
+      obj.amazonOrderId ??
+      obj.amazon_order ??
+      obj.order_id ??
+      obj.orderId ??
+      obj.OrderID,
+  );
 
   const itemsRaw = obj.items ?? obj.line_items ?? obj.lines;
   const itemsIn = Array.isArray(itemsRaw) ? itemsRaw : [];
@@ -60,5 +71,5 @@ export function parseSlipVisionExtractFromContent(content: string): SlipVisionEx
     });
   }
 
-  return { vret_id, shipment_id, items };
+  return { vret_id, shipment_id, carrier, amazon_order_id, items };
 }

@@ -1,0 +1,22 @@
+{
+  "audit": "scanner-neda-02-schema-probe",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "mode": "read_only",
+  "linked_supabase_project_ref": "kxsvedvpjldygtdbylsy",
+  "probe_method": "PostgREST OpenAPI + limit=0 SELECT probes (service role, no writes)",
+  "migration_reference": "supabase/migrations/20260717120000_scanner_product_linkage_columns.sql",
+  "migration_fully_applied": false,
+  "partial_linkage_on_return_items_slip_contents": true,
+  "artifacts": [
+    "manifest.json",
+    "schema-inventory.md",
+    "resolver-linkage-fields.md",
+    "missing-scanner-linkage-fields.md",
+    "recommended-selects.md",
+    "validation-results.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "columns-live.json"
+  ]
+}

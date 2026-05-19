@@ -1,0 +1,21 @@
+html.dark .operator-mobile-app-shell {
+  color-scheme: dark;
+  /* Deep radial: charcoal mid-tone → near-black edge */
+  --op-app-bg: radial-gradient(
+    ellipse 130% 120% at 50% 38%,
+    #0f1115 0%,
+    #0a0b0d 52%,
+    #050505 100%
+  );
+  --scanner-bg: transparent;
+  --scanner-card: #18181b;
+  --scanner-card-inner: #27272a;
+  --scanner-border: #3f3f46;
+  --scanner-muted: #a1a1aa;
+  --scanner-text: #fafafa;
+  --scanner-header-gradient: linear-gradient(
+    180deg,
+    rgba(18, 20, 24, 0.94) 0%,
+    rgba(12, 13, 16, 0.78) 50%,
+    rgba(8, 9, 11, 0.4) 100%
+  );

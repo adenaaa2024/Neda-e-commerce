@@ -13,10 +13,12 @@ import {
   shouldAutoEnqueueAmazonClaimSubmission,
   storePlatformFromEmbed,
 } from "../returns/claim-queue-helpers";
+import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
 import {
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
+  CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY,
   CLAIM_SUBMISSIONS_TABLE,
-  CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED,
+  CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED,
 } from "./claim-submissions-constants";
 import {
   appendClaimHistoryTimelineEntry,
@@ -109,7 +111,7 @@ export async function generateDailyClaimReports(
 ): Promise<{ ok: boolean; generated: number; error?: string }> {
   try {
     const { data: readyRows, error: rErr } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(
         "id, organization_id, store_id, estimated_value, marketplace, conditions, order_id, package_id, expiration_date, batch_number, notes, stores(platform)",
       )
@@ -202,7 +204,7 @@ function resolveReturnSku(ret: Record<string, unknown> | null): string | null {
 }
 
 function returnRowFromSubmissionEmbed(sub: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = sub.returns;
+  const raw = sub[CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY];
   if (!raw) return null;
   const r = Array.isArray(raw) ? raw[0] : raw;
   return r as Record<string, unknown>;
@@ -215,18 +217,17 @@ export async function listClaimSubmissions(
     /** V16.4.23: Temporarily ignore org filter (RLS/testing) — queue shows all tenants' ready_to_send rows. */
     const { data: subs, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
       .eq("status", "ready_to_send")
       .order("created_at", { ascending: false })
       .limit(200);
 
     console.log("Fetched Claims:", subs, error);
     if (error) throw new Error(error.message);
-    const list = subs ?? [];
-
+    const list = (subs ?? []) as unknown as Record<string, unknown>[];
     const rows: ClaimSubmissionListRow[] = [];
     for (const raw of list) {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const path = r.report_url as string | null;
       const preview_url = await signedUrlForPath(path);
       const rid = r[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string;

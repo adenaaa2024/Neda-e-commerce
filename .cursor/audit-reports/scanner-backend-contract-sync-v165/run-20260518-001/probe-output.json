@@ -1,0 +1,20 @@
+{
+  "source": "scripts/scanner-neda-08-final-ui-signoff.ts",
+  "reused_for": "scanner-backend-contract-sync-v165",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "project_ref": "kxsvedvpjldygtdbylsy",
+  "pass": true,
+  "contract_verification": {
+    "return_items_linkage_select": true,
+    "slip_contents_display_select": "fallback attempt 4",
+    "package_items_absent": true,
+    "operator_mobile_no_package_items_refs": true,
+    "fixture_package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+    "slip_line_count": 2,
+    "return_item_count": 3,
+    "neda_06_smoke_row_found": true,
+    "slip_barcode_match": "single",
+    "resolved_product_id_null": true
+  }
+}

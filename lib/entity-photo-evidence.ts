@@ -1,9 +1,59 @@
 /**
  * `packages.photo_evidence` JSONB — canonical shape `{ urls: string[] }` plus structured keys.
- * Pallets use TEXT columns `manifest_photo_url`, `bol_photo_url`, `photo_url` only (no JSONB on `pallets`).
+ * `pallets.photo_evidence` may also store `{ label_urls?, pallet_urls?, bol_urls? }` for operator-mobile
+ * multi-slot uploads alongside legacy TEXT columns (first URL per category).
  */
 
+import { isPersistableStoredMediaReference } from "./media-reference";
+
 export type EntityPhotoEvidenceJson = { urls: string[] };
+
+/** Validates and dedupes public URLs, `/` paths, and storage-relative paths for operator pallet evidence writes. */
+export function sanitizePublicMediaUrlStrings(urls: unknown, max = 3): string[] {
+  if (!Array.isArray(urls)) return [];
+  const out: string[] = [];
+  for (const x of urls) {
+    if (typeof x !== "string") continue;
+    const s = x.trim();
+    if (!isPersistableStoredMediaReference(s)) continue;
+    if (out.includes(s)) continue;
+    out.push(s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** Read a string-array field from pallet `photo_evidence` JSON ({@link sanitizePublicMediaUrlStrings}). */
+export function extractEvidenceKeyUrls(raw: unknown, key: string, max = 3): string[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const v = (raw as Record<string, unknown>)[key];
+  return sanitizePublicMediaUrlStrings(v, max);
+}
+
+/**
+ * Updates operator shipment documentation keys on `pallets.photo_evidence` without dropping unrelated JSON fields.
+ */
+export function mergeOperatorPalletShipmentPhotoEvidence(
+  existing: unknown,
+  parts: { label_urls: string[]; pallet_urls: string[]; bol_urls: string[] },
+): Record<string, unknown> | null {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+
+  const setOrDelete = (key: "label_urls" | "pallet_urls" | "bol_urls", urls: string[]) => {
+    const clean = sanitizePublicMediaUrlStrings(urls, 3);
+    if (clean.length) base[key] = clean;
+    else delete base[key];
+  };
+
+  setOrDelete("label_urls", parts.label_urls);
+  setOrDelete("pallet_urls", parts.pallet_urls);
+  setOrDelete("bol_urls", parts.bol_urls);
+
+  return Object.keys(base).length > 0 ? base : null;
+}
 
 export function normalizeEntityPhotoEvidenceUrls(raw: unknown): string[] {
   if (!raw || typeof raw !== "object") return [];
@@ -84,7 +134,8 @@ export function buildStructuredPackagePhotoEvidence(parts: {
 }
 
 /**
- * Pallet gallery order for UI / claims: manifest scan, Bill of Lading, pallet overview — matches `pallets` TEXT columns.
+ * Pallet gallery order for UI / claims: manifest scan, Bill of Lading, pallet overview —
+ * legacy helper over `pallets` TEXT columns only (operator-mobile uses structured `photo_evidence` additionally).
  */
 export function palletPhotoEvidenceUrlsFromRow(p: {
   manifest_photo_url?: string | null;

@@ -93,6 +93,12 @@ export type RbacPermissions = {
    * @example perms.isAtLeast("admin") // true for admin, system_employee, super_admin
    */
   isAtLeast: (minRole: UserRole) => boolean;
+
+  /**
+   * Conceptual `can_delete_slip_items` — destructive edits to AI / slip line rows (operator scanner, returns, etc.).
+   * UI that removes persisted slip lines must check this even when the session is otherwise editable.
+   */
+  canDeleteSlipItems: boolean;
 };
 
 export function useRbacPermissions(): RbacPermissions {
@@ -161,6 +167,8 @@ export function useRbacPermissions(): RbacPermissions {
       isPlatformShellView,
 
       isAtLeast,
+
+      canDeleteSlipItems: isAtLeast("admin"),
     };
   }, [
     role,

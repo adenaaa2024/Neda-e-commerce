@@ -1,0 +1,41 @@
+{
+  "audit": "scanner-neda-08-final-ui-signoff",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "owner": "Neda",
+  "goal": "Final operator-mobile scanner UI signoff pack after return_items repair",
+  "prerequisite": "scanner-neda-06-small-write-smoke/run-20260518-001",
+  "linked_supabase_project_ref": "kxsvedvpjldygtdbylsy",
+  "fixture_package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+  "neda_06_smoke_row_id": "ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663",
+  "constraints": [
+    "read-only DB probes (no new writes in this run)",
+    "no package_items table usage",
+    "no product creation from OCR/title",
+    "no production prompts",
+    "no Amazon API",
+    "no AI/OpenAI"
+  ],
+  "e2e_result": "pass",
+  "script": "scripts/scanner-neda-08-final-ui-signoff.ts",
+  "build_routes": [
+    "/scanner/operator-mobile",
+    "/scanner/operator-mobile/scan"
+  ],
+  "artifacts": [
+    "manifest.json",
+    "validation-results.md",
+    "operator-mobile-route-signoff.md",
+    "identify-gate-signoff.md",
+    "slip-rows-display.md",
+    "matched-item-save-signoff.md",
+    "hydrate-reload-signoff.md",
+    "package-items-absent.md",
+    "product-linkage-contract.md",
+    "ui-layout-preservation.md",
+    "no-product-ocr-signoff.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "probe-output.json"
+  ]
+}

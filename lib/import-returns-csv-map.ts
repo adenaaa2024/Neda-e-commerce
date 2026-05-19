@@ -31,7 +31,7 @@ const REASON_ALIASES = ["reason", "return reason", "return-reason", "customer co
 const DISP_ALIASES = ["disposition", "detailed disposition", "condition", "item condition"];
 const TITLE_ALIASES = ["product name", "item name", "title", "product title", "asin"];
 
-/** Map Amazon disposition / condition text to `returns.conditions` (canonical claim codes where possible). */
+/** Map Amazon disposition / condition text to `return_items.conditions` (canonical claim codes where possible). */
 export function dispositionToConditions(raw: string): string[] {
   const t = raw.trim().toLowerCase();
   if (!t) return [];

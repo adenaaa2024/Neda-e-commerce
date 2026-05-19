@@ -135,6 +135,11 @@ export async function initializeOperatorSessionStores(
 
   const ids = new Set(stores.map((s) => s.id));
 
+  const persistedRaw = getOperatorSessionStoreIdForOrg(organizationId).trim();
+  if (persistedRaw && isUuidString(persistedRaw) && !ids.has(persistedRaw)) {
+    setOperatorSessionStoreIdForOrg(organizationId, "");
+  }
+
   let chosen: string | null = null;
   const persisted = getOperatorSessionStoreIdForOrg(organizationId).trim();
   if (persisted && isUuidString(persisted) && ids.has(persisted)) {
@@ -146,16 +151,10 @@ export async function initializeOperatorSessionStores(
     if (orgDefault && ids.has(orgDefault)) chosen = orgDefault;
   }
 
-  if (!chosen) {
-    const legacy = getDefaultStoreIdFromStorage().trim();
-    if (legacy && isUuidString(legacy) && ids.has(legacy)) chosen = legacy;
+  if (chosen) {
+    setOperatorSessionStoreIdForOrg(organizationId, chosen);
   }
 
-  if (!chosen) {
-    chosen = stores[0].id;
-  }
-
-  setOperatorSessionStoreIdForOrg(organizationId, chosen);
   return { stores, sessionStoreId: chosen };
 }
 

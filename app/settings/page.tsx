@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, BadgeCheck, BarChart3, Building2, CheckCircle2, CreditCard, Cpu, Crown,
@@ -57,14 +57,21 @@ import { isAdminRole, useUserRole } from "../../components/UserRoleContext";
 import { WorkspaceOrganizationPicker } from "../../components/WorkspaceOrganizationPicker";
 import { useRbacPermissions } from "../../hooks/useRbacPermissions";
 import { FALLBACK_ORGANIZATION_ID } from "../../lib/organization";
+import {
+  WORKSPACE_ORGANIZATION_CHANGED_EVENT,
+  WORKSPACE_SELECTED_ORGANIZATION_ID_KEY,
+  readWorkspaceSelectedOrganizationIdFromStorage,
+  resolveActiveTenantOrganizationId,
+} from "../../lib/workspace-organization-scope";
 import { isUuidString } from "../../lib/uuid";
 import { DatabaseTag } from "../../components/DatabaseTag";
 import type { AdapterProviderKey } from "../../lib/adapters";
 import {
-  listMarketplaces, listStores, insertStore, insertMarketplace,
+  listMarketplaces, listStores, listStoresForOrganization, insertStore, insertMarketplace,
   updateMarketplace, testConnection, deleteStore, updateStore,
   getMarketplaceCredentialsForEdit,
   testMarketplaceCredentials,
+  emergencyProbeStores,
   type RbacContext,
   type StorePublicRow,
 } from "./adapters/actions";
@@ -369,6 +376,7 @@ export default function SettingsPage() {
     homeOrganizationId,
     workspaceOrganizations,
     setWorkspaceOrganizationId,
+    sessionCanWorkspaceSwitch,
   } = useUserRole();
   const perms = useRbacPermissions();
   const canEditTenantBranding = perms.canEditTenantBranding;
@@ -401,23 +409,6 @@ export default function SettingsPage() {
     perms.canSeePlatformAdmin,
   ]);
 
-  const tenantCtx = useMemo(
-    () => ({ actorProfileId: actorUserId, organizationId }),
-    [actorUserId, organizationId],
-  );
-
-  const settingsRbac = useMemo((): RbacContext => {
-    const cid =
-      organizationId?.trim() && isUuidString(organizationId.trim())
-        ? organizationId.trim()
-        : FALLBACK_ORGANIZATION_ID;
-    return {
-      organization_id: cid,
-      /** Settings route is admin-only; adapter RBAC hierarchy uses admin/editor/viewer. */
-      user_role: "admin",
-    };
-  }, [organizationId]);
-
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [mounted,   setMounted]   = useState(false);
 
@@ -425,6 +416,23 @@ export default function SettingsPage() {
   const [defaultStoreId,  setDefaultStoreId]  = useState<string>("");
   const [storesList,      setStoresList]      = useState<StorePublicRow[]>([]);
   const [storesListLoading, setStoresListLoading] = useState(false);
+
+  const [workspaceOrgTick, setWorkspaceOrgTick] = useState(0);
+
+  const [storesForOperationalDefault, setStoresForOperationalDefault] = useState<StorePublicRow[]>([]);
+  const [operationalStoresListLoading, setOperationalStoresListLoading] = useState(false);
+  const [operationalStoresError, setOperationalStoresError] = useState<string | null>(null);
+  /** TEMPORARY emergency probe payload — remove with the on-page debug box. */
+  const [storesEmergencyProbe, setStoresEmergencyProbe] = useState<{
+    rows: Array<{ name: unknown; organization_id: unknown }> | null;
+    searchOid: string | null;
+    error: string | null;
+    serviceRoleKeyConfigured: boolean;
+    supabaseUrlConfigured: boolean;
+    profilesAccessible: boolean;
+    profilesError: string | null;
+  } | null>(null);
+  const lastPolledWorkspaceOrgIdRef = useRef<string | null>(null);
 
   // ── White-label / Tenant Customization (core_settings JSONB) ───────────────
   const [companyName,         setCompanyName]         = useState<string>("");
@@ -498,6 +506,62 @@ export default function SettingsPage() {
 
   const [toast, setToast] = useState<ToastState>(null);
 
+  const isSuperAdmin =
+    role === "super_admin" ||
+    (canonicalRoleKey ?? "").trim().toLowerCase() === "super_admin";
+
+  /**
+   * Active tenant for stores, default-store saves, branding hint, and adapter RBAC scope.
+   * Order: workspace switcher → profile → context fallback. If a super admin lands on the
+   * platform shell UUID, fall through to the profile org so data scope follows the actual tenant.
+   */
+  const effectiveOperationalOrgId = useMemo((): string | null => {
+    if (!mounted) return null;
+    const ls = readWorkspaceSelectedOrganizationIdFromStorage();
+    const resolved = resolveActiveTenantOrganizationId({
+      workspaceSwitcherOrganizationId: ls,
+      contextOrganizationId: organizationId,
+      profileOrganizationId: homeOrganizationId,
+    });
+    if (
+      isSuperAdmin
+      && (resolved ?? "").trim().toLowerCase() === FALLBACK_ORGANIZATION_ID.trim().toLowerCase()
+    ) {
+      const profileOid = (homeOrganizationId ?? "").trim();
+      if (profileOid && isUuidString(profileOid)) {
+        return profileOid.toLowerCase();
+      }
+    }
+    return resolved;
+  }, [
+    mounted,
+    workspaceOrgTick,
+    organizationId,
+    homeOrganizationId,
+    isSuperAdmin,
+  ]);
+
+  const tenantCtx = useMemo(
+    () => ({
+      actorProfileId: actorUserId,
+      organizationId: effectiveOperationalOrgId ?? organizationId ?? null,
+    }),
+    [actorUserId, organizationId, effectiveOperationalOrgId],
+  );
+
+  const settingsRbac = useMemo((): RbacContext => {
+    const scope =
+      effectiveOperationalOrgId?.trim() ||
+      organizationId?.trim() ||
+      "";
+    const cid = scope && isUuidString(scope) ? scope : FALLBACK_ORGANIZATION_ID;
+    return {
+      organization_id: cid,
+      /** Settings route is admin-only; adapter RBAC hierarchy uses admin/editor/viewer. */
+      user_role: "admin",
+    };
+  }, [effectiveOperationalOrgId, organizationId]);
+
   function closeAddConnectionModal() {
     setShowForm(false);
     setFormData(newBlankConfig());
@@ -562,10 +626,12 @@ export default function SettingsPage() {
     void getOrganizationDefaultStoreId(tenantCtx).then((serverId) => {
       if (cancelled) return;
       if (serverId) {
-        setDefaultStoreId(serverId);
-        setDefaultStoreIdInStorage(serverId);
+        const norm = serverId.trim().toLowerCase();
+        setDefaultStoreId(norm);
+        setDefaultStoreIdInStorage(norm);
       } else {
-        setDefaultStoreId(getDefaultStoreIdFromStorage());
+        const fromDisk = getDefaultStoreIdFromStorage().trim().toLowerCase();
+        setDefaultStoreId(fromDisk);
       }
     });
     return () => {
@@ -573,8 +639,9 @@ export default function SettingsPage() {
     };
   }, [mounted, tenantCtx]);
 
-  // ── Tenant company branding: resolve org server-side from profile + hint (home org when scope not yet set)
-  const brandingOrganizationHint = organizationId ?? homeOrganizationId;
+  // ── Tenant company branding: resolve org server-side from profile + active tenant hint
+  const brandingOrganizationHint =
+    effectiveOperationalOrgId ?? organizationId ?? homeOrganizationId;
   useEffect(() => {
     if (!mounted || profileLoading) return;
     if (!actorUserId?.trim()) {
@@ -706,7 +773,6 @@ export default function SettingsPage() {
           console.error("Store error:", res.ok === false ? res.error : "No data");
           return;
         }
-        console.log("Fetched stores:", res.data);
         setStoresList(res.data);
       })
       .catch((e) => {
@@ -715,6 +781,130 @@ export default function SettingsPage() {
       .finally(() => { if (!cancelled) setStoresListLoading(false); });
     return () => { cancelled = true; };
   }, [mounted, settingsRbac]);
+
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== WORKSPACE_SELECTED_ORGANIZATION_ID_KEY) return;
+      setWorkspaceOrgTick((t) => t + 1);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  useEffect(() => {
+    function onWorkspaceOrgChanged() {
+      setWorkspaceOrgTick((t) => t + 1);
+      window.setTimeout(() => {
+        setWorkspaceOrgTick((t) => t + 1);
+      }, 100);
+    }
+    window.addEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged);
+    return () => window.removeEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged);
+  }, []);
+
+  /** Same-tab workspace changes do not fire `storage`; poll localStorage to stay in sync with the header switcher. */
+  useEffect(() => {
+    if (!mounted || !sessionCanWorkspaceSwitch) return;
+
+    function poll() {
+      const raw = readWorkspaceSelectedOrganizationIdFromStorage();
+      const norm = raw && isUuidString(raw) ? raw.trim().toLowerCase() : "";
+      if (lastPolledWorkspaceOrgIdRef.current === null) {
+        lastPolledWorkspaceOrgIdRef.current = norm;
+        return;
+      }
+      if (norm !== lastPolledWorkspaceOrgIdRef.current) {
+        lastPolledWorkspaceOrgIdRef.current = norm;
+        setWorkspaceOrgTick((t) => t + 1);
+      }
+    }
+
+    poll();
+    const id = window.setInterval(poll, 500);
+    return () => clearInterval(id);
+  }, [mounted, sessionCanWorkspaceSwitch]);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    let cancelled = false;
+    void emergencyProbeStores(effectiveOperationalOrgId ?? null).then((probe) => {
+      if (cancelled) return;
+      console.log("--- EMERGENCY PROBE (client) ---");
+      console.log("Total stores in DB (first 5):", probe.rows);
+      console.log("Current ID we are searching for:", probe.searchOid);
+      console.log(
+        "Service Role Configured:",
+        probe.serviceRoleKeyConfigured ? "YES" : "NO",
+      );
+      console.log(
+        "Profiles accessible:",
+        probe.profilesAccessible ? "YES" : "NO",
+      );
+      setStoresEmergencyProbe({
+        rows: probe.ok ? probe.rows ?? [] : null,
+        searchOid: probe.searchOid ?? null,
+        error: probe.ok ? null : probe.error ?? "Probe failed",
+        serviceRoleKeyConfigured: probe.serviceRoleKeyConfigured,
+        supabaseUrlConfigured: probe.supabaseUrlConfigured,
+        profilesAccessible: probe.profilesAccessible,
+        profilesError: probe.profilesError ?? null,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, effectiveOperationalOrgId, workspaceOrgTick]);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    if (!effectiveOperationalOrgId) {
+      setStoresForOperationalDefault([]);
+      setOperationalStoresError(null);
+      setOperationalStoresListLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOperationalStoresListLoading(true);
+    setOperationalStoresError(null);
+
+    void listStoresForOrganization(effectiveOperationalOrgId).then((res) => {
+      if (cancelled) return;
+      if (!res.ok) {
+        setStoresForOperationalDefault([]);
+        setOperationalStoresError(res.error ?? "Failed to load stores.");
+        console.error("[settings] Default Store list:", res.error ?? "unknown error");
+        return;
+      }
+      setOperationalStoresError(null);
+      setStoresForOperationalDefault(res.data ?? []);
+    }).finally(() => {
+      if (!cancelled) setOperationalStoresListLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, effectiveOperationalOrgId, workspaceOrgTick]);
+
+  useEffect(() => {
+    if (!mounted || operationalStoresListLoading) return;
+    if (storesForOperationalDefault.length !== 1) return;
+    const only = storesForOperationalDefault[0];
+    if (defaultStoreId.trim().toLowerCase() !== only.id) setDefaultStoreId(only.id);
+  }, [mounted, operationalStoresListLoading, storesForOperationalDefault, defaultStoreId]);
+
+  useEffect(() => {
+    if (!mounted || operationalStoresListLoading) return;
+    const list = storesForOperationalDefault;
+    if (list.length <= 1) return;
+    const d = defaultStoreId.trim().toLowerCase();
+    if (d && !list.some((s) => s.id === d)) {
+      setDefaultStoreId("");
+    }
+  }, [mounted, operationalStoresListLoading, storesForOperationalDefault, defaultStoreId]);
 
   function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok });
@@ -728,12 +918,14 @@ export default function SettingsPage() {
   // ── General save ───────────────────────────────────────────────────────────
   async function handleSaveGeneral(e: React.FormEvent) {
     e.preventDefault();
-    const res = await saveOrganizationDefaultStoreId(defaultStoreId.trim() || null, tenantCtx);
+    const idToSave = defaultStoreId.trim().toLowerCase() || null;
+    const res = await saveOrganizationDefaultStoreId(idToSave, tenantCtx);
     if (!res.ok) {
       showToast(res.error ?? "Failed to save default store.", false);
       return;
     }
-    setDefaultStoreIdInStorage(defaultStoreId);
+    if (idToSave) setDefaultStoreId(idToSave);
+    setDefaultStoreIdInStorage(idToSave ?? "");
     void refreshBranding();
     showToast("General preferences saved.", true);
   }
@@ -748,7 +940,7 @@ export default function SettingsPage() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const oid = (organizationId ?? "").trim();
+      const oid = (effectiveOperationalOrgId ?? organizationId ?? "").trim();
       if (oid) fd.append("organization_id", oid);
       const res = await uploadOrganizationLogoAction(fd);
       if (!res.ok) throw new Error(res.error ?? "Logo upload failed.");
@@ -1628,24 +1820,59 @@ export default function SettingsPage() {
                       <code className="rounded bg-muted px-1 font-mono text-[11px]">B00</code>) are
                       auto-matched to your first active Amazon store.
                     </p>
-                    {storesListLoading ? (
+                    {operationalStoresListLoading ? (
                       <div className="flex items-center gap-2 py-3">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         <span className="text-xs text-muted-foreground">Loading stores…</span>
                       </div>
-                    ) : storesList.length === 0 ? (
+                    ) : operationalStoresError ? (
+                      <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-950 dark:border-rose-400/35 dark:bg-rose-950/40 dark:text-rose-100">
+                        {operationalStoresError}
+                      </div>
+                    ) : !effectiveOperationalOrgId ? (
                       <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-                        No stores found. Add a store in the{" "}
-                        <strong>Marketplaces &amp; Stores</strong> tab first.
+                        Select a workspace organization in the header to load stores for this tenant.
+                      </div>
+                    ) : storesForOperationalDefault.length === 0 ? (
+                      <select
+                        disabled
+                        className={SELECT_CLS}
+                        value=""
+                        aria-label="Default store — no stores for this tenant"
+                      >
+                        <option value="">No stores found for this tenant.</option>
+                      </select>
+                    ) : storesForOperationalDefault.length === 1 ? (
+                      <div className="space-y-2">
+                        <div
+                          className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-sm font-medium text-foreground"
+                          aria-readonly
+                        >
+                          {storesForOperationalDefault[0].name}{" "}
+                          <span className="font-normal text-muted-foreground">
+                            ({PLATFORM_LABELS[storesForOperationalDefault[0].platform] ??
+                              storesForOperationalDefault[0].platform}
+                            {!storesForOperationalDefault[0].is_active ? " · inactive" : ""})
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Only one store exists for this organization — it is used as the default automatically.
+                        </p>
                       </div>
                     ) : (
                       <select
-                        value={defaultStoreId}
-                        onChange={(e) => setDefaultStoreId(e.target.value)}
+                        value={(() => {
+                          const d = defaultStoreId.trim().toLowerCase();
+                          if (!d) return "";
+                          return storesForOperationalDefault.some((s) => s.id === d) ? d : "";
+                        })()}
+                        onChange={(e) =>
+                          setDefaultStoreId((e.target.value || "").trim().toLowerCase())
+                        }
                         className={SELECT_CLS}
                       >
                         <option value="">— No default (unknown) —</option>
-                        {storesList.map((s) => (
+                        {storesForOperationalDefault.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name}{" "}
                             ({PLATFORM_LABELS[s.platform] ?? s.platform}
@@ -1654,16 +1881,21 @@ export default function SettingsPage() {
                         ))}
                       </select>
                     )}
-                    {defaultStoreId && (
+                    {defaultStoreId &&
+                    storesForOperationalDefault.some(
+                      (s) => s.id === defaultStoreId.trim().toLowerCase(),
+                    ) ? (
                       <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                         <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                         Standalone scans will fall back to{" "}
                         <strong>
-                          {storesList.find((s) => s.id === defaultStoreId)?.name ?? defaultStoreId}
+                          {storesForOperationalDefault.find(
+                            (s) => s.id === defaultStoreId.trim().toLowerCase(),
+                          )?.name ?? defaultStoreId}
                         </strong>{" "}
                         when no package or prefix is detected.
                       </p>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
@@ -3598,6 +3830,43 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* TEMPORARY: Emergency probe of public.stores (first 5 rows) — remove after debugging. */}
+      <div className="mt-10 space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-[11px] dark:border-amber-400/35 dark:bg-amber-950/30">
+        <p className="font-mono text-amber-900 dark:text-amber-100">
+          EMERGENCY PROBE — searchOid:{" "}
+          <span className="break-all">{storesEmergencyProbe?.searchOid ?? "(null)"}</span>
+        </p>
+        {storesEmergencyProbe ? (
+          <ul className="space-y-0.5 font-mono text-amber-900 dark:text-amber-100">
+            <li>
+              Supabase URL configured:{" "}
+              <strong>{storesEmergencyProbe.supabaseUrlConfigured ? "YES" : "NO"}</strong>
+            </li>
+            <li>
+              Service Role Configured:{" "}
+              <strong>{storesEmergencyProbe.serviceRoleKeyConfigured ? "YES" : "NO"}</strong>
+            </li>
+            <li>
+              Profiles accessible:{" "}
+              <strong>{storesEmergencyProbe.profilesAccessible ? "YES" : "NO"}</strong>
+              {storesEmergencyProbe.profilesError ? (
+                <span className="ml-2 text-rose-700 dark:text-rose-300">
+                  ({storesEmergencyProbe.profilesError})
+                </span>
+              ) : null}
+            </li>
+          </ul>
+        ) : null}
+        {storesEmergencyProbe?.error ? (
+          <p className="font-mono text-rose-700 dark:text-rose-300">
+            stores error: {storesEmergencyProbe.error}
+          </p>
+        ) : null}
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-background/60 p-2 font-mono text-[11px] text-foreground">
+          {storesEmergencyProbe ? JSON.stringify(storesEmergencyProbe.rows, null, 2) : "(loading…)"}
+        </pre>
+      </div>
 
     </div>
   );

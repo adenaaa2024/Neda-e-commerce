@@ -3,7 +3,11 @@
 import { supabaseServer } from "../../lib/supabase-server";
 import { resolveOrganizationId } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
-import { CLAIM_SUBMISSIONS_TABLE, CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED } from "./claim-submissions-constants";
+import {
+  CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY,
+  CLAIM_SUBMISSIONS_TABLE,
+  CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED,
+} from "./claim-submissions-constants";
 
 export type ClaimReportHistoryStatusLabel =
   | "Generated"
@@ -26,7 +30,7 @@ export type ClaimReportHistoryRow = {
 };
 
 function returnFromSubmissionEmbed(sub: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = sub.returns;
+  const raw = sub[CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY];
   if (!raw) return null;
   return (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown>;
 }
@@ -95,7 +99,7 @@ export type ListClaimReportHistoryParams = {
 
 /**
  * Report archive: `claim_submissions` rows that have a stored PDF (`report_url` set).
- * Embedded `returns` for claim “case” type via `source_payload.claim_type` or return conditions.
+ * Embedded `return_items` for claim “case” type via `source_payload.claim_type` or return conditions.
  * Generator: `profiles.full_name` when `created_by` (submission or return) is a UUID; otherwise the text label.
  */
 export async function listClaimReportHistory(
@@ -108,7 +112,7 @@ export async function listClaimReportHistory(
   try {
     let q = supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
       .eq("organization_id", orgId)
       .not("report_url", "is", null)
       .neq("report_url", "")
@@ -122,7 +126,7 @@ export async function listClaimReportHistory(
 
     const { data: subs, error } = await q;
     if (error) throw new Error(error.message);
-    const list = (subs ?? []) as Record<string, unknown>[];
+    const list = (subs ?? []) as unknown as Record<string, unknown>[];
 
     const creatorCandidates: string[] = [];
     for (const sub of list) {

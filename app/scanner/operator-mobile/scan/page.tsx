@@ -87,7 +87,6 @@ import {
   type SlipItemResolveTier,
 } from "@/lib/scanner/operator-slip-item-resolve";
 import { mergeReturnPhotoEvidence } from "@/lib/return-photo-evidence";
-import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isPersistableStoredMediaReference,
@@ -1091,7 +1090,7 @@ function hasReceivableBoxForItems(
 }
 
 /**
- * Visual state for one slip line vs scanned units (from `package_items` aggregate by `slip_content_id`).
+ * Visual state for one slip line vs scanned units (from `return_items` aggregate by slip line id).
  * Pass `discrepancyMode` when the operator has opened finalize while totals mismatch (audit: under → red, over → amber).
  */
 function itemInspectionSlipLinePresentation(
@@ -1116,10 +1115,36 @@ function itemInspectionSlipLinePresentation(
 
   const neutral = {
     label: "Awaiting",
-    rowBg: "rgba(248,250,252,0.04)",
-    rowBorder: "rgba(148,163,184,0.22)",
+    rowBg: CARD_INNER,
+    rowBorder: BORDER,
     badge: neutralBadge,
     matchedRing: false,
+  };
+
+  /** Interactive scan feedback: pale in-progress tint (no red/amber until finalize discrepancy). */
+  const inProgressScan = {
+    label: "IN PROGRESS",
+    rowBg: "rgba(2, 44, 34, 0.2)",
+    rowBorder: "rgba(6, 95, 70, 0.45)",
+    badge: {
+      borderColor: "rgba(52, 211, 153, 0.38)",
+      backgroundColor: "rgba(2, 44, 34, 0.28)",
+      color: "#a7f3d0",
+    },
+    matchedRing: false,
+  };
+
+  /** Line fully received (or over-scanned during active scanning — over/under audit waits for finalize). */
+  const receivedScan = {
+    label: "RECEIVED",
+    rowBg: "rgba(6, 78, 59, 0.42)",
+    rowBorder: "#10b981",
+    badge: {
+      borderColor: "rgba(16, 185, 129, 0.92)",
+      backgroundColor: "rgba(6, 95, 70, 0.55)",
+      color: "#bbf7d0",
+    },
+    matchedRing: true,
   };
 
   if (discrepancyMode) {
@@ -1149,60 +1174,17 @@ function itemInspectionSlipLinePresentation(
         matchedRing: false,
       };
     }
-    if (exp > 0 && scn === exp) {
-      return {
-        label: "RECEIVED",
-        rowBg: "rgba(6,95,70,0.44)",
-        rowBorder: "rgba(16,185,129,0.88)",
-        badge: {
-          borderColor: "rgba(16,185,129,0.92)",
-          backgroundColor: "rgba(6,95,70,0.55)",
-          color: "#bbf7d0",
-        },
-        matchedRing: true,
-      };
+    if (exp > 0 && scn >= exp) {
+      return receivedScan;
     }
     return neutral;
   }
 
-  if (exp > 0 && scn === exp) {
-    return {
-      label: "RECEIVED",
-      rowBg: "rgba(6,95,70,0.42)",
-      rowBorder: "rgba(52,211,153,0.78)",
-      badge: {
-        borderColor: "rgba(52,211,153,0.82)",
-        backgroundColor: "rgba(6,95,70,0.52)",
-        color: "#bbf7d0",
-      },
-      matchedRing: true,
-    };
+  if (exp > 0 && scn >= exp) {
+    return receivedScan;
   }
   if (exp > 0 && scn > 0 && scn < exp) {
-    return {
-      label: "IN PROGRESS",
-      rowBg: "rgba(6,78,59,0.34)",
-      rowBorder: "rgba(6,95,70,0.42)",
-      badge: {
-        borderColor: "rgba(52,211,153,0.42)",
-        backgroundColor: "rgba(6,78,59,0.38)",
-        color: "#a7f3d0",
-      },
-      matchedRing: false,
-    };
-  }
-  if (exp > 0 && scn > exp) {
-    return {
-      label: "OVER",
-      rowBg: "rgba(69,26,3,0.22)",
-      rowBorder: "rgba(217,119,6,0.48)",
-      badge: {
-        borderColor: "rgba(251,191,36,0.55)",
-        backgroundColor: "rgba(120,53,15,0.32)",
-        color: "#fde68a",
-      },
-      matchedRing: false,
-    };
+    return inProgressScan;
   }
   if (exp <= 0 && scn > 0) {
     return {
@@ -1525,7 +1507,7 @@ function isIdentifyGateOcrAcceptable(confidence: number, cleaned: string): boole
 
 type InspectionCondition = "good" | "damaged" | "expired" | "open_box" | "missing_parts";
 
-/** Item-scan unit modal: slip-linked, EP-only, or unexpected `package_items` row. */
+/** Item-scan unit modal: slip-linked, EP-only, or unexpected unit. */
 type ItemUnitModalContext = {
   scannedBarcode: string;
   slip: SlipBarcodeMatchRow | null;
@@ -1534,7 +1516,7 @@ type ItemUnitModalContext = {
   title: string;
   subtitle: string | null;
   /**
-   * When set, used as `package_items.match_kind` (EP / unexpected).
+   * When set, used as persisted match kind (EP / unexpected).
    * When null, match kind is derived from slip + scanned barcode on save.
    */
   matchKindPreset: "fnsku" | "upc" | "unexpected" | null;
@@ -2775,7 +2757,7 @@ function OperatorMobileScanPageContent() {
   /** Shipment fully complete on the view — Yes/No before continuing or ending session. */
   const [completedShipmentModal, setCompletedShipmentModal] = useState<{ key: string; tracking: string } | null>(null);
   const [itemBarcodeMiss, setItemBarcodeMiss] = useState<string | null>(null);
-  /** Counts from `package_items` for the active item-scan package (slip_content_id keyed). */
+  /** Per-slip scanned unit counts for the active item-scan package. */
   const [packageItemScanState, setPackageItemScanState] = useState<{
     bySlipId: Record<string, number>;
     unexpectedUnits: number;
@@ -3495,7 +3477,7 @@ function OperatorMobileScanPageContent() {
     setPackageItemsHydrationNonce(0);
   }, [itemScanPackageId]);
 
-  /** Hydrate scanned counts from `package_items` (per `slip_content_id`); `return_items` has no slip-line FK for this UI. */
+  /** Hydrate scanned counts from `return_items`, matched to slip lines by barcode. */
   useEffect(() => {
     if (flowPhase !== "items" || !itemScanPackageId || !isUuidString(itemScanPackageId)) {
       setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
@@ -3556,7 +3538,7 @@ function OperatorMobileScanPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [flowPhase, itemScanPackageId, orgId]);
+  }, [flowPhase, itemScanPackageId, orgId, sessionStoreId]);
 
   useEffect(() => {
     const hasPallet = Boolean(activePallet?.id);
@@ -4479,24 +4461,6 @@ function OperatorMobileScanPageContent() {
         }
       }
 
-      if (!slipRowsMapped || slipRowsMapped.length === 0) {
-        const { data: slipRows, error: slipErr } = await supabase
-          .from("slip_contents")
-          .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, order_id, conflicting_order_id")
-          .eq("package_id", fetchingFor)
-          .order("sort_index", { ascending: true });
-        if (cancelled || hydrateBoxPackageIdRef.current !== fetchingFor) return;
-        if (!slipErr && Array.isArray(slipRows) && slipRows.length > 0) {
-          slipRowsMapped = slipRows.map((sr) => mapSlipContentRowToVisionLine(sr as Record<string, unknown>));
-          const firstRma = String((slipRows[0] as Record<string, unknown>).rma_number ?? "").trim();
-          if (firstRma) rma = firstRma;
-          slipConflictingHydrate = firstConflictingOrderIdFromSlipRows(
-            (slipRows ?? []) as OperatorSlipContentsListRow[],
-          );
-          slipOrderHydrate = firstSlipOrderIdFromSlipRows((slipRows ?? []) as OperatorSlipContentsListRow[]);
-        }
-      }
-
       if (cancelled || hydrateBoxPackageIdRef.current !== fetchingFor) return;
 
       if (slipRowsMapped && slipRowsMapped.length > 0) {
@@ -4717,28 +4681,6 @@ function OperatorMobileScanPageContent() {
               slipCodeFromContents = sc.length ? sc : null;
               slipConflictingScan = firstConflictingOrderIdFromSlipRows(slipRes.rows);
               slipOrderScan = firstSlipOrderIdFromSlipRows(slipRes.rows);
-            }
-          }
-          if (!slipRowsMapped || slipRowsMapped.length === 0) {
-            try {
-              const { data: slipRows, error: slipErr } = await supabase
-                .from("slip_contents")
-                .select("upc, fnsku, description, quantity, condition, rma_number, sort_index, order_id, conflicting_order_id")
-                .eq("package_id", pkgId)
-                .order("sort_index", { ascending: true });
-              if (!slipErr && Array.isArray(slipRows) && slipRows.length > 0) {
-                slipRowsMapped = slipRows.map((sr) =>
-                  mapSlipContentRowToVisionLine(sr as Record<string, unknown>),
-                );
-                const firstRma = String((slipRows[0] as Record<string, unknown>).rma_number ?? "").trim();
-                if (firstRma) rma = firstRma;
-                slipConflictingScan = firstConflictingOrderIdFromSlipRows(
-                  (slipRows ?? []) as OperatorSlipContentsListRow[],
-                );
-                slipOrderScan = firstSlipOrderIdFromSlipRows((slipRows ?? []) as OperatorSlipContentsListRow[]);
-              }
-            } catch {
-              /* slip_contents optional — never block intake */
             }
           }
           if (slipRowsMapped && slipRowsMapped.length > 0) {
@@ -5247,11 +5189,31 @@ function OperatorMobileScanPageContent() {
 
       const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
 
+      let slipContentId: string | null = ctx.slipContentId;
       let matchKind: "fnsku" | "upc" | "unexpected" =
         ctx.matchKindPreset != null ? ctx.matchKindPreset : "unexpected";
-      if (ctx.matchKindPreset == null && ctx.slip && ctx.slipContentId && isUuidString(ctx.slipContentId)) {
-        const outcome = resolveItemBarcodeAgainstSlipRows(trimmed, [ctx.slip]);
-        matchKind = outcome.kind === "single" ? outcome.tier : "upc";
+      if (ctx.matchKindPreset == null) {
+        const slipRowsForMatch: SlipBarcodeMatchRow[] = itemInspectionSlipLines
+          .filter((r) => Boolean(r.fnsku?.trim() || r.upc?.trim()))
+          .map((r) => ({
+            id: r.id,
+            upc: r.upc,
+            fnsku: r.fnsku,
+            description: r.description,
+            quantity: r.quantity,
+            sort_index: r.sort_index,
+          }));
+        const pool =
+          slipRowsForMatch.length > 0 ? slipRowsForMatch : ctx.slip != null ? [ctx.slip] : [];
+        if (pool.length > 0) {
+          const outcome = resolveItemBarcodeAgainstSlipRows(trimmed, pool);
+          if (outcome.kind === "single") {
+            const tier = outcome.tier;
+            matchKind = tier === "fnsku" ? "fnsku" : tier === "upc" ? "upc" : "unexpected";
+            const sid = String(outcome.slip.id ?? "").trim();
+            if (sid && isUuidString(sid)) slipContentId = sid;
+          }
+        }
       }
 
       if (!isSupabaseConfigured() || !pkgId) {
@@ -5287,7 +5249,7 @@ function OperatorMobileScanPageContent() {
           requestedOrganizationId: orgId,
           packageId: pkgId,
           storeId: sessionStoreId,
-          slipContentId: ctx.slipContentId,
+          slipContentId,
           scannedBarcode: trimmed,
           matchKind,
           quantity: 1,
@@ -5312,7 +5274,7 @@ function OperatorMobileScanPageContent() {
         setBusy(false);
       }
     },
-    [itemUnitModal, itemScanPackageId, orgId, sessionStoreId, scheduleFocusScanner],
+    [itemUnitModal, itemScanPackageId, orgId, sessionStoreId, itemInspectionSlipLines, scheduleFocusScanner],
   );
 
   const handleItemBarcodeScan = useCallback(
@@ -6215,16 +6177,7 @@ function OperatorMobileScanPageContent() {
         setCurrentPackageTrackingId(code.trim());
         setFlowPhase("package_scan");
       } else {
-        const { error } = await supabase.from(RETURN_ITEMS_TABLE).insert({
-          organization_id: orgId,
-          store_id: sessionStoreId,
-          status: "received",
-          marketplace: "Amazon",
-          sku: code,
-          item_name: `Unknown scan: ${code}`,
-          product_identifier: code,
-        });
-        if (error) throw new Error(error.message);
+        // v165: do not write return_items at identify gate — item saves use insertOperatorPackageItemAction on a box.
         setPhysicalBoxCount(null);
         setBoxScanTargetDenominator(null);
         setActivePallet(null);
@@ -7549,7 +7502,9 @@ function OperatorMobileScanPageContent() {
 
   return (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-visible text-[15px] font-medium leading-snug [&_button]:touch-manipulation [&_button]:transition-transform [&_button]:duration-150 [&_button]:ease-out [&_button]:active:scale-95"
+      className={`flex min-h-0 min-w-0 flex-1 flex-col text-[15px] font-medium leading-snug [&_button]:touch-manipulation [&_button]:transition-transform [&_button]:duration-150 [&_button]:ease-out [&_button]:active:scale-95 ${
+        itemsChromeStickyLayout ? "overflow-hidden" : "overflow-visible"
+      }`}
       style={{ backgroundColor: BG, color: TEXT_PRIMARY }}
     >
       <input
@@ -7604,9 +7559,21 @@ function OperatorMobileScanPageContent() {
         tabIndex={flowPhase === "items" && hasItemReceivableBox ? -1 : 0}
       />
 
+      <div
+        className={
+          itemsChromeStickyLayout
+            ? "sticky top-0 z-50 shrink-0 bg-background"
+            : "shrink-0"
+        }
+        style={
+          itemsChromeStickyLayout
+            ? { background: "var(--scanner-header-gradient)" }
+            : undefined
+        }
+      >
       <header
         ref={scanPageHeaderRef}
-        className="relative z-[110] shrink-0 border-b pt-0"
+        className={`relative shrink-0 border-b pt-0 ${itemsChromeStickyLayout ? "z-[1]" : "z-[110]"}`}
         style={{
           borderColor: BORDER,
           background: "var(--scanner-header-gradient)",
@@ -7962,6 +7929,137 @@ function OperatorMobileScanPageContent() {
           </div>
         ) : null}
       </header>
+
+      {itemsChromeStickyLayout ? (
+        <div className="shrink-0 space-y-2 px-3 pt-1 sm:px-4">
+          {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
+            <p
+              className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
+              style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
+            >
+              No active stores for this organization — add a store in Settings before receiving items.
+            </p>
+          ) : null}
+
+          {isSupabaseConfigured() && !operatorStoresLoading && operatorStores.length > 0 && !sessionStoreId ? (
+            <p
+              className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
+              style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
+            >
+              Select an active store above to save return items and update receiving data.
+            </p>
+          ) : null}
+
+          {itemScanPackageId && !isUuidString(itemScanPackageId) && isSupabaseConfigured() ? (
+            <p
+              className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
+              style={{ borderColor: "rgba(251,191,36,0.45)", backgroundColor: "rgba(69,26,3,0.35)", color: "#fde68a" }}
+            >
+              Demo mode — saves are not linked to a live box record until you intake one.
+            </p>
+          ) : null}
+
+          <div className="mb-1 grid w-full grid-cols-3 gap-2" aria-label="Item scan summary counts">
+            <div
+              className="rounded-xl border px-2 py-2 text-center sm:px-2.5 sm:py-2"
+              style={{
+                backgroundColor: "rgba(6,10,16,0.78)",
+                borderColor: BORDER,
+                boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.04)",
+              }}
+            >
+              <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
+                Total expected
+              </p>
+              <p
+                className="mt-1 text-[20px] font-black tabular-nums leading-none sm:text-[22px]"
+                style={{ color: TEXT_PRIMARY }}
+              >
+                {itemInspectionQtyBasisExpected}
+              </p>
+            </div>
+            <div
+              className="rounded-xl border px-2 py-2 text-center sm:px-2.5 sm:py-2"
+              style={{
+                backgroundColor: "rgba(6,10,16,0.78)",
+                borderColor: BORDER,
+                boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.04)",
+              }}
+            >
+              <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
+                Scanned
+              </p>
+              <p
+                className="mt-1 text-[20px] font-black tabular-nums leading-none sm:text-[22px]"
+                style={{ color: itemScanStatScannedValueColor }}
+              >
+                {itemInspectionQtyBasisScanned}
+              </p>
+            </div>
+            <div
+              className="rounded-xl border px-2 py-2 text-center sm:px-2.5 sm:py-2"
+              style={{
+                backgroundColor: "rgba(6,10,16,0.78)",
+                borderColor: BORDER,
+                boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.04)",
+              }}
+            >
+              <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: MUTED_LABEL }}>
+                Remaining
+              </p>
+              <p
+                className="mt-1 text-[20px] font-black tabular-nums leading-none sm:text-[22px]"
+                style={{ color: itemScanStatRemainingValueColor }}
+              >
+                {itemScanStatRemaining}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => openAddScanItemModal()}
+            className="mb-0 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl border-2 border-teal-300/70 px-4 py-3 text-[14px] font-black uppercase tracking-wide text-white shadow-[0_10px_36px_rgba(45,212,191,0.35)] ring-2 ring-teal-400/25 transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+            style={{
+              background: `linear-gradient(180deg, ${ACTION_BLUE} 0%, ${ACTION_BLUE_DEEP} 100%)`,
+            }}
+          >
+            <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
+            Add / Scan Item
+          </button>
+
+          {itemBarcodeMiss ? (
+            <p
+              className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
+              style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
+            >
+              {itemBarcodeMiss}
+            </p>
+          ) : null}
+
+          {itemReceiveError ? (
+            <p
+              className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold"
+              style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(69,10,10,0.35)", color: "#fecaca" }}
+            >
+              {itemReceiveError}
+            </p>
+          ) : null}
+
+          {itemOverscanWarning ? (
+            <p
+              className="mb-0 rounded-[20px] border px-3 py-2 text-[12px] font-semibold leading-snug"
+              style={{ borderColor: "rgba(248,113,113,0.55)", backgroundColor: "rgba(127,29,29,0.38)", color: "#fecaca" }}
+              role="alert"
+            >
+              {itemOverscanWarning}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      </div>
 
       <main
         ref={itemsChromeStickyLayout ? undefined : bindOperatorMainScrollEl}
@@ -10264,6 +10362,7 @@ function OperatorMobileScanPageContent() {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+              {!itemsChromeStickyLayout ? (
               <div className="shrink-0 space-y-2">
                 {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
               <p
@@ -10390,6 +10489,7 @@ function OperatorMobileScanPageContent() {
               </p>
             ) : null}
               </div>
+              ) : null}
 
             <section
               className={`mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border p-3 ${glassCard}`}
@@ -10431,10 +10531,12 @@ function OperatorMobileScanPageContent() {
                 ) : (
                   <>
                     {itemInspectionSlipCells.map((cell) => {
+                      const itemScanDiscrepancyUi =
+                        isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen;
                       const vis = itemInspectionSlipLinePresentation(
                         cell.expected,
                         cell.scanned,
-                        isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen,
+                        itemScanDiscrepancyUi,
                       );
                       const slip = cell.slip;
                       const desc =
@@ -10444,26 +10546,42 @@ function OperatorMobileScanPageContent() {
                       const upcLabel = slip.upc?.trim() ? slip.upc.trim() : "—";
                       const fnskuLabel = slip.fnsku?.trim() ? slip.fnsku.trim() : "—";
                       const matchedRing = vis.matchedRing ? " ring-2 ring-emerald-400/65" : "";
+                      const scanProgressClass = itemScanDiscrepancyUi
+                        ? ""
+                        : cell.scanned <= 0
+                          ? ""
+                          : cell.scanned < cell.expected
+                            ? " bg-emerald-950/20 border-emerald-800/45"
+                            : " border-emerald-500 bg-emerald-950/40";
                       return (
                         <div
                           key={cell.key}
-                          className={"rounded-xl border px-3 py-2 shadow-sm" + matchedRing}
-                          style={{
-                            backgroundColor: vis.rowBg,
-                            borderColor: vis.rowBorder,
-                            boxShadow: `inset 2px 0 0 0 ${vis.rowBorder}`,
-                          }}
+                          className={"rounded-xl border px-3 py-1.5 shadow-sm" + scanProgressClass + matchedRing}
+                          style={
+                            scanProgressClass
+                              ? {
+                                  boxShadow:
+                                    cell.scanned >= cell.expected
+                                      ? "inset 2px 0 0 0 #10b981"
+                                      : "inset 2px 0 0 0 rgba(6,95,70,0.45)",
+                                }
+                              : {
+                                  backgroundColor: vis.rowBg,
+                                  borderColor: vis.rowBorder,
+                                  boxShadow: `inset 2px 0 0 0 ${vis.rowBorder}`,
+                                }
+                          }
                         >
-                          <p className="line-clamp-2 text-sm font-medium leading-snug text-white">{desc}</p>
-                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                            <p className="min-w-0 flex-1 truncate font-mono text-[10px] leading-tight" style={{ color: MUTED_LABEL }}>
+                          <p className="line-clamp-2 text-sm font-medium leading-tight text-white">{desc}</p>
+                          <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+                            <p className="min-w-0 flex-1 truncate font-mono text-[10px] leading-none" style={{ color: MUTED_LABEL }}>
                               <span className="font-bold text-slate-500">UPC</span> {upcLabel}
                               <span className="mx-1 text-white/20">·</span>
                               <span className="font-bold text-slate-500">FNSKU</span> {fnskuLabel}
                             </p>
-                            <div className="flex shrink-0 items-center gap-2">
+                            <div className="flex shrink-0 items-center gap-1.5">
                               {slipCardStatusMark(vis)}
-                              <span className="font-mono text-[10px] font-bold tabular-nums text-white/90">
+                              <span className="whitespace-nowrap font-mono text-[10px] font-bold tabular-nums text-white/90">
                                 Qty <span className="text-white">{cell.scanned}</span>
                                 <span className="text-white/40">/</span>
                                 {cell.expected}
@@ -10471,7 +10589,7 @@ function OperatorMobileScanPageContent() {
                             </div>
                           </div>
                           {cell.draftExtra > 0 ? (
-                            <p className="mt-1 text-[9px] font-semibold text-amber-200/90">+{cell.draftExtra} staged (open draft)</p>
+                            <p className="mt-0.5 text-[9px] font-semibold text-amber-200/90">+{cell.draftExtra} staged (open draft)</p>
                           ) : null}
                         </div>
                       );
@@ -10486,21 +10604,21 @@ function OperatorMobileScanPageContent() {
                       return (
                         <div
                           key="unexpected-package-items"
-                          className={"rounded-xl border px-3 py-2 shadow-sm" + (vis.matchedRing ? " ring-2 ring-emerald-400/65" : "")}
+                          className={"rounded-xl border px-3 py-1.5 shadow-sm" + (vis.matchedRing ? " ring-2 ring-emerald-400/65" : "")}
                           style={{
                             backgroundColor: vis.rowBg,
                             borderColor: vis.rowBorder,
                             boxShadow: `inset 2px 0 0 0 ${vis.rowBorder}`,
                           }}
                         >
-                          <p className="line-clamp-2 text-sm font-medium leading-snug text-white">Not on packing slip</p>
-                          <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                            <p className="min-w-0 flex-1 truncate text-[10px] leading-tight" style={{ color: MUTED_LABEL }}>
+                          <p className="line-clamp-2 text-sm font-medium leading-tight text-white">Not on packing slip</p>
+                          <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+                            <p className="min-w-0 flex-1 truncate text-[10px] leading-none" style={{ color: MUTED_LABEL }}>
                               No slip line match · {u} unit{u === 1 ? "" : "s"}
                             </p>
-                            <div className="flex shrink-0 items-center gap-2">
+                            <div className="flex shrink-0 items-center gap-1.5">
                               {slipCardStatusMark(vis)}
-                              <span className="font-mono text-[10px] font-bold tabular-nums text-white/90">
+                              <span className="whitespace-nowrap font-mono text-[10px] font-bold tabular-nums text-white/90">
                                 Qty <span className="text-white">{u}</span>
                                 <span className="text-white/40">/</span>0
                               </span>

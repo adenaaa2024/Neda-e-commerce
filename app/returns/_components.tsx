@@ -20,7 +20,7 @@ import {
   createPackage, updatePackage, closePackage, deletePackage,
   getAmazonExpectedItems,
 } from "./actions";
-import { RETURN_SELECT } from "./returns-constants";
+import { RETURN_SELECT, RETURN_ITEMS_TABLE, RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT } from "./returns-constants";
 import type {
   ExpectedItem,
   OrgSettings,
@@ -59,6 +59,8 @@ import {
 import { listStores } from "../settings/adapters/actions";
 import { isUuidString, uuidFkInvalidMessage } from "../../lib/uuid";
 import { isAdminRole, type UserRole } from "../../components/UserRoleContext";
+import { scannerProductResolutionBadges } from "../../lib/scanner/product-resolution-badges";
+import { manualOverrideReturnItemProductResolution } from "../scanner/operator-mobile/item-actions";
 
 /** Seeded MVP org — use in client `stores` queries so RLS returns rows for local dev. */
 export const MVP_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001";
@@ -236,7 +238,8 @@ export const canDelete = (r: UserRole) => isAdminRole(r);
 export const MARKETPLACES = ["amazon", "walmart", "ebay"] as const;
 export type Marketplace = (typeof MARKETPLACES)[number];
 export const MP_LABELS: Record<Marketplace, string> = { amazon: "Amazon", walmart: "Walmart", ebay: "eBay" };
-export const CARRIERS = ["UPS", "FedEx", "USPS", "DHL", "OnTrac", "Amazon Logistics", "Other"];
+import { CARRIERS } from "../../lib/carriers";
+export { CARRIERS };
 
 // ─── Condition Tree ────────────────────────────────────────────────────────────
 
@@ -616,7 +619,7 @@ export type WizardState = {
   /** Extra gallery URLs in `photo_evidence.urls` (`media` bucket). */
   evidence_gallery_urls: string[];
   /**
-   * Package-context shots captured during the item wizard — stored only on `returns.photo_evidence`
+   * Package-context shots captured during the item wizard — stored only on `return_items.photo_evidence`
    * (never written to `packages`).
    */
   wizard_outer_box_url: string;
@@ -624,9 +627,9 @@ export type WizardState = {
   wizard_pkg_return_label_url: string;
   /** Connected store UUID — links this item to a specific store account. */
   store_id: string;
-  /** Optional seller RMA — persisted on `returns.rma_number`. */
+  /** Optional seller RMA — persisted on `return_items.rma_number`. */
   rma_number: string;
-  /** Optional Amazon order ID — stored on `returns.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
+  /** Optional Amazon order ID — stored on `return_items.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
   amazon_order_id: string;
   /** Product catalog lookup — when `unknown`, Step 1 allows Next without a resolved ASIN/UPC (manual item name). */
   catalog_resolution: "idle" | "loading" | "local" | "amazon" | "unknown";
@@ -697,12 +700,21 @@ export function StatusBadge({ status }: { status: string }) {
   const Icon = cfg.icon;
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}><Icon className="h-3 w-3" />{cfg.label}</span>;
 }
-export function PkgStatusBadge({ status }: { status: PackageStatus }) {
-  const cfg = PKG_STATUS_CFG[status];
+const STATUS_BADGE_FALLBACK_CLS =
+  "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400";
+
+export function PkgStatusBadge({ status }: { status: PackageStatus | string | null | undefined }) {
+  const raw = String(status ?? "").trim();
+  const cfg =
+    (raw ? PKG_STATUS_CFG[raw as PackageStatus] : undefined) ??
+    { label: raw || "—", cls: STATUS_BADGE_FALLBACK_CLS };
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
-export function PalletStatusBadge({ status }: { status: PalletStatus }) {
-  const cfg = PALLET_STATUS_CFG[status];
+export function PalletStatusBadge({ status }: { status: PalletStatus | string | null | undefined }) {
+  const raw = String(status ?? "").trim();
+  const cfg =
+    (raw ? PALLET_STATUS_CFG[raw as PalletStatus] : undefined) ??
+    { label: raw || "—", cls: STATUS_BADGE_FALLBACK_CLS };
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
 
@@ -775,7 +787,7 @@ export function SortButton({ field, label, sortField, sortAsc, onSort }: {
   );
 }
 
-/** Display label for `returns.marketplace` (Source column / filters). */
+/** Display label for `return_items.marketplace` (Source column / filters). */
 function resolveReturnMarketplaceIconUrl(
   r: ReturnRecord,
   platformIconBySlug: Record<string, string | null | undefined>,
@@ -806,7 +818,7 @@ function formatMarketplaceSource(marketplace: string): string {
   return marketplace?.trim() || "—";
 }
 
-/** Map connected store `platform` string to `returns.marketplace` enum. */
+/** Map connected store `platform` string to `return_items.marketplace` enum. */
 export function platformToMarketplace(platform: string): Marketplace {
   const p = platform.toLowerCase();
   if (p.includes("walmart")) return "walmart";
@@ -983,7 +995,7 @@ function sortKeyItem(
     case "hierarchy_key": {
       if (!linkedPkg) return "\uffff";
       const pltPart = linkedPlt?.pallet_number ?? "";
-      return `${linkedPkg.package_number}\0${pltPart}`.toLowerCase();
+      return `${linkedPkg.package_code}\0${pltPart}`.toLowerCase();
     }
     case "expiration_date": return r.expiration_date ? r.expiration_date : "\uffff";
     case "created_by": return operatorDisplayLabel(r, nameMap).toLowerCase();
@@ -995,7 +1007,7 @@ function sortKeyItem(
 
 function sortKeyPackage(p: PackageRecord, field: string, nameMap?: Record<string, string>): string | number {
   switch (field) {
-    case "package_number": return p.package_number.toLowerCase();
+    case "package_code": return p.package_code.toLowerCase();
     case "carrier_name": return (p.carrier_name ?? "").toLowerCase();
     case "tracking_number": return (p.tracking_number ?? "").toLowerCase();
     case "carrier_tracking": return `${p.carrier_name ?? ""}\0${p.tracking_number ?? ""}`.toLowerCase();
@@ -1268,7 +1280,7 @@ export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts
   }, [allReturns]);
   const pkgOpts  = openPkgs.map((p) => ({
     id: p.id,
-    label: p.package_number,
+    label: p.package_code,
     sublabel: `${assignedByPackage.get(p.id) ?? 0} items`,
     tracking: p.tracking_number ?? undefined,
     rma: p.rma_number ?? undefined,
@@ -1691,8 +1703,8 @@ function PackagesSubTable({ palletId, packages, returns: returnsForCount = [], o
             <tr key={p.id} onClick={() => onPackageClick(p)} className="group cursor-pointer transition hover:bg-violet-50/50 dark:hover:bg-violet-950/20">
               <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-1.5 font-mono font-bold text-foreground">
-                  <span>{p.package_number}</span>
-                  <InlineCopy value={p.package_number} label="Package #" onToast={showToast} stopPropagation />
+                  <span>{p.package_code}</span>
+                  <InlineCopy value={p.package_code} label="Package #" onToast={showToast} stopPropagation />
                 </div>
               </td>
               <td className="hidden px-3 py-2.5 text-muted-foreground sm:table-cell">{p.carrier_name ?? "—"}</td>
@@ -1761,6 +1773,12 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   const [itemEditFiles, setItemEditFiles] = useState<File[]>([]);
   const [itemPhotoUploading,   setItemPhotoUploading]   = useState(false);
   const [expiryPhotoUploading, setExpiryPhotoUploading] = useState(false);
+  const [scannerOverrideProducts, setScannerOverrideProducts] = useState<{ id: string; label: string }[]>([]);
+  const [scannerOverrideProductsLoading, setScannerOverrideProductsLoading] = useState(false);
+  const [scannerOverrideSelectId, setScannerOverrideSelectId] = useState("");
+  const [scannerOverrideUuid, setScannerOverrideUuid] = useState("");
+  const [scannerOverrideBusy, setScannerOverrideBusy] = useState(false);
+  const [scannerOverrideErr, setScannerOverrideErr] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1796,7 +1814,79 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     setItemEditFiles([]);
     setEditCatalogStatus("idle");
     setEditCatalogPreview(null);
-  }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
+  }, [
+    record.id,
+    record.lpn,
+    record.rma_number,
+    record.asin,
+    record.fnsku,
+    record.sku,
+    record.store_id,
+    record.package_id,
+    record.item_name,
+    record.notes,
+    record.order_id,
+    record.photo_evidence,
+    record.expiration_date,
+    record.product_review_required,
+    record.product_match_status,
+    record.identifier_resolution_status,
+    record.identifier_resolution_source,
+  ]);
+
+  const scannerProductNeedsAttention = Boolean(
+    record.product_review_required ||
+      String(record.product_match_status ?? "").trim().toLowerCase() === "mismatch" ||
+      ["unresolved", "ambiguous"].includes(String(record.identifier_resolution_status ?? "").trim().toLowerCase()) ||
+      String(record.identifier_resolution_source ?? "").trim().toLowerCase() === "manual_override",
+  );
+
+  useEffect(() => {
+    setScannerOverrideErr("");
+    setScannerOverrideSelectId("");
+    setScannerOverrideUuid("");
+    setScannerOverrideProducts([]);
+    if (!scannerProductNeedsAttention) return;
+    const org = record.organization_id?.trim();
+    const sid = record.store_id?.trim();
+    const sku = record.sku?.trim();
+    if (!org || !isUuidString(org) || !sid || !isUuidString(sid) || !sku) return;
+    let cancelled = false;
+    setScannerOverrideProductsLoading(true);
+    void (async () => {
+      const { data, error } = await supabaseBrowser
+        .from("products")
+        .select("id, sku, name")
+        .eq("organization_id", org)
+        .eq("store_id", sid)
+        .eq("sku", sku)
+        .limit(30);
+      if (cancelled) return;
+      setScannerOverrideProductsLoading(false);
+      if (error) {
+        console.warn("[ItemDrawerContent] scanner override product list:", error.message);
+        return;
+      }
+      const rows = (data ?? []) as { id?: string; sku?: string; name?: string }[];
+      setScannerOverrideProducts(
+        rows
+          .filter((r) => r.id && isUuidString(String(r.id)))
+          .map((r) => ({
+            id: String(r.id),
+            label: `${String(r.sku ?? "").trim() || "—"} · ${String(r.name ?? "").trim() || "Product"}`,
+          })),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    scannerProductNeedsAttention,
+    record.organization_id,
+    record.store_id,
+    record.sku,
+    record.id,
+  ]);
 
   async function handleEditBarcodeLookup(barcode: string) {
     if (!barcode.trim()) { setEditCatalogStatus("idle"); return; }
@@ -1933,6 +2023,41 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     else setErr(res.error ?? "Save failed.");
   }
 
+  async function handleScannerManualOverride() {
+    const pid = (scannerOverrideSelectId.trim() || scannerOverrideUuid.trim()).trim();
+    if (!isUuidString(pid)) {
+      setScannerOverrideErr("Choose a catalog product from the list or paste a valid product UUID.");
+      return;
+    }
+    setScannerOverrideBusy(true);
+    setScannerOverrideErr("");
+    try {
+      const res = await manualOverrideReturnItemProductResolution({
+        return_item_id: record.id,
+        resolved_product_id: pid,
+        actor_profile_id: actorProfileId ?? null,
+        actor,
+      });
+      if (!res.ok) {
+        setScannerOverrideErr(res.error ?? "Could not apply manual product link.");
+        return;
+      }
+      const { data, error } = await supabaseBrowser
+        .from(RETURN_ITEMS_TABLE)
+        .select(RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT)
+        .eq("id", record.id)
+        .maybeSingle();
+      if (!error && data && typeof data === "object") {
+        onUpdated({ ...record, ...(data as Record<string, unknown>) } as ReturnRecord);
+      }
+      onToast?.("Product link updated.", "success");
+      setScannerOverrideUuid("");
+      setScannerOverrideSelectId("");
+    } finally {
+      setScannerOverrideBusy(false);
+    }
+  }
+
   async function handleDelete() {
     setDeleting(true);
     try {
@@ -1955,9 +2080,112 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
         <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
           {record.stores?.name ? `${record.stores.name} (${record.stores.platform})` : formatMarketplaceSource(record.marketplace)}
         </span>
-        {linkedPkg    && <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-300"><Tag className="h-3 w-3" />{linkedPkg.package_number}</span>}
+        {linkedPkg    && <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-300"><Tag className="h-3 w-3" />{linkedPkg.package_code}</span>}
         {linkedPallet && <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><Boxes className="h-3 w-3" />{linkedPallet.pallet_number}</span>}
       </div>
+
+      {scannerProductNeedsAttention ? (
+        <div
+          className="rounded-xl border border-amber-200/90 bg-amber-50 px-3 py-3 text-sm dark:border-amber-700/55 dark:bg-amber-950/35"
+          role="region"
+          aria-label="Scanner product resolution"
+        >
+          <p className="text-xs font-bold uppercase tracking-wide text-amber-900/90 dark:text-amber-200/95">
+            Product linkage review
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {scannerProductResolutionBadges({
+              identifier_resolution_status: record.identifier_resolution_status,
+              product_match_status: record.product_match_status,
+              product_review_required: record.product_review_required,
+              identifier_resolution_source: record.identifier_resolution_source,
+            }).map((b) => (
+              <span
+                key={b.key}
+                className="rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide"
+                style={{
+                  borderColor: b.borderColor,
+                  backgroundColor: b.backgroundColor,
+                  color: b.color,
+                }}
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs leading-snug text-amber-950/90 dark:text-amber-100/90">
+            Link this receive line to the correct catalog product when automatic resolution is unresolved, ambiguous, mismatched,
+            or was overridden. Only existing catalog rows are allowed — nothing is merged or auto-created.
+          </p>
+          {scannerOverrideProductsLoading ? (
+            <p className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Loading catalog matches…
+            </p>
+          ) : scannerOverrideProducts.length > 0 ? (
+            <label className="mt-3 block text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Catalog match (same SKU)
+              <select
+                className={`${INPUT_SM} mt-1 w-full`}
+                value={scannerOverrideSelectId}
+                onChange={(e) => setScannerOverrideSelectId(e.target.value)}
+              >
+                <option value="">Select product…</option>
+                {scannerOverrideProducts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="mt-3 block text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Catalog product UUID
+              <input
+                type="text"
+                className={`${INPUT_SM} mt-1 w-full font-mono text-xs`}
+                placeholder="00000000-0000-…"
+                value={scannerOverrideUuid}
+                onChange={(e) => setScannerOverrideUuid(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+          )}
+          {scannerOverrideProducts.length > 0 ? (
+            <label className="mt-2 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+              Or paste product UUID
+              <input
+                type="text"
+                className={`${INPUT_SM} mt-1 w-full font-mono text-xs`}
+                placeholder="Override UUID if not in list"
+                value={scannerOverrideUuid}
+                onChange={(e) => setScannerOverrideUuid(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+          ) : null}
+          {scannerOverrideErr ? (
+            <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-300">{scannerOverrideErr}</p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={scannerOverrideBusy}
+              onClick={() => void handleScannerManualOverride()}
+              className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-400"
+            >
+              {scannerOverrideBusy ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Saving…
+                </>
+              ) : (
+                "Apply manual product link"
+              )}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {editing ? (
         <div className="space-y-4">
@@ -2073,7 +2301,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
               <select className={INPUT} value={editPackageId} onChange={(e) => setEditPackageId(e.target.value)}>
                 <option value="">— no package —</option>
                 {packages.filter((p) => p.status === "open").map((p) => (
-                  <option key={p.id} value={p.id}>{p.package_number}{p.carrier_name ? ` · ${p.carrier_name}` : ""}</option>
+                  <option key={p.id} value={p.id}>{p.package_code}{p.carrier_name ? ` · ${p.carrier_name}` : ""}</option>
                 ))}
               </select>
             </div>
@@ -2355,9 +2583,9 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   </div>
                   <div className="group flex min-w-0 items-center gap-2 rounded-xl border border-violet-200 bg-white/80 px-3 py-2 dark:border-violet-800/60 dark:bg-slate-900/50">
                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">Package #</span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-foreground">{linkedPkg?.package_number ?? "—"}</span>
-                    {linkedPkg?.package_number ? (
-                      <InlineCopy value={linkedPkg.package_number} label="Package #" onToast={onToast} />
+                    <span className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-foreground">{linkedPkg?.package_code ?? "—"}</span>
+                    {linkedPkg?.package_code ? (
+                      <InlineCopy value={linkedPkg.package_code} label="Package #" onToast={onToast} />
                     ) : null}
                   </div>
                 </div>
@@ -2609,7 +2837,7 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, actorPr
           <div className="w-full max-w-xs overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-2xl dark:border-amber-700/50 dark:bg-slate-950">
             <div className="bg-amber-50 p-5 dark:bg-amber-950/40">
               <div className="flex items-center gap-3 mb-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/60"><AlertTriangle className="h-5 w-5 text-amber-600" /></div><div><p className="text-sm font-bold text-foreground">Move Item?</p><p className="text-xs text-amber-600 dark:text-amber-400">This item belongs to another package</p></div></div>
-              <p className="text-xs text-slate-600 dark:text-slate-300">Moving <span className="font-semibold">{selected.item_name}</span> to <span className="font-mono font-bold">{pkg.package_number}</span>. It will be removed from its current package.</p>
+              <p className="text-xs text-slate-600 dark:text-slate-300">Moving <span className="font-semibold">{selected.item_name}</span> to <span className="font-mono font-bold">{pkg.package_code}</span>. It will be removed from its current package.</p>
             </div>
             <div className="flex gap-3 p-4">
               <button onClick={() => setConfirm(false)} className="flex h-10 flex-1 items-center justify-center rounded-2xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">Cancel</button>
@@ -2654,9 +2882,9 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   onOpenItem: (r: ReturnRecord) => void;
   /** Open pallet drawer from wizard (PLT link). */
   onOpenPallet?: (pallet: PalletRecord) => void;
-  /** After assigning an existing return to this package — sync parent `returns` / package counts (accordion + table). */
+  /** After assigning an existing return item to this package — sync parent `return_items` / package counts (accordion + table). */
   onReturnAssigned?: (updated: ReturnRecord, prevPackageId: string | null) => void;
-  /** When an item is deleted from this package — keep page `returns` / counts in sync (no full reload). */
+  /** When an item is deleted from this package — keep page `return_items` state / counts in sync (no full reload). */
   onReturnRemoved?: (id: string) => void;
   showToast: (msg: string, kind?: ToastKind) => void;
 }) {
@@ -2842,7 +3070,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     }
     let cancelled = false;
     void supabaseBrowser
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_SELECT)
       .eq("package_id", pkg.id)
       .order("created_at", { ascending: false })
@@ -2987,10 +3215,10 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
         {pct !== null && <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60 dark:bg-slate-900/50"><div className={`h-full rounded-full ${atCapacity ? "bg-emerald-500" : mismatch ? "bg-amber-500" : "bg-sky-500"}`} style={{ width: `${pct}%` }} /></div>}
       </div>
 
-      {pkg.status === "suspicious" && pkg.discrepancy_note && (
+      {pkg.status === "suspicious" && pkg.notes && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-700/50 dark:bg-amber-950/30">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div><p className="text-xs font-bold text-amber-700 dark:text-amber-300 mb-0.5">Discrepancy Note</p><p className="text-sm text-amber-700 dark:text-amber-400">{pkg.discrepancy_note}</p></div>
+          <div><p className="text-xs font-bold text-amber-700 dark:text-amber-300 mb-0.5">Notes</p><p className="text-sm text-amber-700 dark:text-amber-400">{pkg.notes}</p></div>
         </div>
       )}
 
@@ -3319,7 +3547,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
           actorProfileId={actorProfileId}
           onAssigned={(updated, prevPackageId) => {
             onReturnAssigned?.(updated, prevPackageId);
-            showToast(`✓ Item assigned to ${pkg.package_number}`);
+            showToast(`✓ Item assigned to ${pkg.package_code}`);
             setAssignOpen(false);
           }}
           onClose={() => setAssignOpen(false)}
@@ -3462,7 +3690,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             existingReturns={allReturns}
             onCreatePackage={() => {}}
             onCreatePallet={() => {}}
-            inheritedContext={{ packageId: pkg.id, packageLabel: pkg.package_number, palletId: pkg.pallet_id ?? undefined, palletLabel: openPallets.find((p) => p.id === pkg.pallet_id)?.pallet_number }}
+            inheritedContext={{ packageId: pkg.id, packageLabel: pkg.package_code, palletId: pkg.pallet_id ?? undefined, palletLabel: openPallets.find((p) => p.id === pkg.pallet_id)?.pallet_number }}
             onSoftPackageWarning={() => showToast("⚠ This item is not on the scanned packing slip.", "warning")}
             onToast={showToast}
             onNavigateToPackage={(id) => { if (id === pkg.id) setWizardOpen(false); }}
@@ -3840,7 +4068,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   }, [existingReturns]);
   const pkgOpts = openPackages.map((p) => ({
     id: p.id,
-    label: p.package_number,
+    label: p.package_code,
     sublabel: `${assignedByPackage.get(p.id) ?? 0}/${p.expected_item_count > 0 ? p.expected_item_count : "?"} items`,
     tracking: p.tracking_number ?? undefined,
     rma: p.rma_number ?? undefined,
@@ -3942,7 +4170,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.package_link_id, inherited?.packageId]);
 
-  // Keep `returns.marketplace` aligned with the selected Store (fixes Next disabled when only store is set).
+  // Keep `return_items.marketplace` aligned with the selected Store (fixes Next disabled when only store is set).
   useEffect(() => {
     if (!state.store_id || connectedStores.length === 0) return;
     const store = connectedStores.find((s) => s.id === state.store_id);
@@ -4189,10 +4417,10 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
               onClick={() => onNavigateToPackage(state.package_link_id)}
               className="font-mono font-bold text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-300"
             >
-              {openPackages.find((p) => p.id === state.package_link_id)?.package_number ?? state.package_link_id.slice(0, 8) + "…"}
+              {openPackages.find((p) => p.id === state.package_link_id)?.package_code ?? state.package_link_id.slice(0, 8) + "…"}
             </button>
           ) : (
-            <span className="font-mono font-bold">{openPackages.find((p) => p.id === state.package_link_id)?.package_number ?? "—"}</span>
+            <span className="font-mono font-bold">{openPackages.find((p) => p.id === state.package_link_id)?.package_code ?? "—"}</span>
           )}
         </div>
       )}
@@ -4702,7 +4930,7 @@ export function WizardStep2({
                 Package claim photos missing on file
               </p>
               <p className="mb-3 text-[11px] leading-snug text-amber-950/90 dark:text-amber-100/90">
-                The linked package does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">returns.photo_evidence</span>), not on the package row.
+                The linked package does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">return_items.photo_evidence</span>), not on the package row.
               </p>
               <div className="space-y-4">
                 {!hasPkgOpenedOnly && (
@@ -4866,7 +5094,7 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
       return {
         id: pkgKey,
         organization_id: "",
-        package_number: "",
+        package_code: "",
         tracking_number: null,
         carrier_name: null,
         expected_item_count: 0,
@@ -4874,7 +5102,7 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         pallet_id: fromDb.pallet_id ?? null,
         order_id: fromDb.order_id ?? null,
         status: "open",
-        discrepancy_note: null,
+        notes: null,
         photo_opened_url: fromDb.photo_opened_url ?? null,
         photo_return_label_url: fromDb.photo_return_label_url ?? null,
         photo_closed_url: fromDb.photo_closed_url ?? null,
@@ -5038,12 +5266,12 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
                       onClick={() => onNavigateToPackage(linkedPkg.id)}
                       className="font-mono underline decoration-sky-400/80 underline-offset-2 hover:text-sky-900 dark:hover:text-sky-100"
                     >
-                      {linkedPkg.package_number}
+                      {linkedPkg.package_code}
                     </button>
                   ) : (
-                    <span className="font-mono">{linkedPkg.package_number}</span>
+                    <span className="font-mono">{linkedPkg.package_code}</span>
                   )}
-                  <InlineCopy value={linkedPkg.package_number} label="Package #" onToast={onToast} />
+                  <InlineCopy value={linkedPkg.package_code} label="Package #" onToast={onToast} />
                 </span>
               )}
               {linkedPlt && (
@@ -5139,7 +5367,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   onToast?: (msg: string, kind?: ToastKind) => void;
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
-  /** Workspace org for `returns.organization_id` / claim_submissions (defaults to MVP seed). */
+  /** Workspace org for `return_items.organization_id` / claim_submissions (defaults to MVP seed). */
   organizationId?: string;
   actorProfileId?: string | null;
 }) {
@@ -5153,7 +5381,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
   const [flash, setFlash] = useState(false);
-  /** Fresh `order_id` / pallet link + legacy claim photo URLs from DB (no `packages.photo_evidence` read — item photos stay on `returns` only). */
+  /** Fresh `order_id` / pallet link + legacy claim photo URLs from DB (no `packages.photo_evidence` read — item photos stay on `return_items` only). */
   const [fetchedPkgMeta, setFetchedPkgMeta] = useState<{
     pallet_id?: string | null;
     order_id?: string | null;
@@ -5324,7 +5552,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
       return {
         id,
         organization_id: workspaceOrgId,
-        package_number: "",
+        package_code: "",
         tracking_number: null,
         carrier_name: null,
         expected_item_count: 0,
@@ -5332,7 +5560,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         pallet_id: meta.pallet_id ?? null,
         order_id: meta.order_id ?? null,
         status: "open",
-        discrepancy_note: null,
+        notes: null,
         photo_opened_url: meta.photo_opened_url ?? null,
         photo_return_label_url: meta.photo_return_label_url ?? null,
         photo_closed_url: meta.photo_closed_url ?? null,
@@ -5668,9 +5896,9 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
     tracking: p.tracking_number ?? undefined,
   }));
 
-  // ── Pallet → Package: inherit carrier_name and amazon_order_id ───────────
+  // ── Pallet → Package: inherit carrier_name and pallets.order_id ───────────
   // Priority: pallet.carrier_name  →  sibling package carrier  →  keep current value
-  // Priority: pallet.amazon_order_id  →  keep current value
+  // Priority: pallet.order_id  →  keep current value
   // CRITICAL: fields are NOT locked — operators may override freely.
   useEffect(() => {
     const pid = palletId?.trim();
@@ -5680,19 +5908,19 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
 
     // 1. Resolve from in-memory pallet list first (zero network cost)
     const localPallet = openPallets.find((p) => p.id === pid);
-    if (localPallet?.carrier_name)    setCarrier(localPallet.carrier_name);
-    if (localPallet?.amazon_order_id) setAmazonOrderId(localPallet.amazon_order_id);
+    if (localPallet?.carrier_name) setCarrier(localPallet.carrier_name);
+    if (localPallet?.order_id) setAmazonOrderId(localPallet.order_id);
 
     // 2. Always confirm from DB (covers pallets not yet in the local list)
     void supabaseBrowser
       .from("pallets")
-      .select("carrier_name, amazon_order_id")
+      .select("carrier_name, order_id")
       .eq("id", pid)
       .maybeSingle()
       .then(({ data: plt }) => {
         if (cancelled) return;
-        if (plt?.carrier_name)    setCarrier(plt.carrier_name as string);
-        if (plt?.amazon_order_id) setAmazonOrderId(plt.amazon_order_id as string);
+        if (plt?.carrier_name) setCarrier(plt.carrier_name as string);
+        if (plt?.order_id) setAmazonOrderId(plt.order_id as string);
 
         // 3. Fallback for carrier: if pallet has no carrier_name, check sibling packages
         if (!plt?.carrier_name) {
@@ -5907,7 +6135,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
       const res = await createPackage({
         organization_id: pkgOrgId,
         actor_profile_id: actorProfileId,
-        package_number: pkgNum.trim(),
+        package_code: pkgNum.trim(),
         tracking_number: tracking.trim() || undefined,
         carrier_name: carrier || undefined,
         rma_number: rmaNumber.trim() || undefined,
@@ -6305,6 +6533,10 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
   async function handleOcr(f: File) { setFile(f); setOcrLoad(true); const res = await mockPalletOcr(f); setOcrLoad(false); if (res.ok && res.data) { setOcrResult(res.data); setPalletNum(res.data.pallet_number); } else setError(res.error ?? "OCR failed."); }
   async function handleCreate() {
     if (!palletNum.trim()) return;
+    if (!palletCarrier.trim()) {
+      setError("Select a carrier.");
+      return;
+    }
     if (!palletStoreId.trim() || !isUuidString(palletStoreId.trim())) {
       setError("Select a valid Store from the dropdown.");
       return;
@@ -6323,8 +6555,8 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
         store_id: palletStoreId,
         notes,
         created_by: actor,
-        carrier_name:    palletCarrier.trim()         || null,
-        amazon_order_id: palletAmazonOrderId.trim()   || null,
+        carrier_name: palletCarrier.trim(),
+        order_id:     palletAmazonOrderId.trim() || null,
       });
       setSaving(false);
       if (res.ok && res.data) onCreated(res.data); else setError(res.error ?? "Failed.");
@@ -6464,7 +6696,13 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
             <button
               type="button"
               onClick={handleCreate}
-              disabled={saving || !palletNum.trim() || !palletStoreId.trim() || !isUuidString(palletStoreId.trim())}
+              disabled={
+                saving ||
+                !palletNum.trim() ||
+                !palletCarrier.trim() ||
+                !palletStoreId.trim() ||
+                !isUuidString(palletStoreId.trim())
+              }
               className={MODAL_FOOTER_SUBMIT}
             >
               {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
@@ -6534,7 +6772,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           formatMarketplaceSource(r.marketplace),
           r.inherited_tracking_number ?? "",
           r.asin ?? "", r.fnsku ?? "", r.sku ?? "",
-          pkg?.tracking_number ?? "", pkg?.package_number ?? "", pkg?.carrier_name ?? "", pkg?.rma_number ?? "",
+          pkg?.tracking_number ?? "", pkg?.package_code ?? "", pkg?.carrier_name ?? "", pkg?.rma_number ?? "",
           plt?.tracking_number ?? "", plt?.pallet_number ?? "",
         ].join(" ").toLowerCase();
         return blob.includes(q);
@@ -6715,7 +6953,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                     </td>
                     <td className="hidden px-4 py-3 lg:table-cell">
                       {linkedPkg
-                        ? <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 font-mono text-[10px] font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">📦 {linkedPkg.package_number}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
+                        ? <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 font-mono text-[10px] font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
                         : <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">⚠ Orphaned / Loose</span>}
                     </td>
                     <td className="hidden px-4 py-3 xl:table-cell text-xs text-slate-400">{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
@@ -6811,7 +7049,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     let d = [...packages];
     const q = (externalSearch.trim() || search).trim().toLowerCase();
     if (q) {
-      d = d.filter((p) => [p.id, p.package_number, p.tracking_number ?? "", p.carrier_name ?? ""].join(" ").toLowerCase().includes(q));
+      d = d.filter((p) => [p.id, p.package_code, p.tracking_number ?? "", p.carrier_name ?? ""].join(" ").toLowerCase().includes(q));
     }
     if (statusF)  d = d.filter((p) => p.status === statusF);
     if (carrierF) d = d.filter((p) => p.carrier_name === carrierF);
@@ -6896,7 +7134,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 {showCompanyColumn && (
                   <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
                 )}
-                <th className="px-4 py-3 text-left"><SortButton field="package_number" label="Package #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left"><SortButton field="package_code" label="Package #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="carrier_tracking" label="Carrier / Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="pkg_items_sort" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6932,8 +7170,8 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                       )}
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-foreground">
-                          <span>{p.package_number}</span>
-                          <InlineCopy value={p.package_number} label="Package #" onToast={onToast} stopPropagation />
+                          <span>{p.package_code}</span>
+                          <InlineCopy value={p.package_code} label="Package #" onToast={onToast} stopPropagation />
                         </div>
                       </td>
                       <td className="hidden px-4 py-3 md:table-cell">
@@ -7262,8 +7500,8 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                             </td>
                                             <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                                               <div className="flex items-center gap-1 font-mono font-semibold text-slate-700 dark:text-slate-300">
-                                                <span>{pk.package_number}</span>
-                                                <InlineCopy value={pk.package_number} label="Package #" onToast={onToast} stopPropagation />
+                                                <span>{pk.package_code}</span>
+                                                <InlineCopy value={pk.package_code} label="Package #" onToast={onToast} stopPropagation />
                                               </div>
                                             </td>
                                             <td className="px-3 py-2 text-slate-500">{pk.carrier_name ?? "—"}</td>

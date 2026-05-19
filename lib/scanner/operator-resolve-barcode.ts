@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchExpectedPackagesForTracking } from "./operator-tracking-expectations";
+import { findPalletByTrackingNormalized } from "./operator-pallet-tracking";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
 /**
  * Resolution order: **Tracking → Package → Slip → Pallet → Item**
- * - package_barcode → `packages.package_number`
+ * - package_barcode → `packages.package_code` (or `packages.id_slip_contents` for printed S… ids)
  * - slip (packing / RMA slip) → `packages.rma_number`
  * - pallet_barcode → `pallets.pallet_number`
  */
@@ -54,10 +55,10 @@ export function mockResolveOperatorBarcode(raw: string, only?: OperatorResolveKi
     return { kind: "tracking", row: { id: "demo-ep", tracking_number: code, order_id: "DEMO-ORDER", sku: "DEMO-SKU" } };
   }
   if (only === "package") {
-    return { kind: "package", row: { id: "demo-pkg", package_number: code, tracking_number: null, pallet_id: null } };
+    return { kind: "package", row: { id: "demo-pkg", package_code: code, tracking_number: null, pallet_id: null } };
   }
   if (only === "slip") {
-    return { kind: "slip", row: { id: "demo-slip-pkg", package_number: "PKG-DEMO", rma_number: code, pallet_id: null } };
+    return { kind: "slip", row: { id: "demo-slip-pkg", package_code: "PKG-DEMO", rma_number: code, pallet_id: null } };
   }
   if (only === "item") {
     return { kind: "item", row: { id: "demo-item", sku: code, product_name: "Demo product" }, matchedField: "sku" };
@@ -73,13 +74,13 @@ export function mockResolveOperatorBarcode(raw: string, only?: OperatorResolveKi
   if (u.startsWith("BOX") || u.startsWith("PKG")) {
     return {
       kind: "package",
-      row: { id: "demo-pkg", package_number: code, tracking_number: null, pallet_id: null },
+      row: { id: "demo-pkg", package_code: code, tracking_number: null, pallet_id: null },
     };
   }
   if (u.startsWith("SLIP") || u.startsWith("RMA")) {
     return {
       kind: "slip",
-      row: { id: "demo-slip-pkg", package_number: "PKG-SLIP-DEMO", rma_number: code, pallet_id: null },
+      row: { id: "demo-slip-pkg", package_code: "PKG-SLIP-DEMO", rma_number: code, pallet_id: null },
     };
   }
   if (u.startsWith("PLT")) {
@@ -97,12 +98,12 @@ export function mockResolveOperatorBarcode(raw: string, only?: OperatorResolveKi
 async function firstPackageByColumn(
   supabase: SupabaseClient,
   organizationId: string,
-  column: "package_number" | "tracking_number",
+  column: "package_code" | "id_slip_contents" | "tracking_number",
   code: string,
 ) {
   const { data, error } = await supabase
     .from("packages")
-    .select("id, organization_id, pallet_id, package_number, tracking_number, rma_number, expected_item_count, actual_item_count, status")
+    .select("id, organization_id, pallet_id, package_code, id_slip_contents, tracking_number, rma_number, expected_item_count, actual_item_count, status")
     .eq("organization_id", organizationId)
     .is("deleted_at", null)
     .ilike(column, code)
@@ -119,7 +120,7 @@ async function firstPackageByTrackingNormalized(supabase: SupabaseClient, organi
   for (let off = 0; off < 6000; off += PAGE) {
     const { data, error } = await supabase
       .from("packages")
-      .select("id, organization_id, pallet_id, package_number, tracking_number, rma_number, expected_item_count, actual_item_count, status")
+      .select("id, organization_id, pallet_id, package_code, id_slip_contents, tracking_number, rma_number, expected_item_count, actual_item_count, status")
       .eq("organization_id", organizationId)
       .is("deleted_at", null)
       .not("tracking_number", "is", null)
@@ -171,8 +172,10 @@ export async function resolveOperatorBarcode(
   };
 
   const runPackage = async (): Promise<OperatorResolveResult | null> => {
-    const byNum = await firstPackageByColumn(supabase, organizationId, "package_number", code);
-    if (byNum) return { kind: "package", row: byNum };
+    const byPkg = await firstPackageByColumn(supabase, organizationId, "package_code", code);
+    if (byPkg) return { kind: "package", row: byPkg };
+    const bySlip = await firstPackageByColumn(supabase, organizationId, "id_slip_contents", code);
+    if (bySlip) return { kind: "package", row: bySlip };
     const byTn = await firstPackageByColumn(supabase, organizationId, "tracking_number", code);
     if (byTn) return { kind: "package", row: byTn };
     const byTnNorm = await firstPackageByTrackingNormalized(supabase, organizationId, code);
@@ -184,7 +187,7 @@ export async function resolveOperatorBarcode(
   const runSlip = async (): Promise<OperatorResolveResult | null> => {
     const { data, error } = await supabase
       .from("packages")
-      .select("id, organization_id, pallet_id, package_number, tracking_number, rma_number, expected_item_count, actual_item_count, status")
+      .select("id, organization_id, pallet_id, package_code, id_slip_contents, tracking_number, rma_number, expected_item_count, actual_item_count, status")
       .eq("organization_id", organizationId)
       .is("deleted_at", null)
       .ilike("rma_number", code)
@@ -197,7 +200,9 @@ export async function resolveOperatorBarcode(
   const runPallet = async (): Promise<OperatorResolveResult | null> => {
     const { data, error } = await supabase
       .from("pallets")
-      .select("id, organization_id, pallet_number, status, item_count, tracking_number")
+      .select(
+        "id, organization_id, pallet_number, status, item_count, tracking_number, carrier_name, order_id",
+      )
       .eq("organization_id", organizationId)
       .is("deleted_at", null)
       .ilike("pallet_number", code)
@@ -205,6 +210,25 @@ export async function resolveOperatorBarcode(
     if (error) throw error;
     if (data?.length) return { kind: "pallet", row: data[0] as Record<string, unknown> };
     return null;
+  };
+
+  /** Receiving pallet already created for this carrier tracking (off-manifest or prior session). */
+  const runPalletByInboundTracking = async (): Promise<OperatorResolveResult | null> => {
+    const row = await findPalletByTrackingNormalized(supabase, organizationId, code);
+    if (!row) return null;
+    return {
+      kind: "pallet",
+      row: {
+        id: row.id,
+        organization_id: row.organization_id,
+        pallet_number: row.pallet_number,
+        status: row.status,
+        item_count: row.item_count,
+        tracking_number: row.tracking_number,
+        carrier_name: row.carrier_name,
+        order_id: row.order_id,
+      },
+    };
   };
 
   const runItem = async (): Promise<OperatorResolveResult | null> => {
@@ -232,14 +256,19 @@ export async function resolveOperatorBarcode(
     return null;
   };
 
-  if (only === "tracking") return (await runTracking()) ?? { kind: "unknown", code };
+  if (only === "tracking") {
+    return (await runTracking()) ?? (await runPalletByInboundTracking()) ?? { kind: "unknown", code };
+  }
   if (only === "package") return (await runPackage()) ?? { kind: "unknown", code };
   if (only === "slip") return (await runSlip()) ?? { kind: "unknown", code };
-  if (only === "pallet") return (await runPallet()) ?? { kind: "unknown", code };
+  if (only === "pallet") {
+    return (await runPalletByInboundTracking()) ?? (await runPallet()) ?? { kind: "unknown", code };
+  }
   if (only === "item") return (await runItem()) ?? { kind: "unknown", code };
 
   return (await runTracking())
     ?? (await runPackage())
+    ?? (await runPalletByInboundTracking())
     ?? (await runSlip())
     ?? (await runPallet())
     ?? (await runItem())

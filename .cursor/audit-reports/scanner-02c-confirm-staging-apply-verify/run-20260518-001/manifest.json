@@ -1,0 +1,28 @@
+{
+  "audit": "scanner-02c-confirm-staging-apply-verify",
+  "run_id": "run-20260518-001",
+  "completed_at": "2026-05-18",
+  "preflight_read": [
+    ".cursor/audit-reports/scanner-02b-apply-migration-dev-verify/run-20260515-003/",
+    ".cursor/audit-reports/next-scanner-02/run-20260515-002/"
+  ],
+  "migration_file": "supabase/migrations/20260717120000_scanner_product_linkage_columns.sql",
+  "environment_confirmed_dev_staging": false,
+  "operator_approval_present": false,
+  "migration_applied": false,
+  "migration_blocked_reason": "environment_not_confirmed_dev_staging",
+  "live_schema_verification": "skipped_blocked",
+  "tsc_pass": true,
+  "build_pass": true,
+  "outputs": [
+    "environment-confirmation.md",
+    "operator-approval.md",
+    "migration-application-report.md",
+    "schema-verification.md",
+    "scanner-readiness.md",
+    "validation-results.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "manifest.json"
+  ]
+}

@@ -1,6 +1,7 @@
 import type { MediaUploadFolder, StorageBucketName } from "../media-upload-types";
 import { uploadMediaFileAction } from "../media-upload-actions";
 import { resolveOrganizationId } from "../organization";
+import { isAlignedStorageRelativePath } from "../storage-helpers";
 
 export type UploadFolder = MediaUploadFolder;
 
@@ -40,6 +41,26 @@ export async function uploadToMedia(
   fd.append("folder", folder);
   fd.append("bucket", "media");
   fd.append("organization_id", organizationId ?? resolveOrganizationId());
+  const res = await uploadMediaFileAction(fd);
+  if (!res.ok) throw new Error(res.error);
+  return res.publicUrl;
+}
+
+/** Aligned operator paths: `{org_id}/{relativePathUnderOrg}/{unique}.ext` (see `lib/storage-helpers.ts`). */
+export async function uploadToMediaAligned(
+  file: File,
+  organizationId: string,
+  opts: { bucket: "media" | "manifests"; relativePathUnderOrg: string },
+): Promise<string> {
+  const rel = opts.relativePathUnderOrg.trim().replace(/^\/+|\/+$/g, "");
+  if (!isAlignedStorageRelativePath(rel)) {
+    throw new Error("Invalid aligned storage path.");
+  }
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("relative_path_under_org", rel);
+  fd.append("bucket", opts.bucket);
+  fd.append("organization_id", organizationId.trim());
   const res = await uploadMediaFileAction(fd);
   if (!res.ok) throw new Error(res.error);
   return res.publicUrl;

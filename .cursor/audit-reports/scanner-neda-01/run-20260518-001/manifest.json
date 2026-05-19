@@ -1,0 +1,12 @@
+{
+  "audit_id": "scanner-neda-01",
+  "run_id": "run-20260518-001",
+  "title": "Repair Neda scanner UI against current DB contract",
+  "started_at": "2026-05-18T00:00:00Z",
+  "scope": "operator-mobile scanner + shared scanner linkage reads/writes",
+  "constraints": [
+    "no 202607 migration apply",
+    "no production",
+    "no Amazon/API/AI"
+  ]
+}

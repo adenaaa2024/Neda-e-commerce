@@ -5,7 +5,8 @@ import type { ReturnInsertPayload } from "@/app/returns/returns-action-types";
 import { supabaseServer } from "@/lib/supabase-server";
 import { assertRowOrgAccess, resolveWriteOrganizationId } from "@/lib/server-tenant";
 import { isUuidString, uuidOrNull } from "@/lib/uuid";
-import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns/returns-constants";
+import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
 export type OperatorReceiveItemInput = {
   organization_id?: string;
@@ -141,7 +142,7 @@ export async function operatorReceiveItem(
     photo_evidence: payload.photo_evidence ?? null,
     organization_id: orgId,
     actor_profile_id: payload.actor_profile_id ?? null,
-    expected_item_id: epId,
+    expected_package_id: epId,
   };
 
   const insertedIds: string[] = [];
@@ -218,7 +219,7 @@ export async function manualOverrideReturnItemProductResolution(input: {
   try {
     const { data: row, error: loadErr } = await supabaseServer
       .from(RETURN_ITEMS_TABLE)
-      .select("id, organization_id, store_id, expected_product_id, resolved_product_id, identifier_resolution_meta")
+      .select(`id, organization_id, store_id, ${RETURN_SCANNER_LINKAGE_SELECT}`)
       .eq("id", rid)
       .maybeSingle();
     if (loadErr) return { ok: false, error: loadErr.message };
@@ -241,27 +242,7 @@ export async function manualOverrideReturnItemProductResolution(input: {
     if (pe) return { ok: false, error: pe.message };
     if (!prod) return { ok: false, error: "Product not found for this organization and store." };
 
-    const expPid = String(rec.expected_product_id ?? "").trim();
     const prevResolved = String(rec.resolved_product_id ?? "").trim();
-    let product_match_status: string | null = null;
-    let product_review_required = false;
-    if (expPid && isUuidString(expPid)) {
-      product_match_status = expPid === pid ? "match" : "mismatch";
-      product_review_required = expPid !== pid;
-    } else {
-      product_match_status = "unknown";
-      product_review_required = false;
-    }
-
-    const prevMeta = rec.identifier_resolution_meta;
-    const metaObj =
-      prevMeta && typeof prevMeta === "object" && !Array.isArray(prevMeta)
-        ? { ...(prevMeta as Record<string, unknown>) }
-        : {};
-    metaObj.manual_override = true;
-    metaObj.manual_override_at = new Date().toISOString();
-
-    const resolvedBy = uuidOrNull(input.actor_profile_id ?? null);
 
     const patch: Record<string, unknown> = {
       resolved_product_id: pid,
@@ -269,14 +250,14 @@ export async function manualOverrideReturnItemProductResolution(input: {
       identifier_resolution_status: "resolved",
       identifier_resolution_confidence: null,
       identifier_resolution_source: "manual_override",
-      identifier_resolution_meta: metaObj,
-      product_match_status,
-      product_review_required,
-      product_resolved_at: new Date().toISOString(),
     };
-    if (resolvedBy) patch.product_resolved_by = resolvedBy;
 
-    const { error: upErr } = await supabaseServer.from(RETURN_ITEMS_TABLE).update(patch).eq("id", rid);
+    const { error: upErr } = await updateRowWithScannerLinkagePatch(
+      supabaseServer,
+      RETURN_ITEMS_TABLE,
+      rid,
+      patch,
+    );
     if (upErr) return { ok: false, error: upErr.message };
 
     const actorLabel = (input.actor ?? "operator").trim() || "operator";

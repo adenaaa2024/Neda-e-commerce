@@ -1,5 +1,25 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import { normalizeTrackingKey } from "./tracking-normalize";
+
+function formatLoadErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "object" && err !== null && "message" in err) {
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === "string" && m.trim()) return m;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+/** Scanned-unit merge is best-effort; RLS or schema drift on `return_items`/`packages` must not blank expected lines. */
+function emptyScannedMapAfterWarn(scope: string, err: unknown): Map<string, number> {
+  console.warn(`[operator-tracking-expectations] ${scope} — scanned counts skipped:`, formatLoadErrorMessage(err));
+  return new Map();
+}
 
 /** One aggregated row per (SKU, FNSKU, Disposition) from `expected_packages`. */
 export type TrackingExpectedGroup = {
@@ -10,9 +30,13 @@ export type TrackingExpectedGroup = {
   disposition: string;
   productLabel: string;
   expectedQty: number;
+  /** Populated when `expected_packages` carries NEXT-SCANNER-02 resolution columns. */
+  identifier_resolution_status?: string | null;
+  product_match_status?: string | null;
+  product_review_required?: boolean;
 };
 
-/** Display row after merging scanned counts from `returns`. */
+/** Display row after merging scanned counts from `return_items`. */
 export type TrackingOperatorLine = TrackingExpectedGroup & {
   scannedQty: number;
   remainingQty: number;
@@ -37,7 +61,7 @@ function sfKey(sku: string, fnsku: string): string {
 }
 
 /** Strip LIKE wildcards from user/scanned input so ilike patterns stay safe. */
-function sanitizeTrackingForIlikePattern(raw: string): string {
+export function sanitizeTrackingForIlikePattern(raw: string): string {
   return raw.trim().replace(/%/g, "").replace(/_/g, "");
 }
 
@@ -57,12 +81,31 @@ function trackingRowMatchesScanned(
 /**
  * Fetch `expected_packages` for org + store + tracking (case-insensitive tracking match).
  */
+/** Live DB: `expected_packages.asin` is absent — do not select it (PostgREST 42703). */
 const EP_SELECT =
-  "sku, fnsku, asin, disposition, expected_scan_quantity, order_id, tracking_number";
+  "sku, fnsku, disposition, expected_scan_quantity, order_id, tracking_number";
+
+/**
+ * Lightweight EP list select including scanner linkage columns (for tracking/pallet snapshots).
+ * Use only after `20260717120000_scanner_product_linkage_columns.sql` is applied.
+ */
+export const EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT =
+  EP_SELECT +
+  ", identifier_resolution_status, product_match_status, product_review_required, " +
+  "expected_product_id, resolved_product_id, resolved_catalog_product_id";
 
 /** Full rows for operator item scan (includes PK + warehouse scan counters when present). */
 export const EP_DETAIL_SELECT =
-  "id, sku, fnsku, disposition, expected_scan_quantity, actual_scanned_count, order_id, tracking_number";
+  "id, sku, fnsku, disposition, expected_scan_quantity, actual_scanned_count, order_id, tracking_number, id_slip_contents";
+
+/**
+ * After `20260717120000_scanner_product_linkage_columns.sql`, use this select in detail fetches
+ * so scanner UI receives resolution columns on `expected_packages`.
+ */
+export const EP_DETAIL_WITH_SCANNER_PRODUCT_SELECT =
+  EP_DETAIL_SELECT +
+  ", identifier_resolution_status, product_match_status, product_review_required, " +
+  "expected_product_id, resolved_product_id, resolved_catalog_product_id";
 
 /**
  * Attach optional nested `products` from catalog lookup (expected_packages has no product_name).
@@ -131,12 +174,28 @@ function asSafeRowArray(data: unknown): Record<string, unknown>[] {
   return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
 }
 
-export async function fetchExpectedPackagesForTracking(
+function isMissingColumnError(err: unknown): boolean {
+  const msg = formatLoadErrorMessage(err).toLowerCase();
+  return (
+    msg.includes("42703") ||
+    (msg.includes("column") &&
+      (msg.includes("does not exist") || msg.includes("undefined column") || msg.includes("schema cache")))
+  );
+}
+
+/** When NEXT-SCANNER-02 migration is not applied, fall back to base EP selects. */
+function expectedPackageSelectFallback(selectColumns: string): string | null {
+  if (selectColumns === EP_DETAIL_WITH_SCANNER_PRODUCT_SELECT) return EP_DETAIL_SELECT;
+  if (selectColumns === EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT) return EP_SELECT;
+  return null;
+}
+
+async function fetchExpectedPackagesForTrackingWithSelect(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
   trackingNumber: string,
-  selectColumns: string = EP_SELECT,
+  selectColumns: string,
 ): Promise<Record<string, unknown>[]> {
   const scannedCode = String(trackingNumber ?? "").trim();
   if (!scannedCode) return [];
@@ -206,6 +265,38 @@ export async function fetchExpectedPackagesForTracking(
   return [];
 }
 
+export async function fetchExpectedPackagesForTracking(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string,
+  trackingNumber: string,
+  selectColumns: string = EP_SELECT,
+): Promise<Record<string, unknown>[]> {
+  try {
+    return await fetchExpectedPackagesForTrackingWithSelect(
+      supabase,
+      organizationId,
+      storeId,
+      trackingNumber,
+      selectColumns,
+    );
+  } catch (err) {
+    const fallback = expectedPackageSelectFallback(selectColumns);
+    if (!fallback || !isMissingColumnError(err)) throw err;
+    console.warn(
+      `[operator-tracking-expectations] expected_packages select missing columns; retrying with base select.`,
+      formatLoadErrorMessage(err),
+    );
+    return fetchExpectedPackagesForTrackingWithSelect(
+      supabase,
+      organizationId,
+      storeId,
+      trackingNumber,
+      fallback,
+    );
+  }
+}
+
 /** Distinct non-empty tracking numbers from packages on a pallet. */
 export async function fetchDistinctTrackingNumbersForPallet(
   supabase: SupabaseClient,
@@ -262,6 +353,62 @@ export async function fetchExpectedPackagesForTrackingNumbers(
 /**
  * Raw `expected_packages` rows (with `id`) for smart resolver + `actual_scanned_count` bumps.
  */
+/**
+ * Load full `expected_packages` detail rows by primary key for the active store.
+ * Used after `v_inventory_status` matches so the gate can reuse EP catalog enrichment.
+ */
+export async function fetchExpectedPackageDetailRowsByIds(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string,
+  ids: string[],
+): Promise<Record<string, unknown>[]> {
+  const uniq = [...new Set(ids.map((i) => String(i ?? "").trim()).filter(Boolean))];
+  if (!uniq.length) return [];
+
+  const merged: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  const CHUNK = 120;
+
+  let detailSelect = EP_DETAIL_SELECT;
+
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const chunk = uniq.slice(i, i + CHUNK);
+    let { data, error } = await supabase
+      .from("expected_packages")
+      .select(detailSelect)
+      .eq("organization_id", organizationId)
+      .eq("store_id", storeId)
+      .in("id", chunk);
+    if (error && isMissingColumnError(error)) {
+      const fallback = expectedPackageSelectFallback(detailSelect);
+      if (fallback) {
+        console.warn(
+          `[operator-tracking-expectations] expected_packages detail select missing columns; retrying with base select.`,
+          formatLoadErrorMessage(error),
+        );
+        detailSelect = fallback;
+        ({ data, error } = await supabase
+          .from("expected_packages")
+          .select(detailSelect)
+          .eq("organization_id", organizationId)
+          .eq("store_id", storeId)
+          .in("id", chunk));
+      }
+    }
+    if (error) throw error;
+    for (const r of asSafeRowArray(data)) {
+      const id = String((r as { id?: string }).id ?? "");
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        merged.push(r);
+      }
+    }
+  }
+
+  return enrichExpectedPackageDetailRowsWithCatalogLabels(supabase, organizationId, storeId, merged);
+}
+
 export async function fetchExpectedPackageDetailRowsForParent(
   supabase: SupabaseClient,
   organizationId: string,
@@ -316,6 +463,7 @@ export function mockExpectedPackageDetailRows(): Record<string, unknown>[] {
       actual_scanned_count: 4,
       order_id: "DEMO-ORDER",
       tracking_number: "PALLET-DEMO-TRK",
+      id_slip_contents: "DEMO-SLIP-001",
       products: { product_name: "Milk Chocolate Bar 6.35 oz" },
     },
     {
@@ -327,6 +475,7 @@ export function mockExpectedPackageDetailRows(): Record<string, unknown>[] {
       actual_scanned_count: 0,
       order_id: "DEMO-ORDER",
       tracking_number: "PALLET-DEMO-TRK",
+      id_slip_contents: "DEMO-SLIP-001",
       products: { product_name: "Milk Chocolate Bar 6.35 oz" },
     },
     {
@@ -338,13 +487,14 @@ export function mockExpectedPackageDetailRows(): Record<string, unknown>[] {
       actual_scanned_count: 0,
       order_id: "DEMO-ORDER",
       tracking_number: "PALLET-DEMO-TRK",
+      id_slip_contents: "DEMO-SLIP-001",
       products: { product_name: "Dark Chocolate 12 oz" },
     },
   ];
 }
 
-/** Returns counts grouped by sku+fnsku for all returns under packages on this pallet. */
-export async function fetchReturnsScannedBySkuFnskuForPallet(
+/** Scanned-unit counts grouped by sku+fnsku for all `return_items` under packages on this pallet. */
+export async function fetchReturnItemsScannedBySkuFnskuForPallet(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
@@ -371,7 +521,7 @@ export async function fetchReturnsScannedBySkuFnskuForPallet(
   if (!pkgIds.length) return counts;
 
   const { data: retRows, error: retErr } = await supabase
-    .from("returns")
+    .from(RETURN_ITEMS_TABLE)
     .select("sku, fnsku")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
@@ -411,9 +561,20 @@ export async function loadPalletExpectationSnapshot(
     };
   }
 
-  const raw = await fetchExpectedPackagesForTrackingNumbers(supabase, organizationId, storeId, trackings);
+  const raw = await fetchExpectedPackagesForTrackingNumbers(
+    supabase,
+    organizationId,
+    storeId,
+    trackings,
+    EP_SELECT,
+  );
   const groups = aggregateExpectedPackagesBySkuFnskuDisposition(raw);
-  const scannedMap = await fetchReturnsScannedBySkuFnskuForPallet(supabase, organizationId, storeId, palletId);
+  let scannedMap: Map<string, number>;
+  try {
+    scannedMap = await fetchReturnItemsScannedBySkuFnskuForPallet(supabase, organizationId, storeId, palletId);
+  } catch (e) {
+    scannedMap = emptyScannedMapAfterWarn("loadPalletExpectationSnapshot", e);
+  }
   const { lines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
   return {
     lines,
@@ -446,6 +607,23 @@ export function distinctTrackingNumbersFromExpectedPackageRows(rows: Record<stri
 /**
  * SUM `expected_scan_quantity` for each distinct SKU / FNSKU / Disposition group.
  */
+function worseIdentifierResolution(a: string | null | undefined, b: string | null | undefined): string | null {
+  const order = ["resolved", "unresolved", "ambiguous"];
+  const score = (s: string | null | undefined) => {
+    const i = order.indexOf(String(s ?? "").trim().toLowerCase());
+    return i < 0 ? -1 : i;
+  };
+  return score(b) > score(a) ? (b ?? null) : (a ?? null);
+}
+
+function mergeProductMatchStatus(a: string | null | undefined, b: string | null | undefined): string | null {
+  const x = String(a ?? "").trim().toLowerCase();
+  const y = String(b ?? "").trim().toLowerCase();
+  if (x === "mismatch" || y === "mismatch") return "mismatch";
+  if (x === "match" || y === "match") return "match";
+  return (a as string | null) ?? (b as string | null) ?? null;
+}
+
 export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<string, unknown>[]): TrackingExpectedGroup[] {
   const map = new Map<
     string,
@@ -456,6 +634,9 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
       disposition: string;
       expectedQty: number;
       orderHint: string;
+      identifier_resolution_status: string | null;
+      product_match_status: string | null;
+      product_review_required: boolean;
     }
   >();
 
@@ -465,12 +646,18 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
     const safeQty = Number.isFinite(qty) ? qty : 0;
     const orderId = String(raw.order_id ?? "").trim();
     const asin = String((raw as { asin?: string | null }).asin ?? "").trim();
+    const idRes = String((raw as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? "").trim();
+    const pm = String((raw as { product_match_status?: string | null }).product_match_status ?? "").trim();
+    const pr = Boolean((raw as { product_review_required?: boolean | null }).product_review_required);
 
     const prev = map.get(key);
     if (prev) {
       prev.expectedQty += safeQty;
       if (!prev.orderHint && orderId) prev.orderHint = orderId;
       if (!prev.asin && asin) prev.asin = asin;
+      prev.identifier_resolution_status = worseIdentifierResolution(prev.identifier_resolution_status, idRes || null);
+      prev.product_match_status = mergeProductMatchStatus(prev.product_match_status, pm || null);
+      prev.product_review_required = prev.product_review_required || pr;
     } else {
       map.set(key, {
         sku,
@@ -479,6 +666,9 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
         disposition,
         expectedQty: safeQty,
         orderHint: orderId,
+        identifier_resolution_status: idRes || null,
+        product_match_status: pm || null,
+        product_review_required: pr,
       });
     }
   }
@@ -494,6 +684,9 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
       disposition: v.disposition,
       productLabel,
       expectedQty: v.expectedQty,
+      identifier_resolution_status: v.identifier_resolution_status,
+      product_match_status: v.product_match_status,
+      product_review_required: v.product_review_required,
     });
   }
 
@@ -502,10 +695,10 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
 }
 
 /**
- * Count `returns` rows (units) tied to packages sharing this tracking, scoped org + store.
- * Grouped by SKU + FNSKU (`returns` has no disposition — attribution is done proportionally later).
+ * Count `return_items` rows (units) tied to packages sharing this tracking, scoped org + store.
+ * Grouped by SKU + FNSKU (`return_items` has no disposition — attribution is done proportionally later).
  */
-export async function fetchReturnsScannedBySkuFnskuForTracking(
+export async function fetchReturnItemsScannedBySkuFnskuForTracking(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
@@ -541,7 +734,7 @@ export async function fetchReturnsScannedBySkuFnskuForTracking(
   if (!pkgIds.length) return counts;
 
   const { data: retRows, error: retErr } = await supabase
-    .from("returns")
+    .from(RETURN_ITEMS_TABLE)
     .select("sku, fnsku")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
@@ -650,9 +843,20 @@ export async function loadTrackingExpectationSnapshot(
   rawRowCount: number;
   expectedTrackingNumbers: string[];
 }> {
-  const raw = await fetchExpectedPackagesForTracking(supabase, organizationId, storeId, trackingNumber);
+  const raw = await fetchExpectedPackagesForTracking(
+    supabase,
+    organizationId,
+    storeId,
+    trackingNumber,
+    EP_SELECT,
+  );
   const groups = aggregateExpectedPackagesBySkuFnskuDisposition(raw);
-  const scannedMap = await fetchReturnsScannedBySkuFnskuForTracking(supabase, organizationId, storeId, trackingNumber);
+  let scannedMap: Map<string, number>;
+  try {
+    scannedMap = await fetchReturnItemsScannedBySkuFnskuForTracking(supabase, organizationId, storeId, trackingNumber);
+  } catch (e) {
+    scannedMap = emptyScannedMapAfterWarn("loadTrackingExpectationSnapshot", e);
+  }
   const { lines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
   return {
     lines,

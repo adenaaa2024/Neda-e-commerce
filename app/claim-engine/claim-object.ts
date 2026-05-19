@@ -49,7 +49,7 @@ export class ClaimObject {
     };
   }
 
-  /** Requested claim amount (submission row or `returns.estimated_value` / catalog sync). */
+  /** Requested claim amount (submission row or `return_items.estimated_value` / catalog sync). */
   get requestedAmountUsd(): number {
     const snap = this.submissionSnapshot;
     if (snap && snap.claim_amount != null) {

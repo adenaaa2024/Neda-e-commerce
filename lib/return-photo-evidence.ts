@@ -1,5 +1,5 @@
 /**
- * `returns.photo_evidence` JSONB: SmartCamera category counts (numbers) plus optional URL slots.
+ * `return_items.photo_evidence` JSONB: SmartCamera category counts (numbers) plus optional URL slots.
  * URL keys are stored in the same object — not separate DB columns.
  */
 export const RETURN_PHOTO_EVIDENCE_URL_KEYS = ["item_url", "expiry_url", "return_label_url"] as const;

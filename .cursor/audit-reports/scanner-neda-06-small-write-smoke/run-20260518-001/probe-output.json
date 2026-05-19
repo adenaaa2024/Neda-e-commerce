@@ -1,0 +1,74 @@
+{
+  "audit": "scanner-neda-06-small-write-smoke",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "probe_method": "one return_items insert + hydrate verify (service role)",
+  "project_ref": "kxsvedvpjldygtdbylsy",
+  "approval": {
+    "ok": true,
+    "detail": "operator approval present"
+  },
+  "steps": [
+    {
+      "step": "package_items_absent",
+      "ok": true,
+      "detail": "package_items absent or blocked (expected)"
+    },
+    {
+      "step": "fixture_package",
+      "ok": true,
+      "detail": "package 9528d923-3d27-4aed-a773-095b5028743d"
+    },
+    {
+      "step": "slip_barcode_resolve",
+      "ok": true,
+      "detail": "single tier=fnsku barcode=X004N9OS4J"
+    },
+    {
+      "step": "return_items_insert",
+      "ok": true,
+      "detail": "ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663"
+    },
+    {
+      "step": "reload_hydrate",
+      "ok": true,
+      "detail": "found ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663 among 3 rows"
+    },
+    {
+      "step": "slip_line_match_by_barcode",
+      "ok": true,
+      "detail": "scanned=X004N9OS4J slip_content_id=f4010b57-3ea8-4c2c-b545-670d10b50e82 expected=f4010b57-3ea8-4c2c-b545-670d10b50e82"
+    },
+    {
+      "step": "no_product_from_ocr_title",
+      "ok": true,
+      "detail": "products 0→0 resolved_product_id=null"
+    },
+    {
+      "step": "rollback_delete_after_probe",
+      "ok": true,
+      "detail": "skipped (set SCANNER_NEDA_06_DELETE_AFTER=true to auto-delete)"
+    }
+  ],
+  "fixture": {
+    "package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+    "organization_id": "7397edff-7994-4731-8501-55d258d507d2",
+    "store_id": "9adfe198-7c6a-49a5-b0b4-d370a83de06f",
+    "tracking_number": "123",
+    "package_code": "1231",
+    "actual_item_count_before": null
+  },
+  "return_items_before": 2,
+  "inserted_return_item_id": "ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663",
+  "actual_item_count_after": null,
+  "return_items_after": 3,
+  "rollback": {
+    "soft_delete": "update return_items set deleted_at = now() where id = 'ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663';",
+    "hard_delete": "delete from return_items where id = 'ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663';",
+    "verify": "select id, package_id, fnsku, sku, deleted_at from return_items where id = 'ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663';",
+    "package_count_check": "select actual_item_count from packages where id = '9528d923-3d27-4aed-a773-095b5028743d';",
+    "note": "Prefer soft_delete if RLS/audit expects tombstones; re-check packages.actual_item_count after delete."
+  },
+  "no_package_items": true,
+  "pass": true
+}

@@ -1,0 +1,19 @@
+{
+  "run_id": "run-20260515-004",
+  "prompt": "NEXT-SCANNER-03",
+  "references": {
+    "next_scanner_02": ".cursor/audit-reports/next-scanner-02/run-20260515-002/",
+    "scanner_02b": ".cursor/audit-reports/scanner-02b-apply-migration-dev-verify/run-20260515-003/"
+  },
+  "code": {
+    "ep_tracking_select": "lib/scanner/operator-tracking-expectations.ts#EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT",
+    "ep_detail_extended_fetch": "lib/scanner/operator-tracking-expectations.ts#fetchExpectedPackageDetailRowsByIds|fetchExpectedPackageDetailRowsForParent",
+    "return_list_extended": "app/returns/actions.ts (listReturns, listReturnsByPackage, listReturnsByPallet, listClaimPipelineReturns)",
+    "badges_manual": "lib/scanner/product-resolution-badges.ts",
+    "hook": "hooks/use-scanner-product-resolution.ts",
+    "identify_gate_ui": "app/scanner/operator-mobile/scan/page.tsx",
+    "item_drawer_review": "app/returns/_components.tsx#ItemDrawerContent",
+    "manual_override_action": "app/scanner/operator-mobile/item-actions.ts#manualOverrideReturnItemProductResolution",
+    "sanity_script": "scripts/scanner-resolution-check.ts"
+  }
+}
