@@ -114,11 +114,13 @@ async function main(): Promise<void> {
     "attachments",
     "operator_review",
     "filing_gate",
-  ];
+  ] as const;
 
   const checks = {
     matrix_row_count: validation.matrix.length,
-    all_categories_present: requiredCategories.every((c) => categories.has(c)),
+    all_categories_present: requiredCategories.every((c) =>
+      (categories as Set<string>).has(c),
+    ),
     blocker_inventory_is_array: Array.isArray(validation.blocker_inventory),
     baseline_not_future_ready: validation.ready_for_future_submission_layer === false,
     persisted_51_in_packet:
