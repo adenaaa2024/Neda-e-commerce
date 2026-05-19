@@ -7,6 +7,11 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire, type Module } from "node:module";
 
+import {
+  getStagingProjectRef,
+  supabaseUrlMatchesStagingRef,
+} from "../lib/staging-project-ref";
+
 const require = createRequire(import.meta.url);
 require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
@@ -15,7 +20,6 @@ const APPROVAL_PATH = join(
   ".cursor/operator-approvals/finances-api-archive-06b-staging-benchmark-approval.md",
 );
 const ENV_LOCAL = join(process.cwd(), ".env.local");
-const STAGING_REF = "kxsvedvpjldygtdbylsy";
 const DEFAULT_SOURCE_RUN = "c1b2bd98-ab84-4dc7-a820-c5b8103313ed";
 const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 const PRIOR_FULL_INGEST_WALL_MS = 29 * 60 * 1000;
@@ -65,9 +69,10 @@ async function main(): Promise<void> {
     console.error("BLOCKED: approval flag not true.");
     process.exit(1);
   }
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  if (!url.includes(STAGING_REF)) {
-    console.error("BLOCKED: staging Supabase URL missing or wrong project.");
+  if (!supabaseUrlMatchesStagingRef(url, stagingRef)) {
+    console.error(`BLOCKED: staging Supabase URL missing or not ${stagingRef}.`);
     process.exit(1);
   }
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
@@ -97,7 +102,7 @@ async function main(): Promise<void> {
   const result = await benchmarkArchiveFlattenReplay(org, sourceRunId);
 
   const validation = {
-    staging_only: url.includes(STAGING_REF),
+    staging_only: supabaseUrlMatchesStagingRef(url, stagingRef),
     no_live_amazon_http: result.live_amazon === false,
     frr_unchanged: result.frr_before === result.frr_after,
     idempotent_event_count:

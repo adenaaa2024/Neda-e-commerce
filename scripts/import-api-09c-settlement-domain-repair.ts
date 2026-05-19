@@ -7,11 +7,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire, type Module } from "node:module";
 
+import {
+  getStagingProjectRef,
+  supabaseUrlMatchesStagingRef,
+} from "../lib/staging-project-ref";
+
 const require = createRequire(import.meta.url);
 require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
 const ENV_LOCAL = join(process.cwd(), ".env.local");
-const STAGING_REF = "kxsvedvpjldygtdbylsy";
 const DEFAULT_UPLOAD = "199be41a-20ab-4823-91b6-fc4335794235";
 const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
@@ -42,9 +46,10 @@ function runId(): string {
 
 async function main(): Promise<void> {
   loadEnvFile(ENV_LOCAL);
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  if (!url.includes(STAGING_REF)) {
-    console.error("BLOCKED: staging Supabase URL required.");
+  if (!supabaseUrlMatchesStagingRef(url, stagingRef)) {
+    console.error(`BLOCKED: staging Supabase URL required (${stagingRef}).`);
     process.exit(1);
   }
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {

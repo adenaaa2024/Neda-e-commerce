@@ -8,12 +8,14 @@
 
 | Environment | Project ref | Status |
 |-------------|-------------|--------|
-| `CURRENT_SINGLE_SUPABASE_PROJECT` (sole live DB) | `kxsvedvpjldygtdbylsy` | **Only project** — not separate staging/production |
-| **Production** | **NOT_CREATED_YET** | **BLOCKED** — must differ from `kxsvedvpjldygtdbylsy` |
+| `ORIGINAL_PROJECT_REF` (live app DB) | `kxsvedvpjldygtdbylsy` | App + clone **source** |
+| `STAGING_PROJECT_REF` (clone) | `eiqfaapyumhixxoeltgu` | ENV-04R clone PASS; **local app default** after ENV-05E |
+| **Production** | **NOT_CREATED_YET** | **BLOCKED** — must differ from both refs above |
 
-Current project: `kxsvedvpjldygtdbylsy`  
+Current project (local app): `eiqfaapyumhixxoeltgu`  
+Original / rollback: `kxsvedvpjldygtdbylsy`  
 Separate production project exists: **false**  
-Separate staging project exists: **false**
+Separate staging project exists: **true** (`eiqfaapyumhixxoeltgu` per [staging-registration-01-approval.md](staging-registration-01-approval.md))
 
 Do not run production probe.  
 Do not run production migrations.

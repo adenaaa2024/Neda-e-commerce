@@ -1,15 +1,18 @@
 # Finances API Archive — Production Rollout Approval (template)
 
-**Do not enable flags or run ingest until all checklist items in ARCHIVE-07 signoff are PASS.**
+**Do not enable flags or run ingest until a distinct production project exists and all ARCHIVE-07 signoff items are PASS.**
 
 ## Environment (fill before production work)
 
-| Field | Value |
-|-------|-------|
-| Supabase project ref/name | `<FILL_PRODUCTION_PROJECT_REF>` |
-| Environment | **production** (must differ from dev/staging `kxsvedvpjldygtdbylsy`) |
-| Approved by | |
-| Approved at UTC | |
+```
+PRODUCTION_PROJECT_REF=NOT_CREATED_YET
+Environment: production (BLOCKED)
+Supabase project ref/name: NOT_CREATED_YET
+Approved by: (pending)
+Approved at UTC: (pending)
+```
+
+**Do not** point this approval at `eiqfaapyumhixxoeltgu` (staging clone) or `kxsvedvpjldygtdbylsy` (original).
 
 ## Approval flags (exact lines)
 
@@ -19,7 +22,7 @@ APPROVED_TO_ENABLE_FINANCES_API_ARCHIVE_PRODUCTION=false
 APPROVED_TO_RUN_FINANCES_API_ARCHIVE_FIRST_PRODUCTION_WINDOW=false
 ```
 
-Set each to `true` only after the corresponding gate in:
+Set each to `true` only after a **distinct** production ref is registered and the corresponding gate in:
 `.cursor/audit-reports/next-finances-api-archive-07/<run_id>/signoff-checklist.md`
 
 ## Scope when enabled
@@ -38,4 +41,4 @@ Set each to `true` only after the corresponding gate in:
 
 ## Rollback authority
 
-Operator may halt ingest by setting both flags false and following `rollback-halt-rules.md` in the ARCHIVE-07 pack.
+Operator may halt ingest by setting flags false and following `rollback-halt-rules.md` in the ARCHIVE-07 pack.

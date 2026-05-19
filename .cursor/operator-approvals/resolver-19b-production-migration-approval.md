@@ -1,31 +1,44 @@
 # Resolver 19B — Production Migration Preparation Approval
 
+```
+PRODUCTION_PROJECT_REF=NOT_CREATED_YET
+Supabase project ref/name: NOT_CREATED_YET
+Environment: PRODUCTION ONLY (BLOCKED)
+Approved by: (pending)
+Approved at UTC: (pending)
+```
 
-Supabase project ref/name: kxsvedvpjldygtdbylsy
-Environment: dev/staging
-Approved by: Maysam Ebrahimi
-Approved at UTC: 2026-05-17T01:30:00Z
-
-
-APPROVED_TO_PREPARE_RESOLVER_PRODUCTION_MIGRATION=true
+```
+APPROVED_TO_PREPARE_RESOLVER_PRODUCTION_MIGRATION=false
+```
 
 ## Scope (preparation only — NOT apply)
 
-- Authorize production parity planning, read-only probes, and migration pack review
-- **Does not** authorize DDL apply, RPC rebuilds, or Generic REMOVAL_SHIPMENT runs on production
-- Apply requires separate artifact: `APPROVED_TO_APPLY_RESOLVER_17_PRODUCTION_MIGRATION_CHAIN=true` (NEXT-RESOLVER-19-EXECUTE)
+- Authorize production parity planning, read-only probes, and migration pack review **only after** a distinct production ref exists
+- **Does not** authorize DDL apply, RPC rebuilds, or Generic REMOVAL_SHIPMENT runs on production today
+- Apply requires separate artifact: `APPROVED_TO_APPLY_RESOLVER_17_PRODUCTION_MIGRATION_CHAIN=false` (NEXT-RESOLVER-19-EXECUTE)
+
+## Topology (canonical)
+
+| Role | Ref |
+|------|-----|
+| Original / rollback | `kxsvedvpjldygtdbylsy` |
+| Staging / local test | `eiqfaapyumhixxoeltgu` |
+| Production | `NOT_CREATED_YET` |
 
 ## Preconditions
 
 | Item | Confirmed (Y/N) |
 |------|-----------------|
-| Staging 17-EXECUTE `parity_green: true` | |
-| Staging 18A Generic path smoke (or waiver) | |
-| Production ref distinct from staging dev `kxsvedvpjldygtdbylsy` | |
+| Staging 17-EXECUTE `parity_green: true` on **clone** | |
+| Staging 18A Generic path smoke (or waiver) on `eiqfaapyumhixxoeltgu` | |
+| Production ref distinct from `kxsvedvpjldygtdbylsy` and `eiqfaapyumhixxoeltgu` | |
 | Read-only production pre-apply probe completed | |
 | Backup / PITR owner assigned | |
 
-## Migration chain (staging-proven — 10 files)
+## Migration chain (proven on pre-clone staging — 10 files)
+
+Schema on `eiqfaapyumhixxoeltgu` is carried by ENV-04R Postgres clone; **do not re-apply** this chain on staging without a new approval.
 
 1. `20260522_shipment_scan_allocation_tree.sql`
 2. `20260523_removal_item_allocations.sql`
@@ -42,8 +55,8 @@ APPROVED_TO_PREPARE_RESOLVER_PRODUCTION_MIGRATION=true
 
 ```
 Environment: PRODUCTION ONLY
-Status: PENDING | APPROVED
-Production project ref:
+Status: BLOCKED
+Production project ref: NOT_CREATED_YET
 Approved by:
 UTC date:
 Notes:

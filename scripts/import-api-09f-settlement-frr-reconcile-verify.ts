@@ -7,11 +7,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire, type Module } from "node:module";
 
+import {
+  getStagingProjectRef,
+  supabaseUrlMatchesStagingRef,
+} from "../lib/staging-project-ref";
+
 const require = createRequire(import.meta.url);
 require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
 const ENV_LOCAL = join(process.cwd(), ".env.local");
-const STAGING_REF = "kxsvedvpjldygtdbylsy";
 const UPLOAD_ID = process.env.IMPORT_API_09F_UPLOAD_ID?.trim() ?? "199be41a-20ab-4823-91b6-fc4335794235";
 const ORG_ID = process.env.IMPORT_API_09F_ORG_ID?.trim() ?? "00000000-0000-0000-0000-000000000001";
 
@@ -32,9 +36,10 @@ function runId(): string {
 
 async function main(): Promise<void> {
   loadEnvFile(ENV_LOCAL);
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  if (!url.includes(STAGING_REF) || !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
-    console.error("BLOCKED: staging env required.");
+  if (!supabaseUrlMatchesStagingRef(url, stagingRef) || !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    console.error(`BLOCKED: staging env required (${stagingRef}).`);
     process.exit(1);
   }
 

@@ -1,7 +1,7 @@
 # Scanner 02F — Staging product linkage smoke approval
 
 
-Supabase project ref/name: kxsvedvpjldygtdbylsy
+Supabase project ref/name: eiqfaapyumhixxoeltgu
 Environment: dev/staging
 Approved by: Maysam Ebrahimi
 Approved at UTC: 2026-05-17T01:30:00Z

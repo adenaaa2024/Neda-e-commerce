@@ -50,6 +50,7 @@ import {
   resolvePackageClaimPhotoUrls,
 } from "../../lib/entity-photo-evidence";
 import { fetchProductFromAmazon } from "../../lib/api/amazon-mock";
+import { cacheBarcodeProductFromAmazonLookup } from "./barcode-product-cache-actions";
 import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
 import {
@@ -1842,13 +1843,12 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
       setEditItem(amazon.name);
       setEditCatalogPreview({ name: amazon.name, price: amazon.price, image_url: amazon.image_url });
       setEditCatalogStatus("amazon");
-      try {
-        await supabaseBrowser
-          .from("products")
-          .insert({ barcode: barcode.trim(), name: amazon.name, price: amazon.price, image_url: amazon.image_url, source: "Amazon" });
-      } catch {
-        // ignore duplicate/insert errors
-      }
+      void cacheBarcodeProductFromAmazonLookup({
+        barcode: barcode.trim(),
+        name: amazon.name,
+        price: amazon.price,
+        image_url: amazon.image_url,
+      });
       return;
     }
 
@@ -4043,14 +4043,13 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
       up("item_name", amazon.name);
       setCatalogPreview({ name: amazon.name, price: amazon.price, image_url: amazon.image_url });
       setCatalogResolution("amazon");
-      // Cache the result locally so the next scan is instant
-      try {
-        await supabaseBrowser
-          .from("products")
-          .insert({ barcode: barcode.trim(), name: amazon.name, price: amazon.price, image_url: amazon.image_url, source: "Amazon" });
-      } catch {
-        // ignore cache errors
-      }
+      // Governed cache insert (ENABLE_RETURNS_BARCODE_PRODUCT_CACHE_INSERT); preview works when off
+      void cacheBarcodeProductFromAmazonLookup({
+        barcode: barcode.trim(),
+        name: amazon.name,
+        price: amazon.price,
+        image_url: amazon.image_url,
+      });
       return;
     }
 

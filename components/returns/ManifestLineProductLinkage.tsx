@@ -3,6 +3,7 @@
 import type { ExpectedItem } from "@/app/returns/returns-action-types";
 import {
   RESOLVER_SOURCE_LABEL,
+  RESOLVER_SOURCE_LABEL_COMPACT,
   formatLinkageConfidence,
   resolutionStatusBadgeClass,
   resolutionStatusLabel,
@@ -19,7 +20,10 @@ export function ManifestLineProductLinkage({ line }: Props) {
   if (!status && !line.resolved_product_id) return null;
 
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1">
+    <div
+      className="mt-1 flex flex-wrap items-center gap-1"
+      title={`Resolver: ${RESOLVER_SOURCE_LABEL}`}
+    >
       <span
         className={[
           "inline-flex rounded-md border px-1.5 py-0.5 text-[9px] font-semibold",
@@ -32,6 +36,7 @@ export function ManifestLineProductLinkage({ line }: Props) {
       {confidence && (
         <span className="text-[9px] text-muted-foreground">{confidence}</span>
       )}
+      <span className="text-[9px] text-muted-foreground">{RESOLVER_SOURCE_LABEL_COMPACT}</span>
     </div>
   );
 }

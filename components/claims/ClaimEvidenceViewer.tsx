@@ -1,27 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
-  EDGE_TYPE_LABELS,
   type ClaimEvidenceDisplayMode,
   type ClaimEvidencePreview,
-  type ClaimEvidencePreviewEdge,
   type ClaimEvidencePreviewGroup,
   type ClaimEvidenceWarning,
   type ClaimPersistedEdgesPayload,
 } from "@/lib/claim-evidence-preview";
-import {
-  formatLinkageConfidence,
-  resolutionStatusBadgeClass,
-  resolutionStatusLabel,
-} from "@/lib/scanner-product-linkage-ui";
+import { ClaimEvidenceFilingReadinessPanel } from "@/components/claims/ClaimEvidenceFilingReadinessPanel";
+import { PersistedAllBulkReview } from "@/components/claims/PersistedAllBulkReview";
+import { PersistedEdgeReviewRow } from "@/components/claims/PersistedEdgeReviewRow";
+import { PersistedGroupBulkReview } from "@/components/claims/PersistedGroupBulkReview";
+import { EdgeRow } from "@/components/claims/ClaimEvidenceViewerEdgeRow";
+import type {
+  ClaimEvidenceDraftOperatorState,
+  FilingReadinessGate,
+} from "@/lib/claim-evidence-filing-readiness";
 
 type Props = {
   payload: Record<string, unknown> | null;
   organizationId: string;
+  draftId?: string;
+  onRefresh?: () => void;
 };
 
 function pct(n: number): string {
@@ -65,57 +69,6 @@ function WarningBanner({ w }: { w: ClaimEvidenceWarning }) {
   );
 }
 
-function EdgeRow({ edge, organizationId }: { edge: ClaimEvidencePreviewEdge; organizationId: string }) {
-  const typeLabel = EDGE_TYPE_LABELS[edge.edge_type] ?? edge.edge_type;
-  const refLabel =
-    edge.reference_kind === "internal_trid_key"
-      ? `TRID ${edge.reference_value ?? "—"}`
-      : edge.reference_value
-        ? `${edge.reference_kind ?? "ref"}: ${edge.reference_value}`
-        : null;
-  const productId =
-    edge.edge_type === "slip_line_to_product" && edge.to_source_row_id !== "unresolved"
-      ? edge.to_source_row_id
-      : null;
-  const resStatus = edge.reference_kind === "identifier_resolution_status" ? edge.reference_value : null;
-
-  return (
-    <li className="rounded-md border border-slate-200/80 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-950/40">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-        <span className="font-medium text-slate-800 dark:text-slate-100">{typeLabel}</span>
-        <span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {edge.to_source_table}
-        </span>
-        <span className="text-slate-500">conf {pct(edge.confidence_score)}</span>
-        {edge.ambiguity_group_key ? (
-          <span className="rounded border border-violet-300/60 bg-violet-50 px-1 text-[10px] text-violet-800 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
-            ambiguous #{edge.ambiguity_rank ?? "?"}
-          </span>
-        ) : null}
-      </div>
-      {refLabel ? <p className="mt-0.5 font-mono text-[10px] text-sky-700 dark:text-sky-300">{refLabel}</p> : null}
-      {resStatus ? (
-        <span
-          className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${resolutionStatusBadgeClass(resStatus)}`}
-        >
-          {resolutionStatusLabel(resStatus)}
-          {edge.confidence_score != null ? ` · ${formatLinkageConfidence(edge.confidence_score)}` : null}
-        </span>
-      ) : null}
-      {productId ? (
-        <Link
-          href={`/dashboard/products?organization_id=${encodeURIComponent(organizationId)}&highlight=${encodeURIComponent(productId)}`}
-          className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-medium text-sky-600 hover:underline dark:text-sky-400"
-        >
-          Product {productId.slice(0, 8)}…
-          <ExternalLink className="h-3 w-3" />
-        </Link>
-      ) : null}
-      <p className="mt-1 text-[10px] text-muted-foreground">{edge.edge_reason}</p>
-    </li>
-  );
-}
-
 function GroupSection({
   group,
   organizationId,
@@ -142,7 +95,9 @@ function GroupSection({
       {open ? (
         <ul className="space-y-1.5 border-t border-slate-200 px-2 py-2 dark:border-slate-700">
           {group.items.map((edge) => (
-            <EdgeRow key={edge.edge_id} edge={edge} organizationId={organizationId} />
+            <li key={edge.edge_id}>
+              <EdgeRow edge={edge} organizationId={organizationId} />
+            </li>
           ))}
         </ul>
       ) : null}
@@ -150,7 +105,63 @@ function GroupSection({
   );
 }
 
-export function ClaimEvidenceViewer({ payload, organizationId }: Props) {
+function PersistedGroupSection({
+  group,
+  organizationId,
+  draftId,
+  reviewEnabled,
+  onRefresh,
+  defaultOpen,
+}: {
+  group: ClaimEvidencePreviewGroup;
+  organizationId: string;
+  draftId: string;
+  reviewEnabled: boolean;
+  onRefresh?: () => void;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="rounded-lg border border-emerald-200/80 dark:border-emerald-900/60">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs font-semibold text-slate-800 dark:text-slate-100"
+      >
+        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        {group.label}
+        <span className="ml-auto rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-normal text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100">
+          {group.edge_count}
+        </span>
+      </button>
+      {open ? (
+        <>
+          <PersistedGroupBulkReview
+            organizationId={organizationId}
+            draftId={draftId}
+            groupKey={group.group_key}
+            reviewEnabled={reviewEnabled}
+            onDone={() => onRefresh?.()}
+          />
+          <ul className="space-y-2 border-t border-emerald-200/60 px-2 py-2 dark:border-emerald-900/40">
+            {group.items.map((edge) => (
+              <PersistedEdgeReviewRow
+                key={edge.edge_id}
+                edge={edge}
+                organizationId={organizationId}
+                draftId={draftId}
+                reviewEnabled={reviewEnabled}
+                onReviewed={() => onRefresh?.()}
+              />
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+export function ClaimEvidenceViewer({ payload, organizationId, draftId: draftIdProp, onRefresh }: Props) {
   const graph = (payload?.graph_preview ?? payload) as ClaimEvidencePreview | undefined;
   const projection = payload?.projection as Record<string, unknown> | undefined;
   const persistedPayload = payload?.persisted_edges as ClaimPersistedEdgesPayload | undefined;
@@ -172,6 +183,11 @@ export function ClaimEvidenceViewer({ payload, organizationId }: Props) {
     graph.evidence_display_mode ?? (graph.persisted_edges ? "persisted_with_live_preview" : "preview_only");
   const persistedCount = graph.enrichment.persisted_edge_count ?? 0;
   const hasPersisted = persistedCount > 0 || graph.persisted_edges;
+  const draftId = draftIdProp ?? graph.draft_id;
+  const reviewEnabled = Boolean(persistedPayload?.review_schema_configured && draftId);
+  const reviewSummary = persistedPayload?.review_summary;
+  const filingReadiness = payload?.filing_readiness as FilingReadinessGate | null | undefined;
+  const operatorState = payload?.operator_state as ClaimEvidenceDraftOperatorState | null | undefined;
 
   return (
     <div className="space-y-3 text-xs">
@@ -248,6 +264,17 @@ export function ClaimEvidenceViewer({ payload, organizationId }: Props) {
         ) : null}
       </div>
 
+      {draftId && filingReadiness ? (
+        <ClaimEvidenceFilingReadinessPanel
+          organizationId={organizationId}
+          draftId={draftId}
+          filingReadiness={filingReadiness}
+          operatorState={operatorState}
+          warnings={warnings}
+          onRefresh={() => onRefresh?.()}
+        />
+      ) : null}
+
       {warnings.length > 0 ? (
         <div className="space-y-1.5">
           {warnings
@@ -269,9 +296,43 @@ export function ClaimEvidenceViewer({ payload, organizationId }: Props) {
               {persistedPayload?.truncated ? ` / ${persistedPayload.edge_count_total}` : ""}
             </span>
           </div>
-          {persistedGroups.map((g, i) => (
-            <GroupSection key={`persisted:${g.group_key}`} group={g} organizationId={organizationId} defaultOpen={i < 2} />
-          ))}
+          {reviewSummary && reviewEnabled ? (
+            <p className="text-[10px] text-slate-600 dark:text-slate-400">
+              Review: {reviewSummary.accepted} accepted · {reviewSummary.rejected} rejected ·{" "}
+              {reviewSummary.needs_review} needs review
+              {filingReadiness
+                ? ` · filing gate ${filingReadiness.ready ? "ready" : "blocked"}`
+                : ""}
+            </p>
+          ) : !reviewEnabled && hasPersisted ? (
+            <p className="text-[10px] text-amber-800 dark:text-amber-200">
+              Operator review unavailable until migration{" "}
+              <code className="rounded bg-amber-100 px-1 dark:bg-amber-950">20260821120000</code> is applied.
+            </p>
+          ) : null}
+          {draftId && reviewEnabled ? (
+            <PersistedAllBulkReview
+              organizationId={organizationId}
+              draftId={draftId}
+              reviewEnabled={reviewEnabled}
+              onDone={() => onRefresh?.()}
+            />
+          ) : null}
+          {persistedGroups.map((g, i) =>
+            draftId ? (
+              <PersistedGroupSection
+                key={`persisted:${g.group_key}`}
+                group={g}
+                organizationId={organizationId}
+                draftId={draftId}
+                reviewEnabled={reviewEnabled}
+                onRefresh={onRefresh}
+                defaultOpen={i < 2}
+              />
+            ) : (
+              <GroupSection key={`persisted:${g.group_key}`} group={g} organizationId={organizationId} defaultOpen={i < 2} />
+            ),
+          )}
         </div>
       ) : null}
 

@@ -6,25 +6,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
+import { getStagingProjectRef, loadEnvLocalIntoProcess } from "../lib/staging-project-ref";
+
 const ORG = "00000000-0000-0000-0000-000000000001";
 const RETURN_ROW = "f3a3ad84-4115-4cf2-8926-915434dc034a";
 const SLIP_PACKAGE = "b59c36f0-2b93-4fb5-a49e-f9c192358d7c";
-
-function loadEnvLocal(): void {
-  const p = path.join(process.cwd(), ".env.local");
-  if (!fs.existsSync(p)) return;
-  for (const line of fs.readFileSync(p, "utf8").split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const eq = t.indexOf("=");
-    if (eq <= 0) continue;
-    const k = t.slice(0, eq).trim();
-    let v = t.slice(eq + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
-      v = v.slice(1, -1);
-    if (process.env[k] == null || process.env[k] === "") process.env[k] = v;
-  }
-}
 
 function runIdArg(): string {
   const a = process.argv.find((x) => x.startsWith("--run-id="));
@@ -35,7 +21,8 @@ function runIdArg(): string {
 }
 
 async function main(): Promise<void> {
-  loadEnvLocal();
+  loadEnvLocalIntoProcess();
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
   const runId = runIdArg();
   const outDir = path.join(process.cwd(), ".cursor/audit-reports/scanner-02h", runId);
   fs.mkdirSync(outDir, { recursive: true });
@@ -66,7 +53,7 @@ async function main(): Promise<void> {
   const payload = {
     run_id: runId,
     verified_at: new Date().toISOString(),
-    staging_ref: "kxsvedvpjldygtdbylsy",
+    staging_ref: stagingRef,
     return_row: returnRow,
     slip_contents: slips,
     product_count_org: productCount,

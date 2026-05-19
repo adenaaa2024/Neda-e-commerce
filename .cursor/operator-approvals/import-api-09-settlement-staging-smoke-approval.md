@@ -1,7 +1,7 @@
 # Import API 09 — Settlement Reports API staging smoke approval
 
 
-Supabase project ref/name: kxsvedvpjldygtdbylsy
+Supabase project ref/name: eiqfaapyumhixxoeltgu
 Environment: dev/staging
 Approved by: Maysam Ebrahimi
 Approved at UTC: 2026-05-17T01:30:00Z
@@ -9,7 +9,9 @@ Approved at UTC: 2026-05-17T01:30:00Z
 APPROVED_TO_RUN_IMPORT_API_09_SETTLEMENT_STAGING_SMOKE=true
 
 Scope:
-- One controlled Settlement Reports API pull on staging `kxsvedvpjldygtdbylsy`
+- One controlled Settlement Reports API pull on staging `eiqfaapyumhixxoeltgu` (active local target)
+- Original source / rollback: `kxsvedvpjldygtdbylsy`
+- Preflight scripts URL-guard `STAGING_PROJECT_REF` (`eiqfaapyumhixxoeltgu`) via ENV-05B helper
 - Report type: `GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2` only
 - Short date window only (≤ 7 calendar days recommended)
 - Flags: `ENABLE_AMAZON_REPORTS_API_WORKER=true`, `ENABLE_AMAZON_REPORTS_API_SETTLEMENT=true`

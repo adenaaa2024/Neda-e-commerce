@@ -7,6 +7,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  getStagingProjectRef,
+  loadEnvLocalIntoProcess,
+  supabaseUrlMatchesStagingRef,
+} from "../lib/staging-project-ref";
 import { resolveScannerProductIdentifiers } from "../lib/scanner-product-resolve";
 import {
   isUnresolvedLinkageStatus,
@@ -31,22 +36,6 @@ const SLIP_ROW_SELECT =
   "id, organization_id, store_id, package_id, fnsku, upc, slip_code, resolved_product_id, identifier_resolution_status";
 
 type Case = { id: string; pass: boolean; detail: string };
-
-function loadEnvLocal(): void {
-  const p = path.join(process.cwd(), ".env.local");
-  if (!fs.existsSync(p)) return;
-  for (const line of fs.readFileSync(p, "utf8").split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const eq = t.indexOf("=");
-    if (eq <= 0) continue;
-    const k = t.slice(0, eq).trim();
-    let v = t.slice(eq + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
-      v = v.slice(1, -1);
-    if (process.env[k] == null || process.env[k] === "") process.env[k] = v;
-  }
-}
 
 function approvalOk(): boolean {
   if (!fs.existsSync(APPROVAL_PATH)) return false;
@@ -118,7 +107,8 @@ function isoRunId(): string {
 }
 
 async function main(): Promise<void> {
-  loadEnvLocal();
+  loadEnvLocalIntoProcess();
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
   const cases: Case[] = [];
   const runId = isoRunId();
   const outDir = path.join(process.cwd(), ".cursor/audit-reports/scanner-02g", runId);
@@ -137,8 +127,8 @@ async function main(): Promise<void> {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
-  if (!url.includes("kxsvedvpjldygtdbylsy") || !key) {
-    console.error("BLOCKED: staging Supabase env missing.");
+  if (!supabaseUrlMatchesStagingRef(url, stagingRef) || !key) {
+    console.error(`BLOCKED: staging Supabase env missing or URL not ${stagingRef}.`);
     process.exit(1);
   }
 

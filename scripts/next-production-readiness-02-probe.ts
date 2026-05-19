@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import pg from "pg";
 
-const STAGING_REF = "kxsvedvpjldygtdbylsy";
+import { getStagingProjectRef } from "../lib/staging-project-ref";
 const APPROVAL_PATH = path.join(
   process.cwd(),
   ".cursor/operator-approvals/production-readiness-01-approval.md",
@@ -107,6 +107,7 @@ function runIdArg(): string {
 function preflight(
   env: Record<string, string>,
   approvalContent: string,
+  stagingRef: string,
 ): { ok: boolean; gates: GateResult[]; connectionUrl: string | null; productionRef: string | null } {
   const gates: GateResult[] = [];
   const { registerFlag, probeFlag, refFromFile } = parseApproval(approvalContent);
@@ -139,7 +140,7 @@ function preflight(
   const refValid =
     !!productionRef &&
     productionRef.length === 20 &&
-    productionRef !== STAGING_REF &&
+    productionRef !== stagingRef &&
     !productionRef.includes("fill");
 
   gates.push({
@@ -147,8 +148,8 @@ function preflight(
     pass: refValid,
     detail: refValid
       ? `ref=${productionRef}`
-      : productionRef === STAGING_REF
-        ? "ref equals staging dev ref — refused"
+      : productionRef === stagingRef
+        ? "ref equals staging clone ref — refused"
         : "production ref missing in approval signoff and env",
   });
 
@@ -377,12 +378,16 @@ async function main(): Promise<void> {
 
   const approvalContent = fs.readFileSync(APPROVAL_PATH, "utf8");
   const env = loadEnvLocal();
-  const pre = preflight(env, approvalContent);
+  for (const [k, v] of Object.entries(env)) {
+    if (process.env[k] == null || process.env[k] === "") process.env[k] = v;
+  }
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
+  const pre = preflight(env, approvalContent, stagingRef);
 
   const payload: Record<string, unknown> = {
     prompt: "NEXT-PRODUCTION-READINESS-02",
     run_id: runId,
-    staging_reference_ref: STAGING_REF,
+    staging_reference_ref: stagingRef,
     preflight_gates: pre.gates,
     production_probe: { ran: false, reason: null as string | null },
   };

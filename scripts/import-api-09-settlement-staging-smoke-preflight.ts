@@ -3,17 +3,22 @@
  * Run: npm run smoke:import-api-09-settlement-preflight
  *
  * Full pull requires approval + flags on a host that can call settlement routes
- * (staging deploy or local dev with .env.local pointing at kxsvedvpjldygtdbylsy).
+ * (staging deploy or local dev with .env.local pointing at STAGING_PROJECT_REF).
  */
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  getStagingProjectRef,
+  loadEnvLocalIntoProcess,
+  supabaseUrlMatchesStagingRef,
+} from "../lib/staging-project-ref";
+
 const APPROVAL_PATH = join(
   process.cwd(),
   ".cursor/operator-approvals/import-api-09-settlement-staging-smoke-approval.md",
 );
-const STAGING_REF = "kxsvedvpjldygtdbylsy";
 const MAX_WINDOW_DAYS = 7;
 
 type GateResult = { id: string; pass: boolean; detail: string };
@@ -29,16 +34,16 @@ function envFlag(name: string): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
-function checkStagingUrl(): GateResult {
+function checkStagingUrl(stagingRef: string): GateResult {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
   if (!url) {
     return { id: "staging_url", pass: false, detail: "NEXT_PUBLIC_SUPABASE_URL unset." };
   }
-  if (!url.includes(STAGING_REF)) {
+  if (!supabaseUrlMatchesStagingRef(url, stagingRef)) {
     return {
       id: "staging_url",
       pass: false,
-      detail: `URL does not contain staging ref ${STAGING_REF} (host redacted).`,
+      detail: `URL does not contain staging ref ${stagingRef} (host redacted).`,
     };
   }
   return { id: "staging_url", pass: true, detail: "Supabase URL matches staging project ref." };
@@ -127,9 +132,11 @@ function checkWindowEnv(): GateResult {
 }
 
 function main(): void {
+  loadEnvLocalIntoProcess();
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
   const gates: GateResult[] = [
     checkApproval(),
-    checkStagingUrl(),
+    checkStagingUrl(stagingRef),
     checkServiceRole(),
     ...checkFlags(),
     checkWindowEnv(),

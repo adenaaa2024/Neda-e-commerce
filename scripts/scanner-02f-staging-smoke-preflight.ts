@@ -6,21 +6,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-function loadEnvLocal(): void {
-  const p = join(process.cwd(), ".env.local");
-  if (!existsSync(p)) return;
-  for (const line of readFileSync(p, "utf8").split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const eq = t.indexOf("=");
-    if (eq <= 0) continue;
-    const k = t.slice(0, eq).trim();
-    let v = t.slice(eq + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
-      v = v.slice(1, -1);
-    if (process.env[k] == null || process.env[k] === "") process.env[k] = v;
-  }
-}
+import {
+  getStagingProjectRef,
+  loadEnvLocalIntoProcess,
+  supabaseUrlMatchesStagingRef,
+} from "../lib/staging-project-ref";
 
 const APPROVAL_PATH = join(
   process.cwd(),
@@ -34,7 +24,8 @@ function approvalOk(content: string): boolean {
 }
 
 function main(): void {
-  loadEnvLocal();
+  loadEnvLocalIntoProcess();
+  const stagingRef = getStagingProjectRef({ loadEnv: false });
   const gates: Gate[] = [];
 
   if (!existsSync(APPROVAL_PATH)) {
@@ -51,13 +42,14 @@ function main(): void {
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
+  const urlOk = supabaseUrlMatchesStagingRef(url, stagingRef);
   gates.push({
     id: "staging_url",
-    pass: url.includes("kxsvedvpjldygtdbylsy"),
+    pass: urlOk,
     detail: url
-      ? url.includes("kxsvedvpjldygtdbylsy")
-        ? "Staging Supabase URL configured."
-        : "URL does not match staging ref."
+      ? urlOk
+        ? `Staging Supabase URL matches ${stagingRef}.`
+        : `URL does not match staging ref ${stagingRef}.`
       : "NEXT_PUBLIC_SUPABASE_URL unset.",
   });
 

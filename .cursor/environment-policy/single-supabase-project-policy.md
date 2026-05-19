@@ -1,8 +1,13 @@
 # Single Supabase Project — Operating Policy
 
+> **Superseded for labeling** by [dual-project-staging-registration.md](dual-project-staging-registration.md) (2026-05-21).  
+> **Superseded for labeling** — dual-project policy is canonical.  
+> Original / rollback: `kxsvedvpjldygtdbylsy`. Staging clone / local app test: `eiqfaapyumhixxoeltgu` (ENV-05E).  
+> Production: `NOT_CREATED_YET`.
+
 **Policy ID:** `SINGLE-SUPABASE-PROJECT-01`  
 **Effective:** 2026-05-18  
-**Status:** ACTIVE — production-readiness **BLOCKED**
+**Status:** SUPERSEDED — see dual-project policy; production-readiness **BLOCKED**
 
 ## Canonical project identity
 
@@ -10,7 +15,7 @@
 |----------|-------|
 | `CURRENT_SINGLE_SUPABASE_PROJECT` | `kxsvedvpjldygtdbylsy` |
 | Separate production project exists | **false** |
-| Separate staging project exists | **false** |
+| Separate staging project exists | **true** (`eiqfaapyumhixxoeltgu`) |
 
 There is **one** Supabase project. It is **not** split into staging vs production at the infrastructure layer. All agents and operators must treat `kxsvedvpjldygtdbylsy` as the sole live database unless and until a **distinct** production project is created and registered.
 

@@ -26,6 +26,9 @@ export type ProductLinkageFields = {
 
 export const RESOLVER_SOURCE_LABEL = "product_identifier_map" as const;
 
+/** Short UI label for dense tables; full table name in `title` / tooltips via `RESOLVER_SOURCE_LABEL`. */
+export const RESOLVER_SOURCE_LABEL_COMPACT = "Identifier map" as const;
+
 export function normalizeResolutionStatus(
   status: IdentifierResolutionStatus,
 ): IdentifierResolutionStatus {

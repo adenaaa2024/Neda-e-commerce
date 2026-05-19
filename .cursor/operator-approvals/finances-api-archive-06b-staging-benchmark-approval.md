@@ -1,6 +1,6 @@
 # Finances API Archive 06B — Staging Flatten Benchmark Approval
 
-Supabase project ref/name: kxsvedvpjldygtdbylsy
+Supabase project ref/name: eiqfaapyumhixxoeltgu
 Environment: staging
 Approved by: operator
 Approved at UTC: 2026-05-17T20:00:00Z

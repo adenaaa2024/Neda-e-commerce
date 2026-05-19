@@ -6,6 +6,19 @@
 import * as crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  loadEdgeReviewSummary,
+  probeEdgeReviewSchema,
+  type ClaimEvidenceEdgeReviewStatus,
+  type ClaimEvidenceEdgeReviewSummary,
+} from "./claim-evidence-edge-review";
+import {
+  computeFilingReadiness,
+  loadDraftOperatorState,
+  type ClaimEvidenceDraftOperatorState,
+  type FilingReadinessGate,
+} from "./claim-evidence-filing-readiness";
+
 const CHUNK = 150;
 const ORDER_CHUNK = 40;
 const FRR_SELECT =
@@ -51,6 +64,10 @@ export type ClaimEvidencePreviewEdge = {
   edge_reason: string;
   source_table: string;
   source_citations: { kind: string; table: string; row_id?: string }[];
+  /** UUID in claim_reference_edges (without persisted: prefix). */
+  reference_edge_id?: string | null;
+  operator_review_status?: ClaimEvidenceEdgeReviewStatus | null;
+  operator_review_note?: string | null;
 };
 
 export type ClaimEvidencePreviewGroup = {
@@ -87,6 +104,8 @@ export type ClaimPersistedEdgesPayload = {
   truncated: boolean;
   groups: ClaimEvidencePreviewGroup[];
   edges: ClaimEvidencePreviewEdge[];
+  review_schema_configured: boolean;
+  review_summary: ClaimEvidenceEdgeReviewSummary;
 };
 
 export type ClaimEvidencePreview = {
@@ -683,10 +702,20 @@ function mapPersistedRowToPreviewEdge(
   const confRaw = row.confidence_score;
   const confidence_score =
     typeof confRaw === "number" && Number.isFinite(confRaw) ? confRaw : Number(confRaw) || 0;
+  const reviewStatus = String(row.operator_review_status ?? "needs_review").trim();
+  const parsedReview = (["accepted", "rejected", "needs_review"] as const).includes(
+    reviewStatus as ClaimEvidenceEdgeReviewStatus,
+  )
+    ? (reviewStatus as ClaimEvidenceEdgeReviewStatus)
+    : "needs_review";
+
   return {
     edge_id: `persisted:${id}`,
+    reference_edge_id: id,
     draft_id: draft.id,
     organization_id: draft.organization_id,
+    operator_review_status: parsedReview,
+    operator_review_note: nv(row.operator_review_note),
     edge_type: String(row.edge_type ?? "unknown"),
     from_node_kind: String(row.from_node_kind ?? ""),
     from_source_table: nv(row.from_source_table) ?? draft.source_table,
@@ -720,6 +749,8 @@ export async function loadPersistedReferenceEdges(
     truncated: false,
     groups: [],
     edges: [],
+    review_schema_configured: false,
+    review_summary: { accepted: 0, rejected: 0, needs_review: 0, total: 0 },
   };
 
   if (!(await probeGraphTables(client))) return empty;
@@ -742,11 +773,14 @@ export async function loadPersistedReferenceEdges(
   const { count: totalCount, error: countErr } = await countQ;
   if (countErr) return empty;
 
+  const reviewConfigured = await probeEdgeReviewSchema(client);
+  const edgeCols = reviewConfigured
+    ? "id, edge_type, from_node_kind, from_source_table, from_source_row_id, to_node_kind, to_source_table, to_source_row_id, reference_kind, reference_value, confidence_score, ambiguity_group_key, ambiguity_rank, edge_reason, source_citations, operator_review_status, operator_review_note"
+    : "id, edge_type, from_node_kind, from_source_table, from_source_row_id, to_node_kind, to_source_table, to_source_row_id, reference_kind, reference_value, confidence_score, ambiguity_group_key, ambiguity_rank, edge_reason, source_citations";
+
   let q = client
     .from("claim_reference_edges")
-    .select(
-      "id, edge_type, from_node_kind, from_source_table, from_source_row_id, to_node_kind, to_source_table, to_source_row_id, reference_kind, reference_value, confidence_score, ambiguity_group_key, ambiguity_rank, edge_reason, source_citations",
-    )
+    .select(edgeCols)
     .eq("organization_id", draft.organization_id)
     .eq("draft_id", draft.id)
     .order("edge_type", { ascending: true })
@@ -764,6 +798,10 @@ export async function loadPersistedReferenceEdges(
   const slice = rows;
   const edges = slice.map((r) => mapPersistedRowToPreviewEdge(draft, r));
 
+  const review_summary = reviewConfigured
+    ? await loadEdgeReviewSummary(client, draft.organization_id, draft.id, generationId)
+    : empty.review_summary;
+
   return {
     generation_id: generationId,
     edge_count_total: total,
@@ -771,6 +809,8 @@ export async function loadPersistedReferenceEdges(
     truncated,
     groups: groupPreviewEdges(edges),
     edges,
+    review_schema_configured: reviewConfigured,
+    review_summary,
   };
 }
 
@@ -1071,6 +1111,8 @@ export type ClaimEvidenceGraphResponse = {
   claim_candidate_id?: string | null;
   draft_id: string;
   inbox_deep_link?: string | null;
+  operator_state?: ClaimEvidenceDraftOperatorState | null;
+  filing_readiness?: FilingReadinessGate | null;
 };
 
 export async function buildClaimEvidenceGraphResponse(
@@ -1092,11 +1134,23 @@ export async function buildClaimEvidenceGraphResponse(
     ? `/claim-engine/inbox?candidate_id=${encodeURIComponent(candidateId)}`
     : null;
 
+  const operator_state = await loadDraftOperatorState(client, draft.organization_id, draft.id);
+  const review_summary =
+    persisted_edges?.review_summary ??
+    (await loadEdgeReviewSummary(client, draft.organization_id, draft.id, graph.enrichment.latest_generation_id));
+  const filing_readiness = computeFilingReadiness({
+    reviewSummary: review_summary,
+    warnings: graph.warnings,
+    operatorState: operator_state,
+  });
+
   return {
     graph_preview: graph,
     persisted_edges,
     claim_candidate_id: candidateId,
     draft_id: draft.id,
     inbox_deep_link,
+    operator_state,
+    filing_readiness,
   };
 }

@@ -10,6 +10,7 @@ import {
 import type { ProductLinkageFields } from "@/lib/scanner-product-linkage-ui";
 import {
   RESOLVER_SOURCE_LABEL,
+  RESOLVER_SOURCE_LABEL_COMPACT,
   formatLinkageConfidence,
   resolveLinkageDisplayTitle,
   isAmbiguousLinkageStatus,
@@ -139,6 +140,16 @@ export function ReturnItemProductLinkage({
           {fields.resolved_product_id
             ? ` · product ${fields.resolved_product_id.slice(0, 8)}…`
             : ""}
+        </p>
+      )}
+
+      {compact && (status != null && String(status).trim() !== "") && (
+        <p
+          className="text-[9px] text-muted-foreground leading-tight truncate max-w-[14rem]"
+          title={`Resolver: ${RESOLVER_SOURCE_LABEL}${fields.resolved_product_id ? ` · product ${fields.resolved_product_id}` : ""}`}
+        >
+          {RESOLVER_SOURCE_LABEL_COMPACT}
+          {confidence ? ` · ${confidence}` : ""}
         </p>
       )}
 

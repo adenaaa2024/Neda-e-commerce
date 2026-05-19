@@ -5,12 +5,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { assertStagingSupabaseUrl, getStagingProjectRef } from "./staging-project-ref";
+
 export const CLAIM_EVIDENCE_04_APPROVAL_PATH = join(
   process.cwd(),
   ".cursor/operator-approvals/claim-evidence-04-dev-staging-write-approval.md",
 );
 
-export const CLAIM_EVIDENCE_04_STAGING_REF = "kxsvedvpjldygtdbylsy";
+/** @deprecated Use `getStagingProjectRef()` — resolved from env at runtime. */
+export function claimEvidence04StagingRef(): string {
+  return getStagingProjectRef();
+}
 
 const APPROVAL_FLAG = /^APPROVED_TO_WRITE_CLAIM_EVIDENCE_04_DEV_STAGING\s*=\s*true\s*$/im;
 
@@ -21,9 +26,5 @@ export function isClaimEvidence04WriteApproved(): boolean {
 }
 
 export function assertClaimEvidence04StagingUrl(supabaseUrl: string): void {
-  if (!supabaseUrl.includes(CLAIM_EVIDENCE_04_STAGING_REF)) {
-    throw new Error(
-      `BLOCKED: Supabase URL must target dev/staging project ${CLAIM_EVIDENCE_04_STAGING_REF}.`,
-    );
-  }
+  assertStagingSupabaseUrl(supabaseUrl);
 }

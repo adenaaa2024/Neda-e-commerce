@@ -5,6 +5,8 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
+import { ClaimFilingPacketPreviewPanel } from "@/components/claims/ClaimFilingPacketPreviewPanel";
+import { ClaimFilingPacketValidationPanel } from "@/components/claims/ClaimFilingPacketValidationPanel";
 
 type Props = {
   organizationId: string;
@@ -85,7 +87,16 @@ export function ClaimDraftEvidenceClient({ organizationId, draftId }: Props) {
           {error}
         </div>
       ) : payload ? (
-        <ClaimEvidenceViewer payload={payload} organizationId={organizationId} />
+        <>
+          <ClaimFilingPacketValidationPanel organizationId={organizationId} draftId={draftId} />
+          <ClaimFilingPacketPreviewPanel organizationId={organizationId} draftId={draftId} />
+          <ClaimEvidenceViewer
+            payload={payload}
+            organizationId={organizationId}
+            draftId={draftId}
+            onRefresh={() => void load()}
+          />
+        </>
       ) : null}
     </div>
   );
