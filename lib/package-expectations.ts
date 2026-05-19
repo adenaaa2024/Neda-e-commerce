@@ -1,6 +1,6 @@
 type ExpectedItemLike = { sku: string; description?: string | null };
 type PkgLike = {
-  package_number: string;
+  package_code: string;
   /** AI-extracted expected line items from packing slip. Null = no manifest scanned yet. */
   expected_items?: ExpectedItemLike[] | null;
 };

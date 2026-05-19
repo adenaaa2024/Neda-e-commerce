@@ -331,7 +331,7 @@ export default function ReturnsPage() {
   function drawerTitle() {
     if (!activeDrawer) return "";
     if (activeDrawer.type === "item")    return activeDrawer.record.item_name;
-    if (activeDrawer.type === "package") return activeDrawer.record.package_number;
+    if (activeDrawer.type === "package") return activeDrawer.record.package_code;
     if (activeDrawer.type === "pallet")  return activeDrawer.record.pallet_number;
     return "";
   }
@@ -650,7 +650,7 @@ export default function ReturnsPage() {
       {createPackageOpen && (
         <CreatePackageModal
           onClose={() => setCreatePackageOpen(false)}
-          onCreated={(p) => { addPackage(p); setCreatePackageOpen(false); showToast(`Package ${p.package_number} created.`); }}
+          onCreated={(p) => { addPackage(p); setCreatePackageOpen(false); showToast(`Package ${p.package_code} created.`); }}
           actor={actor}
           organizationId={effectiveWriteOrgId}
           actorProfileId={actorUserId}

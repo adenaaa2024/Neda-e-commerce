@@ -530,7 +530,7 @@ function CompactMetadataGrid({
           </Text>
           <Text style={styles.metaLine}>
             <Text style={{ color: "#64748b" }}>Package # </Text>
-            <Text style={styles.metaMono}>{pkg?.package_number ?? "—"}</Text>
+            <Text style={styles.metaMono}>{pkg?.package_code ?? "—"}</Text>
           </Text>
           <Text style={styles.metaLine}>
             <Text style={{ color: "#64748b" }}>Tracking </Text>

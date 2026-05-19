@@ -1,6 +1,7 @@
 /**
- * `packages.photo_evidence` JSONB — canonical shape `{ urls: string[] }` plus structured keys.
- * Pallets use TEXT columns `manifest_photo_url`, `bol_photo_url`, `photo_url` only (no JSONB on `pallets`).
+ * `return_items.photo_evidence` JSONB — canonical shape `{ urls: string[] }` plus structured keys.
+ * Staging `packages` use `inside_photo_urls` / `outside_photo_urls` / `slip_photo_urls` (see `package-pallet-canonical.ts`).
+ * Staging `pallets` use `pallet_photo_urls` / `bol_photo_urls` / `shipping_label_urls`.
  */
 
 export type EntityPhotoEvidenceJson = { urls: string[] };
@@ -84,22 +85,34 @@ export function buildStructuredPackagePhotoEvidence(parts: {
 }
 
 /**
- * Pallet gallery order for UI / claims: manifest scan, Bill of Lading, pallet overview — matches `pallets` TEXT columns.
+ * Pallet gallery order for UI / claims: shipping label, BOL, overview — staging array columns.
  */
 export function palletPhotoEvidenceUrlsFromRow(p: {
+  shipping_label_urls?: unknown;
+  bol_photo_urls?: unknown;
+  pallet_photo_urls?: unknown;
+  /** Legacy single-URL shape (ignored when arrays present). */
   manifest_photo_url?: string | null;
   bol_photo_url?: string | null;
   photo_url?: string | null;
 } | null | undefined): string[] {
   if (!p) return [];
+  const fromArrays = [
+    ...(Array.isArray(p.shipping_label_urls) ? p.shipping_label_urls : []),
+    ...(Array.isArray(p.bol_photo_urls) ? p.bol_photo_urls : []),
+    ...(Array.isArray(p.pallet_photo_urls) ? p.pallet_photo_urls : []),
+  ].filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+  if (fromArrays.length) return fromArrays.map((s) => s.trim());
   const m = String(p.manifest_photo_url ?? "").trim();
   const bol = String(p.bol_photo_url ?? "").trim();
   const ov = String(p.photo_url ?? "").trim();
   return [m, bol, ov].filter(Boolean);
 }
 
-/** Boxed package flow: prefer dedicated columns, then structured JSONB keys, then flat `urls`. */
+/** Boxed package flow: staging array columns first, then legacy JSONB keys. */
 export function resolvePackageClaimPhotoUrls(pkg: {
+  inside_photo_urls?: unknown;
+  outside_photo_urls?: unknown;
   photo_evidence?: unknown;
   photo_opened_url?: string | null;
   photo_return_label_url?: string | null;
@@ -107,6 +120,18 @@ export function resolvePackageClaimPhotoUrls(pkg: {
   opened: string | null;
   label: string | null;
 } {
+  const insideArr = Array.isArray(pkg.inside_photo_urls)
+    ? pkg.inside_photo_urls.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+    : [];
+  const outsideArr = Array.isArray(pkg.outside_photo_urls)
+    ? pkg.outside_photo_urls.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+    : [];
+  if (insideArr[0] || outsideArr[0]) {
+    return {
+      opened: insideArr[0]?.trim() || null,
+      label: outsideArr[0]?.trim() || null,
+    };
+  }
   const pe = pkg.photo_evidence;
   const openedCol = String(pkg.photo_opened_url ?? "").trim();
   const labelCol = String(pkg.photo_return_label_url ?? "").trim();
@@ -114,15 +139,7 @@ export function resolvePackageClaimPhotoUrls(pkg: {
   const labels = structUrls(pe, "label_urls");
   const flat = normalizeEntityPhotoEvidenceUrls(pe);
   return {
-    opened:
-      openedCol ||
-      firstString(inside) ||
-      flat[0] ||
-      null,
-    label:
-      labelCol ||
-      firstString(labels) ||
-      flat[1] ||
-      null,
+    opened: openedCol || firstString(inside) || flat[0] || null,
+    label: labelCol || firstString(labels) || flat[1] || null,
   };
 }

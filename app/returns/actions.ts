@@ -36,6 +36,13 @@ import {
 } from "../../lib/scanner-product-resolve";
 import { syncSlipContentsResolverForPackage } from "../../lib/slip-contents-resolver-write";
 import {
+  mapPackageWriteRow,
+  mapPalletWriteRow,
+  normalizePackageRowFromDb,
+  normalizePalletRowFromDb,
+  packagePhotoArraysFromEvidence,
+} from "../../lib/package-pallet-canonical";
+import {
   hasReturnPhotoEvidenceCounts,
   hasReturnPhotoEvidenceUrlSlots,
   type ReturnPhotoEvidenceRow,
@@ -406,23 +413,32 @@ function parseManifestData(raw: unknown): ExpectedItem[] | null | undefined {
 }
 
 function normalizePackageRow(row: Record<string, unknown>): PackageRecord {
-  const base = row as PackageRecord;
-  const md = parseManifestData(row.manifest_data);
+  const canon = normalizePackageRowFromDb(row);
+  const base = canon as unknown as PackageRecord;
+  const md = parseManifestData(canon.manifest_data);
   const next: PackageRecord = {
     ...base,
+    package_code: String(base.package_code ?? "").trim(),
     rma_number: (base.rma_number as string | null | undefined) ?? null,
     carrier_name: (base.carrier_name as string | null | undefined) ?? null,
     tracking_number: (base.tracking_number as string | null | undefined) ?? null,
+    inside_photo_urls: base.inside_photo_urls ?? [],
+    outside_photo_urls: base.outside_photo_urls ?? [],
+    slip_photo_urls: base.slip_photo_urls ?? [],
   };
   return md !== undefined ? { ...next, manifest_data: md } : next;
 }
 
 function normalizePalletRow(row: Record<string, unknown>): PalletRecord {
-  const base = row as PalletRecord;
+  const canon = normalizePalletRowFromDb(row);
+  const base = canon as unknown as PalletRecord;
   return {
     ...base,
     notes: (base.notes as string | null | undefined) ?? null,
     tracking_number: (base.tracking_number as string | null | undefined) ?? null,
+    pallet_photo_urls: base.pallet_photo_urls ?? [],
+    bol_photo_urls: base.bol_photo_urls ?? [],
+    shipping_label_urls: base.shipping_label_urls ?? [],
   };
 }
 
@@ -444,11 +460,12 @@ export async function createPallet(
       status: "open",
       created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
     };
-    if (payload.photo_url !== undefined) insertRow.photo_url = String(payload.photo_url ?? "").trim() || null;
-    if (payload.bol_photo_url !== undefined) insertRow.bol_photo_url = String(payload.bol_photo_url ?? "").trim() || null;
-    if (payload.manifest_photo_url !== undefined) {
-      insertRow.manifest_photo_url = String(payload.manifest_photo_url ?? "").trim() || null;
-    }
+    const palletPhotos = mapPalletWriteRow({
+      pallet_photo_urls: payload.pallet_photo_urls ?? undefined,
+      bol_photo_urls: payload.bol_photo_urls ?? undefined,
+      shipping_label_urls: payload.shipping_label_urls ?? undefined,
+    });
+    Object.assign(insertRow, palletPhotos);
     const sid = uuidFkOrNull(payload.store_id ?? null, "store_id");
     if (sid) insertRow.store_id = sid;
     const carrier = payload.carrier_name?.trim() || null;
@@ -549,12 +566,11 @@ export async function updatePallet(
     const id = uuidOrNull(palletId);
     if (!id) throw new Error("Invalid pallet id.");
     const org = await resolveWriteOrganizationId(actorProfileId, organizationId);
-    const row: Record<string, unknown> = {
+    const row: Record<string, unknown> = mapPalletWriteRow({
       ...omitUndefined(updates as unknown as Record<string, unknown>),
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
-    };
+    });
     delete row.created_by;
-    delete row.photo_evidence;
     if ("notes" in row && row.notes !== undefined && row.notes !== null) {
       row.notes = String(row.notes).trim() || null;
     }
@@ -620,33 +636,31 @@ export async function createPackage(
     const expected_item_count = coerceNonNegativeInt(payload.expected_item_count, 0);
     const palletIdFk = uuidFkOrNull(payload.pallet_id ?? null, "pallet_id");
     const storeIdFk = uuidFkOrNull(payload.store_id ?? null, "store_id");
-    const insertRow: Record<string, unknown> = {
-      organization_id:     orgId,
-      package_number:      payload.package_number.trim(),
-      tracking_number:     payload.tracking_number?.trim() || null,
-      carrier_name:        payload.carrier_name?.trim() || null,
-      rma_number:          payload.rma_number?.trim() || null,
+    const photoArrays = packagePhotoArraysFromEvidence(
+      payload.photo_evidence ?? null,
+      payload.manifest_photo_url ?? null,
+    );
+    const insertRow: Record<string, unknown> = mapPackageWriteRow({
+      organization_id: orgId,
+      package_code: payload.package_code.trim(),
+      tracking_number: payload.tracking_number?.trim() || null,
+      carrier_name: payload.carrier_name?.trim() || null,
+      rma_number: payload.rma_number?.trim() || null,
       expected_item_count,
-      pallet_id:           palletIdFk,
-      manifest_url:        payload.manifest_url ?? null,
-      status:              "open",
-      created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
-    };
-    if (storeIdFk) insertRow.store_id = storeIdFk;
-    if (payload.photo_evidence != null) insertRow.photo_evidence = payload.photo_evidence;
-    if (payload.photo_url !== undefined) insertRow.photo_url = String(payload.photo_url ?? "").trim() || null;
-    if (payload.photo_return_label_url !== undefined) {
-      insertRow.photo_return_label_url = String(payload.photo_return_label_url ?? "").trim() || null;
-    }
-    if (payload.photo_opened_url !== undefined) {
-      insertRow.photo_opened_url = String(payload.photo_opened_url ?? "").trim() || null;
-    }
-    if (payload.photo_closed_url !== undefined) {
-      insertRow.photo_closed_url = String(payload.photo_closed_url ?? "").trim() || null;
-    }
-    if (payload.manifest_photo_url !== undefined) {
-      insertRow.manifest_photo_url = String(payload.manifest_photo_url ?? "").trim() || null;
-    }
+      pallet_id: palletIdFk,
+      manifest_url: payload.manifest_url ?? null,
+      status: "open",
+      created_by:
+        uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ??
+        resolveActorUserId(payload.created_by),
+      ...(storeIdFk ? { store_id: storeIdFk } : {}),
+      ...(photoArrays.inside_photo_urls ? { inside_photo_urls: photoArrays.inside_photo_urls } : {}),
+      ...(photoArrays.outside_photo_urls ? { outside_photo_urls: photoArrays.outside_photo_urls } : {}),
+      ...(photoArrays.slip_photo_urls ? { slip_photo_urls: photoArrays.slip_photo_urls } : {}),
+      ...(payload.inside_photo_urls?.length ? { inside_photo_urls: payload.inside_photo_urls } : {}),
+      ...(payload.outside_photo_urls?.length ? { outside_photo_urls: payload.outside_photo_urls } : {}),
+      ...(payload.slip_photo_urls?.length ? { slip_photo_urls: payload.slip_photo_urls } : {}),
+    });
     if (payload.order_id?.trim()) insertRow.order_id = payload.order_id.trim();
 
     if (payload.manifest_data != null && Array.isArray(payload.manifest_data) && payload.manifest_data.length > 0) {
@@ -689,10 +703,12 @@ export async function updatePackage(
     const scope = await resolveTenantListScope({ actorProfileId });
     const safeUpdates = { ...(updates as unknown as Record<string, unknown>) };
     delete safeUpdates.updated_by;
-    const payload = omitUndefined({
-      ...safeUpdates,
-      updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
-    } as unknown as Record<string, unknown>);
+    const payload = mapPackageWriteRow(
+      omitUndefined({
+        ...safeUpdates,
+        updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
+      } as unknown as Record<string, unknown>),
+    );
     delete payload.created_by;
     if ("pallet_id" in payload) payload.pallet_id = uuidOrNull(payload.pallet_id as string);
     if ("store_id" in payload) {
