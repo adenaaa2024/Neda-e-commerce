@@ -72,4 +72,4 @@ See [`.ai-memory/ENVIRONMENT_TOPOLOGY.md`](.ai-memory/ENVIRONMENT_TOPOLOGY.md) f
 
 ## History policy
 
-Long-form program history: `.cursor/audit-reports/history-v175/20260604T120000Z/ERP_PIM_FULL_HISTORY_V175_APPEND_ONLY_CLAIM_RESOLVER_PREVIEW_STATUS.md`. Do not duplicate full history here — use [`.ai-memory/HISTORY_POINTERS.md`](.ai-memory/HISTORY_POINTERS.md).
+Long-form program history: `.cursor/audit-reports/history-canonical-rebuild-v182/20260518T120000Z/ERP_PIM_FULL_HISTORY_V182_CANONICAL_APPEND_ONLY_REBUILT.md` (V182 rebuild; base V175 from git `feab1b0`). Do not duplicate full history here — use [`.ai-memory/HISTORY_POINTERS.md`](.ai-memory/HISTORY_POINTERS.md).

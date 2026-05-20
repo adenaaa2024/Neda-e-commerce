@@ -1,56 +1,71 @@
 # History pointers — authoritative
 
-Index to **latest canonical full history (V178)** and audit evidence. Do not paste full history into `.ai-memory`.
+Do not paste full history into `.ai-memory`.
+
+**Restore order:** V182 canonical rebuild → **V183 append** → (optional) V184+ / V189 on disk.
 
 ---
 
-## Latest canonical full history — V178
-
-**Repo-relative:**
+## Latest canonical full history — V182 (rebuilt base)
 
 ```
-.cursor/audit-reports/history-v178/20260605T120000Z/ERP_PIM_FULL_HISTORY_V178_APPEND_ONLY_NEDA_HANDOFF_AI_GATES_PRODUCT_UI.md
+.cursor/audit-reports/history-canonical-rebuild-v182/20260518T120000Z/ERP_PIM_FULL_HISTORY_V182_CANONICAL_APPEND_ONLY_REBUILT.md
 ```
 
 | Field | Value |
 |-------|-------|
-| Pack / run | `history-v178` / `20260605T120000Z` |
-| Append slice | `v178-append.md` |
-| Handoff | `handoff-summary.md` |
-| Chain merge | Prepend `history-v175/20260604T120000Z/ERP_PIM_FULL_HISTORY_V175_*.md` when on disk |
+| Pack / run | `history-canonical-rebuild-v182` / `20260518T120000Z` |
+| Method | git `feab1b0` V175 + verbatim V176–V181 embeds |
+| Rules | NO deletion · NO summarization · NO minification |
+| Companions | `NEXT_CHAT_BOOTSTRAP.md`, `HISTORY_INDEX.md`, `HISTORY_TIMELINE.md` |
 
-**Prior slice:** `history-v175/20260604T120000Z/`
-
----
-
-## V178 memory update (this run)
-
-`ai-memory-update-after-v178-handoff/20260605T140000Z/` — refreshed `.ai-memory` + `TASKS.md` from V178 handoff facts (no code/DB).
+Embedded at start of V183 (and later operator files).
 
 ---
 
-## Key audit evidence
+## Latest operator slice — V183 (Neda env + FBM dry-run)
+
+```
+.cursor/audit-reports/history-v183/20260520T230000Z/ERP_PIM_FULL_HISTORY_V183_APPEND_ONLY_NEDA_ENV_FBM_DRY_RUN_STATUS.md
+```
+
+| Field | Value |
+|-------|-------|
+| Pack / run | `history-v183` / `20260520T230000Z` |
+| Append slice | `v183-append.md` |
+| Body | Full V182 + V183 append |
+
+**Memory sync (this prompt):** `ai-memory-update-after-v183/20260524T180000Z/`
+
+---
+
+## Later on disk (not V183 baseline)
+
+| Pack | Path |
+|------|------|
+| V184 | `history-v184/20260520T240000Z/` |
+| V185 | `history-v185/20260520T240000Z/` (if present) |
+| V189 closure | `history-v189/20260524T140000Z/` |
+
+Use V183 file for V181–V183 facts; use V189 for post-closure staging counts.
+
+---
+
+## Key audit evidence (V183 era)
 
 | Topic | Path |
 |-------|------|
-| Neda UI connector | `product-linkage-ui-data-connector-v178/20260520T150000Z/` |
-| AI gates (plan) | `ai-layer-harden-01-v178/20260519T233600Z/` |
-| AI gates (code) | `lib/ai-provider-gates.ts` |
-| V176 close | `claim-candidate-resolver-v176-final-verify-close/20260524T140000Z/` |
-| V177 blockers | `claim-upstream-blockers-v177/20260524T160000Z/` |
-| Mapping wave-2 | `product-id-mapping-wave-2-v176/` |
-| Hardening roadmap | `hardening-roadmap-v177/20260524T180000Z/` |
-| Memory sync V177 | `ai-memory-history-sync-v177/20260524T170000Z/` |
+| V183 memory | `ai-memory-update-after-v183/20260524T180000Z/` |
+| V181 signoff | `expected-inventory-neda-read-model-signoff-v181/20260521T120000Z/` |
+| FBM V183 dry-run | `return-items-fbm-aware-dry-run-v183/20260521T140000Z/` |
+| Map enrichment V185 | `return-items-identifier-map-enrichment-v185/20260521T160000Z/` |
+| V179 inventory | `inventory-views-product-linkage-contract-v179/` |
 
 ---
 
-## Paired-update law (mandatory)
+## Paired-update law
 
-Every memory-changing audit updates **append-only full history + `.ai-memory` together.**
-
-1. New `history-v###/<run_id>/` — prior full file + `v###-append.md` (never shorten).
-2. Refresh `.ai-memory` topic files + `TASKS.md`.
-3. Bump **this file** if canonical path changes.
+History append + `.ai-memory` updated **together** in one session.
 
 ---
 
@@ -59,8 +74,9 @@ Every memory-changing audit updates **append-only full history + `.ai-memory` to
 | Need | Read |
 |------|------|
 | Now | `.ai-memory/CURRENT_STATE.md` |
+| Cold start | `history-canonical-rebuild-v182/.../NEXT_CHAT_BOOTSTRAP.md` |
+| V183 facts | V183 operator path above |
 | Neda | `.ai-memory/NEDA_HANDOFF.md` |
-| Timeline | V178 full history path above |
 | Hard stops | `.ai-memory/FORBIDDEN_ACTIONS.md` |
 
 ---
@@ -69,4 +85,3 @@ Every memory-changing audit updates **append-only full history + `.ai-memory` to
 
 - `.cursor/environment-policy/final-env-topology-v170.md`
 - `.cursor/operator-approvals/production-readiness-01-approval.md`
-- `.cursor/operator-approvals/product-auto-create-governance-v165-approval.md`

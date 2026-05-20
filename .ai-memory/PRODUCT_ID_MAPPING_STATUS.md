@@ -1,47 +1,59 @@
-# Product ID mapping status — V178
+# Product ID mapping status — V183+
 
 **Staging:** `eiqfaapyumhixxoeltgu`  
-**Status:** **Partial but operational** — safe to build UI against contract; do not treat partial tables as 100%.
+**Overall:** **Partial but operational**
 
-## Spine (100% — operational)
+## Spine (100%)
 
-| Table | Coverage | Audit |
-|-------|----------|-------|
-| `products` (~17,001) | 100% | `product-id-mapping-materialization-v174/20260519T231000Z` |
-| `product_identifier_map` (~12,605) | 100% | same |
+| Table | Coverage |
+|-------|----------|
+| `products` (~17,001) | 100% |
+| `product_identifier_map` (~12,605) | 100% schema |
 
-## Wave-2 V176 — applied (partial operational tables)
+## UPC/GTIN gap (execute blocker)
 
-| Table | Coverage | Notes |
-|-------|----------|-------|
-| `amazon_amazon_fulfilled_inventory` | **56.2%** | Tier-4 ASIN wave |
-| `amazon_returns` | **82.2%** | |
-| `amazon_manage_fba_inventory` | **73.6%** | |
-| `slip_contents` | **0%** | No exact-match keys |
-| `amazon_transactions` | **0%** | No SKU+ASIN pairs |
+| Item | Status |
+|------|--------|
+| `upc_code` on map | Present on staging |
+| `lib/product-identifier-match.ts` | **Does not consume UPC/GTIN** |
+| V182/V183 policy | Tier 4 **disabled** |
+| Optional fix | `PRODUCT-IDENTIFIER-MATCH-UPC-GTIN-V182` |
 
-**Skipped:** `amazon_settlements` (blind bulk forbidden), `amazon_inventory_ledger` (later wave), `return_items` (6 test rows), `package_items` (absent).
+## return_items FBM (V182 / V183)
 
-**Folder:** `.cursor/audit-reports/product-id-mapping-wave-2-v176/`
+| Item | Status |
+|------|--------|
+| V182 audit score | **72/100** |
+| Dry-run | **Ready** — `20260521T140000Z` **PASS** |
+| V183 dry-run | **0** `set_resolved` |
+| Execute | **BLOCKED** |
+| Data | **~7** rows — **fake/test** — not KPI truth |
+| Unresolved at dry-run | **5** — thin FNSKU/SKU map; V185 **0** enrichable |
 
-## Claims linkage (live — separate from mapping SQL)
+## expected_packages (V179)
 
-| Table | % | Unresolved |
-|-------|---|------------|
-| `claim_candidates` | **72.7%** | 2,474 |
-| `claim_candidate_drafts` | **51.5%** | 4,427 |
+Read-time linkage **PASS** — `fetchExpectedPackagesNedaRead`; no blind backfill.
 
-Neda UI must show **unresolved/ambiguous** rows safely — mapping % does not mean all inbox rows are resolved.
+## Inventory views (V179)
 
-## Policy
+Per-row read enrich — not global mapping %.
 
-- Governed waves only; no auto-create from UI/OCR.
-- Next: wave-3 / ledger when operator approves.
+## Wave-2 V176 (reference)
+
+Bulk Amazon partial; no blind settlements; governed scope only.
+
+## Claims (live)
+
+**72.7%** candidates · **51.5%** drafts
 
 ## UI contract
 
-All linkage display: **`ProductLinkageDisplayContract`** + V178 `ProductLinkageDisplayBlock`.
+`ProductLinkageDisplayContract` + safe unresolved/ambiguous labels.
+
+## Post-V183 note
+
+V186–V189 closed the staging **test cohort** separately — see `history-v189/`; V183 counts above are the **audit baseline**, not necessarily current row totals.
 
 ## Update rule
 
-After mapping audit → this file + `CURRENT_STATE.md` + paired history append.
+After mapping or FBM re-run → this file + `CURRENT_STATE.md` + history append (V182 base chain).

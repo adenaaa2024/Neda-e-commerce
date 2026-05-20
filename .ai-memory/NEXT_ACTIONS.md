@@ -1,62 +1,70 @@
-# Next actions — V178
+# Next actions — V183+
 
-See [TASKS.md](../TASKS.md). Order from history-v178 §9.
-
----
-
-## 1. V176 final closeout
-
-**DONE** — `PASS_CLOSED` (`claim-candidate-resolver-v176-final-verify-close/20260524T140000Z`).
+See [TASKS.md](../TASKS.md). Primary order from **history-v183** §14.
 
 ---
 
-## 2. Neda V178 handoff follow-through
+## P0 — Neda environment
 
-**DONE (baseline):** Backend contract + UI connector **PASS**.
-
-**Optional next:**
-
-- **NEDA-PREVIEW-REGRESSION-PACK** — UI regression on Preview after connector changes.
-- Contract-preserving UI polish only — no browser Supabase direct-writes; no OCR/title product inference.
+| Rule | Status |
+|------|--------|
+| Active quartet → **`eiqfaapyumhixxoeltgu`** | **ALIGNED** (verify each session) |
+| If pointing at original `kxsvedvpjldygtdbylsy` | **STOP** — **top blocker** (ENV-05E) |
 
 ---
 
-## 3. Claim upstream blockers V177 (execute — governed)
+## Done — V181 / V182 / V183
 
-~2,474 candidates / ~4,427 drafts open. **2,557** dry “eligible” — **do not blind execute**.
-
-- Waves A/B/C per `claim-upstream-blockers-v177/20260524T160000Z/`
-- Separate charter: ~4,736 candidate orphan FK (V175 legacy)
-
----
-
-## 4. Product mapping next wave / Amazon ledger
-
-- **Partial but operational** — continue governed waves only.
-- Wave-3 / ledger: `product-id-mapping-wave-2-v176` or successor; **no** blind `amazon_settlements` bulk.
-- `return_items` out of scope (test cohort).
+- [x] **V182** canonical full history on disk
+- [x] **V181** expected/inventory Neda read signoff **PASS**
+- [x] **V179** inventory + expected_packages read contract
+- [x] **V183** FBM dry-run **PASS** (no writes; 0 eligible `set_resolved`)
 
 ---
 
-## 5. Hardening roadmap artifacts
+## 1. UPC/GTIN matcher (optional)
 
-**DONE (V177 pack on disk)** — implement per workstream when chartered; production still **blocked**.
-
----
-
-## 6. AI layer
-
-- **Gates implemented** — default **deny** (`lib/ai-provider-gates.ts`).
-- **AI-LAYER-GATEWAY-03** — unified gateway + rate limits (flags stay off).
-- **Do not** enable live OpenAI without operator flags + governance.
+`PRODUCT-IDENTIFIER-MATCH-UPC-GTIN-V182` — wire `upc_code` in `lib/product-identifier-match.ts`.
 
 ---
 
-## 7. History hygiene
+## 2. Identifier map enrichment (governed)
 
-- **Canonical:** history-v178 full file (merge v175 when on disk).
-- Next append: **HISTORY-V179+** after major execute wave.
+V185: **0** enrichable for 5 unresolved rows — dirty/test `source_identifier` + thin map. Governed enrichment only; **no blind** bulk.
+
+---
+
+## 3. Re-run FBM dry-run → conditional execute
+
+```bash
+npx tsx scripts/return-items-fbm-aware-dry-run-v183.ts --run-id=<id>
+```
+
+- V182: **72/100**, dry-run ready, execute **blocked**
+- Execute only if `set_resolved_total > 0` + operator approval
+
+---
+
+## 4. Claim upstream V177 (separate)
+
+Governed waves — no blind execute.
+
+---
+
+## 5. Charters
+
+- **RETURN-ITEMS-PROD-DATA-CHARTER** — replace fake/test cohort (V183 warning)
+- **NEDA-17** — not run
+- Production — **blocked**
+
+---
+
+## Post-V183 (if resuming later work)
+
+V186–V189 test-cohort closure **done** on staging — see `history-v189/` and `.ai-memory` post-V189 notes in audit packs; no staging resolver re-execute required for that cohort.
+
+---
 
 ## Production (blocked)
 
-No production ref, probes, Vercel Production changes, or production AI.
+No production ref, probes, Vercel Production swap, migrations on prod, live AI, Amazon API.

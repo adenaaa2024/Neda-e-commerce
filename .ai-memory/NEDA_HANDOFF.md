@@ -1,74 +1,63 @@
-# Neda handoff — V178 (backend + product linkage UI)
+# Neda handoff — V183+
 
 **Staging / Preview only.** Production **blocked**.
 
-## You can build against the backend contract now
+## Environment (mandatory)
 
-The server contract is **stable and consumable**:
+| Rule | Value |
+|------|--------|
+| **Active Supabase ref** | **`eiqfaapyumhixxoeltgu`** (staging) |
+| V183 status | **PASS / ALIGNED** |
+| **If active quartet → original** | **STOP** — **top blocker** (ENV-05E) |
+| Vercel Production | `kxsvedvpjldygtdbylsy` — not for Neda work |
 
-| Layer | Path | Role |
-|-------|------|------|
-| **Canonical contract** | `lib/product-linkage-display-contract.ts` | `ProductLinkageDisplayContract` — **use this shape only** |
-| Enrichment | `lib/product-linkage-display-enrich.ts` | DB row → contract (server) |
-| **Approved server actions** | `app/returns/product-linkage-display-actions.ts` | `fetchProductLinkageDisplayContract`, `buildProductLinkageDisplayContracts` |
-| UI copy / labels | `lib/product-linkage-display-ui.ts` | V178 shared strings |
-| Unified block | `components/product-linkage/ProductLinkageDisplayBlock.tsx` | Prefer over one-off badges |
+Verify `NEXT_PUBLIC_SUPABASE_URL` matches staging before each session.
 
-**Audit:** `product-linkage-ui-data-connector-v178/20260520T150000Z/`
+## V181 signoff — expected + inventory
+
+| Item | Status |
+|------|--------|
+| Audit | `expected-inventory-neda-read-model-signoff-v181/20260521T120000Z/` |
+| Overall | **PASS** |
+| Paths | `fetchExpectedPackagesNedaRead`, `fetchInventoryItemStatusForNeda` |
+| `package_items` | absent **PASS** |
+
+## Inventory views (V179 contract)
+
+| View | Product linkage? |
+|------|------------------|
+| **`v_inventory_item_status`** | **YES — only** → `fetchInventoryItemStatusForNeda` |
+| `v_inventory_status` | **NO** — package aggregate chip only |
+| `v_scanned_items_counted` | **NO** — counters only (V189 adds `deleted_at` filter on later staging) |
+
+## Product linkage (V178)
+
+- `ProductLinkageDisplayContract` + `ProductLinkageDisplayBlock`
+- Approved server actions only — **no direct browser Supabase** writes for linkage/catalog
 
 ## Required rules
 
-1. **Always** map/display via `ProductLinkageDisplayContract` fields — not ad-hoc title/SKU guessing.
-2. **Only** call **approved server actions** above (or existing returns actions already in repo) for linkage enrichment — **do not** add new browser-side Supabase mutations for product linkage.
-3. **Do not direct-write from browser Supabase** (`createBrowserClient` / `supabase.from(...)`) for catalog linkage, resolver columns, or `products` / `product_identifier_map` updates.
-4. **Unresolved / ambiguous / mismatch** rows must display **safely**:
-   - Unresolved → **“No product link yet”**
-   - Ambiguous → **“Needs review”**
-   - Headline → `product_name` ?? `fallback_display_name`
-   - Use `ProductLinkageDisplayBlock` or existing wired components — never hide bad states or fake “resolved”.
-5. **Do not** infer or create products from OCR/title in UI (resolver auto-create forbidden).
+1. Contract-only product display — no title/OCR inference.
+2. **No** `.from("returns")` — **`return_items`** only.
+3. **No** `package_items`.
+4. Unresolved → **No product link yet**; ambiguous → **Needs review**.
 
-## Wired surfaces (V178)
+## `return_items` warning (V183 baseline)
 
-- Claim inbox list / detail
-- Claim draft panel
-- Manifest lines (`ManifestLineProductLinkage`)
-- Return item labels (`ReturnItemProductLinkage`)
+At V183 dry-run: **~7** staging rows — **fake/test** — not KPI truth; **5** unresolved; FBM execute **blocked** (0 `set_resolved`).
 
-## Environment
-
-| Item | Value |
-|------|-------|
-| DB | `eiqfaapyumhixxoeltgu` |
-| Org / store | Sam Distribution Inc · Sam AM |
-| Preview signoff | **PASS** (ENV-06C) |
-
-## Data caveats
-
-| Item | Note |
-|------|------|
-| `return_items` | **6 test rows** on staging — not production KPIs |
-| Claim linkage | **72.7%** candidates / **51.5%** drafts — many rows still unresolved; UI must handle them |
-| Product mapping | **Partial but operational** — spine 100%; bulk tables partial |
+**Later (V186–V189):** test cohort quarantined/resolved on staging — see `history-v189/` for current active counts (3 resolved, 4 soft-deleted).
 
 ## Status
 
 | Gate | Status |
 |------|--------|
-| NEDA 15 | **PASS** |
-| V178 connector | **PASS** |
-| Backend contract consumable | **YES** |
+| V181 read signoff | **PASS** |
+| V179 inventory/expected | **PASS** |
+| Neda env staging | **ALIGNED** (monitor drift) |
 | Production | **Do not use** |
 
-## Do not
+## Context
 
-- `.from("returns")` — use `return_items`
-- `package_items`
-- Production deploys or resolver executes
-- Live AI / OpenAI (gates default **deny**)
-- Browser Supabase writes for linkage/catalog
-
-## Context files
-
-- Day-to-day: `.ai-memory/CURRENT_STATE.md`
-- Full timeline: [HISTORY_POINTERS.md](HISTORY_POINTERS.md) → history-v178
+- `.ai-memory/CURRENT_STATE.md`
+- [HISTORY_POINTERS.md](HISTORY_POINTERS.md)

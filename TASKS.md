@@ -1,40 +1,42 @@
-# Tasks — active board (V178)
+# Tasks — active board (V183+)
 
 Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md).  
-**Canonical history:** [`.ai-memory/HISTORY_POINTERS.md`](.ai-memory/HISTORY_POINTERS.md) → history-v178.
+**Canonical base:** V182 rebuild · **Operator slice:** V183 — [HISTORY_POINTERS.md](.ai-memory/HISTORY_POINTERS.md).
 
-## P0 — Policy
+## P0 — Policy & Neda env
 
-- [ ] **Do not** register production or point Vercel Production at staging.
-- [ ] **Do not** enable live AI (`AI_EXTERNAL_HTTP_ENABLED` + surface flags) without governance.
+- [ ] **Verify active quartet → staging** `eiqfaapyumhixxoeltgu` — if not, **top blocker**
+- [ ] **Do not** register production; no live AI; no `package_items`; no `.from("returns")`
 
-## P1 — Claims (staging)
+## P1 — Return-items FBM / matcher (V183 baseline)
 
-- [ ] **Claim upstream blockers V177 execute** (governed) — `claim-upstream-blockers-v177/20260524T160000Z/` — **no blind** execute of 2,557 dry-eligible.
-- [ ] **Candidate orphan FK charter** (~4,736) — separate from closed V176.
-- [ ] TRID read OK; filing/submit only with operator approval.
+- [ ] **UPC/GTIN matcher** (optional charter)
+- [ ] **Map enrichment** — V185 showed **0** enrichable; governed only
+- [ ] Re-run `return-items-fbm-aware-dry-run-v183` → execute only if `set_resolved_total > 0` + approval  
+  (V182 **72/100**, execute **blocked** at V183)
 
-## P2 — Product mapping
+## P2 — Claims / mapping
 
-- [ ] **Next wave / ledger** — partial but operational; governed only; no blind settlements.
-- [ ] `slip_contents` / transactions — strategy TBD.
+- [ ] Claim upstream V177 (governed)
+- [ ] Next mapping wave / ledger (no blind settlements)
 
-## P3 — Neda / AI / roadmap
+## P3 — Data / roadmap
 
-- [ ] **NEDA-PREVIEW-REGRESSION-PACK** (optional UI regression on Preview).
-- [ ] **AI-LAYER-GATEWAY-03** (flags stay default deny).
-- [ ] **RETURN-ITEMS-PROD-DATA-CHARTER** before returns volume KPIs.
-- [ ] **HISTORY-V179+** append when next milestone closes.
+- [ ] **RETURN-ITEMS-PROD-DATA-CHARTER** — fake/test cohort (~7 rows at V183)
+- [ ] NEDA-17 (not run)
 
-## Done
+## Done — V181 / V182 / V183
 
-- [x] **NEDA V178 handoff** — backend contract consumable; UI connector PASS
-- [x] **AI gates** — `lib/ai-provider-gates.ts` default **deny**
-- [x] Hardening roadmap V177 + AI plan V177 artifacts
-- [x] V176 closeout; V175 resolver; wave-2 V176 mapping
-- [x] Preview signoff; NEDA 15; schema smoke; storage 144/144; build PASS
-- [x] Claims **72.7%** / drafts **51.5%** (live); safe unresolved/ambiguous UI labels
+- [x] **V182** canonical rebuild — full history on disk
+- [x] **V181** expected/inventory Neda read signoff **PASS**
+- [x] **V183** FBM dry-run **PASS** (0 `set_resolved`)
+- [x] V179 inventory/expected; V178 connector; V176 close; preview signoff
+- [x] Claims **72.7%** / **51.5%**; Neda env **ALIGNED** (V183)
+
+## Post-V183 (staging test cohort — separate track)
+
+- [x] V186–V189 closure on staging (see `history-v189/`) — not part of V183 execute gate
 
 ## Forbidden
 
-[`.ai-memory/FORBIDDEN_ACTIONS.md`](.ai-memory/FORBIDDEN_ACTIONS.md) — no `package_items`, no `.from("returns")`, no production, no browser Supabase linkage writes, no OCR/title product auto-create, no live AI by default.
+[`.ai-memory/FORBIDDEN_ACTIONS.md`](.ai-memory/FORBIDDEN_ACTIONS.md)

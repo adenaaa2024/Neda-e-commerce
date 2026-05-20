@@ -1,70 +1,56 @@
-# Current state — V178 (authoritative)
+# Current state — V183+ (authoritative)
 
-**Last updated:** 2026-06-05 (`ai-memory-update-after-v178-handoff` `20260605T140000Z`)  
-**Canonical full history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
-`.cursor/audit-reports/history-v178/20260605T120000Z/ERP_PIM_FULL_HISTORY_V178_APPEND_ONLY_NEDA_HANDOFF_AI_GATES_PRODUCT_UI.md`  
-**Paired-update law:** change with history append, not alone.
+**Last updated:** 2026-05-24 (`ai-memory-update-after-v183` `20260524T180000Z`)  
+**Operator history (V183):** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
+`.cursor/audit-reports/history-v183/20260520T230000Z/ERP_PIM_FULL_HISTORY_V183_APPEND_ONLY_NEDA_ENV_FBM_DRY_RUN_STATUS.md`  
+**Canonical full base:**  
+`.cursor/audit-reports/history-canonical-rebuild-v182/20260518T120000Z/ERP_PIM_FULL_HISTORY_V182_CANONICAL_APPEND_ONLY_REBUILT.md`  
+**Cold start:** `history-canonical-rebuild-v182/20260518T120000Z/NEXT_CHAT_BOOTSTRAP.md`
 
-## Gates (summary)
+## V181 / V182 / V183 gates (mandatory baseline)
 
 | Gate | Status |
 |------|--------|
-| Build / schema smoke V175 | **PASS** (21/21) |
-| Storage **144/144** | **PASS** |
-| Schema reconcile | **PASS** |
-| Preview operator signoff | **PASS** (ENV-06C close V175) |
-| **NEDA V178 backend + UI handoff** | **PASS** — contract consumable; connector wired |
-| **ProductLinkageDisplayContract** | **CANONICAL** |
-| **Product mapping** | **Partial but operational** (spine 100%; wave-2 applied; gaps remain) |
-| **AI provider gates** | **IMPLEMENTED** — **default deny**; no live AI |
-| Hardening roadmap V177 / AI plan V177 | **PASS** (artifacts) |
-| Claim V176 draft orphan FK | **PASS_CLOSED** |
-| Claim V177 blockers plan | **PASS** (read-only) |
-| Production | **NOT_CREATED_YET** / **BLOCKED** |
-| Vercel Production | **UNTOUCHED** (`kxsvedvpjldygtdbylsy`) |
-| `package_items` | **FORBIDDEN** / absent |
+| **V182 canonical rebuild** | **PASS** — latest **full** append-only base |
+| **V181 expected/inventory Neda read signoff** | **PASS** (`20260521T120000Z`) |
+| **Neda env → staging** | **`eiqfaapyumhixxoeltgu`** — **ALIGNED**; **P0 top blocker** if active quartet drifts |
+| **Return-items FBM V182 audit** | **72/100** — dry-run **ready**; **execute blocked** |
+| **Return-items FBM V183 dry-run** | **PASS** — **0** `set_resolved`; execute **blocked** |
+| **UPC/GTIN matcher** | **GAP** — tier 4 disabled |
+| **`return_items` (V183 cohort)** | **~7** active — **fake/test** warning; **5** unresolved at dry-run |
+| **`package_items`** | **FORBIDDEN** / absent |
+| **Production** | **NOT_CREATED_YET** / **BLOCKED** |
+| Vercel Production DB | `kxsvedvpjldygtdbylsy` — **untouched** |
 
-## Database refs
+### V183 dry-run evidence (latest on disk)
 
-| Role | Ref |
-|------|-----|
-| Original | `kxsvedvpjldygtdbylsy` |
-| Staging / local / Preview | `eiqfaapyumhixxoeltgu` |
-| Production | `NOT_CREATED_YET` |
+`return-items-fbm-aware-dry-run-v183/20260521T140000Z/` — 7 active, 0 new resolves, 5 remain unresolved, tier 4 disabled.
 
-## Claim coverage (staging — live)
+### V185 map enrichment (post-V183)
 
-| Table | Resolved | Total | % | Unresolved |
-|-------|----------|-------|---|------------|
-| `claim_candidates` | 6,581 | 9,055 | **72.7%** | 2,474 |
-| `claim_candidate_drafts` | 4,710 | 9,137 | **51.5%** | 4,427 |
+`return-items-identifier-map-enrichment-v185/20260521T160000Z/` — **0** enrichable; **5** non-enrichable (dirty/test identifiers).
 
-Drafts: **0** FK violations vs `products.id` (V176). ~4,736 **candidate** orphan FK rows (V175 legacy) — separate charter.
+## Carried (unchanged)
 
-**UI policy:** Unresolved / ambiguous / mismatch rows use safe labels via V178 connector — never infer product from title/OCR in UI.
+| Item | Status |
+|------|--------|
+| V179 expected_packages + inventory views | **PASS** |
+| NEDA V178 connector | **PASS** |
+| Claim V176 close | **PASS_CLOSED** |
+| Claims | **72.7%** / **51.5%** |
+| Legacy `returns` | **FORBIDDEN** — use `return_items` |
+| AI gates | Default deny |
 
-## Neda integration (V178)
+## Post-V183 on staging (do not confuse with V183 dry-run)
 
-- **Backend contract is consumable now** — `ProductLinkageDisplayContract` + enrich path.
-- **Approved server actions only** — `app/returns/product-linkage-display-actions.ts` (`fetchProductLinkageDisplayContract`, `buildProductLinkageDisplayContracts`).
-- **No direct browser Supabase writes** for linkage/catalog mutations — use server actions / existing app patterns.
-- Surfaces wired: claim inbox, draft panel, manifest lines, return item labels (`product-linkage-ui-data-connector-v178`).
-
-## Mapping / catalog
-
-- Spine `products` + `product_identifier_map`: **100%**
-- Operational tables: **partial** — wave-2 applied; `slip_contents` 0%; settlements governed-only
-- `return_items`: **6 test rows** — not KPIs
-
-## AI gates (default deny)
-
-`lib/ai-provider-gates.ts` — requires `AI_EXTERNAL_HTTP_ENABLED` + per-surface flags. **Live AI off** unless operator explicitly enables.
+Later charters **V186–V189** closed the **test cohort** (4 soft-deleted, 3 active resolved, 0 unresolved). See `history-v189/20260524T140000Z/` if you need **current** staging row counts — not the V183 **7-row / 5-unresolved** snapshot.
 
 ## Evidence
 
-| Topic | Folder |
-|-------|--------|
-| V178 history | `history-v178/20260605T120000Z/` |
-| Neda connector | `product-linkage-ui-data-connector-v178/20260520T150000Z/` |
-| V176 close | `claim-candidate-resolver-v176-final-verify-close/20260524T140000Z/` |
-| V177 blockers | `claim-upstream-blockers-v177/20260524T160000Z/` |
+| Topic | Path |
+|-------|------|
+| V182 canonical | `history-canonical-rebuild-v182/20260518T120000Z/` |
+| V183 | `history-v183/20260520T230000Z/` |
+| V181 signoff | `expected-inventory-neda-read-model-signoff-v181/20260521T120000Z/` |
+| FBM V183 dry-run | `return-items-fbm-aware-dry-run-v183/20260521T140000Z/` |
+| Memory sync | `ai-memory-update-after-v183/20260524T180000Z/` |

@@ -1,79 +1,65 @@
-# Database contract — V176
+# Database contract — V183+
 
-Staging ref unless noted: `eiqfaapyumhixxoeltgu`.
+Staging ref: **`eiqfaapyumhixxoeltgu`** — Neda/local/Preview **must** use active quartet bound here.
 
 ## Active binding
 
-App uses **only** the active quartet:
-
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `DIRECT_POSTGRES_URL`
-
-`STAGING_*` / `ORIGINAL_*` are operator aliases — they do not switch the app unless copied into the active quartet.
+`NEXT_PUBLIC_SUPABASE_URL`, anon key, service role, `DIRECT_POSTGRES_URL`. `STAGING_*` / `ORIGINAL_*` are aliases only.
 
 ## Core tables
 
-### Catalog (canonical)
+### Catalog
 
 | Table | Role |
 |-------|------|
-| `products` | Canonical `id`; ~17,001 on staging Sam |
-| `product_identifier_map` | Resolver authority bridge |
+| `products` | ~17k Sam AM |
+| `product_identifier_map` | Bridge; **`upc_code` present** — **UPC/GTIN tier not wired** (V182 gap) |
 
 ### Warehouse
 
-| Table | Role |
-|-------|------|
-| `return_items` | Returns/scanner lines — **use this** (6 test rows on staging) |
-| `packages` | `package_code` (reconciled UI) |
-| `pallets` | `pallet_photo_urls` |
-| `slip_contents` | Slip lines — partial / 0% exact-match wave |
+| Table / view | Role |
+|--------------|------|
+| **`return_items`** | Lines — **not** `returns`; V183: **~7** FBM test cohort — **fake/test warning** |
+| `packages`, `pallets`, `slip_contents` | Hierarchy |
+| **`expected_packages`** | ~1,626 — V179 read-time linkage |
+
+### Inventory views (V179 / V181)
+
+| View | Neda product UI? |
+|------|------------------|
+| `v_inventory_item_status` | **YES — only** |
+| `v_inventory_status` | Aggregate only |
+| `v_scanned_items_counted` | Counters only |
 
 ### Forbidden / absent
 
 | Name | Rule |
 |------|------|
-| `package_items` | **Must not exist** |
-| `returns` (legacy) | **Do not query** — use `return_items` |
+| **`package_items`** | Must not exist |
+| **`returns`** (legacy) | Do not query |
 
 ### Claims
 
-| Table | Notes |
-|-------|-------|
-| `claim_candidates` | `resolved_product_id` ~**72.7%** (post wave-2) |
-| `claim_candidate_drafts` | ~**51.5%**; V176 orphan FK remediated |
+`claim_candidates` **72.7%** · `claim_candidate_drafts` **51.5%**
 
-### Amazon operational (partial — wave-2)
+## Return-items FBM (V182 / V183)
 
-| Table | Notes |
-|-------|-------|
-| `amazon_returns` | Partial — wave-2 tier-4 |
-| `amazon_manage_fba_inventory` | Partial |
-| `amazon_amazon_fulfilled_inventory` | Large tier-4 wave |
-| `amazon_settlements` | **No blind bulk** — policy skip |
-
-### Imports
-
-| Table | Notes |
-|-------|-------|
-| `raw_report_uploads` | Upload spine |
-| Report tables | JSONB where needed; governed waves only |
-
-## Resolver columns
-
-On linkage-bearing rows: `resolved_product_id`, `resolved_catalog_product_id`, `identifier_resolution_status`, `identifier_resolution_confidence`. Legacy `product_id` = mismatch guard only.
+| Item | Status |
+|------|--------|
+| V182 readiness | **72/100** |
+| Dry-run | **Ready** — latest `20260521T140000Z` **PASS** |
+| V183 result | **0** `set_resolved` proposals |
+| Execute | **BLOCKED** (UPC/GTIN gap + no eligible rows) |
 
 ## Migrations
 
-Staging first + operator approval. No destructive migrations without rollback. Production **blocked**.
+Staging first; production **blocked**. View snapshot: `20260824120000_inventory_views_neda_snapshot_v180.sql` (V189 filter migration is separate later pack).
 
-## Evidence (pointers only)
+## Evidence
 
-| Topic | Audit path |
-|-------|------------|
-| Mapping matrix V174 | `product-id-mapping-materialization-v174/20260519T231000Z/staging-matrix.json` |
-| Wave-2 execute | `product-id-mapping-wave-2-v176/20260520T132000Z/` |
-| Claim resolver | `claim-candidate-resolver-project-v175/20260524T120000Z/` |
-| V176 orphan FK | `claim-candidate-resolver-v176-fk-orphan-product-fix/20260523T211500Z/` |
+| Topic | Path |
+|-------|------|
+| V182 canonical | `history-canonical-rebuild-v182/20260518T120000Z/` |
+| V183 | `history-v183/20260520T230000Z/` |
+| V181 | `expected-inventory-neda-read-model-signoff-v181/20260521T120000Z/` |
+| FBM dry-run | `return-items-fbm-aware-dry-run-v183/20260521T140000Z/` |

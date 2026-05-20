@@ -14,6 +14,8 @@ import {
 import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColumn";
 import { ReturnItemProductLinkage } from "../../components/returns/ReturnItemProductLinkage";
 import { ManifestLineProductLinkage } from "../../components/returns/ManifestLineProductLinkage";
+import { ExpectedPackagesLinkagePanel } from "../../components/returns/ExpectedPackagesLinkagePanel";
+import { InventoryItemStatusLinkagePanel } from "../../components/returns/InventoryItemStatusLinkagePanel";
 import { SmartCameraUpload } from "../../components/ui/SmartCameraUpload";
 import { BarcodeScannerModal } from "../../components/ui/BarcodeScannerModal";
 import {
@@ -2842,10 +2844,21 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   const [editManifestErr, setEditManifestErr] = useState("");
 
   const [reconciliationLines, setReconciliationLines] = useState<SlipExpectedItem[] | null>(null);
-  const [reconciliationSource, setReconciliationSource] = useState<"amazon" | "ocr" | null>(null);
+  const [reconciliationSource, setReconciliationSource] = useState<
+    "expected_packages" | "amazon" | "ocr" | null
+  >(null);
+  /** null = panel still loading; 0 = no expected_packages rows; >0 = panel is primary source */
+  const [expectedPackagesRowCount, setExpectedPackagesRowCount] = useState<number | null>(null);
 
   useEffect(() => {
+    setExpectedPackagesRowCount(null);
+  }, [pkg.id, pkg.tracking_number, pkg.order_id]);
+
+  useEffect(() => {
+    if (expectedPackagesRowCount === null) return;
+
     const tn = pkg.tracking_number?.trim() ?? "";
+    const oid = pkg.order_id?.trim() ?? "";
 
     function applyOcrFallback() {
       const md = pkg.manifest_data;
@@ -2860,7 +2873,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       }
     }
 
-    if (!tn) {
+    if (expectedPackagesRowCount > 0) {
+      setReconciliationLines(null);
+      setReconciliationSource("expected_packages");
+      return;
+    }
+
+    if (!tn && !oid) {
       applyOcrFallback();
       return;
     }
@@ -2878,7 +2897,14 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       }
     });
     return () => { cancelled = true; };
-  }, [pkg.tracking_number, pkg.organization_id, pkg.manifest_data]);
+  }, [
+    pkg.tracking_number,
+    pkg.order_id,
+    pkg.organization_id,
+    pkg.manifest_data,
+    pkg.store_id,
+    expectedPackagesRowCount,
+  ]);
 
   /** Same source as the Packages accordion — `listReturns()` page state (`allReturns`). */
   const items = useMemo(
@@ -3128,11 +3154,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               className="hidden"
               onChange={handleEditManifestUpload}
             />
-            {reconciliationSource === "amazon" ? (
+            {reconciliationSource === "expected_packages" || reconciliationSource === "amazon" ? (
               <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  Amazon Sync active — packing slip scan not required.
+                  {reconciliationSource === "expected_packages"
+                    ? "Expected packages loaded — packing slip scan not required."
+                    : "Amazon Sync active — packing slip scan not required."}
                 </span>
               </div>
             ) : editManifestOcrRunning ? (
@@ -3378,12 +3406,29 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
         />
       )}
 
+      {pkg.tracking_number?.trim() ? (
+        <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-800 dark:bg-sky-950/20">
+          <p className="mb-3 text-sm font-bold text-foreground">Inventory status</p>
+          <InventoryItemStatusLinkagePanel
+            organizationId={pkg.organization_id}
+            storeId={pkg.store_id}
+            trackingNumber={pkg.tracking_number}
+            compact
+          />
+        </section>
+      ) : null}
+
       {/* ── Read-only: reconciliation from Amazon sync or manifest_data OCR ── */}
       <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-bold text-foreground">Packing slip / manifest</p>
-            {reconciliationSource === "amazon" ? (
+            <p className="text-sm font-bold text-foreground">Expected vs scanned</p>
+            {reconciliationSource === "expected_packages" ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <CheckCircle2 className="h-3 w-3" />
+                Expected packages
+              </span>
+            ) : reconciliationSource === "amazon" ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                 <CheckCircle2 className="h-3 w-3" />
                 Amazon Sync
@@ -3395,12 +3440,20 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               </span>
             )}
           </div>
+          {reconciliationSource === "expected_packages" && (
+            <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              From expected_packages with product linkage (read-only).
+            </p>
+          )}
           {reconciliationSource === "amazon" && (
             <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               Expected items loaded securely from Amazon files.
             </p>
           )}
-          {reconciliationSource !== "amazon" && reconciliationLines && packageGalleryUrls(pkg).length > 0 && (
+          {reconciliationSource !== "amazon" &&
+            reconciliationSource !== "expected_packages" &&
+            reconciliationLines &&
+            packageGalleryUrls(pkg).length > 0 && (
             <a
               href={packageGalleryUrls(pkg).slice(-1)[0] ?? "#"}
               target="_blank"
@@ -3411,12 +3464,24 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             </a>
           )}
         </div>
-        {!reconciliationLines && (
+        {(pkg.tracking_number?.trim() || pkg.order_id?.trim()) ? (
+          <ExpectedPackagesLinkagePanel
+            organizationId={pkg.organization_id}
+            storeId={pkg.store_id}
+            orderId={pkg.order_id}
+            trackingNumber={pkg.tracking_number}
+            scannedItems={displayItems}
+            compact
+            onLoaded={setExpectedPackagesRowCount}
+            className="mb-3"
+          />
+        ) : null}
+        {!reconciliationLines && reconciliationSource !== "expected_packages" && (
           <p className="text-center text-[13px] text-muted-foreground">
             No manifest line items on file. Use <strong>Edit</strong> to photograph or load a packing slip — reconciliation appears here once saved.
           </p>
         )}
-        {reconciliationLines && (
+        {reconciliationLines && reconciliationSource !== "expected_packages" && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reconciliation</p>
