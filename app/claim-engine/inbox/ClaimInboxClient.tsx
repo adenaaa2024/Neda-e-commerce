@@ -6,6 +6,8 @@ import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "luc
 
 import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
 import { ClaimReferenceCandidatesPanel } from "@/components/claims/ClaimReferenceCandidatesPanel";
+import { ProductLinkageDisplayBlock } from "@/components/product-linkage/ProductLinkageDisplayBlock";
+import type { ProductLinkageDisplayContract } from "@/lib/product-linkage-display-contract";
 
 type AllowedStoreRow = {
   store_id: string;
@@ -50,6 +52,7 @@ export type InboxListItem = {
   lineage_warning_message?: string | null;
   source_lineage_status?: string | null;
   automation_allowed: boolean;
+  product_linkage?: ProductLinkageDisplayContract | null;
 };
 
 const QUEUE_TABS: { id: InboxQueueTab; label: string }[] = [
@@ -612,11 +615,24 @@ export function ClaimInboxClient({
                         <td className="px-3 py-2 align-top text-[11px]">
                           {st ? st.name : row.store_id ? `${row.store_id.slice(0, 8)}…` : "—"}
                         </td>
-                        <td className="px-3 py-2 align-top font-mono text-[10px] text-slate-700 dark:text-slate-200">
-                          <div>SKU {row.sku ?? "—"}</div>
-                          <div>FNSKU {row.fnsku ?? "—"}</div>
-                          <div>ASIN {row.asin ?? "—"}</div>
-                          <div className="text-muted-foreground">Resolved {row.resolved_product_id ?? "—"}</div>
+                        <td className="px-3 py-2 align-top text-[10px] text-slate-700 dark:text-slate-200">
+                          {row.product_linkage ? (
+                            <ProductLinkageDisplayBlock
+                              linkage={row.product_linkage}
+                              organizationId={organizationId}
+                              compact
+                              showPimLink={false}
+                            />
+                          ) : (
+                            <>
+                              <div>SKU {row.sku ?? "—"}</div>
+                              <div>FNSKU {row.fnsku ?? "—"}</div>
+                              <div>ASIN {row.asin ?? "—"}</div>
+                              <div className="text-muted-foreground">
+                                Resolved {row.resolved_product_id ?? "—"}
+                              </div>
+                            </>
+                          )}
                         </td>
                         <td className="px-3 py-2 align-top text-[11px]">{row.evidence_status ?? "—"}</td>
                         <td className="px-3 py-2 align-top text-[11px]">
@@ -747,6 +763,15 @@ export function ClaimInboxClient({
 
                   <section>
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Product identity</h3>
+                    {detailJson.product_linkage &&
+                    typeof detailJson.product_linkage === "object" ? (
+                      <div className="mt-2">
+                        <ProductLinkageDisplayBlock
+                          linkage={detailJson.product_linkage as ProductLinkageDisplayContract}
+                          organizationId={organizationId}
+                        />
+                      </div>
+                    ) : null}
                     <ul className="mt-2 space-y-2 text-xs">
                       {(Array.isArray(detailJson.product_badges) ? detailJson.product_badges : []).map((p, i) => {
                         const row = p as unknown as Record<string, unknown>;

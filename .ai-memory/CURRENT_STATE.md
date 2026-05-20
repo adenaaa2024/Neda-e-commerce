@@ -1,27 +1,28 @@
-# Current state — V176 (authoritative)
+# Current state — V178 (authoritative)
 
-**Last updated:** 2026-05-20 (`ai-shared-memory-update-v176` `20260520T140000Z`)  
+**Last updated:** 2026-06-05 (`ai-memory-update-after-v178-handoff` `20260605T140000Z`)  
 **Canonical full history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
-`.cursor/audit-reports/history-v175/20260604T120000Z/ERP_PIM_FULL_HISTORY_V175_APPEND_ONLY_CLAIM_RESOLVER_PREVIEW_STATUS.md`  
-**Update rule:** change this file **only together with** a new append on that full history (paired-update law).
+`.cursor/audit-reports/history-v178/20260605T120000Z/ERP_PIM_FULL_HISTORY_V178_APPEND_ONLY_NEDA_HANDOFF_AI_GATES_PRODUCT_UI.md`  
+**Paired-update law:** change with history append, not alone.
 
 ## Gates (summary)
 
 | Gate | Status |
 |------|--------|
-| Build (`npm run build`) | **PASS** |
-| Schema reconcile (V173+) | **PASS** |
-| Schema-product combined smoke V175 | **PASS** (21/21) |
-| Storage staging clone | **PASS** (144/144) |
-| PIM store context (Sam AM) | **PASS** (~17,001 products) |
-| NEDA 15 (product-id UI final) | **PASS** |
-| Neda linkage contract (V169) | **PASS** |
-| Preview env → staging ref | **PASS** |
-| Preview operator signoff | **PASS** (`env-06c-preview-operator-close-v175/20260519T223000Z`) |
-| Product mapping V174 probe | **PASS** |
-| Product mapping wave-2 V176 | **PASS** (execute; see audit) |
-| Production project | **NOT_CREATED_YET** / **BLOCKED** |
-| Vercel Production DB | **UNTOUCHED** (original ref) |
+| Build / schema smoke V175 | **PASS** (21/21) |
+| Storage **144/144** | **PASS** |
+| Schema reconcile | **PASS** |
+| Preview operator signoff | **PASS** (ENV-06C close V175) |
+| **NEDA V178 backend + UI handoff** | **PASS** — contract consumable; connector wired |
+| **ProductLinkageDisplayContract** | **CANONICAL** |
+| **Product mapping** | **Partial but operational** (spine 100%; wave-2 applied; gaps remain) |
+| **AI provider gates** | **IMPLEMENTED** — **default deny**; no live AI |
+| Hardening roadmap V177 / AI plan V177 | **PASS** (artifacts) |
+| Claim V176 draft orphan FK | **PASS_CLOSED** |
+| Claim V177 blockers plan | **PASS** (read-only) |
+| Production | **NOT_CREATED_YET** / **BLOCKED** |
+| Vercel Production | **UNTOUCHED** (`kxsvedvpjldygtdbylsy`) |
+| `package_items` | **FORBIDDEN** / absent |
 
 ## Database refs
 
@@ -31,38 +32,39 @@
 | Staging / local / Preview | `eiqfaapyumhixxoeltgu` |
 | Production | `NOT_CREATED_YET` |
 
-## Resolver coverage (staging — latest audits)
+## Claim coverage (staging — live)
 
-| Table | Resolved | Total | % | Source |
-|-------|----------|-------|---|--------|
-| `claim_candidates` | 6,581 | 9,055 | **72.7%** | wave-2 `20260520T132000Z` |
-| `claim_candidate_drafts` | 4,710 | 9,137 | **51.5%** | wave-2 `20260520T132000Z` |
+| Table | Resolved | Total | % | Unresolved |
+|-------|----------|-------|---|------------|
+| `claim_candidates` | 6,581 | 9,055 | **72.7%** | 2,474 |
+| `claim_candidate_drafts` | 4,710 | 9,137 | **51.5%** | 4,427 |
 
-Prior milestones: V175 **72.3%** / **27.3%**; V176 orphan FK execute **+2,179** drafts → **~51.2%** before wave-2 bump.
+Drafts: **0** FK violations vs `products.id` (V176). ~4,736 **candidate** orphan FK rows (V175 legacy) — separate charter.
 
-V175 **terminal** for tier-1–4 map path on candidates (0 eligible on dry-run `20260524T120000Z`).
+**UI policy:** Unresolved / ambiguous / mismatch rows use safe labels via V178 connector — never infer product from title/OCR in UI.
 
-## Catalog / mapping
+## Neda integration (V178)
 
-- **`products` + `product_identifier_map`:** 100% spine.
-- **Wave-2:** large gains on `amazon_amazon_fulfilled_inventory`, `amazon_returns`, `amazon_manage_fba_inventory` — see [PRODUCT_ID_MAPPING_STATUS.md](PRODUCT_ID_MAPPING_STATUS.md).
-- **`return_items`:** 6 rows — **fake/test data**; not production truth.
-- **`package_items`:** forbidden and **absent**.
+- **Backend contract is consumable now** — `ProductLinkageDisplayContract` + enrich path.
+- **Approved server actions only** — `app/returns/product-linkage-display-actions.ts` (`fetchProductLinkageDisplayContract`, `buildProductLinkageDisplayContracts`).
+- **No direct browser Supabase writes** for linkage/catalog mutations — use server actions / existing app patterns.
+- Surfaces wired: claim inbox, draft panel, manifest lines, return item labels (`product-linkage-ui-data-connector-v178`).
 
-## Schema
+## Mapping / catalog
 
-- App uses **`return_items`**; do not query `.from("returns")`.
-- Packages/pallets: `package_code`, `pallet_photo_urls`.
+- Spine `products` + `product_identifier_map`: **100%**
+- Operational tables: **partial** — wave-2 applied; `slip_contents` 0%; settlements governed-only
+- `return_items`: **6 test rows** — not KPIs
 
-## Preview
+## AI gates (default deny)
 
-- Staging-backed Preview; operator steps 1–9 **PASS** (post-close HTTP **PASS**).
-- Evidence: `.cursor/audit-reports/env-06c-preview-operator-close-v175/20260519T223000Z/`
+`lib/ai-provider-gates.ts` — requires `AI_EXTERNAL_HTTP_ENABLED` + per-surface flags. **Live AI off** unless operator explicitly enables.
 
-## Recent completes
+## Evidence
 
-| Prompt | Run ID | Result |
-|--------|--------|--------|
-| ENV-06C preview close | `20260519T223000Z` | **PASS** |
-| Claim resolver V176 orphan FK | `20260523T211500Z` | **PASS** execute |
-| Product mapping wave-2 V176 | `20260520T132000Z` | **PASS** |
+| Topic | Folder |
+|-------|--------|
+| V178 history | `history-v178/20260605T120000Z/` |
+| Neda connector | `product-linkage-ui-data-connector-v178/20260520T150000Z/` |
+| V176 close | `claim-candidate-resolver-v176-final-verify-close/20260524T140000Z/` |
+| V177 blockers | `claim-upstream-blockers-v177/20260524T160000Z/` |

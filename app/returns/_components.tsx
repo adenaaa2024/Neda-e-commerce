@@ -6632,6 +6632,14 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           This session loads the latest {items.length} of {returnsTotalInDb} return items in the database. The table shows {PER} rows per page; use Next / Prev below or narrow with filters.
         </div>
       )}
+      {returnsTotalInDb != null && returnsTotalInDb <= 50 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-100">
+          <strong>Staging data note:</strong> <code className="font-mono">return_items</code> on staging is mostly
+          fake/test data (low row count). Resolver coverage on this table is not production truth — see{" "}
+          <code className="font-mono">PROJECT_CONTEXT.md</code> and V178 audit{" "}
+          <code className="font-mono">return_items-test-data.md</code>.
+        </div>
+      ) : null}
       {selectedIds.size > 0 && (
         <BulkActionsBar count={selectedIds.size} onDelete={canDelete(role) ? handleBulkDelete : undefined} onMove={() => setShowBulkMove(true)} onClear={() => setSelectedIds(new Set())} deleting={bulkDeleting} />
       )}

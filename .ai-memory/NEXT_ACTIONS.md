@@ -1,48 +1,62 @@
-# Next actions — V176
+# Next actions — V178
 
-Ordered for any agent continuing work. See [TASKS.md](../TASKS.md) for checkboxes.
+See [TASKS.md](../TASKS.md). Order from history-v178 §9.
 
-## 1. Claim upstream blockers (staging)
+---
 
-**Why:** V175 map path is **terminal** on candidates (0 tier-1–4 eligible on `20260524T120000Z`). Wave-2 added marginal claim uplift; bulk of gap is upstream.
+## 1. V176 final closeout
 
-**Do:**
+**DONE** — `PASS_CLOSED` (`claim-candidate-resolver-v176-final-verify-close/20260524T140000Z`).
 
-- Address `missing_source_row` (~1,543), `unresolved_no_identifiers` (~667), `blocked_pim` (~259), `ambiguous` (~38).
-- Evidence: `.cursor/audit-reports/claim-candidate-resolver-project-v175/20260524T120000Z/blocker-inventory.json`
+---
 
-**Do not:** Blind V175 re-execute; product auto-create; claim submission; production.
+## 2. Neda V178 handoff follow-through
 
-## 2. Product mapping — remaining waves
+**DONE (baseline):** Backend contract + UI connector **PASS**.
 
-**Why:** `slip_contents` still 0%; settlements/ledger governed-only; `return_items` out of scope (test data).
+**Optional next:**
 
-**Do:**
+- **NEDA-PREVIEW-REGRESSION-PACK** — UI regression on Preview after connector changes.
+- Contract-preserving UI polish only — no browser Supabase direct-writes; no OCR/title product inference.
 
-- Targeted tier passes when operator approves runtime (`--tiers=2` on wave-2 script).
-- **No** blind `amazon_settlements` bulk.
+---
 
-**Audit:** `.cursor/audit-reports/product-id-mapping-wave-2-v176/20260520T132000Z/`
+## 3. Claim upstream blockers V177 (execute — governed)
 
-## 3. Roadmap artifacts (plan-only)
+~2,474 candidates / ~4,427 drafts open. **2,557** dry “eligible” — **do not blind execute**.
 
-- Hardening roadmap pack (V172 plan exists).
-- AI layer artifacts (no live OpenAI without governance).
+- Waves A/B/C per `claim-upstream-blockers-v177/20260524T160000Z/`
+- Separate charter: ~4,736 candidate orphan FK (V175 legacy)
 
-## 4. History-V176+ append
+---
 
-**When:** After next major resolver/mapping milestone.
+## 4. Product mapping next wave / Amazon ledger
 
-**Do:** New `history-v176/<run_id>/` full file + paired `.ai-memory` refresh (see [HISTORY_POINTERS.md](HISTORY_POINTERS.md)).
+- **Partial but operational** — continue governed waves only.
+- Wave-3 / ledger: `product-id-mapping-wave-2-v176` or successor; **no** blind `amazon_settlements` bulk.
+- `return_items` out of scope (test cohort).
 
-## 5. Production (blocked)
+---
 
-Do not register production ref or alter Vercel Production until operator cutover pack.
+## 5. Hardening roadmap artifacts
 
-## Done (no re-run without reason)
+**DONE (V177 pack on disk)** — implement per workstream when chartered; production still **blocked**.
 
-- Preview operator signoff (ENV-06C close V175)
-- V176 orphan FK execute
-- V175 claim resolver (72.3% candidates baseline)
-- Schema combined smoke V175
-- NEDA 15 UI wiring
+---
+
+## 6. AI layer
+
+- **Gates implemented** — default **deny** (`lib/ai-provider-gates.ts`).
+- **AI-LAYER-GATEWAY-03** — unified gateway + rate limits (flags stay off).
+- **Do not** enable live OpenAI without operator flags + governance.
+
+---
+
+## 7. History hygiene
+
+- **Canonical:** history-v178 full file (merge v175 when on disk).
+- Next append: **HISTORY-V179+** after major execute wave.
+
+## Production (blocked)
+
+No production ref, probes, Vercel Production changes, or production AI.

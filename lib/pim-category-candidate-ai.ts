@@ -1,5 +1,6 @@
 import "server-only";
 
+import { assertAiProviderCallAllowed } from "./ai-provider-gates";
 import { getOrganizationOpenAIApiKey } from "./organization-openai-key";
 
 export type CategoryPickInput = { label: string; score: number; source: string }[];
@@ -16,6 +17,8 @@ export async function pickAmazonCategoryLabelWithOpenAI(params: {
   const labels = params.candidates.map((c) => c.label.trim()).filter(Boolean);
   const unique = [...new Set(labels)];
   if (unique.length < 2) return null;
+  const gate = assertAiProviderCallAllowed("pim_disambiguation");
+  if (!gate.ok) return null;
   const key = await getOrganizationOpenAIApiKey(params.organizationId);
   if (!key) return null;
 

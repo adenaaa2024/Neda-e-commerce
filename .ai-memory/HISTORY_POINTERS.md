@@ -1,66 +1,66 @@
 # History pointers — authoritative
 
-Full program narrative is **too large for chat**. Index to **latest canonical full history** and **paired-update law**.
+Index to **latest canonical full history (V178)** and audit evidence. Do not paste full history into `.ai-memory`.
 
 ---
 
-## Latest canonical full history
+## Latest canonical full history — V178
 
 **Repo-relative:**
 
 ```
-.cursor/audit-reports/history-v175/20260604T120000Z/ERP_PIM_FULL_HISTORY_V175_APPEND_ONLY_CLAIM_RESOLVER_PREVIEW_STATUS.md
+.cursor/audit-reports/history-v178/20260605T120000Z/ERP_PIM_FULL_HISTORY_V178_APPEND_ONLY_NEDA_HANDOFF_AI_GATES_PRODUCT_UI.md
 ```
 
 | Field | Value |
 |-------|-------|
-| Pack / run | `history-v175` / `20260604T120000Z` |
-| Append slice | `v175-append.md` |
+| Pack / run | `history-v178` / `20260605T120000Z` |
+| Append slice | `v178-append.md` |
 | Handoff | `handoff-summary.md` |
-| Manifest | `manifest.json` |
+| Chain merge | Prepend `history-v175/20260604T120000Z/ERP_PIM_FULL_HISTORY_V175_*.md` when on disk |
 
-**Prior (superseded):** `history-v174/20260603T120000Z/ERP_PIM_FULL_HISTORY_V174_APPEND_ONLY_PREVIEW_PRODUCT_MAPPING_STATUS.md`
+**Prior slice:** `history-v175/20260604T120000Z/`
 
-**Note:** V176 orphan FK + wave-2 + preview close are in audits below; **HISTORY-V176+** append not yet written — do not paste full history into `.ai-memory`.
+---
+
+## V178 memory update (this run)
+
+`ai-memory-update-after-v178-handoff/20260605T140000Z/` — refreshed `.ai-memory` + `TASKS.md` from V178 handoff facts (no code/DB).
+
+---
+
+## Key audit evidence
+
+| Topic | Path |
+|-------|------|
+| Neda UI connector | `product-linkage-ui-data-connector-v178/20260520T150000Z/` |
+| AI gates (plan) | `ai-layer-harden-01-v178/20260519T233600Z/` |
+| AI gates (code) | `lib/ai-provider-gates.ts` |
+| V176 close | `claim-candidate-resolver-v176-final-verify-close/20260524T140000Z/` |
+| V177 blockers | `claim-upstream-blockers-v177/20260524T160000Z/` |
+| Mapping wave-2 | `product-id-mapping-wave-2-v176/` |
+| Hardening roadmap | `hardening-roadmap-v177/20260524T180000Z/` |
+| Memory sync V177 | `ai-memory-history-sync-v177/20260524T170000Z/` |
 
 ---
 
 ## Paired-update law (mandatory)
 
-Every memory-changing audit updates **append-only full history + `.ai-memory` together** in one session. Never one without the other.
+Every memory-changing audit updates **append-only full history + `.ai-memory` together.**
 
-### Checklist
-
-1. New `history-v###/<run_id>/` — copy prior full file + append `v###-append.md` (never shorten).
-2. `.ai-memory` — `CURRENT_STATE.md`, `NEXT_ACTIONS.md`, topic files, this file if path changes.
-3. `TASKS.md` — aligned with `NEXT_ACTIONS.md`.
-
-**Docs-only memory sync** (this prompt): may refresh `.ai-memory` + `TASKS.md` from existing canonical history + audits; schedule **HISTORY-V176+** when facts outpace v175 append.
-
----
-
-## Latest audit evidence (by topic)
-
-| Topic | Latest run (under `.cursor/audit-reports/`) |
-|-------|---------------------------------------------|
-| **Memory sync** | `ai-shared-memory-update-v176/20260520T140000Z/` |
-| Preview signoff | `env-06c-preview-operator-close-v175/20260519T223000Z/` |
-| Claim V176 FK | `claim-candidate-resolver-v176-fk-orphan-product-fix/20260523T211500Z/` |
-| Claim V175 | `claim-candidate-resolver-project-v175/20260524T120000Z/` |
-| Mapping wave-2 | `product-id-mapping-wave-2-v176/20260520T132000Z/` |
-| Mapping V174 | `product-id-mapping-materialization-v174/20260519T231000Z/` |
-| Schema smoke | `schema-product-combined-smoke-v175/20260519T240000Z/` |
-| AI memory bootstrap | `ai-shared-memory-bootstrap-v176/20260519T223000Z/` |
+1. New `history-v###/<run_id>/` — prior full file + `v###-append.md` (never shorten).
+2. Refresh `.ai-memory` topic files + `TASKS.md`.
+3. Bump **this file** if canonical path changes.
 
 ---
 
 ## Read order
 
-| Need | File |
+| Need | Read |
 |------|------|
 | Now | `.ai-memory/CURRENT_STATE.md` |
-| Timeline | Canonical full history path above |
-| Handoff | `history-v175/.../handoff-summary.md` |
+| Neda | `.ai-memory/NEDA_HANDOFF.md` |
+| Timeline | V178 full history path above |
 | Hard stops | `.ai-memory/FORBIDDEN_ACTIONS.md` |
 
 ---
@@ -70,4 +70,3 @@ Every memory-changing audit updates **append-only full history + `.ai-memory` to
 - `.cursor/environment-policy/final-env-topology-v170.md`
 - `.cursor/operator-approvals/production-readiness-01-approval.md`
 - `.cursor/operator-approvals/product-auto-create-governance-v165-approval.md`
-- `.cursor/operator-approvals/staging-storage-clone-01-approval.md`

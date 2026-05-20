@@ -9,6 +9,11 @@ import {
 } from "@/app/returns/product-linkage-actions";
 import type { ProductLinkageFields } from "@/lib/scanner-product-linkage-ui";
 import {
+  PRODUCT_LINKAGE_LABEL_NEEDS_REVIEW,
+  PRODUCT_LINKAGE_LABEL_NO_LINK,
+  productLinkageUserStatusLabelFromFields,
+} from "@/lib/product-linkage-display-ui";
+import {
   RESOLVER_SOURCE_LABEL,
   RESOLVER_SOURCE_LABEL_COMPACT,
   formatLinkageConfidence,
@@ -18,7 +23,6 @@ import {
   isUnresolvedLinkageStatus,
   rawIdentifierSummary,
   resolutionStatusBadgeClass,
-  resolutionStatusLabel,
 } from "@/lib/scanner-product-linkage-ui";
 
 type Props = {
@@ -98,7 +102,7 @@ export function ReturnItemProductLinkage({
           title={`Resolver: ${RESOLVER_SOURCE_LABEL}`}
         >
           <Link2 className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
-          {resolutionStatusLabel(status)}
+          {productLinkageUserStatusLabelFromFields(fields)}
         </span>
         {showAmbiguous && (
           <span
@@ -108,7 +112,7 @@ export function ReturnItemProductLinkage({
             ].join(" ")}
           >
             <AlertTriangle className="h-3 w-3" aria-hidden />
-            Review link
+            {PRODUCT_LINKAGE_LABEL_NEEDS_REVIEW}
           </span>
         )}
         {showUnresolved && (
@@ -118,7 +122,7 @@ export function ReturnItemProductLinkage({
               compact ? "text-[9px]" : "text-[10px]",
             ].join(" ")}
           >
-            Raw / OCR only
+            {PRODUCT_LINKAGE_LABEL_NO_LINK}
           </span>
         )}
         {showMismatch && (

@@ -1,46 +1,74 @@
-# Neda handoff — V176
+# Neda handoff — V178 (backend + product linkage UI)
 
-For **Neda's Cursor** on returns, scanner, and product linkage UI.
+**Staging / Preview only.** Production **blocked**.
 
-## Your lane
+## You can build against the backend contract now
 
-- `components/returns/`, scanner routes, linkage badges.
-- **Contract:** `ProductLinkageDisplayContract` — `lib/product-linkage-display-contract.ts`
-- Server read: `app/returns/product-linkage-actions.ts` (`fetchCanonicalProductDisplay`)
-- UI: `components/returns/ReturnItemProductLinkage.tsx`, `ManifestLineProductLinkage`
+The server contract is **stable and consumable**:
+
+| Layer | Path | Role |
+|-------|------|------|
+| **Canonical contract** | `lib/product-linkage-display-contract.ts` | `ProductLinkageDisplayContract` — **use this shape only** |
+| Enrichment | `lib/product-linkage-display-enrich.ts` | DB row → contract (server) |
+| **Approved server actions** | `app/returns/product-linkage-display-actions.ts` | `fetchProductLinkageDisplayContract`, `buildProductLinkageDisplayContracts` |
+| UI copy / labels | `lib/product-linkage-display-ui.ts` | V178 shared strings |
+| Unified block | `components/product-linkage/ProductLinkageDisplayBlock.tsx` | Prefer over one-off badges |
+
+**Audit:** `product-linkage-ui-data-connector-v178/20260520T150000Z/`
+
+## Required rules
+
+1. **Always** map/display via `ProductLinkageDisplayContract` fields — not ad-hoc title/SKU guessing.
+2. **Only** call **approved server actions** above (or existing returns actions already in repo) for linkage enrichment — **do not** add new browser-side Supabase mutations for product linkage.
+3. **Do not direct-write from browser Supabase** (`createBrowserClient` / `supabase.from(...)`) for catalog linkage, resolver columns, or `products` / `product_identifier_map` updates.
+4. **Unresolved / ambiguous / mismatch** rows must display **safely**:
+   - Unresolved → **“No product link yet”**
+   - Ambiguous → **“Needs review”**
+   - Headline → `product_name` ?? `fallback_display_name`
+   - Use `ProductLinkageDisplayBlock` or existing wired components — never hide bad states or fake “resolved”.
+5. **Do not** infer or create products from OCR/title in UI (resolver auto-create forbidden).
+
+## Wired surfaces (V178)
+
+- Claim inbox list / detail
+- Claim draft panel
+- Manifest lines (`ManifestLineProductLinkage`)
+- Return item labels (`ReturnItemProductLinkage`)
+
+## Environment
+
+| Item | Value |
+|------|-------|
+| DB | `eiqfaapyumhixxoeltgu` |
+| Org / store | Sam Distribution Inc · Sam AM |
+| Preview signoff | **PASS** (ENV-06C) |
+
+## Data caveats
+
+| Item | Note |
+|------|------|
+| `return_items` | **6 test rows** on staging — not production KPIs |
+| Claim linkage | **72.7%** candidates / **51.5%** drafts — many rows still unresolved; UI must handle them |
+| Product mapping | **Partial but operational** — spine 100%; bulk tables partial |
 
 ## Status
 
-| Item | Status |
+| Gate | Status |
 |------|--------|
-| NEDA 15 (product-id UI final) | **PASS** |
-| Product linkage contract (V169) | **PASS** |
-| Preview E2E (operator signoff) | **PASS** — `env-06c-preview-operator-close-v175/20260519T223000Z` |
-| `return_items` staging data | **6 test rows** — not production KPIs |
+| NEDA 15 | **PASS** |
+| V178 connector | **PASS** |
+| Backend contract consumable | **YES** |
 | Production | **Do not use** |
-
-## DB & workspace
-
-- **Staging:** `eiqfaapyumhixxoeltgu`
-- **Preview:** same ref (integration branch)
-- **Org / store:** Sam Distribution Inc · Sam AM
-
-## Verification (complete)
-
-Preview signoff closed — routes exercised per ENV-06C checklist (`/returns`, `/scanner`, PIM, claims evidence, imports). Report new UI bugs with route + screenshot only.
 
 ## Do not
 
-- `.from("returns")` — use `return_items`.
-- Create `package_items`.
-- Auto-create `products` from OCR/title on save path.
-- Run resolver executes or production deploys.
+- `.from("returns")` — use `return_items`
+- `package_items`
+- Production deploys or resolver executes
+- Live AI / OpenAI (gates default **deny**)
+- Browser Supabase writes for linkage/catalog
 
-## Optional (operator-only)
+## Context files
 
-`ENABLE_RETURNS_BARCODE_PRODUCT_CACHE_INSERT` — separate V165 approval; **not** resolver auto-create.
-
-## Evidence
-
-- Preview close: `.cursor/audit-reports/env-06c-preview-operator-close-v175/20260519T223000Z/`
-- Schema smoke (linkage checks): `schema-product-combined-smoke-v175/20260519T240000Z/`
+- Day-to-day: `.ai-memory/CURRENT_STATE.md`
+- Full timeline: [HISTORY_POINTERS.md](HISTORY_POINTERS.md) → history-v178

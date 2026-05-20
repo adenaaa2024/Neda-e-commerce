@@ -1,5 +1,6 @@
 import "server-only";
 
+import { assertAiProviderCallAllowed } from "./ai-provider-gates";
 import { getOrganizationOpenAIApiKey } from "./organization-openai-key";
 
 export type AmazonApiPriceCandidate = {
@@ -22,6 +23,8 @@ export async function pickAmazonApiPriceCandidateIndexWithOpenAI(params: {
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => Number.isFinite(c.amount) && c.amount > 0 && String(c.currency ?? "").trim().length > 0);
   if (indexed.length < 2) return null;
+  const gate = assertAiProviderCallAllowed("pim_disambiguation");
+  if (!gate.ok) return null;
   const key = await getOrganizationOpenAIApiKey(params.organizationId);
   if (!key) return null;
 

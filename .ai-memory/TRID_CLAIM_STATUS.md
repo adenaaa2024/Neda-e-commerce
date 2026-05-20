@@ -1,64 +1,55 @@
-# TRID & claim status — V176
+# TRID & claim status — V178
 
 ## TRID read path
 
 | Item | Status |
 |------|--------|
-| TRID validation V170 | **PASS** — `npm run verify:trid-v170-staging` |
-| Claim TRID read V171 | **PASS** — `npm run verify:claim-trid-read-path-v171` |
-| Combined smoke V175 | **PASS** |
+| TRID V170 / claim read V171 | **PASS** |
+| Schema combined smoke V175 | **PASS** |
 
-Read/evidence/inbox UI operable on staging. Outbound filing/submit **gated**.
+Filing/submit **gated**.
 
-## Claim resolver coverage (staging)
+## Live coverage (staging)
 
-| Table | Resolved | Total | % |
-|-------|----------|-------|---|
-| `claim_candidates` | 6,581 | 9,055 | **72.7%** |
-| `claim_candidate_drafts` | 4,710 | 9,137 | **51.5%** |
+| Table | Resolved | Total | % | Unresolved |
+|-------|----------|-------|---|------------|
+| `claim_candidates` | 6,581 | 9,055 | **72.7%** | 2,474 |
+| `claim_candidate_drafts` | 4,710 | 9,137 | **51.5%** | 4,427 |
 
-Sources: wave-2 `20260520T132000Z` post-counts; V175 execute `20260523T200000Z`; V176 FK `20260523T211500Z`.
+**Sources:** V176 close `20260524T140000Z`; V177 `20260524T160000Z`
 
-### V175 policy
+## UI display (V178 — Neda)
 
-- Tiers 1–4 via `product_identifier_map` + source row.
-- Terminal dry-run `20260524T120000Z`: **0** tier-1–4 eligible — **do not** blind re-execute.
+Unresolved and ambiguous rows **must render safely** in claim inbox, drafts, and related surfaces:
 
-### V176 orphan FK (done)
+| `identifier_resolution_status` | User-facing (V178) |
+|--------------------------------|--------------------|
+| unresolved (etc.) | **No product link yet** |
+| ambiguous | **Needs review** |
+| resolved | canonical `product_name` / linkage fields |
 
-- Orphan `amazon_removal_shipments.resolved_product_id` ∉ `products`: ~4,718
-- Applied: **2,179** remaps (`claim-candidate-resolver-v176-fk-orphan-product-fix/20260523T211500Z`)
+Use `ProductLinkageDisplayContract` + `ProductLinkageDisplayBlock` — do not infer product from title/OCR.
 
-### Remaining candidate blockers (~2,474)
+**Connector audit:** `product-linkage-ui-data-connector-v178/20260520T150000Z/`
 
-| Bucket | ~Count |
+## Resolver milestones
+
+| Prompt | Status |
 |--------|--------|
-| `missing_source_row` | 1,543 |
-| `unresolved_no_identifiers` | 667 |
-| `blocked_pim` | 259 |
-| `ambiguous` | 38 |
+| V175 execute + terminal dry-run | **PASS** / **TERMINAL** (no blind re-execute) |
+| V176 draft orphan FK | **PASS_CLOSED** |
+| V177 upstream plan | **PASS** read-only — **2,557** dry eligible ≠ approval to execute |
 
-Evidence: `claim-candidate-resolver-project-v175/20260524T120000Z/blocker-inventory.json`
+## Known gaps
+
+| Issue | ~Count |
+|-------|--------|
+| Candidate orphan FK (V175 legacy) | 4,736 |
+| `missing_source_row` | 1,543 |
+| Identifiers / PIM / ambiguous | see V177 matrix |
+
+Evidence: `claim-upstream-blockers-v177/20260524T160000Z/`
 
 ## Forbidden
 
-- Claim submission without approval
-- Product auto-create on resolver paths
-- Production DB writes
-- Blind V175 re-execute when eligible = 0
-
-## Scripts
-
-```bash
-npm run verify:claim-candidate-resolver-v175-staging -- --candidates-only --run-id=<id>
-npm run test:claim-candidate-resolver-v175
-```
-
-## Evidence folders
-
-| Audit | Path |
-|-------|------|
-| V175 terminal | `claim-candidate-resolver-project-v175/20260524T120000Z/` |
-| V175 execute | `claim-candidate-resolver-project-v175/20260523T200000Z/` |
-| V176 FK | `claim-candidate-resolver-v176-fk-orphan-product-fix/20260523T211500Z/` |
-| Wave-2 claim bump | `product-id-mapping-wave-2-v176/20260520T132000Z/` |
+No claim submit, product auto-create, production writes, blind V175/V176 re-execute.

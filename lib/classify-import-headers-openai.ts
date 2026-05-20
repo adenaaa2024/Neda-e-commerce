@@ -1,5 +1,6 @@
 import "server-only";
 
+import { assertAiProviderCallAllowed } from "./ai-provider-gates";
 import { getOrganizationOpenAIApiKey } from "./organization-openai-key";
 import { parseGptReportType } from "./csv-import-detected-type";
 import type { RawReportType } from "./raw-report-types";
@@ -33,6 +34,14 @@ export async function classifyImportHeadersWithGpt(input: {
     isSupported: false,
     message,
   });
+
+  const gate = assertAiProviderCallAllowed("import_gpt_fallback");
+  if (!gate.ok) {
+    return UNSUPPORTED(
+      "Unknown",
+      `AI classification is disabled. Required flags: ${gate.requiredFlags.join(", ")}.`,
+    );
+  }
 
   const key = await getOrganizationOpenAIApiKey(input.organizationId);
   if (!key) {
