@@ -1,65 +1,135 @@
-# Database contract — V183+
+# Database contract — V192 product resolution contract lock
 
-Staging ref: **`eiqfaapyumhixxoeltgu`** — Neda/local/Preview **must** use active quartet bound here.
+Staging ref: **`eiqfaapyumhixxoeltgu`**  
+Original ref: **`kxsvedvpjldygtdbylsy`**  
+Future production project: **NOT_CREATED_YET / BLOCKED**
 
-## Active binding
+## Environment binding
 
-`NEXT_PUBLIC_SUPABASE_URL`, anon key, service role, `DIRECT_POSTGRES_URL`. `STAGING_*` / `ORIGINAL_*` are aliases only.
+| Surface | Target ref |
+|---|---|
+| Local dev | `eiqfaapyumhixxoeltgu` |
+| Vercel Preview | `eiqfaapyumhixxoeltgu` |
+| Vercel Production app | `kxsvedvpjldygtdbylsy` |
+| Future production project | **NOT_CREATED_YET** |
 
-## Core tables
+Original/Vercel Production is not the future production cutover. Do not point Vercel Production at staging.
 
-### Catalog
+## Canonical product spine
 
-| Table | Role |
-|-------|------|
-| `products` | ~17k Sam AM |
-| `product_identifier_map` | Bridge; **`upc_code` present** — **UPC/GTIN tier not wired** (V182 gap) |
+| Object | Contract |
+|---|---|
+| `products` | Canonical product row; `products.id` is the first comparison key |
+| `product_identifier_map` | Deterministic identifier bridge for ASIN/FNSKU/SKU/UPC/GTIN to product |
 
-### Warehouse
+Do not create products automatically from OCR/title/free text/fuzzy/UI guesses. Product creation or promotion belongs to governed catalog/import waves only.
 
-| Table / view | Role |
-|--------------|------|
-| **`return_items`** | Lines — **not** `returns`; V183: **~7** FBM test cohort — **fake/test warning** |
-| `packages`, `pallets`, `slip_contents` | Hierarchy |
-| **`expected_packages`** | ~1,626 — V179 read-time linkage |
+## Product Resolution Contract — Non-Negotiable
 
-### Inventory views (V179 / V181)
+All product-aware reads and writes must follow this path:
 
-| View | Neda product UI? |
-|------|------------------|
-| `v_inventory_item_status` | **YES — only** |
-| `v_inventory_status` | Aggregate only |
-| `v_scanned_items_counted` | Counters only |
+```text
+Manual/UI/API/import input
+-> normalize identifiers
+-> product resolver
+-> products + product_identifier_map
+-> persist resolved_product_id only when deterministic
+-> return/hydrate ProductLinkageDisplayContract
+-> UI/detail/package/pallet/views render the same contract
+```
 
-### Forbidden / absent
+Applies to manual add item, manual edit item, scanner save, package child items, pallet child items, return item detail, expected packages, slip contents, imports/Amazon files, API ingestion, claim generation, and Neda UI.
+
+Allowed patterns:
+
+- Approved server actions for product-aware writes.
+- Resolver-on-save for created/changed identifiers.
+- Governed import/resolver scripts with evidence and rollback.
+- Read hydration through `ProductLinkageDisplayContract`.
+- Explicit unresolved, ambiguous, and mismatch states.
+
+Forbidden patterns:
+
+- Direct browser Supabase writes for product-aware rows.
+- UI-side `products.insert` or `products.upsert`.
+- `package_items`.
+- Legacy `.from("returns")`.
+- Raw `return_items` detail reads without product-linkage hydration.
+- Title/OCR/fuzzy/AI auto-linking or product auto-create.
+
+Repo guard: `npm run check:product-resolution-contract-v192`.
+
+## Canonical operational tables
+
+| Object | Contract |
+|---|---|
+| `return_items` | Canonical scanned/item line table |
+| `expected_packages` | Canonical expected package/item source for Neda expected views |
+| `slip_contents` | Slip-line source and future governed UPC/GTIN enrichment source |
+| `packages` / `pallets` | Parent hierarchy; child item display comes from `return_items` |
+
+`package_items` is forbidden and must not be created or queried. Legacy `returns` must not be queried for line data.
+
+## Add/edit resolver contract
+
+- Add item goes through `insertReturn`, not direct browser DB writes.
+- Edit item goes through `updateReturn`, not direct browser DB writes.
+- Resolver inputs: `fnsku`, `asin`, `sku`, `product_identifier`, organization scope, and store scope.
+- Persist `resolved_product_id` only for one deterministic product winner.
+- No match: keep raw identifiers, clear product IDs, mark unresolved.
+- Multiple winners: clear product IDs, mark ambiguous.
+- Legacy/product conflict: clear product IDs, mark mismatch.
+
+## Neda read/view contract
+
+| Read/view | Contract |
+|---|---|
+| `v_scanned_items_counted` | Count active scanned `return_items`; preserve `deleted_at IS NULL` |
+| `v_inventory_item_status` | Item-level expected/scanned status view; current DB view still groups by raw identifiers |
+| `v_inventory_status` | Package-level aggregate/chip view only |
+| `fetchExpectedPackagesNedaRead` | Approved read layer; emits product-key-first `product_comparison` |
+| `fetchInventoryItemStatusForNeda` | Approved item read layer; emits hydrated linkage/display data |
+| `ProductLinkageDisplayContract` | Canonical UI/API product display contract |
+
+V191 did not apply view DDL. Future DDL may replace the views with product-key grouping only after explicit approval.
+
+## Expected vs scanned comparison
+
+Priority:
+
+1. canonical `resolved_product_id` / `products.id`
+2. legacy scanned `product_id` only if no canonical resolved key exists
+3. `fnsku`
+4. `asin + sku`
+5. `asin`
+6. `sku`
+7. `product_identifier`
+
+If expected and scanned rows both have product identity and the products differ, raw identifier collisions do not override the mismatch.
+
+## Current status
+
+| Area | Status |
+|---|---|
+| `return_items` staging test cohort | `3` active, `3` resolved, `0` unresolved, `4` soft-deleted fake/test |
+| Inventory V189 deleted filter | PASS on staging and original |
+| V191 operator add/edit resolver | PASS; server actions only; no browser writes |
+| V191 read-layer product-key alignment | PASS; no DDL applied |
+| Expected packages product coverage | `1,263 / 1,626` read-layer resolved; `363` unresolved |
+| AFI catalog coverage | `14,693 / 19,503` resolved (`75.34%`) |
+| V192 contract guard | PASS after scanner save moved behind server action |
+
+## Forbidden / absent
 
 | Name | Rule |
-|------|------|
-| **`package_items`** | Must not exist |
-| **`returns`** (legacy) | Do not query |
-
-### Claims
-
-`claim_candidates` **72.7%** · `claim_candidate_drafts` **51.5%**
-
-## Return-items FBM (V182 / V183)
-
-| Item | Status |
-|------|--------|
-| V182 readiness | **72/100** |
-| Dry-run | **Ready** — latest `20260521T140000Z` **PASS** |
-| V183 result | **0** `set_resolved` proposals |
-| Execute | **BLOCKED** (UPC/GTIN gap + no eligible rows) |
-
-## Migrations
-
-Staging first; production **blocked**. View snapshot: `20260824120000_inventory_views_neda_snapshot_v180.sql` (V189 filter migration is separate later pack).
+|---|---|
+| `package_items` | Must not exist; do not create/query |
+| legacy `returns` | Do not query for line data |
+| direct browser DB write | Forbidden for linkage/catalog fields |
+| production DB mutation | Forbidden without explicit approval |
+| Amazon API / AI/OpenAI | Forbidden for this path unless separately approved |
+| raw detail read without hydration | Forbidden for product-aware UI/detail/package/pallet surfaces |
 
 ## Evidence
 
-| Topic | Path |
-|-------|------|
-| V182 canonical | `history-canonical-rebuild-v182/20260518T120000Z/` |
-| V183 | `history-v183/20260520T230000Z/` |
-| V181 | `expected-inventory-neda-read-model-signoff-v181/20260521T120000Z/` |
-| FBM dry-run | `return-items-fbm-aware-dry-run-v183/20260521T140000Z/` |
+`NEDA_FINAL_BACKEND_HANDOFF_V192.md` · `history-v191/20260526T120000Z/` · `history-memory-after-v191-item-resolver/20260526T120000Z/` · `operator-item-add-edit-resolver-standard-v191/20260520T235500Z/` · `inventory-expected-return-product-id-view-alignment-v191/20260521T001108Z/` · `expected-packages-product-spine-completion-plan-v191/20260521T001400Z/` · `product-catalog-afi-guarded-tier3-sku-no-asin-conflict-v191/20260521T010000Z/` · `backend-product-resolution-contract-lock-v192/20260521T012000Z/`

@@ -1,41 +1,49 @@
-# Tasks — active board (V183+)
+# Tasks — active board (V191 item resolver milestone)
 
-Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md).  
-**Canonical base:** V182 rebuild · **Operator slice:** V183 — [HISTORY_POINTERS.md](.ai-memory/HISTORY_POINTERS.md).
+Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md).
 
-## P0 — Policy & Neda env
+## Done — V191 item resolver
 
-- [ ] **Verify active quartet → staging** `eiqfaapyumhixxoeltgu` — if not, **top blocker**
-- [ ] **Do not** register production; no live AI; no `package_items`; no `.from("returns")`
+- [x] Operator item add/edit resolver standard **PASS**
+- [x] No direct browser `return_items` writes on save paths
+- [x] Detail / package / pallet linkage display **PASS**
+- [x] Inventory read-layer product-key comparison **PASS**
+- [x] History V191 + `.ai-memory` sync `20260526T120000Z`
+- [x] AFI guarded Tier 3 SKU/no-ASIN-conflict execute **PASS** (109 rows)
+- [x] Product resolution contract lock V192 **PASS**
+- [x] Expected_packages E1 map bridge V192 preflight **PASS** (254 candidates; approval false)
 
-## P1 — Return-items FBM / matcher (V183 baseline)
+## Done — prior milestone (V190)
 
-- [ ] **UPC/GTIN matcher** (optional charter)
-- [ ] **Map enrichment** — V185 showed **0** enrichable; governed only
-- [ ] Re-run `return-items-fbm-aware-dry-run-v183` → execute only if `set_resolved_total > 0` + approval  
-  (V182 **72/100**, execute **blocked** at V183)
+- [x] V189 staging + original view filter
+- [x] Preview staging quartet + redeploy (ENV-06B)
+- [x] Return_items 3/3/0 + 4 soft-deleted
+- [x] Neda runtime replay + NEDA-18 **PASS**
+- [x] Neda final backend handoff V191 docs **PASS**
 
-## P2 — Claims / mapping
+## P1 — Catalog & packages
 
-- [ ] Claim upstream V177 (governed)
-- [ ] Next mapping wave / ledger (no blind settlements)
+- [ ] Expected_packages E1 map-only execute after approval (254 expected rows / 134 map rows)
+- [ ] Expected_packages E2/E4 refresh after E1 execute
+- [ ] Optional inventory view DDL after approval
+- [ ] Remaining product catalog/import completeness cohorts under separate governance
+- [ ] Keep `npm run check:product-resolution-contract-v192` passing on product-aware changes
 
-## P3 — Data / roadmap
+## P2 — Claims & TRID
 
-- [ ] **RETURN-ITEMS-PROD-DATA-CHARTER** — fake/test cohort (~7 rows at V183)
-- [ ] NEDA-17 (not run)
+- [ ] Claim cleanup / regeneration (governed)
+- [ ] TRID / reference graph
 
-## Done — V181 / V182 / V183
+## P3 — Platform
 
-- [x] **V182** canonical rebuild — full history on disk
-- [x] **V181** expected/inventory Neda read signoff **PASS**
-- [x] **V183** FBM dry-run **PASS** (0 `set_resolved`)
-- [x] V179 inventory/expected; V178 connector; V176 close; preview signoff
-- [x] Claims **72.7%** / **51.5%**; Neda env **ALIGNED** (V183)
+- [ ] API / hardening
+- [ ] AI layer (later)
 
-## Post-V183 (staging test cohort — separate track)
+## P0 — Policy
 
-- [x] V186–V189 closure on staging (see `history-v189/`) — not part of V183 execute gate
+- [ ] Staging quartet `eiqfaapyumhixxoeltgu`
+- [ ] No `package_items`; no `.from("returns")`
+- [ ] Future production — **blocked**
 
 ## Forbidden
 

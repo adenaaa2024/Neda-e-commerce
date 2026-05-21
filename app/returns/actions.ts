@@ -140,6 +140,30 @@ function omitUndefined<T extends Record<string, unknown>>(obj: T): Record<string
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }
 
+function normalizeFreeTextIdentifier(v: unknown): string | null {
+  const s = String(v ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .trim();
+  return s || null;
+}
+
+function normalizeUpperIdentifier(v: unknown): string | null {
+  const s = String(v ?? "")
+    .replace(/[\r\n\t\s]+/g, "")
+    .trim()
+    .toUpperCase();
+  return s || null;
+}
+
+function normalizeBarcodeIdentifier(v: unknown): string | null {
+  const raw = normalizeFreeTextIdentifier(v);
+  if (!raw) return null;
+  const compact = raw.replace(/\s+/g, "").toUpperCase();
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length >= 12 && digits.length <= 14) return digits;
+  return compact;
+}
+
 /**
  * Seeded MVP operator when the UI passes a display name (e.g. "Maysam") instead of
  * `auth.users.id`. Keeps `created_by` / `updated_by` valid UUIDs.
@@ -961,18 +985,25 @@ export async function insertReturn(
       created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
       store_id:        resolvedStoreId,
     };
+    const normalizedAsin = normalizeUpperIdentifier(payload.asin);
+    const normalizedFnsku = normalizeUpperIdentifier(payload.fnsku);
+    const normalizedSku = normalizeFreeTextIdentifier(payload.sku);
+    const normalizedProductIdentifier = normalizeBarcodeIdentifier(payload.product_identifier);
+
     // Post-migration columns — only written once their migrations are applied
-    if (payload.asin)             insertRow.asin             = payload.asin.trim();
-    if (payload.fnsku)            insertRow.fnsku            = payload.fnsku.trim();
-    if (payload.sku)              insertRow.sku              = payload.sku.trim();
+    if (normalizedAsin) insertRow.asin = normalizedAsin;
+    if (normalizedFnsku) insertRow.fnsku = normalizedFnsku;
+    if (normalizedSku) insertRow.sku = normalizedSku;
+    if (normalizedProductIdentifier) insertRow.product_identifier = normalizedProductIdentifier;
     if (effectiveAmazonOrderId) insertRow.order_id = String(effectiveAmazonOrderId);
 
     const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
       organizationId: orgId,
       storeId: resolvedStoreId,
-      sku: payload.sku,
-      asin: payload.asin,
-      fnsku: payload.fnsku,
+      sku: normalizedSku,
+      asin: normalizedAsin,
+      fnsku: normalizedFnsku,
+      productIdentifier: normalizedProductIdentifier,
       legacyProductId: null,
     });
     insertRow.resolved_product_id = resCols.resolved_product_id;
@@ -1126,14 +1157,27 @@ export async function updateReturn(
         if (pl && isUuidString(pl)) patch.pallet_id = pl;
       }
     }
+    if ("asin" in updates) patch.asin = normalizeUpperIdentifier(updates.asin);
+    if ("fnsku" in updates) patch.fnsku = normalizeUpperIdentifier(updates.fnsku);
+    if ("sku" in updates) patch.sku = normalizeFreeTextIdentifier(updates.sku);
+    if ("product_identifier" in updates) {
+      patch.product_identifier = normalizeBarcodeIdentifier(updates.product_identifier);
+    }
+
+    const nextSku =
+      updates.sku !== undefined ? normalizeFreeTextIdentifier(updates.sku) : ex.sku;
+    const nextAsin =
+      updates.asin !== undefined ? normalizeUpperIdentifier(updates.asin) : ex.asin;
+    const nextFnsku =
+      updates.fnsku !== undefined ? normalizeUpperIdentifier(updates.fnsku) : ex.fnsku;
+    const nextProductIdentifier =
+      updates.product_identifier !== undefined
+        ? normalizeBarcodeIdentifier(updates.product_identifier)
+        : ex.product_identifier;
     const clean = omitUndefined({
       ...patch,
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
     });
-
-    const nextSku = updates.sku !== undefined ? updates.sku : ex.sku;
-    const nextAsin = updates.asin !== undefined ? updates.asin : ex.asin;
-    const nextFnsku = updates.fnsku !== undefined ? updates.fnsku : ex.fnsku;
     const nextStore =
       updates.store_id !== undefined ? (clean.store_id as string | null | undefined) : ex.store_id;
     const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
@@ -1142,6 +1186,7 @@ export async function updateReturn(
       sku: nextSku,
       asin: nextAsin,
       fnsku: nextFnsku,
+      productIdentifier: nextProductIdentifier,
       legacyProductId: (ex as { product_id?: string | null }).product_id ?? null,
     });
     Object.assign(clean, {

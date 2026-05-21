@@ -36,6 +36,32 @@ Multi-tenant **ERP/PIM** for Amazon-centric logistics: warehouse scanner, return
 - **Environment topology:** `.cursor/environment-policy/final-env-topology-v170.md` and [`.ai-memory/ENVIRONMENT_TOPOLOGY.md`](.ai-memory/ENVIRONMENT_TOPOLOGY.md)
 - **Database expectations:** [`.ai-memory/DATABASE_CONTRACT.md`](.ai-memory/DATABASE_CONTRACT.md)
 
+## Product Resolution Contract — Non-Negotiable
+
+All product-aware entrypoints use the same backend contract:
+
+`manual/UI/API/import input -> normalize identifiers -> resolver -> products + product_identifier_map -> persist resolved_product_id when deterministic -> hydrate ProductLinkageDisplayContract -> render the same contract everywhere.`
+
+This covers manual add/edit, scanner save, package/pallet child items, item detail, expected packages, slip contents, imports, API ingestion, claim generation, and Neda UI surfaces.
+
+Allowed:
+
+- Approved server actions and governed resolver/import scripts.
+- Resolver-on-save for identifier changes.
+- `ProductLinkageDisplayContract` hydration for detail/read surfaces.
+- Explicit unresolved/ambiguous/mismatch states.
+
+Forbidden:
+
+- Direct browser Supabase writes for product-aware rows.
+- UI `products.insert` / `products.upsert`.
+- `package_items`.
+- Legacy `.from("returns")`.
+- Raw product-aware detail reads without hydration.
+- Title/OCR/fuzzy/AI auto-link or auto-create.
+
+Static guard: `npm run check:product-resolution-contract-v192`.
+
 ## Shared memory
 
 - **Session start:** [`.ai-memory/CURRENT_STATE.md`](.ai-memory/CURRENT_STATE.md)

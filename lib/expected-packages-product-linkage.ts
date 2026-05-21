@@ -13,6 +13,7 @@ import {
   type NedaExpectedPackageReadRow,
   type NedaExpectedPackagesReadResponse,
 } from "./expected-packages-neda-read-contract";
+import { buildExpectedScannedProductComparison } from "./inventory-product-comparison";
 import { resolveScannerProductIdentifiers } from "./scanner-product-resolve";
 
 export type ExpectedPackageDbRow = Record<string, unknown> & {
@@ -157,6 +158,7 @@ export async function resolveExpectedPackageProductLinkage(
     sku: n(row.sku),
     asin,
     fnsku: n(row.fnsku),
+    upc: n(row.upc ?? row.upc_code),
     legacyProductId: n(row.product_id),
   });
 
@@ -215,10 +217,17 @@ export async function buildNedaExpectedPackageReadRow(
   supabase: SupabaseClient,
   row: ExpectedPackageDbRow,
   scannedQuantity: number,
-  opts?: { asinFromDetail?: string | null },
+  opts?: {
+    asinFromDetail?: string | null;
+    resolvedLinkage?: {
+      contract: ProductLinkageDisplayContract;
+      source: ExpectedPackageLinkageSource;
+    };
+  },
 ): Promise<NedaExpectedPackageReadRow> {
   const expected = expectedQuantityFromRow(row);
-  const { contract, source } = await resolveExpectedPackageProductLinkage(supabase, row, opts);
+  const { contract, source } =
+    opts?.resolvedLinkage ?? (await resolveExpectedPackageProductLinkage(supabase, row, opts));
   return {
     expected_package_id: String(row.id),
     organization_id: String(row.organization_id),
@@ -238,6 +247,11 @@ export async function buildNedaExpectedPackageReadRow(
     build_status: n(row.build_status),
     product_linkage: contract,
     linkage_source: source,
+    product_comparison: buildExpectedScannedProductComparison({
+      expected: contract,
+      expectedQty: expected,
+      scannedQty: scannedQuantity,
+    }),
   };
 }
 

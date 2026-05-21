@@ -1,33 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Link2, AlertTriangle } from "lucide-react";
 
 import {
-  fetchCanonicalProductDisplay,
-  type CanonicalProductDisplay,
-} from "@/app/returns/product-linkage-actions";
+  fetchProductLinkageDisplayContract,
+} from "@/app/returns/product-linkage-display-actions";
+import { ProductLinkageDisplayBlock } from "@/components/product-linkage/ProductLinkageDisplayBlock";
+import { mapRowToProductLinkageDisplayContract, type ProductLinkageDisplayContract } from "@/lib/product-linkage-display-contract";
 import type { ProductLinkageFields } from "@/lib/scanner-product-linkage-ui";
-import {
-  PRODUCT_LINKAGE_LABEL_NEEDS_REVIEW,
-  PRODUCT_LINKAGE_LABEL_NO_LINK,
-  productLinkageUserStatusLabelFromFields,
-} from "@/lib/product-linkage-display-ui";
-import {
-  RESOLVER_SOURCE_LABEL,
-  RESOLVER_SOURCE_LABEL_COMPACT,
-  formatLinkageConfidence,
-  resolveLinkageDisplayTitle,
-  isAmbiguousLinkageStatus,
-  isMismatchLinkageStatus,
-  isUnresolvedLinkageStatus,
-  rawIdentifierSummary,
-  resolutionStatusBadgeClass,
-} from "@/lib/scanner-product-linkage-ui";
 
 type Props = {
   organizationId: string;
-  fields: ProductLinkageFields;
+  fields: ProductLinkageFields & { id?: string | null };
   compact?: boolean;
   /** When true, fetch canonical product title/category when resolved. */
   showCanonical?: boolean;
@@ -39,141 +23,56 @@ export function ReturnItemProductLinkage({
   compact = false,
   showCanonical = true,
 }: Props) {
-  const status = fields.identifier_resolution_status ?? null;
-  const confidence = formatLinkageConfidence(fields.identifier_resolution_confidence);
-  const [canonical, setCanonical] = useState<CanonicalProductDisplay | null>(null);
-  const [loadingCanonical, setLoadingCanonical] = useState(false);
-
-  const resolved = status === "resolved" && !!fields.resolved_product_id;
-  const showUnresolved = isUnresolvedLinkageStatus(status);
-  const showAmbiguous = isAmbiguousLinkageStatus(status);
-  const showMismatch = isMismatchLinkageStatus(status);
+  const fallback = mapRowToProductLinkageDisplayContract({
+    source_table: "return_items",
+    source_row_id: fields.id ?? "return_item",
+    row: fields as unknown as Record<string, unknown>,
+  });
+  const [linkage, setLinkage] = useState<ProductLinkageDisplayContract>(fallback);
 
   useEffect(() => {
-    if (!showCanonical || !resolved || !fields.resolved_product_id) {
-      setCanonical(null);
+    const nextFallback = mapRowToProductLinkageDisplayContract({
+      source_table: "return_items",
+      source_row_id: fields.id ?? "return_item",
+      row: fields as unknown as Record<string, unknown>,
+    });
+    setLinkage(nextFallback);
+    if (!showCanonical || !fields.resolved_product_id) {
       return;
     }
     let cancelled = false;
-    setLoadingCanonical(true);
-    void fetchCanonicalProductDisplay({
+    void fetchProductLinkageDisplayContract({
       organizationId,
-      resolvedProductId: fields.resolved_product_id,
-      resolvedCatalogProductId: fields.resolved_catalog_product_id,
-      itemExpirationDate: fields.expiration_date,
-      linkageFields: {
-        item_name: fields.item_name,
-        sku: fields.sku,
-        asin: fields.asin,
-        fnsku: fields.fnsku,
-        product_identifier: fields.product_identifier,
-      },
+      source_table: "return_items",
+      source_row_id: fields.id ?? "return_item",
+      row: fields as unknown as Record<string, unknown>,
     }).then((res) => {
       if (cancelled) return;
-      setLoadingCanonical(false);
-      if (res.ok) setCanonical(res.display);
+      setLinkage(res);
     });
     return () => {
       cancelled = true;
     };
   }, [
     organizationId,
+    fields.id,
+    fields.item_name,
+    fields.sku,
+    fields.asin,
+    fields.fnsku,
+    fields.product_identifier,
     fields.resolved_product_id,
     fields.resolved_catalog_product_id,
-    fields.expiration_date,
-    resolved,
+    fields.identifier_resolution_status,
+    fields.identifier_resolution_confidence,
     showCanonical,
   ]);
 
-  const displayTitle = resolveLinkageDisplayTitle(
-    resolved ? canonical?.title : null,
-    fields,
-  );
-
   return (
-    <div className={compact ? "mt-1 space-y-1" : "mt-2 space-y-2"}>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span
-          className={[
-            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-medium leading-snug",
-            compact ? "text-[9px]" : "text-[10px]",
-            resolutionStatusBadgeClass(status),
-          ].join(" ")}
-          title={`Resolver: ${RESOLVER_SOURCE_LABEL}`}
-        >
-          <Link2 className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
-          {productLinkageUserStatusLabelFromFields(fields)}
-        </span>
-        {showAmbiguous && (
-          <span
-            className={[
-              "inline-flex items-center gap-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-semibold text-amber-900 dark:text-amber-200",
-              compact ? "text-[9px]" : "text-[10px]",
-            ].join(" ")}
-          >
-            <AlertTriangle className="h-3 w-3" aria-hidden />
-            {PRODUCT_LINKAGE_LABEL_NEEDS_REVIEW}
-          </span>
-        )}
-        {showUnresolved && (
-          <span
-            className={[
-              "rounded-md border border-slate-400/30 bg-slate-500/10 px-1.5 py-0.5 font-medium text-muted-foreground",
-              compact ? "text-[9px]" : "text-[10px]",
-            ].join(" ")}
-          >
-            {PRODUCT_LINKAGE_LABEL_NO_LINK}
-          </span>
-        )}
-        {showMismatch && (
-          <span
-            className={[
-              "rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 font-semibold text-rose-800 dark:text-rose-300",
-              compact ? "text-[9px]" : "text-[10px]",
-            ].join(" ")}
-          >
-            Legacy mismatch
-          </span>
-        )}
-      </div>
-
-      {!compact && (
-        <p className="text-[10px] text-muted-foreground">
-          Source: {RESOLVER_SOURCE_LABEL}
-          {confidence ? ` · confidence ${confidence}` : ""}
-          {fields.resolved_product_id
-            ? ` · product ${fields.resolved_product_id.slice(0, 8)}…`
-            : ""}
-        </p>
-      )}
-
-      {compact && (status != null && String(status).trim() !== "") && (
-        <p
-          className="text-[9px] text-muted-foreground leading-tight truncate max-w-[14rem]"
-          title={`Resolver: ${RESOLVER_SOURCE_LABEL}${fields.resolved_product_id ? ` · product ${fields.resolved_product_id}` : ""}`}
-        >
-          {RESOLVER_SOURCE_LABEL_COMPACT}
-          {confidence ? ` · ${confidence}` : ""}
-        </p>
-      )}
-
-      <div className={compact ? "text-[10px]" : "text-xs"}>
-        <p className="font-medium text-foreground leading-snug">{displayTitle}</p>
-        {loadingCanonical && resolved && (
-          <p className="text-[10px] text-muted-foreground">Loading catalog…</p>
-        )}
-        {canonical?.category && (
-          <p className="text-[10px] text-muted-foreground">Category: {canonical.category}</p>
-        )}
-        {canonical?.expiry && (
-          <p className="text-[10px] text-muted-foreground">
-            Expiry on item: {canonical.expiry.slice(0, 10)}
-          </p>
-        )}
-        {(showUnresolved || showAmbiguous || !resolved) && (
-          <p className="mt-0.5 text-[10px] text-muted-foreground">{rawIdentifierSummary(fields)}</p>
-        )}
-      </div>
-    </div>
+    <ProductLinkageDisplayBlock
+      linkage={linkage}
+      organizationId={organizationId}
+      compact={compact}
+    />
   );
 }

@@ -18,6 +18,10 @@ const VARIANCE_LABEL: Record<string, string> = {
   unknown: "Unknown",
   no_scan_target: "No scan target",
   aggregate_only: "Aggregate only",
+  shortage: "Shortage",
+  overage: "Overage",
+  unexpected: "Unexpected",
+  unresolved: "Unresolved",
 };
 
 type Props = {
@@ -239,7 +243,9 @@ export function InventoryItemStatusLinkagePanel({
                     <td className="px-3 py-2.5 text-center font-bold">{row.expected_quantity}</td>
                     <td className="px-3 py-2.5 text-center font-bold">{row.scanned_quantity}</td>
                     <td className="px-3 py-2.5 text-[10px] font-semibold text-muted-foreground">
-                      {VARIANCE_LABEL[row.variance_status] ?? row.variance_status}
+                      {VARIANCE_LABEL[row.product_comparison.status] ??
+                        VARIANCE_LABEL[row.variance_status] ??
+                        row.variance_status}
                     </td>
                   </tr>
                 ))}

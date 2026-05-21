@@ -91,7 +91,7 @@ export function mapRowToProductLinkageDisplayContract(
     asin: fields.asin ?? null,
     fnsku: fields.fnsku ?? null,
     sku: fields.sku ?? null,
-    upc: str(row, "upc", "upc_code"),
+    upc: str(row, "upc", "upc_code", "product_identifier"),
     product_id: str(row, "product_id"),
     resolved_product_id: resolvedId,
     resolved_catalog_product_id: fields.resolved_catalog_product_id ?? null,

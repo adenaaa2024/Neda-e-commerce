@@ -10,6 +10,7 @@ import type {
   NedaInventoryItemStatusRow,
   NedaInventoryVarianceStatus,
 } from "./inventory-views-neda-read-contract";
+import { buildExpectedScannedProductComparison } from "./inventory-product-comparison";
 import { mapRowToProductLinkageDisplayContract } from "./product-linkage-display-contract";
 import type { ProductLinkageDisplayContract } from "./product-linkage-display-contract";
 import { resolveScannerProductIdentifiers } from "./scanner-product-resolve";
@@ -149,6 +150,7 @@ export async function resolveInventoryViewProductLinkage(
     sku: n(row.sku) ?? n(row.seller_sku),
     asin: n(row.asin),
     fnsku: n(row.fnsku),
+    upc: n(row.upc),
     legacyProductId: n(row.product_id),
   });
 
@@ -239,6 +241,11 @@ export async function buildNedaInventoryItemStatusRow(
     variance_status: computeInventoryVarianceStatus(expected, scanned, linkageClass),
     inventory_status: n(row.inventory_status) ?? n(row.status),
     product_linkage: contract,
+    product_comparison: buildExpectedScannedProductComparison({
+      expected: contract,
+      expectedQty: expected,
+      scannedQty: scanned,
+    }),
     linkage_source: linkageClass === "aggregate_only" ? "aggregate_no_row_product" : source,
     linkage_class: linkageClass,
   };

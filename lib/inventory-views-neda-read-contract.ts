@@ -3,6 +3,7 @@
  */
 
 import type { ProductLinkageDisplayContract } from "./product-linkage-display-contract";
+import type { ExpectedScannedProductComparison } from "./inventory-product-comparison";
 
 export type InventoryViewName =
   | "v_scanned_items_counted"
@@ -60,6 +61,7 @@ export type NedaInventoryItemStatusRow = {
   variance_status: NedaInventoryVarianceStatus;
   inventory_status: string | null;
   product_linkage: ProductLinkageDisplayContract;
+  product_comparison: ExpectedScannedProductComparison;
   linkage_source: InventoryViewLinkageSource;
   linkage_class: InventoryViewLinkageClass;
 };

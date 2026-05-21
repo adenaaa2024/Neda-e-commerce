@@ -42,6 +42,9 @@ export async function resolveScannerProductIdentifiers(
     sku?: string | null;
     asin?: string | null;
     fnsku?: string | null;
+    upc?: string | null;
+    gtin?: string | null;
+    productIdentifier?: string | null;
     legacyProductId?: string | null;
   },
 ): Promise<ScannerResolutionColumns> {
@@ -49,7 +52,8 @@ export async function resolveScannerProductIdentifiers(
   const sku = n(args.sku);
   const asin = n(args.asin);
   const fnsku = n(args.fnsku);
-  const hasAnyId = !!(sku || asin || fnsku);
+  const upc = n(args.upc) ?? n(args.gtin) ?? n(args.productIdentifier);
+  const hasAnyId = !!(sku || asin || fnsku || upc);
   if (!hasAnyId) {
     return { ...empty, identifier_resolution_status: "unresolved" };
   }
@@ -65,6 +69,7 @@ export async function resolveScannerProductIdentifiers(
       msku: sku,
       asin,
       fnsku,
+      upc,
     });
   } catch {
     return { ...empty, identifier_resolution_status: "unresolved" };

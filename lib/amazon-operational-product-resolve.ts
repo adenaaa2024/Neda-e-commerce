@@ -106,6 +106,8 @@ export async function resolveProductIdentifierMapMatch(
     msku?: unknown;
     sku?: unknown;
     asin?: unknown;
+    upc?: unknown;
+    gtin?: unknown;
   },
 ): Promise<ProductIdentifierMatchResult> {
   const organizationId = hints.organizationId;
@@ -116,6 +118,7 @@ export async function resolveProductIdentifierMapMatch(
   const fnsku = n(hints.fnsku);
   const msku = n(hints.msku) ?? n(hints.sku);
   const asin = n(hints.asin);
+  const upc = n(hints.upc) ?? n(hints.gtin);
 
   const candidates = await fetchProductIdentifierMapCandidates(supabase, organizationId, {
     organizationId,
@@ -123,6 +126,7 @@ export async function resolveProductIdentifierMapMatch(
     fnsku,
     msku,
     asin,
+    upc,
   });
   return pickBestProductIdentifierMatch(candidates, {
     organizationId,
@@ -130,6 +134,7 @@ export async function resolveProductIdentifierMapMatch(
     fnsku,
     msku,
     asin,
+    upc,
   });
 }
 

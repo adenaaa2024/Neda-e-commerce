@@ -22,6 +22,44 @@ Welcome. This repo uses a **shared AI memory** pack so you do not need prior cha
 - Packages: no `package_items` table or inserts.
 - Resolvers: `scripts/claim-candidate-resolver-project-v175-staging.ts` patterns — deterministic tiers, no product auto-create.
 
+## Product Resolution Contract — Non-Negotiable
+
+For every product-aware flow, preserve this path:
+
+```text
+manual/UI/API/import input
+-> normalize identifiers
+-> deterministic product resolver
+-> products + product_identifier_map
+-> persist resolved_product_id only for one deterministic winner
+-> hydrate ProductLinkageDisplayContract
+-> render the same linked/unresolved/ambiguous/mismatch contract everywhere
+```
+
+This applies to manual add/edit, scanner save, package/pallet child item rows, return item detail, expected packages, slip contents, imports/Amazon files, API ingestion, claim generation, and Neda UI.
+
+Allowed patterns:
+
+- Approved server actions and governed import/resolver scripts.
+- Resolver-on-save when identifiers or org/store scope change.
+- `ProductLinkageDisplayContract` read hydration.
+- Unresolved/ambiguous/mismatch fallback display.
+
+Forbidden patterns:
+
+- Direct browser Supabase writes for product-aware rows.
+- UI-side `products.insert` / `products.upsert`.
+- `package_items`.
+- Legacy `.from("returns")`.
+- Raw `return_items` detail reads without hydration.
+- Title/OCR/fuzzy/AI auto-link or auto-create.
+
+Before handing off product-aware changes, run:
+
+```bash
+npm run check:product-resolution-contract-v192
+```
+
 ## Commands
 
 See [`.ai-memory/COMMANDS.md`](.ai-memory/COMMANDS.md) for npm scripts used in audits.

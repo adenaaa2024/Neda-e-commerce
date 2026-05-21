@@ -137,6 +137,7 @@ export function rawIdentifierSummary(fields: ProductLinkageFields): string {
     fields.sku?.trim() ? `SKU ${fields.sku.trim()}` : null,
     fields.asin?.trim() ? `ASIN ${fields.asin.trim()}` : null,
     fields.fnsku?.trim() ? `FNSKU ${fields.fnsku.trim()}` : null,
+    fields.product_identifier?.trim() ? `UPC/GTIN ${fields.product_identifier.trim()}` : null,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "No identifiers";
 }

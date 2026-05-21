@@ -48,6 +48,42 @@
 
 Use `resolved_product_id` + `identifier_resolution_status` — not legacy `product_id` alone.
 
+## Product Resolution Contract — Non-Negotiable (V192)
+
+Every product-aware read/write path must follow the same contract:
+
+```text
+Manual/UI/API/import input
+-> normalize identifiers
+-> product resolver
+-> products + product_identifier_map
+-> persist resolved_product_id only when deterministic
+-> return/hydrate ProductLinkageDisplayContract
+-> UI/detail/package/pallet/views render the same contract
+```
+
+This applies to manual add/edit, scanner save, package and pallet child items, return item detail, expected packages, slip contents, Amazon imports, API ingestion, claim generation, and all Neda UI surfaces.
+
+Allowed patterns:
+
+- Approved server actions for product-aware writes (`insertReturn`, `updateReturn`, scanner save wrappers, governed import/resolver scripts).
+- Resolver-on-save whenever identifiers or org/store scope are created or changed.
+- Read hydration through `ProductLinkageDisplayContract`, `ReturnItemProductLinkage`, `fetchProductLinkageDisplayContract`, `fetchExpectedPackagesNedaRead`, or `fetchInventoryItemStatusForNeda`.
+- Visible unresolved/ambiguous/mismatch fallback states.
+
+Forbidden patterns:
+
+- Direct browser Supabase writes for product-aware rows.
+- `products.insert` / `products.upsert` from UI code.
+- `package_items`.
+- Legacy `.from("returns")`.
+- Raw `return_items` detail reads in UI without product-linkage hydration.
+- Title/OCR/fuzzy/AI auto-linking or auto-creation.
+
+Guardrail:
+
+- Run `npm run check:product-resolution-contract-v192` after product-aware UI/API/import/scanner changes.
+
 ## Deployment topology
 
 ```

@@ -62,6 +62,7 @@ export async function resolveAndPatchSlipContentRow(
     sku: readStr(slipRow, "sku", "seller_sku"),
     asin: readStr(slipRow, "asin"),
     fnsku: readStr(slipRow, "fnsku"),
+    upc: readStr(slipRow, "upc", "upc_code", "product_identifier"),
     legacyProductId,
   });
 
@@ -121,6 +122,7 @@ export async function syncSlipContentsResolverForPackage(
       sku: lineMatch?.sku ?? sku,
       asin: lineMatch?.asin ?? asin,
       fnsku: lineMatch?.fnsku ?? fnsku,
+      upc: readStr(slip, "upc", "upc_code", "product_identifier"),
       legacyProductId: readStr(slip, "product_id"),
     });
 

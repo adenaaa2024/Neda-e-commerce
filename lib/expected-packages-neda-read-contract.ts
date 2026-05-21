@@ -3,6 +3,7 @@
  */
 
 import type { ProductLinkageDisplayContract } from "./product-linkage-display-contract";
+import type { ExpectedScannedProductComparison } from "./inventory-product-comparison";
 
 /** How product_linkage was produced for this expected_packages row. */
 export type ExpectedPackageLinkageSource = "persisted_column" | "identifier_map" | "unresolved";
@@ -35,6 +36,7 @@ export type NedaExpectedPackageReadRow = {
   build_status: string | null;
   product_linkage: ProductLinkageDisplayContract;
   linkage_source: ExpectedPackageLinkageSource;
+  product_comparison: ExpectedScannedProductComparison;
 };
 
 export type NedaExpectedPackagesReadResponse = {

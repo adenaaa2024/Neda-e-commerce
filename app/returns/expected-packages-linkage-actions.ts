@@ -5,10 +5,19 @@ import { createClient } from "@supabase/supabase-js";
 import {
   assessLinkageReadiness,
   buildNedaExpectedPackageReadRow,
+  expectedQuantityFromRow,
   probeExpectedPackagesSchema,
+  resolveExpectedPackageProductLinkage,
   type ExpectedPackageDbRow,
 } from "@/lib/expected-packages-product-linkage";
+import {
+  buildExpectedScannedProductComparison,
+  buildProductComparisonKeyBundle,
+  productComparisonBundlesMatch,
+  type ProductComparisonIdentifiers,
+} from "@/lib/inventory-product-comparison";
 import type { NedaExpectedPackagesReadResponse } from "@/lib/expected-packages-neda-read-contract";
+import type { ProductLinkageDisplayContract } from "@/lib/product-linkage-display-contract";
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
@@ -67,10 +76,23 @@ export async function fetchExpectedPackagesNedaRead(opts: {
 
     const out: NedaExpectedPackagesReadResponse["rows"] = [];
     for (const row of rows) {
-      const scanned = await countScannedForExpectedRow(supabase, row);
       const detailId = n(row.source_detail_row_id);
       const asinFromDetail = detailId ? asinByDetail.get(detailId) ?? null : null;
-      out.push(await buildNedaExpectedPackageReadRow(supabase, row, scanned, { asinFromDetail }));
+      const resolvedLinkage = await resolveExpectedPackageProductLinkage(supabase, row, {
+        asinFromDetail,
+      });
+      const scanned = await countScannedForExpectedRow(
+        supabase,
+        row,
+        resolvedLinkage.contract,
+        { asinFromDetail },
+      );
+      out.push(
+        await buildNedaExpectedPackageReadRow(supabase, row, scanned, {
+          asinFromDetail,
+          resolvedLinkage,
+        }),
+      );
     }
 
     const notes: string[] = [];
@@ -99,12 +121,26 @@ function n(v: unknown): string | null {
 async function countScannedForExpectedRow(
   supabase: ReturnType<typeof serviceClient>,
   row: ExpectedPackageDbRow,
+  linkage: ProductLinkageDisplayContract,
+  opts?: { asinFromDetail?: string | null },
 ): Promise<number> {
   const orgId = String(row.organization_id);
-  const sku = n(row.sku);
-  const fnsku = n(row.fnsku);
   const tn = n(row.tracking_number);
   if (!tn && !n(row.order_id)) return 0;
+  const expected = expectedQuantityFromRow(row);
+  const comparison = buildExpectedScannedProductComparison({
+    expected: linkage,
+    expectedQty: expected,
+    scannedQty: 0,
+  });
+  const expectedBundle = buildProductComparisonKeyBundle({
+    resolved_product_id: comparison.resolved_product_id,
+    product_id: linkage.product_id,
+    sku: n(row.sku),
+    fnsku: n(row.fnsku),
+    asin: n(row.asin) ?? n(opts?.asinFromDetail),
+  });
+  if (!expectedBundle.product_key && !expectedBundle.identifier_fallback_key) return 0;
 
   let pkgQ = supabase.from("packages").select("id").eq("organization_id", orgId);
   if (tn) pkgQ = pkgQ.ilike("tracking_number", tn);
@@ -115,12 +151,16 @@ async function countScannedForExpectedRow(
 
   let riQ = supabase
     .from("return_items")
-    .select("id", { count: "exact", head: true })
+    .select("id, sku, fnsku, asin, product_identifier, product_id, resolved_product_id")
     .eq("organization_id", orgId)
-    .in("package_id", pkgIds);
+    .in("package_id", pkgIds)
+    .is("deleted_at", null);
   if (n(row.store_id)) riQ = riQ.eq("store_id", n(row.store_id)!);
-  if (fnsku) riQ = riQ.eq("fnsku", fnsku);
-  else if (sku) riQ = riQ.eq("sku", sku);
-  const { count } = await riQ;
-  return count ?? 0;
+  const { data } = await riQ;
+  return (data ?? []).filter((it) =>
+    productComparisonBundlesMatch(
+      expectedBundle,
+      buildProductComparisonKeyBundle(it as ProductComparisonIdentifiers),
+    ),
+  ).length;
 }

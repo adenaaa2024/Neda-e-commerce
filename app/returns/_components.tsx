@@ -1773,7 +1773,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   const itemOperatorNames = useProfileNames([record.created_by, record.updated_by]);
   const [editLpn,    setEditLpn]    = useState(record.lpn ?? "");
   const [editRmaNumber, setEditRmaNumber] = useState(record.rma_number ?? "");
-  const [editProductId, setEditProductId] = useState(record.asin ?? record.fnsku ?? record.sku ?? "");
+  const [editProductId, setEditProductId] = useState(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
   const [editAsin,   setEditAsin]   = useState(record.asin ?? "");
   const [editFnsku,  setEditFnsku]  = useState(record.fnsku ?? "");
   const [editSku, setEditSku] = useState(record.sku ?? "");
@@ -1824,7 +1824,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   useEffect(() => {
     setEditLpn(record.lpn ?? "");
     setEditRmaNumber(record.rma_number ?? "");
-    setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
+    setEditProductId(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
     setEditAsin(record.asin ?? "");
     setEditFnsku(record.fnsku ?? "");
     setEditSku(record.sku ?? "");
@@ -1841,7 +1841,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     setItemEditFiles([]);
     setEditCatalogStatus("idle");
     setEditCatalogPreview(null);
-  }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
+  }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.product_identifier, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
 
   async function handleEditBarcodeLookup(barcode: string) {
     if (!barcode.trim()) { setEditCatalogStatus("idle"); return; }
@@ -1965,9 +1965,10 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
       order_id: isLooseItem ? (editOrderId.trim() || null) : null,
       expiration_date:  editExpiryDate  || undefined,
       photo_evidence:   mergedPhotoEvidence ?? undefined,
-      asin: editAsin.trim() || editProductId.trim() || null,
+      asin: editAsin.trim() || null,
       fnsku: editFnsku.trim() || null,
       sku: editSku.trim() || null,
+      product_identifier: editProductId.trim() || null,
       store_id: editStoreId.trim() || null,
       marketplace: pickedStore ? platformToMarketplace(pickedStore.platform) : record.marketplace,
       package_id: editPackageId.trim() || null,
@@ -2359,7 +2360,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                 setEditing(false);
                 setEditLpn(record.lpn ?? "");
                 setEditRmaNumber(record.rma_number ?? "");
-                setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
+                setEditProductId(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
                 setEditAsin(record.asin ?? "");
                 setEditFnsku(record.fnsku ?? "");
                 setEditSku(record.sku ?? "");
@@ -5591,9 +5592,10 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         marketplace: marketplaceResolved,
         item_name: state.item_name,
         conditions,
-        asin: state.asin.trim() || state.product_identifier.trim() || undefined,
+        asin: state.asin.trim() || undefined,
         fnsku: state.fnsku.trim() || undefined,
         sku: state.sku.trim() || undefined,
+        product_identifier: state.product_identifier.trim() || undefined,
         amazon_order_id: orderId,
         notes: state.notes, photo_evidence: photoEvidence ?? undefined,
         expiration_date: state.expiration_date || undefined,

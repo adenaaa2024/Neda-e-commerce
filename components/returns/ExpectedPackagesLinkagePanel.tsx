@@ -7,6 +7,10 @@ import { fetchExpectedPackagesNedaRead } from "@/app/returns/expected-packages-l
 import type { ReturnRecord } from "@/app/returns/returns-action-types";
 import { ProductLinkageDisplayBlock } from "@/components/product-linkage/ProductLinkageDisplayBlock";
 import type { NedaExpectedPackageReadRow } from "@/lib/expected-packages-neda-read-contract";
+import {
+  buildProductComparisonKeyBundle,
+  productComparisonBundlesMatch,
+} from "@/lib/inventory-product-comparison";
 
 const VARIANCE_LABEL: Record<string, string> = {
   matched: "Matched",
@@ -14,6 +18,10 @@ const VARIANCE_LABEL: Record<string, string> = {
   over_scanned: "Over scanned",
   unknown: "Unknown",
   no_scan_target: "No scan target",
+  shortage: "Shortage",
+  overage: "Overage",
+  unexpected: "Unexpected",
+  unresolved: "Unresolved",
 };
 
 type Props = {
@@ -29,15 +37,23 @@ type Props = {
 };
 
 function itemMatchesExpectedPackage(it: ReturnRecord, row: NedaExpectedPackageReadRow): boolean {
-  const fnsku = row.fnsku?.trim().toLowerCase();
-  const sku = row.sku?.trim().toLowerCase();
-  const itFnsku = it.fnsku?.trim().toLowerCase();
-  const itSku = it.sku?.trim().toLowerCase();
-  const ident = (it as { product_identifier?: string | null }).product_identifier?.trim().toLowerCase();
-  if (fnsku && itFnsku === fnsku) return true;
-  if (sku && (itSku === sku || ident === sku)) return true;
-  if (fnsku && ident === fnsku) return true;
-  return false;
+  return productComparisonBundlesMatch(
+    buildProductComparisonKeyBundle({
+      resolved_product_id: row.product_linkage.resolved_product_id,
+      product_id: row.product_linkage.product_id,
+      sku: row.sku,
+      fnsku: row.fnsku,
+      asin: row.asin,
+    }),
+    buildProductComparisonKeyBundle({
+      resolved_product_id: it.resolved_product_id,
+      product_id: it.product_id,
+      sku: it.sku,
+      fnsku: it.fnsku,
+      asin: it.asin,
+      product_identifier: it.product_identifier,
+    }),
+  );
 }
 
 export function ExpectedPackagesLinkagePanel({
@@ -122,7 +138,7 @@ export function ExpectedPackagesLinkagePanel({
     setFilterTracking(trackingProp?.trim() ?? "");
   }, [showFilters, orderIdProp, trackingProp]);
 
-  const scanned = scannedItems ?? [];
+  const scanned = useMemo(() => scannedItems ?? [], [scannedItems]);
 
   const tableRows = useMemo(
     () =>
@@ -269,7 +285,9 @@ export function ExpectedPackagesLinkagePanel({
                         )
                       ) : (
                         <span className="text-[10px] font-semibold text-muted-foreground">
-                          {VARIANCE_LABEL[row.variance_status] ?? row.variance_status}
+                          {VARIANCE_LABEL[row.product_comparison.status] ??
+                            VARIANCE_LABEL[row.variance_status] ??
+                            row.variance_status}
                         </span>
                       )}
                     </td>

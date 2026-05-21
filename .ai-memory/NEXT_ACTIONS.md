@@ -1,70 +1,41 @@
-# Next actions — V183+
+# Next actions — V191 item resolver milestone
 
-See [TASKS.md](../TASKS.md). Primary order from **history-v183** §14.
-
----
-
-## P0 — Neda environment
-
-| Rule | Status |
-|------|--------|
-| Active quartet → **`eiqfaapyumhixxoeltgu`** | **ALIGNED** (verify each session) |
-| If pointing at original `kxsvedvpjldygtdbylsy` | **STOP** — **top blocker** (ENV-05E) |
+See [TASKS.md](../TASKS.md).
 
 ---
 
-## Done — V181 / V182 / V183
+## Done — V191 item resolver + alignment
 
-- [x] **V182** canonical full history on disk
-- [x] **V181** expected/inventory Neda read signoff **PASS**
-- [x] **V179** inventory + expected_packages read contract
-- [x] **V183** FBM dry-run **PASS** (no writes; 0 eligible `set_resolved`)
+- [x] Operator item add/edit resolver standard **PASS** (`insertReturn` / `updateReturn`; 16/16 smoke)
+- [x] Direct browser `return_items` writes on add/edit/save **blocked**
+- [x] Detail / package / pallet hydrated linkage **PASS**
+- [x] Inventory read-layer `product_comparison` alignment **PASS** (no DDL)
+- [x] Neda final backend handoff V191 docs **PASS**
+- [x] History V191 + memory sync `20260526T120000Z` **PASS**
+- [x] AFI guarded Tier 3 SKU/no-ASIN-conflict execute **PASS** (`109` rows; coverage `75.34%`)
+- [x] Product resolution contract lock V192 **PASS** (`check:product-resolution-contract-v192`)
+- [x] Expected_packages E1 map bridge V192 preflight **PASS** (`254` candidates; approval false)
 
----
+**Not next:** staging `return_items` test-cohort resolver re-execute.
 
-## 1. UPC/GTIN matcher (optional)
-
-`PRODUCT-IDENTIFIER-MATCH-UPC-GTIN-V182` — wire `upc_code` in `lib/product-identifier-match.ts`.
-
----
-
-## 2. Identifier map enrichment (governed)
-
-V185: **0** enrichable for 5 unresolved rows — dirty/test `source_identifier` + thin map. Governed enrichment only; **no blind** bulk.
+**Not found:** NEDA-20 audit artifact.
 
 ---
 
-## 3. Re-run FBM dry-run → conditional execute
+## Program priorities
 
-```bash
-npx tsx scripts/return-items-fbm-aware-dry-run-v183.ts --run-id=<id>
-```
-
-- V182: **72/100**, dry-run ready, execute **blocked**
-- Execute only if `set_resolved_total > 0` + operator approval
-
----
-
-## 4. Claim upstream V177 (separate)
-
-Governed waves — no blind execute.
-
----
-
-## 5. Charters
-
-- **RETURN-ITEMS-PROD-DATA-CHARTER** — replace fake/test cohort (V183 warning)
-- **NEDA-17** — not run
-- Production — **blocked**
-
----
-
-## Post-V183 (if resuming later work)
-
-V186–V189 test-cohort closure **done** on staging — see `history-v189/` and `.ai-memory` post-V189 notes in audit packs; no staging resolver re-execute required for that cohort.
+1. **Expected_packages E1 execute** — only after `.cursor/operator-approvals/expected-packages-e1-map-bridge-v192-approval.md` flags are flipped; current plan has **254** expected rows / **134** map rows.
+2. **Inventory view DDL** (optional) — apply `ddl-plan.md` only after explicit approval; read layers already product-key-first.
+3. **Expected_packages E2 / E4 refresh** — after E1 execute, recompute governed promotion/review counts.
+4. **Remaining product catalog/import completeness** — separate governed cohorts only; no broad fuzzy/title/API/AI resolution.
+5. **Claim cleanup / regeneration** (governed)
+6. **TRID / reference graph**
+7. **API / hardening**
+8. **Keep V192 guard passing** on product-aware UI/API/import/scanner changes.
+9. **AI layer** (later; default deny)
 
 ---
 
 ## Production (blocked)
 
-No production ref, probes, Vercel Production swap, migrations on prod, live AI, Amazon API.
+Future production Supabase project **NOT_CREATED_YET**. Do not point Vercel Production at staging.

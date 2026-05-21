@@ -4,9 +4,9 @@
  * Candidates are always scoped by organization_id + store_id.
  *
  * Priority 1: fnsku match
- * Priority 2: seller_sku + asin
+ * Priority 2: asin match
  * Priority 3: seller_sku (or msku column)
- * Priority 4: asin
+ * Priority 4: upc_code match
  *
  * Tie-break: exact fnsku > sku/msku + asin > weaker tiers. Multiple equal winners → ambiguous.
  */
@@ -24,6 +24,7 @@ export type ProductIdentifierMapRow = {
   asin: string | null;
   fnsku: string | null;
   msku: string | null;
+  upc_code?: string | null;
   title: string | null;
   disposition: string | null;
   external_listing_id: string | null;
@@ -43,6 +44,9 @@ export type IdentifierLookupHints = {
   /** MSKU / seller SKU */
   msku?: string | null;
   asin?: string | null;
+  /** UPC / EAN / GTIN barcode value (digits only when available). */
+  upc?: string | null;
+  gtin?: string | null;
 };
 
 export type IdentifierMatchTier = 1 | 2 | 3 | 4;
@@ -67,17 +71,20 @@ function scoreCandidate(row: ProductIdentifierMapRow, h: IdentifierLookupHints):
   const fnsku = n(h.fnsku);
   const msku = n(h.msku);
   const asin = n(h.asin);
+  const upc = n(h.upc) ?? n(h.gtin);
 
   const rowF = n(row.fnsku);
   const rowSku = n(row.seller_sku) ?? n(row.msku);
   const rowMsku = n(row.msku);
   const rowAsin = n(row.asin);
+  const rowUpc = n(row.upc_code);
 
   const fnskuEq = !!(fnsku && rowF && fnsku === rowF);
   const skuEq = !!(msku && rowSku && msku === rowSku);
   const mskuEq = !!(msku && rowMsku && msku === rowMsku);
   const skuOrMskuEq = skuEq || mskuEq;
   const asinEq = !!(asin && rowAsin && asin === rowAsin);
+  const upcEq = !!(upc && rowUpc && upc === rowUpc);
 
   let best: Scored | null = null;
   const consider = (cand: Scored) => {
@@ -94,14 +101,14 @@ function scoreCandidate(row: ProductIdentifierMapRow, h: IdentifierLookupHints):
   if (fnsku && fnskuEq) {
     consider({ row, tier: 1, sub: 0 });
   }
-  if (skuOrMskuEq && asinEq) {
-    consider({ row, tier: 2, sub: fnskuEq ? 0 : 1 });
+  if (asinEq) {
+    consider({ row, tier: 2, sub: skuOrMskuEq ? 0 : 1 });
   }
   if (skuOrMskuEq) {
     consider({ row, tier: 3, sub: asinEq ? 0 : 1 });
   }
-  if (asinEq) {
-    consider({ row, tier: 4, sub: skuOrMskuEq ? 1 : 2 });
+  if (upc && upcEq) {
+    consider({ row, tier: 4, sub: skuOrMskuEq || asinEq ? 0 : 1 });
   }
 
   return best;
@@ -116,7 +123,7 @@ function tierConfidence(tier: IdentifierMatchTier): number {
     case 3:
       return 0.85;
     case 4:
-      return 0.7;
+      return 0.9;
     default:
       return 0.65;
   }
@@ -179,7 +186,7 @@ export function pickBestProductIdentifierMatch(
 const FETCH_CHUNK = 60;
 
 const baseSelect =
-  "id, organization_id, product_id, catalog_product_id, store_id, seller_sku, asin, fnsku, msku, external_listing_id, title, disposition, confidence_score, match_source, inventory_source, last_seen_at, linked_from_report_family, linked_from_target_table";
+  "id, organization_id, product_id, catalog_product_id, store_id, seller_sku, asin, fnsku, msku, upc_code, external_listing_id, title, disposition, confidence_score, match_source, inventory_source, last_seen_at, linked_from_report_family, linked_from_target_table";
 
 /**
  * Load a bounded candidate set for priority matching (organization + store).
@@ -197,6 +204,7 @@ export async function fetchProductIdentifierMapCandidates(
   const fnsku = n(hints.fnsku);
   const msku = n(hints.msku);
   const asin = n(hints.asin);
+  const upc = n(hints.upc) ?? n(hints.gtin);
 
   const collected: ProductIdentifierMapRow[] = [];
   const seen = new Set<string>();
@@ -255,6 +263,18 @@ export async function fetchProductIdentifierMapCandidates(
     pushRows(data);
   }
 
+  if (upc) {
+    const { data, error } = await supabase
+      .from("product_identifier_map")
+      .select(baseSelect)
+      .eq("organization_id", organizationId)
+      .eq("store_id", storeId)
+      .eq("upc_code", upc)
+      .limit(200);
+    if (error) throw new Error(`fetchProductIdentifierMapCandidates upc: ${error.message}`);
+    pushRows(data);
+  }
+
   return collected;
 }
 
@@ -265,7 +285,7 @@ export async function prefetchIdentifierMapCandidatesForBatch(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string | null,
-  keys: { fnsku?: string | null; msku?: string | null; asin?: string | null }[],
+  keys: { fnsku?: string | null; msku?: string | null; asin?: string | null; upc?: string | null; gtin?: string | null }[],
 ): Promise<ProductIdentifierMapRow[]> {
   const sid = n(storeId);
   if (!sid) {
@@ -275,6 +295,7 @@ export async function prefetchIdentifierMapCandidatesForBatch(
   const fnskus = [...new Set(keys.map((k) => n(k.fnsku)).filter(Boolean))] as string[];
   const mskus = [...new Set(keys.map((k) => n(k.msku)).filter(Boolean))] as string[];
   const asins = [...new Set(keys.map((k) => n(k.asin)).filter(Boolean))] as string[];
+  const upcs = [...new Set(keys.map((k) => n(k.upc) ?? n(k.gtin)).filter(Boolean))] as string[];
 
   const seen = new Set<string>();
   const out: ProductIdentifierMapRow[] = [];
@@ -328,6 +349,18 @@ export async function prefetchIdentifierMapCandidatesForBatch(
       .eq("store_id", sid)
       .in("asin", slice);
     if (error) throw new Error(`prefetchIdentifierMapCandidatesForBatch asin: ${error.message}`);
+    pushRows(data);
+  }
+
+  for (let i = 0; i < upcs.length; i += FETCH_CHUNK) {
+    const slice = upcs.slice(i, i + FETCH_CHUNK);
+    const { data, error } = await supabase
+      .from("product_identifier_map")
+      .select(baseSelect)
+      .eq("organization_id", organizationId)
+      .eq("store_id", sid)
+      .in("upc_code", slice);
+    if (error) throw new Error(`prefetchIdentifierMapCandidatesForBatch upc: ${error.message}`);
     pushRows(data);
   }
 

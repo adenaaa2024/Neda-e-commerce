@@ -135,6 +135,7 @@ export type ReturnInsertPayload = {
   asin?: string;
   fnsku?: string;
   sku?: string;
+  product_identifier?: string;
   conditions: string[];
   notes?: string;
   photo_evidence?: Record<string, string | number | string[] | null> | null;
