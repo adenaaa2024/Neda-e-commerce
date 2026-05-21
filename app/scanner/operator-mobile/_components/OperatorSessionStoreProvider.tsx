@@ -45,31 +45,28 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     organizationId: contextOrganizationId,
     homeOrganizationId: profileOrganizationId,
     sessionCanWorkspaceSwitch,
+    profileLoading,
   } = useUserRole();
-  const [workspaceSwitcherOrganizationId, setWorkspaceSwitcherOrganizationId] = useState("");
+  const [workspaceSwitcherOrganizationId, setWorkspaceSwitcherOrganizationId] = useState(() =>
+    typeof window === "undefined" ? "" : readWorkspaceSelectedOrganizationIdFromStorage(),
+  );
   /**
    * Match workspace org picker (TopHeader / Settings): internal staff scope is persisted under
-   * `workspace_selected_organization_id`. Prefer that when set so operator mobile stays aligned
-   * with the company selected on the main shell.
+   * `workspace_selected_organization_id`. Workspace switcher wins over profile/context so
+   * operator mobile stays aligned with the company selected on the main shell (same-tab events
+   * and localStorage writes do not always update `UserRoleContext.organizationId` first).
    */
   const orgId = useMemo(() => {
-    const ctx = contextOrganizationId?.trim();
-    if (ctx && isUuidString(ctx)) {
-      return ctx;
-    }
+    const workspaceOrg =
+      workspaceSwitcherOrganizationId || readWorkspaceSelectedOrganizationIdFromStorage();
     const resolved = resolveActiveTenantOrganizationId({
-      workspaceSwitcherOrganizationId: sessionCanWorkspaceSwitch ? workspaceSwitcherOrganizationId : "",
+      workspaceSwitcherOrganizationId: workspaceOrg,
       contextOrganizationId,
       profileOrganizationId,
     });
     if (resolved) return resolved;
     return resolveOrganizationId();
-  }, [
-    sessionCanWorkspaceSwitch,
-    workspaceSwitcherOrganizationId,
-    contextOrganizationId,
-    profileOrganizationId,
-  ]);
+  }, [workspaceSwitcherOrganizationId, contextOrganizationId, profileOrganizationId]);
   const [sessionStoreId, setSessionStoreIdState] = useState<string | null>(null);
   const [operatorStores, setOperatorStores] = useState<OperatorStoreOption[]>([]);
   const [operatorStoresLoading, setOperatorStoresLoading] = useState(false);
@@ -77,10 +74,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
   const kioskStoreLocked = useMemo(() => Boolean(resolvePublicStoreId()), []);
 
   useEffect(() => {
-    if (!sessionCanWorkspaceSwitch) {
-      setWorkspaceSwitcherOrganizationId("");
-      return;
-    }
+    if (!sessionCanWorkspaceSwitch) return;
     setWorkspaceSwitcherOrganizationId(readWorkspaceSelectedOrganizationIdFromStorage());
 
     function syncWorkspaceOrgFromStorage() {
@@ -113,6 +107,19 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     };
   }, [sessionCanWorkspaceSwitch]);
 
+  /** Hydrate session store from per-org localStorage before server scope returns (avoids gate race). */
+  useEffect(() => {
+    const envId = resolvePublicStoreId();
+    if (envId) {
+      setSessionStoreIdState(envId);
+      return;
+    }
+    const persisted = getOperatorSessionStoreIdForOrg(orgId).trim();
+    if (persisted && isUuidString(persisted)) {
+      setSessionStoreIdState(persisted);
+    }
+  }, [orgId]);
+
   useEffect(() => {
     if (!isSupabaseConfigured()) {
       setOperatorStores([]);
@@ -120,9 +127,9 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
       setSessionStoreIdState(null);
       return;
     }
+    if (profileLoading) return;
     let cancelled = false;
     setOperatorStores([]);
-    setSessionStoreIdState(null);
     setOperatorStoresLoading(true);
     void (async () => {
       try {
@@ -146,6 +153,11 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
         if (!stores.length) {
           setSessionStoreIdState(null);
           return;
+        }
+
+        const preselected = getOperatorSessionStoreIdForOrg(orgId).trim();
+        if (preselected && isUuidString(preselected) && ids.has(preselected)) {
+          setSessionStoreIdState(preselected);
         }
 
         if (stores.length === 1) {
@@ -188,7 +200,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     return () => {
       cancelled = true;
     };
-  }, [orgId]);
+  }, [orgId, profileLoading]);
 
   const selectSessionStoreId = useCallback(
     (storeId: string) => {

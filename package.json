@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "sync:sidebar": "tsx scripts/sync-sidebar-catalog.ts"
+    "sync:sidebar": "tsx scripts/sync-sidebar-catalog.ts",
+    "smoke:expected-packages-ui-wire-v179": "tsx scripts/smoke-expected-packages-ui-wire-v179.ts",
+    "smoke:inventory-views-ui-wire-v180": "tsx scripts/smoke-inventory-views-ui-wire-v180.ts",
+    "audit:expected-inventory-neda-read-model-signoff-v181": "tsx scripts/expected-inventory-neda-read-model-signoff-v181.ts"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",

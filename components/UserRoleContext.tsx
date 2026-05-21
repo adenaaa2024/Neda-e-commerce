@@ -493,6 +493,27 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", onStorage);
   }, [sessionCanWorkspaceSwitch, homeOrganizationId]);
 
+  /** Same-tab workspace changes (header switcher / operator proof scripts) do not fire `storage`. */
+  useEffect(() => {
+    if (!sessionCanWorkspaceSwitch) return;
+    function onWorkspaceOrgChanged(event: Event) {
+      const detail =
+        event instanceof CustomEvent && event.detail && typeof event.detail === "object"
+          ? (event.detail as { id?: unknown })
+          : null;
+      const id = typeof detail?.id === "string" ? detail.id.trim() : "";
+      if (id && isUuidString(id)) {
+        setSuperAdminOrganizationOverride(id);
+        return;
+      }
+      const stored = readStoredWorkspaceCompanyId();
+      setSuperAdminOrganizationOverride(stored && isUuidString(stored) ? stored : homeOrganizationId);
+    }
+    window.addEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged as EventListener);
+    return () =>
+      window.removeEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged as EventListener);
+  }, [sessionCanWorkspaceSwitch, homeOrganizationId]);
+
   useEffect(() => {
     if (profileLoading) {
       return;

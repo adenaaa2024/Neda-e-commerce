@@ -494,6 +494,3196 @@ html.light .operator-mobile-app-shell .scanner-ocr-reading-overlay {
   box-shadow: 0 8px 28px rgba(22, 24, 27, 0.08);
 }
 
+/* Shipment Entry gate — initial scan screen only (scoped via .operator-shipment-entry-gate) */
+.operator-shipment-entry-gate-page {
+  background: linear-gradient(180deg, #11161c 0%, #050607 36%, #050607 100%) !important;
+}
+
+.operator-shipment-entry-gate {
+  --scanner-bracket-cyan: rgba(214, 183, 110, 0.9);
+  --scanner-bracket-glow: drop-shadow(0 0 10px rgba(214, 183, 110, 0.42))
+    drop-shadow(0 0 4px rgba(241, 213, 138, 0.28));
+}
+
+html.dark .operator-shipment-entry-gate-scan-card.scanner-page-glass-card {
+  background-color: #1a2129;
+  border-color: #323c48;
+  box-shadow:
+    0 0 0 0.5px rgba(214, 183, 110, 0.22),
+    0 20px 48px -16px rgba(0, 0, 0, 0.78),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+html.light .operator-shipment-entry-gate-scan-card.scanner-page-glass-card {
+  background-color: #ffffff !important;
+  border-color: var(--scanner-border);
+  box-shadow:
+    0 0 0 0.5px rgba(138, 104, 31, 0.18),
+    0 16px 40px -14px rgba(22, 24, 27, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+html.light .operator-shipment-entry-gate-scan-card p.mt-4.font-semibold {
+  color: #737b86 !important;
+}
+
+html.light .operator-shipment-entry-gate-page {
+  background: var(--op-app-bg) !important;
+}
+
+html.light .operator-shipment-entry-gate__title {
+  color: var(--scanner-text) !important;
+}
+
+html.light .operator-shipment-entry-gate__title::after {
+  background: linear-gradient(
+    90deg,
+    rgba(201, 162, 74, 0.55) 0%,
+    rgba(138, 104, 31, 0.42) 55%,
+    rgba(201, 162, 74, 0.28) 100%
+  );
+}
+
+html.light .operator-shipment-entry-gate__tracking-label {
+  color: var(--op-text-secondary) !important;
+}
+
+html.light .operator-shipment-entry-gate__barcode-plate .lucide {
+  color: var(--op-accent-gold) !important;
+}
+
+.operator-shipment-entry-gate__title {
+  display: inline-block;
+  color: #faf6ed !important;
+  box-shadow: none;
+}
+
+.operator-shipment-entry-gate__title::after {
+  content: "";
+  display: block;
+  width: 70%;
+  height: 1px;
+  margin-top: 7px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(241, 213, 138, 0.62) 0%,
+    rgba(214, 183, 110, 0.48) 55%,
+    rgba(241, 213, 138, 0.22) 100%
+  );
+}
+
+.operator-shipment-entry-gate__tracking-label {
+  color: #b9c2cc !important;
+}
+
+.operator-shipment-entry-gate__barcode-plate {
+  background: linear-gradient(165deg, #2a3440 0%, #1a2129 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.38) !important;
+  box-shadow:
+    0 0 0 1px rgba(214, 183, 110, 0.2),
+    0 8px 20px -6px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+.operator-shipment-entry-gate__barcode-plate .lucide {
+  color: #f1d58a !important;
+  stroke-width: 2.35;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+
+.operator-shipment-entry-gate__info-btn {
+  border-color: rgba(50, 60, 72, 0.95) !important;
+  background: linear-gradient(165deg, #2a3440 0%, #1a2129 100%) !important;
+  color: #d6b76e !important;
+}
+
+.operator-shipment-entry-gate__info-btn:hover {
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  background: rgba(214, 183, 110, 0.12) !important;
+  color: #f1d58a !important;
+}
+
+.operator-shipment-entry-gate__info-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.38);
+}
+
+.operator-shipment-entry-gate__scan-preview {
+  border-color: rgba(50, 60, 72, 0.75) !important;
+  background-color: #11161c !important;
+  box-shadow:
+    inset 0 1px 10px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+.operator-shipment-entry-gate .operator-handheld-red-laser {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(214, 183, 110, 0.15) 12%,
+    rgba(241, 213, 138, 0.95) 50%,
+    rgba(214, 183, 110, 0.15) 88%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 10px rgba(214, 183, 110, 0.55),
+    0 0 22px rgba(180, 140, 60, 0.22);
+}
+
+.operator-shipment-entry-gate .operator-handheld-red-laser--subtle {
+  opacity: 0.88;
+}
+
+.operator-shipment-entry-gate__scan-icon {
+  color: #87919d !important;
+  opacity: 0.55 !important;
+}
+
+.operator-shipment-entry-gate__input.scanner-input-glass::placeholder {
+  color: #87919d !important;
+  opacity: 0.82 !important;
+}
+
+.operator-shipment-entry-gate__input:focus,
+.operator-shipment-entry-gate__input:focus-visible {
+  border-color: rgba(214, 183, 110, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.22) !important;
+}
+
+.operator-shipment-entry-gate__camera-btn,
+.operator-shipment-entry-gate__search-btn {
+  border: 1px solid transparent;
+}
+
+.operator-shipment-entry-gate__camera-btn {
+  color: #d6b76e !important;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45)) !important;
+}
+
+.operator-shipment-entry-gate__camera-btn:hover:not(:disabled) {
+  background: rgba(214, 183, 110, 0.12) !important;
+  border-color: rgba(214, 183, 110, 0.28) !important;
+}
+
+.operator-shipment-entry-gate__camera-btn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.38) !important;
+}
+
+.operator-shipment-entry-gate__search-btn {
+  color: #f1d58a !important;
+}
+
+.operator-shipment-entry-gate__search-btn:hover:not(:disabled) {
+  background: rgba(214, 183, 110, 0.12) !important;
+  border-color: rgba(214, 183, 110, 0.28) !important;
+}
+
+.operator-shipment-entry-gate__ocr-drop {
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  background: rgba(214, 183, 110, 0.08) !important;
+}
+
+.operator-shipment-entry-gate__ocr-drop-label {
+  color: #faf6ed !important;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55) !important;
+}
+
+.operator-shipment-entry-gate__scan-zone--highlight {
+  box-shadow: 0 0 28px rgba(214, 183, 110, 0.22) !important;
+}
+
+.operator-shipment-entry-gate .scanner-ocr-action-sheet button[role="menuitem"] {
+  color: #faf6ed;
+}
+
+html.dark .operator-shipment-entry-gate .scanner-ocr-action-sheet button[role="menuitem"]:hover,
+html.dark .operator-shipment-entry-gate .scanner-ocr-action-sheet button[role="menuitem"]:active {
+  background: rgba(214, 183, 110, 0.12);
+}
+
+html.light .operator-shipment-entry-gate .scanner-ocr-action-sheet button[role="menuitem"] {
+  color: #16181b;
+}
+
+html.light .operator-shipment-entry-gate .scanner-ocr-action-sheet button[role="menuitem"]:hover,
+html.light .operator-shipment-entry-gate .scanner-ocr-action-sheet button[role="menuitem"]:active {
+  background: rgba(138, 104, 31, 0.1);
+}
+
+.operator-shipment-entry-gate__ocr-reading {
+  color: #faf6ed !important;
+}
+
+.operator-shipment-entry-gate__ocr-spinner {
+  color: #d6b76e !important;
+  filter: drop-shadow(0 1px 6px rgba(214, 183, 110, 0.35)) !important;
+}
+
+.operator-shipment-entry-gate__searching-spinner {
+  color: #d6b76e !important;
+}
+
+.operator-shipment-entry-gate__help-tooltip {
+  border-color: rgba(50, 60, 72, 0.9) !important;
+  background-color: #1a2129 !important;
+  color: #b9c2cc !important;
+}
+
+.operator-shipment-entry-gate__help-tooltip strong,
+.operator-shipment-entry-gate__help-tooltip .font-semibold {
+  color: #faf6ed;
+}
+
+.operator-shipment-entry-gate__help-tooltip .font-mono {
+  color: #f1d58a !important;
+}
+
+/* Identification gate status tokens (Shipment Entry results only) */
+html.dark .operator-shipment-entry-gate {
+  --gate-new-border: rgba(56, 189, 248, 0.48);
+  --gate-new-shadow:
+    0 0 0 0.5px rgba(56, 189, 248, 0.22), 0 0 36px rgba(56, 189, 248, 0.14), 0 14px 42px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --gate-new-chip: rgba(14, 165, 233, 0.22);
+  --gate-new-headline: #e0f2fe;
+  --gate-manual-border: rgba(56, 189, 248, 0.48);
+  --gate-manual-shadow:
+    0 0 0 0.5px rgba(56, 189, 248, 0.22), 0 0 36px rgba(56, 189, 248, 0.14), 0 14px 42px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --gate-manual-chip: rgba(14, 165, 233, 0.22);
+  --gate-manual-headline: #e0f2fe;
+  --gate-unexpected-border: rgba(168, 85, 247, 0.52);
+  --gate-unexpected-shadow:
+    0 0 0 0.5px rgba(168, 85, 247, 0.22), 0 0 34px rgba(168, 85, 247, 0.14), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --gate-unexpected-chip: rgba(147, 51, 234, 0.22);
+  --gate-unexpected-headline: #f3e8ff;
+  --gate-progress-border: rgba(250, 204, 21, 0.52);
+  --gate-progress-shadow:
+    0 0 0 0.5px rgba(250, 204, 21, 0.2), 0 0 34px rgba(250, 204, 21, 0.12), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --gate-progress-chip: rgba(234, 179, 8, 0.22);
+  --gate-progress-headline: #fef9c3;
+  --gate-done-border: rgba(52, 211, 153, 0.52);
+  --gate-done-shadow:
+    0 0 0 0.5px rgba(52, 211, 153, 0.22), 0 0 34px rgba(52, 211, 153, 0.14), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --gate-done-chip: rgba(16, 185, 129, 0.22);
+  --gate-done-headline: #d1fae5;
+  --gate-over-border: rgba(249, 115, 22, 0.55);
+  --gate-over-shadow:
+    0 0 0 0.5px rgba(249, 115, 22, 0.22), 0 0 34px rgba(249, 115, 22, 0.14), 0 14px 40px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --gate-over-chip: rgba(234, 88, 12, 0.24);
+  --gate-over-headline: #ffedd5;
+}
+
+html.light .operator-shipment-entry-gate {
+  --gate-new-border: rgba(47, 128, 237, 0.42);
+  --gate-new-shadow:
+    0 0 0 0.5px rgba(47, 128, 237, 0.16), 0 8px 28px rgba(22, 24, 27, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  --gate-new-chip: rgba(47, 128, 237, 0.1);
+  --gate-new-headline: #1d4ed8;
+  --gate-manual-border: rgba(47, 128, 237, 0.42);
+  --gate-manual-shadow:
+    0 0 0 0.5px rgba(47, 128, 237, 0.16), 0 8px 28px rgba(22, 24, 27, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  --gate-manual-chip: rgba(47, 128, 237, 0.1);
+  --gate-manual-headline: #1d4ed8;
+  --gate-unexpected-border: rgba(107, 33, 168, 0.48);
+  --gate-unexpected-shadow:
+    0 0 0 0.5px rgba(107, 33, 168, 0.18), 0 8px 28px rgba(22, 24, 27, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  --gate-unexpected-chip: #ede9fe;
+  --gate-unexpected-headline: #5b21b6;
+  --gate-progress-border: rgba(138, 104, 31, 0.48);
+  --gate-progress-shadow:
+    0 0 0 0.5px rgba(138, 104, 31, 0.16), 0 8px 28px rgba(22, 24, 27, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  --gate-progress-chip: rgba(138, 104, 31, 0.14);
+  --gate-progress-headline: #6f5424;
+  --gate-done-border: rgba(15, 159, 110, 0.45);
+  --gate-done-shadow:
+    0 0 0 0.5px rgba(15, 159, 110, 0.16), 0 8px 28px rgba(22, 24, 27, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  --gate-done-chip: rgba(15, 159, 110, 0.12);
+  --gate-done-headline: #047857;
+  --gate-over-border: rgba(183, 121, 31, 0.5);
+  --gate-over-shadow:
+    0 0 0 0.5px rgba(183, 121, 31, 0.18), 0 8px 28px rgba(22, 24, 27, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  --gate-over-chip: rgba(183, 121, 31, 0.14);
+  --gate-over-headline: #92400e;
+}
+
+/* Light mode: search row icons */
+html.light .operator-shipment-entry-gate__camera-btn,
+html.light .operator-shipment-entry-gate__search-btn {
+  color: #6f5424 !important;
+  filter: none !important;
+}
+
+html.light .operator-shipment-entry-gate__camera-btn .lucide,
+html.light .operator-shipment-entry-gate__search-btn .lucide {
+  stroke-width: 2.5;
+}
+
+html.light .operator-shipment-entry-gate__camera-btn,
+html.light .operator-shipment-entry-gate__search-btn {
+  border-color: rgba(138, 104, 31, 0.22) !important;
+  background: rgba(138, 104, 31, 0.06) !important;
+}
+
+html.light .operator-shipment-entry-gate__camera-btn:hover:not(:disabled),
+html.light .operator-shipment-entry-gate__search-btn:hover:not(:disabled) {
+  background: rgba(138, 104, 31, 0.14) !important;
+  border-color: rgba(138, 104, 31, 0.36) !important;
+  color: #524018 !important;
+}
+
+html.light .operator-shipment-entry-gate__searching-spinner,
+html.light .operator-shipment-entry-gate__ocr-spinner {
+  color: #8a681f !important;
+  filter: none !important;
+}
+
+html.light .operator-shipment-entry-gate__scan-icon {
+  color: #737b86 !important;
+  opacity: 0.9 !important;
+}
+
+html.light .operator-shipment-entry-gate__info-btn {
+  border-color: #d8d1c2 !important;
+  background: linear-gradient(165deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  color: #8a681f !important;
+}
+
+html.light .operator-shipment-entry-gate__info-btn:hover {
+  border-color: rgba(138, 104, 31, 0.45) !important;
+  background: rgba(138, 104, 31, 0.1) !important;
+  color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-gate__barcode-plate {
+  background: linear-gradient(165deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  border-color: rgba(138, 104, 31, 0.32) !important;
+  box-shadow:
+    0 0 0 1px rgba(138, 104, 31, 0.14),
+    0 8px 20px -6px rgba(22, 24, 27, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+html.light .operator-shipment-entry-gate__help-tooltip {
+  border-color: #d8d1c2 !important;
+  background-color: #ffffff !important;
+  color: #4d5560 !important;
+  box-shadow: 0 12px 40px rgba(22, 24, 27, 0.12) !important;
+}
+
+html.light .operator-shipment-entry-gate__help-tooltip strong,
+html.light .operator-shipment-entry-gate__help-tooltip .font-semibold {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-gate__help-tooltip .font-mono {
+  color: #8a681f !important;
+}
+
+/* Light mode: post-search result panel (no parent opacity wash) */
+html.light .operator-shipment-entry-gate__results-veil {
+  display: none;
+}
+
+/* Lower result card — premium frame (Shipment Entry only) */
+html.dark .operator-shipment-entry-gate__results.scanner-page-glass-card {
+  border: 1px solid rgba(214, 183, 110, 0.5) !important;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 18px rgba(214, 183, 110, 0.08) !important;
+}
+
+html.dark .operator-shipment-entry-gate__results.operator-shipment-entry-gate__results--glow-flash {
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 18px rgba(214, 183, 110, 0.08),
+    0 0 56px rgba(52, 211, 153, 0.45) !important;
+}
+
+html.light .operator-shipment-entry-gate__results.scanner-page-glass-card {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  box-shadow:
+    0 12px 28px rgba(60, 45, 20, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+html.light .operator-shipment-entry-gate__results.operator-shipment-entry-gate__results--glow-flash {
+  box-shadow:
+    0 12px 28px rgba(60, 45, 20, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 0 56px rgba(52, 211, 153, 0.28) !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-white,
+html.light .operator-shipment-entry-gate__results .text-white\/90 {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-sky-100 {
+  color: #1d4ed8 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-slate-500 {
+  color: #737b86 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-slate-400 {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-slate-300 {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__code-summary {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+}
+
+html.light .operator-shipment-entry-gate__alert--unexpected {
+  border-color: rgba(107, 33, 168, 0.38) !important;
+  background-color: #ede9fe !important;
+  color: #5b21b6 !important;
+}
+
+html.light .operator-shipment-entry-gate__alert--over {
+  border-color: rgba(183, 121, 31, 0.45) !important;
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+html.light .operator-shipment-entry-gate__progress-track {
+  background-color: #ddd6c8 !important;
+  --tw-ring-color: #d8d1c2;
+  box-shadow: inset 0 0 0 1px #d8d1c2;
+}
+
+html.light .operator-shipment-entry-gate__results[data-gate-visual="in_progress"]
+  .operator-shipment-entry-gate__progress-fill,
+html.light .operator-shipment-entry-gate__results[data-gate-visual="new"]
+  .operator-shipment-entry-gate__progress-fill,
+html.light .operator-shipment-entry-gate__results[data-gate-visual="manual_new"]
+  .operator-shipment-entry-gate__progress-fill {
+  background: linear-gradient(90deg, #d4b454, #8a681f) !important;
+}
+
+html.light .operator-shipment-entry-gate__results[data-gate-visual="unexpected"]
+  .operator-shipment-entry-gate__progress-fill {
+  background: linear-gradient(90deg, #a78bfa, #7c3aed) !important;
+}
+
+html.light .operator-shipment-entry-gate__results[data-gate-visual="completed"]
+  .operator-shipment-entry-gate__progress-fill {
+  background: linear-gradient(90deg, #34d399, #0f9f6e) !important;
+}
+
+html.light .operator-shipment-entry-gate__results[data-gate-visual="over_scanned"]
+  .operator-shipment-entry-gate__progress-fill {
+  background: linear-gradient(90deg, #f59e0b, #d97706) !important;
+}
+
+html.light .operator-shipment-entry-gate__line-items {
+  --tw-ring-color: #d8d1c2;
+  box-shadow: inset 0 0 0 1px #d8d1c2;
+}
+
+html.light .operator-shipment-entry-gate__line-items thead tr {
+  background-color: #ece7dc !important;
+  border-color: #d8d1c2 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__line-items tbody tr {
+  border-color: #e8e2d6 !important;
+}
+
+html.light .operator-shipment-entry-gate__line-items tbody td {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-gate__results ul.ring-white\/10,
+html.light .operator-shipment-entry-gate__results .bg-black\/20 {
+  --tw-ring-color: #d8d1c2;
+  background-color: #f8f6f1 !important;
+  box-shadow: inset 0 0 0 1px #d8d1c2;
+}
+
+html.light .operator-shipment-entry-gate__line-items .bg-black\/25 {
+  background-color: #ece7dc !important;
+}
+
+html.light .operator-shipment-entry-gate__results .border-white\/5,
+html.light .operator-shipment-entry-gate__line-items .border-white\/5,
+html.light .operator-shipment-entry-gate__line-items .border-white\/10 {
+  border-color: #e8e2d6 !important;
+}
+
+html.light .operator-shipment-entry-gate__results ul.ring-white\/10 li {
+  border-color: #e8e2d6 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-violet-200 {
+  color: #5b21b6 !important;
+  --tw-ring-color: rgba(107, 33, 168, 0.35);
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__expected-qty:not(.text-violet-200) {
+  color: #0f766e !important;
+}
+
+html.light .operator-shipment-entry-gate__results[data-gate-visual="unexpected"] .operator-shipment-entry-gate__expected-qty {
+  color: #5b21b6 !important;
+  --tw-ring-color: rgba(107, 33, 168, 0.35);
+}
+
+html.light .operator-shipment-entry-gate__results .border-slate-600\/80 {
+  border-color: #d8d1c2 !important;
+}
+
+/* Shipment Entry — action controls polish (results panel) */
+.operator-shipment-entry-gate__primary-cta:not(:disabled) {
+  letter-spacing: 0.02em;
+}
+
+html.dark .operator-shipment-entry-gate__primary-cta:not(:disabled) {
+  background: linear-gradient(180deg, #4a5562 0%, #353f4c 38%, #252b33 100%) !important;
+  border: 2px solid rgba(214, 183, 110, 0.58) !important;
+  color: #faf6ed !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.34),
+    0 3px 0 rgba(18, 22, 28, 0.92),
+    0 10px 28px rgba(0, 0, 0, 0.44),
+    0 0 0 0.5px rgba(214, 183, 110, 0.24) !important;
+}
+
+html.dark .operator-shipment-entry-gate__primary-cta:hover:not(:disabled) {
+  background: linear-gradient(180deg, #566273 0%, #3f4a58 38%, #2f3844 100%) !important;
+  filter: none;
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.4),
+    0 3px 0 rgba(18, 22, 28, 0.88),
+    0 12px 32px rgba(0, 0, 0, 0.48),
+    0 0 0 0.5px rgba(214, 183, 110, 0.32) !important;
+}
+
+html.dark .operator-shipment-entry-gate__primary-cta:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.22),
+    0 1px 0 rgba(18, 22, 28, 0.9),
+    0 6px 18px rgba(0, 0, 0, 0.38) !important;
+}
+
+html.light .operator-shipment-entry-gate__primary-cta:not(:disabled) {
+  background: linear-gradient(180deg, #4d5560 0%, #353d47 48%, #252b33 100%) !important;
+  border: 2px solid rgba(138, 104, 31, 0.55) !important;
+  color: #faf6ed !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(232, 212, 168, 0.38),
+    0 3px 0 rgba(22, 24, 27, 0.14),
+    0 10px 26px rgba(22, 24, 27, 0.2),
+    0 0 0 0.5px rgba(138, 104, 31, 0.22) !important;
+}
+
+html.light .operator-shipment-entry-gate__primary-cta:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5a6470 0%, #3f4854 48%, #2f3844 100%) !important;
+  filter: none;
+}
+
+html.light .operator-shipment-entry-gate__primary-cta:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* OFF MANIFEST / manual_new status badge */
+html.dark .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_new"] {
+  border: 1px solid rgba(214, 183, 110, 0.58) !important;
+  background: linear-gradient(165deg, #3a4450 0%, #252b33 100%) !important;
+  color: #f1d58a !important;
+  box-shadow:
+    0 0 0 0.5px rgba(214, 183, 110, 0.24),
+    inset 0 1px 0 rgba(241, 213, 138, 0.2);
+  letter-spacing: 0.1em;
+}
+
+html.light .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_new"] {
+  border: 1px solid rgba(138, 104, 31, 0.44) !important;
+  background: linear-gradient(165deg, #3d4550 0%, #2a3139 100%) !important;
+  color: #f8f6f1 !important;
+  box-shadow:
+    0 1px 4px rgba(22, 24, 27, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  letter-spacing: 0.1em;
+}
+
+/* Identify As segmented controls */
+html.dark .operator-shipment-entry-gate__entity-btn--selected {
+  border: 2px solid rgba(214, 183, 110, 0.65) !important;
+  background: linear-gradient(165deg, rgba(214, 183, 110, 0.3) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  color: #faf6ed !important;
+  box-shadow:
+    0 0 0 1px rgba(214, 183, 110, 0.28),
+    inset 0 1px 0 rgba(241, 213, 138, 0.18),
+    0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+html.dark .operator-shipment-entry-gate__entity-btn--idle {
+  border: 1px solid rgba(50, 60, 72, 0.9) !important;
+  background: rgba(32, 40, 50, 0.72) !important;
+  color: #9ea8b4 !important;
+}
+
+html.light .operator-shipment-entry-gate__entity-btn--selected {
+  border: 2px solid rgba(138, 104, 31, 0.52) !important;
+  background: linear-gradient(165deg, #ece7dc 0%, #f8f6f1 100%) !important;
+  color: #16181b !important;
+  box-shadow:
+    0 0 0 1px rgba(138, 104, 31, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 4px 12px rgba(22, 24, 27, 0.1);
+}
+
+html.light .operator-shipment-entry-gate__entity-btn--idle {
+  border: 1px solid #d8d1c2 !important;
+  background: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+/* Box count stepper */
+html.dark .operator-shipment-entry-gate__box-stepper:not(.operator-shipment-entry-gate__box-stepper--error) {
+  background: linear-gradient(180deg, #2a3440 0%, #1a2129 100%) !important;
+  border-color: rgba(214, 183, 110, 0.42) !important;
+  box-shadow:
+    inset 0 1px 8px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(241, 213, 138, 0.08) !important;
+}
+
+html.dark .operator-shipment-entry-gate__box-stepper:not(.operator-shipment-entry-gate__box-stepper--error):focus-within {
+  border-color: rgba(214, 183, 110, 0.58) !important;
+  box-shadow:
+    inset 0 1px 8px rgba(0, 0, 0, 0.38),
+    0 0 0 3px rgba(214, 183, 110, 0.2) !important;
+}
+
+html.dark .operator-shipment-entry-gate__box-stepper-btn {
+  color: #d6b76e !important;
+}
+
+html.dark .operator-shipment-entry-gate__box-stepper-btn:hover:not(:disabled) {
+  background: rgba(214, 183, 110, 0.14) !important;
+  color: #f1d58a !important;
+}
+
+html.dark .operator-shipment-entry-gate__box-stepper-input {
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-entry-gate__box-stepper:not(.operator-shipment-entry-gate__box-stepper--error) {
+  background: linear-gradient(180deg, #ffffff 0%, #f8f6f1 100%) !important;
+  border-color: rgba(138, 104, 31, 0.38) !important;
+  box-shadow: inset 0 1px 4px rgba(22, 24, 27, 0.06) !important;
+}
+
+html.light .operator-shipment-entry-gate__box-stepper:not(.operator-shipment-entry-gate__box-stepper--error):focus-within {
+  border-color: rgba(138, 104, 31, 0.52) !important;
+  box-shadow:
+    inset 0 1px 4px rgba(22, 24, 27, 0.06),
+    0 0 0 3px rgba(138, 104, 31, 0.16) !important;
+}
+
+html.light .operator-shipment-entry-gate__box-stepper-btn {
+  color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-gate__box-stepper-btn:hover:not(:disabled) {
+  background: rgba(138, 104, 31, 0.1) !important;
+  color: #524018 !important;
+}
+
+html.light .operator-shipment-entry-gate__box-stepper-input {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-emerald-300\/90 {
+  color: #047857 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-amber-200\/90 {
+  color: #b45309 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-yellow-300 {
+  color: #b45309 !important;
+}
+
+/* Box Info / Add Box screen — luxury graphite & gold (Shipment Entry only) */
+html.dark .operator-box-info-hub.scanner-page-glass-card {
+  background-color: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.44) !important;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 0 14px rgba(214, 183, 110, 0.07) !important;
+}
+
+html.light .operator-box-info-hub.scanner-page-glass-card {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.3) !important;
+  box-shadow:
+    0 12px 28px rgba(60, 45, 20, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+html.dark .operator-box-info-add-btn {
+  background: linear-gradient(180deg, #525d6b 0%, #3a4450 36%, #2a3139 68%, #222830 100%) !important;
+  border: 2px solid rgba(214, 183, 110, 0.62) !important;
+  color: #faf6ed !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.38);
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.42),
+    inset 0 -1px 0 rgba(18, 22, 28, 0.55),
+    0 3px 0 rgba(14, 17, 22, 0.92),
+    0 11px 30px rgba(0, 0, 0, 0.46),
+    0 0 0 0.5px rgba(214, 183, 110, 0.26) !important;
+}
+
+html.dark .operator-box-info-add-btn:hover {
+  background: linear-gradient(180deg, #5c6878 0%, #424d5c 36%, #323c48 68%, #2a3440 100%) !important;
+  border-color: rgba(241, 213, 138, 0.55) !important;
+  filter: none;
+}
+
+html.dark .operator-box-info-add-btn:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.28),
+    0 1px 0 rgba(14, 17, 22, 0.9),
+    0 6px 18px rgba(0, 0, 0, 0.38) !important;
+}
+
+html.light .operator-box-info-add-btn {
+  background: linear-gradient(180deg, #4f5864 0%, #3d4550 42%, #2f3844 100%) !important;
+  border: 2px solid rgba(138, 104, 31, 0.52) !important;
+  color: #faf6ed !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(232, 212, 168, 0.45),
+    inset 0 -1px 0 rgba(22, 24, 27, 0.2),
+    0 3px 0 rgba(22, 24, 27, 0.12),
+    0 10px 24px rgba(60, 45, 20, 0.18),
+    0 0 0 0.5px rgba(138, 104, 31, 0.2) !important;
+}
+
+html.light .operator-box-info-add-btn:hover {
+  background: linear-gradient(180deg, #5a6470 0%, #454f5c 42%, #353f4c 100%) !important;
+  border-color: rgba(201, 162, 74, 0.58) !important;
+  filter: none;
+}
+
+html.light .operator-box-info-add-btn:active {
+  transform: translateY(1px);
+}
+
+html.dark .operator-box-info-filter {
+  background-color: #202832 !important;
+  border-color: #323c48 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-box-info-filter::placeholder {
+  color: #b9c2cc !important;
+  opacity: 1 !important;
+}
+
+html.dark .operator-box-info-filter:focus {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.2) !important;
+}
+
+html.light .operator-box-info-filter {
+  background-color: #ffffff !important;
+  border-color: #d8d1c2 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-box-info-filter::placeholder {
+  color: #66707a !important;
+  opacity: 1 !important;
+}
+
+html.light .operator-box-info-filter:focus {
+  border-color: rgba(138, 104, 31, 0.45) !important;
+  box-shadow: 0 0 0 2px rgba(138, 104, 31, 0.14) !important;
+}
+
+html.dark .operator-box-info-list {
+  background-color: #202832 !important;
+  border-color: #323c48 !important;
+}
+
+html.light .operator-box-info-list {
+  background-color: #f8f6f1 !important;
+  border-color: #d8d1c2 !important;
+  box-shadow: inset 0 1px 3px rgba(60, 45, 20, 0.06) !important;
+}
+
+html.dark .operator-saved-box-row {
+  border-color: rgba(50, 60, 72, 0.65) !important;
+}
+
+html.dark .operator-saved-box-row:hover {
+  background: rgba(214, 183, 110, 0.08) !important;
+}
+
+html.dark .operator-saved-box-row__code {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-saved-box-row__items {
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-saved-box-row__tn {
+  color: #87919d !important;
+}
+
+html.light .operator-saved-box-row {
+  border-color: #e8e2d6 !important;
+}
+
+html.light .operator-saved-box-row:hover {
+  background: rgba(138, 104, 31, 0.08) !important;
+}
+
+html.light .operator-saved-box-row__code {
+  color: #16181b !important;
+}
+
+html.light .operator-saved-box-row__items {
+  color: #4d5560 !important;
+}
+
+html.light .operator-saved-box-row__tn {
+  color: #737b86 !important;
+}
+
+html.dark .operator-saved-box-row__badge[data-picker-status="partial"] {
+  border-color: rgba(214, 183, 110, 0.48) !important;
+  background: linear-gradient(165deg, rgba(214, 183, 110, 0.2) 0%, rgba(42, 52, 64, 0.85) 100%) !important;
+  color: #f1d58a !important;
+  box-shadow: inset 0 1px 0 rgba(241, 213, 138, 0.14);
+  letter-spacing: 0.06em;
+}
+
+html.light .operator-saved-box-row__badge[data-picker-status="partial"] {
+  border-color: rgba(138, 104, 31, 0.35) !important;
+  background: linear-gradient(165deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  color: #7a5b1b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.06em;
+}
+
+html.dark .operator-saved-box-row__badge[data-picker-status="complete"] {
+  border-color: rgba(52, 211, 153, 0.45) !important;
+  background: rgba(6, 78, 59, 0.4) !important;
+  color: #bbf7d0 !important;
+}
+
+html.light .operator-saved-box-row__badge[data-picker-status="complete"] {
+  border-color: rgba(15, 159, 110, 0.4) !important;
+  background: rgba(15, 159, 110, 0.12) !important;
+  color: #047857 !important;
+}
+
+html.dark .operator-saved-box-row__badge[data-picker-status="discrepancy"] {
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  background: rgba(120, 53, 15, 0.38) !important;
+  color: #fde68a !important;
+}
+
+html.light .operator-saved-box-row__badge[data-picker-status="discrepancy"] {
+  border-color: rgba(183, 121, 31, 0.42) !important;
+  background: rgba(183, 121, 31, 0.14) !important;
+  color: #92400e !important;
+}
+
+html.dark .operator-box-info-apply-btn:not(:disabled) {
+  background: linear-gradient(180deg, #454f5a 0%, #323c48 100%) !important;
+  border-color: rgba(214, 183, 110, 0.5) !important;
+  color: #faf6ed !important;
+  box-shadow: inset 0 1px 0 rgba(241, 213, 138, 0.22) !important;
+}
+
+html.light .operator-box-info-apply-btn:not(:disabled) {
+  background: linear-gradient(180deg, #4d5560 0%, #353d47 100%) !important;
+  border-color: rgba(138, 104, 31, 0.48) !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-box-info-screen .scanner-input-glass:focus,
+html.dark .operator-pallet-step-screen .scanner-input-glass:focus,
+html.dark .operator-box-info-screen .scanner-input-glass:focus-visible,
+html.dark .operator-pallet-step-screen .scanner-input-glass:focus-visible {
+  border-color: rgba(214, 183, 110, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.18) !important;
+}
+
+html.light .operator-box-info-screen .scanner-input-glass:focus,
+html.light .operator-pallet-step-screen .scanner-input-glass:focus,
+html.light .operator-box-info-screen .scanner-input-glass:focus-visible,
+html.light .operator-pallet-step-screen .scanner-input-glass:focus-visible {
+  border-color: #bbae98 !important;
+  box-shadow: 0 0 0 2px rgba(138, 104, 31, 0.16) !important;
+}
+
+html.dark .operator-box-info-screen .scanner-input-glass::placeholder,
+html.dark .operator-pallet-step-screen .scanner-input-glass::placeholder {
+  color: #87919d !important;
+  opacity: 0.9 !important;
+}
+
+html.light .operator-box-info-screen .scanner-input-glass::placeholder,
+html.light .operator-pallet-step-screen .scanner-input-glass::placeholder {
+  color: #66707a !important;
+  opacity: 1 !important;
+}
+
+/* Stepper + Edit All on Box Info phase */
+.operator-stepper-node--done {
+  border-color: rgba(52, 211, 153, 0.42) !important;
+  background: rgba(6, 78, 59, 0.32) !important;
+  color: #a7f3d0 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-stepper-node--done {
+  border-color: rgba(15, 159, 110, 0.38) !important;
+  background: rgba(15, 159, 110, 0.1) !important;
+  color: #047857 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell {
+  background-color: rgba(26, 33, 41, 0.96) !important;
+  border-color: rgba(214, 183, 110, 0.34) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(138, 104, 31, 0.24) !important;
+  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(214, 183, 110, 0.72) !important;
+  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.24),
+    0 0 8px rgba(214, 183, 110, 0.16) !important;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(138, 104, 31, 0.58) !important;
+  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 6px rgba(138, 104, 31, 0.12) !important;
+}
+
+html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-rail {
+  box-shadow: none;
+  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-rail {
+  box-shadow: none;
+}
+
+html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked {
+  color: #87919d !important;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked {
+  color: #737b86 !important;
+  border-color: #d8d1c2 !important;
+  background: #f8f6f1 !important;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked .lucide {
+  opacity: 0.82;
+}
+
+.operator-stepper-label--active {
+  color: #f1d58a !important;
+  text-shadow: 0 0 12px rgba(214, 183, 110, 0.12);
+}
+
+html.light .operator-stepper-label--active {
+  color: #8a681f !important;
+  text-shadow: none;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-labels {
+  color: #66707a;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-labels > span:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+  color: #66707a !important;
+}
+
+html.light [data-receiving-phase="package_scan"] .operator-stepper-label--active {
+  color: #7a5b1b !important;
+  font-weight: 800;
+}
+
+.operator-stepper-label--done {
+  color: #6ee7b7 !important;
+}
+
+html.light .operator-stepper-label--done {
+  color: #047857 !important;
+}
+
+/* Shipment Entry — order metadata (all phases) */
+html.light .operator-shipment-entry-order-meta,
+html.light .operator-box-info-order-meta {
+  color: #4d5560 !important;
+  text-shadow: none !important;
+}
+
+html.light .operator-shipment-entry-order-meta__tag,
+html.light .operator-box-info-order-meta__tag {
+  color: #7a5b1b !important;
+}
+
+html.light .operator-shipment-entry-order-meta__value,
+html.light .operator-box-info-order-meta__value {
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-entry-order-meta,
+html.dark .operator-box-info-order-meta {
+  color: #b9c2cc !important;
+  text-shadow: none !important;
+}
+
+html.dark .operator-shipment-entry-order-meta__tag,
+html.dark .operator-box-info-order-meta__tag {
+  color: #d6b76e !important;
+}
+
+html.dark .operator-shipment-entry-order-meta__value,
+html.dark .operator-box-info-order-meta__value {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-shipment-entry-order-conflict,
+html.dark .operator-box-info-order-conflict {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  color: #e8d19a !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em;
+}
+
+html.dark .operator-shipment-entry-order-conflict .lucide,
+html.dark .operator-box-info-order-conflict .lucide {
+  color: #d6b76e !important;
+  opacity: 0.92;
+}
+
+html.light .operator-shipment-entry-order-conflict,
+html.light .operator-box-info-order-conflict {
+  border-color: rgba(183, 121, 31, 0.5) !important;
+  background: rgba(183, 121, 31, 0.12) !important;
+  color: #92400e !important;
+}
+
+html.light .operator-shipment-entry-order-conflict .lucide,
+html.light .operator-box-info-order-conflict .lucide {
+  color: #b45309 !important;
+}
+
+html.light .operator-box-info-filter-label {
+  color: #4d5560 !important;
+}
+
+/* Shipment Entry header — Edit All pinned to row end (parent px-3 = 12px viewport inset) */
+.operator-shipment-edit-all-slot {
+  inset-inline-end: 0;
+  right: 0;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active),
+html.dark [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active) {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background: linear-gradient(165deg, #2a3440 0%, #1a2129 100%) !important;
+  color: #d6b76e !important;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover,
+html.dark [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover {
+  border-color: rgba(214, 183, 110, 0.5) !important;
+  background: rgba(214, 183, 110, 0.1) !important;
+  color: #f1d58a !important;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn--active,
+html.dark [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn--active {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+  background: rgba(214, 183, 110, 0.16) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active),
+html.light [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active) {
+  border-color: #d8d1c2 !important;
+  background: linear-gradient(165deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover,
+html.light [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover {
+  border-color: rgba(138, 104, 31, 0.4) !important;
+  background: rgba(138, 104, 31, 0.1) !important;
+  color: #524018 !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn--active,
+html.light [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn--active {
+  border-color: rgba(138, 104, 31, 0.45) !important;
+  background: rgba(138, 104, 31, 0.12) !important;
+  color: #16181b !important;
+}
+
+/* Shipment Entry — unified top chrome (title, stepper, progress) */
+html.dark .operator-shipment-entry-identity-strip {
+  border-color: rgba(50, 60, 72, 0.85) !important;
+  background-color: rgba(26, 33, 41, 0.92) !important;
+}
+
+html.light .operator-shipment-entry-identity-strip {
+  border-color: #cfc6b6 !important;
+  background-color: #f8f6f1 !important;
+}
+
+html.dark .operator-shipment-entry-pallet-id-badge {
+  border: 1px solid rgba(214, 183, 110, 0.32) !important;
+  background: rgba(214, 183, 110, 0.08) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-entry-pallet-id-badge {
+  border: 1px solid rgba(207, 198, 182, 0.75) !important;
+  background: #ffffff !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-entry-pallet-id-badge__label {
+  color: #d6b76e !important;
+}
+
+html.light .operator-shipment-entry-pallet-id-badge__label {
+  color: #7a5b1b !important;
+}
+
+html.dark .operator-shipment-entry-stepper-shell,
+html.dark .operator-box-info-stepper-shell,
+html.dark .operator-pallet-stepper-shell {
+  background-color: rgba(26, 33, 41, 0.96) !important;
+  border: 1px solid rgba(214, 183, 110, 0.34) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.light .operator-shipment-entry-stepper-shell,
+html.light .operator-box-info-stepper-shell,
+html.light .operator-pallet-stepper-shell {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid rgba(138, 104, 31, 0.24) !important;
+  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--active,
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--active,
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(214, 183, 110, 0.72) !important;
+  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.24),
+    0 0 6px rgba(214, 183, 110, 0.12) !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--active,
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--active,
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(138, 104, 31, 0.58) !important;
+  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 4px rgba(138, 104, 31, 0.08) !important;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--done {
+  border-color: rgba(34, 197, 139, 0.38) !important;
+  background: rgba(18, 52, 42, 0.45) !important;
+  color: #6ee7b7 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--done {
+  border-color: rgba(15, 159, 110, 0.38) !important;
+  background: rgba(15, 159, 110, 0.1) !important;
+  color: #047857 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--locked,
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--locked,
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--locked {
+  color: #87919d !important;
+  border-color: rgba(50, 60, 72, 0.9) !important;
+  background: rgba(32, 40, 50, 0.85) !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--locked,
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--locked,
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--locked {
+  color: #4d5560 !important;
+  border-color: #cfc6b6 !important;
+  background: #f8f6f1 !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--locked .lucide {
+  opacity: 0.82;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
+  box-shadow: none;
+  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
+  box-shadow: none;
+  background: linear-gradient(90deg, transparent, rgba(138, 104, 31, 0.35) 50%, transparent);
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
+  color: #87919d;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
+  color: #66707a;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > span:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+  color: #66707a !important;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--done {
+  color: #6ee7b7 !important;
+  text-shadow: none !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--done {
+  color: #047857 !important;
+  text-shadow: none !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
+  color: #7a5b1b !important;
+  font-weight: 800;
+  text-shadow: none;
+}
+
+html.dark .operator-shipment-entry-progress,
+html.dark .operator-shipment-entry-header .operator-shipment-box-progress {
+  border-color: rgba(50, 60, 72, 0.85) !important;
+  background: rgba(26, 33, 41, 0.92) !important;
+}
+
+html.light .operator-shipment-entry-progress,
+html.light .operator-shipment-entry-header .operator-shipment-box-progress {
+  border-color: #cfc6b6 !important;
+  background: linear-gradient(180deg, #faf8f4 0%, #f5f0e8 100%) !important;
+}
+
+html.light .operator-shipment-entry-progress .operator-shipment-box-progress__text,
+html.light .operator-shipment-entry-header .operator-shipment-box-progress__text {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-progress .operator-shipment-box-progress__label,
+html.light .operator-shipment-entry-header .operator-shipment-box-progress__label {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-progress .operator-shipment-box-progress__count,
+html.light .operator-shipment-entry-header .operator-shipment-box-progress__count {
+  color: #0b6f4d !important;
+}
+
+html.light .operator-shipment-entry-progress .operator-shipment-box-progress__total,
+html.light .operator-shipment-entry-header .operator-shipment-box-progress__total {
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-entry-progress .operator-shipment-box-progress__text,
+html.dark .operator-shipment-entry-header .operator-shipment-box-progress__text {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-shipment-entry-progress .operator-shipment-box-progress__label,
+html.dark .operator-shipment-entry-header .operator-shipment-box-progress__label {
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-shipment-entry-progress .operator-shipment-box-progress__count,
+html.dark .operator-shipment-entry-header .operator-shipment-box-progress__count {
+  color: #6ee7b7 !important;
+}
+
+html.dark .operator-shipment-entry-tracking-field {
+  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  background: #202832 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-shipment-entry-tracking-field::placeholder {
+  color: #87919d !important;
+}
+
+html.light .operator-shipment-entry-tracking-field {
+  border: 1px solid #bbae98 !important;
+  background: #ffffff !important;
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-tracking-field::placeholder {
+  color: #66707a !important;
+}
+
+html.dark .operator-shipment-entry-box-count-editor {
+  border-color: rgba(50, 60, 72, 0.65) !important;
+}
+
+html.dark .operator-shipment-entry-box-count-editor__label {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-shipment-entry-box-count-editor {
+  border-color: rgba(207, 198, 182, 0.65) !important;
+}
+
+html.light .operator-shipment-entry-box-count-editor__label {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-shipment-entry-box-count-stepper {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background: #202832 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.dark .operator-shipment-entry-box-count-stepper__btn {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-shipment-entry-box-count-stepper__input {
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-entry-box-count-stepper {
+  border-color: #bbae98 !important;
+  background: #ffffff !important;
+}
+
+html.light .operator-shipment-entry-box-count-stepper__btn {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-box-count-stepper__input {
+  color: #16181b !important;
+}
+
+/* Shipment Entry intake (package_scan) — graphite & champagne gold */
+html.dark .operator-box-info-screen .operator-shipment-intake-card.scanner-page-glass-card {
+  background-color: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-intake-card.scanner-page-glass-card {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+html.dark .operator-shipment-section-title {
+  color: #faf6ed !important;
+  font-size: 0.8125rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+}
+
+html.light .operator-shipment-section-title {
+  color: #16181b !important;
+  font-size: 0.8125rem !important;
+  font-weight: 700 !important;
+}
+
+html.dark .operator-shipment-section-icon {
+  color: #d6b76e !important;
+}
+
+html.light .operator-shipment-section-icon {
+  color: #8a681f !important;
+}
+
+html.dark .operator-shipment-field-label {
+  color: #b9c2cc !important;
+  font-size: 0.6875rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em;
+}
+
+html.light .operator-shipment-field-label {
+  color: #4d5560 !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+}
+
+html.dark .operator-shipment-req-mark {
+  color: #f1d58a !important;
+  font-weight: 600 !important;
+}
+
+html.light .operator-shipment-req-mark {
+  color: #8a681f !important;
+  font-weight: 600 !important;
+}
+
+html.dark .operator-box-info-screen .scanner-input-glass,
+html.dark .operator-pallet-step-screen .scanner-input-glass {
+  background-color: #202832 !important;
+  border-color: #323c48 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-box-info-screen .scanner-input-glass[readonly],
+html.dark .operator-pallet-step-screen .scanner-input-glass[readonly],
+html.dark .operator-box-info-screen .scanner-input-glass.cursor-default,
+html.dark .operator-pallet-step-screen .scanner-input-glass.cursor-default {
+  background-color: #11161c !important;
+  border-color: #323c48 !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-box-info-screen .scanner-input-glass,
+html.light .operator-pallet-step-screen .scanner-input-glass {
+  background-color: #ffffff !important;
+  border-color: #cfc6b6 !important;
+  color: #16181b !important;
+}
+
+/* Documentation photos — single inner list, row dividers */
+html.dark .operator-shipment-docs-list {
+  background: rgba(255, 255, 255, 0.025) !important;
+  border: 1px solid rgba(185, 194, 204, 0.12) !important;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+html.light .operator-shipment-docs-list {
+  background: #f8f6f1 !important;
+  border: 1px solid rgba(207, 198, 182, 0.55) !important;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+html.dark .operator-shipment-docs-row {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0.3rem 0.4rem 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(185, 194, 204, 0.12) !important;
+}
+
+html.dark .operator-shipment-docs-row:last-child {
+  border-bottom: none !important;
+}
+
+html.dark .operator-shipment-docs-row--active {
+  background: rgba(214, 183, 110, 0.06) !important;
+  box-shadow: inset 3px 0 0 rgba(214, 183, 110, 0.4) !important;
+}
+
+html.dark .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) {
+  box-shadow: inset 3px 0 0 rgba(34, 197, 139, 0.35) !important;
+}
+
+html.light .operator-shipment-docs-row {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0.3rem 0.4rem 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(207, 198, 182, 0.65) !important;
+}
+
+html.light .operator-shipment-docs-row:last-child {
+  border-bottom: none !important;
+}
+
+html.light .operator-shipment-docs-row--active {
+  background: rgba(138, 104, 31, 0.06) !important;
+  box-shadow: inset 3px 0 0 rgba(138, 104, 31, 0.38) !important;
+}
+
+html.light .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) {
+  box-shadow: inset 3px 0 0 rgba(15, 143, 99, 0.38) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row p.min-w-0,
+html.light .operator-box-info-screen .operator-shipment-docs-row .text-slate-900,
+html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:text-slate-50 {
+  color: #16181b !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row .text-slate-500,
+html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:text-slate-400 {
+  color: #3f4852 !important;
+  font-size: 0.6875rem !important;
+  opacity: 1 !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row .bg-white,
+html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:bg-slate-900 {
+  background: #f8f6f1 !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row .bg-slate-100,
+html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:bg-slate-800 {
+  background: #ece7dc !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row .border-slate-300,
+html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:border-slate-700,
+html.light .operator-box-info-screen .operator-shipment-docs-uploader > div > div {
+  border-width: 1px !important;
+  box-shadow: none !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row .border-emerald-400,
+html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:border-emerald-600\/60 {
+  border-color: rgba(15, 143, 99, 0.45) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row .text-emerald-600,
+html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:text-emerald-400 {
+  color: #0f8f63 !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .space-y-0 > div {
+  border: 1px solid rgba(185, 194, 204, 0.1) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-radius: 0.375rem !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row--active .space-y-0 > div {
+  border-color: rgba(214, 183, 110, 0.22) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) .space-y-0 > div {
+  border-color: rgba(34, 197, 139, 0.22) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row .space-y-0 > div {
+  border: 1px solid rgba(207, 198, 182, 0.45) !important;
+  background: #ffffff !important;
+  border-radius: 0.375rem !important;
+  box-shadow: none !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row--active .space-y-0 > div {
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  background: #ffffff !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) .space-y-0 > div {
+  border-color: rgba(15, 143, 99, 0.28) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .space-y-0 > div > button,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .space-y-0 > div > div {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row p.min-w-0,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .text-slate-50 {
+  color: #faf6ed !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .text-slate-400,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .text-slate-500 {
+  color: #b9c2cc !important;
+  font-size: 0.6875rem !important;
+  opacity: 1 !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .bg-slate-100,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:bg-slate-800 {
+  background: #2a3440 !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .border-slate-200,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:border-slate-800,
+html.dark .operator-box-info-screen .operator-shipment-docs-uploader > div > div {
+  border-width: 1px !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .border-emerald-400,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:border-emerald-600\/60 {
+  border-color: rgba(34, 197, 139, 0.45) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .text-emerald-600,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:text-emerald-400 {
+  color: #22c58b !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .bg-emerald-100,
+html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:bg-emerald-950\/40 {
+  background: rgba(34, 197, 139, 0.14) !important;
+}
+
+/* Pallet step — documentation photo rows (mirror box intake) */
+html.light .operator-pallet-step-screen .operator-shipment-docs-row p.min-w-0,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .text-slate-900,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .dark\:text-slate-50 {
+  color: #16181b !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .text-slate-500,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .dark\:text-slate-400 {
+  color: #3f4852 !important;
+  font-size: 0.6875rem !important;
+  opacity: 1 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .bg-white,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .dark\:bg-slate-900 {
+  background: #f8f6f1 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .bg-slate-100,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .dark\:bg-slate-800 {
+  background: #ece7dc !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .border-slate-300,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .dark\:border-slate-700,
+html.light .operator-pallet-step-screen .operator-shipment-docs-uploader > div > div {
+  border-width: 1px !important;
+  box-shadow: none !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .border-emerald-400,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .dark\:border-emerald-600\/60 {
+  border-color: rgba(15, 143, 99, 0.45) !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .text-emerald-600,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .dark\:text-emerald-400 {
+  color: #0f8f63 !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .space-y-0 > div {
+  border: 1px solid rgba(185, 194, 204, 0.1) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-radius: 0.375rem !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row--active .space-y-0 > div {
+  border-color: rgba(214, 183, 110, 0.22) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) .space-y-0 > div {
+  border-color: rgba(34, 197, 139, 0.22) !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .space-y-0 > div {
+  border: 1px solid rgba(207, 198, 182, 0.45) !important;
+  background: #ffffff !important;
+  border-radius: 0.375rem !important;
+  box-shadow: none !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row--active .space-y-0 > div {
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  background: #ffffff !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) .space-y-0 > div {
+  border-color: rgba(15, 143, 99, 0.28) !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .space-y-0 > div > button,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .space-y-0 > div > div {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row p.min-w-0,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .text-slate-50 {
+  color: #faf6ed !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .text-slate-400,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .text-slate-500 {
+  color: #b9c2cc !important;
+  font-size: 0.6875rem !important;
+  opacity: 1 !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .bg-slate-100,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .dark\:bg-slate-800 {
+  background: #2a3440 !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .border-slate-200,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .dark\:border-slate-800,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-uploader > div > div {
+  border-width: 1px !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .border-emerald-400,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .dark\:border-emerald-600\/60 {
+  border-color: rgba(34, 197, 139, 0.45) !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .text-emerald-600,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .dark\:text-emerald-400 {
+  color: #22c58b !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .bg-emerald-100,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .dark\:bg-emerald-950\/40 {
+  background: rgba(34, 197, 139, 0.14) !important;
+}
+
+html.dark .operator-shipment-docs-overlay {
+  background: rgba(5, 6, 7, 0.82) !important;
+}
+
+html.dark .operator-shipment-docs-overlay span {
+  color: #b9c2cc !important;
+  font-size: 0.625rem !important;
+}
+
+/* Slip Content Info — no nested panel border (section container only) */
+html.dark .operator-shipment-slip-panel {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #faf6ed !important;
+  padding: 0 !important;
+}
+
+html.light .operator-shipment-slip-panel {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #16181b !important;
+  padding: 0 !important;
+}
+
+html.dark .operator-shipment-slip-title {
+  color: #faf6ed !important;
+  font-size: 0.8125rem !important;
+  font-weight: 700 !important;
+}
+
+html.light .operator-shipment-slip-title {
+  color: #16181b !important;
+  font-size: 0.8125rem !important;
+}
+
+html.dark .operator-shipment-slip-ai-badge {
+  border-color: rgba(214, 183, 110, 0.42) !important;
+  background: linear-gradient(165deg, rgba(214, 183, 110, 0.18) 0%, rgba(42, 52, 64, 0.92) 100%) !important;
+  color: #f1d58a !important;
+  font-size: 0.5625rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em;
+}
+
+html.light .operator-shipment-slip-ai-badge {
+  border-color: rgba(138, 104, 31, 0.4) !important;
+  background: linear-gradient(165deg, #ffffff 0%, #ece7dc 100%) !important;
+  color: #8a681f !important;
+  font-weight: 800 !important;
+}
+
+html.light .operator-shipment-slip-meta--code {
+  border: 1px solid rgba(207, 198, 182, 0.65) !important;
+  background: #f8f6f1 !important;
+  box-shadow: none !important;
+}
+
+html.light .operator-shipment-slip-meta--code .operator-shipment-slip-meta__label {
+  color: #8a681f !important;
+}
+
+html.light .operator-shipment-slip-meta--code .operator-shipment-slip-meta__value {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-slip-meta--order {
+  border: 1px solid rgba(207, 198, 182, 0.65) !important;
+  background: #f8f6f1 !important;
+  box-shadow: none !important;
+}
+
+html.light .operator-shipment-slip-meta--order .operator-shipment-slip-meta__label {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-slip-meta--order .operator-shipment-slip-meta__value {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-slip-hint {
+  color: #3f4852 !important;
+  font-size: 0.6875rem !important;
+}
+
+html.dark .operator-shipment-slip-meta--code {
+  border: 1px solid rgba(185, 194, 204, 0.14) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-shipment-slip-meta--code .operator-shipment-slip-meta__label {
+  color: #d6b76e !important;
+  font-size: 0.5625rem !important;
+}
+
+html.dark .operator-shipment-slip-meta--code .operator-shipment-slip-meta__value {
+  color: #faf6ed !important;
+  font-size: 0.8125rem !important;
+}
+
+html.dark .operator-shipment-slip-meta--order {
+  border: 1px solid rgba(185, 194, 204, 0.14) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-shipment-slip-meta--order .operator-shipment-slip-meta__label {
+  color: #b9c2cc !important;
+  font-size: 0.5625rem !important;
+}
+
+html.dark .operator-shipment-slip-meta--order .operator-shipment-slip-meta__value {
+  color: #faf6ed !important;
+  font-size: 0.8125rem !important;
+}
+
+/* Detected Items table — stable columns (Shipment Entry slip panel only) */
+.operator-shipment-detected-table-wrap {
+  max-height: 300px;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.operator-shipment-detected-table {
+  width: 100%;
+  min-width: 280px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.operator-shipment-detected-col-fnsku {
+  width: 22%;
+}
+
+.operator-shipment-detected-col-upc {
+  width: 22%;
+}
+
+.operator-shipment-detected-col-desc {
+  width: auto;
+}
+
+.operator-shipment-detected-col-qty {
+  width: 44px;
+}
+
+.operator-shipment-detected-th,
+.operator-shipment-detected-td {
+  box-sizing: border-box;
+  padding: 0.4rem 0.3rem;
+  vertical-align: top;
+  overflow: hidden;
+}
+
+.operator-shipment-detected-th-fnsku,
+.operator-shipment-detected-td-fnsku {
+  width: 22%;
+  min-width: 58px;
+  padding-left: 0.15rem;
+  text-align: center;
+}
+
+.operator-shipment-detected-th-upc,
+.operator-shipment-detected-td-upc {
+  width: 22%;
+  min-width: 58px;
+  text-align: center;
+}
+
+.operator-shipment-detected-th-desc,
+.operator-shipment-detected-td-desc {
+  width: auto;
+  min-width: 120px;
+  text-align: left;
+}
+
+.operator-shipment-detected-th-qty,
+.operator-shipment-detected-td-qty {
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  padding-right: 0.15rem;
+  text-align: center;
+}
+
+.operator-shipment-detected-cell-fnsku,
+.operator-shipment-detected-cell-upc {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.operator-shipment-detected-cell-desc {
+  display: block;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.operator-shipment-detected-table .operator-shipment-qty-pill {
+  display: inline-block;
+  width: 100%;
+  max-width: 40px;
+  margin-inline: auto;
+  padding: 0.2rem 0.15rem;
+  border-radius: 0.375rem;
+  border-width: 1px;
+  border-style: solid;
+  text-align: center;
+  line-height: 1.25;
+  font-size: 0.6875rem;
+}
+
+html.dark .operator-shipment-detected-heading {
+  color: #faf6ed !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+}
+
+html.light .operator-shipment-detected-heading {
+  color: #16181b !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+}
+
+html.dark .operator-shipment-detected-table-wrap {
+  border: none !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  border-radius: 0.5rem;
+}
+
+html.light .operator-shipment-detected-table-wrap {
+  border: none !important;
+  background: #f8f6f1 !important;
+  border-radius: 0.5rem;
+}
+
+html.dark .operator-shipment-detected-thead {
+  background: #202832 !important;
+  color: #b9c2cc !important;
+}
+
+html.light .operator-shipment-detected-thead {
+  background: #ece7dc !important;
+  color: #3f4852 !important;
+}
+
+html.dark .operator-shipment-detected-th {
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+}
+
+html.light .operator-shipment-detected-th {
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+}
+
+html.dark .operator-shipment-detected-row {
+  border-color: rgba(185, 194, 204, 0.12) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-detected-row {
+  border-color: rgba(207, 198, 182, 0.55) !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-detected-td span {
+  font-size: 0.6875rem !important;
+  line-height: 1.35 !important;
+}
+
+html.light .operator-shipment-detected-td span {
+  font-size: 0.6875rem !important;
+  line-height: 1.35 !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-detected-table .operator-shipment-qty-pill {
+  border: none !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #f1d58a !important;
+  font-weight: 700 !important;
+  border-radius: 0.25rem !important;
+}
+
+html.light .operator-shipment-detected-table .operator-shipment-qty-pill {
+  border: none !important;
+  background: rgba(138, 104, 31, 0.08) !important;
+  color: #8a681f !important;
+  font-weight: 700 !important;
+  border-radius: 0.25rem !important;
+}
+
+html.dark .operator-shipment-slip-hint {
+  color: #87919d !important;
+  font-size: 0.6875rem !important;
+}
+
+html.dark .operator-shipment-notes-card {
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  background: #1a2129 !important;
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-shipment-notes-card {
+  border: 1px solid #cfc6b6 !important;
+  background: #ffffff !important;
+}
+
+html.light .operator-shipment-notes-label {
+  color: #4d5560 !important;
+  font-size: 0.625rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.14em;
+}
+
+html.light .operator-shipment-notes-label .opacity-70 {
+  color: #66707a !important;
+  opacity: 1 !important;
+}
+
+html.light .operator-shipment-reference-details {
+  border-color: #cfc6b6 !important;
+  background: #f8f6f1 !important;
+}
+
+html.light .operator-shipment-reference-details summary {
+  color: #4d5560 !important;
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+}
+
+html.dark .operator-shipment-notes-label {
+  color: #b9c2cc !important;
+  font-size: 0.625rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.14em;
+}
+
+html.dark .operator-shipment-reference-details {
+  border-color: #323c48 !important;
+  background: #202832 !important;
+}
+
+html.dark .operator-shipment-reference-details summary {
+  color: #b9c2cc !important;
+  font-size: 0.625rem !important;
+}
+
+html.dark .operator-shipment-btn-primary {
+  border: 2px solid rgba(214, 183, 110, 0.62) !important;
+  background: linear-gradient(180deg, #525d6b 0%, #3a4450 36%, #2a3139 68%, #222830 100%) !important;
+  color: #faf6ed !important;
+  font-size: 0.875rem !important;
+  font-weight: 700 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.35),
+    inset 0 -1px 0 rgba(18, 22, 28, 0.5),
+    0 3px 0 rgba(14, 17, 22, 0.88),
+    0 10px 26px rgba(0, 0, 0, 0.4) !important;
+}
+
+html.dark .operator-shipment-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5c6878 0%, #424d5c 36%, #323c48 68%, #2a3440 100%) !important;
+  filter: none;
+}
+
+html.dark .operator-shipment-btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.22),
+    0 1px 0 rgba(14, 17, 22, 0.9),
+    0 5px 16px rgba(0, 0, 0, 0.32) !important;
+}
+
+html.light .operator-shipment-btn-primary {
+  border: 2px solid rgba(138, 104, 31, 0.55) !important;
+  background: linear-gradient(180deg, #4f5864 0%, #3d4550 42%, #2f3844 100%) !important;
+  color: #faf6ed !important;
+  font-weight: 700 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(232, 212, 168, 0.45),
+    0 3px 0 rgba(22, 24, 27, 0.16),
+    0 8px 22px rgba(60, 45, 20, 0.2) !important;
+}
+
+html.light .operator-shipment-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5a6470 0%, #454f5c 42%, #353f4c 100%) !important;
+  filter: none;
+}
+
+html.light .operator-shipment-btn-success {
+  border: 1px solid rgba(15, 143, 99, 0.45) !important;
+  background: rgba(15, 143, 99, 0.1) !important;
+  color: #0b6f4d !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+html.light .operator-shipment-btn-success:hover:not(:disabled) {
+  background: rgba(15, 143, 99, 0.16) !important;
+  border-color: rgba(15, 143, 99, 0.55) !important;
+  filter: none;
+}
+
+html.light .operator-shipment-btn-danger {
+  border: 1px solid rgba(180, 35, 47, 0.42) !important;
+  background: rgba(180, 35, 47, 0.08) !important;
+  color: #8f1d29 !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+}
+
+html.light .operator-shipment-btn-danger:hover:not(:disabled) {
+  background: rgba(180, 35, 47, 0.14) !important;
+  border-color: rgba(180, 35, 47, 0.52) !important;
+  filter: none;
+}
+
+/* Box progress strip — Shipment Entry / pallet scan (light) */
+html.light .operator-shipment-box-progress {
+  border-color: #cfc6b6 !important;
+  background: #f8f6f1 !important;
+}
+
+html.light .operator-shipment-box-progress__text {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-box-progress__label {
+  color: #3f4852 !important;
+}
+
+html.light .operator-shipment-box-progress__count {
+  color: #0b6f4d !important;
+}
+
+html.light .operator-shipment-box-progress__total {
+  color: #16181b !important;
+}
+
+/* Box summary bar — carrier badge icon (static) */
+.operator-shipment-carrier-iconPlate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  position: relative;
+  border-radius: 0.25rem;
+}
+
+.operator-shipment-carrier-icon__truck {
+  display: block;
+  flex-shrink: 0;
+}
+
+html.dark .operator-shipment-carrier-badge {
+  border-color: rgba(50, 60, 72, 0.9) !important;
+  background-color: #202832 !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-carrier-badge {
+  border-color: #cfc6b6 !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-carrier-badge__text .opacity-60 {
+  color: #66707a !important;
+  opacity: 1 !important;
+}
+
+html.dark .operator-shipment-carrier-icon {
+  background: linear-gradient(165deg, #2a3440 0%, #1a2129 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .operator-shipment-carrier-icon__truck {
+  color: #d6b76e !important;
+}
+
+html.light .operator-shipment-carrier-icon {
+  background: linear-gradient(165deg, #ffffff 0%, #ece7dc 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.light .operator-shipment-carrier-icon__truck {
+  color: #8a681f !important;
+}
+
+/* Box summary bar — Items: 0/4 count */
+html.dark .operator-box-summary-items-count__num,
+html.dark .operator-box-summary-items-count__total {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-box-summary-items-count__sep {
+  color: rgba(250, 246, 237, 0.45) !important;
+}
+
+html.dark .operator-box-summary-items-count__empty {
+  color: #87919d !important;
+}
+
+html.light .operator-box-summary-items-count__num,
+html.light .operator-box-summary-items-count__total {
+  color: #16181b !important;
+}
+
+html.light .operator-box-summary-items-count__sep {
+  color: #3f4852 !important;
+}
+
+html.light .operator-box-summary-items-count__empty {
+  color: #66707a !important;
+}
+
+/* Shipment Entry flow — confirm modals & intake toast */
+.operator-shipment-flow-modal {
+  background: rgba(5, 6, 7, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+html.light .operator-shipment-flow-modal {
+  background: rgba(22, 24, 27, 0.42);
+}
+
+.operator-shipment-flow-modal--success-overlay {
+  background: rgba(5, 6, 7, 0.52);
+}
+
+html.light .operator-shipment-flow-modal--success-overlay {
+  background: rgba(22, 24, 27, 0.35);
+}
+
+html.dark .operator-shipment-flow-modal__panel {
+  background: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.45) !important;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-flow-modal__panel {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  box-shadow: 0 18px 44px rgba(60, 45, 20, 0.16) !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-flow-modal--warning .operator-shipment-flow-modal__panel {
+  border-color: rgba(214, 183, 110, 0.52) !important;
+}
+
+html.light .operator-shipment-flow-modal--warning .operator-shipment-flow-modal__panel {
+  border-color: rgba(183, 121, 31, 0.38) !important;
+}
+
+html.dark .operator-shipment-flow-modal__panel--success {
+  border-color: rgba(34, 197, 139, 0.42) !important;
+}
+
+html.light .operator-shipment-flow-modal__panel--success {
+  border-color: rgba(15, 143, 99, 0.38) !important;
+}
+
+html.dark .operator-shipment-flow-modal__title {
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-flow-modal__title {
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-flow-modal__body {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-shipment-flow-modal__body {
+  color: #3f4852 !important;
+}
+
+html.dark .operator-shipment-flow-modal__note {
+  color: #e8d19a !important;
+}
+
+html.light .operator-shipment-flow-modal__note {
+  color: #8a681f !important;
+}
+
+html.dark .operator-shipment-flow-modal__btn-secondary {
+  border: 1px solid #323c48 !important;
+  background: linear-gradient(180deg, #2a3440 0%, #1a2129 100%) !important;
+  color: #faf6ed !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .operator-shipment-flow-modal__btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #323c48 0%, #222830 100%) !important;
+  filter: none;
+}
+
+html.light .operator-shipment-flow-modal__btn-secondary {
+  border: 1px solid #cfc6b6 !important;
+  background: #f8f6f1 !important;
+  color: #3f4852 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+html.light .operator-shipment-flow-modal__btn-secondary:hover:not(:disabled) {
+  background: #ece7dc !important;
+  border-color: #bbae98 !important;
+  filter: none;
+}
+
+html.dark .operator-shipment-flow-modal__btn-primary {
+  border: 1px solid rgba(214, 183, 110, 0.75) !important;
+  background: linear-gradient(180deg, #2a313a 0%, #171c22 50%, #0c0f13 100%) !important;
+  color: #faf6ed !important;
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.22),
+    0 4px 14px rgba(0, 0, 0, 0.32) !important;
+}
+
+html.dark .operator-shipment-flow-modal__btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #353f4a 0%, #1e252c 50%, #12161b 100%) !important;
+  filter: none;
+}
+
+html.light .operator-shipment-flow-modal__btn-primary {
+  border: 1px solid rgba(138, 104, 31, 0.55) !important;
+  background: linear-gradient(180deg, #4f5864 0%, #3d4550 42%, #2f3844 100%) !important;
+  color: #faf6ed !important;
+  box-shadow:
+    inset 0 1px 0 rgba(232, 212, 168, 0.35),
+    0 4px 14px rgba(60, 45, 20, 0.14) !important;
+}
+
+html.light .operator-shipment-flow-modal__btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #5a6470 0%, #454f5c 42%, #353f4c 100%) !important;
+  filter: none;
+}
+
+html.dark .operator-shipment-flow-modal__btn-warning {
+  border: 1px solid rgba(214, 183, 110, 0.62) !important;
+  background: linear-gradient(180deg, #3d3528 0%, #2a2520 50%, #1a1814 100%) !important;
+  color: #f1d58a !important;
+  box-shadow: inset 0 1px 0 rgba(241, 213, 138, 0.16) !important;
+}
+
+html.light .operator-shipment-flow-modal__btn-warning {
+  border: 1px solid rgba(183, 121, 31, 0.48) !important;
+  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 55%, #e0d6c4 100%) !important;
+  color: #6f5424 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+html.dark .operator-shipment-flow-modal__btn-danger {
+  border: 1px solid rgba(239, 91, 91, 0.48) !important;
+  background: linear-gradient(180deg, rgba(69, 22, 22, 0.72) 0%, rgba(42, 14, 14, 0.88) 100%) !important;
+  color: #fecaca !important;
+}
+
+html.light .operator-shipment-flow-modal__btn-danger {
+  border: 1px solid rgba(180, 35, 47, 0.42) !important;
+  background: rgba(180, 35, 47, 0.08) !important;
+  color: #8f1d29 !important;
+}
+
+html.light .operator-shipment-flow-modal__btn-danger:hover:not(:disabled) {
+  background: rgba(180, 35, 47, 0.14) !important;
+  filter: none;
+}
+
+html.dark .operator-shipment-flow-toast {
+  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  background: rgba(26, 33, 41, 0.97) !important;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+html.light .operator-shipment-flow-toast {
+  border: 1px solid rgba(138, 104, 31, 0.32) !important;
+  background: #ffffff !important;
+  box-shadow: 0 12px 32px rgba(60, 45, 20, 0.14) !important;
+}
+
+html.dark .operator-shipment-flow-toast__text {
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-flow-toast__text {
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-flow-toast__icon {
+  color: #22c58b !important;
+}
+
+html.light .operator-shipment-flow-toast__icon {
+  color: #0f8f63 !important;
+}
+
+html.dark .operator-shipment-flow-modal__success-icon {
+  color: #22c58b !important;
+}
+
+html.light .operator-shipment-flow-modal__success-icon {
+  color: #0f8f63 !important;
+}
+
+html.dark .operator-shipment-btn-success {
+  border: 2px solid rgba(34, 197, 139, 0.42) !important;
+  background: linear-gradient(180deg, #1e4d3a 0%, #163d2e 52%, #123528 100%) !important;
+  color: #d1fae5 !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.28) !important;
+}
+
+html.dark .operator-shipment-btn-success:hover:not(:disabled) {
+  background: linear-gradient(180deg, #256349 0%, #1a4a38 52%, #154030 100%) !important;
+  filter: none;
+}
+
+html.dark .operator-shipment-btn-danger {
+  border: 2px solid rgba(239, 91, 91, 0.48) !important;
+  background: linear-gradient(180deg, rgba(69, 22, 22, 0.55) 0%, rgba(42, 14, 14, 0.72) 100%) !important;
+  color: #fecaca !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .operator-shipment-btn-danger:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(88, 28, 28, 0.65) 0%, rgba(52, 16, 16, 0.82) 100%) !important;
+}
+
+html.dark [data-receiving-phase="package_scan"] .operator-stepper-node--done {
+  border-color: rgba(34, 197, 139, 0.38) !important;
+  background: rgba(18, 52, 42, 0.55) !important;
+  color: #6ee7b7 !important;
+}
+
+html.dark [data-receiving-phase="package_scan"] .operator-stepper-label--done {
+  color: #22c58b !important;
+}
+
+/* Pallet shipment entry step (scan + parent identified) */
+html.dark .operator-pallet-step-screen .operator-shipment-intake-card.scanner-page-glass-card,
+html.dark .operator-pallet-docs-card.scanner-page-glass-card {
+  background-color: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-intake-card.scanner-page-glass-card,
+html.light .operator-pallet-docs-card.scanner-page-glass-card {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+html.dark .operator-pallet-section-subtitle,
+html.dark .operator-pallet-step-screen .operator-pallet-section-subtitle {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-section-title {
+  color: #16181b !important;
+}
+
+html.light .operator-pallet-section-subtitle,
+html.light .operator-pallet-step-screen .operator-pallet-section-subtitle {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-pallet-attached-badge {
+  border: 1px solid rgba(34, 197, 139, 0.32) !important;
+  background: rgba(18, 52, 42, 0.38) !important;
+  color: #6ee7b7 !important;
+  font-weight: 700 !important;
+}
+
+html.light .operator-pallet-attached-badge {
+  border: 1px solid rgba(15, 143, 99, 0.45) !important;
+  background: rgba(15, 143, 99, 0.08) !important;
+  color: #0b6f4d !important;
+  font-weight: 700 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-req-mark,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .operator-shipment-req-mark {
+  color: #7a5b1b !important;
+  font-weight: 700 !important;
+}
+
+html.dark .operator-pallet-field-readonly {
+  border: 1px solid #323c48 !important;
+  background: #202832 !important;
+  color: #faf6ed !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.light .operator-pallet-field-readonly {
+  border: 1px solid #bbae98 !important;
+  background: #f8f6f1 !important;
+  color: #16181b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark .operator-pallet-field-readonly__muted,
+html.dark .operator-pallet-field-readonly__empty {
+  color: #87919d !important;
+}
+
+html.light .operator-pallet-field-readonly__muted,
+html.light .operator-pallet-field-readonly__empty {
+  color: #66707a !important;
+}
+
+html.dark .operator-pallet-field-input {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background: #202832 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-pallet-field-input::placeholder {
+  color: #87919d !important;
+  opacity: 1 !important;
+}
+
+html.light .operator-pallet-field-input {
+  border-color: #bbae98 !important;
+  background: #ffffff !important;
+  color: #16181b !important;
+}
+
+html.light .operator-pallet-field-input::placeholder {
+  color: #66707a !important;
+  opacity: 1 !important;
+}
+
+html.light .operator-pallet-step-screen .scanner-input-glass::placeholder {
+  color: #66707a !important;
+  opacity: 1 !important;
+}
+
+html.dark .operator-pallet-step-screen .scanner-input-glass::placeholder {
+  color: #87919d !important;
+  opacity: 1 !important;
+}
+
+html.light .operator-pallet-step-screen .scanner-input-glass:focus,
+html.light .operator-pallet-step-screen .scanner-input-glass:focus-visible {
+  border-color: rgba(138, 104, 31, 0.45) !important;
+  outline: none !important;
+}
+
+html.dark .operator-pallet-step-screen .scanner-input-glass:focus,
+html.dark .operator-pallet-step-screen .scanner-input-glass:focus-visible {
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  outline: none !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-field-label .opacity-70 {
+  color: #66707a !important;
+  opacity: 1 !important;
+}
+
+/* Pallet step — header progress strip (no dark inline fill in light mode) */
+html.light [data-receiving-phase="scan"] .operator-pallet-header-progress.operator-shipment-box-progress {
+  border-color: #cfc6b6 !important;
+  background: linear-gradient(180deg, #faf8f4 0%, #f5f0e8 100%) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-header-progress.operator-shipment-box-progress {
+  background: rgba(26, 33, 41, 0.96) !important;
+  border-color: rgba(214, 183, 110, 0.22) !important;
+}
+
+/* Pallet step — progress line + premium mini stat cards */
+html.light .operator-pallet-progress-block .operator-pallet-progress-line {
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(207, 198, 182, 0.65);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+html.dark .operator-pallet-progress-block .operator-pallet-progress-line {
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(214, 183, 110, 0.18);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+html.light .operator-pallet-progress-block .operator-pallet-progress-line .operator-shipment-box-progress__label {
+  color: #4d5560 !important;
+  font-weight: 600 !important;
+}
+
+html.light .operator-pallet-progress-block .operator-pallet-progress-line .operator-shipment-box-progress__count {
+  color: #0b6f4d !important;
+  font-weight: 800 !important;
+}
+
+html.light .operator-pallet-progress-block .operator-pallet-progress-line .operator-shipment-box-progress__total {
+  color: #16181b !important;
+  font-weight: 800 !important;
+}
+
+html.dark .operator-pallet-progress-block .operator-pallet-progress-line .operator-shipment-box-progress__label {
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-pallet-progress-block .operator-pallet-progress-line .operator-shipment-box-progress__count {
+  color: #6ee7b7 !important;
+  font-weight: 800 !important;
+}
+
+/* Pallet progress — 3D tactile mini stat cards (scan step only) */
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell.operator-dashboard-metric-cell,
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell {
+  position: relative;
+  overflow: hidden;
+  min-height: 44px;
+  border-radius: 10px !important;
+  padding: 0.45rem 0.5rem 0.38rem !important;
+  transform: translateY(-1px);
+  border: 1px solid rgba(214, 183, 110, 0.38) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(180deg, #252d36 0%, #1a2129 52%, #101419 100%) !important;
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.7) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell.operator-dashboard-metric-cell,
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell {
+  position: relative;
+  overflow: hidden;
+  min-height: 44px;
+  border-radius: 10px !important;
+  padding: 0.45rem 0.5rem 0.38rem !important;
+  transform: translateY(-1px);
+  border: 1px solid rgba(138, 104, 31, 0.3) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0) 36%),
+    linear-gradient(180deg, #ffffff 0%, #f8f6f1 54%, #eae3d6 100%) !important;
+  box-shadow:
+    0 8px 18px rgba(60, 45, 20, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(138, 104, 31, 0.16) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell::before,
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  height: 2px;
+  border-radius: 0 0 1px 1px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell::after,
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 0 10px 0 0;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell p {
+  position: relative;
+  z-index: 2;
+  color: #4d5560 !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell span.text-\[8\.5px\] {
+  position: relative;
+  z-index: 2;
+  color: #66707a !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell .font-mono {
+  position: relative;
+  z-index: 2;
+  font-size: 1.125rem !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  letter-spacing: -0.02em;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell p {
+  position: relative;
+  z-index: 2;
+  color: #b9c2cc !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell span.text-\[8\.5px\] {
+  position: relative;
+  z-index: 2;
+  color: #87919d !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell .font-mono {
+  position: relative;
+  z-index: 2;
+  font-size: 1.125rem !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  letter-spacing: -0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::before {
+  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.75), transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::after {
+  background: radial-gradient(circle at 100% 0%, rgba(214, 183, 110, 0.22) 0%, transparent 68%);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected .font-mono {
+  color: #f1d58a !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::before {
+  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.55), transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::after {
+  background: radial-gradient(circle at 100% 0%, rgba(214, 183, 110, 0.14) 0%, transparent 68%);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected .font-mono {
+  color: #7a5b1b !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--scanned::before {
+  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.5), transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--scanned::after {
+  background: radial-gradient(circle at 100% 0%, rgba(52, 211, 153, 0.16) 0%, transparent 68%);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--scanned .font-mono {
+  color: #6ee7b7 !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--scanned::before {
+  background: linear-gradient(90deg, transparent, rgba(15, 143, 99, 0.45), transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--scanned::after {
+  background: radial-gradient(circle at 100% 0%, rgba(15, 143, 99, 0.1) 0%, transparent 68%);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--scanned .font-mono {
+  color: #0b6f4d !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--remaining::before {
+  background: linear-gradient(90deg, transparent, rgba(251, 146, 60, 0.45), transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--remaining::after {
+  background: radial-gradient(circle at 100% 0%, rgba(251, 146, 60, 0.14) 0%, transparent 68%);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--remaining::before {
+  background: linear-gradient(90deg, transparent, rgba(180, 120, 40, 0.42), transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--remaining::after {
+  background: radial-gradient(circle at 100% 0%, rgba(180, 120, 40, 0.1) 0%, transparent 68%);
+}
+
+html.dark [data-receiving-phase="scan"] button.operator-pallet-stat-cell:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(214, 183, 110, 0.48) !important;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.72) !important;
+}
+
+html.light [data-receiving-phase="scan"] button.operator-pallet-stat-cell:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(138, 104, 31, 0.42) !important;
+  box-shadow:
+    0 10px 20px rgba(60, 45, 20, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(138, 104, 31, 0.18) !important;
+}
+
+html.dark [data-receiving-phase="scan"] button.operator-pallet-stat-cell:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow:
+    0 6px 14px rgba(0, 0, 0, 0.32),
+    inset 0 2px 4px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html.light [data-receiving-phase="scan"] button.operator-pallet-stat-cell:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow:
+    0 4px 12px rgba(60, 45, 20, 0.12),
+    inset 0 2px 4px rgba(138, 104, 31, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Pallet step body — light mode contrast */
+html.light .operator-pallet-step-screen .operator-shipment-field-label {
+  color: #4d5560 !important;
+  font-weight: 700 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-field-label .opacity-70,
+html.light .operator-pallet-step-screen .operator-shipment-notes-label .opacity-70 {
+  color: #66707a !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-notes-label {
+  color: #4d5560 !important;
+  font-weight: 800 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-req-mark,
+html.light .operator-pallet-step-screen .operator-shipment-docs-row .operator-shipment-req-mark,
+html.light .operator-pallet-step-screen .operator-shipment-field-label .text-yellow-300 {
+  color: #7a5b1b !important;
+  font-weight: 700 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-list {
+  border: 1px solid #cfc6b6 !important;
+  background: #faf8f4 !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row {
+  border-bottom-color: #cfc6b6 !important;
+}
+
+html.light .operator-pallet-step-screen .scanner-input-glass {
+  border-color: #bb9e98 !important;
+}
+
+html.light .operator-pallet-actions .operator-pallet-btn-cancel {
+  border: 1px solid #bb9e98 !important;
+  color: #6f5424 !important;
+  font-weight: 700 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f0e8 100%) !important;
+  box-shadow:
+    0 2px 8px rgba(60, 45, 20, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+html.light .operator-pallet-actions .operator-pallet-btn-cancel:hover:not(:disabled) {
+  border-color: rgba(180, 35, 47, 0.48) !important;
+  color: #8f1d29 !important;
+}
+
+/* Pallet step stepper — restrained done state, readable locked (light) */
+html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
+  background-color: rgba(26, 33, 41, 0.96) !important;
+  border-color: rgba(214, 183, 110, 0.34) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(138, 104, 31, 0.24) !important;
+  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(214, 183, 110, 0.72) !important;
+  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.24),
+    0 0 6px rgba(214, 183, 110, 0.12) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(138, 104, 31, 0.58) !important;
+  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 4px rgba(138, 104, 31, 0.08) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
+  box-shadow: none;
+  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
+  box-shadow: none;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-stepper-node--done {
+  border-color: rgba(34, 197, 139, 0.38) !important;
+  background: rgba(18, 52, 42, 0.45) !important;
+  color: #6ee7b7 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-stepper-node--done {
+  border-color: rgba(15, 159, 110, 0.38) !important;
+  background: rgba(15, 159, 110, 0.1) !important;
+  color: #047857 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-stepper-label--done {
+  color: #6ee7b7 !important;
+  text-shadow: none !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-stepper-label--done {
+  color: #047857 !important;
+  text-shadow: none !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked {
+  color: #87919d !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked {
+  color: #4d5560 !important;
+  border-color: #cfc6b6 !important;
+  background: #f8f6f1 !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked .lucide {
+  opacity: 0.82;
+}
+
+html.light [data-receiving-phase="scan"] .operator-receiving-stepper-labels {
+  color: #66707a;
+}
+
+html.light [data-receiving-phase="scan"] .operator-shipment-box-progress {
+  border-color: #cfc6b6 !important;
+  background: #f8f6f1 !important;
+}
+
+/* Pallet step — primary / cancel actions (graphite–gold; beats theme primary blue) */
+html.dark .operator-pallet-actions .operator-pallet-btn-primary {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(214, 183, 110, 0.78) !important;
+  background: linear-gradient(180deg, #2a313a 0%, #171c22 52%, #0c0f13 100%) !important;
+  background-color: #171c22 !important;
+  color: #faf6ed !important;
+  font-weight: 700 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.65) !important;
+}
+
+html.dark .operator-pallet-actions .operator-pallet-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #343d48 0%, #1e252c 52%, #12161b 100%) !important;
+  filter: none;
+}
+
+html.dark .operator-pallet-actions .operator-pallet-btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 4px 14px rgba(0, 0, 0, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55) !important;
+}
+
+html.light .operator-pallet-actions .operator-pallet-btn-primary {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(122, 91, 27, 0.58) !important;
+  background: linear-gradient(180deg, #3d4550 0%, #2a313a 48%, #171c22 100%) !important;
+  background-color: #2a313a !important;
+  color: #faf6ed !important;
+  font-weight: 700 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(232, 212, 168, 0.42),
+    0 6px 18px rgba(60, 45, 20, 0.2) !important;
+}
+
+html.light .operator-pallet-actions .operator-pallet-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #4a5562 0%, #323c48 48%, #1e252c 100%) !important;
+  filter: none;
+}
+
+html.light .operator-pallet-actions .operator-pallet-btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(232, 212, 168, 0.28),
+    0 3px 12px rgba(60, 45, 20, 0.16) !important;
+}
+
+html.dark .operator-pallet-actions .operator-pallet-btn-cancel {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(185, 194, 204, 0.35) !important;
+  background: linear-gradient(180deg, #2a3440 0%, #1a2129 100%) !important;
+  color: #e8e2d6 !important;
+  font-weight: 700 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .operator-pallet-actions .operator-pallet-btn-cancel:hover:not(:disabled) {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background: rgba(214, 183, 110, 0.08) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-pallet-actions .operator-pallet-btn-cancel {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(122, 91, 27, 0.32) !important;
+  background: linear-gradient(180deg, #faf8f4 0%, #f0ebe2 100%) !important;
+  color: #6f5424 !important;
+  font-weight: 700 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.light .operator-pallet-actions .operator-pallet-btn-cancel:hover:not(:disabled) {
+  border-color: rgba(180, 35, 47, 0.42) !important;
+  background: rgba(180, 35, 47, 0.06) !important;
+  color: #8f1d29 !important;
+}
+
 /* Gold “View all” links — not success green */
 .operator-view-all-link {
   display: inline-flex;

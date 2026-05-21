@@ -35,7 +35,7 @@ function NavItem({
 }) {
   const showBadge = typeof badge === "number" && badge > 0;
   const inactive = "operator-nav-inactive";
-  const itemClass = `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-1.5 ${active ? "" : inactive}`;
+  const itemClass = `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-0.5 ${active ? "" : inactive}`;
   const iconWrapClass = active
     ? "operator-nav-icon-wrap operator-nav-icon-wrap--active"
     : "operator-nav-icon-wrap";
@@ -87,9 +87,9 @@ export function ScannerBottomNav({ active = "home", alertCount = 0 }: ScannerBot
   return (
     <nav
       dir="ltr"
-      className="shrink-0 border-t px-0 pt-1 backdrop-blur-xl backdrop-saturate-150"
+      className="shrink-0 border-t px-0 pt-1.5 pb-0.5 backdrop-blur-xl backdrop-saturate-150"
       style={{
-        paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))",
+        paddingBottom: "max(0.3rem, env(safe-area-inset-bottom))",
         borderColor: "var(--scanner-border)",
         backgroundColor: "color-mix(in srgb, var(--scanner-card-inner) 92%, transparent)",
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",

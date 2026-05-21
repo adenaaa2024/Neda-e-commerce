@@ -6,6 +6,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { assertRowOrgAccess, resolveWriteOrganizationId } from "@/lib/server-tenant";
 import { isUuidString, uuidOrNull } from "@/lib/uuid";
 import { RETURN_ITEMS_TABLE, RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns/returns-constants";
+import { hydrateReturnItemProductLinkage } from "@/lib/scanner/hydrate-return-item-product-linkage";
+import type { ProductLinkageDisplayContract } from "@/lib/scanner/product-linkage-display-contract";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
 export type OperatorReceiveItemInput = {
@@ -31,6 +33,20 @@ export type OperatorReceiveItemInput = {
   quantity?: number;
   photo_evidence?: ReturnInsertPayload["photo_evidence"];
   order_id?: string | null;
+};
+
+export type OperatorReceiveItemLinkageRow = {
+  return_item_id: string;
+  product_linkage: ProductLinkageDisplayContract;
+};
+
+export type OperatorReceiveItemResult = {
+  ok: boolean;
+  error?: string;
+  insertedIds?: string[];
+  expected_package_id?: string;
+  /** Hydrated catalog linkage per inserted `return_items` row (server-built; no client catalog queries). */
+  product_linkages?: OperatorReceiveItemLinkageRow[];
 };
 
 /**
@@ -109,7 +125,7 @@ async function resolveExpectedPackageRowId(
  */
 export async function operatorReceiveItem(
   payload: OperatorReceiveItemInput,
-): Promise<{ ok: boolean; error?: string; insertedIds?: string[]; expected_package_id?: string }> {
+): Promise<OperatorReceiveItemResult> {
   const qtyRaw = Number(payload.quantity ?? 1);
   const qty = Number.isFinite(qtyRaw) ? Math.max(1, Math.min(50, Math.floor(qtyRaw))) : 1;
 
@@ -192,7 +208,15 @@ export async function operatorReceiveItem(
       return { ok: false, error: upErr.message };
     }
 
-    return { ok: true, insertedIds, expected_package_id: epId };
+    const product_linkages: OperatorReceiveItemLinkageRow[] = [];
+    for (const returnItemId of insertedIds) {
+      const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, returnItemId, orgId);
+      if (linkage) {
+        product_linkages.push({ return_item_id: returnItemId, product_linkage: linkage });
+      }
+    }
+
+    return { ok: true, insertedIds, expected_package_id: epId, product_linkages };
   } catch (e) {
     for (const id of insertedIds) {
       await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);

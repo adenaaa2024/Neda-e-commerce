@@ -44,6 +44,17 @@ type ItemUnitRecordModalProps = {
   slipDescription?: string | null;
   /** Server-built catalog linkage for the active slip line (when known). */
   productLinkage?: ProductLinkageDisplayContract | null;
+  /** Optional store scope for resolver preview when the operator edits the barcode field. */
+  storeId?: string | null;
+  /** Persisted match kind hint for resolver preview (fnsku / upc / unexpected). */
+  matchKind?: "fnsku" | "upc" | "unexpected" | null;
+  /**
+   * Server resolver preview — returns hydrated `ProductLinkageDisplayContract` (no DB write).
+   */
+  resolveBarcodeLinkage?: (
+    barcode: string,
+    matchKind: "fnsku" | "upc" | "unexpected",
+  ) => Promise<ProductLinkageDisplayContract | null>;
   busy: boolean;
   onClose: () => void;
   onSave: (payload: ItemUnitRecordSavePayload) => Promise<void>;
@@ -58,12 +69,17 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     organizationId,
     slipDescription,
     productLinkage = null,
+    storeId = null,
+    matchKind = null,
+    resolveBarcodeLinkage,
     busy,
     onClose,
     onSave,
   } = props;
 
   const [barcode, setBarcode] = useState("");
+  const [liveLinkage, setLiveLinkage] = useState<ProductLinkageDisplayContract | null>(productLinkage);
+  const [linkageResolving, setLinkageResolving] = useState(false);
   const [selectedTags, setSelectedTags] = useState<ItemUnitDiscrepancyTagKey[]>([ITEM_UNIT_SELLABLE_OK_TAG]);
   const [expiryDate, setExpiryDate] = useState("");
   const [lotNumber, setLotNumber] = useState("");
@@ -74,13 +90,19 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setLiveLinkage(productLinkage);
+  }, [productLinkage]);
+
+  useEffect(() => {
     if (!open) return;
     setBarcode(initialBarcode.trim());
+    setLiveLinkage(productLinkage);
     setSelectedTags([ITEM_UNIT_SELLABLE_OK_TAG]);
     setExpiryDate("");
     setLotNumber("");
     setEvidenceUrls([]);
     setLocalError(null);
+    setLinkageResolving(false);
     const focusBarcode = () => {
       const el = barcodeInputRef.current;
       if (!el) return;
@@ -98,9 +120,34 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       window.clearTimeout(t0);
       window.clearTimeout(t1);
     };
-  }, [open, initialBarcode]);
+  }, [open, initialBarcode, productLinkage]);
+
+  useEffect(() => {
+    if (!open || !resolveBarcodeLinkage) return;
+    const bc = barcode.trim();
+    const sid = String(storeId ?? "").trim();
+    if (!bc || bc.length < 3 || !sid) return;
+    const mk: "fnsku" | "upc" | "unexpected" =
+      matchKind === "fnsku" || matchKind === "upc" || matchKind === "unexpected" ? matchKind : "unexpected";
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setLinkageResolving(true);
+      void resolveBarcodeLinkage(bc, mk)
+        .then((linkage) => {
+          if (!cancelled) setLiveLinkage(linkage);
+        })
+        .finally(() => {
+          if (!cancelled) setLinkageResolving(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, barcode, storeId, matchKind, resolveBarcodeLinkage]);
 
   const normalizedTags = useMemo(() => normalizeItemUnitDiscrepancySelection(selectedTags), [selectedTags]);
+  const displayLinkage = liveLinkage ?? productLinkage;
 
   const traceabilityRequired = useMemo(
     () =>
@@ -242,13 +289,24 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 {subtitle}
               </p>
             ) : null}
-            {productLinkage ? (
+            {displayLinkage ? (
               <div className="mt-2">
                 <p className="text-[12px] font-bold leading-snug text-white">
-                  {productLinkagePrimaryLabel(productLinkage)}
+                  {productLinkagePrimaryLabel(displayLinkage)}
                 </p>
-                <OperatorProductLinkageMeta linkage={productLinkage} />
+                <OperatorProductLinkageMeta linkage={displayLinkage} />
+                {linkageResolving ? (
+                  <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold" style={{ color: MUTED }}>
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                    Resolving product link…
+                  </p>
+                ) : null}
               </div>
+            ) : linkageResolving ? (
+              <p className="mt-2 flex items-center gap-1 text-[10px] font-semibold" style={{ color: MUTED }}>
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                Resolving product link…
+              </p>
             ) : null}
           </div>
           <button

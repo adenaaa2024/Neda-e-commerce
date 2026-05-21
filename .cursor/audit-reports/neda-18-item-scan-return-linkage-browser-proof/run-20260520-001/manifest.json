@@ -1,0 +1,140 @@
+{
+  "run_id": "run-20260520-001",
+  "task": "NEDA-18-ITEM-SCAN-RETURN-LINKAGE-BROWSER-PROOF",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "probe_target": {
+    "mode": "sam_discovered",
+    "organization_id": "00000000-0000-0000-0000-000000000001",
+    "store_id": "509ee1f6-622c-46a5-8110-7b889ba46c2c",
+    "package_id": "1871fd1e-ca45-4e6f-aad1-c4ff83693704",
+    "package_code": "PKG-MNI9DR05",
+    "gate_tracking": "234324324",
+    "use_sam_labels": true
+  },
+  "fixture_org_id": "7397edff-7994-4731-8501-55d258d507d2",
+  "fixture_store_id": "9adfe198-7c6a-49a5-b0b4-d370a83de06f",
+  "fixture_package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+  "fixture_package_code": "PKG-MNI9DR05",
+  "overall": "PASS",
+  "api": {
+    "package_code": "PKG-MNI9DR05",
+    "actual_item_count": 0,
+    "active_rows": [
+      {
+        "id": "f3a3ad84",
+        "primary_label": "MAysam 22",
+        "shows_unmapped": true,
+        "shows_needs_review": false,
+        "has_catalog_name": false,
+        "resolution_status": "resolved"
+      },
+      {
+        "id": "bd5bf0d6",
+        "primary_label": "Item Neda",
+        "shows_unmapped": true,
+        "shows_needs_review": false,
+        "has_catalog_name": false,
+        "resolution_status": "resolved"
+      }
+    ],
+    "active_count": 2,
+    "soft_deleted_count": 0,
+    "all_deleted_count": 2,
+    "fnsku_tokens": [
+      "X004DMS1TT",
+      "X00525Q5XZ"
+    ]
+  },
+  "browser": {
+    "signed_in": true,
+    "store_ready": true,
+    "item_scan_visible": false,
+    "expected_items_visible": true,
+    "linkage_copy_visible": true,
+    "linkage_labels_matched": [
+      "X004DMS1TT",
+      "X00525Q5XZ",
+      "no_product_link_yet"
+    ],
+    "hydrated_count_hint": null,
+    "staging_api_only": true,
+    "post_scan_200": true,
+    "body_excerpt": "RECOVRA SAM DISTRIBUTION STORE Sam AM SHIPMENT ENTRY TRACKING NUMBER OR SLIP CODE UNEXPECTED Tracking number234324324 Order ID — Not on the expected list (0 expected). Not on expected list. Scan progress 2 / 0 Product name — Carrier FedEx Total expected qty 0 Total scanned (view) 2 LINE ITEMS· exact Tracking number PRODUCT NAME FNSKU EXPECTED SCANNED VARIANCE STATUS X00525Q5XZ · TU-8QKU-LV50 NO PRODUCT LINK YET X00525Q5XZ · TU-8QKU-LV50 X00525Q5XZ 0 1 +1 IN_PROGRESS_NOT X004DMS1TT NO PRODUCT LINK YET X004DMS1TT X004DMS1TT 0 1 +1 IN_PROGRESS_NOT IDENTIFY AS PALLET SINGLE BOX / ITEM Continue Scanning Home Scan Tasks 2 Alerts More",
+    "routes": [
+      "http://127.0.0.1:3001/scanner/operator-mobile/scan",
+      "http://127.0.0.1:3001/scanner/operator-mobile/scan"
+    ]
+  },
+  "steps": [
+    {
+      "id": "env_staging_ref",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "prerequisite_v189_replay",
+      "pass": true,
+      "detail": "run-20260520-001 present"
+    },
+    {
+      "id": "probe_target_discovered",
+      "pass": true,
+      "detail": "sam_discovered pkg=PKG-MNI9DR05"
+    },
+    {
+      "id": "fixture_package_exists",
+      "pass": true,
+      "detail": "code=PKG-MNI9DR05 actual_item_count=0"
+    },
+    {
+      "id": "api_return_items_linkage_select",
+      "pass": true,
+      "detail": "2 active rows"
+    },
+    {
+      "id": "api_soft_deleted_excluded",
+      "pass": true,
+      "detail": "active=2 soft_deleted=0 all=2"
+    },
+    {
+      "id": "api_linkage_labels_valid",
+      "pass": true,
+      "detail": "MAysam 22; Item Neda"
+    },
+    {
+      "id": "browser_signed_in",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "browser_store_ready",
+      "pass": true,
+      "detail": "http://127.0.0.1:3001/scanner/operator-mobile/scan → http://127.0.0.1:3001/scanner/operator-mobile/scan"
+    },
+    {
+      "id": "browser_item_scan_surface",
+      "pass": true,
+      "detail": "item_scan=false"
+    },
+    {
+      "id": "browser_expected_items",
+      "pass": true,
+      "detail": "DOM"
+    },
+    {
+      "id": "browser_linkage_copy",
+      "pass": true,
+      "detail": "X004DMS1TT | X00525Q5XZ | no_product_link_yet"
+    },
+    {
+      "id": "browser_staging_api",
+      "pass": true,
+      "detail": "hosts=POST+staging"
+    },
+    {
+      "id": "hydrated_count_excludes_soft_deleted",
+      "pass": true,
+      "detail": "ui_hint=n/a api_active=2 soft_deleted=0"
+    }
+  ]
+}

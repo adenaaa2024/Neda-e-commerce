@@ -1,0 +1,74 @@
+{
+  "task": "NEDA-20-ADD-EDIT-ITEM-RESOLVER-CONSUME-V191",
+  "run_id": "run-20260521-001",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "v191_main_audit_present": false,
+  "verdict": "PASS",
+  "steps": [
+    {
+      "id": "lib_hydrate",
+      "pass": true,
+      "detail": "C:\\Users\\Christian\\ecommerce-os\\lib\\scanner\\hydrate-return-item-product-linkage.ts"
+    },
+    {
+      "id": "preview_action",
+      "pass": true,
+      "detail": "previewOperatorItemBarcodeLinkageAction"
+    },
+    {
+      "id": "insert_returns_linkage",
+      "pass": true,
+      "detail": "insertOperatorPackageItemAction returns hydrated contract"
+    },
+    {
+      "id": "page_preview_wire",
+      "pass": true,
+      "detail": "scan page resolver preview"
+    },
+    {
+      "id": "modal_resolve_prop",
+      "pass": true,
+      "detail": "ItemUnitRecordModal consumes preview linkage"
+    },
+    {
+      "id": "page_no_products_select",
+      "pass": true,
+      "detail": "no client products select on scan page"
+    },
+    {
+      "id": "update_enrichment",
+      "pass": true,
+      "detail": "updateReturn re-runs resolver on identifier edits"
+    },
+    {
+      "id": "fetch_linkage_action",
+      "pass": true,
+      "detail": "detail reload server linkage action"
+    },
+    {
+      "id": "drawer_linkage_meta",
+      "pass": true,
+      "detail": "ItemDrawer detail uses hydrated contract"
+    },
+    {
+      "id": "ep_row_operator_meta_only",
+      "pass": true,
+      "detail": "ExpectedInventoryLineRow — OperatorProductLinkageMeta only"
+    },
+    {
+      "id": "forbidden_scan_refs",
+      "pass": true,
+      "detail": "forbidden refs on scan page: 0"
+    },
+    {
+      "id": "staging_ref",
+      "pass": true,
+      "detail": "project ref eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "fixture_return_items_probe",
+      "pass": true,
+      "detail": "rows=0 linkage_cols_ok=true"
+    }
+  ]
+}

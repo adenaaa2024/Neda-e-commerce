@@ -1,0 +1,119 @@
+{
+  "run_id": "run-20260520-001",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "overall": "PASS",
+  "branch": "ref: refs/heads/feature/operator-mobile-clean",
+  "envProof": {
+    "NEXT_PUBLIC_SUPABASE_URL": "STAGING_REF",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "OTHER",
+    "SUPABASE_SERVICE_ROLE_KEY": "OTHER",
+    "DIRECT_POSTGRES_URL": "STAGING_REF",
+    "STAGING_SUPABASE_URL": "STAGING_REF",
+    "STAGING_DIRECT_POSTGRES_URL": "STAGING_REF",
+    "STAGING_PROJECT_REF": "STAGING_REF",
+    "ORIGINAL_DIRECT_POSTGRES_URL": "OTHER"
+  },
+  "code": {
+    "fetchExpectedPackagesNedaRead_alias": true,
+    "fetchInventoryItemStatusForNeda_alias": true,
+    "ProductLinkageDisplayContract": true,
+    "ProductLinkageDisplayBlock_alias": true,
+    "inventory_views_ui_v180": true,
+    "expected_packages_read_contract": true
+  },
+  "stale": {
+    "package_items": 0,
+    "returns_table": 0,
+    "packages_package_number_select": 0,
+    "pallets_photo_url_select": 0,
+    "products_insert": 0,
+    "browser_db_writes": 0
+  },
+  "steps": [
+    {
+      "id": "env_next_public_supabase_staging",
+      "pass": true,
+      "detail": "STAGING_REF"
+    },
+    {
+      "id": "env_direct_postgres_staging",
+      "pass": true,
+      "detail": "DIRECT_POSTGRES_URL=STAGING_REF; STAGING_DIRECT=STAGING_REF"
+    },
+    {
+      "id": "env_production_vars_blank",
+      "pass": true,
+      "detail": "no PRODUCTION_* keys"
+    },
+    {
+      "id": "code_fetchExpectedPackagesNedaRead_alias",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "code_fetchInventoryItemStatusForNeda_alias",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "code_ProductLinkageDisplayContract",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "code_ProductLinkageDisplayBlock_alias",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "code_inventory_views_ui_v180",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "code_expected_packages_read_contract",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "stale_package_items",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_returns_table",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_packages_package_number",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_pallets_photo_url",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_products_insert",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_browser_writes",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "smoke_expected_packages_script",
+      "pass": true,
+      "detail": "defined"
+    },
+    {
+      "id": "smoke_inventory_views_script",
+      "pass": true,
+      "detail": "defined"
+    }
+  ]
+}

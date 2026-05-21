@@ -55,3 +55,41 @@ export async function applyReturnItemProductEnrichmentAfterInsert(
     console.warn("[applyReturnItemProductEnrichmentAfterInsert] skipped:", e);
   }
 }
+
+/** Re-run deterministic resolver after identifier edits on an existing `return_items` row. */
+export async function applyReturnItemProductEnrichmentAfterUpdate(
+  supabase: SupabaseClient,
+  params: {
+    returnItemId: string;
+    organizationId: string;
+    storeId: string | null;
+    asin?: string | null;
+    fnsku?: string | null;
+    sku?: string | null;
+    actorProfileId?: string | null;
+  },
+): Promise<void> {
+  await applyReturnItemProductEnrichmentAfterInsert(supabase, {
+    returnItemId: params.returnItemId,
+    organizationId: params.organizationId,
+    storeId: params.storeId,
+    asin: params.asin,
+    fnsku: params.fnsku,
+    sku: params.sku,
+    actorProfileId: params.actorProfileId,
+  });
+}
+
+function identifierFieldsChanged(
+  prev: { asin?: string | null; fnsku?: string | null; sku?: string | null },
+  next: { asin?: string | null; fnsku?: string | null; sku?: string | null },
+): boolean {
+  const norm = (v: unknown) => String(v ?? "").trim();
+  return (
+    norm(prev.asin) !== norm(next.asin) ||
+    norm(prev.fnsku) !== norm(next.fnsku) ||
+    norm(prev.sku) !== norm(next.sku)
+  );
+}
+
+export { identifierFieldsChanged };

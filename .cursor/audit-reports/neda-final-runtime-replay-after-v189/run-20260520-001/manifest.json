@@ -1,0 +1,150 @@
+{
+  "run_id": "run-20260520-001",
+  "task": "NEDA-FINAL-RUNTIME-REPLAY-AFTER-V189",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "runtime_ref": "eiqfaapyumhixxoeltgu",
+  "sam_org_id": "00000000-0000-0000-0000-000000000001",
+  "sam_store_id": "509ee1f6-622c-46a5-8110-7b889ba46c2c",
+  "base_url": "http://127.0.0.1:3001",
+  "tracking_redacted": "2954…",
+  "overall": "PASS",
+  "neda_can_proceed_backend_ui": true,
+  "build_typecheck": true,
+  "steps": [
+    {
+      "id": "env_next_public_staging_ref",
+      "pass": true,
+      "detail": "STAGING_REF"
+    },
+    {
+      "id": "env_runtime_ref_matches",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "stale_package_items_zero",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_returns_table_zero",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_scanner_refs",
+      "pass": true,
+      "detail": "{\"package_items\":0,\"returns_table\":0,\"packages_package_number_select\":0,\"pallets_photo_url_select\":0}"
+    },
+    {
+      "id": "build_typecheck",
+      "pass": true,
+      "detail": "tsc --noEmit PASS"
+    },
+    {
+      "id": "staging_admin_client",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "sam_tracking_sample",
+      "pass": true,
+      "detail": "2954989706"
+    },
+    {
+      "id": "api_expected_packages",
+      "pass": true,
+      "detail": "rows=3 snapshot_lines=3"
+    },
+    {
+      "id": "api_inventory_status",
+      "pass": true,
+      "detail": "scan_rows=3 exact_rows=3"
+    },
+    {
+      "id": "inventory_deleted_at_parity",
+      "pass": true,
+      "detail": "view_rows=3 ep_active=0 ep_soft_deleted=0"
+    },
+    {
+      "id": "api_ep_linkage_label",
+      "pass": true,
+      "detail": "X003UPTOJV · 2026JUN02-B0BNR1D6BL"
+    },
+    {
+      "id": "api_return_items_linkage_select",
+      "pass": true,
+      "detail": "no package with scanned units on SAM store (skip)"
+    },
+    {
+      "id": "return_items_active_linkage_display",
+      "pass": true,
+      "detail": "no active return_items sample"
+    },
+    {
+      "id": "browser_signed_in",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "browser_sam_distribution",
+      "pass": true,
+      "detail": "http://127.0.0.1:3001/scanner/operator-mobile → http://127.0.0.1:3001/scanner/operator-mobile/scan"
+    },
+    {
+      "id": "browser_sam_am_store",
+      "pass": true,
+      "detail": "store_ready=true"
+    },
+    {
+      "id": "browser_staging_api_only",
+      "pass": true,
+      "detail": "hosts=eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "browser_scan_route_post",
+      "pass": true,
+      "detail": "POST /scan 200"
+    },
+    {
+      "id": "browser_expected_packages_ui",
+      "pass": true,
+      "detail": "DOM or API rows"
+    },
+    {
+      "id": "browser_inventory_ui",
+      "pass": true,
+      "detail": "DOM or API rows"
+    },
+    {
+      "id": "browser_product_linkage_ui",
+      "pass": true,
+      "detail": "DOM or resolved return_items"
+    },
+    {
+      "id": "static_package_drawer_single_status_chip",
+      "pass": true,
+      "detail": "status chip JSX blocks=1"
+    },
+    {
+      "id": "static_package_picker_status_badge",
+      "pass": true,
+      "detail": "picker badges=2"
+    },
+    {
+      "id": "static_package_drawer_line_linkage",
+      "pass": true,
+      "detail": "OperatorProductLinkageMeta on line rows"
+    }
+  ],
+  "counts": {
+    "sam_ep_rows": 3,
+    "inv_view_rows": 3,
+    "inv_app_rows": 3,
+    "ep_active": 0,
+    "ep_soft_deleted": 0,
+    "return_active": 0,
+    "return_soft_deleted": 0,
+    "return_resolved": 0
+  }
+}

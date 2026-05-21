@@ -15,7 +15,7 @@ import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColum
 import { SmartCameraUpload } from "../../components/ui/SmartCameraUpload";
 import { BarcodeScannerModal } from "../../components/ui/BarcodeScannerModal";
 import {
-  insertReturn, updateReturn, deleteReturn, bulkDeleteReturns,
+  insertReturn, updateReturn, deleteReturn, bulkDeleteReturns, fetchReturnItemProductLinkageAction,
   createPallet, updatePallet, updatePalletStatus, deletePallet,
   createPackage, updatePackage, closePackage, deletePackage,
   getAmazonExpectedItems,
@@ -65,6 +65,12 @@ import { isUuidString, uuidFkInvalidMessage } from "../../lib/uuid";
 import { isAdminRole, type UserRole } from "../../components/UserRoleContext";
 import { scannerProductResolutionBadges } from "../../lib/scanner/product-resolution-badges";
 import { manualOverrideReturnItemProductResolution } from "../scanner/operator-mobile/item-actions";
+import { previewOperatorItemBarcodeLinkageAction } from "../scanner/operator-mobile/_components/operator-store-actions";
+import { OperatorProductLinkageMeta } from "../scanner/operator-mobile/_components/OperatorProductLinkageMeta";
+import {
+  productLinkagePrimaryLabel,
+  type ProductLinkageDisplayContract,
+} from "../../lib/scanner/product-linkage-display-contract";
 
 /** Seeded MVP org — use in client `stores` queries so RLS returns rows for local dev. */
 export const MVP_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001";
@@ -1786,6 +1792,8 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   const [scannerOverrideUuid, setScannerOverrideUuid] = useState("");
   const [scannerOverrideBusy, setScannerOverrideBusy] = useState(false);
   const [scannerOverrideErr, setScannerOverrideErr] = useState("");
+  const [itemProductLinkage, setItemProductLinkage] = useState<ProductLinkageDisplayContract | null>(null);
+  const [itemLinkageLoading, setItemLinkageLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1839,6 +1847,26 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     record.product_match_status,
     record.identifier_resolution_status,
     record.identifier_resolution_source,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setItemLinkageLoading(true);
+    void fetchReturnItemProductLinkageAction(record.id, actorProfileId ?? null).then((res) => {
+      if (cancelled) return;
+      setItemLinkageLoading(false);
+      if (res.ok && res.linkage) setItemProductLinkage(res.linkage);
+      else setItemProductLinkage(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    record.id,
+    record.resolved_product_id,
+    record.identifier_resolution_status,
+    record.identifier_resolution_confidence,
+    actorProfileId,
   ]);
 
   const scannerProductNeedsAttention = Boolean(
@@ -1896,47 +1924,48 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   ]);
 
   async function handleEditBarcodeLookup(barcode: string) {
-    if (!barcode.trim()) { setEditCatalogStatus("idle"); return; }
+    if (!barcode.trim()) {
+      setEditCatalogStatus("idle");
+      return;
+    }
     setEditCatalogStatus("loading");
     setEditCatalogPreview(null);
 
     const classified = classifyProductBarcode(barcode.trim());
+    let matchKind: "fnsku" | "upc" | "unexpected" = "unexpected";
     if (classified.kind === "fnsku") {
       setEditFnsku(classified.normalized);
       setEditProductId(classified.normalized);
+      matchKind = "fnsku";
     } else if (classified.kind === "asin") {
       setEditAsin(classified.normalized);
       setEditProductId(classified.normalized);
     } else if (classified.kind === "upc_ean") {
       setEditProductId(classified.normalized);
+      setEditSku(classified.normalized);
+      matchKind = "upc";
     }
 
-    const { data: local } = await supabaseBrowser
-      .from("products")
-      .select("*")
-      .eq("barcode", barcode.trim())
-      .maybeSingle();
-
-    if (local) {
-      setEditItem(local.name);
-      setEditCatalogPreview({ name: local.name, price: local.price, image_url: local.image_url });
-      setEditCatalogStatus("local");
-      return;
-    }
-
-    const amazon = await fetchProductFromAmazon(barcode.trim());
-    if (amazon) {
-      setEditItem(amazon.name);
-      setEditCatalogPreview({ name: amazon.name, price: amazon.price, image_url: amazon.image_url });
-      setEditCatalogStatus("amazon");
-      try {
-        await supabaseBrowser
-          .from("products")
-          .insert({ barcode: barcode.trim(), name: amazon.name, price: amazon.price, image_url: amazon.image_url, source: "Amazon" });
-      } catch {
-        // ignore duplicate/insert errors
+    const org = record.organization_id?.trim();
+    const sid = editStoreId.trim() || record.store_id?.trim();
+    if (org && isUuidString(org) && sid && isUuidString(sid)) {
+      const preview = await previewOperatorItemBarcodeLinkageAction({
+        requestedOrganizationId: org,
+        storeId: sid,
+        scannedBarcode: barcode.trim(),
+        matchKind,
+      });
+      if (preview.ok) {
+        const label = productLinkagePrimaryLabel(preview.product_linkage);
+        if (label && label !== "Line item") {
+          setEditItem(label);
+          setEditCatalogPreview({ name: label });
+        }
+        setItemProductLinkage(preview.product_linkage);
+        const st = preview.product_linkage.identifier_resolution_status;
+        setEditCatalogStatus(st === "resolved" ? "local" : "unknown");
+        return;
       }
-      return;
     }
 
     setEditCatalogStatus("unknown");
@@ -2026,8 +2055,13 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
       package_id: editPackageId.trim() || null,
     }, actor, actorProfileId);
     setSaving(false);
-    if (res.ok && res.data) { onUpdated(res.data); setEditing(false); setEditNewPhotos({}); }
-    else setErr(res.error ?? "Save failed.");
+    if (res.ok && res.data) {
+      onUpdated(res.data);
+      setEditing(false);
+      setEditNewPhotos({});
+      const linkRes = await fetchReturnItemProductLinkageAction(res.data.id, actorProfileId ?? null);
+      if (linkRes.ok && linkRes.linkage) setItemProductLinkage(linkRes.linkage);
+    } else setErr(res.error ?? "Save failed.");
   }
 
   async function handleScannerManualOverride() {
@@ -2049,6 +2083,8 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
         setScannerOverrideErr(res.error ?? "Could not apply manual product link.");
         return;
       }
+      const linkRes = await fetchReturnItemProductLinkageAction(record.id, actorProfileId ?? null);
+      if (linkRes.ok && linkRes.linkage) setItemProductLinkage(linkRes.linkage);
       const { data, error } = await supabaseBrowser
         .from(RETURN_ITEMS_TABLE)
         .select(RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT)
@@ -2573,6 +2609,26 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
             <div className="col-span-2">
               <p className="text-xs text-slate-400">Item Name</p>
               <p className="font-semibold text-foreground">{record.item_name || "Unknown Item"}</p>
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/50">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Product link
+                </p>
+                {itemLinkageLoading ? (
+                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    Loading…
+                  </p>
+                ) : itemProductLinkage ? (
+                  <>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {productLinkagePrimaryLabel(itemProductLinkage)}
+                    </p>
+                    <OperatorProductLinkageMeta linkage={itemProductLinkage} />
+                  </>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No product link yet</p>
+                )}
+              </div>
             </div>
             {showClaimLinkage ? (
               <div className="col-span-2 rounded-2xl border border-violet-200 bg-violet-50/90 p-4 dark:border-violet-800/50 dark:bg-violet-950/30">

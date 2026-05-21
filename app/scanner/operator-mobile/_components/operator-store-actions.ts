@@ -46,6 +46,11 @@ import {
   type ProductLinkageDisplayContract,
 } from "@/lib/scanner/product-linkage-display-contract";
 import { RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns/returns-constants";
+import { resolveProductForScannerItem } from "@/lib/scanner/resolve-product-for-scanner-item";
+import {
+  buildProductLinkageFromResolveResult,
+  hydrateReturnItemProductLinkage,
+} from "@/lib/scanner/hydrate-return-item-product-linkage";
 
 export type OperatorStoreScopeSnapshot = {
   stores: OperatorStoreOption[];
@@ -1771,12 +1776,77 @@ function normalizeOptionalDate(raw: string | null | undefined): string | null {
   return s;
 }
 
+export type PreviewOperatorItemBarcodeLinkageInput = {
+  requestedOrganizationId: string;
+  storeId: string;
+  scannedBarcode: string;
+  matchKind?: "fnsku" | "upc" | "unexpected";
+};
+
+/**
+ * Dry-run resolver for operator item add/edit barcode fields — no `return_items` write.
+ */
+export async function previewOperatorItemBarcodeLinkageAction(
+  input: PreviewOperatorItemBarcodeLinkageInput,
+): Promise<
+  { ok: true; product_linkage: ProductLinkageDisplayContract } | { ok: false; message: string }
+> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Store is required." };
+  }
+  const barcode = String(input.scannedBarcode ?? "").trim();
+  if (!barcode) {
+    return { ok: false, message: "Barcode is required." };
+  }
+
+  const mk = String(input.matchKind ?? "").trim();
+  const matchKind: InsertOperatorPackageItemInput["matchKind"] =
+    mk === "fnsku" || mk === "upc" || mk === "unexpected" ? mk : "unexpected";
+
+  const fnsku = matchKind === "fnsku" ? barcode.slice(0, 500) : undefined;
+  const sku = matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : undefined;
+
+  try {
+    const res = await resolveProductForScannerItem(supabaseServer, {
+      organization_id: organizationId,
+      store_id: storeId,
+      fnsku,
+      sku,
+      source_table: RETURN_ITEMS_TABLE,
+    });
+    const productNameById = await fetchProductNamesByResolvedIds(
+      supabaseServer as unknown as ProductsLookupClient,
+      res.resolved_product_id ? [res.resolved_product_id] : [],
+    );
+    const product_linkage = buildProductLinkageFromResolveResult(
+      { fnsku, sku, item_name: null },
+      res,
+      productNameById,
+    );
+    return { ok: true, product_linkage };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Resolver preview failed." };
+  }
+}
+
 /**
  * Insert one item-scan unit as a `return_items` row (`packages.actual_item_count` via DB trigger).
  */
 export async function insertOperatorPackageItemAction(
   input: InsertOperatorPackageItemInput,
-): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+): Promise<
+  | { ok: true; id: string; product_linkage: ProductLinkageDisplayContract }
+  | { ok: false; message: string }
+> {
   const sessionUserId = await getSessionUserIdFromCookies();
   if (!sessionUserId || !isUuidString(sessionUserId)) {
     return { ok: false, message: "Not signed in." };
@@ -1897,6 +1967,8 @@ export async function insertOperatorPackageItemAction(
     return { ok: false, message: ins.error ?? "Failed to save item scan." };
   }
 
+  const primaryId = ins.data.id;
+
   if (quantity > 1) {
     for (let i = 1; i < quantity; i++) {
       const extra = await insertReturn({
@@ -1918,5 +1990,17 @@ export async function insertOperatorPackageItemAction(
     }
   }
 
-  return { ok: true, id: ins.data.id };
+  const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, primaryId, organizationId);
+  const product_linkage =
+    linkage ??
+    buildProductLinkageDisplayContract(
+      {
+        fnsku: matchKind === "fnsku" ? barcode.slice(0, 500) : null,
+        sku: matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : null,
+        item_name: itemName,
+      },
+      new Map(),
+    );
+
+  return { ok: true, id: primaryId, product_linkage };
 }

@@ -1,0 +1,25 @@
+{
+  "audit": "neda-file-sync-and-handoff-repair-v185",
+  "run_id": "run-20260520-001",
+  "handoff_ready": true,
+  "files_added": [
+    "NEDA_BACKEND_PRODUCT_LINKAGE_HANDOFF_V178.md",
+    "NEDA_EXPECTED_PACKAGES_INVENTORY_VIEWS_HANDOFF_V179.md",
+    ".ai-memory/NEDA_HANDOFF.md",
+    ".ai-memory/DATABASE_CONTRACT.md",
+    ".ai-memory/PRODUCT_ID_MAPPING_STATUS.md"
+  ],
+  "still_missing": [],
+  "build_pass": true,
+  "tsc_pass": true,
+  "stale_pass": true,
+  "artifacts": [
+    "expected-vs-existing-file-map.md",
+    "missing-files-added.md",
+    "alias-map.md",
+    "imports-validation.md",
+    "build-results.md",
+    "blockers.md",
+    "manifest.json"
+  ]
+}

@@ -41,7 +41,13 @@ import {
   hasReturnPhotoEvidenceUrlSlots,
   type ReturnPhotoEvidenceRow,
 } from "../../lib/return-photo-evidence";
-import { applyReturnItemProductEnrichmentAfterInsert } from "../../lib/scanner/apply-return-item-product-enrichment";
+import {
+  applyReturnItemProductEnrichmentAfterInsert,
+  applyReturnItemProductEnrichmentAfterUpdate,
+  identifierFieldsChanged,
+} from "../../lib/scanner/apply-return-item-product-enrichment";
+import { hydrateReturnItemProductLinkage } from "../../lib/scanner/hydrate-return-item-product-linkage";
+import type { ProductLinkageDisplayContract } from "../../lib/scanner/product-linkage-display-contract";
 import type {
   AuditLogRecord,
   DashboardSnapshot,
@@ -988,6 +994,31 @@ export async function insertReturn(
   }
 }
 
+/** Server-built `ProductLinkageDisplayContract` for item drawer / detail reload (no client catalog queries). */
+export async function fetchReturnItemProductLinkageAction(
+  returnId: string,
+  actorProfileId?: string | null,
+): Promise<{ ok: boolean; linkage?: ProductLinkageDisplayContract; error?: string }> {
+  try {
+    const rid = uuidOrNull(returnId);
+    if (!rid) return { ok: false, error: "Invalid return id." };
+    const { data: existing, error: loadErr } = await supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id, organization_id")
+      .eq("id", rid)
+      .maybeSingle();
+    if (loadErr) return { ok: false, error: loadErr.message };
+    if (!existing || typeof existing !== "object") return { ok: false, error: "Return not found." };
+    const orgId = String((existing as { organization_id?: string }).organization_id ?? "").trim();
+    await assertRowOrgAccess(actorProfileId, orgId);
+    const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, rid, orgId);
+    if (!linkage) return { ok: false, error: "Could not load product linkage." };
+    return { ok: true, linkage };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Linkage load failed." };
+  }
+}
+
 export async function updateReturn(
   returnId: string,
   updates: ReturnUpdatePayload,
@@ -1081,7 +1112,35 @@ export async function updateReturn(
     if (scope.mode === "single") uq = uq.eq("organization_id", scope.organizationId);
     const { data, error } = await uq.select(RETURN_SELECT).single();
     if (error) throw new Error(parseDuplicateError(error.message));
-    const rec = normalizeReturnRecordFromRow(data);
+    let rec = normalizeReturnRecordFromRow(data);
+
+    const nextAsin = "asin" in clean ? (clean.asin as string | null | undefined) : ex.asin;
+    const nextFnsku = "fnsku" in clean ? (clean.fnsku as string | null | undefined) : ex.fnsku;
+    const nextSku = "sku" in clean ? (clean.sku as string | null | undefined) : ex.sku;
+    if (
+      identifierFieldsChanged(
+        { asin: ex.asin, fnsku: ex.fnsku, sku: ex.sku },
+        { asin: nextAsin, fnsku: nextFnsku, sku: nextSku },
+      )
+    ) {
+      await applyReturnItemProductEnrichmentAfterUpdate(supabaseServer, {
+        returnItemId: rid,
+        organizationId: ex.organization_id,
+        storeId: (rec.store_id ?? ex.store_id) as string | null,
+        asin: nextAsin,
+        fnsku: nextFnsku,
+        sku: nextSku,
+        actorProfileId: actorProfileId ?? null,
+      });
+      const { data: reloaded, error: reloadErr } = await supabaseServer
+        .from(RETURN_ITEMS_TABLE)
+        .select(RETURN_SELECT)
+        .eq("id", rid)
+        .single();
+      if (!reloadErr && reloaded) {
+        rec = normalizeReturnRecordFromRow(reloaded);
+      }
+    }
 
     if (rec.status === "ready_for_claim") {
       const storePlat = storePlatformFromEmbed(rec.stores);

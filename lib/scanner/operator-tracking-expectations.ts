@@ -1,5 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
+import type {
+  ProductLinkageDisplayContract,
+  ProductsLookupClient,
+} from "@/lib/scanner/product-linkage-display-contract";
+import {
+  fetchResolvedProductNamesForExpectedRows,
+  mergeExpectedPackageRowsProductLinkage,
+  primaryLabelForExpectedPackageLinkage,
+  scanQuantityVariance,
+} from "@/lib/scanner/expected-packages-read-contract";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
 function formatLoadErrorMessage(err: unknown): string {
@@ -40,6 +50,10 @@ export type TrackingExpectedGroup = {
 export type TrackingOperatorLine = TrackingExpectedGroup & {
   scannedQty: number;
   remainingQty: number;
+  /** Scanned − expected (signed). */
+  varianceQty: number;
+  /** Neda product linkage read contract (null-safe; never requires `product_id`). */
+  product_linkage: ProductLinkageDisplayContract;
 };
 
 export type TrackingExpectationTotals = {
@@ -370,7 +384,7 @@ export async function fetchExpectedPackageDetailRowsByIds(
   const seen = new Set<string>();
   const CHUNK = 120;
 
-  let detailSelect = EP_DETAIL_SELECT;
+  let detailSelect = EP_DETAIL_WITH_SCANNER_PRODUCT_SELECT;
 
   for (let i = 0; i < uniq.length; i += CHUNK) {
     const chunk = uniq.slice(i, i + CHUNK);
@@ -540,6 +554,42 @@ export async function fetchReturnItemsScannedBySkuFnskuForPallet(
   return counts;
 }
 
+function normSkuFnskuDispositionKey(raw: Record<string, unknown>): string {
+  const sku = String(raw.sku ?? "").trim();
+  const fnsku = String(raw.fnsku ?? "").trim();
+  const disposition = String(raw.disposition ?? "").trim();
+  return `${sku.toLowerCase()}\u0000${fnsku.toLowerCase()}\u0000${disposition.toLowerCase()}`;
+}
+
+/** Attach merged `expected_packages` product linkage + display label per grouped line. */
+export async function enrichTrackingOperatorLinesWithProductLinkage(
+  supabase: SupabaseClient,
+  lines: TrackingOperatorLine[],
+  rawExpectedRows: Record<string, unknown>[],
+): Promise<TrackingOperatorLine[]> {
+  const nameMap = await fetchResolvedProductNamesForExpectedRows(
+    supabase as unknown as ProductsLookupClient,
+    rawExpectedRows,
+  );
+  const rowsByKey = new Map<string, Record<string, unknown>[]>();
+  for (const r of rawExpectedRows) {
+    const key = normSkuFnskuDispositionKey(r);
+    const arr = rowsByKey.get(key) ?? [];
+    arr.push(r);
+    rowsByKey.set(key, arr);
+  }
+  return lines.map((line) => {
+    const bucket = rowsByKey.get(line.groupKey) ?? [];
+    const product_linkage = mergeExpectedPackageRowsProductLinkage(bucket, nameMap);
+    const label = primaryLabelForExpectedPackageLinkage(product_linkage);
+    return {
+      ...line,
+      product_linkage,
+      productLabel: label && label !== "Line item" ? label : line.productLabel,
+    };
+  });
+}
+
 export async function loadPalletExpectationSnapshot(
   supabase: SupabaseClient,
   organizationId: string,
@@ -566,7 +616,7 @@ export async function loadPalletExpectationSnapshot(
     organizationId,
     storeId,
     trackings,
-    EP_SELECT,
+    EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT,
   );
   const groups = aggregateExpectedPackagesBySkuFnskuDisposition(raw);
   let scannedMap: Map<string, number>;
@@ -575,7 +625,8 @@ export async function loadPalletExpectationSnapshot(
   } catch (e) {
     scannedMap = emptyScannedMapAfterWarn("loadPalletExpectationSnapshot", e);
   }
-  const { lines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
+  const { lines: baseLines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
+  const lines = await enrichTrackingOperatorLinesWithProductLinkage(supabase, baseLines, raw);
   return {
     lines,
     totals,
@@ -816,10 +867,14 @@ export function mergeExpectedWithScannedCounts(
     expectedUnits += Math.max(0, g.expectedQty);
     scannedUnits += scannedQty;
     const remainingQty = Math.max(0, g.expectedQty - scannedQty);
+    const varianceQty = scanQuantityVariance(g.expectedQty, scannedQty);
+    const emptyLinkage = mergeExpectedPackageRowsProductLinkage([], new Map());
     return {
       ...g,
       scannedQty,
       remainingQty,
+      varianceQty,
+      product_linkage: emptyLinkage,
     };
   });
 
@@ -848,7 +903,7 @@ export async function loadTrackingExpectationSnapshot(
     organizationId,
     storeId,
     trackingNumber,
-    EP_SELECT,
+    EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT,
   );
   const groups = aggregateExpectedPackagesBySkuFnskuDisposition(raw);
   let scannedMap: Map<string, number>;
@@ -857,7 +912,8 @@ export async function loadTrackingExpectationSnapshot(
   } catch (e) {
     scannedMap = emptyScannedMapAfterWarn("loadTrackingExpectationSnapshot", e);
   }
-  const { lines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
+  const { lines: baseLines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
+  const lines = await enrichTrackingOperatorLinesWithProductLinkage(supabase, baseLines, raw);
   return {
     lines,
     totals,
@@ -904,7 +960,11 @@ export function mockTrackingExpectationSnapshot(trackingNumber: string): {
     },
   ];
   const scanned = new Map<string, number>([[`${"demo-sku-a".toLowerCase()}\u0000${"x003zn3tjt".toLowerCase()}`, 4]]);
-  const { lines, totals } = mergeExpectedWithScannedCounts(groups, scanned);
+  const { lines: baseLines, totals } = mergeExpectedWithScannedCounts(groups, scanned);
+  const lines: TrackingOperatorLine[] = baseLines.map((line) => ({
+    ...line,
+    product_linkage: mergeExpectedPackageRowsProductLinkage([], new Map()),
+  }));
   return {
     lines,
     totals,
