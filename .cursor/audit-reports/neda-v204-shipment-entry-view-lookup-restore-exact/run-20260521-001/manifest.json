@@ -1,0 +1,52 @@
+{
+  "run_id": "run-20260521-001",
+  "task": "neda-v204-shipment-entry-view-lookup-restore-exact",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "package_code_in_view": false,
+  "ddl_approval_needed": true,
+  "smoke": [
+    {
+      "id": "unknown_off_manifest",
+      "pass": true,
+      "detail": "found=false manifest=off_manifest"
+    },
+    {
+      "id": "no_item_in_gate_lookup",
+      "pass": true,
+      "detail": "item resolver separate (kind=unknown)"
+    },
+    {
+      "id": "known_tracking",
+      "pass": true,
+      "detail": "status=found_tracking manifest=partially_scanned rows=1"
+    },
+    {
+      "id": "known_slip",
+      "pass": false,
+      "detail": "no sample id_slip_contents"
+    },
+    {
+      "id": "known_package_code",
+      "pass": true,
+      "detail": "status=found_package barcode=package"
+    },
+    {
+      "id": "known_pallet",
+      "pass": true,
+      "detail": "status=found_pallet barcode=pallet"
+    },
+    {
+      "id": "expected_only",
+      "pass": true,
+      "detail": "status=found_tracking"
+    },
+    {
+      "id": "already_scanned",
+      "pass": false,
+      "detail": "no scanned sample"
+    }
+  ],
+  "blockers": [
+    "package_code not on inventory views — carton lookup uses packages table until DDL approved"
+  ]
+}

@@ -100,6 +100,16 @@ export function productLinkagePrimaryLabel(linkage: ProductLinkageDisplayContrac
   return linkage.product_name?.trim() || linkage.fallback_display_name.trim() || "Line item";
 }
 
+/** Operator row title per Neda display contract (resolved title vs fixed unmapped / review copy). */
+export function productLinkageOperatorPrimaryDisplayLabel(linkage: ProductLinkageDisplayContract): string {
+  if (productLinkageIsAmbiguous(linkage)) return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
+  const st = linkage.identifier_resolution_status;
+  if (st === "unresolved") return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  if (st === "resolved") return productLinkagePrimaryLabel(linkage);
+  if (productLinkageShowsUnmappedLabel(linkage)) return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  return productLinkagePrimaryLabel(linkage);
+}
+
 /** Optional confidence suffix for resolved rows (0–100%). */
 export function formatProductLinkageConfidencePct(confidence: number | null | undefined): string | null {
   if (confidence === null || confidence === undefined) return null;

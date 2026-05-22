@@ -1,6 +1,6 @@
 # NEDA handoff index
 
-**Last sync:** NEDA-FILE-SYNC-AND-HANDOFF-REPAIR-V185  
+**Last sync:** V195-NEDA-HANDOFF-FILE-SYNC-AND-USAGE  
 **Branch context:** Operator-mobile / scanner read models on staging (`eiqfaapyumhixxoeltgu`)
 
 ---
@@ -9,8 +9,11 @@
 
 | File | Purpose |
 |------|---------|
+| `NEDA_FINAL_BACKEND_HANDOFF_V193.md` | **Start here** — 12 current rules + topology |
 | `NEDA_BACKEND_PRODUCT_LINKAGE_HANDOFF_V178.md` | Slip/return_item `ProductLinkageDisplayContract` |
 | `NEDA_EXPECTED_PACKAGES_INVENTORY_VIEWS_HANDOFF_V179.md` | EP + `v_inventory_item_status` UI reads |
+| `.ai-memory/CURRENT_STATE.md` | Branch snapshot |
+| `.ai-memory/NEXT_ACTIONS.md` | Safe next tasks |
 
 ---
 
@@ -42,6 +45,9 @@
 | `scripts/neda-file-sync-and-handoff-repair-v185.ts` | `neda-file-sync-and-handoff-repair-v185/` |
 | `scripts/neda-20-add-edit-item-resolver-consume-v191.ts` | `neda-20-add-edit-item-resolver-consume-v191/` |
 | `scripts/neda-21-product-resolution-contract-enforce-all-ui-v192.ts` | `neda-21-product-resolution-contract-enforce-all-ui-v192/` |
+| `scripts/neda-23-auto-lookup-detail-link-and-views-v193.ts` | `neda-23-auto-lookup-detail-link-and-views-v193/` |
+| `scripts/v194-neda-ui-polish-lookup-sync.ts` | `v194-neda-ui-polish-lookup-sync/` |
+| `scripts/neda-handoff-file-sync-and-usage-v195.ts` | `v195-neda-handoff-file-sync-and-usage/` |
 
 Shared smoke helpers: `scripts/lib/neda-read-model-smoke-v181.ts`
 

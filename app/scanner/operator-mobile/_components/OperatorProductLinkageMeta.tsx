@@ -1,6 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { scannerProductResolutionBadges } from "@/lib/scanner/product-resolution-badges";
+import {
+  buildOperatorProductDetailHref,
+  productLinkageHasDetailPage,
+  type OperatorProductDetailFrom,
+} from "@/lib/scanner/operator-product-detail-path";
 import {
   formatProductLinkageConfidencePct,
   PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL,
@@ -44,7 +50,18 @@ function LinkageChip({
 }
 
 /** Neda operator chips for catalog linkage on slip / item inspection rows. */
-export function OperatorProductLinkageMeta({ linkage }: { linkage: ProductLinkageDisplayContract }) {
+export function OperatorProductLinkageMeta({
+  linkage,
+  linkResolvedProductId = true,
+  detailFrom,
+  detailFromId,
+}: {
+  linkage: ProductLinkageDisplayContract;
+  /** When false, omit short-id link (use with `ProductLinkagePrimaryLink` to avoid duplicate links). */
+  linkResolvedProductId?: boolean;
+  detailFrom?: OperatorProductDetailFrom;
+  detailFromId?: string;
+}) {
   const ambiguous = productLinkageIsAmbiguous(linkage);
   const showUnmapped = productLinkageShowsUnmappedLabel(linkage);
   const badges = scannerProductResolutionBadges({
@@ -92,12 +109,27 @@ export function OperatorProductLinkageMeta({ linkage }: { linkage: ProductLinkag
         />
       ))}
       {showResolvedId ? (
-        <span
-          className="font-mono text-[9px] font-semibold tabular-nums text-slate-400"
-          title={`Product id ${resolvedId}`}
-        >
-          {resolvedId.slice(0, 8)}…
-        </span>
+        linkResolvedProductId && productLinkageHasDetailPage(linkage) ? (
+          <Link
+            href={
+              buildOperatorProductDetailHref(resolvedId, {
+                from: detailFrom,
+                fromId: detailFromId,
+              })!
+            }
+            className="font-mono text-[9px] font-semibold tabular-nums text-sky-400 underline decoration-sky-500/50 underline-offset-2 hover:text-sky-300"
+            title={`Open product ${resolvedId}`}
+          >
+            {resolvedId.slice(0, 8)}…
+          </Link>
+        ) : (
+          <span
+            className="font-mono text-[9px] font-semibold tabular-nums text-slate-400"
+            title={`Product id ${resolvedId}`}
+          >
+            {resolvedId.slice(0, 8)}…
+          </span>
+        )
       ) : null}
       {conf ? (
         <span className="text-[9px] font-semibold tabular-nums text-slate-400" title="Resolution confidence">

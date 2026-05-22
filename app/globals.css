@@ -1632,11 +1632,26 @@ html.dark [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn:
   color: #d6b76e !important;
 }
 
+html.dark .operator-shipment-entry-header [data-receiving-phase="scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active) {
+  border-color: rgba(231, 196, 112, 0.48) !important;
+  background: linear-gradient(165deg, #2a333d 0%, #1a2129 100%) !important;
+  color: #e7c470 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 12px rgba(0, 0, 0, 0.22) !important;
+}
+
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover,
 html.dark [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover {
   border-color: rgba(214, 183, 110, 0.5) !important;
   background: rgba(214, 183, 110, 0.1) !important;
   color: #f1d58a !important;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase="scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover {
+  border-color: rgba(244, 218, 147, 0.58) !important;
+  background: rgba(231, 196, 112, 0.12) !important;
+  color: #f4da93 !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn--active,
@@ -1646,11 +1661,29 @@ html.dark [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn-
   color: #faf6ed !important;
 }
 
+html.dark .operator-shipment-entry-header [data-receiving-phase="scan"] .operator-shipment-edit-all-btn--active {
+  border-color: rgba(231, 196, 112, 0.62) !important;
+  background: rgba(231, 196, 112, 0.14) !important;
+  color: #faf6ed !important;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.2),
+    0 0 10px rgba(231, 196, 112, 0.08) !important;
+}
+
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active),
 html.light [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active) {
   border-color: #d8d1c2 !important;
   background: linear-gradient(165deg, #f8f6f1 0%, #ece7dc 100%) !important;
   color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase="scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active) {
+  border-color: rgba(138, 104, 31, 0.42) !important;
+  background: linear-gradient(165deg, #ffffff 0%, #f8f3e8 100%) !important;
+  color: #8a681f !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 4px 12px rgba(60, 45, 20, 0.1) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover,
@@ -1660,11 +1693,24 @@ html.light [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn
   color: #524018 !important;
 }
 
+html.light .operator-shipment-entry-header [data-receiving-phase="scan"] .operator-shipment-edit-all-btn:not(.operator-shipment-edit-all-btn--active):hover {
+  border-color: rgba(138, 104, 31, 0.52) !important;
+  background: rgba(231, 196, 112, 0.14) !important;
+  color: #6f5424 !important;
+}
+
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-edit-all-btn--active,
 html.light [data-receiving-phase="package_scan"] .operator-shipment-edit-all-btn--active {
   border-color: rgba(138, 104, 31, 0.45) !important;
   background: rgba(138, 104, 31, 0.12) !important;
   color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase="scan"] .operator-shipment-edit-all-btn--active {
+  border-color: rgba(138, 104, 31, 0.52) !important;
+  background: rgba(231, 196, 112, 0.16) !important;
+  color: #16181b !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
 }
 
 /* Shipment Entry — unified top chrome (title, stepper, progress) */
@@ -1816,10 +1862,28 @@ html.dark .operator-shipment-entry-header .operator-shipment-box-progress {
   background: rgba(26, 33, 41, 0.92) !important;
 }
 
+html.dark [data-receiving-phase="scan"] .operator-shipment-entry-progress,
+html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-shipment-box-progress {
+  border-color: rgba(231, 196, 112, 0.22) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 40%),
+    rgba(26, 33, 41, 0.94) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
 html.light .operator-shipment-entry-progress,
 html.light .operator-shipment-entry-header .operator-shipment-box-progress {
   border-color: #cfc6b6 !important;
   background: linear-gradient(180deg, #faf8f4 0%, #f5f0e8 100%) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-shipment-entry-progress,
+html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-shipment-box-progress {
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f8f3e8 100%) !important;
+  box-shadow:
+    0 4px 14px rgba(60, 45, 20, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
 }
 
 html.light .operator-shipment-entry-progress .operator-shipment-box-progress__text,
@@ -1950,7 +2014,15 @@ html.dark .operator-shipment-section-icon {
   color: #d6b76e !important;
 }
 
+html.dark .operator-pallet-step-screen .operator-shipment-section-icon {
+  color: #e7c470 !important;
+}
+
 html.light .operator-shipment-section-icon {
+  color: #8a681f !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-section-icon {
   color: #8a681f !important;
 }
 
@@ -2033,6 +2105,11 @@ html.dark .operator-shipment-docs-row--active {
   box-shadow: inset 3px 0 0 rgba(214, 183, 110, 0.4) !important;
 }
 
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row--active {
+  background: rgba(231, 196, 112, 0.07) !important;
+  box-shadow: inset 3px 0 0 rgba(231, 196, 112, 0.48) !important;
+}
+
 html.dark .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) {
   box-shadow: inset 3px 0 0 rgba(34, 197, 139, 0.35) !important;
 }
@@ -2053,6 +2130,11 @@ html.light .operator-shipment-docs-row:last-child {
 html.light .operator-shipment-docs-row--active {
   background: rgba(138, 104, 31, 0.06) !important;
   box-shadow: inset 3px 0 0 rgba(138, 104, 31, 0.38) !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-docs-row--active {
+  background: rgba(231, 196, 112, 0.1) !important;
+  box-shadow: inset 3px 0 0 rgba(138, 104, 31, 0.45) !important;
 }
 
 html.light .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) {
@@ -2865,7 +2947,9 @@ html.dark .operator-shipment-flow-modal__panel {
 html.light .operator-shipment-flow-modal__panel {
   background: #ffffff !important;
   border: 1px solid rgba(138, 104, 31, 0.28) !important;
-  box-shadow: 0 18px 44px rgba(60, 45, 20, 0.16) !important;
+  box-shadow:
+    0 18px 44px rgba(60, 45, 20, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
   color: #16181b !important;
 }
 
@@ -2910,19 +2994,20 @@ html.light .operator-shipment-flow-modal__note {
 }
 
 html.dark .operator-shipment-flow-modal__btn-secondary {
-  border: 1px solid #323c48 !important;
-  background: linear-gradient(180deg, #2a3440 0%, #1a2129 100%) !important;
+  border: 1px solid rgba(185, 194, 204, 0.25) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
   color: #faf6ed !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
 html.dark .operator-shipment-flow-modal__btn-secondary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #323c48 0%, #222830 100%) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(185, 194, 204, 0.38) !important;
   filter: none;
 }
 
 html.light .operator-shipment-flow-modal__btn-secondary {
-  border: 1px solid #cfc6b6 !important;
+  border: 1px solid rgba(138, 104, 31, 0.22) !important;
   background: #f8f6f1 !important;
   color: #3f4852 !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
@@ -2935,8 +3020,8 @@ html.light .operator-shipment-flow-modal__btn-secondary:hover:not(:disabled) {
 }
 
 html.dark .operator-shipment-flow-modal__btn-primary {
-  border: 1px solid rgba(214, 183, 110, 0.75) !important;
-  background: linear-gradient(180deg, #2a313a 0%, #171c22 50%, #0c0f13 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.78) !important;
+  background: linear-gradient(180deg, #2a313a 0%, #171c22 52%, #0c0f13 100%) !important;
   color: #faf6ed !important;
   box-shadow:
     inset 0 1px 0 rgba(241, 213, 138, 0.22),
@@ -2977,20 +3062,60 @@ html.light .operator-shipment-flow-modal__btn-warning {
 }
 
 html.dark .operator-shipment-flow-modal__btn-danger {
-  border: 1px solid rgba(239, 91, 91, 0.48) !important;
-  background: linear-gradient(180deg, rgba(69, 22, 22, 0.72) 0%, rgba(42, 14, 14, 0.88) 100%) !important;
-  color: #fecaca !important;
+  border: 1px solid rgba(239, 91, 91, 0.45) !important;
+  background: rgba(239, 91, 91, 0.1) !important;
+  color: #ef5b5b !important;
+}
+
+html.dark .operator-shipment-flow-modal__btn-danger:hover:not(:disabled) {
+  background: rgba(239, 91, 91, 0.16) !important;
+  border-color: rgba(239, 91, 91, 0.55) !important;
+  filter: none;
 }
 
 html.light .operator-shipment-flow-modal__btn-danger {
-  border: 1px solid rgba(180, 35, 47, 0.42) !important;
-  background: rgba(180, 35, 47, 0.08) !important;
-  color: #8f1d29 !important;
+  border: 1px solid rgba(239, 91, 91, 0.42) !important;
+  background: rgba(239, 91, 91, 0.08) !important;
+  color: #b4232f !important;
 }
 
 html.light .operator-shipment-flow-modal__btn-danger:hover:not(:disabled) {
-  background: rgba(180, 35, 47, 0.14) !important;
+  background: rgba(239, 91, 91, 0.14) !important;
   filter: none;
+}
+
+.operator-shipment-flow-modal__btn-primary:focus-visible,
+.operator-shipment-flow-modal__btn-secondary:focus-visible,
+.operator-shipment-flow-modal__btn-warning:focus-visible,
+.operator-shipment-flow-modal__btn-danger:focus-visible {
+  outline: 2px solid rgba(214, 183, 110, 0.55);
+  outline-offset: 2px;
+}
+
+html.light .operator-shipment-flow-modal__btn-danger:focus-visible {
+  outline-color: rgba(180, 35, 47, 0.45);
+}
+
+html.dark .operator-shipment-flow-modal__alert {
+  border: 1px solid rgba(214, 183, 110, 0.38) !important;
+  background: rgba(214, 183, 110, 0.08) !important;
+  color: #e8d19a !important;
+}
+
+html.light .operator-shipment-flow-modal__alert {
+  border: 1px solid rgba(183, 121, 31, 0.32) !important;
+  background: rgba(183, 121, 31, 0.08) !important;
+  color: #6f5424 !important;
+}
+
+html.dark .operator-shipment-flow-modal__alert strong,
+html.dark .operator-shipment-flow-modal__alert .operator-shipment-flow-modal__alert-emphasis {
+  color: #f1d58a !important;
+}
+
+html.light .operator-shipment-flow-modal__alert strong,
+html.light .operator-shipment-flow-modal__alert .operator-shipment-flow-modal__alert-emphasis {
+  color: #8a681f !important;
 }
 
 html.dark .operator-shipment-flow-toast {
@@ -3021,6 +3146,173 @@ html.dark .operator-shipment-flow-toast__icon {
 
 html.light .operator-shipment-flow-toast__icon {
   color: #0f8f63 !important;
+}
+
+html.dark .operator-shipment-flow-toast--error {
+  border: 1px solid rgba(239, 91, 91, 0.45) !important;
+  background: rgba(26, 33, 41, 0.97) !important;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-shipment-flow-toast--error {
+  border: 1px solid rgba(239, 91, 91, 0.38) !important;
+  background: #ffffff !important;
+  box-shadow: 0 12px 32px rgba(60, 45, 20, 0.14) !important;
+}
+
+html.dark .operator-shipment-flow-toast--error .operator-shipment-flow-toast__text {
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-flow-toast--error .operator-shipment-flow-toast__text {
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-flow-toast--error .operator-shipment-flow-toast__icon--error {
+  color: #ef5b5b !important;
+}
+
+html.light .operator-shipment-flow-toast--error .operator-shipment-flow-toast__icon--error {
+  color: #b4232f !important;
+}
+
+html.dark .operator-shipment-flow-toast--warning {
+  border: 1px solid rgba(214, 183, 110, 0.48) !important;
+  background: rgba(26, 33, 41, 0.97) !important;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-shipment-flow-toast--warning {
+  border: 1px solid rgba(183, 121, 31, 0.35) !important;
+  background: #ffffff !important;
+  box-shadow: 0 12px 32px rgba(60, 45, 20, 0.14) !important;
+}
+
+html.dark .operator-shipment-flow-toast--warning .operator-shipment-flow-toast__text {
+  color: #faf6ed !important;
+}
+
+html.light .operator-shipment-flow-toast--warning .operator-shipment-flow-toast__text {
+  color: #16181b !important;
+}
+
+html.dark .operator-shipment-flow-toast--warning .operator-shipment-flow-toast__icon--warning {
+  color: #e8d19a !important;
+}
+
+html.light .operator-shipment-flow-toast--warning .operator-shipment-flow-toast__icon--warning {
+  color: #8a681f !important;
+}
+
+html.dark .operator-shipment-flow-toast--success {
+  border: 1px solid rgba(34, 197, 139, 0.48) !important;
+  background: linear-gradient(180deg, rgba(22, 48, 38, 0.98) 0%, rgba(20, 32, 28, 0.99) 100%) !important;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(120, 220, 170, 0.12) !important;
+}
+
+html.light .operator-shipment-flow-toast--success {
+  border: 1px solid rgba(15, 143, 99, 0.38) !important;
+  background: linear-gradient(180deg, #f0fdf7 0%, #ffffff 100%) !important;
+  box-shadow: 0 12px 32px rgba(15, 143, 99, 0.12) !important;
+}
+
+html.dark .operator-shipment-flow-toast--success .operator-shipment-flow-toast__icon {
+  color: #34d399 !important;
+}
+
+html.light .operator-shipment-flow-toast--success .operator-shipment-flow-toast__icon {
+  color: #0f8f63 !important;
+}
+
+html.dark .operator-shipment-flow-toast--neutral {
+  border: 1px solid rgba(148, 163, 184, 0.35) !important;
+  background: rgba(23, 28, 34, 0.97) !important;
+}
+
+html.light .operator-shipment-flow-toast--neutral {
+  border: 1px solid rgba(75, 85, 99, 0.28) !important;
+  background: #ffffff !important;
+}
+
+html.dark .operator-shipment-flow-toast--neutral .operator-shipment-flow-toast__icon--neutral {
+  color: #9ea6ad !important;
+}
+
+html.light .operator-shipment-flow-toast--neutral .operator-shipment-flow-toast__icon--neutral {
+  color: #6b7280 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-actions--compact {
+  min-height: 0 !important;
+  padding-top: 0.5rem !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-actions--compact {
+  min-height: 0 !important;
+  padding-top: 0.5rem !important;
+}
+
+/* Item unit record modal (Shipment Entry item scan save/cancel) */
+html.dark .operator-item-unit-record-modal__shell {
+  background: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__shell {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  box-shadow:
+    0 18px 44px rgba(60, 45, 20, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__header {
+  border-color: rgba(185, 194, 204, 0.2) !important;
+}
+
+html.light .operator-item-unit-record-modal__header {
+  border-color: rgba(138, 104, 31, 0.18) !important;
+}
+
+html.dark .operator-item-unit-record-modal__title {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__title {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__subtitle,
+html.dark .operator-item-unit-record-modal__muted {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-unit-record-modal__subtitle,
+html.light .operator-item-unit-record-modal__muted {
+  color: #3f4852 !important;
+}
+
+html.dark .operator-item-unit-record-modal__local-error {
+  border: 1px solid rgba(239, 91, 91, 0.45) !important;
+  background: rgba(239, 91, 91, 0.1) !important;
+  color: #ef5b5b !important;
+}
+
+html.light .operator-item-unit-record-modal__local-error {
+  border: 1px solid rgba(239, 91, 91, 0.38) !important;
+  background: rgba(239, 91, 91, 0.08) !important;
+  color: #b4232f !important;
 }
 
 html.dark .operator-shipment-flow-modal__success-icon {
@@ -3071,18 +3363,61 @@ html.dark [data-receiving-phase="package_scan"] .operator-stepper-label--done {
 }
 
 /* Pallet shipment entry step (scan + parent identified) */
-html.dark .operator-pallet-step-screen .operator-shipment-intake-card.scanner-page-glass-card,
-html.dark .operator-pallet-docs-card.scanner-page-glass-card {
+html.dark .operator-pallet-step-screen .operator-shipment-intake-card.scanner-page-glass-card {
   background-color: #1a2129 !important;
-  border: 1px solid rgba(214, 183, 110, 0.28) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(231, 196, 112, 0.3) !important;
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
-html.light .operator-pallet-step-screen .operator-shipment-intake-card.scanner-page-glass-card,
-html.light .operator-pallet-docs-card.scanner-page-glass-card {
+html.dark .operator-pallet-docs-card.scanner-page-glass-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 28%),
+    #1a2129 !important;
+  border: 1px solid rgba(231, 196, 112, 0.38) !important;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.62) !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-intake-card.scanner-page-glass-card {
   background-color: #ffffff !important;
-  border: 1px solid rgba(138, 104, 31, 0.22) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid rgba(138, 104, 31, 0.26) !important;
+  box-shadow:
+    0 6px 16px rgba(60, 45, 20, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.light .operator-pallet-docs-card.scanner-page-glass-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0) 30%),
+    #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.32) !important;
+  box-shadow:
+    0 10px 24px rgba(60, 45, 20, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -1px 0 rgba(138, 104, 31, 0.12) !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-notes-card {
+  border: 1px solid rgba(231, 196, 112, 0.3) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 26%),
+    #1a2129 !important;
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+html.light .operator-pallet-step-screen .operator-shipment-notes-card {
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #faf8f4 100%) !important;
+  box-shadow:
+    0 8px 18px rgba(60, 45, 20, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
 }
 
 html.dark .operator-pallet-section-subtitle,
@@ -3115,8 +3450,13 @@ html.light .operator-pallet-attached-badge {
 
 html.light .operator-pallet-step-screen .operator-shipment-req-mark,
 html.light .operator-pallet-step-screen .operator-shipment-docs-row .operator-shipment-req-mark {
-  color: #7a5b1b !important;
+  color: #8a681f !important;
   font-weight: 700 !important;
+}
+
+html.dark .operator-pallet-step-screen .operator-shipment-req-mark,
+html.dark .operator-pallet-step-screen .operator-shipment-docs-row .operator-shipment-req-mark {
+  color: #f4da93 !important;
 }
 
 html.dark .operator-pallet-field-readonly {
@@ -3144,9 +3484,16 @@ html.light .operator-pallet-field-readonly__empty {
 }
 
 html.dark .operator-pallet-field-input {
-  border-color: rgba(214, 183, 110, 0.38) !important;
+  border-color: rgba(231, 196, 112, 0.42) !important;
   background: #202832 !important;
   color: #faf6ed !important;
+}
+
+html.dark .operator-pallet-field-input:focus,
+html.dark .operator-pallet-field-input:focus-visible {
+  border-color: rgba(231, 196, 112, 0.58) !important;
+  box-shadow: 0 0 0 2px rgba(231, 196, 112, 0.18) !important;
+  outline: none !important;
 }
 
 html.dark .operator-pallet-field-input::placeholder {
@@ -3177,13 +3524,15 @@ html.dark .operator-pallet-step-screen .scanner-input-glass::placeholder {
 
 html.light .operator-pallet-step-screen .scanner-input-glass:focus,
 html.light .operator-pallet-step-screen .scanner-input-glass:focus-visible {
-  border-color: rgba(138, 104, 31, 0.45) !important;
+  border-color: rgba(138, 104, 31, 0.52) !important;
+  box-shadow: 0 0 0 2px rgba(231, 196, 112, 0.2) !important;
   outline: none !important;
 }
 
 html.dark .operator-pallet-step-screen .scanner-input-glass:focus,
 html.dark .operator-pallet-step-screen .scanner-input-glass:focus-visible {
-  border-color: rgba(214, 183, 110, 0.45) !important;
+  border-color: rgba(231, 196, 112, 0.52) !important;
+  box-shadow: 0 0 0 2px rgba(231, 196, 112, 0.16) !important;
   outline: none !important;
 }
 
@@ -3253,14 +3602,15 @@ html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell {
   border-radius: 10px !important;
   padding: 0.45rem 0.5rem 0.38rem !important;
   transform: translateY(-1px);
-  border: 1px solid rgba(214, 183, 110, 0.38) !important;
+  border: 1px solid rgba(231, 196, 112, 0.48) !important;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0) 34%),
-    linear-gradient(180deg, #252d36 0%, #1a2129 52%, #101419 100%) !important;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 35%),
+    linear-gradient(180deg, #2a333d 0%, #1a2129 52%, #0e1217 100%) !important;
   box-shadow:
-    0 10px 20px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.7) !important;
+    0 10px 22px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.75),
+    0 0 16px rgba(231, 196, 112, 0.08) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell.operator-dashboard-metric-cell,
@@ -3271,14 +3621,14 @@ html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell {
   border-radius: 10px !important;
   padding: 0.45rem 0.5rem 0.38rem !important;
   transform: translateY(-1px);
-  border: 1px solid rgba(138, 104, 31, 0.3) !important;
+  border: 1px solid rgba(138, 104, 31, 0.36) !important;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0) 36%),
-    linear-gradient(180deg, #ffffff 0%, #f8f6f1 54%, #eae3d6 100%) !important;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(180deg, #ffffff 0%, #f8f3e8 55%, #e7dcc8 100%) !important;
   box-shadow:
-    0 8px 18px rgba(60, 45, 20, 0.13),
+    0 8px 18px rgba(60, 45, 20, 0.15),
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(138, 104, 31, 0.16) !important;
+    inset 0 -1px 0 rgba(138, 104, 31, 0.18) !important;
 }
 
 html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell::before,
@@ -3327,8 +3677,8 @@ html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell span.text-\[
 html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell .font-mono {
   position: relative;
   z-index: 2;
-  font-size: 1.125rem !important;
-  font-weight: 800 !important;
+  font-size: 1.2rem !important;
+  font-weight: 900 !important;
   line-height: 1 !important;
   letter-spacing: -0.02em;
 }
@@ -3353,36 +3703,36 @@ html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell span.text-\[8
 html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell .font-mono {
   position: relative;
   z-index: 2;
-  font-size: 1.125rem !important;
-  font-weight: 800 !important;
+  font-size: 1.2rem !important;
+  font-weight: 900 !important;
   line-height: 1 !important;
   letter-spacing: -0.02em;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::before {
-  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.75), transparent);
+  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.82), transparent);
 }
 
 html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::after {
-  background: radial-gradient(circle at 100% 0%, rgba(214, 183, 110, 0.22) 0%, transparent 68%);
+  background: radial-gradient(circle at 100% 0%, rgba(231, 196, 112, 0.24) 0%, transparent 68%);
 }
 
 html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected .font-mono {
-  color: #f1d58a !important;
+  color: #f4da93 !important;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::before {
-  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.55), transparent);
+  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.62), transparent);
 }
 
 html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected::after {
-  background: radial-gradient(circle at 100% 0%, rgba(214, 183, 110, 0.14) 0%, transparent 68%);
+  background: radial-gradient(circle at 100% 0%, rgba(231, 196, 112, 0.16) 0%, transparent 68%);
 }
 
 html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--expected .font-mono {
-  color: #7a5b1b !important;
+  color: #8a681f !important;
 }
 
 html.dark [data-receiving-phase="scan"] .operator-pallet-stat-cell--scanned::before {
@@ -3428,20 +3778,21 @@ html.light [data-receiving-phase="scan"] .operator-pallet-stat-cell--remaining::
 
 html.dark [data-receiving-phase="scan"] button.operator-pallet-stat-cell:hover:not(:disabled) {
   transform: translateY(-2px);
-  border-color: rgba(214, 183, 110, 0.48) !important;
+  border-color: rgba(244, 218, 147, 0.55) !important;
   box-shadow:
-    0 12px 24px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.72) !important;
+    0 12px 26px rgba(0, 0, 0, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.72),
+    0 0 18px rgba(231, 196, 112, 0.1) !important;
 }
 
 html.light [data-receiving-phase="scan"] button.operator-pallet-stat-cell:hover:not(:disabled) {
   transform: translateY(-2px);
-  border-color: rgba(138, 104, 31, 0.42) !important;
+  border-color: rgba(138, 104, 31, 0.48) !important;
   box-shadow:
-    0 10px 20px rgba(60, 45, 20, 0.16),
+    0 10px 22px rgba(60, 45, 20, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 1),
-    inset 0 -1px 0 rgba(138, 104, 31, 0.18) !important;
+    inset 0 -1px 0 rgba(138, 104, 31, 0.2) !important;
 }
 
 html.dark [data-receiving-phase="scan"] button.operator-pallet-stat-cell:active:not(:disabled) {
@@ -3458,6 +3809,146 @@ html.light [data-receiving-phase="scan"] button.operator-pallet-stat-cell:active
     0 4px 12px rgba(60, 45, 20, 0.12),
     inset 0 2px 4px rgba(138, 104, 31, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Pallet shipment entry — summary stat tiles in scan phase */
+html.dark [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile {
+  position: relative;
+  min-width: 0;
+  transform: translateY(-1px);
+  border: 1px solid rgba(231, 196, 112, 0.48) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0) 35%),
+    linear-gradient(180deg, #2a333d 0%, #1a2129 52%, #0e1217 100%) !important;
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.75),
+    0 0 16px rgba(231, 196, 112, 0.08) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 0;
+  height: 2px;
+  border-radius: 0 0 1px 1px;
+  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.78), transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile {
+  position: relative;
+  min-width: 0;
+  transform: translateY(-1px);
+  border: 1px solid rgba(138, 104, 31, 0.36) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(180deg, #ffffff 0%, #f8f3e8 55%, #e7dcc8 100%) !important;
+  box-shadow:
+    0 8px 18px rgba(60, 45, 20, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(138, 104, 31, 0.18) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 0;
+  height: 2px;
+  border-radius: 0 0 1px 1px;
+  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.58), transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile__label {
+  position: relative;
+  z-index: 2;
+  color: #b9c2cc !important;
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.1em;
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile__label {
+  position: relative;
+  z-index: 2;
+  color: #4d5560 !important;
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.1em;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile__value {
+  position: relative;
+  z-index: 2;
+  font-size: 1.25rem !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+  letter-spacing: -0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile__value {
+  position: relative;
+  z-index: 2;
+  font-size: 1.25rem !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+  letter-spacing: -0.02em;
+}
+
+html.dark [data-receiving-phase="scan"] button.operator-pallet-scan-stat-tile:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(244, 218, 147, 0.55) !important;
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.72),
+    0 0 18px rgba(231, 196, 112, 0.1) !important;
+}
+
+html.light [data-receiving-phase="scan"] button.operator-pallet-scan-stat-tile:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(138, 104, 31, 0.48) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile--blue::before {
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.55), transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile--green::before {
+  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.55), transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile--purple::before {
+  background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.5), transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile--blue::before {
+  background: linear-gradient(90deg, transparent, rgba(14, 165, 233, 0.42), transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile--green::before {
+  background: linear-gradient(90deg, transparent, rgba(15, 143, 99, 0.42), transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-pallet-scan-stat-tile--purple::before {
+  background: linear-gradient(90deg, transparent, rgba(109, 40, 217, 0.32), transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-shipment-entry-progress-metrics.operator-pallet-stat-grid {
+  gap: 0.5rem;
+}
+
+html.light [data-receiving-phase="scan"] .operator-shipment-entry-progress-metrics.operator-pallet-stat-grid {
+  gap: 0.5rem;
 }
 
 /* Pallet step body — light mode contrast */
@@ -3516,35 +4007,68 @@ html.light .operator-pallet-actions .operator-pallet-btn-cancel:hover:not(:disab
 /* Pallet step stepper — restrained done state, readable locked (light) */
 html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
   background-color: rgba(26, 33, 41, 0.96) !important;
-  border-color: rgba(214, 183, 110, 0.34) !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(231, 196, 112, 0.4) !important;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
   background-color: rgba(255, 255, 255, 0.96) !important;
-  border-color: rgba(138, 104, 31, 0.24) !important;
-  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(138, 104, 31, 0.3) !important;
+  box-shadow:
+    0 6px 18px rgba(60, 45, 20, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94) !important;
 }
 
 html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(214, 183, 110, 0.72) !important;
-  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  border-color: rgba(231, 196, 112, 0.76) !important;
+  background: linear-gradient(180deg, rgba(231, 196, 112, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
   box-shadow:
-    inset 0 1px 0 rgba(241, 213, 138, 0.24),
-    0 0 6px rgba(214, 183, 110, 0.12) !important;
+    inset 0 1px 0 rgba(244, 218, 147, 0.26),
+    0 0 6px rgba(231, 196, 112, 0.12) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
   border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 100%) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 4px rgba(138, 104, 31, 0.08) !important;
+    0 0 4px rgba(231, 196, 112, 0.1) !important;
 }
 
 html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
   box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.44) 50%, transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell {
+  border-color: rgba(231, 196, 112, 0.4) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell {
+  border-color: rgba(138, 104, 31, 0.3) !important;
+}
+
+html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-rail {
+  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.44) 50%, transparent);
+}
+
+html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-rail {
+  background: linear-gradient(90deg, transparent, rgba(138, 104, 31, 0.38) 50%, transparent);
+}
+
+html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(231, 196, 112, 0.76) !important;
+  background: linear-gradient(180deg, rgba(231, 196, 112, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.26),
+    0 0 6px rgba(231, 196, 112, 0.12) !important;
+}
+
+html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-node--active {
+  border-color: rgba(138, 104, 31, 0.58) !important;
+  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 100%) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
@@ -3602,16 +4126,17 @@ html.light [data-receiving-phase="scan"] .operator-shipment-box-progress {
 html.dark .operator-pallet-actions .operator-pallet-btn-primary {
   appearance: none;
   -webkit-appearance: none;
-  border: 1px solid rgba(214, 183, 110, 0.78) !important;
-  background: linear-gradient(180deg, #2a313a 0%, #171c22 52%, #0c0f13 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.72) !important;
+  background: linear-gradient(180deg, #2a333d 0%, #171c22 52%, #0c0f13 100%) !important;
   background-color: #171c22 !important;
   color: #faf6ed !important;
   font-weight: 700 !important;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
   box-shadow:
-    0 10px 22px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.65) !important;
+    0 10px 22px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.65),
+    0 0 12px rgba(231, 196, 112, 0.06) !important;
 }
 
 html.dark .operator-pallet-actions .operator-pallet-btn-primary:hover:not(:disabled) {
@@ -3630,13 +4155,13 @@ html.dark .operator-pallet-actions .operator-pallet-btn-primary:active:not(:disa
 html.light .operator-pallet-actions .operator-pallet-btn-primary {
   appearance: none;
   -webkit-appearance: none;
-  border: 1px solid rgba(122, 91, 27, 0.58) !important;
+  border: 1px solid rgba(138, 104, 31, 0.58) !important;
   background: linear-gradient(180deg, #3d4550 0%, #2a313a 48%, #171c22 100%) !important;
   background-color: #2a313a !important;
   color: #faf6ed !important;
   font-weight: 700 !important;
   box-shadow:
-    inset 0 1px 0 rgba(232, 212, 168, 0.42),
+    inset 0 1px 0 rgba(244, 218, 147, 0.38),
     0 6px 18px rgba(60, 45, 20, 0.2) !important;
 }
 
@@ -3676,6 +4201,587 @@ html.light .operator-pallet-actions .operator-pallet-btn-cancel {
   color: #6f5424 !important;
   font-weight: 700 !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+/* Step 3 ITEM SCAN — Neda 3D Executive Mechanical primary (replaces flat neon-blue) */
+html.dark .operator-neda-mechanical-scan-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(214, 183, 110, 0.78) !important;
+  background: linear-gradient(180deg, #2a313a 0%, #171c22 52%, #0c0f13 100%) !important;
+  background-color: #171c22 !important;
+  color: #faf6ed !important;
+  font-weight: 800 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.65),
+    0 0 12px rgba(214, 183, 110, 0.06) !important;
+}
+
+html.dark .operator-neda-mechanical-scan-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #343d48 0%, #1e252c 52%, #12161b 100%) !important;
+  filter: none;
+}
+
+html.dark .operator-neda-mechanical-scan-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.28) !important;
+}
+
+html.light .operator-neda-mechanical-scan-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(138, 104, 31, 0.58) !important;
+  background: #171c22 !important;
+  background-color: #171c22 !important;
+  color: #faf6ed !important;
+  font-weight: 800 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.28),
+    0 0 0 1px rgba(214, 183, 110, 0.22),
+    0 6px 18px rgba(60, 45, 20, 0.22) !important;
+}
+
+html.light .operator-neda-mechanical-scan-btn:hover:not(:disabled) {
+  background: #1e252c !important;
+  filter: none;
+}
+
+html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(214, 183, 110, 0.28),
+    0 3px 12px rgba(60, 45, 20, 0.16) !important;
+}
+
+/* Step 3 ITEM SCAN — Shipment Entry item inspection (visual polish only) */
+html.light .operator-item-scan-screen {
+  background-color: #f4f2ed !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-stat {
+  background: linear-gradient(180deg, #242c36 0%, #1a2129 52%, #141a21 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.42) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.45),
+    0 6px 16px rgba(0, 0, 0, 0.32) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat {
+  background: linear-gradient(180deg, #ffffff 0%, #f8f6f1 48%, #f0ebe2 100%) !important;
+  border: 1px solid #bbae98 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -1px 0 rgba(187, 174, 152, 0.35),
+    0 5px 14px rgba(60, 45, 20, 0.1) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-stat__label {
+  color: #b9c2cc !important;
+  letter-spacing: 0.06em;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat__label {
+  color: #66707a !important;
+  letter-spacing: 0.06em;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-stat__value {
+  color: #faf6ed !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat__value {
+  color: #16181b !important;
+  text-shadow: none;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat__value--zero {
+  color: #66707a !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat__value--progress {
+  color: #2d6a4f !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat__value--match,
+html.light .operator-item-scan-screen .operator-item-scan-stat__value--clear {
+  color: #15803d !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat__value--over {
+  color: #8a681f !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-stat__value--shortage {
+  color: #b42318 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-stat__value--match {
+  color: #6ee7b7 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-stat__value--over {
+  color: #f4da93 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-stat__value--shortage {
+  color: #fca5a5 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-stat__value--zero,
+html.dark .operator-item-scan-screen .operator-item-scan-stat__value--neutral {
+  color: rgba(185, 194, 204, 0.88) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel.scanner-page-glass-card {
+  background: linear-gradient(180deg, #1e262f 0%, #1a2129 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.34) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.28) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel.scanner-page-glass-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f8f6f1 100%) !important;
+  border: 1px solid #cfc6b6 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 8px 20px rgba(60, 45, 20, 0.08) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__title {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__title {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__eyebrow {
+  color: #e7c470 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__eyebrow {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__hint {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__hint {
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__hint-strong {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__hint-strong {
+  color: #f4da93 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__loading {
+  color: #d6b76e !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__loading {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__counts {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__counts {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__counts-scanned {
+  color: #6ee7b7 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__counts-scanned {
+  color: #15803d !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__counts-expected {
+  color: #f4da93 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__counts-expected {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-progress-track {
+  background-color: rgba(15, 23, 42, 0.85) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-progress-track {
+  background-color: #e8e2d6 !important;
+  border: 1px solid rgba(207, 198, 182, 0.65);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="Awaiting"] {
+  background: #f8f6f1 !important;
+  border-color: #cfc6b6 !important;
+  box-shadow: inset 3px 0 0 0 #bbae98 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="IN PROGRESS"] {
+  background: linear-gradient(135deg, #f0f7f4 0%, #e8f3ed 55%, #f8f6f1 100%) !important;
+  border-color: rgba(45, 106, 79, 0.45) !important;
+  box-shadow: inset 3px 0 0 0 rgba(45, 106, 79, 0.55) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="RECEIVED"] {
+  background: linear-gradient(135deg, #e8f5ef 0%, #d8efe4 48%, #f0f7f4 100%) !important;
+  border-color: rgba(21, 128, 61, 0.55) !important;
+  box-shadow: inset 3px 0 0 0 rgba(21, 128, 61, 0.72) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="UNDER"] {
+  background: linear-gradient(135deg, #fdf2f2 0%, #fce8e8 55%, #f8f6f1 100%) !important;
+  border-color: rgba(180, 35, 47, 0.45) !important;
+  box-shadow: inset 3px 0 0 0 rgba(180, 35, 47, 0.55) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="OVER"] {
+  background: linear-gradient(135deg, #faf5e8 0%, #f5edd6 55%, #f8f6f1 100%) !important;
+  border-color: rgba(138, 104, 31, 0.55) !important;
+  box-shadow: inset 3px 0 0 0 rgba(138, 104, 31, 0.65) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__title {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__title {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__meta {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__meta {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__meta-label {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__meta-label {
+  color: #94a3b8 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__meta-sep,
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-sep {
+  color: #bbae98 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__meta-sep,
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-sep {
+  color: rgba(148, 163, 184, 0.45) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__meta-disp {
+  color: #6b5b8a !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__meta-disp {
+  color: #c4b5fd !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__meta-warn,
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__draft {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__meta-warn,
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__draft {
+  color: #f4da93 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty {
+  color: rgba(226, 232, 240, 0.92) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty > span:first-child,
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-scn {
+  color: #15803d !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-scn {
+  color: #6ee7b7 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-exp {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-exp {
+  color: #e7c470 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-var--over {
+  color: #8a681f !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-var--under {
+  color: #b42318 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-var--neutral {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-var--over {
+  color: #f4da93 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-var--under {
+  color: #fca5a5 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-product-link {
+  color: #2a4a62 !important;
+  text-decoration-color: rgba(138, 104, 31, 0.42) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-product-link:hover {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-product-link {
+  color: #e7c470 !important;
+  text-decoration-color: rgba(231, 196, 112, 0.45) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-product-link:hover {
+  color: #f4da93 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-status--awaiting {
+  border-color: rgba(187, 174, 152, 0.65) !important;
+  background-color: #f0ebe2 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="RECEIVED"] {
+  color: #15803d !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="IN PROGRESS"] {
+  color: #2d6a4f !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="UNDER"] {
+  color: #b42318 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="OVER"],
+html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="UNEXPECTED"] {
+  color: #8a681f !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-empty-note {
+  border-color: #cfc6b6 !important;
+  background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-empty-note {
+  border-color: rgba(185, 194, 204, 0.22) !important;
+  background-color: rgba(32, 40, 50, 0.55) !important;
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-shipment-summary.scanner-page-glass-card {
+  background: #ffffff !important;
+  border: 1px solid #cfc6b6 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-shipment-summary__title {
+  color: #16181b !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-shipment-summary__list {
+  border-color: #e8e2d6;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-shipment-summary__counts {
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-shipment-summary__counts-scn {
+  color: #15803d !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-shipment-summary__counts-var {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-shipment-summary__title {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-shipment-summary__list {
+  border-color: #243241;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-actions {
+  border-color: rgba(50, 60, 72, 0.85) !important;
+  background: linear-gradient(180deg, rgba(26, 33, 41, 0.96) 0%, rgba(20, 26, 33, 0.98) 100%) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-actions {
+  border-color: #cfc6b6 !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 246, 241, 0.98) 100%) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 -6px 20px rgba(60, 45, 20, 0.08);
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-back {
+  border-color: rgba(185, 194, 204, 0.38) !important;
+  background: linear-gradient(180deg, #2a3440 0%, #1a2129 100%) !important;
+  color: #e8e2d6 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-back:hover:not(:disabled) {
+  border-color: rgba(231, 196, 112, 0.42) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-back {
+  border-color: #bbae98 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f0ebe2 100%) !important;
+  color: #4d5560 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-back:hover:not(:disabled) {
+  border-color: #8a681f !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-finalize--ok {
+  background: linear-gradient(180deg, #3d4a38 0%, #2a3830 48%, #1e2c26 100%) !important;
+  border: 2px solid rgba(231, 196, 112, 0.55) !important;
+  color: #faf6ed !important;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.28),
+    0 6px 18px rgba(0, 0, 0, 0.32) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-finalize--ok {
+  background: linear-gradient(180deg, #3d4550 0%, #2a313a 48%, #171c22 100%) !important;
+  border: 2px solid rgba(138, 104, 31, 0.58) !important;
+  color: #faf6ed !important;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.35),
+    0 6px 18px rgba(60, 45, 20, 0.18) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-finalize--discrepancy {
+  background: linear-gradient(180deg, #5c4a22 0%, #8a681f 42%, #6b5218 100%) !important;
+  border: 2px solid rgba(244, 218, 147, 0.62) !important;
+  color: #faf6ed !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 220, 0.42),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+    0 8px 22px rgba(0, 0, 0, 0.35) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-finalize--discrepancy {
+  background: linear-gradient(180deg, #f8e8b8 0%, #e7c470 38%, #c9a84a 72%, #8a681f 100%) !important;
+  border: 2px solid rgba(138, 104, 31, 0.65) !important;
+  color: #2a1f08 !important;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 252, 235, 0.85),
+    inset 0 -1px 0 rgba(107, 82, 24, 0.35),
+    0 8px 20px rgba(138, 104, 31, 0.22) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-finalize:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-finalize:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+html.dark .operator-item-scan-screen .operator-neda-mechanical-scan-btn {
+  border-color: rgba(231, 196, 112, 0.72) !important;
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(244, 218, 147, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55) !important;
+}
+
+html.light .operator-item-scan-screen .operator-neda-mechanical-scan-btn {
+  background: linear-gradient(180deg, #3d4550 0%, #2a313a 48%, #171c22 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.62) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.42),
+    0 0 0 1px rgba(187, 174, 152, 0.35),
+    0 8px 20px rgba(60, 45, 20, 0.16) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row .text-slate-400,
+html.light .operator-item-scan-screen .operator-item-scan-slip-row .text-slate-500 {
+  color: #66707a !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row a.text-sky-400 {
+  color: #2a4a62 !important;
+  text-decoration-color: rgba(138, 104, 31, 0.4) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row [class*="text-sky"] {
+  color: #2a4a62 !important;
+}
+
+@media (max-width: 360px) {
+  html.light .operator-item-scan-screen .operator-item-scan-stat,
+  html.dark .operator-item-scan-screen .operator-item-scan-stat {
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
+
+  html.light .operator-item-scan-screen .operator-item-scan-stat__value,
+  html.dark .operator-item-scan-screen .operator-item-scan-stat__value {
+    font-size: 1.125rem;
+  }
+
+  html.light .operator-item-scan-screen .operator-item-scan-btn-finalize,
+  html.dark .operator-item-scan-screen .operator-item-scan-btn-finalize {
+    font-size: 0.8125rem;
+  }
 }
 
 html.light .operator-pallet-actions .operator-pallet-btn-cancel:hover:not(:disabled) {

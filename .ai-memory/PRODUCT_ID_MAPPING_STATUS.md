@@ -1,8 +1,10 @@
 # Product ID / linkage mapping status
 
 **Probe audit:** `product-id-linkage-closure-v167` (run-20260518-001)  
+**Handoff sync:** V195-NEDA-HANDOFF-FILE-SYNC-AND-USAGE (2026-05-21)  
 **Migration reference:** `supabase/migrations/20260717120000_scanner_product_linkage_columns.sql`  
-**Staging verdict (2026-05-18):** **partial** — linkage on `return_items` / `slip_contents`; EP remains SKU/tracking-only
+**Staging verdict (2026-05-18):** **partial** — linkage on `return_items` / `slip_contents`; EP remains SKU/tracking-only  
+**UI:** Resolver-on-save + `ProductLinkagePrimaryLink` detail routes (NEDA-23 / V194 PASS)
 
 ---
 

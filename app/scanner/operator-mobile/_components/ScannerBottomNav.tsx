@@ -57,10 +57,13 @@ function NavItem({
   const body = (
     <>
       {iconWrap}
-      <span className={`text-[11px] font-bold tracking-tight ${active ? "operator-nav-label-active" : "operator-nav-inactive"}`}>
+      <span
+        className={`text-[12.5px] font-bold leading-none tracking-tight ${active ? "operator-nav-label-active" : "operator-nav-inactive"}`}
+        style={active ? { color: "#C8A96A" } : undefined}
+      >
         {label}
       </span>
-      <span className="h-1.5 w-1.5 shrink-0" aria-hidden />
+      <span className="h-1 w-1 shrink-0" aria-hidden />
     </>
   );
 
@@ -87,7 +90,7 @@ export function ScannerBottomNav({ active = "home", alertCount = 0 }: ScannerBot
   return (
     <nav
       dir="ltr"
-      className="shrink-0 border-t px-0 pt-1.5 pb-0.5 backdrop-blur-xl backdrop-saturate-150"
+      className="shrink-0 border-t px-0 pt-1 pb-0.5 backdrop-blur-xl backdrop-saturate-150"
       style={{
         paddingBottom: "max(0.3rem, env(safe-area-inset-bottom))",
         borderColor: "var(--scanner-border)",

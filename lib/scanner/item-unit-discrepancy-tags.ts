@@ -22,7 +22,7 @@ const ALLOWED = new Set<string>([...ITEM_UNIT_DAMAGE_TAG_KEYS, ITEM_UNIT_SELLABL
 
 /** Perishable / grocery heuristic when catalog has no `expiration_supported` flag. */
 const PERISHABLE_DESC_RX =
-  /\b(grocery|groceries|perishable|refrigerat|frozen food|frozen|fresh\b|dairy|produce|meat|seafood|deli|vitamin|supplement|protein powder|baby formula|formula\b|organic food|snack foods?|beverage|juice|milk\b|cheese\b|yogurt)\b/i;
+  /\b(grocery|groceries|perishable|refrigerat|frozen food|frozen|fresh\b|dairy|produce|meat|seafood|deli|vitamin|supplement|protein powder|baby formula|formula\b|organic food|snack foods?|beverage|juice|milk\b|cheese\b|yogurt|cosmetic|cosmetics|skincare|beauty care|beauty\b|healthcare|health care|pharmaceutical|otc medicine|medicine\b|medical supply|lotion|shampoo|toiletries|personal care)\b/i;
 
 export function inferPerishableCategoryFromDescription(description: string | null | undefined): boolean {
   const s = String(description ?? "").trim();
@@ -66,4 +66,24 @@ export function packageItemRequiresExpiryBlock(args: {
 }): boolean {
   if (args.tags.includes("expired")) return true;
   return inferPerishableCategoryFromDescription(args.slipDescription);
+}
+
+/** Runtime chip disable rules for the item unit modal (mutually exclusive groups). */
+export function itemUnitDiscrepancyChipDisabled(
+  key: ItemUnitDiscrepancyTagKey,
+  tags: ItemUnitDiscrepancyTagKey[],
+  busy: boolean,
+): boolean {
+  if (busy) return true;
+  const normalized = normalizeItemUnitDiscrepancySelection(tags);
+  if (normalized.includes(ITEM_UNIT_SELLABLE_OK_TAG)) {
+    return key !== ITEM_UNIT_SELLABLE_OK_TAG;
+  }
+  if (normalized.includes("missing_item")) {
+    return key !== "missing_item";
+  }
+  if (key === ITEM_UNIT_SELLABLE_OK_TAG) {
+    return normalized.includes("expired") || packageItemDamageTagsSelected(normalized);
+  }
+  return false;
 }

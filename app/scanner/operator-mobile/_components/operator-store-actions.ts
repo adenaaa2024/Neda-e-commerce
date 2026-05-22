@@ -47,6 +47,7 @@ import {
 } from "@/lib/scanner/product-linkage-display-contract";
 import { RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns/returns-constants";
 import { resolveProductForScannerItem } from "@/lib/scanner/resolve-product-for-scanner-item";
+import { buildOperatorBarcodeResolverFields } from "@/lib/scanner/operator-barcode-preview-input";
 import {
   buildProductLinkageFromResolveResult,
   hydrateReturnItemProductLinkage,
@@ -1745,7 +1746,8 @@ export async function listOperatorPackageItemsForPackageAction(
 
 export type InsertOperatorPackageItemInput = {
   requestedOrganizationId: string;
-  packageId: string;
+  /** Required for boxed units; omit when `looseItem` is true. */
+  packageId?: string | null;
   storeId: string | null;
   slipContentId: string | null;
   scannedBarcode: string;
@@ -1755,8 +1757,16 @@ export type InsertOperatorPackageItemInput = {
   expiryDate?: string | null;
   lotNumber?: string | null;
   evidenceUrls?: string[] | null;
+  /** Optional item photo URL (stored in `photo_evidence.item_url`). */
+  optionalItemPhotoUrl?: string | null;
   /** When true, expiry date + lot # are required (perishable / grocery path). */
   traceabilityRequired?: boolean;
+  /** Operator prose note (`return_items.notes`). */
+  operatorNotes?: string | null;
+  /** Loose item (no box) — writes `return_items` without `package_id`. */
+  looseItem?: boolean;
+  /** Step 2 fallback — return label on packaging (loose flow). */
+  returnLabelPhotoUrl?: string | null;
 };
 
 function normalizeEvidenceUrls(raw: unknown): string[] {
@@ -1783,6 +1793,150 @@ export type PreviewOperatorItemBarcodeLinkageInput = {
   matchKind?: "fnsku" | "upc" | "unexpected";
 };
 
+export type OperatorProductDetailRow = {
+  id: string;
+  product_name: string | null;
+  sku: string | null;
+  fnsku: string | null;
+  asin: string | null;
+  barcode: string | null;
+  store_id: string | null;
+};
+
+export type OperatorProductSearchRow = {
+  id: string;
+  label: string;
+  sku: string | null;
+  product_name: string | null;
+};
+
+/**
+ * Read-only catalog product detail for operator linkage drill-down (by `products.id`).
+ */
+export async function fetchOperatorProductDetailAction(
+  productId: string,
+  requestedOrganizationId: string | null | undefined,
+): Promise<{ ok: true; product: OperatorProductDetailRow } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const pid = String(productId ?? "").trim();
+  if (!isUuidString(pid)) {
+    return { ok: false, message: "Invalid product id." };
+  }
+
+  try {
+    let res = await supabaseServer
+      .from("products")
+      .select("id, product_name, name, sku, fnsku, asin, barcode, store_id")
+      .eq("id", pid)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (res.error) {
+      res = await supabaseServer
+        .from("products")
+        .select("id, name, sku, fnsku, asin, barcode, store_id")
+        .eq("id", pid)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+    }
+    if (res.error) return { ok: false, message: res.error.message };
+    if (!res.data || typeof res.data !== "object") {
+      return { ok: false, message: "Product not found." };
+    }
+    const r = res.data as Record<string, unknown>;
+    return {
+      ok: true,
+      product: {
+        id: pid,
+        product_name: String(r.product_name ?? r.name ?? "").trim() || null,
+        sku: String(r.sku ?? "").trim() || null,
+        fnsku: String(r.fnsku ?? "").trim() || null,
+        asin: String(r.asin ?? "").trim() || null,
+        barcode: String(r.barcode ?? "").trim() || null,
+        store_id: String(r.store_id ?? "").trim() || null,
+      },
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Product load failed." };
+  }
+}
+
+/**
+ * Read-only product search for manual linkage override (org + store scoped).
+ */
+export async function searchOperatorProductsForStoreAction(input: {
+  requestedOrganizationId: string;
+  storeId: string;
+  query: string;
+  limit?: number;
+}): Promise<{ ok: true; rows: OperatorProductSearchRow[] } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Store is required." };
+  }
+  const q = String(input.query ?? "").trim();
+  if (q.length < 2) {
+    return { ok: true, rows: [] };
+  }
+  const limit = Math.min(20, Math.max(1, Math.floor(Number(input.limit) || 20)));
+  const pattern = `%${q.replace(/%/g, "").replace(/_/g, "")}%`;
+
+  try {
+    let data: unknown = null;
+    let error: { message: string } | null = null;
+    const primary = await supabaseServer
+      .from("products")
+      .select("id, product_name, name, sku, fnsku, asin")
+      .eq("organization_id", organizationId)
+      .eq("store_id", storeId)
+      .or(`product_name.ilike.${pattern},name.ilike.${pattern},sku.ilike.${pattern},fnsku.ilike.${pattern},asin.ilike.${pattern}`)
+      .limit(limit);
+    data = primary.data;
+    error = primary.error;
+    if (error) {
+      const fallback = await supabaseServer
+        .from("products")
+        .select("id, name, sku, fnsku, asin")
+        .eq("organization_id", organizationId)
+        .eq("store_id", storeId)
+        .or(`name.ilike.${pattern},sku.ilike.${pattern},fnsku.ilike.${pattern},asin.ilike.${pattern}`)
+        .limit(limit);
+      data = fallback.data;
+      error = fallback.error;
+    }
+    if (error) return { ok: false, message: error.message };
+    const rows: OperatorProductSearchRow[] = [];
+    for (const raw of Array.isArray(data) ? data : []) {
+      const r = raw as Record<string, unknown>;
+      const id = String(r.id ?? "").trim();
+      if (!isUuidString(id)) continue;
+      const product_name = String(r.product_name ?? r.name ?? "").trim() || null;
+      const sku = String(r.sku ?? "").trim() || null;
+      const fnsku = String(r.fnsku ?? "").trim() || null;
+      const asin = String(r.asin ?? "").trim() || null;
+      const label = [product_name, sku, fnsku, asin].filter(Boolean).join(" · ") || id.slice(0, 8);
+      rows.push({ id, label, sku, product_name });
+    }
+    return { ok: true, rows };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Product search failed." };
+  }
+}
+
 /**
  * Dry-run resolver for operator item add/edit barcode fields — no `return_items` write.
  */
@@ -1808,19 +1962,19 @@ export async function previewOperatorItemBarcodeLinkageAction(
     return { ok: false, message: "Barcode is required." };
   }
 
-  const mk = String(input.matchKind ?? "").trim();
+  const fields = buildOperatorBarcodeResolverFields(barcode);
+  const mkClient = String(input.matchKind ?? "").trim();
   const matchKind: InsertOperatorPackageItemInput["matchKind"] =
-    mk === "fnsku" || mk === "upc" || mk === "unexpected" ? mk : "unexpected";
-
-  const fnsku = matchKind === "fnsku" ? barcode.slice(0, 500) : undefined;
-  const sku = matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : undefined;
+    mkClient === "fnsku" || mkClient === "upc" || mkClient === "unexpected" ? mkClient : fields.matchKind;
 
   try {
     const res = await resolveProductForScannerItem(supabaseServer, {
       organization_id: organizationId,
       store_id: storeId,
-      fnsku,
-      sku,
+      fnsku: fields.fnsku,
+      asin: fields.asin,
+      sku: fields.sku,
+      upc: fields.upc,
       source_table: RETURN_ITEMS_TABLE,
     });
     const productNameById = await fetchProductNamesByResolvedIds(
@@ -1828,7 +1982,7 @@ export async function previewOperatorItemBarcodeLinkageAction(
       res.resolved_product_id ? [res.resolved_product_id] : [],
     );
     const product_linkage = buildProductLinkageFromResolveResult(
-      { fnsku, sku, item_name: null },
+      { fnsku: fields.fnsku, sku: fields.sku, item_name: null },
       res,
       productNameById,
     );
@@ -1851,8 +2005,10 @@ export async function insertOperatorPackageItemAction(
   if (!sessionUserId || !isUuidString(sessionUserId)) {
     return { ok: false, message: "Not signed in." };
   }
-  const pkgId = String(input.packageId ?? "").trim();
-  if (!isUuidString(pkgId)) {
+  const looseItem = Boolean(input.looseItem);
+  const pkgIdRaw = String(input.packageId ?? "").trim();
+  const pkgId = isUuidString(pkgIdRaw) ? pkgIdRaw : null;
+  if (!looseItem && !pkgId) {
     return { ok: false, message: "Invalid package id." };
   }
   const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
@@ -1871,34 +2027,47 @@ export async function insertOperatorPackageItemAction(
   const qtyRaw = Number(input.quantity ?? 1);
   const quantity = Number.isFinite(qtyRaw) ? Math.max(1, Math.min(500, Math.floor(qtyRaw))) : 1;
 
-  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
-    .from("packages")
-    .select("id, store_id, organization_id")
-    .eq("id", pkgId)
-    .eq("organization_id", organizationId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
-  if (!pkgRow) {
-    return { ok: false, message: "Package not found for this organization." };
-  }
+  let pkgStore = "";
+  if (!looseItem && pkgId) {
+    const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+      .from("packages")
+      .select("id, store_id, organization_id")
+      .eq("id", pkgId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+    if (!pkgRow) {
+      return { ok: false, message: "Package not found for this organization." };
+    }
 
-  const pkgOrg = String((pkgRow as { organization_id?: string | null }).organization_id ?? "").trim();
-  if (pkgOrg && isUuidString(pkgOrg) && pkgOrg !== organizationId) {
-    return { ok: false, message: "Package organization mismatch." };
+    const pkgOrg = String((pkgRow as { organization_id?: string | null }).organization_id ?? "").trim();
+    if (pkgOrg && isUuidString(pkgOrg) && pkgOrg !== organizationId) {
+      return { ok: false, message: "Package organization mismatch." };
+    }
+    pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
   }
 
   const scope = String(input.storeId ?? "").trim();
-  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
   const storeIdResolved =
     scope && isUuidString(scope) ? scope : pkgStore && isUuidString(pkgStore) ? pkgStore : null;
-  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+  if (
+    !looseItem &&
+    scope &&
+    isUuidString(scope) &&
+    pkgStore &&
+    isUuidString(pkgStore) &&
+    pkgStore !== scope
+  ) {
     return { ok: false, message: "This package belongs to another store — select the correct store." };
   }
 
   const slipHint = String(input.slipContentId ?? "").trim();
   let slipDescription: string | null = null;
   if (slipHint && isUuidString(slipHint)) {
+    if (looseItem) {
+      return { ok: false, message: "Slip line cannot be used for a loose item scan." };
+    }
     const { data: slipRow, error: slipErr } = await supabaseServer
       .from("slip_contents")
       .select("id, package_id, description")
@@ -1907,7 +2076,7 @@ export async function insertOperatorPackageItemAction(
       .maybeSingle();
     if (slipErr) return { ok: false, message: slipErr.message };
     const spkg = String((slipRow as { package_id?: string | null } | null)?.package_id ?? "").trim();
-    if (!slipRow || spkg !== pkgId) {
+    if (!slipRow || !pkgId || spkg !== pkgId) {
       return { ok: false, message: "Slip line does not belong to this package." };
     }
     slipDescription =
@@ -1947,15 +2116,23 @@ export async function insertOperatorPackageItemAction(
   }
 
   const itemName = (slipDescription || "Scanned unit").slice(0, 500);
-  const photo_evidence = mergeReturnPhotoEvidence(null, {}, { galleryUrls: evidence });
+  const optionalItemUrl = String(input.optionalItemPhotoUrl ?? "").trim();
+  const returnLabelUrl = String(input.returnLabelPhotoUrl ?? "").trim();
+  const urlSlots: Partial<Record<"item_url" | "return_label_url", string>> = {};
+  if (optionalItemUrl && /^https?:\/\//i.test(optionalItemUrl)) urlSlots.item_url = optionalItemUrl;
+  if (returnLabelUrl && /^https?:\/\//i.test(returnLabelUrl)) urlSlots.return_label_url = returnLabelUrl;
+  const photo_evidence = mergeReturnPhotoEvidence(null, urlSlots, { galleryUrls: evidence });
+
+  const operatorNotes = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
 
   const ins = await insertReturn({
     organization_id: organizationId,
     store_id: storeIdResolved,
-    package_id: pkgId,
+    package_id: looseItem ? undefined : pkgId ?? undefined,
     marketplace: "amazon",
     item_name: itemName,
     conditions: [...tags],
+    notes: operatorNotes ?? undefined,
     expiration_date: exp ?? undefined,
     batch_number: lot ?? undefined,
     photo_evidence,
@@ -1974,10 +2151,11 @@ export async function insertOperatorPackageItemAction(
       const extra = await insertReturn({
         organization_id: organizationId,
         store_id: storeIdResolved,
-        package_id: pkgId,
+        package_id: looseItem ? undefined : pkgId ?? undefined,
         marketplace: "amazon",
         item_name: itemName,
         conditions: [...tags],
+        notes: operatorNotes ?? undefined,
         expiration_date: exp ?? undefined,
         batch_number: lot ?? undefined,
         photo_evidence,

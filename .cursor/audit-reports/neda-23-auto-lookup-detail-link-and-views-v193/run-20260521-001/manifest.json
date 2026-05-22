@@ -1,0 +1,103 @@
+{
+  "task": "NEDA-23-AUTO-LOOKUP-DETAIL-LINK-AND-VIEWS-V193",
+  "run_id": "run-20260521-001",
+  "verdict": "PASS",
+  "steps": [
+    {
+      "id": "product_detail_path",
+      "pass": true,
+      "detail": "href builder"
+    },
+    {
+      "id": "product_detail_page",
+      "pass": true,
+      "detail": "C:\\Users\\Christian\\ecommerce-os\\app\\scanner\\operator-mobile\\products\\[productId]\\page.tsx"
+    },
+    {
+      "id": "fetch_product_detail_action",
+      "pass": true,
+      "detail": "server read"
+    },
+    {
+      "id": "search_products_action",
+      "pass": true,
+      "detail": "override search"
+    },
+    {
+      "id": "primary_link_component",
+      "pass": true,
+      "detail": "link component"
+    },
+    {
+      "id": "scan_uses_primary_link",
+      "pass": true,
+      "detail": "scan page"
+    },
+    {
+      "id": "meta_detail_link",
+      "pass": true,
+      "detail": "meta id link"
+    },
+    {
+      "id": "wizard_server_preview",
+      "pass": true,
+      "detail": "wizard resolver"
+    },
+    {
+      "id": "wizard_no_products_insert",
+      "pass": true,
+      "detail": "no client product create"
+    },
+    {
+      "id": "sp_api_dev_only",
+      "pass": true,
+      "detail": "SP-API gated"
+    },
+    {
+      "id": "product_id_first_merge",
+      "pass": true,
+      "detail": "EP scanned merge"
+    },
+    {
+      "id": "drawer_search_server",
+      "pass": true,
+      "detail": "drawer override search"
+    },
+    {
+      "id": "forbidden_zero",
+      "pass": true,
+      "detail": "{\"package_items\":0,\"returns_table\":0,\"products_insert\":0,\"products_client_select\":0}"
+    },
+    {
+      "id": "staging_ref",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "detail_href_includes_id",
+      "pass": true,
+      "detail": "/scanner/operator-mobile/products/fb9793d7-ef78-4947-889f-94e1f3c72271"
+    },
+    {
+      "id": "product_id_first_qty",
+      "pass": true,
+      "detail": "scanned=3"
+    },
+    {
+      "id": "resolver_known",
+      "pass": true,
+      "detail": "X003XNLDVH"
+    },
+    {
+      "id": "resolver_unknown",
+      "pass": true,
+      "detail": "NEDA23-UNK-mpg09o0h"
+    }
+  ],
+  "forbidden": {
+    "package_items": 0,
+    "returns_table": 0,
+    "products_insert": 0,
+    "products_client_select": 0
+  }
+}

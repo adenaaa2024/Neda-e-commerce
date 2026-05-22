@@ -1,7 +1,9 @@
 # Database contract — Neda operator-mobile (read/write map)
 
 **Staging ref:** `eiqfaapyumhixxoeltgu`  
-**Sync:** NEDA-FILE-SYNC-AND-HANDOFF-REPAIR-V185
+**Original/current dev ref:** `kxsvedvpjldygtdbylsy` (not Neda active target)  
+**Future production:** not created  
+**Sync:** V195-NEDA-HANDOFF-FILE-SYNC-AND-USAGE
 
 ---
 

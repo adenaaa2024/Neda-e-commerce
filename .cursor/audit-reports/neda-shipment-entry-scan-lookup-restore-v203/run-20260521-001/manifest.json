@@ -1,0 +1,26 @@
+{
+  "run_id": "run-20260521-001",
+  "task": "neda-shipment-entry-scan-lookup-restore-v203",
+  "route": "/scanner/operator-mobile/scan",
+  "component": "app/scanner/operator-mobile/scan/page.tsx",
+  "lookup_api": "lookupShipmentEntryScanCode",
+  "lookup_module": "lib/scanner/shipment-entry-lookup.ts",
+  "package_code_supported": "PASS",
+  "tracking_slip_lookup": "PASS",
+  "ui_restored_without_redesign": "PASS",
+  "pass_count": 10,
+  "fail_count": 0,
+  "artifacts": [
+    "scan-ui-route-map.md",
+    "previous-working-contract.md",
+    "shipment-entry-lookup-contract.md",
+    "package-code-read-model-gap.md",
+    "scan-read-model-decision.md",
+    "implementation-summary.md",
+    "ui-behavior-proof.md",
+    "scan-lookup-smoke-results.md",
+    "forbidden-pattern-scan.md",
+    "blockers.md",
+    "manifest.json"
+  ]
+}

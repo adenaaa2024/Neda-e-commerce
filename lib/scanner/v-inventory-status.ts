@@ -16,6 +16,7 @@ export function formatSupabaseActionError(e: unknown, fallback: string): string 
   return fallback;
 }
 
+const V_INVENTORY_STATUS = "v_inventory_status" as const;
 const V_INVENTORY_ITEM_STATUS = "v_inventory_item_status" as const;
 
 /** Which column matched the operator scan (exact equality). Slip “ASIN” column values are stored as `fnsku`. */
@@ -352,6 +353,33 @@ export async function fetchVInventoryItemStatusByTracking(
   return fetchVInventoryItemStatusLinesExact(supabase, organizationId, storeId, "tracking_number", rawTracking);
 }
 
+async function fetchInventoryViewExact(
+  supabase: SupabaseClient,
+  viewName: typeof V_INVENTORY_STATUS | typeof V_INVENTORY_ITEM_STATUS,
+  organizationId: string,
+  storeId: string,
+  field: InventoryViewMatchField,
+  code: string,
+): Promise<{ rows: VInventoryStatusRow[]; raw: unknown }> {
+  const res = await supabase
+    .from(viewName)
+    .select("*")
+    .eq("organization_id", organizationId)
+    .eq("store_id", storeId)
+    .eq(field, code);
+  if (res.error) throw res.error;
+  const arr: unknown[] = Array.isArray(res.data) ? res.data : [];
+  const out: VInventoryStatusRow[] = [];
+  for (const raw of arr) {
+    if (raw && typeof raw === "object") out.push(rowFromRecord(raw as Record<string, unknown>));
+  }
+  return { rows: mergeUniqueByPackageId(out), raw: res.data };
+}
+
+/**
+ * Shipment Entry gate: query `v_inventory_status` then `v_inventory_item_status` (exact equality).
+ * Slip “ASIN” column values are FNSKUs — match `fnsku` before `sku` before carrier tracking.
+ */
 export async function fetchVInventoryStatusForScanCode(
   supabase: SupabaseClient,
   organizationId: string,
@@ -367,31 +395,34 @@ export async function fetchVInventoryStatusForScanCode(
   const sid = storeId.trim();
   if (!orgId || !sid) return { rows: [], raw: null, matchedField: null };
 
-  let data: unknown = null;
+  const fieldOrder: InventoryViewMatchField[] = ["fnsku", "sku", "tracking_number", "id_slip_contents"];
+  const views: (typeof V_INVENTORY_STATUS | typeof V_INVENTORY_ITEM_STATUS)[] = [
+    V_INVENTORY_STATUS,
+    V_INVENTORY_ITEM_STATUS,
+  ];
 
-  const tryField = async (column: InventoryViewMatchField): Promise<boolean> => {
-    const res = await supabase
-      .from(V_INVENTORY_ITEM_STATUS)
-      .select("*")
-      .eq("organization_id", orgId)
-      .eq("store_id", sid)
-      .eq(column, code);
-    if (res.error) throw res.error;
-    data = res.data;
-    return Array.isArray(res.data) && res.data.length > 0;
-  };
-
-  /** Slip “ASIN” column values are FNSKUs — match `fnsku` before `sku` before carrier tracking. */
   let matchedField: InventoryViewMatchField | null = null;
-  if (await tryField("fnsku")) matchedField = "fnsku";
-  else if (await tryField("sku")) matchedField = "sku";
-  else if (await tryField("tracking_number")) matchedField = "tracking_number";
-  else if (await tryField("id_slip_contents")) matchedField = "id_slip_contents";
+  let rows: VInventoryStatusRow[] = [];
+  let raw: unknown = null;
 
-  const arr: unknown[] = Array.isArray(data) ? data : [];
-  const out: VInventoryStatusRow[] = [];
-  for (const raw of arr) {
-    if (raw && typeof raw === "object") out.push(rowFromRecord(raw as Record<string, unknown>));
+  for (const field of fieldOrder) {
+    for (const view of views) {
+      if (view === V_INVENTORY_STATUS && field === "id_slip_contents") continue;
+      try {
+        const hit = await fetchInventoryViewExact(supabase, view, orgId, sid, field, code);
+        if (hit.rows.length) {
+          rows = hit.rows;
+          raw = hit.raw;
+          matchedField = field;
+          return { rows, raw, matchedField };
+        }
+      } catch (e) {
+        const msg = formatSupabaseActionError(e, "");
+        if (/does not exist|42P01|42703|column/i.test(msg)) continue;
+        throw e;
+      }
+    }
   }
-  return { rows: mergeUniqueByPackageId(out), raw: data, matchedField };
+
+  return { rows: [], raw: null, matchedField: null };
 }

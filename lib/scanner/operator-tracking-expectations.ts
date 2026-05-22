@@ -10,6 +10,7 @@ import {
   primaryLabelForExpectedPackageLinkage,
   scanQuantityVariance,
 } from "@/lib/scanner/expected-packages-read-contract";
+import { isUuidString } from "@/lib/uuid";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
 function formatLoadErrorMessage(err: unknown): string {
@@ -44,6 +45,8 @@ export type TrackingExpectedGroup = {
   identifier_resolution_status?: string | null;
   product_match_status?: string | null;
   product_review_required?: boolean;
+  /** When present on `expected_packages`, preferred for scanned-unit merge (product_id-first). */
+  expected_product_id?: string | null;
 };
 
 /** Display row after merging scanned counts from `return_items`. */
@@ -72,6 +75,37 @@ function normSkuFnskuDisposition(row: Record<string, unknown>): { sku: string; f
 
 function sfKey(sku: string, fnsku: string): string {
   return `${sku.toLowerCase()}\u0000${fnsku.toLowerCase()}`;
+}
+
+function productIdFromExpectedRow(raw: Record<string, unknown>): string | null {
+  const expected = String(raw.expected_product_id ?? "").trim();
+  if (isUuidString(expected)) return expected;
+  const resolved = String(raw.resolved_product_id ?? "").trim();
+  if (isUuidString(resolved)) return resolved;
+  return null;
+}
+
+export type ReturnItemsScannedCountMaps = {
+  bySkuFnsku: Map<string, number>;
+  byProductId: Map<string, number>;
+};
+
+function accumulateReturnItemScannedCounts(
+  retRows: { sku?: string | null; fnsku?: string | null; resolved_product_id?: string | null }[] | null | undefined,
+): ReturnItemsScannedCountMaps {
+  const bySkuFnsku = new Map<string, number>();
+  const byProductId = new Map<string, number>();
+  for (const r of retRows ?? []) {
+    const sku = String(r.sku ?? "").trim();
+    const fnsku = String(r.fnsku ?? "").trim();
+    const k = sfKey(sku, fnsku);
+    bySkuFnsku.set(k, (bySkuFnsku.get(k) ?? 0) + 1);
+    const pid = String(r.resolved_product_id ?? "").trim();
+    if (isUuidString(pid)) {
+      byProductId.set(pid, (byProductId.get(pid) ?? 0) + 1);
+    }
+  }
+  return { bySkuFnsku, byProductId };
 }
 
 /** Strip LIKE wildcards from user/scanned input so ilike patterns stay safe. */
@@ -514,7 +548,20 @@ export async function fetchReturnItemsScannedBySkuFnskuForPallet(
   storeId: string,
   palletId: string,
 ): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
+  const maps = await fetchReturnItemsScannedCountsForPallet(supabase, organizationId, storeId, palletId);
+  return maps.bySkuFnsku;
+}
+
+export async function fetchReturnItemsScannedCountsForPallet(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string,
+  palletId: string,
+): Promise<ReturnItemsScannedCountMaps> {
+  const empty = (): ReturnItemsScannedCountMaps => ({
+    bySkuFnsku: new Map(),
+    byProductId: new Map(),
+  });
 
   const { data: pkgs, error: pkgErr } = await supabase
     .from("packages")
@@ -532,11 +579,11 @@ export async function fetchReturnItemsScannedBySkuFnskuForPallet(
     })
     .map((p) => String((p as { id: string }).id));
 
-  if (!pkgIds.length) return counts;
+  if (!pkgIds.length) return empty();
 
   const { data: retRows, error: retErr } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("sku, fnsku")
+    .select("sku, fnsku, resolved_product_id")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
     .is("deleted_at", null)
@@ -544,14 +591,9 @@ export async function fetchReturnItemsScannedBySkuFnskuForPallet(
 
   if (retErr) throw retErr;
 
-  for (const r of retRows ?? []) {
-    const sku = String((r as { sku?: string | null }).sku ?? "").trim();
-    const fnsku = String((r as { fnsku?: string | null }).fnsku ?? "").trim();
-    const k = sfKey(sku, fnsku);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
-
-  return counts;
+  return accumulateReturnItemScannedCounts(
+    (retRows ?? []) as { sku?: string | null; fnsku?: string | null; resolved_product_id?: string | null }[],
+  );
 }
 
 function normSkuFnskuDispositionKey(raw: Record<string, unknown>): string {
@@ -619,13 +661,17 @@ export async function loadPalletExpectationSnapshot(
     EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT,
   );
   const groups = aggregateExpectedPackagesBySkuFnskuDisposition(raw);
-  let scannedMap: Map<string, number>;
+  let scannedMaps: ReturnItemsScannedCountMaps;
   try {
-    scannedMap = await fetchReturnItemsScannedBySkuFnskuForPallet(supabase, organizationId, storeId, palletId);
+    scannedMaps = await fetchReturnItemsScannedCountsForPallet(supabase, organizationId, storeId, palletId);
   } catch (e) {
-    scannedMap = emptyScannedMapAfterWarn("loadPalletExpectationSnapshot", e);
+    scannedMaps = { bySkuFnsku: emptyScannedMapAfterWarn("loadPalletExpectationSnapshot", e), byProductId: new Map() };
   }
-  const { lines: baseLines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
+  const { lines: baseLines, totals } = mergeExpectedWithScannedCounts(
+    groups,
+    scannedMaps.bySkuFnsku,
+    scannedMaps.byProductId,
+  );
   const lines = await enrichTrackingOperatorLinesWithProductLinkage(supabase, baseLines, raw);
   return {
     lines,
@@ -688,6 +734,7 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
       identifier_resolution_status: string | null;
       product_match_status: string | null;
       product_review_required: boolean;
+      expected_product_id: string | null;
     }
   >();
 
@@ -700,6 +747,7 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
     const idRes = String((raw as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? "").trim();
     const pm = String((raw as { product_match_status?: string | null }).product_match_status ?? "").trim();
     const pr = Boolean((raw as { product_review_required?: boolean | null }).product_review_required);
+    const rowPid = productIdFromExpectedRow(raw);
 
     const prev = map.get(key);
     if (prev) {
@@ -709,6 +757,11 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
       prev.identifier_resolution_status = worseIdentifierResolution(prev.identifier_resolution_status, idRes || null);
       prev.product_match_status = mergeProductMatchStatus(prev.product_match_status, pm || null);
       prev.product_review_required = prev.product_review_required || pr;
+      if (rowPid && prev.expected_product_id && prev.expected_product_id !== rowPid) {
+        prev.expected_product_id = null;
+      } else if (rowPid && !prev.expected_product_id) {
+        prev.expected_product_id = rowPid;
+      }
     } else {
       map.set(key, {
         sku,
@@ -720,6 +773,7 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
         identifier_resolution_status: idRes || null,
         product_match_status: pm || null,
         product_review_required: pr,
+        expected_product_id: rowPid,
       });
     }
   }
@@ -738,6 +792,7 @@ export function aggregateExpectedPackagesBySkuFnskuDisposition(rows: Record<stri
       identifier_resolution_status: v.identifier_resolution_status,
       product_match_status: v.product_match_status,
       product_review_required: v.product_review_required,
+      expected_product_id: v.expected_product_id,
     });
   }
 
@@ -755,9 +810,22 @@ export async function fetchReturnItemsScannedBySkuFnskuForTracking(
   storeId: string,
   trackingNumber: string,
 ): Promise<Map<string, number>> {
+  const maps = await fetchReturnItemsScannedCountsForTracking(supabase, organizationId, storeId, trackingNumber);
+  return maps.bySkuFnsku;
+}
+
+export async function fetchReturnItemsScannedCountsForTracking(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string,
+  trackingNumber: string,
+): Promise<ReturnItemsScannedCountMaps> {
   const key = normalizeTrackingKey(trackingNumber);
-  const counts = new Map<string, number>();
-  if (!key) return counts;
+  const empty = (): ReturnItemsScannedCountMaps => ({
+    bySkuFnsku: new Map(),
+    byProductId: new Map(),
+  });
+  if (!key) return empty();
 
   const pkgIds: string[] = [];
   const PAGE = 250;
@@ -782,11 +850,11 @@ export async function fetchReturnItemsScannedBySkuFnskuForTracking(
     if (!page?.length || page.length < PAGE) break;
   }
 
-  if (!pkgIds.length) return counts;
+  if (!pkgIds.length) return empty();
 
   const { data: retRows, error: retErr } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("sku, fnsku")
+    .select("sku, fnsku, resolved_product_id")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
     .is("deleted_at", null)
@@ -794,22 +862,19 @@ export async function fetchReturnItemsScannedBySkuFnskuForTracking(
 
   if (retErr) throw retErr;
 
-  for (const r of retRows ?? []) {
-    const sku = String((r as { sku?: string | null }).sku ?? "").trim();
-    const fnsku = String((r as { fnsku?: string | null }).fnsku ?? "").trim();
-    const k = sfKey(sku, fnsku);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
-
-  return counts;
+  return accumulateReturnItemScannedCounts(
+    (retRows ?? []) as { sku?: string | null; fnsku?: string | null; resolved_product_id?: string | null }[],
+  );
 }
 
 /**
  * Split SKU+FNSKU scanned totals across disposition rows proportionally by expected qty.
+ * When `expected_product_id` is set on a group, uses `scannedByProductId` first (product_id-first model).
  */
 export function mergeExpectedWithScannedCounts(
   groups: TrackingExpectedGroup[],
   scannedBySkuFnsku: Map<string, number>,
+  scannedByProductId: Map<string, number> = new Map(),
 ): { lines: TrackingOperatorLine[]; totals: TrackingExpectationTotals } {
   /** sku+fnsku → list of group indexes */
   const bySf = new Map<string, number[]>();
@@ -825,7 +890,15 @@ export function mergeExpectedWithScannedCounts(
 
   for (const [, idxs] of bySf) {
     const k0 = sfKey(groups[idxs[0]].sku, groups[idxs[0]].fnsku);
-    const totalScanned = scannedBySkuFnsku.get(k0) ?? 0;
+    const productIds = new Set(
+      idxs
+        .map((i) => groups[i].expected_product_id?.trim())
+        .filter((id): id is string => Boolean(id && isUuidString(id))),
+    );
+    const totalScanned =
+      productIds.size === 1
+        ? (scannedByProductId.get([...productIds][0]!) ?? scannedBySkuFnsku.get(k0) ?? 0)
+        : (scannedBySkuFnsku.get(k0) ?? 0);
     let sumExpected = 0;
     for (const i of idxs) sumExpected += Math.max(0, groups[i].expectedQty);
 
@@ -887,6 +960,59 @@ export function mergeExpectedWithScannedCounts(
   return { lines, totals };
 }
 
+/** Re-merge expected groups with live scanned maps while preserving enriched linkage labels. */
+export function remergeTrackingOperatorLineScannedQty(
+  enrichedLines: TrackingOperatorLine[],
+  scannedMaps: ReturnItemsScannedCountMaps,
+): TrackingOperatorLine[] {
+  if (!enrichedLines.length) return [];
+  const groups: TrackingExpectedGroup[] = enrichedLines.map(
+    ({ scannedQty: _s, remainingQty: _r, varianceQty: _v, product_linkage: _p, ...group }) => group,
+  );
+  const { lines } = mergeExpectedWithScannedCounts(
+    groups,
+    scannedMaps.bySkuFnsku,
+    scannedMaps.byProductId,
+  );
+  const prevByKey = new Map(enrichedLines.map((line) => [line.groupKey, line]));
+  return lines.map((line) => {
+    const prev = prevByKey.get(line.groupKey);
+    if (!prev) return line;
+    return {
+      ...line,
+      product_linkage: prev.product_linkage,
+      productLabel: prev.productLabel,
+    };
+  });
+}
+
+/** Build sku/fnsku/product_id scanned maps from hydrated operator package item rows. */
+export function scannedCountMapsFromOperatorPackageHydratedRows(
+  rows: {
+    scanned_barcode: string;
+    match_kind: "fnsku" | "upc" | "unexpected";
+    quantity: number;
+    product_linkage: { resolved_product_id?: string | null };
+  }[],
+): ReturnItemsScannedCountMaps {
+  const units: { sku?: string | null; fnsku?: string | null; resolved_product_id?: string | null }[] = [];
+  for (const row of rows) {
+    const q = Math.max(1, Math.floor(Number(row.quantity ?? 1)));
+    const bc = String(row.scanned_barcode ?? "").trim();
+    const sku = row.match_kind === "upc" || row.match_kind === "unexpected" ? bc : null;
+    const fnsku = row.match_kind === "fnsku" ? bc : null;
+    const pid = String(row.product_linkage?.resolved_product_id ?? "").trim();
+    for (let i = 0; i < q; i++) {
+      units.push({
+        sku: sku || null,
+        fnsku: fnsku || null,
+        resolved_product_id: pid && isUuidString(pid) ? pid : null,
+      });
+    }
+  }
+  return accumulateReturnItemScannedCounts(units);
+}
+
 export async function loadTrackingExpectationSnapshot(
   supabase: SupabaseClient,
   organizationId: string,
@@ -906,13 +1032,25 @@ export async function loadTrackingExpectationSnapshot(
     EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT,
   );
   const groups = aggregateExpectedPackagesBySkuFnskuDisposition(raw);
-  let scannedMap: Map<string, number>;
+  let scannedMaps: ReturnItemsScannedCountMaps;
   try {
-    scannedMap = await fetchReturnItemsScannedBySkuFnskuForTracking(supabase, organizationId, storeId, trackingNumber);
+    scannedMaps = await fetchReturnItemsScannedCountsForTracking(
+      supabase,
+      organizationId,
+      storeId,
+      trackingNumber,
+    );
   } catch (e) {
-    scannedMap = emptyScannedMapAfterWarn("loadTrackingExpectationSnapshot", e);
+    scannedMaps = {
+      bySkuFnsku: emptyScannedMapAfterWarn("loadTrackingExpectationSnapshot", e),
+      byProductId: new Map(),
+    };
   }
-  const { lines: baseLines, totals } = mergeExpectedWithScannedCounts(groups, scannedMap);
+  const { lines: baseLines, totals } = mergeExpectedWithScannedCounts(
+    groups,
+    scannedMaps.bySkuFnsku,
+    scannedMaps.byProductId,
+  );
   const lines = await enrichTrackingOperatorLinesWithProductLinkage(supabase, baseLines, raw);
   return {
     lines,

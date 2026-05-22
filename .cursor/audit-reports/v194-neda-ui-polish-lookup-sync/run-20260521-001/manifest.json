@@ -1,0 +1,119 @@
+{
+  "task": "V194-NEDA-UI-POLISH-LOOKUP-SYNC",
+  "run_id": "run-20260521-001",
+  "verdict": "PASS",
+  "pass": 22,
+  "fail": 0,
+  "steps": [
+    {
+      "id": "barcode_resolver_fields",
+      "pass": true,
+      "detail": "ASIN/UPC/SKU fields"
+    },
+    {
+      "id": "preview_uses_resolver_fields",
+      "pass": true,
+      "detail": "server preview classify"
+    },
+    {
+      "id": "detail_from_query",
+      "pass": true,
+      "detail": "context back"
+    },
+    {
+      "id": "detail_page_back",
+      "pass": true,
+      "detail": "detail page consumes from"
+    },
+    {
+      "id": "primary_link_detail_from",
+      "pass": true,
+      "detail": "href ?from="
+    },
+    {
+      "id": "no_duplicate_meta_link",
+      "pass": true,
+      "detail": "meta id link off when primary"
+    },
+    {
+      "id": "wizard_paste_lookup",
+      "pass": true,
+      "detail": "wizard paste"
+    },
+    {
+      "id": "edit_paste_lookup",
+      "pass": true,
+      "detail": "drawer paste"
+    },
+    {
+      "id": "lookup_finally_unresolved",
+      "pass": true,
+      "detail": "stops loading"
+    },
+    {
+      "id": "package_items_product_column",
+      "pass": true,
+      "detail": "package child rows"
+    },
+    {
+      "id": "modal_blur_paste",
+      "pass": true,
+      "detail": "item modal triggers"
+    },
+    {
+      "id": "product_id_first_merge",
+      "pass": true,
+      "detail": "EP merge"
+    },
+    {
+      "id": "unmapped_label_const",
+      "pass": true,
+      "detail": "No product link yet"
+    },
+    {
+      "id": "forbidden_zero",
+      "pass": true,
+      "detail": "{\"package_items\":0,\"returns_table\":0,\"products_insert\":0,\"products_client_select\":0}"
+    },
+    {
+      "id": "classify_asin",
+      "pass": true,
+      "detail": "{\"matchKind\":\"unexpected\",\"asin\":\"B08N5WRWNW\"}"
+    },
+    {
+      "id": "staging_ref",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "resolve_fnsku",
+      "pass": true,
+      "detail": "resolved"
+    },
+    {
+      "id": "resolve_asin_path",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "id": "unknown_unresolved",
+      "pass": true,
+      "detail": "unresolved"
+    },
+    {
+      "id": "href_from_scan",
+      "pass": true,
+      "detail": "/scanner/operator-mobile/products/fb9793d7-ef78-4947-889f-94e1f3c72271?from=scan"
+    },
+    {
+      "id": "back_returns",
+      "pass": true,
+      "detail": "Back to returns"
+    },
+    {
+      "id": "return_record_linkage_helper",
+      "pass": true,
+      "detail": "package column helper"
+    }
+  ]
+}
