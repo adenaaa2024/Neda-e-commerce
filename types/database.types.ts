@@ -92,6 +92,8 @@ export type ReturnsRow = {
   stores?: { name: string; platform: string } | null;
 };
 
+export type ReturnItemsRow = ReturnsRow;
+
 // ---------------------------------------------------------------------------
 // packages
 // ---------------------------------------------------------------------------

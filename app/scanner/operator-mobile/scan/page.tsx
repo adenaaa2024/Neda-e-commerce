@@ -69,7 +69,6 @@ import { scannerProductResolutionBadges } from "@/lib/scanner/product-resolution
 import {
   isShipmentEntryOffManifest,
   lookupShipmentEntryScanCode,
-  resolveShipmentEntryInventoryVisual,
   mockLookupShipmentEntryScanCode,
 } from "@/lib/scanner/shipment-entry-lookup";
 import {
@@ -82,7 +81,6 @@ import {
   safeInventoryProgressPercent,
   type InventoryGateVisualStatus,
   type InventoryViewMatchField,
-  type ShipmentEntryItemViewMatchField,
   type VInventoryStatusRow,
 } from "@/lib/scanner/v-inventory-status";
 import { resolveItemBarcodeAgainstExpectedRows, type ItemResolveTier } from "@/lib/scanner/operator-item-resolve";
@@ -1575,6 +1573,14 @@ function epRowToSlipDescriptionForItemModal(row: Record<string, unknown>): strin
 
 type IdentifyGateEntity = "pallet" | "package" | "item" | "single_box";
 type IdentifyGatePhase = "idle" | "searching" | "matched" | "new";
+type ShipmentEntryItemViewMatchField =
+  | InventoryViewMatchField
+  | "order_id"
+  | "slip_code"
+  | "package_code"
+  | "pallet_code"
+  | "container_code"
+  | "lpn";
 
 function identifyGateEntityForManifestMatch(
   matchField: ShipmentEntryItemViewMatchField | null,
@@ -3060,7 +3066,7 @@ function OperatorMobileScanPageContent() {
           const invRowsDemo = demoLookup.inventory_rows;
           setIdentifyGateMatchField(demoLookup.inventory_matched_field);
           const agg = aggregateInventoryStatus(invRowsDemo);
-          const vis = resolveShipmentEntryInventoryVisual(invRowsDemo, agg);
+          const vis = resolveInventoryGateVisualStatus(invRowsDemo, agg);
           setIdentifyGateInventoryAgg(agg);
           setIdentifyGateInventoryVisual(vis);
           setIdentifyGateViewHints(pickInventoryViewHints(invRowsDemo));
@@ -3145,7 +3151,7 @@ function OperatorMobileScanPageContent() {
         }
 
         const agg = aggregateInventoryStatus(invRows);
-        const vis = resolveShipmentEntryInventoryVisual(invRows, agg);
+        const vis = resolveInventoryGateVisualStatus(invRows, agg);
         setIdentifyGateInventoryAgg(agg);
         setIdentifyGateInventoryVisual(vis);
         setIdentifyGateViewHints(pickInventoryViewHints(invRows));

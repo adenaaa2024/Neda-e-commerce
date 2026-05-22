@@ -158,7 +158,6 @@ export async function operatorReceiveItem(
     photo_evidence: payload.photo_evidence ?? null,
     organization_id: orgId,
     actor_profile_id: payload.actor_profile_id ?? null,
-    expected_package_id: epId,
   };
 
   const insertedIds: string[] = [];

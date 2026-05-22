@@ -547,8 +547,7 @@ export async function lookupShipmentEntryScanCode(
 
   if (
     !inventory_rows.length &&
-    (barcode.kind === "package" || barcode.kind === "slip") &&
-    barcode.kind !== "unknown"
+    (barcode.kind === "package" || barcode.kind === "slip")
   ) {
     const row = barcode.row;
     inventory_rows = [
@@ -635,7 +634,7 @@ export function mockLookupShipmentEntryScanCode(rawCode: string): ShipmentEntryL
 
   if (!inventory_rows.length) {
     const base = mockExpectedPackageDetailRows();
-    const exactEp = base.filter((r) => trackingKeysEqual(r.tracking_number, normalized_code));
+    const exactEp = base.filter((r) => trackingKeysEqual(String(r.tracking_number ?? ""), normalized_code));
     if (exactEp.length) {
       inventory_rows = exactEp.map((r) =>
         epRowToInventoryStatusRow(r as Record<string, unknown>, "", ""),

@@ -38,6 +38,15 @@ export const RETURN_LIST_SELECT =
   "stores(name,platform)";
 
 /**
+ * Scanner product-linkage columns shared by `return_items` and `slip_contents` reads.
+ * Keep this selector narrow; not every scanner path can safely select legacy item columns.
+ */
+export const RETURN_SCANNER_LINKAGE_SELECT =
+  "resolved_product_id, resolved_catalog_product_id, identifier_resolution_status, identifier_resolution_confidence";
+
+export const SLIP_SCANNER_LINKAGE_SELECT = RETURN_SCANNER_LINKAGE_SELECT;
+
+/**
  * Same shape as `RETURN_SELECT`, for `claim_submissions` → `return_items` FK embeds:
  * `select('*, return_items(' + RETURN_SELECT + ')')`
  */

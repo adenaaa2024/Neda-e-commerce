@@ -14,7 +14,6 @@ export function productLinkageFromReturnRecord(record: ReturnRecord): ProductLin
       item_name: record.item_name,
       fnsku: record.fnsku,
       sku: record.sku,
-      asin: record.asin,
       product_identifier: record.product_identifier,
     },
     new Map(),
