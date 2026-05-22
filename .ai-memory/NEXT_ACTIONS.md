@@ -19,6 +19,7 @@ See [TASKS.md](../TASKS.md).
 - [x] V200 E1B materialize + E1B cohort closed
 - [x] V202 / V200 browser proof **PASS** (11/11)
 - [x] V195 original parity, V194/V193/V192 (carried)
+- [x] MAIN V205/V206 inventory `package_code` on views + staging UI browser proof **PASS**
 
 - [x] V202 Amazon API evidence dry-run **READY_FOR_EXECUTE_REVIEW** (`20260522T200000Z`)
 - [x] V202 Amazon API evidence execute **FAIL** — 3 real SP-API calls; catalog 404 US MP; 0 inserts (`20260522T210000Z`)

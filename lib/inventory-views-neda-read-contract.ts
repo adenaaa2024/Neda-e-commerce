@@ -36,6 +36,8 @@ export type NedaInventoryPackageStatusRow = {
   store_id: string | null;
   tracking_number: string | null;
   slip_code: string | null;
+  /** Warehouse package # from v_inventory_status (V205). */
+  package_code: string | null;
   order_id: string | null;
   total_expected: number;
   total_scanned: number;
@@ -53,6 +55,8 @@ export type NedaInventoryItemStatusRow = {
   order_id: string | null;
   tracking_number: string | null;
   slip_code: string | null;
+  /** Warehouse package # from packages.package_code via inventory views (V205). */
+  package_code: string | null;
   sku: string | null;
   fnsku: string | null;
   asin: string | null;

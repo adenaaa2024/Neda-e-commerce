@@ -29,6 +29,7 @@ type Props = {
   storeId?: string | null;
   trackingNumber?: string | null;
   slipCode?: string | null;
+  packageCode?: string | null;
   showFilters?: boolean;
   compact?: boolean;
   /** When a parent renders `InventoryPackageStatusChip`, hide duplicate v_inventory_status rollup. */
@@ -41,6 +42,7 @@ export function InventoryItemStatusLinkagePanel({
   storeId,
   trackingNumber: trackingProp,
   slipCode: slipProp,
+  packageCode: packageCodeProp,
   showFilters = false,
   compact = false,
   hidePackageRollup = false,
@@ -48,6 +50,7 @@ export function InventoryItemStatusLinkagePanel({
 }: Props) {
   const [filterTracking, setFilterTracking] = useState(trackingProp?.trim() ?? "");
   const [filterSlip, setFilterSlip] = useState(slipProp?.trim() ?? "");
+  const [filterPackageCode, setFilterPackageCode] = useState(packageCodeProp?.trim() ?? "");
   const [rows, setRows] = useState<NedaInventoryItemStatusRow[]>([]);
   const [packageStatus, setPackageStatus] = useState<string | null>(null);
   const [packageTotals, setPackageTotals] = useState<{ expected: number; scanned: number } | null>(
@@ -61,11 +64,12 @@ export function InventoryItemStatusLinkagePanel({
 
   const effectiveTracking = (showFilters ? filterTracking : trackingProp)?.trim() || null;
   const effectiveSlip = (showFilters ? filterSlip : slipProp)?.trim() || null;
+  const effectivePackageCode = (showFilters ? filterPackageCode : packageCodeProp)?.trim() || null;
 
   const load = useCallback(async () => {
     if (!organizationId?.trim()) return;
-    if (showFilters && !effectiveTracking && !effectiveSlip) {
-      setError("Enter a tracking number or slip code.");
+    if (showFilters && !effectiveTracking && !effectiveSlip && !effectivePackageCode) {
+      setError("Enter a tracking number, slip code, or package #.");
       return;
     }
 
@@ -77,6 +81,7 @@ export function InventoryItemStatusLinkagePanel({
         storeId: storeId?.trim() || null,
         trackingNumber: effectiveTracking,
         slipCode: effectiveSlip,
+        packageCode: effectivePackageCode,
         limit: 200,
       });
       if (!res.ok) {
@@ -105,20 +110,21 @@ export function InventoryItemStatusLinkagePanel({
     } finally {
       setLoading(false);
     }
-  }, [organizationId, storeId, effectiveTracking, effectiveSlip, showFilters]);
+  }, [organizationId, storeId, effectiveTracking, effectiveSlip, effectivePackageCode, showFilters]);
 
   useEffect(() => {
     if (showFilters) return;
     setFilterTracking(trackingProp?.trim() ?? "");
     setFilterSlip(slipProp?.trim() ?? "");
     void load();
-  }, [showFilters, trackingProp, slipProp, organizationId, storeId, load]);
+  }, [showFilters, trackingProp, slipProp, packageCodeProp, organizationId, storeId, load]);
 
   useEffect(() => {
     if (!showFilters) return;
     setFilterTracking(trackingProp?.trim() ?? "");
     setFilterSlip(slipProp?.trim() ?? "");
-  }, [showFilters, trackingProp, slipProp]);
+    setFilterPackageCode(packageCodeProp?.trim() ?? "");
+  }, [showFilters, trackingProp, slipProp, packageCodeProp]);
 
   return (
     <div className={`space-y-3 ${className}`}>
@@ -145,6 +151,18 @@ export function InventoryItemStatusLinkagePanel({
               value={filterSlip}
               onChange={(e) => setFilterSlip(e.target.value)}
               placeholder="id_slip_contents"
+              autoComplete="off"
+            />
+          </label>
+          <label className="flex min-w-[120px] flex-1 flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              Package #
+            </span>
+            <input
+              className="h-9 rounded-lg border border-border bg-background px-2 text-xs font-mono"
+              value={filterPackageCode}
+              onChange={(e) => setFilterPackageCode(e.target.value)}
+              placeholder="package_code"
               autoComplete="off"
             />
           </label>

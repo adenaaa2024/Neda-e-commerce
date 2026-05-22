@@ -13,8 +13,8 @@
 | Legacy `returns` | forbidden |
 
 ```text
-APPROVED_TO_RUN_STAGING=false
-APPROVED_TO_APPLY_VIEW_DDL=false
+APPROVED_TO_RUN_STAGING=true
+APPROVED_TO_APPLY_VIEW_DDL=true
 ```
 
 ## Change summary
@@ -33,8 +33,8 @@ APPROVED_TO_APPLY_VIEW_DDL=false
 ## Sign-off
 
 ```
-APPROVED_TO_RUN_STAGING=false
-APPROVED_TO_APPLY_VIEW_DDL=false
-Approved by:
-UTC date:
+APPROVED_TO_RUN_STAGING=true
+APPROVED_TO_APPLY_VIEW_DDL=true
+Approved by: Main/user (MAIN V205 package_code inventory views apply)
+UTC date: 2026-05-22
 ```

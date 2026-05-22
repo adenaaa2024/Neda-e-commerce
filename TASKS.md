@@ -16,6 +16,9 @@ Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md).
 - [x] V200 E1B materialize **PASS**
 - [x] V202 browser proof **PASS**
 - [x] V195 original parity, V194/V193/V192
+- [x] MAIN V205 staging inventory `package_code` views **APPLIED_VERIFIED** (`20260522T173000Z`)
+- [x] MAIN V206 original inventory `package_code` views **APPLIED_VERIFIED** (`20260522T180000Z`)
+- [x] MAIN V206 browser proof package # search **PASS** (`20260522T180000Z`)
 
 ## Done — V202 API dry-run
 

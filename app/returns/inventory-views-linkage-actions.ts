@@ -32,6 +32,7 @@ function mapPackageStatusRow(row: Record<string, unknown>): NedaInventoryPackage
     store_id: n(row.store_id),
     tracking_number: n(row.tracking_number),
     slip_code: n(row.slip_code) ?? n(row.id_slip_contents),
+    package_code: n(row.package_code),
     order_id: n(row.order_id),
     total_expected: Number(row.total_expected) || 0,
     total_scanned: Number(row.total_scanned) || 0,
@@ -46,20 +47,23 @@ async function fetchPackageStatusRow(
     storeId?: string | null;
     trackingNumber?: string | null;
     slipCode?: string | null;
+    packageCode?: string | null;
   },
 ): Promise<NedaInventoryPackageStatusRow | null> {
   const tn = opts.trackingNumber?.trim();
-  if (!tn) return null;
+  const pc = opts.packageCode?.trim();
+  if (!tn && !pc) return null;
 
   let q = supabase
     .from("v_inventory_status")
     .select("*")
     .eq("organization_id", opts.organizationId)
-    .ilike("tracking_number", `%${tn}%`)
     .limit(5);
   if (opts.storeId?.trim()) q = q.eq("store_id", opts.storeId.trim());
+  if (tn) q = q.ilike("tracking_number", `%${tn}%`);
   const sc = opts.slipCode?.trim();
   if (sc) q = q.eq("slip_code", sc);
+  if (pc) q = q.eq("package_code", pc);
 
   const { data, error } = await q;
   if (error || !data?.length) return null;
@@ -75,6 +79,8 @@ export async function fetchInventoryItemStatusForNeda(opts: {
   storeId?: string | null;
   trackingNumber?: string | null;
   slipCode?: string | null;
+  /** Warehouse package/carton # (packages.package_code on view). */
+  packageCode?: string | null;
   /** When true, skip item rows and only return package_status (chip path). */
   packageStatusOnly?: boolean;
   limit?: number;
@@ -135,6 +141,8 @@ export async function fetchInventoryItemStatusForNeda(opts: {
     if (tn) q = q.ilike("tracking_number", `%${tn}%`);
     const sc = opts.slipCode?.trim();
     if (sc) q = q.eq("slip_code", sc);
+    const pc = opts.packageCode?.trim();
+    if (pc) q = q.eq("package_code", pc);
 
     const { data: rows, error } = await q;
     if (error) return { ok: false, error: error.message };

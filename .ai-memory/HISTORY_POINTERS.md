@@ -2,11 +2,26 @@
 
 Do not paste full history into `.ai-memory`.
 
-**Restore order:** V182 canonical → … → V202 API execute → **V202 identifier manual review batch (latest)**.
+**Restore order:** V182 canonical → … → V202 identifier manual review batch → **V205/V206 inventory package_code views (latest)**.
 
 ---
 
-## Latest operator history — V202 identifier manual review batch
+## Latest operator history — V205/V206 inventory `package_code` views
+
+```
+.cursor/audit-reports/history-v206/20260522T240000Z/v205-v206-package-code-inventory-views-append.md
+```
+
+| Field | Value |
+|-------|-------|
+| Run | `20260522T240000Z` (browser proof `20260522T180000Z`) |
+| Status | **PASS** — staging + original view DDL; staging UI browser proof |
+
+**Artifacts:** `main-v205-package-code-v-inventory-item-status-apply/20260522T173000Z/` · `main-v206-package-code-inventory-views-original-parity-apply/20260522T180000Z/`
+
+---
+
+## Prior — V202 identifier manual review batch
 
 ```
 .cursor/audit-reports/history-v202/20260522T220000Z/v202-identifier-manual-review-batch-append.md

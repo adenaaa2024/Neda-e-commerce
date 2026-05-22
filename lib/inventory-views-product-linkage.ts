@@ -233,6 +233,7 @@ export async function buildNedaInventoryItemStatusRow(
     order_id: n(row.order_id),
     tracking_number: n(row.tracking_number),
     slip_code: slip,
+    package_code: n(row.package_code),
     sku: n(row.sku) ?? n(row.seller_sku),
     fnsku: n(row.fnsku),
     asin: n(row.asin),

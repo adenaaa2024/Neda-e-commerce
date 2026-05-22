@@ -1,6 +1,6 @@
-# Current state — V196 closeout + V202 proof (authoritative)
+# Current state — V196 closeout + V202 proof + V205/V206 package_code views (authoritative)
 
-**Last updated:** 2026-05-22 (`expected-packages-identifier-manual-review-batch-v202` `20260522T220000Z`)  
+**Last updated:** 2026-05-22 (`main-v206-package-code-inventory-views` browser proof **PASS** `20260522T180000Z`)  
 **V196 history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
 `.cursor/audit-reports/history-v196/20260522T230000Z/ERP_PIM_FULL_HISTORY_V196_APPEND_ONLY_LOOKUP_EXPECTED_VENDOR_PACKAGING_ROADMAP.md`  
 **Latest browser proof:** `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` (**PASS** 11/11)  
@@ -27,6 +27,17 @@
 | Expected read-layer (current) | **1,577 / 1,626**; **49** unresolved; **6** ambiguous (V201) |
 | V202 browser proof signoff | **PASS** — supersedes V196 CONDITIONAL_PASS |
 | V195 original view parity | **APPLIED_VERIFIED** on `kxsvedvpjldygtdbylsy` |
+| V205 staging inventory `package_code` views | **APPLIED_VERIFIED** on `eiqfaapyumhixxoeltgu` — server smoke **PASS** |
+| V206 original inventory `package_code` views | **APPLIED_VERIFIED** on `kxsvedvpjldygtdbylsy` — `original-parity-ddl.sql` |
+| V206 staging UI browser proof (package #) | **PASS** — Returns → Packages → Package # search; audit screenshot |
+
+## Inventory read-model — `package_code` (V205/V206)
+
+- **Views:** `v_scanned_items_counted`, `v_inventory_item_status`, `v_inventory_status` expose `packages.package_code` (append-only column; `slip_code` unchanged).
+- **Staging apply:** `main-v205-package-code-v-inventory-item-status-apply/20260522T173000Z/`
+- **Original apply:** `main-v206-package-code-inventory-views-original-parity-apply/20260522T180000Z/`
+- **UI:** `InventoryItemStatusLinkagePanel` Package # filter; `fetchInventoryItemStatusForNeda({ packageCode })`.
+- **Evidence:** `main-v205-package-code-shipment-entry-smoke.ts` · `main-v206-package-code-shipment-entry-browser-smoke.ts` · `screenshots/01-packages-package-code-search.png`
 
 ## Environment topology
 
@@ -70,7 +81,8 @@ Composite profile key:
 - **`fulfillment_context`**: FBA / MFN / wholesale (and governed enums)
 
 Tables (plan only): `product_packaging_profiles`, `product_packaging_profile_versions`, `product_dimensions_current`.  
-DDL staging plan: **V201** (not applied in V196).
+DDL staging plan: **V201** (not applied in V196).  
+**View-layer `package_code` on inventory views:** **done** V205 staging + V206 original (not the V201 profile tables).
 
 ## Roadmap — next 3 days (V196)
 
@@ -99,4 +111,4 @@ DDL staging plan: **V201** (not applied in V196).
 
 ## Evidence
 
-`history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v196-vendor-category-cleanup-1883-plan/20260521T214500Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `v199-expected-identifier-ambiguous-review-pack/20260522T130000Z/` · `product-linkage-browser-proof-signoff-v202/20260522T195000Z/`
+`history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v196-vendor-category-cleanup-1883-plan/20260521T214500Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `v199-expected-identifier-ambiguous-review-pack/20260522T130000Z/` · `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` · `main-v205-package-code-v-inventory-item-status-apply/20260522T173000Z/` · `main-v206-package-code-inventory-views-original-parity-apply/20260522T180000Z/`
