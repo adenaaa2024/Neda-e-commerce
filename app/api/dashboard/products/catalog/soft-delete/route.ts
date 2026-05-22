@@ -96,7 +96,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: msg }, { status: 400 });
   }
 
-  const row = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : null;
+  const row = data && typeof data === "object" && !Array.isArray(data) ? (data as unknown as Record<string, unknown>) : null;
   if (row && row.ok === false) {
     return NextResponse.json(row, { status: 400 });
   }

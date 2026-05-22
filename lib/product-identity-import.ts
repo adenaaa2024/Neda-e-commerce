@@ -363,7 +363,7 @@ function normalizeUpc(raw: string, stats: ProductIdentityImportStats): string | 
 
 function asPlainRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, unknown>;
+  return value as unknown as Record<string, unknown>;
 }
 
 /**
@@ -1333,7 +1333,7 @@ async function finalizeUpload(params: {
       normalized_rows: rows.length,
       stats,
       validation,
-    } as Record<string, unknown>,
+    } as unknown as Record<string, unknown>,
     product_identity_validation: validation,
     import_metrics: {
       current_phase: "complete",
@@ -1402,7 +1402,7 @@ function productIdentityColumnMappingFromAny(value: unknown): ProductIdentityCol
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result: ProductIdentityColumnMapping = {};
   for (const key of ["upc", "vendor", "seller_sku", "mfg_part_number", "fnsku", "asin", "product_name"] as const) {
-    const mapped = (value as Record<string, unknown>)[key];
+    const mapped = (value as unknown as Record<string, unknown>)[key];
     if (typeof mapped === "string" && mapped.trim()) result[key] = mapped.trim();
   }
   return Object.keys(result).length > 0 ? result : null;
@@ -1986,7 +1986,7 @@ export async function syncProductIdentityFromStaging(params: {
       return { ok: false, status: 500, error: `product_identity_staging_rows read failed: ${error.message}` };
     }
     if (!data || data.length === 0) break;
-    allStagingRows.push(...(data as Record<string, unknown>[]));
+    allStagingRows.push(...(data as unknown as Record<string, unknown>[]));
     if (data.length < READ_CHUNK) break;
     offset += READ_CHUNK;
   }
@@ -2002,7 +2002,7 @@ export async function syncProductIdentityFromStaging(params: {
   const rawNormalizedRows: NormalizedRow[] = [];
   for (const sr of allStagingRows) {
     const nd = sr.normalized_data && typeof sr.normalized_data === "object" && !Array.isArray(sr.normalized_data)
-      ? (sr.normalized_data as Record<string, unknown>)
+      ? (sr.normalized_data as unknown as Record<string, unknown>)
       : {};
     const sku = typeof sr.seller_sku === "string" ? sr.seller_sku.trim() : "";
     if (!sku) {

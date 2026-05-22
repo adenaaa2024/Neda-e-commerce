@@ -5,12 +5,12 @@ export function buildPimImportJobStatusPayload(input: {
   jobId: string;
   metadata: RawReportUploadMetadata | Record<string, unknown> | null | undefined;
 }): Record<string, unknown> {
-  const meta = (input.metadata && typeof input.metadata === "object" ? input.metadata : {}) as Record<string, unknown>;
+  const meta = (input.metadata && typeof input.metadata === "object" ? input.metadata : {}) as unknown as Record<string, unknown>;
   const job = (meta.pim_import_job && typeof meta.pim_import_job === "object" && !Array.isArray(meta.pim_import_job)
     ? meta.pim_import_job
-    : {}) as Record<string, unknown>;
+    : {}) as unknown as Record<string, unknown>;
   const pr = meta.pim_preview_result && typeof meta.pim_preview_result === "object" && !Array.isArray(meta.pim_preview_result)
-    ? (meta.pim_preview_result as Record<string, unknown>)
+    ? (meta.pim_preview_result as unknown as Record<string, unknown>)
     : null;
 
   const lifecycle = String(job.lifecycle ?? "");
@@ -24,10 +24,10 @@ export function buildPimImportJobStatusPayload(input: {
   else if (meta.pim_import_cancelled) job_status = "cancelled";
 
   const scan = job.scan_cursor && typeof job.scan_cursor === "object" && !Array.isArray(job.scan_cursor)
-    ? (job.scan_cursor as Record<string, unknown>)
+    ? (job.scan_cursor as unknown as Record<string, unknown>)
     : null;
   const applyCur = job.apply_cursor && typeof job.apply_cursor === "object" && !Array.isArray(job.apply_cursor)
-    ? (job.apply_cursor as Record<string, unknown>)
+    ? (job.apply_cursor as unknown as Record<string, unknown>)
     : null;
 
   const rowsTotal =
@@ -60,7 +60,7 @@ export function buildPimImportJobStatusPayload(input: {
 
   const previewProgress =
     job.preview_progress && typeof job.preview_progress === "object" && !Array.isArray(job.preview_progress)
-      ? (job.preview_progress as Record<string, unknown>)
+      ? (job.preview_progress as unknown as Record<string, unknown>)
       : null;
   const lastHeartbeat =
     previewProgress && typeof previewProgress.last_heartbeat === "string" ? previewProgress.last_heartbeat : null;

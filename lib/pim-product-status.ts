@@ -36,11 +36,11 @@ export function mergePimProductAttributesMetadata(
 ): Record<string, unknown> {
   const base =
     existingMetadata && typeof existingMetadata === "object" && !Array.isArray(existingMetadata)
-      ? { ...(existingMetadata as Record<string, unknown>) }
+      ? { ...(existingMetadata as unknown as Record<string, unknown>) }
       : {};
   const prev =
     base.product_attributes && typeof base.product_attributes === "object" && !Array.isArray(base.product_attributes)
-      ? { ...(base.product_attributes as Record<string, unknown>) }
+      ? { ...(base.product_attributes as unknown as Record<string, unknown>) }
       : {};
   const next = { ...prev };
   if (incoming && typeof incoming === "object") {

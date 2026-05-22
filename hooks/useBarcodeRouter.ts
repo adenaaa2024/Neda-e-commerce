@@ -14,14 +14,13 @@
  *  anything else           | unknown   | product_identifier | false
  *
  * Extra capability — `upsertToCatalog`:
- *   When a known ASIN or FNSKU is scanned, call this to perform a best-effort
- *   upsert into the `products` master-catalog table so future scans resolve
- *   instantly from the local DB rather than an external API call.
+ *   When a known ASIN or FNSKU is scanned, may call governed
+ *   `cacheBarcodeProductFromAmazonLookup` (ENABLE_RETURNS_BARCODE_PRODUCT_CACHE_INSERT).
  *   LPN / unknown codes are never catalogued.
  */
 
 import { useCallback } from "react";
-import { supabase } from "../src/lib/supabase";
+import { cacheBarcodeProductFromAmazonLookup } from "../app/returns/barcode-product-cache-actions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -132,23 +131,12 @@ export function useBarcodeRouter() {
         return;
       }
 
-      try {
-        await supabase
-          .from("products")
-          .upsert(
-            {
-              barcode:   opts.barcode.trim(),
-              name:      opts.name?.trim() || opts.barcode.trim(),
-              source:    opts.source ?? "scan",
-              ...(opts.price     != null ? { price:     opts.price }     : {}),
-              ...(opts.image_url          ? { image_url: opts.image_url } : {}),
-            },
-            // Only update if the incoming data provides richer info
-            { onConflict: "barcode", ignoreDuplicates: false },
-          );
-      } catch {
-        // Catalog write is non-blocking — never propagate
-      }
+      void cacheBarcodeProductFromAmazonLookup({
+        barcode: opts.barcode.trim(),
+        name: opts.name?.trim() || opts.barcode.trim(),
+        price: opts.price ?? null,
+        image_url: opts.image_url ?? null,
+      });
     },
     [],
   );

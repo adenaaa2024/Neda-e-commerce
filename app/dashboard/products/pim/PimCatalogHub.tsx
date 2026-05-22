@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -194,7 +194,7 @@ function TriSelect({
 }
 
 export function PimCatalogHub({ organizationId }: { organizationId: string | null }) {
-  const { role } = useUserRole();
+  const { role, organizationName } = useUserRole();
   const enrichAdminDebug = isAdminRole(role);
   const router = useRouter();
   const pathname = usePathname();
@@ -249,6 +249,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   const [enrichLastRunAt, setEnrichLastRunAt] = useState<string | null>(null);
 
   const oid = organizationId?.trim() ?? "";
+  const prevOidRef = useRef("");
 
   const filtersActive = useMemo(() => {
     return (
@@ -386,12 +387,37 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     return () => window.clearTimeout(t);
   }, [q]);
 
+  const syncStoreUrl = useCallback(
+    (sid: string) => {
+      if (!pathname) return;
+      const p = new URLSearchParams(searchParams.toString());
+      if (sid) p.set("store", sid);
+      else p.delete("store");
+      router.replace(`${pathname}?${p.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
   useEffect(() => {
+    const oidChanged = prevOidRef.current !== oid;
+    prevOidRef.current = oid;
+
     if (!oid) {
       setStores([]);
       setStoreId("");
+      setRows([]);
+      setTotal(0);
+      setGridErr(null);
       return;
     }
+
+    if (oidChanged) {
+      setStoreId("");
+      setRows([]);
+      setTotal(0);
+      setGridErr(null);
+    }
+
     setStoreLoading(true);
     void getPimManualProductFormDefaults(oid)
       .then((r) => {
@@ -407,21 +433,13 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
             : r.defaultStoreId && r.stores.some((s) => s.id === r.defaultStoreId)
               ? r.defaultStoreId
               : r.stores[0]?.id ?? "";
-        setStoreId((prev) => (prev && r.stores.some((s) => s.id === prev) ? prev : preferred));
+        setStoreId((prev) => {
+          if (oidChanged) return preferred;
+          return prev && r.stores.some((s) => s.id === prev) ? prev : preferred;
+        });
       })
       .finally(() => setStoreLoading(false));
   }, [oid, searchParams]);
-
-  const syncStoreUrl = useCallback(
-    (sid: string) => {
-      if (!pathname) return;
-      const p = new URLSearchParams(searchParams.toString());
-      if (sid) p.set("store", sid);
-      else p.delete("store");
-      router.replace(`${pathname}?${p.toString()}`, { scroll: false });
-    },
-    [pathname, router, searchParams],
-  );
 
   const loadFacets = useCallback(async () => {
     if (!oid || !storeId) return;
@@ -1049,6 +1067,41 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
             {stores.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.display_name}
+              </option>
+            ))}
+          </select>
+          {!storeLoading && stores.length === 0 && oid ? (
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              No stores for <span className="font-medium">{organizationName}</span>. Use the workspace
+              company picker in the header and select <span className="font-medium">Sam Distribution Inc</span>
+              , or open PIM with{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-[10px]">?workspace_org=…&amp;store=…</code>.
+            </p>
+          ) : null}
+        </div>
+        <div className="flex w-full min-w-[12rem] max-w-full flex-col gap-1 sm:w-auto">
+          <span className="flex items-center gap-1.5 text-sm font-medium leading-none text-foreground">
+            <Banknote className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            Price display
+            <PimHelpNote label="Currency in the catalog">
+              <div className="space-y-2">
+                <p>
+                  Default comes from <span className="font-medium">Settings → General → Display currency</span>. Changing the menu here only affects
+                  number formatting in this catalog (grid, groups, product details). Stored amounts in the database are unchanged.
+                </p>
+                <p>If a row has its own currency from imports or Amazon, that value still wins.</p>
+              </div>
+            </PimHelpNote>
+          </span>
+          <select
+            value={displayCurrency}
+            onChange={(e) => setDisplayCurrency(e.target.value)}
+            className="block h-10 w-full min-w-[10rem] rounded-lg border border-border bg-background px-3 text-sm sm:w-40"
+            aria-label="Display currency for prices"
+          >
+            {PIM_DISPLAY_CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
               </option>
             ))}
           </select>

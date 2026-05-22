@@ -15,7 +15,7 @@ import {
 import { isListingAmazonSyncKind, resolveAmazonImportSyncKind } from "./amazon-report-registry";
 
 function resolveSourceFileSha256(meta: unknown, uploadId: string): string {
-  const m = meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
+  const m = meta && typeof meta === "object" ? (meta as unknown as Record<string, unknown>) : {};
   const s = String(m.content_sha256 ?? "").trim().toLowerCase();
   if (s) return s;
   return `legacy-upload-${uploadId}`;
@@ -24,7 +24,7 @@ function resolveSourceFileSha256(meta: unknown, uploadId: string): string {
 function resolveImportStoreId(meta: unknown): string | null {
   const m =
     meta && typeof meta === "object" && !Array.isArray(meta)
-      ? (meta as Record<string, unknown>)
+      ? (meta as unknown as Record<string, unknown>)
       : {};
   const a = typeof m.import_store_id === "string" ? m.import_store_id.trim() : "";
   if (a && isUuidString(a)) return a;
@@ -69,7 +69,7 @@ export async function runListingCatalogGenericPhase(params: { uploadId: string; 
   const storedRawRows = typeof rawCount === "number" ? rawCount : 0;
 
   const m =
-    meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+    meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as unknown as Record<string, unknown>) : {};
   const fileRowsSeen = Math.max(
     storedRawRows,
     typeof m.catalog_listing_file_rows_seen === "number" ? m.catalog_listing_file_rows_seen : 0,

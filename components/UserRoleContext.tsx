@@ -18,6 +18,7 @@ import {
 } from "../app/session/view-as-actions";
 import { normalizeRoleKeyForBranding } from "../lib/tenant-branding-permissions";
 import { isUuidString } from "../lib/uuid";
+import { readWorkspaceOrganizationIdFromSearch } from "../lib/workspace-url-context";
 import { useDebugMode } from "./DebugModeContext";
 
 // ─── 5-Tier Role Hierarchy ───────────────────────────────────────────────────
@@ -677,6 +678,23 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
       window.localStorage.setItem(LS_WORKSPACE_ORGANIZATION, t);
     }
   }, []);
+
+  /** Deep-link `?workspace_org=` / `?organization_id=` overrides stale localStorage workspace (PIM operable signoff). */
+  useEffect(() => {
+    if (profileLoading || !sessionCanWorkspaceSwitch) return;
+    if (typeof window === "undefined") return;
+    const fromUrl = readWorkspaceOrganizationIdFromSearch(window.location.search);
+    if (!fromUrl) return;
+    const current = (superAdminOrganizationOverride ?? homeOrganizationId ?? "").trim();
+    if (current === fromUrl) return;
+    setWorkspaceOrganizationId(fromUrl);
+  }, [
+    profileLoading,
+    sessionCanWorkspaceSwitch,
+    superAdminOrganizationOverride,
+    homeOrganizationId,
+    setWorkspaceOrganizationId,
+  ]);
 
   /**
    * Human-readable label for the effective `organizationId` (logistics / tenant scope).

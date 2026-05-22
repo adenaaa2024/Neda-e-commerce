@@ -22,7 +22,7 @@ function trimHost(h: string): string {
 
 function readMoney(node: unknown): { amount: number; currency: string } | null {
   if (!node || typeof node !== "object" || Array.isArray(node)) return null;
-  const o = node as Record<string, unknown>;
+  const o = node as unknown as Record<string, unknown>;
   const rawAmt = o.Amount ?? o.amount;
   const rawCur = o.CurrencyCode ?? o.currencyCode ?? o.currency;
   const currency = typeof rawCur === "string" && rawCur.trim().length === 3 ? rawCur.trim().toUpperCase() : "USD";
@@ -58,10 +58,10 @@ function collectRankedFromOffers(offers: unknown): RankedPrice[] {
   if (!Array.isArray(offers)) return out;
   for (const o of offers) {
     if (!o || typeof o !== "object" || Array.isArray(o)) continue;
-    const row = o as Record<string, unknown>;
+    const row = o as unknown as Record<string, unknown>;
     const buying = row.BuyingPrice ?? row.buyingPrice;
     if (!buying || typeof buying !== "object" || Array.isArray(buying)) continue;
-    const b = buying as Record<string, unknown>;
+    const b = buying as unknown as Record<string, unknown>;
     const hit = landedOrListingFromOfferRow(b);
     if (!hit) continue;
     const featured = Boolean(row.IsFeaturedMerchant ?? row.isFeaturedMerchant);
@@ -76,13 +76,13 @@ function collectRankedFromOffers(offers: unknown): RankedPrice[] {
 function collectRankedFromSummary(summary: unknown): RankedPrice[] {
   const out: RankedPrice[] = [];
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) return out;
-  const s = summary as Record<string, unknown>;
+  const s = summary as unknown as Record<string, unknown>;
 
   const pushRows = (lp: unknown, tier: number, label: PricingApiTier) => {
     if (!Array.isArray(lp)) return;
     for (const row of lp) {
       if (!row || typeof row !== "object" || Array.isArray(row)) continue;
-      const r = row as Record<string, unknown>;
+      const r = row as unknown as Record<string, unknown>;
       const hit = landedOrListingFromOfferRow(r);
       if (!hit) continue;
       out.push({ ...hit, tier, label });
@@ -98,10 +98,10 @@ function collectRankedFromSummary(summary: unknown): RankedPrice[] {
 
 function selectBestRankedFromPayload(json: unknown): RankedPrice | null {
   if (!json || typeof json !== "object" || Array.isArray(json)) return null;
-  const root = json as Record<string, unknown>;
+  const root = json as unknown as Record<string, unknown>;
   const payload = root.payload ?? root;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const p = payload as Record<string, unknown>;
+  const p = payload as unknown as Record<string, unknown>;
   const all: RankedPrice[] = [
     ...collectRankedFromOffers(p.Offers ?? p.offers),
     ...collectRankedFromSummary(p.Summary ?? p.summary),
@@ -112,20 +112,20 @@ function selectBestRankedFromPayload(json: unknown): RankedPrice | null {
 
 function firstErrorCode(json: unknown): string | null {
   if (!json || typeof json !== "object" || Array.isArray(json)) return null;
-  const errs = (json as Record<string, unknown>).errors;
+  const errs = (json as unknown as Record<string, unknown>).errors;
   if (!Array.isArray(errs) || !errs.length) return null;
   const e0 = errs[0];
   if (!e0 || typeof e0 !== "object" || Array.isArray(e0)) return null;
-  const c = (e0 as Record<string, unknown>).code;
+  const c = (e0 as unknown as Record<string, unknown>).code;
   return typeof c === "string" && c.trim() ? c.trim() : null;
 }
 
 function payloadStatus(json: unknown): string | null {
   if (!json || typeof json !== "object" || Array.isArray(json)) return null;
-  const root = json as Record<string, unknown>;
+  const root = json as unknown as Record<string, unknown>;
   const payload = root.payload ?? root;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const st = (payload as Record<string, unknown>).Status ?? (payload as Record<string, unknown>).status;
+  const st = (payload as unknown as Record<string, unknown>).Status ?? (payload as unknown as Record<string, unknown>).status;
   return typeof st === "string" && st.trim() ? st.trim() : null;
 }
 

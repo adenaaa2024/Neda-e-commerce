@@ -21,7 +21,7 @@ type Body = {
 /** FastAPI often returns `{ detail: string | object }` on 4xx/5xx — normalize for the UI. */
 function normalizeApplyStepPayload(json: unknown, httpStatus: number): Record<string, unknown> {
   if (json && typeof json === "object" && !Array.isArray(json)) {
-    const j = json as Record<string, unknown>;
+    const j = json as unknown as Record<string, unknown>;
     if ("detail" in j && j.detail != null) {
       const det = j.detail;
       const { detail: _omit, ...rest } = j;
@@ -36,7 +36,7 @@ function normalizeApplyStepPayload(json: unknown, httpStatus: number): Record<st
         };
       }
       if (det && typeof det === "object" && !Array.isArray(det)) {
-        const d = det as Record<string, unknown>;
+        const d = det as unknown as Record<string, unknown>;
         const msg =
           typeof d.message === "string"
             ? d.message

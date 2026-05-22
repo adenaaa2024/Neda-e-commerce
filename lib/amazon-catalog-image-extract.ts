@@ -9,13 +9,13 @@ function pushUrl(out: Set<string>, u: unknown) {
 
 function walkImagesBlock(block: unknown, out: Set<string>) {
   if (!block || typeof block !== "object" || Array.isArray(block)) return;
-  const o = block as Record<string, unknown>;
+  const o = block as unknown as Record<string, unknown>;
   const inner = o.images;
   if (!Array.isArray(inner)) return;
   for (const img of inner) {
     if (typeof img === "string") pushUrl(out, img);
     else if (img && typeof img === "object" && !Array.isArray(img)) {
-      const im = img as Record<string, unknown>;
+      const im = img as unknown as Record<string, unknown>;
       for (const k of ["link", "url", "src", "medium_url", "large_url", "hi_res_url", "hiResUrl", "hiRes", "large"]) {
         pushUrl(out, im[k]);
       }
@@ -23,7 +23,7 @@ function walkImagesBlock(block: unknown, out: Set<string>) {
       if (Array.isArray(vars)) {
         for (const v of vars) {
           if (v && typeof v === "object" && !Array.isArray(v)) {
-            const vo = v as Record<string, unknown>;
+            const vo = v as unknown as Record<string, unknown>;
             for (const k of ["link", "url"]) pushUrl(out, vo[k]);
           }
         }
@@ -38,7 +38,7 @@ export function collectAmazonCatalogImageUrls(catalogItemRoot: unknown): string[
   if (!catalogItemRoot || typeof catalogItemRoot !== "object" || Array.isArray(catalogItemRoot)) {
     return [];
   }
-  const root = catalogItemRoot as Record<string, unknown>;
+  const root = catalogItemRoot as unknown as Record<string, unknown>;
 
   const imagesTop = root.images;
   if (Array.isArray(imagesTop)) {
@@ -50,7 +50,7 @@ export function collectAmazonCatalogImageUrls(catalogItemRoot: unknown): string[
 
   const attrs = root.attributes;
   if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
-    const a = attrs as Record<string, unknown>;
+    const a = attrs as unknown as Record<string, unknown>;
     const imgAttr = a.image_locator || a.image_locator_external_id || a.product_photo;
     if (imgAttr && typeof imgAttr === "object") {
       walkImagesBlock({ images: [imgAttr] }, out);

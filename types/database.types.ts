@@ -18,11 +18,11 @@ export type Json =
   | Json[];
 
 // ---------------------------------------------------------------------------
-// returns
+// return_items (scanner / warehouse operational lines; renamed from `returns`)
 // ---------------------------------------------------------------------------
 
 /**
- * `public.returns` row shape — includes all columns added through
+ * `public.return_items` row shape — includes all columns added through
  * migration 20260413 (item_name, conditions, notes, photo_evidence, etc.).
  * Legacy columns (raw_return_data, product_id, unit_sale_price,
  * amazon_fees_lost, return_shipping_fee, currency, condition_note) are
@@ -83,6 +83,11 @@ export type ReturnsRow = {
   estimated_value: number | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
+  /** Deterministic resolver — nullable until populated (migration 20260815150000). */
+  resolved_product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
+  identifier_resolution_status?: string | null;
+  identifier_resolution_confidence?: number | null;
   // --- PostgREST embed (list selects only) ---
   stores?: { name: string; platform: string } | null;
 };
@@ -102,7 +107,7 @@ export type PackagesRow = {
   status: string | null;
   organization_id: string | null;
   store_id: string | null;
-  package_number: string | null;
+  package_code: string | null;
   expected_item_count: number | null;
   actual_item_count: number | null;
   created_at: string | null;
@@ -115,15 +120,11 @@ export type PackagesRow = {
   created_by: string | null;
   updated_by: string | null;
   updated_at: string | null;
-  photo_url: string | null;
-  photo_return_label_url: string | null;
-  photo_opened_url: string | null;
-  photo_closed_url: string | null;
-  manifest_photo_url: string | null;
+  inside_photo_urls: string[] | null;
+  outside_photo_urls: string[] | null;
+  slip_photo_urls: string[] | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
-  /** Structured photo gallery JSONB. */
-  photo_evidence: Json | null;
   /** Parsed packing-slip lines [{sku, expected_qty, description}]. */
   manifest_data: Json | null;
   // --- PostgREST embed ---
@@ -152,10 +153,9 @@ export type PalletsRow = {
   created_by: string | null;
   updated_by: string | null;
   updated_at: string | null;
-  photo_url: string | null;
-  /** Bill of lading photo URL. */
-  bol_photo_url: string | null;
-  manifest_photo_url: string | null;
+  pallet_photo_urls: string[] | null;
+  bol_photo_urls: string[] | null;
+  shipping_label_urls: string[] | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
   /** Shipping carrier — pallet-level; inherited by child packages. */
@@ -308,7 +308,7 @@ export type Database = {
           },
         ];
       };
-      returns: {
+      return_items: {
         Row: ReturnsRow;
         Insert: Record<string, unknown>;
         Update: Record<string, unknown>;
@@ -340,6 +340,18 @@ export type Database = {
       };
       platform_settings: {
         Row: PlatformSettingsRow;
+        Insert: Record<string, unknown>;
+        Update: Record<string, unknown>;
+        Relationships: [];
+      };
+      claim_filing_requests: {
+        Row: Record<string, unknown>;
+        Insert: Record<string, unknown>;
+        Update: Record<string, unknown>;
+        Relationships: [];
+      };
+      claim_filing_request_events: {
+        Row: Record<string, unknown>;
         Insert: Record<string, unknown>;
         Update: Record<string, unknown>;
         Relationships: [];

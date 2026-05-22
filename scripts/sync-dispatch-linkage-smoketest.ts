@@ -128,7 +128,7 @@ function assertNoLinkageInRawData(
   const rd = packed.raw_data;
   if (rd === null || rd === undefined) return;
   if (typeof rd !== "object" || Array.isArray(rd)) return;
-  const rawData = rd as Record<string, unknown>;
+  const rawData = rd as unknown as Record<string, unknown>;
   for (const key of LINKAGE_KEYS_NOT_IN_OVERFLOW) {
     if (Object.prototype.hasOwnProperty.call(rawData, key)) {
       throw new Error(
@@ -153,9 +153,9 @@ function runCase(
 ): void {
   assertNonNull(`${label}: mapper non-null`, mapperOutput);
   const packed = packPayloadForSupabase(
-    [mapperOutput as Record<string, unknown>],
+    [mapperOutput as unknown as Record<string, unknown>],
     nativeColumns,
-  )[0] as Record<string, unknown>;
+  )[0] as unknown as Record<string, unknown>;
 
   assertEqual(`${label}: organization_id`, packed.organization_id, ORG_ID);
   assertEqual(`${label}: ${expectedUploadCol}`, packed[expectedUploadCol], UPLOAD_ID);
@@ -425,7 +425,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_REMOVALS,
     "upload_id",
     STORE_ID,
@@ -438,7 +438,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_LEDGER,
     "upload_id",
     STORE_ID,
@@ -451,7 +451,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_LEDGER,
     "upload_id",
     STORE_ID,
@@ -464,7 +464,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_REIMBURSEMENTS,
     "upload_id",
     STORE_ID,
@@ -477,7 +477,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_SETTLEMENTS,
     "upload_id",
     STORE_ID,
@@ -490,7 +490,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_SAFET,
     "upload_id",
     STORE_ID,
@@ -503,7 +503,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_TRANSACTIONS,
     "upload_id",
     STORE_ID,
@@ -531,7 +531,7 @@ function main(): void {
     const packedRepo = packPayloadForSupabase(
       [reportsRepoOut as unknown as Record<string, unknown>],
       NATIVE_COLUMNS_REPORTS_REPOSITORY,
-    )[0] as Record<string, unknown>;
+    )[0] as unknown as Record<string, unknown>;
     if (typeof packedRepo.upload_id !== "string") {
       throw new Error(
         `REPORTS_REPOSITORY: upload_id must be a string (text contract), got typeof=${typeof packedRepo.upload_id}`,
@@ -550,7 +550,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_ALL_ORDERS,
     "source_upload_id",
     STORE_ID,
@@ -568,35 +568,35 @@ function main(): void {
     );
     runCase(
       "REPLACEMENTS (raw archive)",
-      rawArchiveOut as Record<string, unknown> | null,
+      rawArchiveOut as unknown as Record<string, unknown> | null,
       NATIVE_COLUMNS_REPLACEMENTS,
       "source_upload_id",
       STORE_ID,
     );
     runCase(
       "FBA_GRADE_AND_RESELL (raw archive)",
-      rawArchiveOut as Record<string, unknown> | null,
+      rawArchiveOut as unknown as Record<string, unknown> | null,
       NATIVE_COLUMNS_FBA_GRADE_AND_RESELL,
       "source_upload_id",
       STORE_ID,
     );
     runCase(
       "RESERVED_INVENTORY (raw archive)",
-      rawArchiveOut as Record<string, unknown> | null,
+      rawArchiveOut as unknown as Record<string, unknown> | null,
       NATIVE_COLUMNS_RESERVED_INVENTORY,
       "source_upload_id",
       STORE_ID,
     );
     runCase(
       "FEE_PREVIEW (raw archive)",
-      rawArchiveOut as Record<string, unknown> | null,
+      rawArchiveOut as unknown as Record<string, unknown> | null,
       NATIVE_COLUMNS_FEE_PREVIEW,
       "source_upload_id",
       STORE_ID,
     );
     runCase(
       "MONTHLY_STORAGE_FEES (raw archive)",
-      rawArchiveOut as Record<string, unknown> | null,
+      rawArchiveOut as unknown as Record<string, unknown> | null,
       NATIVE_COLUMNS_MONTHLY_STORAGE_FEES,
       "source_upload_id",
       STORE_ID,
@@ -610,7 +610,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_MANAGE_FBA_INVENTORY,
     "source_upload_id",
     STORE_ID,
@@ -626,7 +626,7 @@ function main(): void {
   );
   runCase(
     "FBA_INVENTORY",
-    fbaInventoryOut as Record<string, unknown> | null,
+    fbaInventoryOut as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_FBA_INVENTORY,
     "source_upload_id",
     STORE_ID,
@@ -639,7 +639,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_INBOUND_PERFORMANCE,
     "source_upload_id",
     STORE_ID,
@@ -652,7 +652,7 @@ function main(): void {
       ORG_ID,
       UPLOAD_ID,
       STORE_ID,
-    ) as Record<string, unknown> | null,
+    ) as unknown as Record<string, unknown> | null,
     NATIVE_COLUMNS_AMAZON_FULFILLED_INVENTORY,
     "source_upload_id",
     STORE_ID,
@@ -676,7 +676,7 @@ function main(): void {
     const packed = packPayloadForSupabase(
       [mutable],
       NATIVE_COLUMNS_REMOVALS,
-    )[0] as Record<string, unknown>;
+    )[0] as unknown as Record<string, unknown>;
     assertEqual(
       "REMOVAL_ORDER: source_staging_id at root",
       packed.source_staging_id,
@@ -699,7 +699,7 @@ function main(): void {
     const packed = packPayloadForSupabase(
       [mutable],
       NATIVE_COLUMNS_FBA_INVENTORY,
-    )[0] as Record<string, unknown>;
+    )[0] as unknown as Record<string, unknown>;
     assertEqual(
       "FBA_INVENTORY: source_file_sha256 at root",
       packed.source_file_sha256,
@@ -712,6 +712,31 @@ function main(): void {
     );
     assertNoLinkageInRawData("FBA_INVENTORY physical row identity", packed);
     console.log("[PASS] FBA_INVENTORY: physical-row identity attach survives");
+  }
+
+  // B2) Resolver quad columns survive pack (NEXT-PRODUCT-36 native-column parity).
+  {
+    assertNonNull("FBA_INVENTORY: resolver quad pre-state", fbaInventoryOut);
+    const mutable = fbaInventoryOut as unknown as Record<string, unknown>;
+    mutable.resolved_product_id = "00000000-0000-4000-8000-000000000099";
+    mutable.resolved_catalog_product_id = null;
+    mutable.identifier_resolution_status = "resolved";
+    mutable.identifier_resolution_confidence = 0.95;
+    const packed = packPayloadForSupabase(
+      [mutable],
+      NATIVE_COLUMNS_FBA_INVENTORY,
+    )[0] as unknown as Record<string, unknown>;
+    assertEqual(
+      "FBA_INVENTORY: resolved_product_id at root",
+      packed.resolved_product_id,
+      "00000000-0000-4000-8000-000000000099",
+    );
+    assertEqual(
+      "FBA_INVENTORY: identifier_resolution_status at root",
+      packed.identifier_resolution_status,
+      "resolved",
+    );
+    console.log("[PASS] FBA_INVENTORY: resolver quad columns survive pack");
   }
 
   // C) Empty-row null-return gate (sanity check on a newer mapper).
@@ -744,7 +769,7 @@ function main(): void {
     assertNonNull("source_line_hash sanity: transaction mapper", transactionOut);
     assertNonEmptyString(
       "TRANSACTIONS: source_line_hash present",
-      (transactionOut as Record<string, unknown>).source_line_hash,
+      (transactionOut as unknown as Record<string, unknown>).source_line_hash,
     );
     console.log("[PASS] TRANSACTIONS: source_line_hash present and non-empty");
   }

@@ -1,9 +1,10 @@
 "use server";
 
 import { supabaseServer } from "../../lib/supabase-server";
+import { isUuidString } from "../../lib/uuid";
 import type { PackageRecord, PalletRecord, ReturnRecord } from "../returns/returns-action-types";
 import { listPackages, listPallets } from "../returns/actions";
-import { RETURN_SELECT } from "../returns/returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SELECT } from "../returns/returns-constants";
 import { fetchClaimWorkspaceRows, mapSubmissionToClaimRecord } from "./claim-repository";
 import { resolveInitialClaimAmountUsd, resolveClaimAmountFromReturnSync } from "./claim-amount-utils";
 import { ClaimObject } from "./claim-object";
@@ -20,7 +21,7 @@ const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
 /** PostgREST may embed `stores` as an object or a one-element array — normalize for `ReturnRecord`. */
 function normalizeReturnRow(raw: unknown): ReturnRecord {
-  const r = raw as Record<string, unknown>;
+  const r = raw as unknown as Record<string, unknown>;
   const sr = r.stores;
   let stores: ReturnRecord["stores"];
   if (Array.isArray(sr)) {
@@ -54,18 +55,30 @@ export async function bulkUpdateClaimsStatus(
   organizationId: string = DEFAULT_ORG,
   actorUserId?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!isUuidString(organizationId)) return { ok: false, error: "organization_id must be a valid UUID." };
   if (ids.length === 0) return { ok: true };
   try {
+    const { data: allowedRows, error: selErr } = await supabaseServer
+      .from(CLAIM_SUBMISSIONS_TABLE)
+      .select("id")
+      .eq("organization_id", organizationId)
+      .in("id", ids);
+    if (selErr) throw new Error(selErr.message);
+    const allowedIds = (allowedRows ?? []).map((r) => String((r as { id: unknown }).id)).filter(Boolean);
+    if (allowedIds.length === 0) {
+      return { ok: false, error: "No matching claims for this organization." };
+    }
+
     const dbStatus = mapBulkUiStatusToSubmission(status);
     const { error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
       .update({ status: dbStatus })
-      .in("id", ids)
+      .in("id", allowedIds)
       .eq("organization_id", organizationId);
     if (error) throw new Error(error.message);
 
     const actorLabel = await resolveProfileDisplayName(actorUserId ?? null);
-    for (const id of ids) {
+    for (const id of allowedIds) {
       const log = await appendClaimHistoryTimelineEntry({
         claimId: id,
         organizationId,
@@ -94,6 +107,9 @@ export async function updateClaimFields(
   },
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!isUuidString(organizationId) || !isUuidString(id)) {
+    return { ok: false, error: "Invalid claim or organization id." };
+  }
   try {
     const { data: row, error: fetchErr } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
@@ -104,7 +120,7 @@ export async function updateClaimFields(
     if (fetchErr) throw new Error(fetchErr.message);
     if (!row) return { ok: false, error: "Claim not found." };
 
-    const sp = { ...((row.source_payload as Record<string, unknown>) ?? {}) };
+    const sp = { ...((row.source_payload as unknown as Record<string, unknown>) ?? {}) };
     if (patch.marketplace_link_status !== undefined) {
       sp.marketplace_link_status = patch.marketplace_link_status;
     }
@@ -139,6 +155,9 @@ export async function getClaimDetail(
   claimId: string,
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data?: ClaimDetailPayload; error?: string }> {
+  if (!isUuidString(organizationId) || !isUuidString(claimId)) {
+    return { ok: false, error: "Invalid claim or organization id." };
+  }
   try {
     const { data: subRaw, error: cErr } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
@@ -148,13 +167,13 @@ export async function getClaimDetail(
       .maybeSingle();
     if (cErr) throw new Error(cErr.message);
     if (!subRaw) return { ok: false, error: "Claim not found for this company." };
-    const sub = subRaw as Record<string, unknown>;
+    const sub = subRaw as unknown as Record<string, unknown>;
 
     let returnRow: ReturnRecord | null = null;
     const rid = sub[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string | null | undefined;
     if (rid) {
       const { data: ret, error: rErr } = await supabaseServer
-        .from("returns")
+        .from(RETURN_ITEMS_TABLE)
         .select(RETURN_SELECT)
         .eq("id", rid)
         .maybeSingle();
@@ -202,9 +221,12 @@ export async function getClaimDetailForReturn(
   returnId: string,
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data?: ClaimDetailPayload; error?: string }> {
+  if (!isUuidString(organizationId) || !isUuidString(returnId)) {
+    return { ok: false, error: "Invalid return or organization id." };
+  }
   try {
     const { data: retRaw, error: rErr } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_SELECT)
       .eq("id", returnId)
       .eq("organization_id", organizationId)
@@ -223,7 +245,7 @@ export async function getClaimDetailForReturn(
       .maybeSingle();
 
     if (subRow) {
-      return getClaimDetail((subRow as Record<string, unknown>).id as string, organizationId);
+      return getClaimDetail((subRow as unknown as Record<string, unknown>).id as string, organizationId);
     }
 
     const palletId = returnRow.pallet_id ?? null;

@@ -9,9 +9,13 @@ import {
   Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, CircleDot, ClipboardCheck,
   Clock, Copy, ExternalLink, Eye, FileImage, FileText, Loader2, Minus, MoreHorizontal, Package2, Store,
   PackageCheck, PackageX, Pencil, Plus, QrCode, Save, ScanLine, Search,
-  ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, Zap, ZoomIn,
+  ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, ZoomIn,
 } from "lucide-react";
 import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColumn";
+import { ReturnItemProductLinkage } from "../../components/returns/ReturnItemProductLinkage";
+import { ManifestLineProductLinkage } from "../../components/returns/ManifestLineProductLinkage";
+import { ExpectedPackagesLinkagePanel } from "../../components/returns/ExpectedPackagesLinkagePanel";
+import { InventoryItemStatusLinkagePanel } from "../../components/returns/InventoryItemStatusLinkagePanel";
 import { SmartCameraUpload } from "../../components/ui/SmartCameraUpload";
 import { BarcodeScannerModal } from "../../components/ui/BarcodeScannerModal";
 import {
@@ -20,7 +24,7 @@ import {
   createPackage, updatePackage, closePackage, deletePackage,
   getAmazonExpectedItems,
 } from "./actions";
-import { RETURN_SELECT } from "./returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SELECT } from "./returns-constants";
 import type {
   ExpectedItem,
   OrgSettings,
@@ -34,7 +38,6 @@ import type {
 import { marketplaceSearchUrl as marketplaceSearchUrlLib } from "../../lib/marketplace-search-url";
 import { itemMatchesPackageExpectation } from "../../lib/package-expectations";
 import { getBarcodeModeFromStorage, getDefaultStoreIdFromStorage } from "../../lib/openai-settings";
-import { classifyProductBarcode } from "../../lib/product-barcode-classify";
 import { parseBarcodeSource } from "../../lib/utils/barcode-parser";
 import { supabase as supabaseBrowser } from "../../src/lib/supabase";
 import { uploadToMedia, uploadToStorage } from "../../lib/supabase/storage";
@@ -47,7 +50,25 @@ import {
   palletPhotoEvidenceUrlsFromRow,
   resolvePackageClaimPhotoUrls,
 } from "../../lib/entity-photo-evidence";
-import { fetchProductFromAmazon } from "../../lib/api/amazon-mock";
+import {
+  firstUrl,
+  mergeSlipPhotoUrl,
+  packageGalleryUrls,
+  packagePhotoArraysFromClaimSlots,
+  palletGalleryUrls,
+} from "../../lib/package-pallet-canonical";
+import {
+  loadReturnItemLookupFieldsFromProduct,
+  lookupProductInputForReturnItem,
+  type AmbiguousProductChoice,
+  type ProductInputLookupResult,
+  type ProductInputLookupStatus,
+} from "./product-input-lookup-actions";
+import { AmbiguousProductPicker } from "../../components/returns/AmbiguousProductPicker";
+import {
+  canonicalItemNameFromLookup,
+  upcFromProductIdentifier,
+} from "../../lib/returns-lookup-field-apply";
 import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
 import {
@@ -63,23 +84,29 @@ import { isAdminRole, type UserRole } from "../../components/UserRoleContext";
 /** Seeded MVP org — use in client `stores` queries so RLS returns rows for local dev. */
 export const MVP_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001";
 
-/** Wizard / review summary — legacy TEXT columns first, then `urls` tail from `photo_evidence` JSONB. */
+/** Wizard / review summary — staging array columns (`inside` / `outside` / `slip`). */
 function packageEvidenceGalleryUrls(pkg: PackageRecord | undefined | null): string[] {
-  if (!pkg) return [];
-  const pe = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
-  const o = pkg.photo_opened_url?.trim() || pe[0] || "";
-  const l = pkg.photo_return_label_url?.trim() || pe[1] || "";
-  const c = pkg.photo_closed_url?.trim() || pe[2] || "";
-  const u = pkg.photo_url?.trim() || pe[3] || "";
-  const head = [o, l, c, u].filter(Boolean);
-  return [...head, ...pe.slice(4)];
+  return packageGalleryUrls(pkg);
 }
 
-/** Pallet gallery — `pallets.manifest_photo_url`, `bol_photo_url`, `photo_url` (ordered for summary / claims). */
+/** Pallet gallery — `shipping_label_urls`, `bol_photo_urls`, `pallet_photo_urls`. */
 function palletEvidenceValue(p: PalletRecord | null | undefined): unknown | null {
   if (!p) return null;
-  const urls = palletPhotoEvidenceUrlsFromRow(p);
+  const urls = palletGalleryUrls(p);
   return urls.length ? { urls } : null;
+}
+
+/** Claim-slot labels for wizard inheritance UI (derived from staging array columns). */
+function packagePhotoSlotsFromRow(
+  row: Pick<PackageRecord, "inside_photo_urls" | "outside_photo_urls" | "slip_photo_urls"> | null | undefined,
+) {
+  const g = packageGalleryUrls(row ?? undefined);
+  return {
+    photo_opened_url: g[0] ?? null,
+    photo_return_label_url: g[1] ?? null,
+    photo_closed_url: g[2] ?? null,
+    photo_url: g[3] ?? null,
+  };
 }
 
 function validateCreatePackageModal(input: {
@@ -600,6 +627,8 @@ export type WizardState = {
   fnsku: string;
   /** Seller SKU — Amazon warehouse / Seller Central (MSKU) */
   sku: string;
+  /** UPC / GTIN when known (V196). */
+  upc_gtin: string;
   /** Multi-select condition keys — see {@link CONDITION_CHIP_DEFS}. */
   condition_keys: string[];
   expiration_date: string; batch_number: string;
@@ -629,12 +658,12 @@ export type WizardState = {
   /** Optional Amazon order ID — stored on `returns.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
   amazon_order_id: string;
   /** Product catalog lookup — when `unknown`, Step 1 allows Next without a resolved ASIN/UPC (manual item name). */
-  catalog_resolution: "idle" | "loading" | "local" | "amazon" | "unknown";
+  catalog_resolution: "idle" | "loading" | "local" | "amazon" | "review" | "unknown";
 };
 
 export const EMPTY_WIZARD: WizardState = {
   lpn: "", product_identifier: "", marketplace: "", item_name: "",
-  asin: "", fnsku: "", sku: "",
+  asin: "", fnsku: "", sku: "", upc_gtin: "",
   condition_keys: [],
   expiration_date: "", batch_number: "", package_link_id: "",
   loose_item: false,
@@ -647,6 +676,18 @@ export const EMPTY_WIZARD: WizardState = {
   amazon_order_id: "",
   catalog_resolution: "idle",
 };
+
+function withLookupTimeout(
+  promise: Promise<ProductInputLookupResult>,
+  timeoutMs = 8000,
+): Promise<ProductInputLookupResult> {
+  return Promise.race([
+    promise,
+    new Promise<ProductInputLookupResult>((resolve) => {
+      window.setTimeout(() => resolve({ ok: false, error: "Product lookup timed out. Try again." }), timeoutMs);
+    }),
+  ]);
+}
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -680,9 +721,9 @@ export function ToastStack({ toasts }: { toasts: Toast[] }) {
 // ─── Drawer Content Type ───────────────────────────────────────────────────────
 
 export type DrawerContent =
-  | { type: "item";    record: ReturnRecord  }
+  | { type: "item"; record: ReturnRecord; startInEditMode?: boolean }
   | { type: "package"; record: PackageRecord }
-  | { type: "pallet";  record: PalletRecord  };
+  | { type: "pallet"; record: PalletRecord };
 
 // ─── Badge components ──────────────────────────────────────────────────────────
 
@@ -697,12 +738,31 @@ export function StatusBadge({ status }: { status: string }) {
   const Icon = cfg.icon;
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}><Icon className="h-3 w-3" />{cfg.label}</span>;
 }
-export function PkgStatusBadge({ status }: { status: PackageStatus }) {
-  const cfg = PKG_STATUS_CFG[status];
+const PKG_STATUS_FALLBACK = {
+  label: "Unknown",
+  cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400",
+};
+
+export function PkgStatusBadge({ status }: { status: PackageStatus | string }) {
+  const cfg =
+    PKG_STATUS_CFG[status as PackageStatus] ??
+    (status
+      ? {
+          label: String(status).replace(/_/g, " "),
+          cls: PKG_STATUS_FALLBACK.cls,
+        }
+      : PKG_STATUS_FALLBACK);
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
-export function PalletStatusBadge({ status }: { status: PalletStatus }) {
-  const cfg = PALLET_STATUS_CFG[status];
+export function PalletStatusBadge({ status }: { status: PalletStatus | string }) {
+  const cfg =
+    PALLET_STATUS_CFG[status as PalletStatus] ??
+    (status
+      ? {
+          label: String(status).replace(/_/g, " "),
+          cls: PKG_STATUS_FALLBACK.cls,
+        }
+      : PKG_STATUS_FALLBACK);
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
 
@@ -977,13 +1037,13 @@ function sortKeyItem(
     case "rma_number": return (r.rma_number ?? "").toLowerCase();
     case "marketplace":
     case "store_name": return (r.stores?.name ?? r.marketplace ?? "").toLowerCase();
-    case "item_name": return r.item_name.toLowerCase();
-    case "item_conditions": return [...r.conditions].sort().join(",");
+    case "item_name": return (r.item_name ?? "").toLowerCase();
+    case "item_conditions": return [...(r.conditions ?? [])].sort().join(",");
     case "status": return r.status.toLowerCase();
     case "hierarchy_key": {
       if (!linkedPkg) return "\uffff";
       const pltPart = linkedPlt?.pallet_number ?? "";
-      return `${linkedPkg.package_number}\0${pltPart}`.toLowerCase();
+      return `${linkedPkg.package_code}\0${pltPart}`.toLowerCase();
     }
     case "expiration_date": return r.expiration_date ? r.expiration_date : "\uffff";
     case "created_by": return operatorDisplayLabel(r, nameMap).toLowerCase();
@@ -995,7 +1055,7 @@ function sortKeyItem(
 
 function sortKeyPackage(p: PackageRecord, field: string, nameMap?: Record<string, string>): string | number {
   switch (field) {
-    case "package_number": return p.package_number.toLowerCase();
+    case "package_code": return p.package_code.toLowerCase();
     case "carrier_name": return (p.carrier_name ?? "").toLowerCase();
     case "tracking_number": return (p.tracking_number ?? "").toLowerCase();
     case "carrier_tracking": return `${p.carrier_name ?? ""}\0${p.tracking_number ?? ""}`.toLowerCase();
@@ -1186,8 +1246,34 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
       className="fixed z-[220] w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: 0, visibility: "hidden" as const }}
     >
-      {onView && <button type="button" onClick={() => { onView(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"><Eye className="h-4 w-4 text-slate-400" />View Detail</button>}
-      {onEdit && <button type="button" onClick={() => { onEdit(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"><Pencil className="h-4 w-4 text-slate-400" />Edit</button>}
+      {onView && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onView();
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <Eye className="h-4 w-4 text-slate-400" />
+          View Detail
+        </button>
+      )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <Pencil className="h-4 w-4 text-slate-400" />
+          Edit
+        </button>
+      )}
       {onDelete && (
         <>
           <div className="my-1 border-t border-border" />
@@ -1268,7 +1354,7 @@ export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts
   }, [allReturns]);
   const pkgOpts  = openPkgs.map((p) => ({
     id: p.id,
-    label: p.package_number,
+    label: p.package_code,
     sublabel: `${assignedByPackage.get(p.id) ?? 0} items`,
     tracking: p.tracking_number ?? undefined,
     rma: p.rma_number ?? undefined,
@@ -1617,6 +1703,7 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
                 <tr className="rounded-t-xl border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">LPN</th>
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Item</th>
+                  <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Product</th>
                   <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 sm:table-cell">Status</th>
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Date</th>
                   <th className="px-3 py-2" />
@@ -1631,7 +1718,17 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
                         {r.lpn ? <InlineCopy value={r.lpn} label="LPN" onToast={showToast} stopPropagation /> : null}
                       </div>
                     </td>
-                    <td className="min-w-0 max-w-none truncate px-3 py-2.5 text-slate-600 dark:text-slate-300">{r.item_name}</td>
+                    <td className="min-w-0 max-w-[220px] px-3 py-2.5 text-slate-600 dark:text-slate-300">
+                      <p className="truncate font-medium">{r.item_name}</p>
+                    </td>
+                    <td className="min-w-0 max-w-[240px] px-3 py-2.5 text-slate-600 dark:text-slate-300">
+                      <ReturnItemProductLinkage
+                        organizationId={r.organization_id}
+                        fields={r}
+                        compact
+                        showCanonical={false}
+                      />
+                    </td>
                     <td className="hidden px-3 py-2.5 sm:table-cell"><StatusBadge status={r.status} /></td>
                     <td className="px-3 py-2.5 text-slate-400">{fmt(r.created_at)}</td>
                     <td className="px-3 py-2.5">
@@ -1691,8 +1788,8 @@ function PackagesSubTable({ palletId, packages, returns: returnsForCount = [], o
             <tr key={p.id} onClick={() => onPackageClick(p)} className="group cursor-pointer transition hover:bg-violet-50/50 dark:hover:bg-violet-950/20">
               <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-1.5 font-mono font-bold text-foreground">
-                  <span>{p.package_number}</span>
-                  <InlineCopy value={p.package_number} label="Package #" onToast={showToast} stopPropagation />
+                  <span>{p.package_code}</span>
+                  <InlineCopy value={p.package_code} label="Package #" onToast={showToast} stopPropagation />
                 </div>
               </td>
               <td className="hidden px-3 py-2.5 text-muted-foreground sm:table-cell">{p.carrier_name ?? "—"}</td>
@@ -1719,7 +1816,11 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   sessionPhotos?: Record<string, File[]>;
   onToast?: (msg: string, kind?: ToastKind) => void;
 }) {
-  const [editing,    setEditing]    = useState(startInEditMode);
+  const [editing, setEditing] = useState(startInEditMode);
+
+  useEffect(() => {
+    setEditing(startInEditMode);
+  }, [startInEditMode, record.id]);
   const [saving,     setSaving]     = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting,   setDeleting]   = useState(false);
@@ -1728,10 +1829,12 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   const itemOperatorNames = useProfileNames([record.created_by, record.updated_by]);
   const [editLpn,    setEditLpn]    = useState(record.lpn ?? "");
   const [editRmaNumber, setEditRmaNumber] = useState(record.rma_number ?? "");
-  const [editProductId, setEditProductId] = useState(record.asin ?? record.fnsku ?? record.sku ?? "");
+  const [editProductId, setEditProductId] = useState(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
   const [editAsin,   setEditAsin]   = useState(record.asin ?? "");
   const [editFnsku,  setEditFnsku]  = useState(record.fnsku ?? "");
   const [editSku, setEditSku] = useState(record.sku ?? "");
+  const [editUpc, setEditUpc] = useState(() => upcFromProductIdentifier(record.product_identifier));
+  const [editAmbiguousChoices, setEditAmbiguousChoices] = useState<AmbiguousProductChoice[]>([]);
   const [editStoreId, setEditStoreId] = useState(record.store_id ?? "");
   const [editPackageId, setEditPackageId] = useState(record.package_id ?? "");
   const [itemStoresList, setItemStoresList] = useState<{ id: string; name: string; platform: string }[]>([]);
@@ -1748,8 +1851,9 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     () => photoEvidenceCategoryCounts(record.photo_evidence),
   );
   const [editNewPhotos, setEditNewPhotos] = useState<Record<string, File[]>>({});
-  const [editCatalogStatus, setEditCatalogStatus] = useState<"idle" | "loading" | "local" | "amazon" | "unknown">("idle");
-  const [editCatalogPreview, setEditCatalogPreview] = useState<{ name: string; price?: number; image_url?: string } | null>(null);
+  const [editCatalogStatus, setEditCatalogStatus] = useState<"idle" | "loading" | ProductInputLookupStatus>("idle");
+  const [editCatalogPreview, setEditCatalogPreview] = useState<{ name: string; image_url?: string | null; reason?: string | null } | null>(null);
+  const editLookupRef = useRef<{ value: string; at: number } | null>(null);
   const [editExpiryDate,     setEditExpiryDate]     = useState(record.expiration_date ?? "");
   const [editPhotoItemUrl,   setEditPhotoItemUrl]   = useState(
     () => getReturnPhotoEvidenceUrls(record.photo_evidence).item_url,
@@ -1779,10 +1883,12 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   useEffect(() => {
     setEditLpn(record.lpn ?? "");
     setEditRmaNumber(record.rma_number ?? "");
-    setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
+    setEditProductId(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
     setEditAsin(record.asin ?? "");
     setEditFnsku(record.fnsku ?? "");
     setEditSku(record.sku ?? "");
+    setEditUpc(upcFromProductIdentifier(record.product_identifier));
+    setEditAmbiguousChoices([]);
     setEditStoreId(record.store_id ?? "");
     setEditPackageId(record.package_id ?? "");
     setEditItem(record.item_name);
@@ -1796,53 +1902,96 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     setItemEditFiles([]);
     setEditCatalogStatus("idle");
     setEditCatalogPreview(null);
-  }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
+    setEditAmbiguousChoices([]);
+  }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.product_identifier, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
+
+  function applyEditLookupFields(
+    res: Extract<ProductInputLookupResult, { ok: true }>,
+  ) {
+    setEditProductId(res.fields.product_identifier ?? res.normalized_input);
+    if (res.fields.asin) setEditAsin(res.fields.asin);
+    if (res.fields.fnsku) setEditFnsku(res.fields.fnsku);
+    if (res.fields.sku) setEditSku(res.fields.sku);
+    if (res.fields.upc) setEditUpc(res.fields.upc);
+    const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+    if (itemName) setEditItem(itemName);
+    setEditCatalogPreview({
+      name:
+        itemName ??
+        res.product_linkage.product_name ??
+        res.product_linkage.fallback_display_name ??
+        undefined,
+      image_url: res.fields.image_url,
+      reason: res.enrichment.reason,
+    });
+  }
+
+  async function handleEditAmbiguousPick(choice: AmbiguousProductChoice) {
+    setEditCatalogStatus("loading");
+    try {
+      const res = await loadReturnItemLookupFieldsFromProduct({
+        organizationId: record.organization_id,
+        productId: choice.product_id,
+      });
+      if (!res.ok) {
+        setEditCatalogPreview({ name: res.error });
+        setEditCatalogStatus("ambiguous");
+        return;
+      }
+      applyEditLookupFields({
+        ok: true,
+        status: "local_resolved",
+        normalized_input: res.fields.product_identifier ?? "",
+        classified_kind: "unknown",
+        fields: res.fields,
+        product_linkage: res.product_linkage,
+        enrichment: { attempted: false, enabled: false, reason: null },
+        audit_id: "",
+      });
+      setEditAmbiguousChoices([]);
+      setEditCatalogStatus("local_resolved");
+    } catch (e) {
+      setEditCatalogPreview({ name: e instanceof Error ? e.message : "Product load failed." });
+      setEditCatalogStatus("ambiguous");
+    }
+  }
 
   async function handleEditBarcodeLookup(barcode: string) {
-    if (!barcode.trim()) { setEditCatalogStatus("idle"); return; }
+    const raw = barcode.trim();
+    if (!raw) { setEditCatalogStatus("idle"); return; }
+    const last = editLookupRef.current;
+    const now = Date.now();
+    if (last?.value === raw && now - last.at < 800) return;
+    editLookupRef.current = { value: raw, at: now };
     setEditCatalogStatus("loading");
     setEditCatalogPreview(null);
 
-    const classified = classifyProductBarcode(barcode.trim());
-    if (classified.kind === "fnsku") {
-      setEditFnsku(classified.normalized);
-      setEditProductId(classified.normalized);
-    } else if (classified.kind === "asin") {
-      setEditAsin(classified.normalized);
-      setEditProductId(classified.normalized);
-    } else if (classified.kind === "upc_ean") {
-      setEditProductId(classified.normalized);
-    }
-
-    const { data: local } = await supabaseBrowser
-      .from("products")
-      .select("*")
-      .eq("barcode", barcode.trim())
-      .maybeSingle();
-
-    if (local) {
-      setEditItem(local.name);
-      setEditCatalogPreview({ name: local.name, price: local.price, image_url: local.image_url });
-      setEditCatalogStatus("local");
-      return;
-    }
-
-    const amazon = await fetchProductFromAmazon(barcode.trim());
-    if (amazon) {
-      setEditItem(amazon.name);
-      setEditCatalogPreview({ name: amazon.name, price: amazon.price, image_url: amazon.image_url });
-      setEditCatalogStatus("amazon");
-      try {
-        await supabaseBrowser
-          .from("products")
-          .insert({ barcode: barcode.trim(), name: amazon.name, price: amazon.price, image_url: amazon.image_url, source: "Amazon" });
-      } catch {
-        // ignore duplicate/insert errors
+    try {
+      const res = await withLookupTimeout(
+        lookupProductInputForReturnItem({
+          organizationId: record.organization_id,
+          storeId: editStoreId || record.store_id,
+          value: raw,
+          actorProfileId,
+        }),
+      );
+      if (!res.ok) {
+        setEditCatalogPreview({ name: res.error });
+        setEditCatalogStatus("unresolved");
+        return;
       }
-      return;
-    }
 
-    setEditCatalogStatus("unknown");
+      setEditAmbiguousChoices(
+        res.status === "ambiguous" ? (res.ambiguous_candidates ?? []) : [],
+      );
+      applyEditLookupFields(res);
+      setEditCatalogStatus(res.status);
+    } catch (e) {
+      setEditCatalogPreview({ name: e instanceof Error ? e.message : "Product lookup failed." });
+      setEditCatalogStatus("unresolved");
+    } finally {
+      setEditCatalogStatus((prev) => (prev === "loading" ? "unresolved" : prev));
+    }
   }
 
   const { onKeyDown: editBarcodeKeyDown } = usePhysicalScanner({
@@ -1921,9 +2070,10 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
       order_id: isLooseItem ? (editOrderId.trim() || null) : null,
       expiration_date:  editExpiryDate  || undefined,
       photo_evidence:   mergedPhotoEvidence ?? undefined,
-      asin: editAsin.trim() || editProductId.trim() || null,
+      asin: editAsin.trim() || null,
       fnsku: editFnsku.trim() || null,
       sku: editSku.trim() || null,
+      product_identifier: editProductId.trim() || editUpc.trim() || null,
       store_id: editStoreId.trim() || null,
       marketplace: pickedStore ? platformToMarketplace(pickedStore.platform) : record.marketplace,
       package_id: editPackageId.trim() || null,
@@ -1955,7 +2105,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
         <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
           {record.stores?.name ? `${record.stores.name} (${record.stores.platform})` : formatMarketplaceSource(record.marketplace)}
         </span>
-        {linkedPkg    && <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-300"><Tag className="h-3 w-3" />{linkedPkg.package_number}</span>}
+        {linkedPkg    && <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-300"><Tag className="h-3 w-3" />{linkedPkg.package_code}</span>}
         {linkedPallet && <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><Boxes className="h-3 w-3" />{linkedPallet.pallet_number}</span>}
       </div>
 
@@ -1964,31 +2114,51 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
           <div>
             <label className={LABEL}>Product barcode (UPC / scan)</label>
             <input
-              className={`${INPUT} transition-all ${editCatalogStatus === "unknown" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
+              className={`${INPUT} transition-all ${editCatalogStatus === "unresolved" || editCatalogStatus === "ambiguous" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
               value={editProductId}
               onChange={(e) => { setEditProductId(e.target.value); setEditCatalogStatus("idle"); }}
               placeholder="Product identifier…"
-              onKeyDown={editBarcodeKeyDown}
+              onKeyDown={(e) => {
+                editBarcodeKeyDown(e);
+                if (!e.defaultPrevented && e.key === "Enter") {
+                  e.preventDefault();
+                  void handleEditBarcodeLookup(e.currentTarget.value);
+                }
+              }}
               onBlur={(e) => { if (e.target.value.trim()) void handleEditBarcodeLookup(e.target.value); }}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (pasted.trim()) setTimeout(() => void handleEditBarcodeLookup(pasted), 0);
+              }}
             />
             {editCatalogStatus === "loading" && (
               <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-400">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />Looking up barcode…
               </div>
             )}
-            {editCatalogStatus === "local" && editCatalogPreview && (
+            {editCatalogStatus === "local_resolved" && editCatalogPreview && (
               <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Found in Catalog — {editCatalogPreview.name}
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Found locally — {editCatalogPreview.name}
               </div>
             )}
-            {editCatalogStatus === "amazon" && editCatalogPreview && (
+            {editCatalogStatus === "backend_enriched" && editCatalogPreview && (
               <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Found on Amazon — {editCatalogPreview.name}{editCatalogPreview.price != null ? ` · $${editCatalogPreview.price.toFixed(2)}` : ""}
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Backend enriched — {editCatalogPreview.name}
               </div>
             )}
-            {editCatalogStatus === "unknown" && (
+            {editCatalogStatus === "ambiguous" && (
+              <div className="mt-1.5 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/20 dark:text-amber-200">
+                <p>Needs review — {editAmbiguousChoices.length > 1 ? `${editAmbiguousChoices.length} distinct local products` : "multiple local products"} matched this scan. Pick the correct product:</p>
+                <AmbiguousProductPicker
+                  choices={editAmbiguousChoices}
+                  disabled={saving}
+                  onPick={(c) => void handleEditAmbiguousPick(c)}
+                />
+              </div>
+            )}
+            {editCatalogStatus === "unresolved" && (
               <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-                ⚠️ Unknown Item — Not found locally or on Amazon.
+                Unknown Item — not found locally{editCatalogPreview?.reason ? ` (${editCatalogPreview.reason})` : ""}.
               </div>
             )}
           </div>
@@ -2057,6 +2227,15 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
               </div>
             </div>
             <div>
+              <label className={LABEL}>
+                UPC / GTIN <span className="text-xs font-normal text-slate-400">(optional)</span>
+              </label>
+              <div className="flex gap-2">
+                <input type="text" className={INPUT} placeholder="12-digit UPC…" value={editUpc} onChange={(e) => setEditUpc(e.target.value)} />
+                <button type="button" title="Copy UPC" className={drawerEditIdBtn} onClick={() => void copyEditCode(editUpc, "UPC")} disabled={!editUpc.trim()}><Copy className="h-4 w-4" /></button>
+              </div>
+            </div>
+            <div>
               <label className={LABEL}>Store <span className="text-rose-500">*</span></label>
               <select className={INPUT} value={editStoreId} onChange={(e) => setEditStoreId(e.target.value)}>
                 <option value="">— Select Store —</option>
@@ -2073,7 +2252,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
               <select className={INPUT} value={editPackageId} onChange={(e) => setEditPackageId(e.target.value)}>
                 <option value="">— no package —</option>
                 {packages.filter((p) => p.status === "open").map((p) => (
-                  <option key={p.id} value={p.id}>{p.package_number}{p.carrier_name ? ` · ${p.carrier_name}` : ""}</option>
+                  <option key={p.id} value={p.id}>{p.package_code}{p.carrier_name ? ` · ${p.carrier_name}` : ""}</option>
                 ))}
               </select>
             </div>
@@ -2315,7 +2494,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                 setEditing(false);
                 setEditLpn(record.lpn ?? "");
                 setEditRmaNumber(record.rma_number ?? "");
-                setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
+                setEditProductId(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
                 setEditAsin(record.asin ?? "");
                 setEditFnsku(record.fnsku ?? "");
                 setEditSku(record.sku ?? "");
@@ -2355,27 +2534,34 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   </div>
                   <div className="group flex min-w-0 items-center gap-2 rounded-xl border border-violet-200 bg-white/80 px-3 py-2 dark:border-violet-800/60 dark:bg-slate-900/50">
                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">Package #</span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-foreground">{linkedPkg?.package_number ?? "—"}</span>
-                    {linkedPkg?.package_number ? (
-                      <InlineCopy value={linkedPkg.package_number} label="Package #" onToast={onToast} />
+                    <span className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-foreground">{linkedPkg?.package_code ?? "—"}</span>
+                    {linkedPkg?.package_code ? (
+                      <InlineCopy value={linkedPkg.package_code} label="Package #" onToast={onToast} />
                     ) : null}
                   </div>
                 </div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Product title &amp; identifiers
+                  Product
+                </p>
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
+                <p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Identifiers
                 </p>
                 <ReturnIdentifiersColumn
                   itemName={record.item_name}
                   asin={record.asin}
                   fnsku={record.fnsku}
                   sku={record.sku}
+                  upc={upcFromProductIdentifier(record.product_identifier)}
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
               </div>
             ) : (
               <div className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-4 dark:border-slate-700 dark:bg-slate-900/50">
-                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product codes</p>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</p>
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
+                <p className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Identifiers</p>
                 <p className="mb-3 text-[10px] leading-relaxed text-slate-500 dark:text-slate-500">
                   ASIN = Amazon catalog ID · FNSKU = your FBA label on Amazon · SKU = Seller / warehouse SKU (MSKU)
                 </p>
@@ -2385,6 +2571,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   asin={record.asin}
                   fnsku={record.fnsku}
                   sku={record.sku}
+                  upc={upcFromProductIdentifier(record.product_identifier)}
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
@@ -2469,7 +2656,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Conditions</p>
-            <div className="flex flex-wrap gap-1.5">{record.conditions.map((c) => <ConditionBadge key={c} value={c} />)}</div>
+            <div className="flex flex-wrap gap-1.5">{(record.conditions ?? []).map((c) => <ConditionBadge key={c} value={c} />)}</div>
           </div>
           {(record.expiration_date || record.batch_number) && (
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-700/40 dark:bg-orange-950/30 grid grid-cols-2 gap-3 text-sm">
@@ -2609,7 +2796,7 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, actorPr
           <div className="w-full max-w-xs overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-2xl dark:border-amber-700/50 dark:bg-slate-950">
             <div className="bg-amber-50 p-5 dark:bg-amber-950/40">
               <div className="flex items-center gap-3 mb-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/60"><AlertTriangle className="h-5 w-5 text-amber-600" /></div><div><p className="text-sm font-bold text-foreground">Move Item?</p><p className="text-xs text-amber-600 dark:text-amber-400">This item belongs to another package</p></div></div>
-              <p className="text-xs text-slate-600 dark:text-slate-300">Moving <span className="font-semibold">{selected.item_name}</span> to <span className="font-mono font-bold">{pkg.package_number}</span>. It will be removed from its current package.</p>
+              <p className="text-xs text-slate-600 dark:text-slate-300">Moving <span className="font-semibold">{selected.item_name}</span> to <span className="font-mono font-bold">{pkg.package_code}</span>. It will be removed from its current package.</p>
             </div>
             <div className="flex gap-3 p-4">
               <button onClick={() => setConfirm(false)} className="flex h-10 flex-1 items-center justify-center rounded-2xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">Cancel</button>
@@ -2678,9 +2865,9 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   const [saveErr,    setSaveErr]    = useState("");
   const [saving,     setSaving]     = useState(false);
 
-  const [editPhotoClosedUrl,        setEditPhotoClosedUrl]        = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[2] ?? "");
-  const [editPhotoOpenedUrl,        setEditPhotoOpenedUrl]        = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[0] ?? "");
-  const [editPhotoReturnLabelUrl,   setEditPhotoReturnLabelUrl]   = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[1] ?? "");
+  const [editPhotoClosedUrl,        setEditPhotoClosedUrl]        = useState(() => packageGalleryUrls(initPkg)[2] ?? "");
+  const [editPhotoOpenedUrl,        setEditPhotoOpenedUrl]        = useState(() => packageGalleryUrls(initPkg)[0] ?? "");
+  const [editPhotoReturnLabelUrl,   setEditPhotoReturnLabelUrl]   = useState(() => packageGalleryUrls(initPkg)[1] ?? "");
   const [editPhotoClosedUploading,  setEditPhotoClosedUploading]  = useState(false);
   const [editPhotoOpenedUploading,  setEditPhotoOpenedUploading]  = useState(false);
   const [editPhotoReturnLabelUploading, setEditPhotoReturnLabelUploading] = useState(false);
@@ -2710,18 +2897,27 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     return () => { cancelled = true; };
   }, [editing, editPalletId, pkg.pallet_id, pkg.id]);
 
-  /** List queries omit `photo_evidence` — load JSONB once for edit/reconciliation UI. */
+  /** Refresh photo arrays when list row omitted detail columns. */
   useEffect(() => {
     let cancelled = false;
     void supabaseBrowser
       .from("packages")
-      .select("photo_evidence")
+      .select("inside_photo_urls, outside_photo_urls, slip_photo_urls")
       .eq("id", initPkg.id)
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelled || error || !data) return;
-        const pe = (data as { photo_evidence?: unknown }).photo_evidence;
-        setPkg((p) => ({ ...p, photo_evidence: pe ?? null }));
+        const row = data as {
+          inside_photo_urls?: string[] | null;
+          outside_photo_urls?: string[] | null;
+          slip_photo_urls?: string[] | null;
+        };
+        setPkg((p) => ({
+          ...p,
+          inside_photo_urls: row.inside_photo_urls ?? p.inside_photo_urls ?? [],
+          outside_photo_urls: row.outside_photo_urls ?? p.outside_photo_urls ?? [],
+          slip_photo_urls: row.slip_photo_urls ?? p.slip_photo_urls ?? [],
+        }));
       });
     return () => { cancelled = true; };
   }, [initPkg.id]);
@@ -2745,7 +2941,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     setEditExpected(String(initPkg.expected_item_count));
     setEditPalletId(initPkg.pallet_id ?? "");
     setEditOrderId(initPkg.order_id ?? "");
-    const pe = normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence);
+    const pe = packageGalleryUrls(initPkg);
     setEditPhotoClosedUrl(pe[2] ?? "");
     setEditPhotoOpenedUrl(pe[0] ?? "");
     setEditPhotoReturnLabelUrl(pe[1] ?? "");
@@ -2789,10 +2985,21 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   const [editManifestErr, setEditManifestErr] = useState("");
 
   const [reconciliationLines, setReconciliationLines] = useState<SlipExpectedItem[] | null>(null);
-  const [reconciliationSource, setReconciliationSource] = useState<"amazon" | "ocr" | null>(null);
+  const [reconciliationSource, setReconciliationSource] = useState<
+    "expected_packages" | "amazon" | "ocr" | null
+  >(null);
+  /** null = panel still loading; 0 = no expected_packages rows; >0 = panel is primary source */
+  const [expectedPackagesRowCount, setExpectedPackagesRowCount] = useState<number | null>(null);
 
   useEffect(() => {
+    setExpectedPackagesRowCount(null);
+  }, [pkg.id, pkg.tracking_number, pkg.order_id]);
+
+  useEffect(() => {
+    if (expectedPackagesRowCount === null) return;
+
     const tn = pkg.tracking_number?.trim() ?? "";
+    const oid = pkg.order_id?.trim() ?? "";
 
     function applyOcrFallback() {
       const md = pkg.manifest_data;
@@ -2807,13 +3014,19 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       }
     }
 
-    if (!tn) {
+    if (expectedPackagesRowCount > 0) {
+      setReconciliationLines(null);
+      setReconciliationSource("expected_packages");
+      return;
+    }
+
+    if (!tn && !oid) {
       applyOcrFallback();
       return;
     }
 
     let cancelled = false;
-    void getAmazonExpectedItems(tn, pkg.organization_id).then((res) => {
+    void getAmazonExpectedItems(tn, pkg.organization_id, { storeId: pkg.store_id ?? undefined }).then((res) => {
       if (cancelled) return;
       if (res.ok && res.data.length > 0) {
         setReconciliationLines(
@@ -2825,7 +3038,14 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       }
     });
     return () => { cancelled = true; };
-  }, [pkg.tracking_number, pkg.organization_id, pkg.manifest_data]);
+  }, [
+    pkg.tracking_number,
+    pkg.order_id,
+    pkg.organization_id,
+    pkg.manifest_data,
+    pkg.store_id,
+    expectedPackagesRowCount,
+  ]);
 
   /** Same source as the Packages accordion — `listReturns()` page state (`allReturns`). */
   const items = useMemo(
@@ -2842,7 +3062,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     }
     let cancelled = false;
     void supabaseBrowser
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_SELECT)
       .eq("package_id", pkg.id)
       .order("created_at", { ascending: false })
@@ -2888,7 +3108,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
         pkg.id,
         {
           expected_item_count,
-          photo_evidence: mergeEntityPhotoEvidence(pkg.photo_evidence, [publicUrl]) ?? undefined,
+          slip_photo_urls: mergeSlipPhotoUrl(pkg.slip_photo_urls, publicUrl),
         },
         actor,
         actorProfileId,
@@ -2925,8 +3145,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     if (o) claimUrls.push(o);
     if (l) claimUrls.push(l);
     if (c) claimUrls.push(c);
-    const tail = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).slice(3);
-    const mergedPe = buildEntityPhotoEvidence([...claimUrls, ...tail]);
+    const photoArrays = packagePhotoArraysFromClaimSlots(o, l, c, pkg);
     const res = await updatePackage(pkg.id, {
       carrier_name:         carrierPayload,
       tracking_number:      editTracking   || undefined,
@@ -2934,7 +3153,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       expected_item_count:  parseInt(editExpected, 10) || 0,
       order_id:             editOrderId.trim() || null,
       pallet_id:            editPalletId.trim() || null,
-      photo_evidence: mergedPe ?? null,
+      ...photoArrays,
     }, actor, actorProfileId);
     setSaving(false);
     if (res.ok && res.data) { setPkg(res.data); onPackageUpdated(res.data); setEditing(false); }
@@ -3076,11 +3295,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               className="hidden"
               onChange={handleEditManifestUpload}
             />
-            {reconciliationSource === "amazon" ? (
+            {reconciliationSource === "expected_packages" || reconciliationSource === "amazon" ? (
               <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  Amazon Sync active — packing slip scan not required.
+                  {reconciliationSource === "expected_packages"
+                    ? "Expected packages loaded — packing slip scan not required."
+                    : "Amazon Sync active — packing slip scan not required."}
                 </span>
               </div>
             ) : editManifestOcrRunning ? (
@@ -3099,7 +3320,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                 </button>
               </div>
             )}
-            {(reconciliationLines || normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).length > 0) && (
+            {(reconciliationLines || packageGalleryUrls(pkg).length > 0) && (
               <button
                 type="button"
                 onClick={() => {
@@ -3230,7 +3451,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             </div>
           )}
           {(() => {
-            const peUrls = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
+            const peUrls = packageGalleryUrls(pkg);
             if (peUrls.length === 0) return null;
             const labels = ["Opened box", "Return label", "Closed box"];
             return (
@@ -3319,19 +3540,36 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
           actorProfileId={actorProfileId}
           onAssigned={(updated, prevPackageId) => {
             onReturnAssigned?.(updated, prevPackageId);
-            showToast(`✓ Item assigned to ${pkg.package_number}`);
+            showToast(`✓ Item assigned to ${pkg.package_code}`);
             setAssignOpen(false);
           }}
           onClose={() => setAssignOpen(false)}
         />
       )}
 
+      {pkg.tracking_number?.trim() ? (
+        <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-800 dark:bg-sky-950/20">
+          <p className="mb-3 text-sm font-bold text-foreground">Inventory status</p>
+          <InventoryItemStatusLinkagePanel
+            organizationId={pkg.organization_id}
+            storeId={pkg.store_id}
+            trackingNumber={pkg.tracking_number}
+            compact
+          />
+        </section>
+      ) : null}
+
       {/* ── Read-only: reconciliation from Amazon sync or manifest_data OCR ── */}
       <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-bold text-foreground">Packing slip / manifest</p>
-            {reconciliationSource === "amazon" ? (
+            <p className="text-sm font-bold text-foreground">Expected vs scanned</p>
+            {reconciliationSource === "expected_packages" ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <CheckCircle2 className="h-3 w-3" />
+                Expected packages
+              </span>
+            ) : reconciliationSource === "amazon" ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                 <CheckCircle2 className="h-3 w-3" />
                 Amazon Sync
@@ -3343,14 +3581,22 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               </span>
             )}
           </div>
+          {reconciliationSource === "expected_packages" && (
+            <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              From expected_packages with product linkage (read-only).
+            </p>
+          )}
           {reconciliationSource === "amazon" && (
             <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               Expected items loaded securely from Amazon files.
             </p>
           )}
-          {reconciliationSource !== "amazon" && reconciliationLines && normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).length > 0 && (
+          {reconciliationSource !== "amazon" &&
+            reconciliationSource !== "expected_packages" &&
+            reconciliationLines &&
+            packageGalleryUrls(pkg).length > 0 && (
             <a
-              href={normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).slice(-1)[0] ?? "#"}
+              href={packageGalleryUrls(pkg).slice(-1)[0] ?? "#"}
               target="_blank"
               rel="noreferrer"
               className="text-[10px] font-semibold text-sky-600 underline hover:text-sky-700 dark:text-sky-400"
@@ -3359,12 +3605,24 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             </a>
           )}
         </div>
-        {!reconciliationLines && (
+        {(pkg.tracking_number?.trim() || pkg.order_id?.trim()) ? (
+          <ExpectedPackagesLinkagePanel
+            organizationId={pkg.organization_id}
+            storeId={pkg.store_id}
+            orderId={pkg.order_id}
+            trackingNumber={pkg.tracking_number}
+            scannedItems={displayItems}
+            compact
+            onLoaded={setExpectedPackagesRowCount}
+            className="mb-3"
+          />
+        ) : null}
+        {!reconciliationLines && reconciliationSource !== "expected_packages" && (
           <p className="text-center text-[13px] text-muted-foreground">
             No manifest line items on file. Use <strong>Edit</strong> to photograph or load a packing slip — reconciliation appears here once saved.
           </p>
         )}
-        {reconciliationLines && (
+        {reconciliationLines && reconciliationSource !== "expected_packages" && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reconciliation</p>
@@ -3393,11 +3651,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                     const need = exp.expected_qty ?? 1;
                     const matched = displayItems.filter((it) => physicalItemMatchesExpectedLine(it, exp));
                     const isMatch = matched.length >= need;
+                    const manifestLine = pkg.manifest_data?.[slipIdx];
                     return (
                       <tr key={`slip-${slipIdx}-${exp.barcode}`} className={isMatch ? "bg-emerald-50/70 dark:bg-emerald-950/20" : "bg-rose-50/70 dark:bg-rose-950/20"}>
                         <td className="px-3 py-2.5">
                           <p className="font-mono font-semibold text-slate-700 dark:text-slate-300">{exp.barcode}</p>
                           <p className="text-slate-500">{exp.name}</p>
+                          {manifestLine ? <ManifestLineProductLinkage line={manifestLine} /> : null}
                         </td>
                         <td className="px-3 py-2.5 text-center font-bold text-slate-600 dark:text-slate-300">{need}</td>
                         <td className="px-3 py-2.5 text-center font-bold">
@@ -3423,6 +3683,20 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                             {(it as { product_identifier?: string | null }).product_identifier?.trim()
                               || (it.asin ?? it.fnsku ?? it.sku ?? it.lpn ?? "—")}
                           </p>
+                          {(() => {
+                            const upc = upcFromProductIdentifier(
+                              (it as { product_identifier?: string | null }).product_identifier,
+                            );
+                            return upc ? (
+                              <p className="font-mono text-[10px] text-slate-500">UPC {upc}</p>
+                            ) : null;
+                          })()}
+                          <ReturnItemProductLinkage
+                            organizationId={it.organization_id}
+                            fields={it}
+                            compact
+                            showCanonical={false}
+                          />
                         </td>
                         <td className="px-3 py-2.5 text-center text-slate-400">—</td>
                         <td className="px-3 py-2.5 text-center font-bold text-amber-600">1</td>
@@ -3462,7 +3736,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             existingReturns={allReturns}
             onCreatePackage={() => {}}
             onCreatePallet={() => {}}
-            inheritedContext={{ packageId: pkg.id, packageLabel: pkg.package_number, palletId: pkg.pallet_id ?? undefined, palletLabel: openPallets.find((p) => p.id === pkg.pallet_id)?.pallet_number }}
+            inheritedContext={{ packageId: pkg.id, packageLabel: pkg.package_code, palletId: pkg.pallet_id ?? undefined, palletLabel: openPallets.find((p) => p.id === pkg.pallet_id)?.pallet_number }}
             onSoftPackageWarning={() => showToast("⚠ This item is not on the scanned packing slip.", "warning")}
             onToast={showToast}
             onNavigateToPackage={(id) => { if (id === pkg.id) setWizardOpen(false); }}
@@ -3556,7 +3830,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
       const url = await uploadToStorage(f, "pallets/bol", orgId);
       const res = await updatePallet(
         plt.id,
-        { bol_photo_url: url },
+        { bol_photo_urls: [url] },
         actor,
         orgId,
         actorProfileId,
@@ -3584,7 +3858,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
       const url = await uploadToStorage(f, "pallets", orgId);
       const res = await updatePallet(
         plt.id,
-        { photo_url: url },
+        { pallet_photo_urls: [url] },
         actor,
         orgId,
         actorProfileId,
@@ -3714,15 +3988,15 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
                 <label className={LABEL}>Pallet photo <span className="text-xs font-normal text-slate-400">(optional)</span></label>
                 <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 py-3 text-sm font-semibold text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200 ${generalPhotoUploading ? "opacity-60" : ""}`}>
                   {generalPhotoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                  {generalPhotoUploading ? "Uploading…" : plt.photo_url?.trim() ? "Replace pallet photo" : "Upload pallet photo"}
+                  {generalPhotoUploading ? "Uploading…" : firstUrl(plt.pallet_photo_urls) ? "Replace pallet photo" : "Upload pallet photo"}
                   <input type="file" className="hidden" accept="image/*" capture="environment" onChange={handleGeneralPalletPhotoUpload} disabled={generalPhotoUploading} />
                 </label>
-                {plt.photo_url?.trim() ? (
+                {firstUrl(plt.pallet_photo_urls) ? (
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
                     <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">Latest uploads (see gallery above)</p>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={plt.photo_url.trim()}
+                      src={firstUrl(plt.pallet_photo_urls)!}
                       alt="Pallet"
                       className="max-h-48 w-full object-contain"
                     />
@@ -3737,7 +4011,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
                   <input type="file" className="hidden" accept="image/*,application/pdf" onChange={handleBolUpload} disabled={bolUploading} />
                 </label>
                 {(() => {
-                  const bol = plt.bol_photo_url?.trim() ?? "";
+                  const bol = firstUrl(plt.bol_photo_urls) ?? "";
                   return bol ? (
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
                     <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">BoL preview</p>
@@ -3817,7 +4091,7 @@ export function DiscrepancyModal({ pkg, scannedCount, onConfirm, onCancel }: {
 
 // ─── Wizard Steps ──────────────────────────────────────────────────────────────
 
-export function WizardStep1({ state, setState, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet }: {
+export function WizardStep1({ state, setState, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet, organizationId = MVP_ORGANIZATION_ID, actorProfileId = null }: {
   state: WizardState; setState: React.Dispatch<React.SetStateAction<WizardState>>;
   openPackages: PackageRecord[]; openPallets: PalletRecord[];
   /** Live counts for package picker (same as Packages ITEMS column). */
@@ -3829,7 +4103,12 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   onAdvance?: () => void;
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
+  organizationId?: string;
+  actorProfileId?: string | null;
 }) {
+  const workspaceOrgId = isUuidString((organizationId ?? "").trim())
+    ? (organizationId ?? "").trim()
+    : MVP_ORGANIZATION_ID;
   const up = (k: keyof WizardState, v: unknown) => setState((p) => ({ ...p, [k]: v }));
   const assignedByPackage = useMemo(() => {
     const m = new Map<string, number>();
@@ -3840,7 +4119,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   }, [existingReturns]);
   const pkgOpts = openPackages.map((p) => ({
     id: p.id,
-    label: p.package_number,
+    label: p.package_code,
     sublabel: `${assignedByPackage.get(p.id) ?? 0}/${p.expected_item_count > 0 ? p.expected_item_count : "?"} items`,
     tracking: p.tracking_number ?? undefined,
     rma: p.rma_number ?? undefined,
@@ -3954,39 +4233,67 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   const setCatalogResolution = (s: WizardState["catalog_resolution"]) =>
     setState((p) => ({ ...p, catalog_resolution: s }));
 
-  // ── Catalog lookup preview (display only; resolution lives on WizardState) ─
-  const [catalogPreview, setCatalogPreview] = useState<{ name: string; price?: number; image_url?: string } | null>(null);
-  // ── SP-API mock auto-fill state ───────────────────────────────────────────
-  const [spApiStatus, setSpApiStatus] = useState<"idle" | "loading" | "done">("idle");
+  // ── Catalog lookup preview (display only; save still re-runs server resolver) ─
+  const [catalogPreview, setCatalogPreview] = useState<{ name: string; image_url?: string | null; reason?: string | null } | null>(null);
+  const [catalogAmbiguousChoices, setCatalogAmbiguousChoices] = useState<AmbiguousProductChoice[]>([]);
+  const lookupRef = useRef<{ value: string; at: number } | null>(null);
+
+  async function handleWizardAmbiguousPick(choice: AmbiguousProductChoice) {
+    setCatalogResolution("loading");
+    try {
+      const res = await loadReturnItemLookupFieldsFromProduct({
+        organizationId: workspaceOrgId,
+        productId: choice.product_id,
+      });
+      if (!res.ok) {
+        setCatalogPreview({ name: res.error });
+        setCatalogResolution("review");
+        return;
+      }
+      const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+      setState((p) => ({
+        ...p,
+        product_identifier: res.fields.product_identifier ?? p.product_identifier,
+        asin: res.fields.asin ?? p.asin,
+        fnsku: res.fields.fnsku ?? p.fnsku,
+        sku: res.fields.sku ?? p.sku,
+        upc_gtin: res.fields.upc ?? p.upc_gtin,
+        item_name: itemName ?? p.item_name,
+        catalog_resolution: "local",
+      }));
+      setCatalogAmbiguousChoices([]);
+      setCatalogPreview({
+        name: itemName ?? res.product_linkage.product_name ?? res.product_linkage.fallback_display_name ?? "",
+        image_url: res.fields.image_url,
+      });
+    } catch (e) {
+      setCatalogPreview({ name: e instanceof Error ? e.message : "Product load failed." });
+      setCatalogResolution("review");
+    }
+  }
 
   async function handleBarcodeLookup(barcode: string) {
-    if (!barcode.trim()) { setCatalogResolution("idle"); return; }
+    const raw = barcode.trim();
+    if (!raw) { setCatalogResolution("idle"); return; }
+    const last = lookupRef.current;
+    const now = Date.now();
+    if (last?.value === raw && now - last.at < 800) return;
+    lookupRef.current = { value: raw, at: now };
     setCatalogResolution("loading");
     setCatalogPreview(null);
-
-    const classified = classifyProductBarcode(barcode.trim());
-    if (classified.kind === "fnsku") {
-      up("fnsku", classified.normalized);
-      up("product_identifier", classified.normalized);
-    } else if (classified.kind === "asin") {
-      up("asin", classified.normalized);
-      up("product_identifier", classified.normalized);
-    } else if (classified.kind === "upc_ean") {
-      up("product_identifier", classified.normalized);
-    } else {
-      up("product_identifier", classified.normalized);
-    }
+    setCatalogAmbiguousChoices([]);
 
     // Auto-detect marketplace from barcode prefix (Amazon FNSKU: X00… / B00…)
-    const detectedSource = parseBarcodeSource(barcode.trim(), state.marketplace);
+    const detectedSource = parseBarcodeSource(raw, state.marketplace);
     if (detectedSource && detectedSource !== state.marketplace && (detectedSource === "amazon" || detectedSource === "walmart" || detectedSource === "ebay")) {
       up("marketplace", detectedSource);
     }
 
     // Smart store_id fallback — only for standalone items (no parent package)
+    let lookupStoreId = state.store_id;
     const isStandalone = !state.package_link_id && !inherited?.packageId;
     if (isStandalone) {
-      const upper = barcode.trim().toUpperCase();
+      const upper = raw.toUpperCase();
       if (upper.startsWith("X00") || upper.startsWith("B00")) {
         // Amazon FNSKU → find first active Amazon store, else use default
         const amazonStore = connectedStores.find(
@@ -3994,65 +4301,73 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
         );
         const defRaw = getDefaultStoreIdFromStorage().trim();
         const defStore = isUuidString(defRaw) ? defRaw : "";
-        up("store_id", amazonStore?.id ?? defStore);
+        lookupStoreId = amazonStore?.id ?? defStore;
+        if (lookupStoreId) up("store_id", lookupStoreId);
       } else if (!state.store_id) {
         // No known prefix → fallback to operator's saved default store
         const fallbackRaw = getDefaultStoreIdFromStorage().trim();
         const fallback = isUuidString(fallbackRaw) ? fallbackRaw : "";
-        if (fallback) up("store_id", fallback);
+        if (fallback) {
+          lookupStoreId = fallback;
+          up("store_id", fallback);
+        }
       }
     }
 
-    // Step A: check local products cache first
-    const { data: local } = await supabaseBrowser
-      .from("products")
-      .select("*")
-      .eq("barcode", barcode.trim())
-      .maybeSingle();
-
-    if (local) {
-      up("item_name", local.name);
-      setCatalogPreview({ name: local.name, price: local.price, image_url: local.image_url });
-      setCatalogResolution("local");
-      return;
-    }
-
-    // Step B: call the Amazon adapter
-    const amazon = await fetchProductFromAmazon(barcode.trim());
-    if (amazon) {
-      up("item_name", amazon.name);
-      setCatalogPreview({ name: amazon.name, price: amazon.price, image_url: amazon.image_url });
-      setCatalogResolution("amazon");
-      // Cache the result locally so the next scan is instant
-      try {
-        await supabaseBrowser
-          .from("products")
-          .insert({ barcode: barcode.trim(), name: amazon.name, price: amazon.price, image_url: amazon.image_url, source: "Amazon" });
-      } catch {
-        // ignore cache errors
+    try {
+      const res = await withLookupTimeout(
+        lookupProductInputForReturnItem({
+          organizationId: workspaceOrgId,
+          storeId: lookupStoreId,
+          value: raw,
+          actorProfileId,
+        }),
+      );
+      if (!res.ok) {
+        setCatalogPreview({ name: res.error });
+        setCatalogResolution("unknown");
+        return;
       }
-      return;
+
+      const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+      setCatalogAmbiguousChoices(
+        res.status === "ambiguous" ? (res.ambiguous_candidates ?? []) : [],
+      );
+      setState((p) => ({
+        ...p,
+        product_identifier: res.fields.product_identifier ?? res.normalized_input,
+        asin: res.fields.asin ?? p.asin,
+        fnsku: res.fields.fnsku ?? p.fnsku,
+        sku: res.fields.sku ?? p.sku,
+        upc_gtin: res.fields.upc ?? p.upc_gtin,
+        item_name: itemName ?? res.fields.item_name ?? p.item_name,
+        catalog_resolution:
+          res.status === "local_resolved"
+            ? "local"
+            : res.status === "backend_enriched"
+              ? "amazon"
+              : res.status === "ambiguous"
+                ? "review"
+                : "unknown",
+      }));
+      setCatalogPreview({
+        name:
+          itemName ??
+          res.product_linkage.product_name ??
+          res.product_linkage.fallback_display_name ??
+          "",
+        image_url: res.fields.image_url,
+        reason: res.enrichment.reason,
+      });
+    } catch (e) {
+      setCatalogPreview({ name: e instanceof Error ? e.message : "Product lookup failed." });
+      setCatalogResolution("unknown");
+    } finally {
+      setState((p) => ({
+        ...p,
+        catalog_resolution: p.catalog_resolution === "loading" ? "unknown" : p.catalog_resolution,
+      }));
     }
-
-    setCatalogResolution("unknown");
-  }
-
-  // ── SP-API Phase B mock: auto-fill ASIN / FNSKU / Item Name ──────────────
-  async function handleSpApiLookup() {
-    if (!state.product_identifier.trim()) return;
-    setSpApiStatus("loading");
-    await new Promise((r) => setTimeout(r, 1500));
-    const clean = state.product_identifier.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const mockAsin  = `B0${clean.slice(0, 6).padEnd(6, "0")}`;
-    const mockFnsku = `X00${clean.slice(0, 5).padEnd(5, "0")}`;
-    setState((p) => ({
-      ...p,
-      asin:      mockAsin,
-      fnsku:     mockFnsku,
-      item_name: p.item_name.trim() || `Amazon Return Product (${state.product_identifier.trim()})`,
-    }));
-    setSpApiStatus("done");
-    setTimeout(() => setSpApiStatus("idle"), 3500);
   }
 
   // ── Physical hardware scanner — attached directly to the barcode input only ─
@@ -4189,10 +4504,10 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
               onClick={() => onNavigateToPackage(state.package_link_id)}
               className="font-mono font-bold text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-300"
             >
-              {openPackages.find((p) => p.id === state.package_link_id)?.package_number ?? state.package_link_id.slice(0, 8) + "…"}
+              {openPackages.find((p) => p.id === state.package_link_id)?.package_code ?? state.package_link_id.slice(0, 8) + "…"}
             </button>
           ) : (
-            <span className="font-mono font-bold">{openPackages.find((p) => p.id === state.package_link_id)?.package_number ?? "—"}</span>
+            <span className="font-mono font-bold">{openPackages.find((p) => p.id === state.package_link_id)?.package_code ?? "—"}</span>
           )}
         </div>
       )}
@@ -4225,7 +4540,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             <QrCode className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              className={`${INPUT} pl-11 transition-all ${state.catalog_resolution === "unknown" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
+              className={`${INPUT} pl-11 transition-all ${state.catalog_resolution === "unknown" || state.catalog_resolution === "review" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
               placeholder="Scan or type product identifier…"
               value={state.product_identifier}
               onChange={(e) => {
@@ -4234,45 +4549,26 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
               autoFocus
               onKeyDown={(e) => {
                 barcodeKeyDown(e);
-                if (!e.defaultPrevented && e.key === "Enter") { e.preventDefault(); rmaRef.current?.focus(); }
+                if (!e.defaultPrevented && e.key === "Enter") {
+                  e.preventDefault();
+                  if (state.product_identifier.trim()) void handleBarcodeLookup(state.product_identifier);
+                  rmaRef.current?.focus();
+                }
               }}
               onBlur={(e) => { if (e.target.value.trim()) void handleBarcodeLookup(e.target.value); }}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (pasted.trim()) setTimeout(() => void handleBarcodeLookup(pasted), 0);
+              }}
             />
           </div>
           <ContextualScanButton
             onDetected={(code) => { up("product_identifier", code); void handleBarcodeLookup(code); }}
             modalTitle="Scan Product Barcode"
           />
-          {/* SP-API auto-fill trigger */}
-          <button
-            type="button"
-            onClick={() => void handleSpApiLookup()}
-            disabled={!state.product_identifier.trim() || spApiStatus === "loading"}
-            title="Auto-fill ASIN, FNSKU & Item Name from SP-API (mock)"
-            aria-label="Fetch product details from SP-API"
-            className="inline-flex h-12 items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
-          >
-            {spApiStatus === "loading"
-              ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              : <Zap className="h-4 w-4 shrink-0" />}
-            <span className="hidden sm:inline">{spApiStatus === "loading" ? "Fetching…" : "SP-API"}</span>
-          </button>
         </div>
-        {/* SP-API fetch feedback */}
-        {spApiStatus === "loading" && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
-            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-            Fetching product details from SP-API…
-          </div>
-        )}
-        {spApiStatus === "done" && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-            SP-API — ASIN, FNSKU &amp; Item Name auto-filled (mock data)
-          </div>
-        )}
         {/* Catalog lookup feedback */}
-        {state.catalog_resolution === "loading" && spApiStatus === "idle" && (
+        {state.catalog_resolution === "loading" && (
           <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-400">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />Looking up barcode…
           </div>
@@ -4280,18 +4576,27 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
         {state.catalog_resolution === "local" && catalogPreview && (
           <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            Found in Catalog — {catalogPreview.name}
+            Found locally — {catalogPreview.name}
           </div>
         )}
         {state.catalog_resolution === "amazon" && catalogPreview && (
           <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            Found on Amazon — {catalogPreview.name}{catalogPreview.price != null ? ` · $${catalogPreview.price.toFixed(2)}` : ""}
+            Backend enriched — {catalogPreview.name}
+          </div>
+        )}
+        {state.catalog_resolution === "review" && (
+          <div className="mt-1.5 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/20 dark:text-amber-200">
+            <p>Needs review — {catalogAmbiguousChoices.length > 1 ? `${catalogAmbiguousChoices.length} distinct local products` : "multiple local products"} matched. Pick the correct product:</p>
+            <AmbiguousProductPicker
+              choices={catalogAmbiguousChoices}
+              onPick={(c) => void handleWizardAmbiguousPick(c)}
+            />
           </div>
         )}
         {state.catalog_resolution === "unknown" && (
           <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-            ⚠️ Unknown Item — Not found locally or on Amazon. Enter the item name below — you can continue without a catalog match.
+            Unknown Item — not found locally{catalogPreview?.reason ? ` (${catalogPreview.reason})` : ""}. Enter the item name below if this business flow permits.
           </div>
         )}
         <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
@@ -4371,7 +4676,9 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             setState((p) => ({
               ...p,
               item_name: v,
-              ...(p.catalog_resolution === "unknown" ? { catalog_resolution: "idle" as const } : {}),
+              ...(p.catalog_resolution === "unknown" || p.catalog_resolution === "review"
+                ? { catalog_resolution: "idle" as const }
+                : {}),
             }));
           }}
           onKeyDown={(e) => { if (e.key === "Enter" && onAdvance) { e.preventDefault(); onAdvance(); } }}
@@ -4445,6 +4752,16 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             >
               <Store className="h-4 w-4" aria-hidden />
             </button>
+          </div>
+        </div>
+        <div>
+          <label className={LABEL}>UPC / GTIN <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+          <div className="flex gap-2">
+            <input
+              type="text" className={INPUT} placeholder="12-digit UPC…"
+              value={state.upc_gtin} onChange={(e) => up("upc_gtin", e.target.value)}
+            />
+            <button type="button" title="Copy UPC" className={wizardIdIconBtn} onClick={() => void copyWizardCode(state.upc_gtin)} disabled={!state.upc_gtin.trim()}><Copy className="h-4 w-4" /></button>
           </div>
         </div>
       </div>
@@ -4605,8 +4922,8 @@ export function WizardStep2({
 
   const pkgClaimResolved = linkedPackage ? resolvePackageClaimPhotoUrls(linkedPackage) : { opened: null as string | null, label: null as string | null };
   const hasPkgOpenedOnly = !!pkgClaimResolved.opened?.trim();
-  const pkgPe = normalizeEntityPhotoEvidenceUrls(linkedPackage?.photo_evidence);
-  const hasPkgOuterPhoto = !!(linkedPackage?.photo_url?.trim() || pkgPe[3]?.trim());
+  const pkgGal = packageGalleryUrls(linkedPackage ?? undefined);
+  const hasPkgOuterPhoto = !!(pkgGal[3]?.trim());
   const hasPkgReturnLabel = !!pkgClaimResolved.label?.trim();
   const packageMissingMandatoryPhotos = !hasPkgOpenedOnly || !hasPkgReturnLabel;
   const showPackageBackfill =
@@ -4829,19 +5146,13 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
   /** Pallet photo columns when the linked pallet is not fully loaded in `pallets` (DB fetch in wizard). */
-  palletEvidenceFromDb?: {
-    photo_url?: string | null;
-    bol_photo_url?: string | null;
-    manifest_photo_url?: string | null;
-  } | null;
-  /** Fresh package link + legacy photo columns from DB when `openPackages` is stale (no `packages.photo_evidence`). */
+  palletEvidenceFromDb?: Pick<PalletRecord, "pallet_photo_urls" | "bol_photo_urls" | "shipping_label_urls"> | null;
   packageEvidenceFromDb?: {
     pallet_id?: string | null;
     order_id?: string | null;
-    photo_opened_url?: string | null;
-    photo_return_label_url?: string | null;
-    photo_closed_url?: string | null;
-    photo_url?: string | null;
+    inside_photo_urls?: string[];
+    outside_photo_urls?: string[];
+    slip_photo_urls?: string[];
   } | null;
 }) {
   const photoTotal = Object.values(state.photos).reduce((a, files) => a + files.length, 0);
@@ -4855,10 +5166,9 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         ...pkgFromList,
         pallet_id: fromDb.pallet_id ?? pkgFromList.pallet_id,
         order_id: fromDb.order_id ?? pkgFromList.order_id,
-        photo_opened_url: fromDb.photo_opened_url ?? pkgFromList.photo_opened_url,
-        photo_return_label_url: fromDb.photo_return_label_url ?? pkgFromList.photo_return_label_url,
-        photo_closed_url: fromDb.photo_closed_url ?? pkgFromList.photo_closed_url,
-        photo_url: fromDb.photo_url ?? pkgFromList.photo_url,
+        inside_photo_urls: fromDb.inside_photo_urls?.length ? fromDb.inside_photo_urls : pkgFromList.inside_photo_urls,
+        outside_photo_urls: fromDb.outside_photo_urls?.length ? fromDb.outside_photo_urls : pkgFromList.outside_photo_urls,
+        slip_photo_urls: fromDb.slip_photo_urls?.length ? fromDb.slip_photo_urls : pkgFromList.slip_photo_urls,
       };
     }
     if (pkgFromList) return pkgFromList;
@@ -4866,7 +5176,7 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
       return {
         id: pkgKey,
         organization_id: "",
-        package_number: "",
+        package_code: "",
         tracking_number: null,
         carrier_name: null,
         expected_item_count: 0,
@@ -4875,10 +5185,9 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         order_id: fromDb.order_id ?? null,
         status: "open",
         discrepancy_note: null,
-        photo_opened_url: fromDb.photo_opened_url ?? null,
-        photo_return_label_url: fromDb.photo_return_label_url ?? null,
-        photo_closed_url: fromDb.photo_closed_url ?? null,
-        photo_url: fromDb.photo_url ?? null,
+        inside_photo_urls: fromDb.inside_photo_urls ?? [],
+        outside_photo_urls: fromDb.outside_photo_urls ?? [],
+        slip_photo_urls: fromDb.slip_photo_urls ?? [],
         created_at: "",
         updated_at: "",
       } as PackageRecord;
@@ -5038,12 +5347,12 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
                       onClick={() => onNavigateToPackage(linkedPkg.id)}
                       className="font-mono underline decoration-sky-400/80 underline-offset-2 hover:text-sky-900 dark:hover:text-sky-100"
                     >
-                      {linkedPkg.package_number}
+                      {linkedPkg.package_code}
                     </button>
                   ) : (
-                    <span className="font-mono">{linkedPkg.package_number}</span>
+                    <span className="font-mono">{linkedPkg.package_code}</span>
                   )}
-                  <InlineCopy value={linkedPkg.package_number} label="Package #" onToast={onToast} />
+                  <InlineCopy value={linkedPkg.package_code} label="Package #" onToast={onToast} />
                 </span>
               )}
               {linkedPlt && (
@@ -5157,17 +5466,13 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   const [fetchedPkgMeta, setFetchedPkgMeta] = useState<{
     pallet_id?: string | null;
     order_id?: string | null;
-    photo_opened_url?: string | null;
-    photo_return_label_url?: string | null;
-    photo_closed_url?: string | null;
-    photo_url?: string | null;
+    inside_photo_urls?: string[];
+    outside_photo_urls?: string[];
+    slip_photo_urls?: string[];
   } | null>(null);
-  /** Pallet photo columns when package → pallet chain is resolved (matches claim payload family tree). */
-  const [fetchedPalletEvidence, setFetchedPalletEvidence] = useState<{
-    photo_url?: string | null;
-    bol_photo_url?: string | null;
-    manifest_photo_url?: string | null;
-  } | null>(null);
+  const [fetchedPalletEvidence, setFetchedPalletEvidence] = useState<
+    Pick<PalletRecord, "pallet_photo_urls" | "bol_photo_urls" | "shipping_label_urls"> | null
+  >(null);
   /** Resolves `marketplace` on submit when Step 1 synced only `store_id` (same source as listStores in WizardStep1). */
   const [wizardStoresForSubmit, setWizardStoresForSubmit] = useState<{ id: string; platform: string }[]>([]);
   useEffect(() => {
@@ -5203,16 +5508,16 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
       if (localPlt) {
         if (!cancelled) {
           setFetchedPalletEvidence({
-            photo_url: localPlt.photo_url,
-            bol_photo_url: localPlt.bol_photo_url,
-            manifest_photo_url: localPlt.manifest_photo_url,
+            pallet_photo_urls: localPlt.pallet_photo_urls,
+            bol_photo_urls: localPlt.bol_photo_urls,
+            shipping_label_urls: localPlt.shipping_label_urls,
           });
         }
         return;
       }
       void supabaseBrowser
         .from("pallets")
-        .select("photo_url, bol_photo_url, manifest_photo_url")
+        .select("pallet_photo_urls, bol_photo_urls, shipping_label_urls")
         .eq("id", pid)
         .maybeSingle()
         .then(({ data }) => {
@@ -5222,22 +5527,21 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
             return;
           }
           const row = data as {
-            photo_url?: string | null;
-            bol_photo_url?: string | null;
-            manifest_photo_url?: string | null;
+            pallet_photo_urls?: string[] | null;
+            bol_photo_urls?: string[] | null;
+            shipping_label_urls?: string[] | null;
           };
           setFetchedPalletEvidence({
-            photo_url: row.photo_url ?? null,
-            bol_photo_url: row.bol_photo_url ?? null,
-            manifest_photo_url: row.manifest_photo_url ?? null,
+            pallet_photo_urls: row.pallet_photo_urls ?? [],
+            bol_photo_urls: row.bol_photo_urls ?? [],
+            shipping_label_urls: row.shipping_label_urls ?? [],
           });
         });
     }
 
-    /** Load pallet link + marketplace order id + legacy package photo columns only (no `photo_evidence` JSONB). */
     void supabaseBrowser
       .from("packages")
-      .select("order_id, pallet_id, photo_opened_url, photo_return_label_url, photo_closed_url, photo_url")
+      .select("order_id, pallet_id, inside_photo_urls, outside_photo_urls, slip_photo_urls")
       .eq("id", pkgKey)
       .maybeSingle()
       .then(({ data }) => {
@@ -5250,18 +5554,16 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         const row = data as {
           order_id?: string | null;
           pallet_id?: string | null;
-          photo_opened_url?: string | null;
-          photo_return_label_url?: string | null;
-          photo_closed_url?: string | null;
-          photo_url?: string | null;
+          inside_photo_urls?: string[] | null;
+          outside_photo_urls?: string[] | null;
+          slip_photo_urls?: string[] | null;
         };
         setFetchedPkgMeta({
           pallet_id: row.pallet_id ?? null,
           order_id: row.order_id ?? null,
-          photo_opened_url: row.photo_opened_url ?? null,
-          photo_return_label_url: row.photo_return_label_url ?? null,
-          photo_closed_url: row.photo_closed_url ?? null,
-          photo_url: row.photo_url ?? null,
+          inside_photo_urls: row.inside_photo_urls ?? [],
+          outside_photo_urls: row.outside_photo_urls ?? [],
+          slip_photo_urls: row.slip_photo_urls ?? [],
         });
         const oid = row.order_id?.trim();
         if (oid) setState((p) => (p.amazon_order_id.trim() ? p : { ...p, amazon_order_id: oid }));
@@ -5275,26 +5577,25 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
     if (!id) return null;
     const base = openPackages.find((p) => p.id === id);
     const meta = fetchedPkgMeta;
-    const merged = base
+    const mergedRow = base
       ? {
-          photo_opened_url: (meta?.photo_opened_url ?? base.photo_opened_url)?.trim() || null,
-          photo_closed_url: (meta?.photo_closed_url ?? base.photo_closed_url)?.trim() || null,
-          photo_return_label_url: (meta?.photo_return_label_url ?? base.photo_return_label_url)?.trim() || null,
-          photo_url: (meta?.photo_url ?? base.photo_url)?.trim() || null,
+          inside_photo_urls: meta?.inside_photo_urls?.length ? meta.inside_photo_urls : base.inside_photo_urls,
+          outside_photo_urls: meta?.outside_photo_urls?.length ? meta.outside_photo_urls : base.outside_photo_urls,
+          slip_photo_urls: meta?.slip_photo_urls?.length ? meta.slip_photo_urls : base.slip_photo_urls,
         }
       : meta
         ? {
-            photo_opened_url: meta.photo_opened_url?.trim() || null,
-            photo_closed_url: meta.photo_closed_url?.trim() || null,
-            photo_return_label_url: meta.photo_return_label_url?.trim() || null,
-            photo_url: meta.photo_url?.trim() || null,
+            inside_photo_urls: meta.inside_photo_urls,
+            outside_photo_urls: meta.outside_photo_urls,
+            slip_photo_urls: meta.slip_photo_urls,
           }
         : null;
-    if (!merged) return null;
-    if (!merged.photo_opened_url && !merged.photo_closed_url && !merged.photo_return_label_url && !merged.photo_url) {
+    if (!mergedRow) return null;
+    const slots = packagePhotoSlotsFromRow(mergedRow);
+    if (!slots.photo_opened_url && !slots.photo_closed_url && !slots.photo_return_label_url && !slots.photo_url) {
       return null;
     }
-    return merged;
+    return slots;
   }, [resolvedPkgId, openPackages, fetchedPkgMeta]);
 
   const packageInheritsBoxPhotos = !!(
@@ -5314,17 +5615,16 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         ...base,
         order_id: meta.order_id ?? base.order_id,
         pallet_id: meta.pallet_id ?? base.pallet_id,
-        photo_opened_url: meta.photo_opened_url ?? base.photo_opened_url,
-        photo_return_label_url: meta.photo_return_label_url ?? base.photo_return_label_url,
-        photo_closed_url: meta.photo_closed_url ?? base.photo_closed_url,
-        photo_url: meta.photo_url ?? base.photo_url,
+        inside_photo_urls: meta.inside_photo_urls?.length ? meta.inside_photo_urls : base.inside_photo_urls,
+        outside_photo_urls: meta.outside_photo_urls?.length ? meta.outside_photo_urls : base.outside_photo_urls,
+        slip_photo_urls: meta.slip_photo_urls?.length ? meta.slip_photo_urls : base.slip_photo_urls,
       };
     }
     if (meta) {
       return {
         id,
         organization_id: workspaceOrgId,
-        package_number: "",
+        package_code: "",
         tracking_number: null,
         carrier_name: null,
         expected_item_count: 0,
@@ -5333,10 +5633,9 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         order_id: meta.order_id ?? null,
         status: "open",
         discrepancy_note: null,
-        photo_opened_url: meta.photo_opened_url ?? null,
-        photo_return_label_url: meta.photo_return_label_url ?? null,
-        photo_closed_url: meta.photo_closed_url ?? null,
-        photo_url: meta.photo_url ?? null,
+        inside_photo_urls: meta.inside_photo_urls ?? [],
+        outside_photo_urls: meta.outside_photo_urls ?? [],
+        slip_photo_urls: meta.slip_photo_urls ?? [],
         created_at: "",
         updated_at: "",
       } as PackageRecord;
@@ -5358,7 +5657,8 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
     hasManualProductIds ||
     state.catalog_resolution === "unknown" ||
     state.catalog_resolution === "local" ||
-    state.catalog_resolution === "amazon";
+    state.catalog_resolution === "amazon" ||
+    state.catalog_resolution === "review";
 
   const rawPkgLink = (inheritedContext?.packageId ?? state.package_link_id)?.trim() ?? "";
   const packageLinkUuidOk =
@@ -5485,9 +5785,10 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         marketplace: marketplaceResolved,
         item_name: state.item_name,
         conditions,
-        asin: state.asin.trim() || state.product_identifier.trim() || undefined,
+        asin: state.asin.trim() || undefined,
         fnsku: state.fnsku.trim() || undefined,
         sku: state.sku.trim() || undefined,
+        product_identifier: state.product_identifier.trim() || state.upc_gtin.trim() || undefined,
         amazon_order_id: orderId,
         notes: state.notes, photo_evidence: photoEvidence ?? undefined,
         expiration_date: state.expiration_date || undefined,
@@ -5563,6 +5864,8 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
               onAdvance={step1Valid ? () => setStep(2) : undefined}
               onNavigateToPackage={onNavigateToPackage}
               onNavigateToPallet={onNavigateToPallet}
+              organizationId={workspaceOrgId}
+              actorProfileId={actorProfileId}
             />
           )}
           {step === 2 && (
@@ -5902,12 +6205,12 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
       const photo_evidence = noBoxMode
         ? (polyOnly ?? undefined)
         : struct
-          ? (struct as Record<string, unknown>)
+          ? (struct as unknown as Record<string, unknown>)
           : undefined;
       const res = await createPackage({
         organization_id: pkgOrgId,
         actor_profile_id: actorProfileId,
-        package_number: pkgNum.trim(),
+        package_code: pkgNum.trim(),
         tracking_number: tracking.trim() || undefined,
         carrier_name: carrier || undefined,
         rma_number: rmaNumber.trim() || undefined,
@@ -5921,6 +6224,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
         pallet_id: palletId || undefined,
         store_id: pkgStoreId || undefined,
         created_by: actor,
+        ...(manifestParsedLines && manifestParsedLines.length > 0 ? { manifest_data: manifestParsedLines } : {}),
         ...(manifestPhotoUrl ? { manifest_photo_url: manifestPhotoUrl } : {}),
         ...(photo_evidence ? { photo_evidence } : {}),
       });
@@ -6317,9 +6621,9 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
         organization_id: pltOrgId,
         actor_profile_id: actorProfileId,
         pallet_number: palletNum.trim(),
-        photo_url: palletPhotoUrls[0]?.trim() || null,
-        bol_photo_url: bolUrls[0]?.trim() || null,
-        ...(manifestPhotoUrl ? { manifest_photo_url: manifestPhotoUrl } : {}),
+        pallet_photo_urls: palletPhotoUrls[0]?.trim() ? [palletPhotoUrls[0].trim()] : null,
+        bol_photo_urls: bolUrls[0]?.trim() ? [bolUrls[0].trim()] : null,
+        ...(manifestPhotoUrl ? { shipping_label_urls: [manifestPhotoUrl] } : {}),
         store_id: palletStoreId,
         notes,
         created_by: actor,
@@ -6534,7 +6838,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           formatMarketplaceSource(r.marketplace),
           r.inherited_tracking_number ?? "",
           r.asin ?? "", r.fnsku ?? "", r.sku ?? "",
-          pkg?.tracking_number ?? "", pkg?.package_number ?? "", pkg?.carrier_name ?? "", pkg?.rma_number ?? "",
+          pkg?.tracking_number ?? "", pkg?.package_code ?? "", pkg?.carrier_name ?? "", pkg?.rma_number ?? "",
           plt?.tracking_number ?? "", plt?.pallet_number ?? "",
         ].join(" ").toLowerCase();
         return blob.includes(q);
@@ -6590,6 +6894,14 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           This session loads the latest {items.length} of {returnsTotalInDb} return items in the database. The table shows {PER} rows per page; use Next / Prev below or narrow with filters.
         </div>
       )}
+      {returnsTotalInDb != null && returnsTotalInDb <= 50 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-100">
+          <strong>Staging data note:</strong> <code className="font-mono">return_items</code> on staging is mostly
+          fake/test data (low row count). Resolver coverage on this table is not production truth — see{" "}
+          <code className="font-mono">PROJECT_CONTEXT.md</code> and V178 audit{" "}
+          <code className="font-mono">return_items-test-data.md</code>.
+        </div>
+      ) : null}
       {selectedIds.size > 0 && (
         <BulkActionsBar count={selectedIds.size} onDelete={canDelete(role) ? handleBulkDelete : undefined} onMove={() => setShowBulkMove(true)} onClear={() => setSelectedIds(new Set())} deleting={bulkDeleting} />
       )}
@@ -6610,7 +6922,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
 
       <div className="w-full overflow-x-auto rounded-2xl border border-border">
         <div className="w-full min-w-0">
-          <table className="w-full min-w-[1460px] text-sm">
+          <table className="w-full min-w-[1580px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
@@ -6622,7 +6934,8 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                   <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
                 )}
                 <th className="w-12 px-2 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500" title="Marketplace">MP</th>
-                <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Item / Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Product</th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="lpn" label="LPN" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6666,8 +6979,16 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         asin={r.asin}
                         fnsku={r.fnsku}
                         sku={r.sku}
+                        upc={upcFromProductIdentifier(r.product_identifier)}
                         storePlatform={r.stores?.platform}
                         onToast={onToast}
+                      />
+                    </td>
+                    <td className="min-w-[220px] px-4 py-3 align-top" onClick={(e) => e.stopPropagation()}>
+                      <ReturnItemProductLinkage
+                        organizationId={r.organization_id}
+                        fields={r}
+                        compact
                       />
                     </td>
                     <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
@@ -6689,7 +7010,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         fallback="—"
                       />
                     </td>
-                    <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{r.conditions.slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                    <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     {/* ── Expiry Date cell (FEFO) ── */}
                     <td className="hidden px-4 py-3 md:table-cell">
@@ -6715,7 +7036,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                     </td>
                     <td className="hidden px-4 py-3 lg:table-cell">
                       {linkedPkg
-                        ? <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 font-mono text-[10px] font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">📦 {linkedPkg.package_number}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
+                        ? <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 font-mono text-[10px] font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
                         : <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">⚠ Orphaned / Loose</span>}
                     </td>
                     <td className="hidden px-4 py-3 xl:table-cell text-xs text-slate-400">{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
@@ -6811,7 +7132,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     let d = [...packages];
     const q = (externalSearch.trim() || search).trim().toLowerCase();
     if (q) {
-      d = d.filter((p) => [p.id, p.package_number, p.tracking_number ?? "", p.carrier_name ?? ""].join(" ").toLowerCase().includes(q));
+      d = d.filter((p) => [p.id, p.package_code, p.tracking_number ?? "", p.carrier_name ?? ""].join(" ").toLowerCase().includes(q));
     }
     if (statusF)  d = d.filter((p) => p.status === statusF);
     if (carrierF) d = d.filter((p) => p.carrier_name === carrierF);
@@ -6896,7 +7217,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 {showCompanyColumn && (
                   <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
                 )}
-                <th className="px-4 py-3 text-left"><SortButton field="package_number" label="Package #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left"><SortButton field="package_code" label="Package #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="carrier_tracking" label="Carrier / Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="pkg_items_sort" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6932,8 +7253,8 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                       )}
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-foreground">
-                          <span>{p.package_number}</span>
-                          <InlineCopy value={p.package_number} label="Package #" onToast={onToast} stopPropagation />
+                          <span>{p.package_code}</span>
+                          <InlineCopy value={p.package_code} label="Package #" onToast={onToast} stopPropagation />
                         </div>
                       </td>
                       <td className="hidden px-4 py-3 md:table-cell">
@@ -6976,6 +7297,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                 <table className="w-full text-xs">
                                   <thead><tr className="border-b border-violet-200 bg-violet-100/60 dark:border-violet-800/50 dark:bg-violet-950/40">
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Item</th>
+                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Product</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Store</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Condition</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Status</th>
@@ -6991,9 +7313,13 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                             asin={r.asin}
                                             fnsku={r.fnsku}
                                             sku={r.sku}
+                                            upc={upcFromProductIdentifier(r.product_identifier)}
                                             storePlatform={r.stores?.platform}
                                             onToast={onToast}
                                           />
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
                                         </td>
                                         <td className="px-3 py-2">
                                           {r.stores ? (
@@ -7002,7 +7328,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                             <span className="text-[11px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
                                           )}
                                         </td>
-                                        <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{r.conditions.slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                                        <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                         <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
                                         <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(r, pkgTableOperatorNames)}</td>
                                       </tr>
@@ -7262,8 +7588,8 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                             </td>
                                             <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                                               <div className="flex items-center gap-1 font-mono font-semibold text-slate-700 dark:text-slate-300">
-                                                <span>{pk.package_number}</span>
-                                                <InlineCopy value={pk.package_number} label="Package #" onToast={onToast} stopPropagation />
+                                                <span>{pk.package_code}</span>
+                                                <InlineCopy value={pk.package_code} label="Package #" onToast={onToast} stopPropagation />
                                               </div>
                                             </td>
                                             <td className="px-3 py-2 text-slate-500">{pk.carrier_name ?? "—"}</td>
@@ -7294,6 +7620,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                       <table className="w-full text-[11px]">
                                                         <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Item</th>
+                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Product</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Store</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Condition</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Status</th>
@@ -7309,9 +7636,13 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                                   asin={r.asin}
                                                                   fnsku={r.fnsku}
                                                                   sku={r.sku}
+                                                                  upc={upcFromProductIdentifier(r.product_identifier)}
                                                                   storePlatform={r.stores?.platform}
                                                                   onToast={onToast}
                                                                 />
+                                                              </td>
+                                                              <td className="px-2 py-1.5">
+                                                                <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
                                                               </td>
                                                               <td className="px-2 py-1.5">
                                                                 {r.stores ? (
@@ -7320,7 +7651,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                                   <span className="text-[10px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
                                                                 )}
                                                               </td>
-                                                              <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{r.conditions.slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                                                              <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                                               <td className="px-2 py-1.5"><StatusBadge status={r.status} /></td>
                                                               <td className="px-2 py-1.5 capitalize text-slate-400">{operatorDisplayLabel(r, pltTableOperatorNames)}</td>
                                                             </tr>

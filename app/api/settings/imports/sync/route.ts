@@ -1,4 +1,4 @@
-﻿/**
+/**
  * POST /api/settings/imports/sync
  *
  * Phase 3 of the 3-phase ETL pipeline.
@@ -105,7 +105,7 @@ import {
 import { rawRowUsesInventoryLedgerPositionalKeys } from "../../../../../lib/inventory-ledger-positional";
 import { completeInventoryLedgerProductIdentifierMapPhase } from "../../../../../lib/inventory-ledger-generic-completion";
 import { completeReportsRepositoryGenericPhase } from "../../../../../lib/reports-repository-generic-completion";
-import { resolveAmazonImportProducts } from "../../../../../lib/amazon-import-product-resolver";
+import { runPostSyncProductResolverForTable } from "../../../../../lib/amazon-resolver-post-sync-import";
 import { removalShipmentArchiveBusinessKey } from "../../../../../lib/pipeline/removal-shipment-archive-key";
 import {
   measureBatchUpsertMetrics,
@@ -204,7 +204,7 @@ async function upsertDomainChunkWithLedgerRetry(
 
 /** File fingerprint from Phase-1 metadata; stable across re-import of the same bytes. */
 function resolveSourceFileSha256(meta: unknown, uploadId: string): string {
-  const m = meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
+  const m = meta && typeof meta === "object" ? (meta as unknown as Record<string, unknown>) : {};
   const s = String(m.content_sha256 ?? "").trim().toLowerCase();
   if (s) return s;
   return `legacy-upload-${uploadId}`;
@@ -685,8 +685,8 @@ function mergeRemovalOrderRowsPreferNonNull(
   const nr = next.raw_data;
   if (nr && typeof nr === "object" && !Array.isArray(nr)) {
     const po =
-      pr && typeof pr === "object" && !Array.isArray(pr) ? (pr as Record<string, unknown>) : {};
-    out.raw_data = { ...po, ...(nr as Record<string, unknown>) };
+      pr && typeof pr === "object" && !Array.isArray(pr) ? (pr as unknown as Record<string, unknown>) : {};
+    out.raw_data = { ...po, ...(nr as unknown as Record<string, unknown>) };
   }
   const u = next.upload_id;
   if (u !== null && u !== undefined && String(u).trim() !== "") out.upload_id = u;
@@ -738,7 +738,7 @@ async function loadCrossUploadShipmentBusinessKeySet(opts: {
     if (error) {
       throw new Error(`[REMOVAL_SHIPMENT] cross-upload shipment key prefetch failed: ${error.message}`);
     }
-    ingest(data as Record<string, unknown>[]);
+    ingest(data as unknown as Record<string, unknown>[]);
   }
 
   for (let i = 0; i < trackingNumbers.length; i += 80) {
@@ -755,7 +755,7 @@ async function loadCrossUploadShipmentBusinessKeySet(opts: {
     if (error) {
       throw new Error(`[REMOVAL_SHIPMENT] cross-upload shipment key prefetch failed: ${error.message}`);
     }
-    ingest(data as Record<string, unknown>[]);
+    ingest(data as unknown as Record<string, unknown>[]);
   }
 
   return keys;
@@ -799,7 +799,7 @@ function buildRemovalFillFromShipment(
 
 function parseStagingRawRow(raw: unknown): Record<string, string> {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const o = raw as Record<string, unknown>;
+    const o = raw as unknown as Record<string, unknown>;
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(o)) {
       out[k] = v === null || v === undefined ? "" : String(v);
@@ -1221,7 +1221,7 @@ async function runProductIdentitySyncBranch(opts: {
   const { uploadId, orgId, row } = opts;
   const meta =
     row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-      ? (row.metadata as Record<string, unknown>)
+      ? (row.metadata as unknown as Record<string, unknown>)
       : {};
 
   const storeValidation = await validateImportStoreBelongsToOrg({
@@ -1589,7 +1589,7 @@ export async function POST(req: Request): Promise<Response> {
       return await runProductIdentitySyncBranch({
         uploadId,
         orgId,
-        row: row as Record<string, unknown>,
+        row: row as unknown as Record<string, unknown>,
       });
     }
 
@@ -1721,7 +1721,7 @@ export async function POST(req: Request): Promise<Response> {
       meta &&
       typeof meta === "object" &&
       !Array.isArray(meta) &&
-      (meta as Record<string, unknown>).removal_shipment_replace_same_file_sha === true;
+      (meta as unknown as Record<string, unknown>).removal_shipment_replace_same_file_sha === true;
 
     if (kind === "REMOVAL_ORDER") {
       const rep = await removeOlderRemovalImportsWithSameFileContent(orgId, uploadId, meta, "REMOVAL_ORDER");
@@ -1762,7 +1762,7 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     const metaRec =
-      meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+      meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as unknown as Record<string, unknown>) : {};
 
     const [{ count: stagingRowCount }, { data: fpsBeforeSync }] = await Promise.all([
       supabaseServer
@@ -1776,7 +1776,7 @@ export async function POST(req: Request): Promise<Response> {
     const totalStagingRows = typeof stagingRowCount === "number" ? stagingRowCount : 0;
     const fpsRec =
       fpsBeforeSync && typeof fpsBeforeSync === "object" && !Array.isArray(fpsBeforeSync)
-        ? (fpsBeforeSync as Record<string, unknown>)
+        ? (fpsBeforeSync as unknown as Record<string, unknown>)
         : {};
     const fileRowPlanRes = resolveImportFileRowTotal({ fps: fpsRec, metadata: metaRec });
     const fileRowTotal = fileRowPlanRes.total;
@@ -2002,9 +2002,9 @@ export async function POST(req: Request): Promise<Response> {
               stagingSourceLineHash: String(sr.source_line_hash ?? ""),
             });
           } else if (kind === "FBA_RETURNS") {
-            insertRow = mapRowToAmazonReturn(mappedRow, orgId, uploadId, importStoreId!) as Record<string, unknown>;
+            insertRow = mapRowToAmazonReturn(mappedRow, orgId, uploadId, importStoreId!) as unknown as Record<string, unknown>;
           } else if (kind === "REMOVAL_ORDER") {
-            insertRow = mapRowToAmazonRemoval(mappedRow, orgId, uploadId, importStoreId!) as Record<string, unknown> | null;
+            insertRow = mapRowToAmazonRemoval(mappedRow, orgId, uploadId, importStoreId!) as unknown as Record<string, unknown> | null;
             if (insertRow) insertRow.source_staging_id = sr.id;
           } else if (kind === "INVENTORY_LEDGER") {
             const rawRowObj = (sr.raw_row ?? {}) as Record<string, string>;
@@ -2020,7 +2020,7 @@ export async function POST(req: Request): Promise<Response> {
                       ? String((row as { file_name: string }).file_name).trim() || null
                       : null,
                 },
-              ) as Record<string, unknown> | null;
+              ) as unknown as Record<string, unknown> | null;
             } else {
               insertRow = mapRowToAmazonInventoryLedger(mappedRow, orgId, uploadId, importStoreId!) as
                 | Record<string, unknown>
@@ -2036,46 +2036,46 @@ export async function POST(req: Request): Promise<Response> {
               orgId,
               uploadId,
               importStoreId ?? null,
-            ) as Record<string, unknown> | null;
+            ) as unknown as Record<string, unknown> | null;
           } else if (kind === "SAFET_CLAIMS") {
-            insertRow = mapRowToAmazonSafetClaim(mappedRow, orgId, uploadId, importStoreId!) as Record<string, unknown> | null;
+            insertRow = mapRowToAmazonSafetClaim(mappedRow, orgId, uploadId, importStoreId!) as unknown as Record<string, unknown> | null;
           } else if (kind === "TRANSACTIONS") {
-            insertRow = mapRowToAmazonTransaction(mappedRow, orgId, uploadId, importStoreId!) as Record<string, unknown> | null;
+            insertRow = mapRowToAmazonTransaction(mappedRow, orgId, uploadId, importStoreId!) as unknown as Record<string, unknown> | null;
           } else if (kind === "REPORTS_REPOSITORY") {
             insertRow = mapRowToAmazonReportsRepository(
               mappedRow,
               orgId,
               uploadId,
               importStoreId ?? null,
-            ) as Record<string, unknown>;
+            ) as unknown as Record<string, unknown>;
           } else if (kind === "MANAGE_FBA_INVENTORY") {
             insertRow = mapRowToAmazonManageFbaInventory(
               mappedRow,
               orgId,
               uploadId,
               importStoreId,
-            ) as Record<string, unknown> | null;
+            ) as unknown as Record<string, unknown> | null;
           } else if (kind === "FBA_INVENTORY") {
             insertRow = mapRowToAmazonFbaInventory(
               mappedRow,
               orgId,
               uploadId,
               importStoreId,
-            ) as Record<string, unknown> | null;
+            ) as unknown as Record<string, unknown> | null;
           } else if (kind === "INBOUND_PERFORMANCE") {
             insertRow = mapRowToAmazonInboundPerformance(
               mappedRow,
               orgId,
               uploadId,
               importStoreId,
-            ) as Record<string, unknown> | null;
+            ) as unknown as Record<string, unknown> | null;
           } else if (kind === "AMAZON_FULFILLED_INVENTORY") {
             insertRow = mapRowToAmazonAmazonFulfilledInventory(
               mappedRow,
               orgId,
               uploadId,
               importStoreId,
-            ) as Record<string, unknown> | null;
+            ) as unknown as Record<string, unknown> | null;
           } else if (kind === "ALL_ORDERS") {
             // Typed Fulfilled Shipments mapper (migration 20260642). Falls back
             // to mapRowToAmazonRawArchive only if the typed mapper rejects an
@@ -2085,7 +2085,7 @@ export async function POST(req: Request): Promise<Response> {
               orgId,
               uploadId,
               importStoreId,
-            ) as Record<string, unknown> | null;
+            ) as unknown as Record<string, unknown> | null;
           } else if (
             kind === "REPLACEMENTS" ||
             kind === "FBA_GRADE_AND_RESELL" ||
@@ -2093,7 +2093,7 @@ export async function POST(req: Request): Promise<Response> {
             kind === "FEE_PREVIEW" ||
             kind === "MONTHLY_STORAGE_FEES"
           ) {
-            insertRow = mapRowToAmazonRawArchive(mappedRow, orgId, uploadId, importStoreId) as Record<string, unknown> | null;
+            insertRow = mapRowToAmazonRawArchive(mappedRow, orgId, uploadId, importStoreId) as unknown as Record<string, unknown> | null;
           }
 
           if (insertRow && kind !== "REMOVAL_ORDER") {
@@ -2454,7 +2454,7 @@ export async function POST(req: Request): Promise<Response> {
     // status on the row, never block the sync.
     try {
       if (kind === "ALL_ORDERS") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
@@ -2462,7 +2462,7 @@ export async function POST(req: Request): Promise<Response> {
           table: "amazon_all_orders",
         });
       } else if (kind === "SETTLEMENT") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
@@ -2470,7 +2470,7 @@ export async function POST(req: Request): Promise<Response> {
           table: "amazon_settlements",
         });
       } else if (kind === "TRANSACTIONS") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
@@ -2481,20 +2481,41 @@ export async function POST(req: Request): Promise<Response> {
           joinAllOrders: true,
         });
       } else if (kind === "MANAGE_FBA_INVENTORY") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
           storeId: importStoreId!,
           table: "amazon_manage_fba_inventory",
         });
+      } else if (kind === "FBA_INVENTORY") {
+        await runPostSyncProductResolverForTable({
+          supabase: supabaseServer,
+          organizationId: orgId,
+          uploadId,
+          storeId: importStoreId!,
+          table: "amazon_fba_inventory",
+        });
       } else if (kind === "AMAZON_FULFILLED_INVENTORY") {
-        await resolveAmazonImportProducts({
+        await runPostSyncProductResolverForTable({
           supabase: supabaseServer,
           organizationId: orgId,
           uploadId,
           storeId: importStoreId!,
           table: "amazon_amazon_fulfilled_inventory",
+        });
+      } else if (
+        kind === "FBA_RETURNS" &&
+        (process.env.AMAZON_RETURNS_POST_SYNC_RESOLVER === "true" ||
+          process.env.AMAZON_RETURNS_POST_SYNC_RESOLVER === "1")
+      ) {
+        await runPostSyncProductResolverForTable({
+          supabase: supabaseServer,
+          organizationId: orgId,
+          uploadId,
+          storeId: importStoreId!,
+          table: "amazon_returns",
+          returnsPostSyncResolverActive: true,
         });
       }
     } catch (resolverErr) {
@@ -2557,7 +2578,7 @@ export async function POST(req: Request): Promise<Response> {
           .select("staged_rows_written, total_rows")
           .eq("upload_id", uploadIdForFail)
           .maybeSingle();
-        const fpsRec = fpsRow && typeof fpsRow === "object" ? (fpsRow as Record<string, unknown>) : {};
+        const fpsRec = fpsRow && typeof fpsRow === "object" ? (fpsRow as unknown as Record<string, unknown>) : {};
         const wm =
           typeof fpsRec.staged_rows_written === "number" && Number.isFinite(fpsRec.staged_rows_written)
             ? Math.floor(fpsRec.staged_rows_written)
@@ -2840,7 +2861,7 @@ async function partitionRemovalOrderRowsAgainstDatabase(
       throw new Error(`[REMOVAL_ORDER] preload amazon_removals failed: ${error.message}`);
     }
     for (const row of data ?? []) {
-      const rec = row as Record<string, unknown>;
+      const rec = row as unknown as Record<string, unknown>;
       const recCanon = applyCanonicalRemovalOrderBusinessColumns(rec);
       const k = removalAmazonRemovalsBusinessDedupKey(recCanon);
       if (!existingByBizKey.has(k)) existingByBizKey.set(k, recCanon);

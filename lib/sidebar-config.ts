@@ -31,7 +31,8 @@ export type SidebarIconName =
   | "Shield"
   | "Database"
   | "FileUp"
-  | "ScanLine";
+  | "ScanLine"
+  | "Inbox";
 
 export type SidebarLeaf = {
   kind: "leaf";
@@ -157,6 +158,28 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             icon: "ShieldAlert",
             rbac: "canSeeClaimEngine",
             order: 2,
+          },
+          {
+            kind: "leaf",
+            id: "claim_inbox",
+            label: "Claim Inbox",
+            path: "/claim-engine/inbox",
+            featureKey: "claims.engine",
+            permissionBase: "claims.engine",
+            icon: "Inbox",
+            rbac: "canSeeClaimEngine",
+            order: 2.5,
+          },
+          {
+            kind: "leaf",
+            id: "claim_review_ops",
+            label: "Review operations",
+            path: "/claim-engine/review-ops",
+            featureKey: "claims.engine",
+            permissionBase: "claims.engine",
+            icon: "ClipboardList",
+            rbac: "canSeeClaimEngine",
+            order: 2.55,
           },
           {
             kind: "leaf",

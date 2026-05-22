@@ -5,7 +5,7 @@
 export function derivePimCategorySourceLabel(product: Record<string, unknown>): string {
   const meta = product.metadata;
   const m =
-    meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+    meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as unknown as Record<string, unknown>) : {};
   const src = String(m.pim_category_source ?? "").trim();
   if (src === "manual") return "manual";
   if (src === "ai_assisted") return "AI-assisted selection";
@@ -15,13 +15,13 @@ export function derivePimCategorySourceLabel(product: Record<string, unknown>): 
   const fp = m.pim_field_provenance;
   const catProv =
     fp && typeof fp === "object" && !Array.isArray(fp)
-      ? (fp as Record<string, unknown>).category_id
+      ? (fp as unknown as Record<string, unknown>).category_id
       : null;
   if (
     catProv &&
     typeof catProv === "object" &&
     !Array.isArray(catProv) &&
-    String((catProv as Record<string, unknown>).source ?? "") === "amazon_catalog_enrichment"
+    String((catProv as unknown as Record<string, unknown>).source ?? "") === "amazon_catalog_enrichment"
   ) {
     return "Amazon enrichment";
   }
@@ -31,7 +31,7 @@ export function derivePimCategorySourceLabel(product: Record<string, unknown>): 
 
 function readPriceRowMeta(row: Record<string, unknown>): Record<string, unknown> {
   const m = row.metadata;
-  return m && typeof m === "object" && !Array.isArray(m) ? (m as Record<string, unknown>) : {};
+  return m && typeof m === "object" && !Array.isArray(m) ? (m as unknown as Record<string, unknown>) : {};
 }
 
 /**

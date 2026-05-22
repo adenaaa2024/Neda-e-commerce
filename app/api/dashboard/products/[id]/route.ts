@@ -16,10 +16,10 @@ function emptyToNull(v: unknown): string | null {
 
 function mergeMetadataPimNotes(prev: unknown, notes: string | null): Record<string, unknown> {
   const base =
-    prev && typeof prev === "object" && !Array.isArray(prev) ? { ...(prev as Record<string, unknown>) } : {};
+    prev && typeof prev === "object" && !Array.isArray(prev) ? { ...(prev as unknown as Record<string, unknown>) } : {};
   const pimUi =
     base.pim_ui && typeof base.pim_ui === "object" && !Array.isArray(base.pim_ui)
-      ? { ...(base.pim_ui as Record<string, unknown>) }
+      ? { ...(base.pim_ui as unknown as Record<string, unknown>) }
       : {};
   if (notes != null && notes.trim()) {
     pimUi.notes = notes.trim();
@@ -91,7 +91,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       .eq("id", cid)
       .eq("organization_id", organizationId)
       .maybeSingle();
-    const normalized = crow && typeof crow === "object" ? normalizePimProductCategoryRow(crow as Record<string, unknown>) : null;
+    const normalized = crow && typeof crow === "object" ? normalizePimProductCategoryRow(crow as unknown as Record<string, unknown>) : null;
     categoryName = normalized?.name?.trim() || null;
   }
 
@@ -118,9 +118,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({ ok: false, error: prErr.message }, { status: 400 });
   }
 
-  const priceRows = (prices ?? []) as Record<string, unknown>[];
+  const priceRows = (prices ?? []) as unknown as Record<string, unknown>[];
   const latestPrice = priceRows.length ? priceRows[0]! : null;
-  const p = product as Record<string, unknown>;
+  const p = product as unknown as Record<string, unknown>;
   const pimPriceMissingReason = derivePimPriceMissingReasonForProductDetail({
     hasPriceRow: priceRows.length > 0,
     productMetadata: p.metadata,
@@ -153,7 +153,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       .match({ seller_sku: sku, asin })
       .order("last_seen_at", { ascending: false })
       .limit(50);
-    pushCatalog((both ?? []) as Record<string, unknown>[]);
+    pushCatalog((both ?? []) as unknown as Record<string, unknown>[]);
   }
   if (sku) {
     const { data: bySku } = await supabaseServer
@@ -164,7 +164,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       .eq("seller_sku", sku)
       .order("last_seen_at", { ascending: false })
       .limit(50);
-    pushCatalog((bySku ?? []) as Record<string, unknown>[]);
+    pushCatalog((bySku ?? []) as unknown as Record<string, unknown>[]);
   }
   if (asin) {
     const { data: byAsin } = await supabaseServer
@@ -175,14 +175,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       .eq("asin", asin)
       .order("last_seen_at", { ascending: false })
       .limit(50);
-    pushCatalog((byAsin ?? []) as Record<string, unknown>[]);
+    pushCatalog((byAsin ?? []) as unknown as Record<string, unknown>[]);
   }
   if (catalogIds.size) {
     const { data: byId } = await supabaseServer.from("catalog_products").select("*").in("id", [...catalogIds]);
-    pushCatalog((byId ?? []) as Record<string, unknown>[]);
+    pushCatalog((byId ?? []) as unknown as Record<string, unknown>[]);
   }
 
-  const pRec = product as Record<string, unknown>;
+  const pRec = product as unknown as Record<string, unknown>;
   const productOut: Record<string, unknown> = { ...pRec };
   if (vendorDisplayName) {
     productOut.vendor_name = vendorDisplayName;
@@ -435,7 +435,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
       const msg = error.message ?? "Soft delete failed.";
       return NextResponse.json({ ok: false, error: msg }, { status: 400 });
     }
-    const row = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : null;
+    const row = data && typeof data === "object" && !Array.isArray(data) ? (data as unknown as Record<string, unknown>) : null;
     const n = Number(row?.soft_deleted_count ?? 0);
     if (!row || row.ok !== true || n < 1) {
       return NextResponse.json(
@@ -472,7 +472,7 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
       }
       return NextResponse.json({ ok: false, error: msg }, { status: 400 });
     }
-    const row = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : null;
+    const row = data && typeof data === "object" && !Array.isArray(data) ? (data as unknown as Record<string, unknown>) : null;
     if (row?.error === "confirm_hard_required") {
       return NextResponse.json(row, { status: 409 });
     }

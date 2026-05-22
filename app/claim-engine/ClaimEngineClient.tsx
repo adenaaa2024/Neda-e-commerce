@@ -693,6 +693,12 @@ export function ClaimEngineClient({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link
+            href="/claim-engine/inbox"
+            className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400"
+          >
+            Claim Inbox
+          </Link>
+          <Link
             href="/claim-engine/report-history"
             className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400"
           >

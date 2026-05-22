@@ -26,9 +26,22 @@ import {
   PACKAGE_MUTATION_SELECT,
   PALLET_LIST_SELECT,
   PALLET_MUTATION_SELECT,
+  RETURN_ITEMS_TABLE,
   RETURN_LIST_SELECT,
   RETURN_SELECT,
 } from "./returns-constants";
+import {
+  enrichExpectedItemsProductResolution,
+  resolveScannerProductIdentifiers,
+} from "../../lib/scanner-product-resolve";
+import { syncSlipContentsResolverForPackage } from "../../lib/slip-contents-resolver-write";
+import {
+  mapPackageWriteRow,
+  mapPalletWriteRow,
+  normalizePackageRowFromDb,
+  normalizePalletRowFromDb,
+  packagePhotoArraysFromEvidence,
+} from "../../lib/package-pallet-canonical";
 import {
   hasReturnPhotoEvidenceCounts,
   hasReturnPhotoEvidenceUrlSlots,
@@ -57,12 +70,21 @@ const DEFAULT_ORG = resolveOrganizationId();
 
 /** Ensures new nullable columns never surface as `undefined` to the client. */
 function normalizeReturnRecordFromRow(raw: unknown): ReturnRecord {
-  const base = raw as Record<string, unknown>;
+  const base = raw as unknown as Record<string, unknown>;
   const r = raw as ReturnRecord;
+  const condRaw = base.conditions;
+  const conditions = Array.isArray(condRaw)
+    ? (condRaw.filter((c): c is string => typeof c === "string") as string[])
+    : [];
+  const itemRaw = base.item_name ?? r.item_name;
+  const item_name =
+    typeof itemRaw === "string" ? itemRaw.trim() : String(itemRaw ?? "").trim();
   return {
     ...r,
     marketplace: String((base.marketplace as string | undefined) ?? ""),
     rma_number: (r.rma_number as string | null | undefined) ?? null,
+    conditions,
+    item_name: item_name || "—",
   };
 }
 
@@ -116,6 +138,30 @@ function coerceNonNegativeInt(v: unknown, fallback: number): number {
 
 function omitUndefined<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+}
+
+function normalizeFreeTextIdentifier(v: unknown): string | null {
+  const s = String(v ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .trim();
+  return s || null;
+}
+
+function normalizeUpperIdentifier(v: unknown): string | null {
+  const s = String(v ?? "")
+    .replace(/[\r\n\t\s]+/g, "")
+    .trim()
+    .toUpperCase();
+  return s || null;
+}
+
+function normalizeBarcodeIdentifier(v: unknown): string | null {
+  const raw = normalizeFreeTextIdentifier(v);
+  if (!raw) return null;
+  const compact = raw.replace(/\s+/g, "").toUpperCase();
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length >= 12 && digits.length <= 14) return digits;
+  return compact;
 }
 
 /**
@@ -391,23 +437,32 @@ function parseManifestData(raw: unknown): ExpectedItem[] | null | undefined {
 }
 
 function normalizePackageRow(row: Record<string, unknown>): PackageRecord {
-  const base = row as PackageRecord;
-  const md = parseManifestData(row.manifest_data);
+  const canon = normalizePackageRowFromDb(row);
+  const base = canon as unknown as PackageRecord;
+  const md = parseManifestData(canon.manifest_data);
   const next: PackageRecord = {
     ...base,
+    package_code: String(base.package_code ?? "").trim(),
     rma_number: (base.rma_number as string | null | undefined) ?? null,
     carrier_name: (base.carrier_name as string | null | undefined) ?? null,
     tracking_number: (base.tracking_number as string | null | undefined) ?? null,
+    inside_photo_urls: base.inside_photo_urls ?? [],
+    outside_photo_urls: base.outside_photo_urls ?? [],
+    slip_photo_urls: base.slip_photo_urls ?? [],
   };
   return md !== undefined ? { ...next, manifest_data: md } : next;
 }
 
 function normalizePalletRow(row: Record<string, unknown>): PalletRecord {
-  const base = row as PalletRecord;
+  const canon = normalizePalletRowFromDb(row);
+  const base = canon as unknown as PalletRecord;
   return {
     ...base,
     notes: (base.notes as string | null | undefined) ?? null,
     tracking_number: (base.tracking_number as string | null | undefined) ?? null,
+    pallet_photo_urls: base.pallet_photo_urls ?? [],
+    bol_photo_urls: base.bol_photo_urls ?? [],
+    shipping_label_urls: base.shipping_label_urls ?? [],
   };
 }
 
@@ -429,11 +484,12 @@ export async function createPallet(
       status: "open",
       created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
     };
-    if (payload.photo_url !== undefined) insertRow.photo_url = String(payload.photo_url ?? "").trim() || null;
-    if (payload.bol_photo_url !== undefined) insertRow.bol_photo_url = String(payload.bol_photo_url ?? "").trim() || null;
-    if (payload.manifest_photo_url !== undefined) {
-      insertRow.manifest_photo_url = String(payload.manifest_photo_url ?? "").trim() || null;
-    }
+    const palletPhotos = mapPalletWriteRow({
+      pallet_photo_urls: payload.pallet_photo_urls ?? undefined,
+      bol_photo_urls: payload.bol_photo_urls ?? undefined,
+      shipping_label_urls: payload.shipping_label_urls ?? undefined,
+    });
+    Object.assign(insertRow, palletPhotos);
     const sid = uuidFkOrNull(payload.store_id ?? null, "store_id");
     if (sid) insertRow.store_id = sid;
     const carrier = payload.carrier_name?.trim() || null;
@@ -534,12 +590,11 @@ export async function updatePallet(
     const id = uuidOrNull(palletId);
     if (!id) throw new Error("Invalid pallet id.");
     const org = await resolveWriteOrganizationId(actorProfileId, organizationId);
-    const row: Record<string, unknown> = {
-      ...omitUndefined(updates as Record<string, unknown>),
+    const row: Record<string, unknown> = mapPalletWriteRow({
+      ...omitUndefined(updates as unknown as Record<string, unknown>),
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
-    };
+    });
     delete row.created_by;
-    delete row.photo_evidence;
     if ("notes" in row && row.notes !== undefined && row.notes !== null) {
       row.notes = String(row.notes).trim() || null;
     }
@@ -605,41 +660,56 @@ export async function createPackage(
     const expected_item_count = coerceNonNegativeInt(payload.expected_item_count, 0);
     const palletIdFk = uuidFkOrNull(payload.pallet_id ?? null, "pallet_id");
     const storeIdFk = uuidFkOrNull(payload.store_id ?? null, "store_id");
-    const insertRow: Record<string, unknown> = {
-      organization_id:     orgId,
-      package_number:      payload.package_number.trim(),
-      tracking_number:     payload.tracking_number?.trim() || null,
-      carrier_name:        payload.carrier_name?.trim() || null,
-      rma_number:          payload.rma_number?.trim() || null,
+    const photoArrays = packagePhotoArraysFromEvidence(
+      payload.photo_evidence ?? null,
+      payload.manifest_photo_url ?? null,
+    );
+    const insertRow: Record<string, unknown> = mapPackageWriteRow({
+      organization_id: orgId,
+      package_code: payload.package_code.trim(),
+      tracking_number: payload.tracking_number?.trim() || null,
+      carrier_name: payload.carrier_name?.trim() || null,
+      rma_number: payload.rma_number?.trim() || null,
       expected_item_count,
-      pallet_id:           palletIdFk,
-      manifest_url:        payload.manifest_url ?? null,
-      status:              "open",
-      created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
-    };
-    if (storeIdFk) insertRow.store_id = storeIdFk;
-    if (payload.photo_evidence != null) insertRow.photo_evidence = payload.photo_evidence;
-    if (payload.photo_url !== undefined) insertRow.photo_url = String(payload.photo_url ?? "").trim() || null;
-    if (payload.photo_return_label_url !== undefined) {
-      insertRow.photo_return_label_url = String(payload.photo_return_label_url ?? "").trim() || null;
-    }
-    if (payload.photo_opened_url !== undefined) {
-      insertRow.photo_opened_url = String(payload.photo_opened_url ?? "").trim() || null;
-    }
-    if (payload.photo_closed_url !== undefined) {
-      insertRow.photo_closed_url = String(payload.photo_closed_url ?? "").trim() || null;
-    }
-    if (payload.manifest_photo_url !== undefined) {
-      insertRow.manifest_photo_url = String(payload.manifest_photo_url ?? "").trim() || null;
-    }
+      pallet_id: palletIdFk,
+      manifest_url: payload.manifest_url ?? null,
+      status: "open",
+      created_by:
+        uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ??
+        resolveActorUserId(payload.created_by),
+      ...(storeIdFk ? { store_id: storeIdFk } : {}),
+      ...(photoArrays.inside_photo_urls ? { inside_photo_urls: photoArrays.inside_photo_urls } : {}),
+      ...(photoArrays.outside_photo_urls ? { outside_photo_urls: photoArrays.outside_photo_urls } : {}),
+      ...(photoArrays.slip_photo_urls ? { slip_photo_urls: photoArrays.slip_photo_urls } : {}),
+      ...(payload.inside_photo_urls?.length ? { inside_photo_urls: payload.inside_photo_urls } : {}),
+      ...(payload.outside_photo_urls?.length ? { outside_photo_urls: payload.outside_photo_urls } : {}),
+      ...(payload.slip_photo_urls?.length ? { slip_photo_urls: payload.slip_photo_urls } : {}),
+    });
     if (payload.order_id?.trim()) insertRow.order_id = payload.order_id.trim();
+
+    if (payload.manifest_data != null && Array.isArray(payload.manifest_data) && payload.manifest_data.length > 0) {
+      insertRow.manifest_data = await enrichExpectedItemsProductResolution(
+        supabaseServer,
+        orgId,
+        storeIdFk,
+        payload.manifest_data,
+      );
+    }
 
     const { data, error } = await supabaseServer.from("packages")
       .insert(insertRow)
       .select(PACKAGE_MUTATION_SELECT).single();
     if (error) throw new Error(parseDuplicateError(error.message));
-    void logPackageAudit({ organizationId: orgId, packageId: (data as unknown as { id: string }).id, action: "created", actor });
-    return { ok: true, data: normalizePackageRow(data as unknown as Record<string, unknown>) };
+    const created = normalizePackageRow(data as unknown as Record<string, unknown>);
+    const manifestLines = created.manifest_data;
+    void syncSlipContentsResolverForPackage(supabaseServer, {
+      organizationId: orgId,
+      packageId: created.id,
+      storeId: storeIdFk,
+      manifestLines: manifestLines?.length ? manifestLines : null,
+    }).catch((e) => console.error("[createPackage] slip_contents resolver sync:", e));
+    void logPackageAudit({ organizationId: orgId, packageId: created.id, action: "created", actor });
+    return { ok: true, data: created };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to create package." };
   }
@@ -655,19 +725,51 @@ export async function updatePackage(
     const pkgId = uuidOrNull(packageId);
     if (!pkgId) throw new Error("Invalid package id.");
     const scope = await resolveTenantListScope({ actorProfileId });
-    const safeUpdates = { ...(updates as Record<string, unknown>) };
+    const safeUpdates = { ...(updates as unknown as Record<string, unknown>) };
     delete safeUpdates.updated_by;
-    const payload = omitUndefined({
-      ...safeUpdates,
-      updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
-    } as Record<string, unknown>);
+    const payload = mapPackageWriteRow(
+      omitUndefined({
+        ...safeUpdates,
+        updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
+      } as unknown as Record<string, unknown>),
+    );
     delete payload.created_by;
     if ("pallet_id" in payload) payload.pallet_id = uuidOrNull(payload.pallet_id as string);
     if ("store_id" in payload) {
       const s = uuidOrNull(payload.store_id as string);
       payload.store_id = s;
     }
-    delete payload.manifest_data;
+    if ("manifest_data" in safeUpdates) {
+      const rawMd = safeUpdates.manifest_data;
+      if (rawMd === null) {
+        payload.manifest_data = null;
+      } else if (Array.isArray(rawMd) && rawMd.length > 0) {
+        let orgIdForManifest =
+          scope.mode === "single" ? scope.organizationId : "";
+        let storeForManifest = (payload.store_id as string | null | undefined) ?? undefined;
+        const { data: meta } = await supabaseServer
+          .from("packages")
+          .select("organization_id, store_id")
+          .eq("id", pkgId)
+          .maybeSingle();
+        const mo = (meta as { organization_id?: string; store_id?: string | null } | null)?.organization_id;
+        const ms = (meta as { organization_id?: string; store_id?: string | null } | null)?.store_id;
+        if (mo) orgIdForManifest = mo;
+        if (storeForManifest === undefined) storeForManifest = ms ?? undefined;
+        if (orgIdForManifest) {
+          payload.manifest_data = await enrichExpectedItemsProductResolution(
+            supabaseServer,
+            orgIdForManifest,
+            storeForManifest ?? null,
+            rawMd as ExpectedItem[],
+          );
+        } else {
+          delete payload.manifest_data;
+        }
+      } else {
+        delete payload.manifest_data;
+      }
+    }
     delete payload.expected_items;
     if ("expected_item_count" in payload) {
       payload.expected_item_count = coerceNonNegativeInt(payload.expected_item_count, 0);
@@ -681,13 +783,19 @@ export async function updatePackage(
     const row = normalizePackageRow(data as unknown as Record<string, unknown>);
     // Keep denormalized returns.pallet_id in sync when package moves between pallets
     if ("pallet_id" in payload) {
-      let syncQ = supabaseServer.from("returns")
+      let syncQ = supabaseServer.from(RETURN_ITEMS_TABLE)
         .update({ pallet_id: row.pallet_id })
         .eq("package_id", pkgId);
       if (scope.mode === "single") syncQ = syncQ.eq("organization_id", scope.organizationId);
       const { error: syncErr } = await syncQ;
-      if (syncErr) console.error("[updatePackage] sync returns.pallet_id:", syncErr.message);
+      if (syncErr) console.error("[updatePackage] sync return_items.pallet_id:", syncErr.message);
     }
+    void syncSlipContentsResolverForPackage(supabaseServer, {
+      organizationId: row.organization_id ?? (scope.mode === "single" ? scope.organizationId : ""),
+      packageId: pkgId,
+      storeId: row.store_id ?? null,
+      manifestLines: row.manifest_data?.length ? row.manifest_data : null,
+    }).catch((e) => console.error("[updatePackage] slip_contents resolver sync:", e));
     void logPackageAudit({
       organizationId: row.organization_id ?? DEFAULT_ORG,
       packageId: pkgId,
@@ -750,7 +858,7 @@ export async function listReturnsByPackage(
     const id = uuidOrNull(packageId);
     if (!id) return { ok: true, data: [] };
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns").select(RETURN_LIST_SELECT)
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_SELECT)
       .eq("package_id", id).is("deleted_at", null).order("created_at", { ascending: false });
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
@@ -877,13 +985,33 @@ export async function insertReturn(
       created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
       store_id:        resolvedStoreId,
     };
+    const normalizedAsin = normalizeUpperIdentifier(payload.asin);
+    const normalizedFnsku = normalizeUpperIdentifier(payload.fnsku);
+    const normalizedSku = normalizeFreeTextIdentifier(payload.sku);
+    const normalizedProductIdentifier = normalizeBarcodeIdentifier(payload.product_identifier);
+
     // Post-migration columns — only written once their migrations are applied
-    if (payload.asin)             insertRow.asin             = payload.asin.trim();
-    if (payload.fnsku)            insertRow.fnsku            = payload.fnsku.trim();
-    if (payload.sku)              insertRow.sku              = payload.sku.trim();
+    if (normalizedAsin) insertRow.asin = normalizedAsin;
+    if (normalizedFnsku) insertRow.fnsku = normalizedFnsku;
+    if (normalizedSku) insertRow.sku = normalizedSku;
+    if (normalizedProductIdentifier) insertRow.product_identifier = normalizedProductIdentifier;
     if (effectiveAmazonOrderId) insertRow.order_id = String(effectiveAmazonOrderId);
 
-    const { data, error } = await supabaseServer.from("returns")
+    const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
+      organizationId: orgId,
+      storeId: resolvedStoreId,
+      sku: normalizedSku,
+      asin: normalizedAsin,
+      fnsku: normalizedFnsku,
+      productIdentifier: normalizedProductIdentifier,
+      legacyProductId: null,
+    });
+    insertRow.resolved_product_id = resCols.resolved_product_id;
+    insertRow.resolved_catalog_product_id = resCols.resolved_catalog_product_id;
+    insertRow.identifier_resolution_status = resCols.identifier_resolution_status;
+    insertRow.identifier_resolution_confidence = resCols.identifier_resolution_confidence;
+
+    const { data, error } = await supabaseServer.from(RETURN_ITEMS_TABLE)
       .insert(insertRow).select(RETURN_SELECT).single();
 
     if (error) throw new Error(parseDuplicateError(error.message));
@@ -924,7 +1052,7 @@ export async function insertReturn(
           returnHint: { store_id: rec.store_id ?? resolvedStoreId ?? null, package_id: rec.package_id ?? packageIdFk },
         });
         if (subErr) {
-          await supabaseServer.from("returns").delete().eq("id", rec.id);
+          await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", rec.id);
           throw new Error(
             `Return could not be queued for claim_submissions: ${subErr.message}. Check claim_submissions columns and RLS.`,
           );
@@ -957,7 +1085,7 @@ export async function updateReturn(
     const rid = uuidOrNull(returnId);
     if (!rid) throw new Error("Invalid return id.");
     const { data: existing, error: loadErr } = await supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select(RETURN_SELECT)
       .eq("id", rid)
       .single();
@@ -965,7 +1093,7 @@ export async function updateReturn(
     const ex = existing as unknown as ReturnRecord;
     await assertRowOrgAccess(actorProfileId, ex.organization_id);
 
-    const safeUpdates = { ...(updates as Record<string, unknown>) };
+    const safeUpdates = { ...(updates as unknown as Record<string, unknown>) };
     delete safeUpdates.updated_by;
     const patch: Record<string, unknown> = { ...safeUpdates };
     delete patch.created_by;
@@ -1029,12 +1157,47 @@ export async function updateReturn(
         if (pl && isUuidString(pl)) patch.pallet_id = pl;
       }
     }
+    if ("asin" in updates) patch.asin = normalizeUpperIdentifier(updates.asin);
+    if ("fnsku" in updates) patch.fnsku = normalizeUpperIdentifier(updates.fnsku);
+    if ("sku" in updates) patch.sku = normalizeFreeTextIdentifier(updates.sku);
+    if ("product_identifier" in updates) {
+      patch.product_identifier = normalizeBarcodeIdentifier(updates.product_identifier);
+    }
+
+    const nextSku =
+      updates.sku !== undefined ? normalizeFreeTextIdentifier(updates.sku) : ex.sku;
+    const nextAsin =
+      updates.asin !== undefined ? normalizeUpperIdentifier(updates.asin) : ex.asin;
+    const nextFnsku =
+      updates.fnsku !== undefined ? normalizeUpperIdentifier(updates.fnsku) : ex.fnsku;
+    const nextProductIdentifier =
+      updates.product_identifier !== undefined
+        ? normalizeBarcodeIdentifier(updates.product_identifier)
+        : ex.product_identifier;
     const clean = omitUndefined({
       ...patch,
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
     });
+    const nextStore =
+      updates.store_id !== undefined ? (clean.store_id as string | null | undefined) : ex.store_id;
+    const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
+      organizationId: ex.organization_id,
+      storeId: nextStore,
+      sku: nextSku,
+      asin: nextAsin,
+      fnsku: nextFnsku,
+      productIdentifier: nextProductIdentifier,
+      legacyProductId: (ex as { product_id?: string | null }).product_id ?? null,
+    });
+    Object.assign(clean, {
+      resolved_product_id: resCols.resolved_product_id,
+      resolved_catalog_product_id: resCols.resolved_catalog_product_id,
+      identifier_resolution_status: resCols.identifier_resolution_status,
+      identifier_resolution_confidence: resCols.identifier_resolution_confidence,
+    });
+
     const scope = await resolveTenantListScope({ actorProfileId });
-    let uq = supabaseServer.from("returns")
+    let uq = supabaseServer.from(RETURN_ITEMS_TABLE)
       .update(clean)
       .eq("id", rid);
     if (scope.mode === "single") uq = uq.eq("organization_id", scope.organizationId);
@@ -1093,7 +1256,7 @@ export async function deleteReturn(
       action: "deleted",
       actor: actor ?? DEFAULT_ACTOR,
     });
-    let q = supabaseServer.from("returns").delete().eq("id", returnId);
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", returnId);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { error } = await q;
     if (error) throw new Error(error.message);
@@ -1124,7 +1287,7 @@ export async function bulkDeleteReturns(
         actor: a,
       });
     }
-    let q = supabaseServer.from("returns").delete().in("id", validIds);
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).delete().in("id", validIds);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { error } = await q;
     if (error) {
@@ -1146,7 +1309,7 @@ export async function countReturns(
   try {
     const scope = await resolveTenantListScope(tenant);
     let q = supabaseServer
-      .from("returns")
+      .from(RETURN_ITEMS_TABLE)
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
@@ -1169,7 +1332,7 @@ export async function listClaimPipelineReturns(
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns")
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE)
       .select(RETURN_LIST_SELECT)
       .in("status", ["ready_for_claim", "pending_evidence"])
       .is("deleted_at", null)
@@ -1189,7 +1352,7 @@ export async function listReturns(
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns").select(RETURN_LIST_SELECT)
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_SELECT)
       .is("deleted_at", null)
       .order("created_at", { ascending: false }).limit(200);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
@@ -1212,7 +1375,7 @@ export async function listReturnsByPallet(
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from("returns").select(RETURN_LIST_SELECT)
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_SELECT)
       .eq("pallet_id", palletId).is("deleted_at", null).order("created_at", { ascending: false });
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
@@ -1250,14 +1413,14 @@ export async function getDashboardSnapshot(
   const iso = startUtc.toISOString();
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qReturnsToday = supabaseServer.from("returns").select("id", { count: "exact", head: true }).gte("created_at", iso).is("deleted_at", null);
+    let qReturnsToday = supabaseServer.from(RETURN_ITEMS_TABLE).select("id", { count: "exact", head: true }).gte("created_at", iso).is("deleted_at", null);
     let qPallets = supabaseServer.from("pallets").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qPackages = supabaseServer.from("packages").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qClaims = supabaseServer
       .from("claim_submissions")
       .select("id", { count: "exact", head: true })
       .eq("status", "ready_to_send");
-    let qEst = supabaseServer.from("returns").select("estimated_value").is("deleted_at", null).limit(10000);
+    let qEst = supabaseServer.from(RETURN_ITEMS_TABLE).select("estimated_value").is("deleted_at", null).limit(10000);
     if (scope.mode === "single") {
       qReturnsToday = qReturnsToday.eq("organization_id", scope.organizationId);
       qPallets = qPallets.eq("organization_id", scope.organizationId);
@@ -1316,7 +1479,7 @@ export async function getReturnsAnalyticsData(
 ): Promise<{ ok: boolean; data?: ReturnsAnalyticsPayload; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qRet = supabaseServer.from("returns").select("id,conditions,created_at,updated_at,package_id,created_by").limit(500);
+    let qRet = supabaseServer.from(RETURN_ITEMS_TABLE).select("id,conditions,created_at,updated_at,package_id,created_by").limit(500);
     let qPkg = supabaseServer.from("packages").select("id,carrier_name").limit(500);
     let qPlt = supabaseServer.from("pallets").select("id").limit(500);
     if (scope.mode === "single") {
@@ -1428,9 +1591,24 @@ export async function getReturnsAnalyticsData(
 export async function getAmazonExpectedItems(
   trackingNumber: string,
   organizationId: string,
+  opts?: { storeId?: string | null },
 ): Promise<{ ok: true; data: ExpectedItem[] } | { ok: false; error: string }> {
   try {
     const tn = trackingNumber.trim();
+
+    const finalizeExpected = async (lines: ExpectedItem[]) => {
+      const sid = opts?.storeId?.trim();
+      if (sid) {
+        const enriched = await enrichExpectedItemsProductResolution(
+          supabaseServer,
+          organizationId,
+          sid,
+          lines,
+        );
+        return { ok: true as const, data: enriched ?? lines };
+      }
+      return { ok: true as const, data: lines };
+    };
 
     // ── 1. amazon_removals ────────────────────────────────────────────────────
     const { data: removalRows, error: removalErr } = await supabaseServer
@@ -1469,7 +1647,7 @@ export async function getAmazonExpectedItems(
         expected_qty: v.qty,
         description: v.name,
       }));
-      return { ok: true, data };
+      return finalizeExpected(data);
     }
 
     // ── 2. amazon_returns (FBA returns — lpn = tracking number) ──────────────
@@ -1508,10 +1686,10 @@ export async function getAmazonExpectedItems(
         expected_qty: v.qty,
         description: v.name,
       }));
-      return { ok: true, data };
+      return finalizeExpected(data);
     }
 
-    return { ok: true, data: [] };
+    return finalizeExpected([]);
   } catch (err) {
     return {
       ok: false,

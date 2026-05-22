@@ -1,5 +1,6 @@
 import "server-only";
 
+import { assertAiProviderCallAllowed } from "./ai-provider-gates";
 import { getOrganizationOpenAIApiKey } from "./organization-openai-key";
 
 export type AmazonApiPriceCandidate = {
@@ -22,6 +23,8 @@ export async function pickAmazonApiPriceCandidateIndexWithOpenAI(params: {
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => Number.isFinite(c.amount) && c.amount > 0 && String(c.currency ?? "").trim().length > 0);
   if (indexed.length < 2) return null;
+  const gate = assertAiProviderCallAllowed("pim_disambiguation");
+  if (!gate.ok) return null;
   const key = await getOrganizationOpenAIApiKey(params.organizationId);
   if (!key) return null;
 
@@ -62,11 +65,11 @@ export async function pickAmazonApiPriceCandidateIndexWithOpenAI(params: {
     }),
     cache: "no-store",
   });
-  const raw = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const raw = (await res.json().catch(() => null)) as unknown as Record<string, unknown> | null;
   if (!res.ok || !raw) return null;
   const choice = raw.choices;
   if (!Array.isArray(choice) || !choice[0] || typeof choice[0] !== "object") return null;
-  const msg = (choice[0] as Record<string, unknown>).message as Record<string, unknown> | undefined;
+  const msg = (choice[0] as unknown as Record<string, unknown>).message as unknown as Record<string, unknown> | undefined;
   const content = typeof msg?.content === "string" ? msg.content.trim() : "";
   if (!content) return null;
   let parsed: { index?: unknown } | null = null;

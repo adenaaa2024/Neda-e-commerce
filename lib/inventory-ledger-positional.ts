@@ -22,7 +22,7 @@ export function ledgerPositionalHeaderKey(index1Based: number): string {
 /** True when staging row was written with positional `ledger_pos_*` keys (headerless real format). */
 export function rawRowUsesInventoryLedgerPositionalKeys(raw: Record<string, unknown> | null | undefined): boolean {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
-  const o = raw as Record<string, unknown>;
+  const o = raw as unknown as Record<string, unknown>;
   return typeof o.ledger_pos_01 === "string" || typeof o.ledger_pos_1 === "string";
 }
 

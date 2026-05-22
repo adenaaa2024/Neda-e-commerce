@@ -1,0 +1,17 @@
+{
+  "id": "transactions_simple_summary",
+  "description": "Simple Transactions Summary → TRANSACTIONS",
+  "headers": [
+    "Date",
+    "Transaction Status",
+    "Transaction type",
+    "Order ID",
+    "Product Details",
+    "Total product charges",
+    "Total promotional rebates",
+    "Amazon fees",
+    "Other",
+    "Total (USD)"
+  ],
+  "expect_report_type": "TRANSACTIONS"
+}

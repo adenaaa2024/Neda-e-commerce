@@ -1,0 +1,11 @@
+{
+  "id": "fulfilled_shipments",
+  "description": "Fulfilled Shipments → ALL_ORDERS",
+  "headers": [
+    "amazon-order-id",
+    "shipped-quantity",
+    "shipment-id",
+    "sku"
+  ],
+  "expect_report_type": "ALL_ORDERS"
+}

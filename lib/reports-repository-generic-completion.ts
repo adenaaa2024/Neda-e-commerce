@@ -38,7 +38,7 @@ export async function completeReportsRepositoryGenericPhase(opts: {
     import_metrics: { current_phase: "complete" },
     etl_phase: "complete",
     error_message: "",
-  }) as Record<string, unknown>;
+  }) as unknown as Record<string, unknown>;
   delete merged.failed_phase;
 
   await supabase

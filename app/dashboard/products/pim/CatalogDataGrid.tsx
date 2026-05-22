@@ -25,7 +25,7 @@ const SORTABLE = new Set([
 ]);
 
 export function formatPrice(row: PimCatalogRow, displayCurrencyFallback = "USD"): string {
-  const r = row as Record<string, unknown>;
+  const r = row as unknown as Record<string, unknown>;
   const amt = r.latest_price_amount ?? r.latestPriceAmount;
   const curRaw = r.latest_price_currency ?? r.latestPriceCurrency;
   const trimmed = typeof curRaw === "string" ? curRaw.trim() : "";

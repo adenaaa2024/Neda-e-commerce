@@ -1,0 +1,12 @@
+{
+  "id": "reimbursements",
+  "description": "GET_FBA_REIMBURSEMENTS_DATA / FBA Reimbursements CSV header fingerprint",
+  "headers": [
+    "reimbursement-id",
+    "quantity-reimbursed-total",
+    "order-id",
+    "sku",
+    "amount-reimbursed"
+  ],
+  "expect_report_type": "REIMBURSEMENTS"
+}

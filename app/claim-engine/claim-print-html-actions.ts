@@ -5,7 +5,7 @@ import {
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
   CLAIM_SUBMISSIONS_TABLE,
 } from "./claim-submissions-constants";
-import { RETURN_SELECT } from "../returns/returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SELECT } from "../returns/returns-constants";
 import {
   getReturnPhotoEvidenceUrls,
   type ReturnPhotoEvidenceRow,
@@ -18,7 +18,7 @@ function resolveSkuFromReturnRow(ret: Record<string, unknown> | null): string | 
   return null;
 }
 
-/** Collect image URLs from `returns` (`photo_evidence` URL slots + optional `photo_urls` JSON/array). */
+/** Collect image URLs from `return_items` (`photo_evidence` URL slots + optional `photo_urls` JSON/array). */
 export async function collectReturnPhotoUrls(
   ret: Record<string, unknown> | null,
 ): Promise<string[]> {
@@ -35,7 +35,7 @@ export async function collectReturnPhotoUrls(
   if (Array.isArray(raw)) {
     for (const x of raw) add(x);
   } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    for (const v of Object.values(raw as Record<string, unknown>)) add(v);
+    for (const v of Object.values(raw as unknown as Record<string, unknown>)) add(v);
   } else if (typeof raw === "string") {
     try {
       const p = JSON.parse(raw) as unknown;
@@ -113,23 +113,23 @@ export async function fetchReadyToSendSubmissionsForHtmlPrint(
     }
     const returnIds = [
       ...new Set(
-        list.map((s) => String((s as Record<string, unknown>)[CLAIM_SUBMISSION_RETURN_ID_COLUMN] ?? "")),
+        list.map((s) => String((s as unknown as Record<string, unknown>)[CLAIM_SUBMISSION_RETURN_ID_COLUMN] ?? "")),
       ),
     ].filter(Boolean);
 
     let retMap = new Map<string, Record<string, unknown>>();
     if (returnIds.length > 0) {
       const { data: rets, error: rErr } = await supabaseServer
-        .from("returns")
+        .from(RETURN_ITEMS_TABLE)
         .select(RETURN_SELECT)
         .in("id", returnIds);
       if (rErr) throw new Error(rErr.message);
-      retMap = new Map((rets ?? []).map((row) => [row.id as string, row as Record<string, unknown>]));
+      retMap = new Map((rets ?? []).map((row) => [row.id as string, row as unknown as Record<string, unknown>]));
     }
 
     const rows: ReadyToSendPrintRow[] = [];
     for (const raw of list) {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const rid = r[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string;
       const ret = retMap.get(rid) ?? null;
       const rawStores = ret?.stores as

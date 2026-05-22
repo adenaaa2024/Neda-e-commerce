@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { aiProviderGateMessage, assertAiProviderCallAllowed } from "@/lib/ai-provider-gates";
 import { getOrganizationOpenAIApiKey } from "@/lib/organization-openai-key";
 import { verifyOrganizationApiKey } from "@/lib/organization-workspace-api-key";
 
@@ -32,6 +33,11 @@ export async function POST(req: Request) {
   const verified = await verifyOrganizationApiKey(workspaceKey);
   if (!verified.ok) {
     return jsonError("Invalid or missing X-Workspace-API-Key.", 401);
+  }
+
+  const gate = assertAiProviderCallAllowed("raw_agent_proxy");
+  if (!gate.ok) {
+    return jsonError(aiProviderGateMessage(gate), 403);
   }
 
   const openaiKey = await getOrganizationOpenAIApiKey(verified.organizationId);

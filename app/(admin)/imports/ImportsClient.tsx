@@ -15,6 +15,9 @@ import React, { useCallback, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Database } from "lucide-react";
 import { UniversalImporter } from "./UniversalImporter";
+import { FinancesApiArchivePanel } from "./FinancesApiArchivePanel";
+import { ReportsApiReimbursementsPanel } from "./ReportsApiReimbursementsPanel";
+import { ReportsApiSettlementPanel } from "./ReportsApiSettlementPanel";
 import { RawReportImportsPanel } from "./RawReportImportsPanel";
 import { useUserRole } from "../../../components/UserRoleContext";
 import { SettingsPageAccessPanel } from "@/components/settings/SettingsPageAccessPanel";
@@ -64,6 +67,19 @@ export function ImportsClient() {
           pageFeature="imports"
         />
       ) : null}
+
+      {/* ── Amazon Reports API (reimbursements) ─────────────────────────────── */}
+      <ReportsApiReimbursementsPanel
+        organizationId={activeOrgId}
+        onUploadComplete={refreshHistory}
+      />
+
+      <ReportsApiSettlementPanel
+        organizationId={activeOrgId}
+        onUploadComplete={refreshHistory}
+      />
+
+      <FinancesApiArchivePanel organizationId={activeOrgId} />
 
       {/* ── Importer card ───────────────────────────────────────────────────── */}
       <UniversalImporter

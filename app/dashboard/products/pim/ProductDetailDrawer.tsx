@@ -53,7 +53,7 @@ function JsonBlock({ title, description, value }: { title: string; description?:
 function listingRowSourceLabel(cp: Record<string, unknown>): string {
   const rt = String(cp.source_report_type ?? "").trim().toLowerCase();
   const meta = cp.metadata;
-  const mo = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : null;
+  const mo = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as unknown as Record<string, unknown>) : null;
   const fromEnrichment =
     rt.includes("enrich") ||
     rt.includes("amazon_catalog") ||
@@ -395,9 +395,9 @@ export function ProductDetailDrawer({
 
               {(() => {
                 const meta = p.metadata && typeof p.metadata === "object" && !Array.isArray(p.metadata) ? p.metadata : {};
-                const pa = (meta as Record<string, unknown>).product_attributes;
+                const pa = (meta as unknown as Record<string, unknown>).product_attributes;
                 if (!pa || typeof pa !== "object" || Array.isArray(pa)) return null;
-                const entries = Object.entries(pa as Record<string, unknown>).filter(
+                const entries = Object.entries(pa as unknown as Record<string, unknown>).filter(
                   ([k, v]) => k && shouldShowPimAttributeKey(k) && v != null && String(v).trim() !== "",
                 );
                 if (!entries.length) return null;

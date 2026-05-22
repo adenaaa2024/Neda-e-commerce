@@ -1,0 +1,12 @@
+{
+  "id": "removal_order",
+  "description": "GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA",
+  "headers": [
+    "removal-order-id",
+    "sku",
+    "fnsku",
+    "requested-quantity",
+    "disposed-quantity"
+  ],
+  "expect_report_type": "REMOVAL_ORDER"
+}

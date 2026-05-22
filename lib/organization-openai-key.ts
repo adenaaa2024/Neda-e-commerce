@@ -41,7 +41,7 @@ export async function getOrganizationOpenAIApiKey(organizationId: string): Promi
       .select("credentials")
       .eq("organization_id", organizationId)
       .maybeSingle();
-    const creds = (data?.credentials as Record<string, unknown> | null) ?? {};
+    const creds = (data?.credentials as unknown as Record<string, unknown> | null) ?? {};
     const key = typeof creds.openai_api_key === "string" ? creds.openai_api_key.trim() : "";
     if (key) return key;
   } catch {

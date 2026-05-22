@@ -46,7 +46,7 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const upload_id = String((rawUp as { id?: string }).id ?? "").trim();
-  const m = ((rawUp as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+  const m = ((rawUp as { metadata?: Record<string, unknown> }).metadata ?? {}) as unknown as Record<string, unknown>;
   const store_id = String(m.import_store_id ?? m.ledger_store_id ?? m.store_id ?? "").trim();
   if (!isUuidString(upload_id) || !isUuidString(store_id)) {
     return NextResponse.json({ ok: false, error: "Invalid upload metadata (store id)." }, { status: 400 });

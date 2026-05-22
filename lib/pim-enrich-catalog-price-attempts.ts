@@ -94,7 +94,7 @@ export async function pimPrefetchCatalogProductsForEnrichment(params: {
       .eq("store_id", params.storeId)
       .in("id", [...cpIds]);
     const cpById = new Map(
-      (cpRows ?? []).map((r) => [String((r as { id: unknown }).id), r as Record<string, unknown>]),
+      (cpRows ?? []).map((r) => [String((r as { id: unknown }).id), r as unknown as Record<string, unknown>]),
     );
     for (const m of params.mapCatalogLinks) {
       const row = cpById.get(m.catalog_product_id);
@@ -117,7 +117,7 @@ export async function pimPrefetchCatalogProductsForEnrichment(params: {
       const asin = String(p.asin ?? "").trim().toUpperCase();
       if (!sku) continue;
       for (const raw of bySku ?? []) {
-        const row = raw as Record<string, unknown>;
+        const row = raw as unknown as Record<string, unknown>;
         if (String(row.seller_sku ?? "").trim() !== sku) continue;
         const cpAsin = String(row.asin ?? "").trim().toUpperCase();
         if (asin && cpAsin && cpAsin !== asin) continue;

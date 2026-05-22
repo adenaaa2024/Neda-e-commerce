@@ -17,7 +17,7 @@ export type ClaimTimelineRow = {
 
 function asDetails(raw: unknown): Record<string, unknown> | null {
   if (raw == null) return null;
-  if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw as unknown as Record<string, unknown>;
   return null;
 }
 
@@ -66,7 +66,7 @@ export async function getClaimTimelineLogs(
     if (error) throw new Error(error.message);
 
     const rows: ClaimTimelineRow[] = (data ?? []).map((row) => {
-      const r = row as Record<string, unknown>;
+      const r = row as unknown as Record<string, unknown>;
       const details = asDetails(r.details);
       const action = (r.action as string | null)?.trim() || "";
       const actor = formatActorDisplay(r.actor);

@@ -22,6 +22,7 @@ import {
   contentSuggestsReportsRepositorySample,
   fileNameSuggestsReportsRepository,
 } from "../../../../../lib/reports-repository-header";
+import { applyImportDescriptorClassifyHook } from "../../../../../lib/import/import-classify-profile-hook";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,8 @@ type Body = {
   file_name?: unknown;
   /** First ~64KB of file text — detects Reports Repository preamble / header line hints. */
   content_sample?: unknown;
+  /** Optional ImportDescriptorV1 id — enriches response metadata only; does not override rules. */
+  descriptor_id?: unknown;
 };
 
 /**
@@ -359,6 +362,8 @@ export async function POST(req: Request): Promise<Response> {
 
     const fileName = typeof body.file_name === "string" ? body.file_name.trim() : "";
     const contentSample = typeof body.content_sample === "string" ? body.content_sample.slice(0, 65536) : "";
+    const descriptorIdHint =
+      typeof body.descriptor_id === "string" ? body.descriptor_id.trim() : "";
 
     const orgId = await resolveWriteOrganizationId(actor, null);
     if (!isUuidString(orgId)) {
@@ -424,6 +429,12 @@ export async function POST(req: Request): Promise<Response> {
           fingerprint.slice(0, 60),
         );
         const memType = memoryRow.report_type as string;
+        const memDescriptorHook = applyImportDescriptorClassifyHook({
+          headers,
+          report_type: memType as RawReportType,
+          matched_rule: "memory",
+          descriptor_id: descriptorIdHint || null,
+        });
         return NextResponse.json({
           ok: true,
           report_type: memType as RawReportType,
@@ -434,6 +445,13 @@ export async function POST(req: Request): Promise<Response> {
           detected_file_type: REPORT_TYPE_HUMAN_LABELS[memType] ?? memType,
           is_supported: memType !== "UNKNOWN",
           message: `Previously recognized as ${REPORT_TYPE_HUMAN_LABELS[memType] ?? memType}.`,
+          import_descriptor: memDescriptorHook.import_descriptor,
+          classify_profile: memDescriptorHook.classify_profile,
+          descriptor_id: memDescriptorHook.descriptor_id,
+          descriptor_version: memDescriptorHook.descriptor_version,
+          import_kind: memDescriptorHook.import_kind,
+          source_family: memDescriptorHook.source_family,
+          provider: memDescriptorHook.provider,
         });
       }
     }
@@ -593,6 +611,13 @@ export async function POST(req: Request): Promise<Response> {
       (reportType as string) === "UNKNOWN" ||
       ((reportType as string) !== "UNKNOWN" && mappingHasRequiredGaps(column_mapping, reportType));
 
+    const descriptorHook = applyImportDescriptorClassifyHook({
+      headers,
+      report_type: reportType,
+      matched_rule: rules.matchedRule,
+      descriptor_id: descriptorIdHint || null,
+    });
+
     return NextResponse.json({
       ok: true,
       report_type: reportType,
@@ -606,6 +631,13 @@ export async function POST(req: Request): Promise<Response> {
         ? `Recognized as ${detectedFileType}.`
         : `This file was identified as "${detectedFileType}" but is not yet supported.`
       ),
+      import_descriptor: descriptorHook.import_descriptor,
+      classify_profile: descriptorHook.classify_profile,
+      descriptor_id: descriptorHook.descriptor_id,
+      descriptor_version: descriptorHook.descriptor_version,
+      import_kind: descriptorHook.import_kind,
+      source_family: descriptorHook.source_family,
+      provider: descriptorHook.provider,
     });
   } catch (e) {
     return NextResponse.json(

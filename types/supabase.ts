@@ -1,5 +1,5 @@
 /**
- * Supabase schema re-exports — use `Database` / `Tables<"returns" | …>` for row shapes.
+ * Supabase schema re-exports — use `Database` / `Tables<"return_items" | …>` for row shapes.
  * @see ./database.types.ts
  */
 export type {

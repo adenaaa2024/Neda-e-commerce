@@ -40,7 +40,7 @@ function logisticsBaseUrl(): string | null {
 function resolveImportStoreId(meta: unknown): string | null {
   const m =
     meta && typeof meta === "object" && !Array.isArray(meta)
-      ? (meta as Record<string, unknown>)
+      ? (meta as unknown as Record<string, unknown>)
       : {};
   const a = typeof m.import_store_id === "string" ? m.import_store_id.trim() : "";
   if (a && isUuidString(a)) return a;
@@ -68,7 +68,7 @@ async function enrichExpectedPackagesFromShipmentAllocations(opts: {
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || typeof row !== "object") return;
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     console.log(
       JSON.stringify({
         phase: "expected_packages_allocation_enrich",
@@ -111,7 +111,7 @@ async function backfillExpectedPackagesShipmentMeta(opts: {
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || typeof row !== "object") return;
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     console.log(
       JSON.stringify({
         phase: "expected_packages_shipment_meta_backfill",

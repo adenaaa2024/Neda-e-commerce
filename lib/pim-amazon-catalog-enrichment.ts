@@ -106,7 +106,7 @@ export async function resolveAmazonCatalogContext(
 
   const mpRel = (store as { marketplaces?: { provider?: string; credentials?: unknown } | null }).marketplaces;
   if (mpRel?.credentials && typeof mpRel.credentials === "object" && !Array.isArray(mpRel.credentials)) {
-    const credObj = mpRel.credentials as Record<string, unknown>;
+    const credObj = mpRel.credentials as unknown as Record<string, unknown>;
     if (String(mpRel.provider ?? "").trim() === "amazon_sp_api" && amazonSpCredentialsLookComplete(credObj)) {
       const lwa = credsRecordToLwa(credObj);
       if (lwa) {
@@ -137,16 +137,16 @@ export async function resolveAmazonCatalogContext(
     try {
       const parsed = JSON.parse(rawKey) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const lwa = credsRecordToLwa(parsed as Record<string, unknown>);
+        const lwa = credsRecordToLwa(parsed as unknown as Record<string, unknown>);
         if (lwa) {
-          const rawIds = marketplaceIdsFromCredentials(parsed as Record<string, unknown>);
+          const rawIds = marketplaceIdsFromCredentials(parsed as unknown as Record<string, unknown>);
           const fin = finalizeMarketplacesForStore(storeMpRaw, rawIds);
           if (!fin.ok) return fin;
           return {
             ok: true,
             credentials: lwa,
             marketplaceIds: fin.marketplaceIds,
-            catalogHost: catalogHostFromCredentials(parsed as Record<string, unknown>),
+            catalogHost: catalogHostFromCredentials(parsed as unknown as Record<string, unknown>),
             pricingMarketplaceId: fin.pricingMarketplaceId,
             storeMarketplaceId: storeMpRaw,
           };
@@ -167,7 +167,7 @@ export async function resolveAmazonCatalogContext(
   for (const row of mpRows ?? []) {
     const credObj = (row as { credentials?: unknown }).credentials;
     if (!credObj || typeof credObj !== "object" || Array.isArray(credObj)) continue;
-    const c = credObj as Record<string, unknown>;
+    const c = credObj as unknown as Record<string, unknown>;
     if (!amazonSpCredentialsLookComplete(c)) continue;
     const lwa = credsRecordToLwa(c);
     if (lwa) {
@@ -299,12 +299,12 @@ export function extractCatalogMainImageAndText(item: unknown): {
   if (!item || typeof item !== "object" || Array.isArray(item)) {
     return { main_image_url: null, product_name: null, brand: null };
   }
-  const root = item as Record<string, unknown>;
+  const root = item as unknown as Record<string, unknown>;
   const summaries = root.summaries;
   let product_name: string | null = null;
   let brand: string | null = null;
   if (Array.isArray(summaries) && summaries[0] && typeof summaries[0] === "object") {
-    const s0 = summaries[0] as Record<string, unknown>;
+    const s0 = summaries[0] as unknown as Record<string, unknown>;
     const n = s0.itemName ?? s0.item_name;
     const b = s0.brand;
     if (typeof n === "string" && n.trim()) product_name = n.trim();

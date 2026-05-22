@@ -61,7 +61,7 @@ export async function listRolesCatalogAction(): Promise<
       .order("name", { ascending: true });
     if (error) return { ok: false, error: error.message };
     const rows: RoleCatalogRow[] = (data ?? []).map((raw) => {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const scopeRaw = String(r.scope ?? "tenant").toLowerCase();
       const scope: "system" | "tenant" = scopeRaw === "system" ? "system" : "tenant";
       return {
@@ -107,7 +107,7 @@ export async function listOrganizationsForAccessAction(): Promise<
     if (error) return { ok: false, error: error.message };
     const orgRows = (data ?? [])
       .map((raw) => {
-        const r = raw as Record<string, unknown>;
+        const r = raw as unknown as Record<string, unknown>;
         return {
           id: String(r.id ?? ""),
           name: String(r.name ?? "").trim() || String(r.id ?? ""),
@@ -126,14 +126,14 @@ export async function listOrganizationsForAccessAction(): Promise<
         .select("organization_id, company_id, company_display_name")
         .in("organization_id", ids);
       if (!a.error && a.data?.length) {
-        stRows = (a.data as Record<string, unknown>[]) ?? [];
+        stRows = (a.data as unknown as Record<string, unknown>[]) ?? [];
       } else {
         const b = await supabaseServer
           .from("organization_settings")
           .select("company_id, company_display_name")
           .in("company_id", ids);
         if (!b.error && b.data?.length) {
-          stRows = (b.data as Record<string, unknown>[]) ?? [];
+          stRows = (b.data as unknown as Record<string, unknown>[]) ?? [];
         }
       }
     }
@@ -185,7 +185,7 @@ export async function listGroupsForOrganizationAccessAction(
       .order("name", { ascending: true });
     if (error) return { ok: false, error: error.message };
     const rows: GroupCatalogRow[] = (data ?? []).map((raw) => {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const orgJoin = splitJoined<{ name?: string | null }>(r.organizations);
       const orgName =
         orgJoin?.name != null && String(orgJoin.name).trim()

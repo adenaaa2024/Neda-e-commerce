@@ -58,6 +58,14 @@ import { formatImportPhaseLabel } from "../../../lib/pipeline/import-phase-label
 import { resolveImportFileRowTotal } from "../../../lib/import-file-row-total";
 import { AMAZON_LEDGER_UPLOAD_SOURCE } from "../../../lib/raw-report-upload-metadata";
 import {
+  buildImportDescriptorUiSummary,
+  formatImportDescriptorDebugLog,
+  hydrateImportDescriptorUiSummaryFromUploadMetadata,
+  type ClassifyHeadersDescriptorPayload,
+  type ImportDescriptorUiSummary,
+} from "../../../lib/import/import-classify-response";
+import { ImportDescriptorClassifyPanel } from "./ImportDescriptorClassifyPanel";
+import {
   inferUniversalImporterPhase,
   resolveImportUiActionState,
   type ImportUiActionInput,
@@ -181,7 +189,7 @@ function first32HexOfSha256(fullSha256: string): string {
 
 function isProductIdentityImportStats(value: unknown): value is ProductIdentityImportStats {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const v = value as Record<string, unknown>;
+  const v = value as unknown as Record<string, unknown>;
   return (
     typeof v.rowsRead === "number" &&
     typeof v.productsInserted === "number" &&
@@ -221,7 +229,7 @@ function productIdentityStatsFromMetadata(metadata: Record<string, unknown> | nu
     metadata?.product_identity_import &&
     typeof metadata.product_identity_import === "object" &&
     !Array.isArray(metadata.product_identity_import)
-      ? (metadata.product_identity_import as Record<string, unknown>)
+      ? (metadata.product_identity_import as unknown as Record<string, unknown>)
       : null;
   return isProductIdentityImportStats(nested?.stats) ? nested.stats : null;
 }
@@ -311,6 +319,8 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
 
   // What the AI detected — shown as a label after Phase 1
   const [detectedType, setDetectedType] = useState<string | null>(null);
+  const [descriptorClassifySummary, setDescriptorClassifySummary] =
+    useState<ImportDescriptorUiSummary | null>(null);
 
   // Row counting: total from Phase 1, processed/pct from Phase 2 polling
   const [totalRows, setTotalRows] = useState(0);
@@ -541,10 +551,10 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
         return;
       }
       if (!data) return;
-      const restored = (data as Record<string, unknown>[]).find((row) => {
+      const restored = (data as unknown as Record<string, unknown>[]).find((row) => {
         const meta =
           row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-            ? (row.metadata as Record<string, unknown>)
+            ? (row.metadata as unknown as Record<string, unknown>)
             : {};
         const sid =
           typeof meta.import_store_id === "string"
@@ -560,7 +570,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
       const st = String(restored.status ?? "").trim();
       const meta =
         restored.metadata && typeof restored.metadata === "object" && !Array.isArray(restored.metadata)
-          ? (restored.metadata as Record<string, unknown>)
+          ? (restored.metadata as unknown as Record<string, unknown>)
           : null;
 
       console.debug("[UniversalImporter] restore: hydrating from DB", {
@@ -574,6 +584,13 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
         window.localStorage.setItem(lsKey, String(restored.id));
       }
       setDetectedType(rt && rt !== "UNKNOWN" ? rt : null);
+      setDescriptorClassifySummary(
+        hydrateImportDescriptorUiSummaryFromUploadMetadata({
+          reportType: rt,
+          status: st,
+          metadata: meta,
+        }),
+      );
       setServerImportInput({
         reportType: rt,
         status: st,
@@ -690,12 +707,12 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
       }
       const fpsRow =
         fps && typeof fps === "object" && !Array.isArray(fps)
-          ? (fps as Record<string, unknown>)
+          ? (fps as unknown as Record<string, unknown>)
           : null;
       setSessionFpsRow(fpsRow);
       const meta =
         rpu.metadata && typeof rpu.metadata === "object" && !Array.isArray(rpu.metadata)
-          ? (rpu.metadata as Record<string, unknown>)
+          ? (rpu.metadata as unknown as Record<string, unknown>)
           : null;
       const fpsSnap = fpsRow
         ? {
@@ -725,12 +742,12 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
       const liveProcessPct =
         num(fpsRow?.process_pct) ??
         num(fpsRow?.phase2_stage_pct) ??
-        num((meta as Record<string, unknown> | null)?.process_progress);
+        num((meta as unknown as Record<string, unknown> | null)?.process_progress);
       if (liveProcessPct != null) setProcessPct(Math.min(100, Math.max(0, liveProcessPct)));
       const liveSyncPct =
         num(fpsRow?.sync_pct) ??
         num(fpsRow?.phase3_raw_sync_pct) ??
-        num((meta as Record<string, unknown> | null)?.sync_progress);
+        num((meta as unknown as Record<string, unknown> | null)?.sync_progress);
       if (liveSyncPct != null) setSyncPct(Math.min(100, Math.max(0, liveSyncPct)));
       const liveUploadPct = num(fpsRow?.upload_pct) ?? num(fpsRow?.phase1_upload_pct);
       if (liveUploadPct != null) setUploadPct(Math.min(100, Math.max(0, liveUploadPct)));
@@ -746,8 +763,8 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
       // instead of silently leaving the bars empty.
       const rowStatus = String(rpu.status ?? "").trim();
       const errMsgFromMeta =
-        meta && typeof (meta as Record<string, unknown>).error_message === "string"
-          ? String((meta as Record<string, unknown>).error_message ?? "").trim()
+        meta && typeof (meta as unknown as Record<string, unknown>).error_message === "string"
+          ? String((meta as unknown as Record<string, unknown>).error_message ?? "").trim()
           : "";
       const errMsgFromFps =
         fpsRow && typeof fpsRow.error_message === "string"
@@ -829,7 +846,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
   const removalProgress = useMemo(() => {
     if (!removalShipmentUi || !serverImportInput) return null;
     return buildRemovalShipmentProgressModel(
-      serverImportInput.metadata as Record<string, unknown> | null,
+      serverImportInput.metadata as unknown as Record<string, unknown> | null,
       sessionFpsRow,
     );
   }, [removalShipmentUi, serverImportInput, sessionFpsRow]);
@@ -869,7 +886,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
     const status =
       importActionInput?.status ??
       (isUploading ? "uploading" : sessionUploadId ? "pending" : "pending");
-    const meta = (importActionInput?.metadata ?? null) as Record<string, unknown> | null;
+    const meta = (importActionInput?.metadata ?? null) as unknown as Record<string, unknown> | null;
     return buildListingPipelineSteps({
       status,
       metadata: meta,
@@ -1029,6 +1046,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
     }
     setSessionUploadId(null);
     setDetectedType(null);
+    setDescriptorClassifySummary(null);
     setTotalRows(0);
     setProcessedRows(0);
     setProcessPct(0);
@@ -1081,13 +1099,13 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
         supabase.from("raw_report_uploads").select("report_type, status, metadata").eq("id", uploadIdSnap).maybeSingle(),
         supabase.from("file_processing_status").select("*").eq("upload_id", uploadIdSnap).maybeSingle(),
       ]).then(([rpu, fps]) => {
-        const m = rpu.data?.metadata as Record<string, unknown> | null;
-        const fpsRow = fps.data as Record<string, unknown> | null | undefined;
+        const m = rpu.data?.metadata as unknown as Record<string, unknown> | null;
+        const fpsRow = fps.data as unknown as Record<string, unknown> | null | undefined;
         if (listingFromUi && rpu.data) {
           const row = rpu.data as { report_type?: string; status?: string; metadata?: unknown };
           const metaPoll =
             row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-              ? (row.metadata as Record<string, unknown>)
+              ? (row.metadata as unknown as Record<string, unknown>)
               : null;
           setSessionFpsRow(fpsRow && typeof fpsRow === "object" ? fpsRow : null);
           const fpsSnap = fpsRow
@@ -1121,8 +1139,8 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
           }
           if (typeof fpsRow.processed_rows === "number") setProcessedRows(Number(fpsRow.processed_rows));
           const planFromFps = resolveImportFileRowTotal({
-            fps: fpsRow as Record<string, unknown>,
-            metadata: (m as Record<string, unknown> | null) ?? undefined,
+            fps: fpsRow as unknown as Record<string, unknown>,
+            metadata: (m as unknown as Record<string, unknown> | null) ?? undefined,
           });
           if (planFromFps.total != null && planFromFps.total > 0) setTotalRows(planFromFps.total);
           const cp = typeof fpsRow.current_phase === "string" ? fpsRow.current_phase : null;
@@ -1131,7 +1149,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
           if (typeof m.process_progress === "number") setProcessPct(m.process_progress);
           if (typeof m.processed_rows === "number") setProcessedRows(m.processed_rows as number);
           else if (typeof m.row_count === "number") setProcessedRows(m.row_count as number);
-          const planMetaOnly = resolveImportFileRowTotal({ metadata: m as Record<string, unknown> });
+          const planMetaOnly = resolveImportFileRowTotal({ metadata: m as unknown as Record<string, unknown> });
           if (planMetaOnly.total != null && planMetaOnly.total > 0) setTotalRows(planMetaOnly.total);
           const im = m.import_metrics as { current_phase?: string } | undefined;
           if (im?.current_phase) setPhaseLabel(formatImportPhaseLabel(im.current_phase));
@@ -1143,8 +1161,8 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
             setPhaseLabel(formatImportPhaseLabel(lip === "raw_archive" ? "staging" : lip === "canonical_sync" ? "processing" : lip));
           }
         }
-        const fpsIm = fpsRow?.import_metrics as Record<string, unknown> | undefined;
-        const metaIm = m?.import_metrics as Record<string, unknown> | undefined;
+        const fpsIm = fpsRow?.import_metrics as unknown as Record<string, unknown> | undefined;
+        const metaIm = m?.import_metrics as unknown as Record<string, unknown> | undefined;
         const opLine =
           (typeof fpsIm?.phase2_operator_line === "string" && fpsIm.phase2_operator_line.trim() !== ""
             ? fpsIm.phase2_operator_line
@@ -1284,20 +1302,20 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
         supabase.from("raw_report_uploads").select("metadata").eq("id", uploadIdSnap).maybeSingle(),
         supabase.from("file_processing_status").select("*").eq("upload_id", uploadIdSnap).maybeSingle(),
       ]).then(([rpu, fps]) => {
-        const fpsRow = fps.data as Record<string, unknown> | null | undefined;
+        const fpsRow = fps.data as unknown as Record<string, unknown> | null | undefined;
         if (fpsRow && typeof fpsRow.sync_pct === "number") {
           setSyncPct(Math.min(100, Math.max(0, Number(fpsRow.sync_pct))));
         } else {
-          const m = rpu.data?.metadata as Record<string, unknown> | null;
+          const m = rpu.data?.metadata as unknown as Record<string, unknown> | null;
           if (m && typeof m.sync_progress === "number") setSyncPct(m.sync_progress);
         }
         if (fpsRow && typeof fpsRow.current_phase === "string") {
           setPhaseLabel(formatImportPhaseLabel(fpsRow.current_phase));
         }
         const im = fpsRow?.import_metrics as { rows_synced?: number } | undefined;
-        const mSync = rpu.data?.metadata as Record<string, unknown> | null | undefined;
+        const mSync = rpu.data?.metadata as unknown as Record<string, unknown> | null | undefined;
         const plan = resolveImportFileRowTotal({
-          fps: (fpsRow as Record<string, unknown> | null | undefined) ?? undefined,
+          fps: (fpsRow as unknown as Record<string, unknown> | null | undefined) ?? undefined,
           metadata: mSync ?? undefined,
         });
         const pr =
@@ -1460,7 +1478,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
         .eq("id", uploadIdSnap)
         .maybeSingle()
         .then(({ data }) => {
-          const m = data?.metadata as Record<string, unknown> | null;
+          const m = data?.metadata as unknown as Record<string, unknown> | null;
           if (!m) return;
           if (typeof m.worklist_progress === "number") setWorklistPct(m.worklist_progress);
         });
@@ -1854,14 +1872,8 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
           content_sample: contentSample,
         }),
       });
-      const clsJson = (await clsRes.json()) as {
-        ok?: boolean;
-        report_type?: string;
+      const clsJson = (await clsRes.json()) as ClassifyHeadersDescriptorPayload & {
         column_mapping?: Record<string, string>;
-        needs_mapping?: boolean;
-        detected_file_type?: string;
-        is_supported?: boolean;
-        message?: string;
         error?: string;
       };
 
@@ -1904,6 +1916,17 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
       const detectedFileTypeName = clsJson.detected_file_type ?? (resolvedType !== "UNKNOWN" ? resolvedType : null);
       const isSupported = clsJson.is_supported !== false; // default true for backward-compat
       const aiMessage = clsJson.message ?? "";
+
+      const descriptorSummary = buildImportDescriptorUiSummary({
+        ...clsJson,
+        report_type: resolvedType,
+        needs_mapping: needsMapping,
+        is_supported: isSupported,
+      });
+      setDescriptorClassifySummary(descriptorSummary);
+      if (process.env.NODE_ENV === "development") {
+        console.info(formatImportDescriptorDebugLog(descriptorSummary));
+      }
 
       // ── STEP 6: Update DB — classification + file path + store + row count ──
       // Read the result. If the UPDATE was rejected (e.g. CHECK violation on
@@ -2263,7 +2286,7 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
         const topPipeline = buildUnifiedPipeline({
           reportType: effectiveRt || detectedType || "UNKNOWN",
           status: pipelineStatus,
-          metadata: (serverImportInput?.metadata ?? null) as Record<string, unknown> | null,
+          metadata: (serverImportInput?.metadata ?? null) as unknown as Record<string, unknown> | null,
           fps: sessionFpsRow,
           localUploadPct: isUploading ? uploadPct : undefined,
           localFileSizeBytes: file?.size,
@@ -2351,13 +2374,16 @@ export function UniversalImporter({ onUploadComplete, onTargetStoreChange, organ
           </div>
 
           {/* AI detected label */}
-          {detectedType && !["idle", "uploading", "error", "needs_mapping", "unsupported"].includes(phase) && (
+          {detectedType && !["idle", "uploading", "error"].includes(phase) && (
             <div className="flex items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2">
               <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
               <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                 AI Detected File Type: <span className="font-bold">{detectedType}</span>
               </span>
             </div>
+          )}
+          {descriptorClassifySummary && phase !== "uploading" && (
+            <ImportDescriptorClassifyPanel summary={descriptorClassifySummary} />
           )}
           {productIdentityStats && (
             <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3">

@@ -69,7 +69,7 @@ export function normalizePimProductCategoryRows(rows: unknown[]): PimProductCate
   const out: PimProductCategoryOption[] = [];
   for (const r of rows) {
     if (!r || typeof r !== "object" || Array.isArray(r)) continue;
-    const n = normalizePimProductCategoryRow(r as Record<string, unknown>);
+    const n = normalizePimProductCategoryRow(r as unknown as Record<string, unknown>);
     if (n) out.push(n);
   }
   return out;

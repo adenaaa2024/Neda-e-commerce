@@ -28,6 +28,14 @@ export interface ReportsModuleConfig {
   [key: string]: unknown;
 }
 
+/** Filing handoff automation (NEXT-CLAIM-FILING-AGENT-02). Safe default: disabled. */
+export type ClaimFilingAutomationMode =
+  | "disabled"
+  | "manual_only"
+  | "prepare_only"
+  | "submit_with_confirmation"
+  | "full_auto_reserved";
+
 /** Autonomous claim agent toggles (stored in `module_configs.claim_agent_config` JSONB). */
 export interface ClaimAgentConfig {
   /** Default ON — auto-generate PDF reports for ready-for-claim items. */
@@ -45,6 +53,25 @@ export interface ClaimAgentConfig {
   logistics_background_sync_enabled?: boolean;
   /** Hours between background sync runs (e.g. 2). */
   logistics_sync_interval_hours?: number;
+
+  /**
+   * External filing agent / Neda handoff. Workspace-wide JSON (singleton `workspace_settings`);
+   * org scoping for access control happens at API boundaries (organization_id on requests).
+   */
+  filing_automation_mode?: ClaimFilingAutomationMode;
+  filing_environment?: "sandbox" | "production";
+  /** Outbound agent base URL (reference only; app stubs do not call it). */
+  filing_external_agent_endpoint?: string | null;
+  /** Non-secret vault key / env alias for agent auth material (never the secret value). */
+  filing_external_agent_secret_ref?: string | null;
+  /** Vault key / env alias for verifying callback HMAC (never the secret value). */
+  filing_callback_secret_ref?: string | null;
+  filing_agent_timeout_ms?: number | null;
+  filing_agent_max_retries?: number | null;
+  /** When non-empty, only these claim family keys may be filed via handoff (caller-defined strings). */
+  filing_allowed_claim_family_keys?: string[] | null;
+  /** When non-empty, only these store UUIDs may create filing requests. */
+  filing_allowed_store_ids?: string[] | null;
 }
 
 /** PIM / catalog integrations (e.g. Google Sheets ID read by FastAPI `etl/sync-google-sheets`). */
@@ -85,6 +112,15 @@ export const DEFAULT_CLAIM_AGENT_CONFIG: ClaimAgentConfig = {
   require_manual_approval_bulk_submission: true,
   logistics_background_sync_enabled: false,
   logistics_sync_interval_hours: 2,
+  filing_automation_mode: "disabled",
+  filing_environment: "sandbox",
+  filing_external_agent_endpoint: null,
+  filing_external_agent_secret_ref: null,
+  filing_callback_secret_ref: null,
+  filing_agent_timeout_ms: null,
+  filing_agent_max_retries: null,
+  filing_allowed_claim_family_keys: null,
+  filing_allowed_store_ids: null,
 };
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {

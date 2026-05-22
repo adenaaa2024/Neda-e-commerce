@@ -1,0 +1,12 @@
+{
+  "id": "settlement_payment_detail",
+  "description": "Seller Central Transaction / Payment Detail (Rule 5a → SETTLEMENT, not Reports Repository)",
+  "headers": [
+    "Date/Time",
+    "Settlement ID",
+    "Type",
+    "Order ID",
+    "Transaction Status"
+  ],
+  "expect_report_type": "SETTLEMENT"
+}

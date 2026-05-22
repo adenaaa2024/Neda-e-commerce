@@ -44,7 +44,7 @@ export async function GET(req: Request) {
   }
 
   const scopedRows = filterPimProductCategoriesForStore(
-    (data ?? []) as Record<string, unknown>[],
+    (data ?? []) as unknown as Record<string, unknown>[],
     isUuidString(storeId) ? storeId : null,
   );
 

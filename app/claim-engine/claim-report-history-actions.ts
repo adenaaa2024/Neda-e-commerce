@@ -26,13 +26,13 @@ export type ClaimReportHistoryRow = {
 };
 
 function returnFromSubmissionEmbed(sub: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = sub.returns;
+  const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
-  return (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown>;
+  return (Array.isArray(raw) ? raw[0] : raw) as unknown as Record<string, unknown>;
 }
 
 function claimTypeFromRow(sub: Record<string, unknown>, ret: Record<string, unknown> | null): string | null {
-  const payload = (sub.source_payload as Record<string, unknown>) ?? {};
+  const payload = (sub.source_payload as unknown as Record<string, unknown>) ?? {};
   const fromPayload = payload.claim_type;
   if (typeof fromPayload === "string" && fromPayload.trim()) return fromPayload.trim();
   const cond = ret?.conditions;
@@ -122,7 +122,7 @@ export async function listClaimReportHistory(
 
     const { data: subs, error } = await q;
     if (error) throw new Error(error.message);
-    const list = (subs ?? []) as Record<string, unknown>[];
+    const list = (subs ?? []) as unknown as Record<string, unknown>[];
 
     const creatorCandidates: string[] = [];
     for (const sub of list) {

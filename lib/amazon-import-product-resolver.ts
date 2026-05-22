@@ -32,7 +32,9 @@ export type ResolveTargetTable =
   | "amazon_transactions"
   | "amazon_inventory_ledger"
   | "amazon_manage_fba_inventory"
-  | "amazon_amazon_fulfilled_inventory";
+  | "amazon_fba_inventory"
+  | "amazon_amazon_fulfilled_inventory"
+  | "amazon_returns";
 
 export type ResolveOptions = {
   supabase: SupabaseClient;
@@ -49,6 +51,13 @@ export type ResolveOptions = {
    * to inherit resolved_product_id from amazon_all_orders by order_id.
    */
   joinAllOrders?: boolean;
+  /** When true, compute metrics and match tiers but do not UPDATE target rows. */
+  dryRun?: boolean;
+  /**
+   * When set (e.g. Lane B staged writeback), only these row UUIDs are loaded and resolved.
+   * Must belong to the given organization_id + upload_id scope.
+   */
+  onlyRowIds?: string[];
 };
 
 export type ResolveMetrics = {
@@ -70,7 +79,9 @@ const UPLOAD_ID_COLUMN: Record<ResolveTargetTable, "upload_id" | "source_upload_
   amazon_transactions: "upload_id",
   amazon_inventory_ledger: "upload_id",
   amazon_manage_fba_inventory: "source_upload_id",
+  amazon_fba_inventory: "source_upload_id",
   amazon_amazon_fulfilled_inventory: "source_upload_id",
+  amazon_returns: "upload_id",
 };
 
 type ResolverRow = {
@@ -88,7 +99,9 @@ const SELECT_COLUMNS: Record<ResolveTargetTable, string> = {
   amazon_transactions: "id, sku, order_id, raw_data",
   amazon_inventory_ledger: "id, fnsku, sku, asin, raw_data",
   amazon_manage_fba_inventory: "id, fnsku, sku, asin, raw_data",
+  amazon_fba_inventory: "id, fnsku, sku, asin, raw_data",
   amazon_amazon_fulfilled_inventory: "id, fulfillment_channel_sku, seller_sku, asin, raw_data",
+  amazon_returns: "id, sku, asin, order_id, raw_data",
 };
 
 function n(v: unknown): string | null {
@@ -100,15 +113,23 @@ function n(v: unknown): string | null {
 function pickFromRaw(raw: Record<string, unknown> | null, keys: string[]): string | null {
   if (!raw || typeof raw !== "object") return null;
   for (const k of keys) {
-    const v = (raw as Record<string, unknown>)[k];
+    const v = (raw as unknown as Record<string, unknown>)[k];
     if (v !== null && v !== undefined && String(v).trim() !== "") return String(v).trim();
   }
   return null;
 }
 
+/** Exported for wiring tests (`scripts/test-amazon-resolver-target-wiring.ts`). */
+export function adaptResolverImportRow(
+  table: ResolveTargetTable,
+  raw: Record<string, unknown>,
+): ResolverRow {
+  return adaptRow(table, raw);
+}
+
 function adaptRow(table: ResolveTargetTable, raw: Record<string, unknown>): ResolverRow {
   const rd = (raw.raw_data && typeof raw.raw_data === "object" && !Array.isArray(raw.raw_data))
-    ? (raw.raw_data as Record<string, unknown>)
+    ? (raw.raw_data as unknown as Record<string, unknown>)
     : null;
   switch (table) {
     case "amazon_all_orders":
@@ -140,6 +161,7 @@ function adaptRow(table: ResolveTargetTable, raw: Record<string, unknown>): Reso
         raw_data: rd,
       };
     case "amazon_manage_fba_inventory":
+    case "amazon_fba_inventory":
       return {
         id: String(raw.id ?? ""),
         fnsku: n(raw.fnsku),
@@ -155,6 +177,15 @@ function adaptRow(table: ResolveTargetTable, raw: Record<string, unknown>): Reso
         sku: n(raw.seller_sku),
         asin: n(raw.asin),
         order_id: null,
+        raw_data: rd,
+      };
+    case "amazon_returns":
+      return {
+        id: String(raw.id ?? ""),
+        fnsku: pickFromRaw(rd, ["fnsku", "FNSKU", "fulfillment-network-sku"]),
+        sku: n(raw.sku) ?? pickFromRaw(rd, ["sku", "Merchant SKU", "merchant-sku"]),
+        asin: n(raw.asin) ?? pickFromRaw(rd, ["asin", "ASIN"]),
+        order_id: n(raw.order_id) ?? null,
         raw_data: rd,
       };
   }
@@ -204,13 +235,34 @@ async function fetchPage(
   return (data ?? []) as unknown as Record<string, unknown>[];
 }
 
+async function fetchRowsByIdChunk(
+  supabase: SupabaseClient,
+  table: ResolveTargetTable,
+  organizationId: string,
+  uploadId: string,
+  ids: string[],
+): Promise<Record<string, unknown>[]> {
+  if (ids.length === 0) return [];
+  const uploadCol = UPLOAD_ID_COLUMN[table];
+  const { data, error } = await supabase
+    .from(table)
+    .select(SELECT_COLUMNS[table])
+    .eq("organization_id", organizationId)
+    .eq(uploadCol, uploadId)
+    .in("id", ids);
+  if (error) throw new Error(`[product-resolver] read ${table} by id: ${error.message}`);
+  return (data ?? []) as unknown as Record<string, unknown>[];
+}
+
 async function patchRow(
   supabase: SupabaseClient,
   table: ResolveTargetTable,
   organizationId: string,
   rowId: string,
   patch: Record<string, unknown>,
+  dryRun?: boolean,
 ): Promise<void> {
+  if (dryRun) return;
   const { error } = await supabase
     .from(table)
     .update(patch)
@@ -225,6 +277,46 @@ async function patchRow(
  * Standard resolution pass — uses the row's own fnsku / sku / asin against
  * `product_identifier_map` and writes resolved_product_id back onto the row.
  */
+async function processRawRows(
+  opts: ResolveOptions,
+  m: ResolveMetrics,
+  rawRows: Record<string, unknown>[],
+): Promise<void> {
+  const { supabase, organizationId, storeId, table } = opts;
+  const rows = rawRows.map((r) => adaptRow(table, r));
+
+  const keyBatch = rows.map((r) => ({ fnsku: r.fnsku, msku: r.sku, asin: r.asin }));
+  const pool: ProductIdentifierMapRow[] = await prefetchIdentifierMapCandidatesForBatch(
+    supabase,
+    organizationId,
+    storeId,
+    keyBatch,
+  );
+
+  for (const row of rows) {
+    m.rows_scanned += 1;
+    if (!row.fnsku && !row.sku && !row.asin) {
+      m.rows_unresolved += 1;
+      // Don't write status when we never had identifiers on this row.
+      continue;
+    }
+    const match = pickBestProductIdentifierMatch(pool, {
+      organizationId,
+      storeId,
+      fnsku: row.fnsku,
+      msku: row.sku,
+      asin: row.asin,
+    });
+    const out = statusFromMatch(match, m);
+    await patchRow(supabase, table, organizationId, row.id, {
+      resolved_product_id: out.productId,
+      resolved_catalog_product_id: out.catalogProductId,
+      identifier_resolution_status: out.status,
+      identifier_resolution_confidence: out.confidence,
+    }, opts.dryRun);
+  }
+}
+
 async function runStandardResolve(opts: ResolveOptions): Promise<ResolveMetrics> {
   const { supabase, organizationId, uploadId, storeId, table } = opts;
   const pageSize = opts.pageSize ?? 500;
@@ -245,42 +337,21 @@ async function runStandardResolve(opts: ResolveOptions): Promise<ResolveMetrics>
     rows_unresolved: 0,
   };
 
+  const allow = opts.onlyRowIds?.map((x) => String(x).trim()).filter(Boolean);
+  if (allow && allow.length > 0) {
+    for (let i = 0; i < allow.length; i += pageSize) {
+      const chunk = allow.slice(i, i + pageSize);
+      const rawRows = await fetchRowsByIdChunk(supabase, table, organizationId, uploadId, chunk);
+      await processRawRows(opts, m, rawRows);
+    }
+    return m;
+  }
+
   let offset = 0;
   while (true) {
     const rawRows = await fetchPage(supabase, table, organizationId, uploadId, offset, pageSize);
     if (rawRows.length === 0) break;
-    const rows = rawRows.map((r) => adaptRow(table, r));
-
-    const keyBatch = rows.map((r) => ({ fnsku: r.fnsku, msku: r.sku, asin: r.asin }));
-    const pool: ProductIdentifierMapRow[] = await prefetchIdentifierMapCandidatesForBatch(
-      supabase,
-      organizationId,
-      storeId,
-      keyBatch,
-    );
-
-    for (const row of rows) {
-      m.rows_scanned += 1;
-      if (!row.fnsku && !row.sku && !row.asin) {
-        m.rows_unresolved += 1;
-        // Don't write status when we never had identifiers on this row.
-        continue;
-      }
-      const match = pickBestProductIdentifierMatch(pool, {
-        organizationId,
-        storeId,
-        fnsku: row.fnsku,
-        msku: row.sku,
-        asin: row.asin,
-      });
-      const out = statusFromMatch(match, m);
-      await patchRow(supabase, table, organizationId, row.id, {
-        resolved_product_id: out.productId,
-        resolved_catalog_product_id: out.catalogProductId,
-        identifier_resolution_status: out.status,
-        identifier_resolution_confidence: out.confidence,
-      });
-    }
+    await processRawRows(opts, m, rawRows);
 
     offset += pageSize;
     if (rawRows.length < pageSize) break;
@@ -361,7 +432,7 @@ async function runJoinAllOrdersResolve(opts: ResolveOptions, base: ResolveMetric
         resolved_catalog_product_id: hit.catalogProductId,
         identifier_resolution_status: "matched_via_all_orders",
         identifier_resolution_confidence: 0.85,
-      });
+      }, opts.dryRun);
     }
 
     offset += pageSize;

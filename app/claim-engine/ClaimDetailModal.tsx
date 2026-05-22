@@ -208,9 +208,9 @@ export function ClaimDetailModal({
                 </p>
                 <p className="group mt-1 text-sm">
                   <span className="text-slate-500">Package #</span>{" "}
-                  <span className="font-mono font-semibold">{detail?.packageRow?.package_number ?? "—"}</span>
-                  {detail?.packageRow?.package_number ? (
-                    <InlineCopy value={detail.packageRow.package_number} label="Package #" onToast={onToast} className="ml-1 align-middle" />
+                  <span className="font-mono font-semibold">{detail?.packageRow?.package_code ?? "—"}</span>
+                  {detail?.packageRow?.package_code ? (
+                    <InlineCopy value={detail.packageRow.package_code} label="Package #" onToast={onToast} className="ml-1 align-middle" />
                   ) : null}
                 </p>
                 <p className="group mt-1 text-xs text-muted-foreground">

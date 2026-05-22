@@ -1,0 +1,12 @@
+{
+  "id": "settlement_flat_txt",
+  "description": "Flat-file settlement TSV style (hyphenated settlement-id, transaction-type, no transaction status)",
+  "headers": [
+    "settlement-id",
+    "transaction-type",
+    "order-id",
+    "total-amount",
+    "currency"
+  ],
+  "expect_report_type": "SETTLEMENT"
+}

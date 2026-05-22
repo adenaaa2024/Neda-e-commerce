@@ -1,0 +1,7 @@
+{
+  "id": "reports_repository_financial_promotion_placeholder",
+  "skip_detector": true,
+  "reason": "Reports Repository rows may be promoted into financial spine via policy — not a distinct detector path today.",
+  "headers": [],
+  "expect_report_type": null
+}

@@ -29,7 +29,7 @@ type Body = {
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, unknown>;
+  return value as unknown as Record<string, unknown>;
 }
 
 function numericMeta(value: unknown, fallback = 0): number {
@@ -364,7 +364,7 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     const meta = (row as { metadata?: unknown }).metadata;
-    const metaObj = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+    const metaObj = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as unknown as Record<string, unknown>) : {};
 
     const storeValidation = await validateImportStoreBelongsToOrg({
       organizationId: orgId,

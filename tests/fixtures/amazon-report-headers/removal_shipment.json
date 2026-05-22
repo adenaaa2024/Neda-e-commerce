@@ -1,0 +1,12 @@
+{
+  "id": "removal_shipment",
+  "description": "GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA",
+  "headers": [
+    "order-id",
+    "tracking-number",
+    "carrier",
+    "shipment-date",
+    "sku"
+  ],
+  "expect_report_type": "REMOVAL_SHIPMENT"
+}

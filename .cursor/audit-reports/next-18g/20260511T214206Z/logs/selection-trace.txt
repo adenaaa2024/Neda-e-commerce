@@ -1,4 +1,0 @@
-[input-run] scanned 2 subdirectories under .cursor\audit-reports\next-18f
-[input-run] auto-selected runId=20260511T210609Z (2 candidate(s), startedAt=2026-05-11T21:06:09.689Z)
-[tenant] discovered 1 organization(s) and 1 store(s) across input clusters
-[tenant] auto-selected organization_id=00000000-0000-0000-0000-000000000001

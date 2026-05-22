@@ -1,0 +1,12 @@
+# Current Tasks
+
+## Backend
+- [ ] Build inventory sync API
+- [ ] Create vendor import system
+
+## Frontend
+- [ ] Build product table
+- [ ] Build dashboard widgets
+
+## Database
+- [ ] Optimize product schema

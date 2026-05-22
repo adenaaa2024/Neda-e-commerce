@@ -14,7 +14,7 @@ from typing import Any, Callable, Iterator, List
 
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import Client, create_client
@@ -723,13 +723,35 @@ def read_root():
     return {"status": "Agent Backend is Live!", "service": "AI Logistics"}
 
 @app.get("/agent/pending-claims")
-async def get_pending_claims():
+async def get_pending_claims(
+    organization_id: str = Query(..., description="Tenant UUID (required)"),
+    store_id: str | None = Query(None, description="Optional store UUID — only submissions for this store"),
+):
     db = _require_supabase()
     try:
-        response = (
-            db.table("claim_submissions").select("*").eq("status", "ready_to_send").execute()
+        try:
+            org_uuid = str(uuid.UUID(organization_id.strip()))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid organization_id") from exc
+        store_uuid: str | None = None
+        if store_id and str(store_id).strip():
+            try:
+                store_uuid = str(uuid.UUID(str(store_id).strip()))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid store_id") from exc
+
+        q = (
+            db.table("claim_submissions")
+            .select("*")
+            .eq("status", "ready_to_send")
+            .eq("organization_id", org_uuid)
         )
+        if store_uuid:
+            q = q.eq("store_id", store_uuid)
+        response = q.execute()
         return {"count": len(response.data), "claims": response.data}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -1,1 +1,0 @@
-organization_id,store_id,source_table,bucket_id,bucket_label,row_count,distinct_seller_skus,distinct_asins,distinct_fnskus,distinct_upcs,with_upload_provenance_count,with_native_asin_count,with_native_fnsku_count

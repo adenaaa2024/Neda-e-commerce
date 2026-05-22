@@ -41,7 +41,7 @@ export async function getWorkspaceSettings(): Promise<WorkspaceSettings> {
 
     return {
       id: data.id as string,
-      core_settings:  (data.core_settings  as Record<string, unknown>) ?? {},
+      core_settings:  (data.core_settings  as unknown as Record<string, unknown>) ?? {},
       module_configs: (data.module_configs as ModuleConfigs) ?? { inventory: DEFAULT_FEFO },
     };
   } catch {

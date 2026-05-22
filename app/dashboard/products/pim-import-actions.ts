@@ -153,7 +153,7 @@ export async function createPimImportUploadSession(input: {
         const rowSha = String(m.content_sha256 ?? "").trim().toLowerCase();
         if (rowSha !== shaIn) continue;
         if (m.pim_import_cancelled === true) continue;
-        const job = (m.pim_import_job as Record<string, unknown> | undefined) ?? {};
+        const job = (m.pim_import_job as unknown as Record<string, unknown> | undefined) ?? {};
         const life = String(job.lifecycle ?? "").toLowerCase();
         if (life === "completed") continue;
         const prefix = typeof m.storage_prefix === "string" ? m.storage_prefix.trim() : "";
@@ -202,7 +202,7 @@ export async function createPimImportUploadSession(input: {
         progress_pct: 0,
         stage_label: "uploaded",
       },
-    } as Record<string, unknown>),
+    } as unknown as Record<string, unknown>),
   });
 
   const { data, error } = await supabaseServer
@@ -283,7 +283,7 @@ export async function finalizePimImportUploadSession(input: {
         stage_label: "queued",
         progress_pct: 10,
       },
-    } as Record<string, unknown>),
+    } as unknown as Record<string, unknown>),
   });
 
   const { error } = await supabaseServer
@@ -332,12 +332,12 @@ export async function findLatestActivePimUpload(input: {
   const terminalPreviewStatuses = new Set(["completed", "reset"]);
 
   for (const row of data ?? []) {
-    const meta = ((row as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+    const meta = ((row as { metadata?: Record<string, unknown> }).metadata ?? {}) as unknown as Record<string, unknown>;
 
     // Skip deleted
     if (meta.pim_upload_deleted === true || meta.deleted === true) continue;
 
-    const job = (meta.pim_import_job as Record<string, unknown> | undefined) ?? {};
+    const job = (meta.pim_import_job as unknown as Record<string, unknown> | undefined) ?? {};
     const lifecycle = String(job.lifecycle ?? "").toLowerCase();
     const previewStatus = String(meta.preview_status ?? "").toLowerCase();
 
@@ -345,7 +345,7 @@ export async function findLatestActivePimUpload(input: {
     if (terminalLifecycles.has(lifecycle) || terminalPreviewStatuses.has(previewStatus)) continue;
     // Skip explicitly cancelled with no partial writes
     if (lifecycle === "cancelled" && previewStatus === "cancelled") {
-      const am = (job.apply_metrics as Record<string, unknown> | undefined) ?? {};
+      const am = (job.apply_metrics as unknown as Record<string, unknown> | undefined) ?? {};
       const hasWrites = ["products_created", "products_updated", "identifiers_created", "prices_inserted"]
         .some((k) => Number(am[k] ?? 0) > 0);
       if (!hasWrites) continue;
@@ -432,17 +432,17 @@ export async function fetchPimImportPreviewSnapshot(input: {
   };
   const meta = row.metadata ?? {};
   const prRaw = meta.pim_preview_result;
-  const pr = typeof prRaw === "object" && prRaw !== null && !Array.isArray(prRaw) ? (prRaw as Record<string, unknown>) : null;
+  const pr = typeof prRaw === "object" && prRaw !== null && !Array.isArray(prRaw) ? (prRaw as unknown as Record<string, unknown>) : null;
   const jobRaw = meta.pim_import_job;
   const job =
-    typeof jobRaw === "object" && jobRaw !== null && !Array.isArray(jobRaw) ? (jobRaw as Record<string, unknown>) : null;
+    typeof jobRaw === "object" && jobRaw !== null && !Array.isArray(jobRaw) ? (jobRaw as unknown as Record<string, unknown>) : null;
   const pqRaw = job?.preview_quality;
   const pq =
-    typeof pqRaw === "object" && pqRaw !== null && !Array.isArray(pqRaw) ? (pqRaw as Record<string, unknown>) : null;
+    typeof pqRaw === "object" && pqRaw !== null && !Array.isArray(pqRaw) ? (pqRaw as unknown as Record<string, unknown>) : null;
   const fromSnapshot = pr?.raw_quality;
   const fromSnapshotQ =
     typeof fromSnapshot === "object" && fromSnapshot !== null && !Array.isArray(fromSnapshot)
-      ? (fromSnapshot as Record<string, unknown>)
+      ? (fromSnapshot as unknown as Record<string, unknown>)
       : null;
   const preview_quality = fromSnapshotQ ?? pq;
 
@@ -584,7 +584,7 @@ function sessionStatusFromUploadMetadata(
   current_step: string;
   progress_percent: number;
 } {
-  const job = (m.pim_import_job as Record<string, unknown> | undefined) ?? {};
+  const job = (m.pim_import_job as unknown as Record<string, unknown> | undefined) ?? {};
   const life = String(job.lifecycle ?? "").trim().toLowerCase();
   const pstat = String(m.preview_status ?? "").trim().toLowerCase();
   const stage = String(job.stage_label ?? "").trim();
@@ -641,9 +641,9 @@ function mapRawReportUploadToHistoryRow(
 ): PimImportSessionListRow | null {
   const uid = String(up.id ?? "").trim();
   if (!isUuidString(uid)) return null;
-  const m = (up.metadata && typeof up.metadata === "object" ? up.metadata : {}) as Record<string, unknown>;
-  const job = (m.pim_import_job as Record<string, unknown> | undefined) ?? {};
-  const frozen = job.frozen_plan as Record<string, unknown> | undefined;
+  const m = (up.metadata && typeof up.metadata === "object" ? up.metadata : {}) as unknown as Record<string, unknown>;
+  const job = (m.pim_import_job as unknown as Record<string, unknown> | undefined) ?? {};
+  const frozen = job.frozen_plan as unknown as Record<string, unknown> | undefined;
   const importMode =
     (typeof job.import_mode === "string" && job.import_mode.trim()) ||
     (typeof frozen?.import_mode === "string" && String(frozen.import_mode).trim()) ||
@@ -653,19 +653,19 @@ function mapRawReportUploadToHistoryRow(
 
   const preview_metrics =
     m.preview_metrics && typeof m.preview_metrics === "object" && !Array.isArray(m.preview_metrics)
-      ? (m.preview_metrics as Record<string, unknown>)
+      ? (m.preview_metrics as unknown as Record<string, unknown>)
       : null;
   let apply_metrics =
     m.apply_metrics && typeof m.apply_metrics === "object" && !Array.isArray(m.apply_metrics)
-      ? (m.apply_metrics as Record<string, unknown>)
+      ? (m.apply_metrics as unknown as Record<string, unknown>)
       : null;
   if (!apply_metrics && job.apply_metrics && typeof job.apply_metrics === "object") {
-    apply_metrics = job.apply_metrics as Record<string, unknown>;
+    apply_metrics = job.apply_metrics as unknown as Record<string, unknown>;
   }
 
   const pq = job.preview_quality;
   const quality =
-    typeof pq === "object" && pq !== null && !Array.isArray(pq) ? (pq as Record<string, unknown>) : null;
+    typeof pq === "object" && pq !== null && !Array.isArray(pq) ? (pq as unknown as Record<string, unknown>) : null;
   const pm = preview_metrics ?? quality;
 
   const num = (o: Record<string, unknown> | null, k: string): number | null => {
@@ -723,7 +723,7 @@ function isSuggestedActivePimImportRow(row: PimImportSessionListRow): boolean {
   const m = row.metadata ?? {};
   const p = String(row.preview_status ?? "").toLowerCase();
   const rs = String(row.status ?? "").toLowerCase();
-  const job = (m.pim_import_job as Record<string, unknown> | undefined) ?? {};
+  const job = (m.pim_import_job as unknown as Record<string, unknown> | undefined) ?? {};
   const life = String(job.lifecycle ?? "").toLowerCase();
   const cand = new Set([
     "uploaded",
@@ -787,7 +787,7 @@ export async function findActivePimImportBySha(input: {
     const rowSha = String(m.content_sha256 ?? "").trim().toLowerCase();
     if (rowSha !== shaIn) continue;
     if (m.pim_import_cancelled === true) continue;
-    const job = (m.pim_import_job as Record<string, unknown> | undefined) ?? {};
+    const job = (m.pim_import_job as unknown as Record<string, unknown> | undefined) ?? {};
     const life = String(job.lifecycle ?? "").trim().toLowerCase();
     if (life === "completed" || life === "cancelled") continue;
     const pstat = String(m.preview_status ?? "").trim().toLowerCase();
@@ -940,7 +940,7 @@ export async function listPimImportSessions(input: {
     );
     if (row) {
       // Tag row as store_mismatch if its metadata store doesn't match the selected store
-      const m = ((u as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+      const m = ((u as { metadata?: Record<string, unknown> }).metadata ?? {}) as unknown as Record<string, unknown>;
       const uploadStore = uploadStoreIdFromMetadata(m);
       if (sid && uploadStore && uploadStore !== sid) {
         (row as PimImportSessionListRow & { store_mismatch?: boolean }).store_mismatch = true;
@@ -974,7 +974,7 @@ export async function listPimImportSessions(input: {
           forcedFetchMissingReasons[id] = "no_raw_report_uploads_row_for_organization_and_id";
           continue;
         }
-        const m = ((u as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+        const m = ((u as { metadata?: Record<string, unknown> }).metadata ?? {}) as unknown as Record<string, unknown>;
         const forcedRow = mapRawReportUploadToHistoryRow(
           u as {
             id?: string;
@@ -1067,7 +1067,7 @@ async function pickSuggestedActivePimImport(input: {
     .maybeSingle();
   if (!rawUp) return { ok: true, row: null, ensureStats: listRes.ensureStats };
 
-  const m = ((rawUp as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+  const m = ((rawUp as { metadata?: Record<string, unknown> }).metadata ?? {}) as unknown as Record<string, unknown>;
   return {
     ok: true,
     row: {
@@ -1100,7 +1100,7 @@ export async function getPimImportSession(input: {
   if (error || !up) return { ok: false, error: error?.message ?? "Upload not found." };
 
   const rt = String((up as { report_type?: string }).report_type ?? "");
-  const upMeta = ((up as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+  const upMeta = ((up as { metadata?: Record<string, unknown> }).metadata ?? {}) as unknown as Record<string, unknown>;
   if (!(PIM_SESSION_REPORT_TYPES as readonly string[]).includes(rt) && !isPimMetadataRow(upMeta)) {
     return { ok: false, error: "Not a PIM catalog seed / Product Master upload." };
   }
@@ -1153,16 +1153,16 @@ export async function resetPimImportJobState(input: {
     .maybeSingle();
   if (uErr || !upRow) return { ok: false, error: uErr?.message ?? "Upload not found." };
   const rt = String((upRow as { report_type?: string }).report_type ?? "");
-  const resetMeta = ((upRow as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+  const resetMeta = ((upRow as { metadata?: Record<string, unknown> }).metadata ?? {}) as unknown as Record<string, unknown>;
   if (!(PIM_SESSION_REPORT_TYPES as readonly string[]).includes(rt) && !isPimMetadataRow(resetMeta)) {
     return { ok: false, error: "Not a Product Master / catalog seed import session." };
   }
 
   const prev = (upRow as { metadata?: unknown }).metadata;
-  const m = (prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {}) as Record<string, unknown>;
+  const m = (prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {}) as unknown as Record<string, unknown>;
   const j =
     typeof m.pim_import_job === "object" && m.pim_import_job !== null && !Array.isArray(m.pim_import_job)
-      ? ({ ...(m.pim_import_job as Record<string, unknown>) } as Record<string, unknown>)
+      ? ({ ...(m.pim_import_job as unknown as Record<string, unknown>) } as unknown as Record<string, unknown>)
       : {};
   const pstat = String(m.preview_status ?? "").toLowerCase();
   const life = String(j.lifecycle ?? "").toLowerCase();
@@ -1222,7 +1222,7 @@ export async function clearPimImportSessionStaging(input: {
   if (uErr || !upRow) return { ok: false, error: uErr?.message ?? "Upload not found." };
 
   const prev = (upRow as { metadata?: unknown }).metadata;
-  const m = (prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {}) as Record<string, unknown>;
+  const m = (prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {}) as unknown as Record<string, unknown>;
   const paths: string[] = [];
   const merged = typeof m.pim_merged_storage_path === "string" ? m.pim_merged_storage_path.trim() : "";
   const scan = typeof m.pim_csv_scan_cache_storage === "string" ? m.pim_csv_scan_cache_storage.trim() : "";
@@ -1238,7 +1238,7 @@ export async function clearPimImportSessionStaging(input: {
     preview_status: "uploaded",
     pim_import_job: {
       ...(typeof m.pim_import_job === "object" && m.pim_import_job !== null && !Array.isArray(m.pim_import_job)
-        ? (m.pim_import_job as Record<string, unknown>)
+        ? (m.pim_import_job as unknown as Record<string, unknown>)
         : {}),
       lifecycle: "uploaded",
       stage_label: "staging_cleared",
@@ -1259,7 +1259,7 @@ export async function clearPimImportSessionStaging(input: {
 function isPimSessionRowSafeToClearAsStale(row: PimImportSessionListRow): boolean {
   const am =
     row.apply_metrics && typeof row.apply_metrics === "object"
-      ? (row.apply_metrics as Record<string, unknown>)
+      ? (row.apply_metrics as unknown as Record<string, unknown>)
       : {};
   const pc = Number(am.products_created ?? 0);
   const pu = Number(am.products_updated ?? 0);
@@ -1396,7 +1396,7 @@ export async function assignPimUploadToStore(input: {
   if (uErr || !upRow) return { ok: false, error: uErr?.message ?? "Upload not found." };
 
   const prev = (upRow as { metadata?: unknown }).metadata;
-  const m = (prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {}) as Record<string, unknown>;
+  const m = (prev && typeof prev === "object" && !Array.isArray(prev) ? prev : {}) as unknown as Record<string, unknown>;
 
   const { mergeUploadMetadata } = await import("../../../lib/raw-report-upload-metadata");
   const meta2 = mergeUploadMetadata(prev, {
@@ -1409,7 +1409,7 @@ export async function assignPimUploadToStore(input: {
       storeId: sid,
       _store_reassigned_at: new Date().toISOString(),
       _store_reassigned_from: uploadStoreIdFromMetadata(m) || null,
-    }) as Record<string, unknown>),
+    }) as unknown as Record<string, unknown>),
   });
 
   const { error: upErr } = await supabaseServer
@@ -1568,7 +1568,7 @@ export async function getPimImportFileProcessingMetrics(input: {
   const im = data?.import_metrics;
   return {
     ok: true,
-    import_metrics: im && typeof im === "object" && !Array.isArray(im) ? (im as Record<string, unknown>) : null,
+    import_metrics: im && typeof im === "object" && !Array.isArray(im) ? (im as unknown as Record<string, unknown>) : null,
   };
 }
 
@@ -1612,7 +1612,7 @@ export async function pimPriceBackfillStep(input: {
     cancel: Boolean(input.cancel),
   });
   const status = r.timedOut ? 504 : r.status;
-  const json = (r.json && typeof r.json === "object" ? r.json : {}) as Record<string, unknown>;
+  const json = (r.json && typeof r.json === "object" ? r.json : {}) as unknown as Record<string, unknown>;
   if (!r.ok) {
     const det = json.detail;
     const msg =
@@ -1634,12 +1634,12 @@ export async function pimPriceBackfillStep(input: {
       user_hint: typeof json.user_hint === "string" ? json.user_hint : undefined,
       price_backfill:
         json.price_backfill && typeof json.price_backfill === "object"
-          ? (json.price_backfill as Record<string, unknown>)
+          ? (json.price_backfill as unknown as Record<string, unknown>)
           : null,
     };
   }
   const bf =
-    json.price_backfill && typeof json.price_backfill === "object" ? (json.price_backfill as Record<string, unknown>) : null;
+    json.price_backfill && typeof json.price_backfill === "object" ? (json.price_backfill as unknown as Record<string, unknown>) : null;
   return {
     ok: true,
     done: Boolean(json.done),

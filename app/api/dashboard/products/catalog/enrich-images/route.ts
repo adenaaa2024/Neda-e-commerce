@@ -79,7 +79,7 @@ function nearlyEqualPrice(a: number, b: number): boolean {
 function mergePimPriceEnrichmentMeta(base: Record<string, unknown>, pricePatch: Record<string, unknown>): void {
   const prev =
     base.pim_price_enrichment && typeof base.pim_price_enrichment === "object" && !Array.isArray(base.pim_price_enrichment)
-      ? (base.pim_price_enrichment as Record<string, unknown>)
+      ? (base.pim_price_enrichment as unknown as Record<string, unknown>)
       : {};
   base.pim_price_enrichment = { ...prev, ...pricePatch };
 }
@@ -425,17 +425,17 @@ export async function POST(req: Request) {
   const priceRetryBoost = (x: ProductRow) => {
     const m =
       x.metadata && typeof x.metadata === "object" && !Array.isArray(x.metadata)
-        ? (x.metadata as Record<string, unknown>)
+        ? (x.metadata as unknown as Record<string, unknown>)
         : {};
     const pe =
       m.pim_price_enrichment && typeof m.pim_price_enrichment === "object" && !Array.isArray(m.pim_price_enrichment)
-        ? (m.pim_price_enrichment as Record<string, unknown>)
+        ? (m.pim_price_enrichment as unknown as Record<string, unknown>)
         : {};
     const po = String(pe.pricing_outcome ?? "").toLowerCase();
     if (po.includes("thrott")) return 0;
     const ce =
       m.pim_catalog_enrichment && typeof m.pim_catalog_enrichment === "object" && !Array.isArray(m.pim_catalog_enrichment)
-        ? (m.pim_catalog_enrichment as Record<string, unknown>)
+        ? (m.pim_catalog_enrichment as unknown as Record<string, unknown>)
         : {};
     const po2 = String(ce.pricing_outcome ?? "").toLowerCase();
     if (po2.includes("thrott")) return 0;
@@ -804,8 +804,8 @@ export async function POST(req: Request) {
 
       const prevMetaPartial =
         row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-          ? ({ ...(row.metadata as Record<string, unknown>) } as Record<string, unknown>)
-          : ({} as Record<string, unknown>);
+          ? ({ ...(row.metadata as unknown as Record<string, unknown>) } as unknown as Record<string, unknown>)
+          : ({} as unknown as Record<string, unknown>);
       prevMetaPartial.pim_last_catalog_enrichment_at = new Date().toISOString();
       prevMetaPartial.pim_catalog_enrichment = {
         asin,
@@ -933,7 +933,7 @@ export async function POST(req: Request) {
           await sleep(DELAY_MS);
           return;
         }
-        const raw = r.body && typeof r.body === "object" && !Array.isArray(r.body) ? (r.body as Record<string, unknown>) : null;
+        const raw = r.body && typeof r.body === "object" && !Array.isArray(r.body) ? (r.body as unknown as Record<string, unknown>) : null;
         if (!raw) {
           await sleep(DELAY_MS);
           return;
@@ -1017,12 +1017,12 @@ export async function POST(req: Request) {
       const prevBrand = typeof row.brand === "string" ? row.brand.trim() : "";
       const prevRaw =
         row.amazon_raw && typeof row.amazon_raw === "object" && !Array.isArray(row.amazon_raw)
-          ? ({ ...(row.amazon_raw as Record<string, unknown>) } as Record<string, unknown>)
-          : ({} as Record<string, unknown>);
+          ? ({ ...(row.amazon_raw as unknown as Record<string, unknown>) } as unknown as Record<string, unknown>)
+          : ({} as unknown as Record<string, unknown>);
       const bodyObj =
         cat.body && typeof cat.body === "object" && !Array.isArray(cat.body)
-          ? ({ ...(cat.body as Record<string, unknown>) } as Record<string, unknown>)
-          : ({} as Record<string, unknown>);
+          ? ({ ...(cat.body as unknown as Record<string, unknown>) } as unknown as Record<string, unknown>)
+          : ({} as unknown as Record<string, unknown>);
 
       const urlsFromPrev = collectAmazonCatalogImageUrls(prevRaw);
       const urlsFromNew = collectAmazonCatalogImageUrls(cat.body);
@@ -1070,14 +1070,14 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const mergedAmazonRaw = { ...prevRaw, ...bodyObj } as Record<string, unknown>;
+      const mergedAmazonRaw = { ...prevRaw, ...bodyObj } as unknown as Record<string, unknown>;
       const amazonRawChanged =
         JSON.stringify(row.amazon_raw ?? {}) !== JSON.stringify(mergedAmazonRaw);
 
       const prevMeta =
         row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-          ? ({ ...(row.metadata as Record<string, unknown>) } as Record<string, unknown>)
-          : ({} as Record<string, unknown>);
+          ? ({ ...(row.metadata as unknown as Record<string, unknown>) } as unknown as Record<string, unknown>)
+          : ({} as unknown as Record<string, unknown>);
       prevMeta.pim_last_catalog_enrichment_at = new Date().toISOString();
       prevMeta.pim_catalog_enrichment = {
         asin,

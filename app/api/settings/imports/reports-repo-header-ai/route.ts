@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { assertAiProviderCallAllowed } from "../../../../../lib/ai-provider-gates";
 import { getOrganizationOpenAIApiKey } from "../../../../../lib/organization-openai-key";
 import { resolveWriteOrganizationId } from "../../../../../lib/server-tenant";
 import { isUuidString } from "../../../../../lib/uuid";
@@ -34,6 +35,16 @@ export async function POST(req: Request): Promise<Response> {
     const orgId = await resolveWriteOrganizationId(actor, null);
     if (!isUuidString(orgId)) {
       return NextResponse.json({ ok: false, error: "Invalid organization scope." }, { status: 400 });
+    }
+
+    const gate = assertAiProviderCallAllowed("import_gpt_fallback");
+    if (!gate.ok) {
+      return NextResponse.json({
+        ok: true,
+        line_index: null,
+        skipped: gate.reason,
+        required_flags: gate.requiredFlags,
+      });
     }
 
     const key = await getOrganizationOpenAIApiKey(orgId);

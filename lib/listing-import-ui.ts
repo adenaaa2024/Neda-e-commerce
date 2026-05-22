@@ -109,7 +109,7 @@ export function buildListingPipelineSteps(opts: {
   const im = m.import_metrics as { current_phase?: string; rows_synced?: number; total_staging_rows?: number } | undefined;
   const imPhase = norm(im?.current_phase);
 
-  const fileRowResolved = resolveImportFileRowTotal({ fps: f as Record<string, unknown>, metadata: m as Record<string, unknown> });
+  const fileRowResolved = resolveImportFileRowTotal({ fps: f as unknown as Record<string, unknown>, metadata: m as unknown as Record<string, unknown> });
   const fileRowPlan = fileRowResolved.total;
   const dataRowsTotal = Math.max(0, fileRowPlan ?? 0);
   const stagedRows = Math.max(0, num(f.staged_rows_written, 0) || num(f.processed_rows, 0));
@@ -346,7 +346,7 @@ export function buildListingImportProgressModel(
     ),
   );
 
-  const fileRowResolved = resolveImportFileRowTotal({ fps: f as Record<string, unknown>, metadata: m });
+  const fileRowResolved = resolveImportFileRowTotal({ fps: f as unknown as Record<string, unknown>, metadata: m });
   const fileRowPlan = fileRowResolved.total;
   const dataRowsTotal = Math.max(0, fileRowPlan ?? 0);
   const stagedRowsWritten = Math.max(0, num(f.staged_rows_written, 0) || num(f.processed_rows, 0));
@@ -576,7 +576,7 @@ export function resolveListingImportUiState(input: ListingImportUiInput): Listin
   if (!isListingAmazonSyncKind(st.kind as AmazonSyncKind)) return null;
 
   const meta = input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)
-    ? (input.metadata as Record<string, unknown>)
+    ? (input.metadata as unknown as Record<string, unknown>)
     : {};
   const client = input.client;
   const pm = buildListingImportProgressModel(input.metadata, input.fps);
@@ -642,7 +642,7 @@ export function resolveListingImportUiState(input: ListingImportUiInput): Listin
   const rowMetricsLine = buildListingRowMetricsLine(pm, st, meta);
 
   const fpsRow =
-    input.fps && typeof input.fps === "object" ? (input.fps as Record<string, unknown>) : null;
+    input.fps && typeof input.fps === "object" ? (input.fps as unknown as Record<string, unknown>) : null;
   const combinedPhase2Pct = Math.min(
     100,
     Math.max(pm.phase2PctListing, pm.phase3PctListing, pm.phase4PctListing, num(fpsRow?.process_pct, 0)),

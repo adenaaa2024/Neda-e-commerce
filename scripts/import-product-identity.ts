@@ -221,7 +221,7 @@ function normalizeUpc(raw: string, stats: ImportStats): string | null {
 
 function asPlainRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, unknown>;
+  return value as unknown as Record<string, unknown>;
 }
 
 function normalizeRow(row: CsvRow, rowNumber: number, stats: ImportStats): NormalizedRow | null {

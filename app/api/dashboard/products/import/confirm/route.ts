@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   const prevJob = base.pim_import_job;
   const j =
     typeof prevJob === "object" && prevJob !== null && !Array.isArray(prevJob)
-      ? { ...(prevJob as Record<string, unknown>) }
+      ? { ...(prevJob as unknown as Record<string, unknown>) }
       : {};
   if (base.pim_import_cancelled === true || String(j.lifecycle ?? "").toLowerCase() === "cancelled") {
     return NextResponse.json({ ok: false, error: "This import was cancelled." }, { status: 409 });
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
 
   const pq =
     typeof j.preview_quality === "object" && j.preview_quality !== null && !Array.isArray(j.preview_quality)
-      ? (j.preview_quality as Record<string, unknown>)
+      ? (j.preview_quality as unknown as Record<string, unknown>)
       : null;
   if (pq?.apply_blocked_by_dirty_rate === true) {
     return NextResponse.json(

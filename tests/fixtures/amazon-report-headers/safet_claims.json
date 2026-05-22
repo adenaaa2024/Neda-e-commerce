@@ -1,0 +1,6 @@
+{
+  "id": "safet_claims",
+  "description": "SAFE-T Claims export",
+  "headers": ["SAFE-T Claim ID", "Order ID", "Reimbursement Amount"],
+  "expect_report_type": "SAFET_CLAIMS"
+}

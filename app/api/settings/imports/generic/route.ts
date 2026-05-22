@@ -94,7 +94,7 @@ async function enrichExpectedPackagesFromShipmentAllocations(opts: {
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || typeof row !== "object") return;
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     console.log(
       JSON.stringify({
         phase: "expected_packages_allocation_enrich",
@@ -134,7 +134,7 @@ async function backfillExpectedPackagesShipmentMeta(opts: {
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || typeof row !== "object") return;
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     console.log(
       JSON.stringify({
         phase: "expected_packages_shipment_meta_backfill",
@@ -200,7 +200,7 @@ export async function POST(req: Request): Promise<Response> {
     const importStoreId = resolveImportStoreIdFromMetadata(meta);
     const failedPhaseRaw =
       meta && typeof meta === "object" && !Array.isArray(meta)
-        ? normLower((meta as Record<string, unknown>).failed_phase)
+        ? normLower((meta as unknown as Record<string, unknown>).failed_phase)
         : "";
 
     const { data: fpsGate } = await supabaseServer
@@ -244,7 +244,7 @@ export async function POST(req: Request): Promise<Response> {
       const merged = mergeUploadMetadata(meta, {
         etl_phase: "generic",
         error_message: "",
-      }) as Record<string, unknown>;
+      }) as unknown as Record<string, unknown>;
       delete merged.failed_phase;
       return merged;
     })();
@@ -386,7 +386,7 @@ export async function POST(req: Request): Promise<Response> {
           etl_phase: "complete",
           error_message: "",
           removal_shipment_phase4_generic_rows_written: genericEligibleRows,
-        }) as Record<string, unknown>;
+        }) as unknown as Record<string, unknown>;
         delete mergedMeta.failed_phase;
 
         await supabaseServer
@@ -519,7 +519,7 @@ export async function POST(req: Request): Promise<Response> {
         import_metrics: { current_phase: "complete" },
         etl_phase: "complete",
         error_message: "",
-      }) as Record<string, unknown>;
+      }) as unknown as Record<string, unknown>;
       delete mergedFin.failed_phase;
 
       await supabaseServer

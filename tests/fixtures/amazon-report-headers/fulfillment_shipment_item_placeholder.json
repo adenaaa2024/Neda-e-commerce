@@ -1,0 +1,11 @@
+{
+  "id": "fulfillment_shipment_item_placeholder",
+  "description": "Same detector grain as Fulfilled Shipments today; dedicated line-item reportType TBD (see crosswalk placeholders)",
+  "headers": [
+    "amazon-order-id",
+    "shipment-item-id",
+    "shipment-id",
+    "merchant-order-id"
+  ],
+  "expect_report_type": "ALL_ORDERS"
+}

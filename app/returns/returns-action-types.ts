@@ -25,10 +25,9 @@ export type PalletRecord = {
    * Column `pallets.order_id` (renamed from `amazon_order_id`).
    */
   order_id?: string | null;
-  /** Primary pallet overview image (media bucket). */
-  photo_url?: string | null;
-  bol_photo_url?: string | null;
-  manifest_photo_url?: string | null;
+  pallet_photo_urls?: string[];
+  bol_photo_urls?: string[];
+  shipping_label_urls?: string[];
   status: PalletStatus; notes: string | null; item_count: number;
   created_by?: string | null;
   updated_by?: string | null;
@@ -41,9 +40,9 @@ export type PalletRecord = {
 
 export type PalletInsertPayload = {
   pallet_number: string;
-  photo_url?: string | null;
-  bol_photo_url?: string | null;
-  manifest_photo_url?: string | null;
+  pallet_photo_urls?: string[] | null;
+  bol_photo_urls?: string[] | null;
+  shipping_label_urls?: string[] | null;
   store_id?: string;
   notes?: string;
   /** Shipping carrier — auto-fills child Package forms. */
@@ -58,17 +57,28 @@ export type PalletInsertPayload = {
 export type PalletUpdatePayload = Partial<Pick<
   PalletRecord,
   | "status" | "notes" | "tracking_number"
-  | "photo_url" | "bol_photo_url" | "manifest_photo_url"
+  | "pallet_photo_urls" | "bol_photo_urls" | "shipping_label_urls"
   | "carrier_name" | "order_id"
 >>;
 
 export type PackageStatus = "open" | "closed" | "suspicious" | "submitted";
 
-export type ExpectedItem = { sku: string; expected_qty: number; description?: string };
+export type ExpectedItem = {
+  sku: string;
+  expected_qty: number;
+  description?: string;
+  asin?: string | null;
+  fnsku?: string | null;
+  /** Deterministic resolver output when `store_id` + identifiers allow a map lookup. */
+  resolved_product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
+  identifier_resolution_status?: string | null;
+  identifier_resolution_confidence?: number | null;
+};
 
 export type PackageRecord = {
   id: string; organization_id: string;
-  package_number: string; tracking_number: string | null;
+  package_code: string; tracking_number: string | null;
   carrier_name: string | null;
   rma_number: string | null;
   expected_item_count: number; actual_item_count: number;
@@ -81,29 +91,27 @@ export type PackageRecord = {
   updated_by?: string | null;
   created_at: string; updated_at: string;
   order_id?: string | null;
-  photo_url?: string | null;
-  photo_return_label_url?: string | null;
-  photo_opened_url?: string | null;
-  photo_closed_url?: string | null;
-  manifest_photo_url?: string | null;
-  /** Structured gallery — `{ urls }` and/or `label_urls`, `outer_box_urls`, `inside_content_urls`, `sealed_box_urls`. */
-  photo_evidence?: unknown | null;
+  inside_photo_urls?: string[];
+  outside_photo_urls?: string[];
+  slip_photo_urls?: string[];
   /** Parsed packing-slip lines (JSONB) — normalized in `normalizePackageRow` for reconciliation UI. */
   manifest_data?: ExpectedItem[] | null;
 };
 
 export type PackageInsertPayload = {
-  package_number: string; tracking_number?: string;
+  package_code: string; tracking_number?: string;
   carrier_name?: string; rma_number?: string; expected_item_count?: number;
   pallet_id?: string; store_id?: string; organization_id?: string; created_by?: string;
   manifest_url?: string;
+  /** Optional slip lines — persisted on `packages.manifest_data` with resolver fields when store is known. */
+  manifest_data?: ExpectedItem[] | null;
   order_id?: string | null;
-  photo_url?: string | null;
-  photo_return_label_url?: string | null;
-  photo_opened_url?: string | null;
-  photo_closed_url?: string | null;
-  manifest_photo_url?: string | null;
+  inside_photo_urls?: string[] | null;
+  outside_photo_urls?: string[] | null;
+  slip_photo_urls?: string[] | null;
+  /** Wizard-only — mapped to array columns on insert. */
   photo_evidence?: Record<string, unknown> | null;
+  manifest_photo_url?: string | null;
   actor_profile_id?: string | null;
 };
 
@@ -111,18 +119,23 @@ export type PackageUpdatePayload = Partial<Pick<
   PackageRecord,
   | "carrier_name" | "tracking_number" | "rma_number" | "expected_item_count" | "status" | "discrepancy_note" | "pallet_id" | "manifest_url"
   | "order_id"
-  | "photo_url" | "photo_return_label_url" | "photo_opened_url" | "photo_closed_url" | "manifest_photo_url"
-  | "photo_evidence"
->>;
+  | "inside_photo_urls" | "outside_photo_urls" | "slip_photo_urls"
+  | "manifest_data"
+>> & {
+  /** Edit wizard / manifest upload — mapped to array columns server-side. */
+  photo_evidence?: unknown | null;
+  manifest_photo_url?: string | null;
+};
 
 export type ReturnInsertPayload = {
   lpn?: string;
-  /** Seller RMA / authorization — `returns.rma_number`. */
+  /** Seller RMA / authorization — `return_items.rma_number`. */
   rma_number?: string | null;
   marketplace: string; item_name: string;
   asin?: string;
   fnsku?: string;
   sku?: string;
+  product_identifier?: string;
   conditions: string[];
   notes?: string;
   photo_evidence?: Record<string, string | number | string[] | null> | null;
@@ -140,7 +153,7 @@ export type ReturnInsertPayload = {
 export type ReturnRecord = {
   id: string; organization_id: string;
   lpn: string | null;
-  /** Seller RMA / authorization — column on `returns` (optional). */
+  /** Seller RMA / authorization — column on `return_items` (optional). */
   rma_number?: string | null;
   inherited_tracking_number?: string | null;
   inherited_carrier?: string | null;
@@ -153,6 +166,8 @@ export type ReturnRecord = {
   fnsku?: string | null;
   sku?: string | null;
   product_identifier?: string | null;
+  /** Legacy catalog FK — compared to resolver output for `mismatch` status. */
+  product_id?: string | null;
   conditions: string[]; status: string;
   notes: string | null;
   photo_evidence: ReturnPhotoEvidenceRow;
@@ -166,6 +181,10 @@ export type ReturnRecord = {
   updated_by?: string | null;
   created_at: string; updated_at: string;
   estimated_value?: number | null;
+  resolved_product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
+  identifier_resolution_status?: string | null;
+  identifier_resolution_confidence?: number | null;
 };
 
 export type ReturnUpdatePayload = Partial<Pick<

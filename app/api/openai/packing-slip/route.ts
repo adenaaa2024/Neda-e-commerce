@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { aiProviderGateMessage, assertAiProviderCallAllowed } from "@/lib/ai-provider-gates";
+
 const VISION_MODEL = "gpt-4o";
 const PROMPT =
   "Read this packing slip. Return ONLY a valid JSON array of objects with keys barcode (string) and expected_qty (number). Do not include markdown formatting.";
@@ -9,6 +11,11 @@ const PROMPT =
  * Pass the operator key: `Authorization: Bearer sk-...` (same key stored in localStorage on the client).
  */
 export async function POST(req: Request) {
+  const gate = assertAiProviderCallAllowed("packing_slip_vision");
+  if (!gate.ok) {
+    return NextResponse.json({ error: aiProviderGateMessage(gate) }, { status: 403 });
+  }
+
   const auth = req.headers.get("authorization");
   const apiKey = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!apiKey) {
