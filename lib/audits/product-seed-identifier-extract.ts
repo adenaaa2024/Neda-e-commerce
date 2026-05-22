@@ -356,10 +356,10 @@ export function extractFromAmazonManageFbaInventoryRow(
 /**
  * Shape of an `amazon_fba_inventory` row as projected by the orchestrator.
  * Resolver UUIDs are optional: present after migration `20260813120000_amazon_fba_inventory_resolver_columns`
- * and when the resolver pipeline has populated them. The identifier triad
- * (sku/fnsku/asin) is native, plus a native `product_name` flowing into
- * `identifiers.title`. UPC, if present, uses the same `raw_data` key set as
- * the other FBA tables.
+ * and when the resolver pipeline has populated them. When absent, descriptor accessors
+ * return null (Convention C). The identifier triad (sku/fnsku/asin) is native, plus a
+ * native `product_name` flowing into `identifiers.title`. UPC, if present, uses the same
+ * `raw_data` key set as the other FBA tables.
  */
 export type AmazonFbaInventoryRowProjection = {
   id: string;

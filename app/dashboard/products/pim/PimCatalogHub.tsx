@@ -1106,6 +1106,33 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
             ))}
           </select>
         </div>
+        <div className="flex w-full min-w-[12rem] max-w-full flex-col gap-1 sm:w-auto">
+          <span className="flex items-center gap-1.5 text-sm font-medium leading-none text-foreground">
+            <Banknote className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            Price display
+            <PimHelpNote label="Currency in the catalog">
+              <div className="space-y-2">
+                <p>
+                  Default comes from <span className="font-medium">Settings → General → Display currency</span>. Changing the menu here only affects
+                  number formatting in this catalog (grid, groups, product details). Stored amounts in the database are unchanged.
+                </p>
+                <p>If a row has its own currency from imports or Amazon, that value still wins.</p>
+              </div>
+            </PimHelpNote>
+          </span>
+          <select
+            value={displayCurrency}
+            onChange={(e) => setDisplayCurrency(e.target.value)}
+            className="block h-10 w-full min-w-[10rem] rounded-lg border border-border bg-background px-3 text-sm sm:w-40"
+            aria-label="Display currency for prices"
+          >
+            {PIM_DISPLAY_CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="max-w-full overflow-x-auto rounded-lg border border-border p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex min-w-max flex-nowrap">
             {(
