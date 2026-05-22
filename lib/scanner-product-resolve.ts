@@ -29,6 +29,84 @@ function n(v: unknown): string | null {
   return s === "" ? null : s;
 }
 
+type ProductDirectMatch = {
+  product_id: string;
+  confidence: number;
+} | {
+  product_id: null;
+  confidence: number | null;
+  ambiguous: boolean;
+};
+
+async function queryProductDirectMatch(
+  supabase: SupabaseClient,
+  args: {
+    organizationId: string;
+    storeId: string;
+    column: "fnsku" | "sku" | "asin" | "upc_code" | "barcode";
+    value: string;
+    asin?: string | null;
+  },
+): Promise<{ ids: string[] }> {
+  let q = supabase
+    .from("products")
+    .select("id")
+    .eq("organization_id", args.organizationId)
+    .eq("store_id", args.storeId)
+    .eq(args.column, args.value)
+    .limit(10);
+
+  if (args.asin) q = q.eq("asin", args.asin);
+
+  const { data, error } = await q;
+  if (error) return { ids: [] };
+  return {
+    ids: [
+      ...new Set(
+        (data ?? [])
+          .map((r) => n((r as { id?: unknown }).id))
+          .filter((x): x is string => !!x),
+      ),
+    ],
+  };
+}
+
+async function resolveProductsDirectMatch(
+  supabase: SupabaseClient,
+  args: {
+    organizationId: string;
+    storeId: string;
+    sku?: string | null;
+    asin?: string | null;
+    fnsku?: string | null;
+    upc?: string | null;
+  },
+): Promise<ProductDirectMatch> {
+  const checks: { column: "fnsku" | "sku" | "asin" | "upc_code" | "barcode"; value: string; asin?: string | null; confidence: number }[] = [];
+  if (args.fnsku) checks.push({ column: "fnsku", value: args.fnsku, confidence: 1 });
+  if (args.sku && args.asin) checks.push({ column: "sku", value: args.sku, asin: args.asin, confidence: 0.95 });
+  if (args.asin) checks.push({ column: "asin", value: args.asin, confidence: 0.7 });
+  if (args.sku) checks.push({ column: "sku", value: args.sku, confidence: 0.85 });
+  if (args.upc) {
+    checks.push({ column: "upc_code", value: args.upc, confidence: 0.9 });
+    checks.push({ column: "barcode", value: args.upc, confidence: 0.9 });
+  }
+
+  for (const check of checks) {
+    const { ids } = await queryProductDirectMatch(supabase, {
+      organizationId: args.organizationId,
+      storeId: args.storeId,
+      column: check.column,
+      value: check.value,
+      asin: check.asin,
+    });
+    if (ids.length === 1) return { product_id: ids[0]!, confidence: check.confidence };
+    if (ids.length > 1) return { product_id: null, confidence: check.confidence, ambiguous: true };
+  }
+
+  return { product_id: null, confidence: null, ambiguous: false };
+}
+
 /**
  * Build nullable resolver columns for a single identifier bundle (org + store scoped).
  * When `legacyProductId` is set and disagrees with a resolved `product_id`, status is `mismatch`
@@ -72,7 +150,7 @@ export async function resolveScannerProductIdentifiers(
       upc,
     });
   } catch {
-    return { ...empty, identifier_resolution_status: "unresolved" };
+    match = { row: null, status: "unresolved" as const, tier: null, confidence: 0, candidatesConsidered: 0 };
   }
 
   const legacy = n(args.legacyProductId);
@@ -85,6 +163,29 @@ export async function resolveScannerProductIdentifiers(
     };
   }
   if (match.status === "unresolved" || !match.row) {
+    const direct = await resolveProductsDirectMatch(supabase, {
+      organizationId: args.organizationId,
+      storeId,
+      sku,
+      asin,
+      fnsku,
+      upc,
+    });
+    if (direct.product_id) {
+      return {
+        resolved_product_id: direct.product_id,
+        resolved_catalog_product_id: null,
+        identifier_resolution_status: "resolved",
+        identifier_resolution_confidence: direct.confidence,
+      };
+    }
+    if ("ambiguous" in direct && direct.ambiguous) {
+      return {
+        ...empty,
+        identifier_resolution_status: "ambiguous",
+        identifier_resolution_confidence: direct.confidence,
+      };
+    }
     return {
       ...empty,
       identifier_resolution_status: "unresolved",

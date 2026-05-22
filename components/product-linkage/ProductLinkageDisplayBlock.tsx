@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { AlertTriangle, Link2 } from "lucide-react";
 
 import type { ProductLinkageDisplayContract } from "@/lib/product-linkage-display-contract";
@@ -28,17 +29,24 @@ type Props = {
 
 export function ProductLinkageDisplayBlock({
   linkage,
-  organizationId,
   compact = false,
   showPimLink = true,
   className = "",
 }: Props) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const status = normalizeResolutionStatus(linkage.identifier_resolution_status);
   const headline = productLinkageDisplayHeadline(linkage);
   const statusLabel = productLinkageUserStatusLabel(linkage);
   const confidence = productLinkageConfidenceLabel(linkage);
   const ambiguous = isAmbiguousLinkageStatus(status);
   const unresolved = isUnresolvedLinkageStatus(status) || (!linkage.is_resolved && !ambiguous);
+  const linkedProductId = linkage.resolved_product_id ?? linkage.product_id;
+  const currentSearch = searchParams.toString();
+  const currentPath = `${pathname}${currentSearch ? `?${currentSearch}` : ""}`;
+  const productHref = linkedProductId
+    ? `/pim/products/${encodeURIComponent(linkedProductId)}?back=${encodeURIComponent(currentPath)}`
+    : null;
 
   const identifiers = [
     linkage.sku ? `SKU ${linkage.sku}` : null,
@@ -75,7 +83,17 @@ export function ProductLinkageDisplayBlock({
       </div>
 
       <div className={compact ? "text-[10px]" : "text-xs"}>
-        <p className="font-medium text-foreground leading-snug">{headline}</p>
+        {showPimLink && productHref ? (
+          <Link
+            href={productHref}
+            onClick={(e) => e.stopPropagation()}
+            className="font-medium leading-snug text-foreground underline decoration-sky-400/60 underline-offset-2 hover:text-sky-700 dark:hover:text-sky-300"
+          >
+            {headline}
+          </Link>
+        ) : (
+          <p className="font-medium text-foreground leading-snug">{headline}</p>
+        )}
         {(unresolved || ambiguous) && identifiers.length > 0 ? (
           <p className="mt-0.5 text-[10px] text-muted-foreground">{identifiers.join(" · ")}</p>
         ) : null}
@@ -88,13 +106,8 @@ export function ProductLinkageDisplayBlock({
         )}
       </div>
 
-      {showPimLink && organizationId && linkage.resolved_product_id ? (
-        <Link
-          href={`/dashboard/products?organization_id=${encodeURIComponent(organizationId)}&highlight=${encodeURIComponent(linkage.resolved_product_id)}`}
-          className="inline-flex text-[10px] font-medium text-sky-600 hover:underline dark:text-sky-400"
-        >
-          Open product {linkage.resolved_product_id.slice(0, 8)}…
-        </Link>
+      {showPimLink && productHref && linkedProductId && !compact ? (
+        <p className="text-[10px] text-muted-foreground">Product {linkedProductId.slice(0, 8)}…</p>
       ) : null}
     </div>
   );

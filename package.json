@@ -83,6 +83,7 @@
     "plan:product-identifier-map-bridge-from-products-v190b": "tsx scripts/product-identifier-map-bridge-from-products-v190b.ts",
     "execute:product-identifier-map-bridge-from-products-v190b": "tsx scripts/product-identifier-map-bridge-from-products-v190b.ts",
     "smoke:expected-inventory-neda-read-model-signoff-v181": "tsx scripts/expected-inventory-neda-read-model-signoff-v181.ts",
+    "proof:v195-product-lookup-browser": "tsx scripts/v195-product-lookup-browser-proof.ts",
     "dry-run:return-items-fbm-aware-v183": "tsx scripts/return-items-fbm-aware-dry-run-v183.ts",
     "plan:return-items-identifier-map-enrichment-v185": "tsx scripts/return-items-identifier-map-enrichment-v185.ts",
     "plan:return-items-source-identifier-cleanup-v186": "tsx scripts/return-items-source-identifier-cleanup-v186-preflight.ts",

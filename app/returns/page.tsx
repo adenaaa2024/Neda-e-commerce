@@ -112,6 +112,12 @@ export default function ReturnsPage() {
   const canGoBack    = drawerStack.length > 1;
 
   function openDrawer(c: DrawerContent) { setDrawerStack([c]); }
+  function openItemDetail(r: ReturnRecord) {
+    openDrawer({ type: "item", record: r });
+  }
+  function openItemEdit(r: ReturnRecord) {
+    openDrawer({ type: "item", record: r, startInEditMode: true });
+  }
   function pushDrawer(c: DrawerContent) { setDrawerStack((p) => [...p, c]); }
   function popDrawer()                  { setDrawerStack((p) => p.slice(0, -1)); }
   function closeDrawer()                { setDrawerStack([]); }
@@ -339,7 +345,8 @@ export default function ReturnsPage() {
   }
   function drawerSubtitle() {
     if (!activeDrawer) return "";
-    if (activeDrawer.type === "item")    return "Return Item";
+    if (activeDrawer.type === "item")
+      return activeDrawer.startInEditMode ? "Return Item · Edit" : "Return Item";
     if (activeDrawer.type === "package") return "Package";
     if (activeDrawer.type === "pallet")  return "Pallet";
     return "";
@@ -493,8 +500,8 @@ export default function ReturnsPage() {
                   externalSearch={globalSearchQuery}
                   onToast={showToast}
                   returnsTotalInDb={returnsTotalCount}
-                  onRowClick={(r) => openDrawer({ type: "item", record: r })}
-                  onRowEdit={(r)  => openDrawer({ type: "item", record: r })}
+                  onRowClick={openItemDetail}
+                  onRowEdit={openItemEdit}
                   onBulkDeleted={bulkRemoveReturns}
                   onBulkMoved={bulkUpdateReturns}
                   onNewItem={() => openWizard()}
@@ -584,6 +591,7 @@ export default function ReturnsPage() {
         {activeDrawer?.type === "item" && (
           <ItemDrawerContent
             record={activeDrawer.record}
+            startInEditMode={activeDrawer.startInEditMode ?? false}
             role={role}
             actor={actor}
             actorProfileId={actorUserId}
@@ -591,7 +599,7 @@ export default function ReturnsPage() {
             pallets={pallets}
             sessionPhotos={sessionPhotos.get(activeDrawer.record.id)}
             onToast={showToast}
-            onUpdated={(r) => { updateReturn_(r); openDrawer({ type: "item", record: r }); }}
+            onUpdated={(r) => { updateReturn_(r); openItemDetail(r); }}
             onDeleted={(id) => { removeReturn(id); closeDrawer(); showToast("Return deleted.", "warning"); }}
           />
         )}

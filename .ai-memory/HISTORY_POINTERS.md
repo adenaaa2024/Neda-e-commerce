@@ -2,21 +2,86 @@
 
 Do not paste full history into `.ai-memory`.
 
-**Restore order:** V182 canonical → V183–V189 → V190 milestone → V191 item resolver + view alignment → V191 AFI guarded Tier 3 execute → V192 product resolution contract lock → **V192 expected_packages E1 plan append (latest)**.
+**Restore order:** V182 canonical → … → V202 API execute → **V202 identifier manual review batch (latest)**.
 
 ---
 
-## Latest operator history — V192 expected_packages E1 plan
+## Latest operator history — V202 identifier manual review batch
 
 ```
-.cursor/audit-reports/history-v191/20260526T120000Z/ERP_PIM_FULL_HISTORY_V191_APPEND_ONLY_ITEM_ADD_EDIT_RESOLVER_STANDARD.md
+.cursor/audit-reports/history-v202/20260522T220000Z/v202-identifier-manual-review-batch-append.md
 ```
 
 | Field | Value |
 |-------|-------|
-| Pack / run | `expected-packages-e1-map-bridge-plan-v192` / `20260521T013000Z` |
-| Milestone | Expected_packages E1 map-only bridge preflight + approval plan |
-| Base | V190 file + prior V191 appends + AFI execute append + V192 contract append + E1 plan append |
+| Run | `20260522T220000Z` |
+| Status | **PASS** — 43 queued; 0 DB writes; 0 map-bridge candidates |
+
+**Artifacts:** `expected-packages-identifier-manual-review-batch-v202/20260522T220000Z/`
+
+---
+
+## Prior — V202 Amazon API evidence execute
+
+```
+.cursor/audit-reports/history-v202/20260522T210000Z/v202-amazon-api-evidence-execute-append.md
+```
+
+| Field | Value |
+|-------|-------|
+| Run | `20260522T210000Z` |
+| Status | **FAIL** — 3 SP-API catalog 404; 0 inserts |
+
+**Artifacts:** `expected-packages-amazon-api-evidence-execute-v202/20260522T210000Z/`
+
+---
+
+## Prior — V202 Amazon API evidence dry-run
+
+```
+.cursor/audit-reports/history-v202/20260522T200000Z/v202-amazon-api-evidence-dry-run-append.md
+```
+
+| Field | Value |
+|-------|-------|
+| Run | `20260522T200000Z` |
+| Status | **READY_FOR_EXECUTE_REVIEW** — 8 cohort; 5 WOULD_CALL_API |
+
+**Artifacts:** `expected-packages-amazon-api-evidence-dry-run-v202/20260522T200000Z/`
+
+---
+
+## Latest operator proof — V202 browser (supersedes V196 CONDITIONAL_PASS)
+
+```
+.cursor/audit-reports/product-linkage-browser-proof-signoff-v202/20260522T195000Z/
+```
+
+| Field | Value |
+|-------|-------|
+| Proof archive | `v200-product-lookup-browser-proof-complete/20260522T195000Z/` |
+| Status | **PASS** 11/11 UI + 7/7 preflight |
+
+---
+
+## V196 era full history — lookup / expected / vendor / packaging
+
+```
+.cursor/audit-reports/history-v196/20260522T230000Z/ERP_PIM_FULL_HISTORY_V196_APPEND_ONLY_LOOKUP_EXPECTED_VENDOR_PACKAGING_ROADMAP.md
+```
+
+| Field | Value |
+|-------|-------|
+| Pack / run | `history-memory-v196-closeout` / `20260522T230000Z` |
+| Milestone | V196 lookup fix, expected/API/manual plans, vendor 1883, packaging model, V197 census, V198 E1B blocked |
+
+---
+
+## Prior — V195 closeout
+
+```
+.cursor/audit-reports/history-v195/20260530T120000Z/ERP_PIM_FULL_HISTORY_V195_APPEND_ONLY_ORIGINAL_PARITY_EDIT_LOOKUP_CLOSEOUT.md
+```
 
 ---
 
@@ -32,17 +97,19 @@ Do not paste full history into `.ai-memory`.
 
 | Area | Path |
 |------|------|
-| V191 operator item resolver | `operator-item-add-edit-resolver-standard-v191/20260520T235500Z/` |
-| V191 inventory read alignment | `inventory-expected-return-product-id-view-alignment-v191/20260521T001108Z/` |
-| V191 expected_packages plan | `expected-packages-product-spine-completion-plan-v191/20260521T001400Z/` |
-| V191 AFI rebase / guarded Tier 3 | `product-catalog-afi-rebase-next-batch-v191/20260521T002400Z/` · `product-catalog-afi-guarded-tier3-sku-no-asin-conflict-v191/20260521T003300Z/` |
-| V191 AFI guarded Tier 3 execute | `product-catalog-afi-guarded-tier3-sku-no-asin-conflict-v191/20260521T010000Z/` |
-| V191 Neda final backend handoff | `neda-final-backend-handoff-v191/20260521T004000Z/` |
-| V192 product resolution contract lock | `backend-product-resolution-contract-lock-v192/20260521T012000Z/` |
-| V192 expected_packages E1 map bridge plan | `expected-packages-e1-map-bridge-plan-v192/20260521T013000Z/` |
-| V190 return_items / Preview closure | `history-v190/20260525T120000Z/` |
-| V189 staging/original views | `inventory-views-return-items-deleted-at-filter-v189/` |
-| Final proof V189 | `return-items-product-linkage-final-proof-v189/20260524T130000Z/` |
+| V196 lookup item_name/UPC/ambiguous | `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` |
+| V196 vendor 1883 plan | `v196-vendor-category-cleanup-1883-plan/20260521T214500Z/` |
+| V199 expected review / API-manual plan | `v199-expected-identifier-ambiguous-review-pack/20260522T130000Z/` |
+| V201 remaining 52 triage | `expected-packages-remaining-52-review-v201/20260522T170000Z/` |
+| V202 API execute | `expected-packages-amazon-api-evidence-execute-v202/20260522T210000Z/` |
+| V202 API dry-run | `expected-packages-amazon-api-evidence-dry-run-v202/20260522T200000Z/` |
+| V199 API dry-run (superseded gates) | `expected-packages-amazon-api-evidence-dry-run-v199/20260522T140000Z/` |
+| V197 table census | `v197-product-linkage-table-census/20260522T120000Z/` |
+| V198 E1B blocked | `expected-packages-e1b-map-bridge-execute-v198/20260522T140000Z/` |
+| V200 E1B materialize | `expected-packages-e1b-blocker-materialize-execute-v200/20260522T160000Z/` |
+| V202 browser signoff | `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` |
+| V195 original parity | `v195-original-view-parity-apply/20260522T000100Z/` |
+| Neda handoff | `NEDA_FINAL_BACKEND_HANDOFF_V193.md` |
 
 ---
 
@@ -51,11 +118,11 @@ Do not paste full history into `.ai-memory`.
 | Need | Read |
 |------|------|
 | Now | `.ai-memory/CURRENT_STATE.md` |
-| Neda | `.ai-memory/NEDA_HANDOFF.md` |
+| Neda | `.ai-memory/NEDA_HANDOFF.md` · `NEDA_FINAL_BACKEND_HANDOFF_V193.md` |
 | DB | `.ai-memory/DATABASE_CONTRACT.md` |
 | Product IDs | `.ai-memory/PRODUCT_ID_MAPPING_STATUS.md` |
-| History | V191 path above |
-| Sync pack | `history-memory-after-v191-item-resolver/20260526T120000Z/` |
+| V196 history | V196 path above |
+| V196 sync | `history-memory-v196-closeout/20260522T230000Z/` |
 
 ---
 

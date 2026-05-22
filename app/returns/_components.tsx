@@ -9,7 +9,7 @@ import {
   Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, CircleDot, ClipboardCheck,
   Clock, Copy, ExternalLink, Eye, FileImage, FileText, Loader2, Minus, MoreHorizontal, Package2, Store,
   PackageCheck, PackageX, Pencil, Plus, QrCode, Save, ScanLine, Search,
-  ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, Zap, ZoomIn,
+  ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, ZoomIn,
 } from "lucide-react";
 import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColumn";
 import { ReturnItemProductLinkage } from "../../components/returns/ReturnItemProductLinkage";
@@ -38,7 +38,6 @@ import type {
 import { marketplaceSearchUrl as marketplaceSearchUrlLib } from "../../lib/marketplace-search-url";
 import { itemMatchesPackageExpectation } from "../../lib/package-expectations";
 import { getBarcodeModeFromStorage, getDefaultStoreIdFromStorage } from "../../lib/openai-settings";
-import { classifyProductBarcode } from "../../lib/product-barcode-classify";
 import { parseBarcodeSource } from "../../lib/utils/barcode-parser";
 import { supabase as supabaseBrowser } from "../../src/lib/supabase";
 import { uploadToMedia, uploadToStorage } from "../../lib/supabase/storage";
@@ -58,8 +57,18 @@ import {
   packagePhotoArraysFromClaimSlots,
   palletGalleryUrls,
 } from "../../lib/package-pallet-canonical";
-import { fetchProductFromAmazon } from "../../lib/api/amazon-mock";
-import { cacheBarcodeProductFromAmazonLookup } from "./barcode-product-cache-actions";
+import {
+  loadReturnItemLookupFieldsFromProduct,
+  lookupProductInputForReturnItem,
+  type AmbiguousProductChoice,
+  type ProductInputLookupResult,
+  type ProductInputLookupStatus,
+} from "./product-input-lookup-actions";
+import { AmbiguousProductPicker } from "../../components/returns/AmbiguousProductPicker";
+import {
+  canonicalItemNameFromLookup,
+  upcFromProductIdentifier,
+} from "../../lib/returns-lookup-field-apply";
 import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
 import {
@@ -618,6 +627,8 @@ export type WizardState = {
   fnsku: string;
   /** Seller SKU — Amazon warehouse / Seller Central (MSKU) */
   sku: string;
+  /** UPC / GTIN when known (V196). */
+  upc_gtin: string;
   /** Multi-select condition keys — see {@link CONDITION_CHIP_DEFS}. */
   condition_keys: string[];
   expiration_date: string; batch_number: string;
@@ -647,12 +658,12 @@ export type WizardState = {
   /** Optional Amazon order ID — stored on `returns.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
   amazon_order_id: string;
   /** Product catalog lookup — when `unknown`, Step 1 allows Next without a resolved ASIN/UPC (manual item name). */
-  catalog_resolution: "idle" | "loading" | "local" | "amazon" | "unknown";
+  catalog_resolution: "idle" | "loading" | "local" | "amazon" | "review" | "unknown";
 };
 
 export const EMPTY_WIZARD: WizardState = {
   lpn: "", product_identifier: "", marketplace: "", item_name: "",
-  asin: "", fnsku: "", sku: "",
+  asin: "", fnsku: "", sku: "", upc_gtin: "",
   condition_keys: [],
   expiration_date: "", batch_number: "", package_link_id: "",
   loose_item: false,
@@ -665,6 +676,18 @@ export const EMPTY_WIZARD: WizardState = {
   amazon_order_id: "",
   catalog_resolution: "idle",
 };
+
+function withLookupTimeout(
+  promise: Promise<ProductInputLookupResult>,
+  timeoutMs = 8000,
+): Promise<ProductInputLookupResult> {
+  return Promise.race([
+    promise,
+    new Promise<ProductInputLookupResult>((resolve) => {
+      window.setTimeout(() => resolve({ ok: false, error: "Product lookup timed out. Try again." }), timeoutMs);
+    }),
+  ]);
+}
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -698,9 +721,9 @@ export function ToastStack({ toasts }: { toasts: Toast[] }) {
 // ─── Drawer Content Type ───────────────────────────────────────────────────────
 
 export type DrawerContent =
-  | { type: "item";    record: ReturnRecord  }
+  | { type: "item"; record: ReturnRecord; startInEditMode?: boolean }
   | { type: "package"; record: PackageRecord }
-  | { type: "pallet";  record: PalletRecord  };
+  | { type: "pallet"; record: PalletRecord };
 
 // ─── Badge components ──────────────────────────────────────────────────────────
 
@@ -1223,8 +1246,34 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
       className="fixed z-[220] w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: 0, visibility: "hidden" as const }}
     >
-      {onView && <button type="button" onClick={() => { onView(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"><Eye className="h-4 w-4 text-slate-400" />View Detail</button>}
-      {onEdit && <button type="button" onClick={() => { onEdit(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"><Pencil className="h-4 w-4 text-slate-400" />Edit</button>}
+      {onView && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onView();
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <Eye className="h-4 w-4 text-slate-400" />
+          View Detail
+        </button>
+      )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <Pencil className="h-4 w-4 text-slate-400" />
+          Edit
+        </button>
+      )}
       {onDelete && (
         <>
           <div className="my-1 border-t border-border" />
@@ -1654,6 +1703,7 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
                 <tr className="rounded-t-xl border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">LPN</th>
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Item</th>
+                  <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Product</th>
                   <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 sm:table-cell">Status</th>
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Date</th>
                   <th className="px-3 py-2" />
@@ -1670,6 +1720,8 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
                     </td>
                     <td className="min-w-0 max-w-[220px] px-3 py-2.5 text-slate-600 dark:text-slate-300">
                       <p className="truncate font-medium">{r.item_name}</p>
+                    </td>
+                    <td className="min-w-0 max-w-[240px] px-3 py-2.5 text-slate-600 dark:text-slate-300">
                       <ReturnItemProductLinkage
                         organizationId={r.organization_id}
                         fields={r}
@@ -1764,7 +1816,11 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   sessionPhotos?: Record<string, File[]>;
   onToast?: (msg: string, kind?: ToastKind) => void;
 }) {
-  const [editing,    setEditing]    = useState(startInEditMode);
+  const [editing, setEditing] = useState(startInEditMode);
+
+  useEffect(() => {
+    setEditing(startInEditMode);
+  }, [startInEditMode, record.id]);
   const [saving,     setSaving]     = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting,   setDeleting]   = useState(false);
@@ -1777,6 +1833,8 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   const [editAsin,   setEditAsin]   = useState(record.asin ?? "");
   const [editFnsku,  setEditFnsku]  = useState(record.fnsku ?? "");
   const [editSku, setEditSku] = useState(record.sku ?? "");
+  const [editUpc, setEditUpc] = useState(() => upcFromProductIdentifier(record.product_identifier));
+  const [editAmbiguousChoices, setEditAmbiguousChoices] = useState<AmbiguousProductChoice[]>([]);
   const [editStoreId, setEditStoreId] = useState(record.store_id ?? "");
   const [editPackageId, setEditPackageId] = useState(record.package_id ?? "");
   const [itemStoresList, setItemStoresList] = useState<{ id: string; name: string; platform: string }[]>([]);
@@ -1793,8 +1851,9 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     () => photoEvidenceCategoryCounts(record.photo_evidence),
   );
   const [editNewPhotos, setEditNewPhotos] = useState<Record<string, File[]>>({});
-  const [editCatalogStatus, setEditCatalogStatus] = useState<"idle" | "loading" | "local" | "amazon" | "unknown">("idle");
-  const [editCatalogPreview, setEditCatalogPreview] = useState<{ name: string; price?: number; image_url?: string } | null>(null);
+  const [editCatalogStatus, setEditCatalogStatus] = useState<"idle" | "loading" | ProductInputLookupStatus>("idle");
+  const [editCatalogPreview, setEditCatalogPreview] = useState<{ name: string; image_url?: string | null; reason?: string | null } | null>(null);
+  const editLookupRef = useRef<{ value: string; at: number } | null>(null);
   const [editExpiryDate,     setEditExpiryDate]     = useState(record.expiration_date ?? "");
   const [editPhotoItemUrl,   setEditPhotoItemUrl]   = useState(
     () => getReturnPhotoEvidenceUrls(record.photo_evidence).item_url,
@@ -1828,6 +1887,8 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     setEditAsin(record.asin ?? "");
     setEditFnsku(record.fnsku ?? "");
     setEditSku(record.sku ?? "");
+    setEditUpc(upcFromProductIdentifier(record.product_identifier));
+    setEditAmbiguousChoices([]);
     setEditStoreId(record.store_id ?? "");
     setEditPackageId(record.package_id ?? "");
     setEditItem(record.item_name);
@@ -1841,52 +1902,96 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     setItemEditFiles([]);
     setEditCatalogStatus("idle");
     setEditCatalogPreview(null);
+    setEditAmbiguousChoices([]);
   }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.product_identifier, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
 
+  function applyEditLookupFields(
+    res: Extract<ProductInputLookupResult, { ok: true }>,
+  ) {
+    setEditProductId(res.fields.product_identifier ?? res.normalized_input);
+    if (res.fields.asin) setEditAsin(res.fields.asin);
+    if (res.fields.fnsku) setEditFnsku(res.fields.fnsku);
+    if (res.fields.sku) setEditSku(res.fields.sku);
+    if (res.fields.upc) setEditUpc(res.fields.upc);
+    const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+    if (itemName) setEditItem(itemName);
+    setEditCatalogPreview({
+      name:
+        itemName ??
+        res.product_linkage.product_name ??
+        res.product_linkage.fallback_display_name ??
+        undefined,
+      image_url: res.fields.image_url,
+      reason: res.enrichment.reason,
+    });
+  }
+
+  async function handleEditAmbiguousPick(choice: AmbiguousProductChoice) {
+    setEditCatalogStatus("loading");
+    try {
+      const res = await loadReturnItemLookupFieldsFromProduct({
+        organizationId: record.organization_id,
+        productId: choice.product_id,
+      });
+      if (!res.ok) {
+        setEditCatalogPreview({ name: res.error });
+        setEditCatalogStatus("ambiguous");
+        return;
+      }
+      applyEditLookupFields({
+        ok: true,
+        status: "local_resolved",
+        normalized_input: res.fields.product_identifier ?? "",
+        classified_kind: "unknown",
+        fields: res.fields,
+        product_linkage: res.product_linkage,
+        enrichment: { attempted: false, enabled: false, reason: null },
+        audit_id: "",
+      });
+      setEditAmbiguousChoices([]);
+      setEditCatalogStatus("local_resolved");
+    } catch (e) {
+      setEditCatalogPreview({ name: e instanceof Error ? e.message : "Product load failed." });
+      setEditCatalogStatus("ambiguous");
+    }
+  }
+
   async function handleEditBarcodeLookup(barcode: string) {
-    if (!barcode.trim()) { setEditCatalogStatus("idle"); return; }
+    const raw = barcode.trim();
+    if (!raw) { setEditCatalogStatus("idle"); return; }
+    const last = editLookupRef.current;
+    const now = Date.now();
+    if (last?.value === raw && now - last.at < 800) return;
+    editLookupRef.current = { value: raw, at: now };
     setEditCatalogStatus("loading");
     setEditCatalogPreview(null);
 
-    const classified = classifyProductBarcode(barcode.trim());
-    if (classified.kind === "fnsku") {
-      setEditFnsku(classified.normalized);
-      setEditProductId(classified.normalized);
-    } else if (classified.kind === "asin") {
-      setEditAsin(classified.normalized);
-      setEditProductId(classified.normalized);
-    } else if (classified.kind === "upc_ean") {
-      setEditProductId(classified.normalized);
+    try {
+      const res = await withLookupTimeout(
+        lookupProductInputForReturnItem({
+          organizationId: record.organization_id,
+          storeId: editStoreId || record.store_id,
+          value: raw,
+          actorProfileId,
+        }),
+      );
+      if (!res.ok) {
+        setEditCatalogPreview({ name: res.error });
+        setEditCatalogStatus("unresolved");
+        return;
+      }
+
+      setEditAmbiguousChoices(
+        res.status === "ambiguous" ? (res.ambiguous_candidates ?? []) : [],
+      );
+      applyEditLookupFields(res);
+      setEditCatalogStatus(res.status);
+    } catch (e) {
+      setEditCatalogPreview({ name: e instanceof Error ? e.message : "Product lookup failed." });
+      setEditCatalogStatus("unresolved");
+    } finally {
+      setEditCatalogStatus((prev) => (prev === "loading" ? "unresolved" : prev));
     }
-
-    const { data: local } = await supabaseBrowser
-      .from("products")
-      .select("*")
-      .eq("barcode", barcode.trim())
-      .maybeSingle();
-
-    if (local) {
-      setEditItem(local.name);
-      setEditCatalogPreview({ name: local.name, price: local.price, image_url: local.image_url });
-      setEditCatalogStatus("local");
-      return;
-    }
-
-    const amazon = await fetchProductFromAmazon(barcode.trim());
-    if (amazon) {
-      setEditItem(amazon.name);
-      setEditCatalogPreview({ name: amazon.name, price: amazon.price, image_url: amazon.image_url });
-      setEditCatalogStatus("amazon");
-      void cacheBarcodeProductFromAmazonLookup({
-        barcode: barcode.trim(),
-        name: amazon.name,
-        price: amazon.price,
-        image_url: amazon.image_url,
-      });
-      return;
-    }
-
-    setEditCatalogStatus("unknown");
   }
 
   const { onKeyDown: editBarcodeKeyDown } = usePhysicalScanner({
@@ -1968,7 +2073,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
       asin: editAsin.trim() || null,
       fnsku: editFnsku.trim() || null,
       sku: editSku.trim() || null,
-      product_identifier: editProductId.trim() || null,
+      product_identifier: editProductId.trim() || editUpc.trim() || null,
       store_id: editStoreId.trim() || null,
       marketplace: pickedStore ? platformToMarketplace(pickedStore.platform) : record.marketplace,
       package_id: editPackageId.trim() || null,
@@ -2009,31 +2114,51 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
           <div>
             <label className={LABEL}>Product barcode (UPC / scan)</label>
             <input
-              className={`${INPUT} transition-all ${editCatalogStatus === "unknown" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
+              className={`${INPUT} transition-all ${editCatalogStatus === "unresolved" || editCatalogStatus === "ambiguous" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
               value={editProductId}
               onChange={(e) => { setEditProductId(e.target.value); setEditCatalogStatus("idle"); }}
               placeholder="Product identifier…"
-              onKeyDown={editBarcodeKeyDown}
+              onKeyDown={(e) => {
+                editBarcodeKeyDown(e);
+                if (!e.defaultPrevented && e.key === "Enter") {
+                  e.preventDefault();
+                  void handleEditBarcodeLookup(e.currentTarget.value);
+                }
+              }}
               onBlur={(e) => { if (e.target.value.trim()) void handleEditBarcodeLookup(e.target.value); }}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (pasted.trim()) setTimeout(() => void handleEditBarcodeLookup(pasted), 0);
+              }}
             />
             {editCatalogStatus === "loading" && (
               <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-400">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />Looking up barcode…
               </div>
             )}
-            {editCatalogStatus === "local" && editCatalogPreview && (
+            {editCatalogStatus === "local_resolved" && editCatalogPreview && (
               <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Found in Catalog — {editCatalogPreview.name}
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Found locally — {editCatalogPreview.name}
               </div>
             )}
-            {editCatalogStatus === "amazon" && editCatalogPreview && (
+            {editCatalogStatus === "backend_enriched" && editCatalogPreview && (
               <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Found on Amazon — {editCatalogPreview.name}{editCatalogPreview.price != null ? ` · $${editCatalogPreview.price.toFixed(2)}` : ""}
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Backend enriched — {editCatalogPreview.name}
               </div>
             )}
-            {editCatalogStatus === "unknown" && (
+            {editCatalogStatus === "ambiguous" && (
+              <div className="mt-1.5 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/20 dark:text-amber-200">
+                <p>Needs review — {editAmbiguousChoices.length > 1 ? `${editAmbiguousChoices.length} distinct local products` : "multiple local products"} matched this scan. Pick the correct product:</p>
+                <AmbiguousProductPicker
+                  choices={editAmbiguousChoices}
+                  disabled={saving}
+                  onPick={(c) => void handleEditAmbiguousPick(c)}
+                />
+              </div>
+            )}
+            {editCatalogStatus === "unresolved" && (
               <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-                ⚠️ Unknown Item — Not found locally or on Amazon.
+                Unknown Item — not found locally{editCatalogPreview?.reason ? ` (${editCatalogPreview.reason})` : ""}.
               </div>
             )}
           </div>
@@ -2099,6 +2224,15 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                 >
                   <Store className="h-4 w-4" aria-hidden />
                 </button>
+              </div>
+            </div>
+            <div>
+              <label className={LABEL}>
+                UPC / GTIN <span className="text-xs font-normal text-slate-400">(optional)</span>
+              </label>
+              <div className="flex gap-2">
+                <input type="text" className={INPUT} placeholder="12-digit UPC…" value={editUpc} onChange={(e) => setEditUpc(e.target.value)} />
+                <button type="button" title="Copy UPC" className={drawerEditIdBtn} onClick={() => void copyEditCode(editUpc, "UPC")} disabled={!editUpc.trim()}><Copy className="h-4 w-4" /></button>
               </div>
             </div>
             <div>
@@ -2407,21 +2541,27 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   </div>
                 </div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Product title &amp; identifiers
+                  Product
+                </p>
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
+                <p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Identifiers
                 </p>
                 <ReturnIdentifiersColumn
                   itemName={record.item_name}
                   asin={record.asin}
                   fnsku={record.fnsku}
                   sku={record.sku}
+                  upc={upcFromProductIdentifier(record.product_identifier)}
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
-                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
               </div>
             ) : (
               <div className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-4 dark:border-slate-700 dark:bg-slate-900/50">
-                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product codes</p>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</p>
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
+                <p className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Identifiers</p>
                 <p className="mb-3 text-[10px] leading-relaxed text-slate-500 dark:text-slate-500">
                   ASIN = Amazon catalog ID · FNSKU = your FBA label on Amazon · SKU = Seller / warehouse SKU (MSKU)
                 </p>
@@ -2431,10 +2571,10 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   asin={record.asin}
                   fnsku={record.fnsku}
                   sku={record.sku}
+                  upc={upcFromProductIdentifier(record.product_identifier)}
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
-                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
               </div>
             )}
             {record.lpn && (
@@ -3543,6 +3683,14 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                             {(it as { product_identifier?: string | null }).product_identifier?.trim()
                               || (it.asin ?? it.fnsku ?? it.sku ?? it.lpn ?? "—")}
                           </p>
+                          {(() => {
+                            const upc = upcFromProductIdentifier(
+                              (it as { product_identifier?: string | null }).product_identifier,
+                            );
+                            return upc ? (
+                              <p className="font-mono text-[10px] text-slate-500">UPC {upc}</p>
+                            ) : null;
+                          })()}
                           <ReturnItemProductLinkage
                             organizationId={it.organization_id}
                             fields={it}
@@ -3943,7 +4091,7 @@ export function DiscrepancyModal({ pkg, scannedCount, onConfirm, onCancel }: {
 
 // ─── Wizard Steps ──────────────────────────────────────────────────────────────
 
-export function WizardStep1({ state, setState, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet }: {
+export function WizardStep1({ state, setState, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet, organizationId = MVP_ORGANIZATION_ID, actorProfileId = null }: {
   state: WizardState; setState: React.Dispatch<React.SetStateAction<WizardState>>;
   openPackages: PackageRecord[]; openPallets: PalletRecord[];
   /** Live counts for package picker (same as Packages ITEMS column). */
@@ -3955,7 +4103,12 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   onAdvance?: () => void;
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
+  organizationId?: string;
+  actorProfileId?: string | null;
 }) {
+  const workspaceOrgId = isUuidString((organizationId ?? "").trim())
+    ? (organizationId ?? "").trim()
+    : MVP_ORGANIZATION_ID;
   const up = (k: keyof WizardState, v: unknown) => setState((p) => ({ ...p, [k]: v }));
   const assignedByPackage = useMemo(() => {
     const m = new Map<string, number>();
@@ -4080,39 +4233,67 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   const setCatalogResolution = (s: WizardState["catalog_resolution"]) =>
     setState((p) => ({ ...p, catalog_resolution: s }));
 
-  // ── Catalog lookup preview (display only; resolution lives on WizardState) ─
-  const [catalogPreview, setCatalogPreview] = useState<{ name: string; price?: number; image_url?: string } | null>(null);
-  // ── SP-API mock auto-fill state ───────────────────────────────────────────
-  const [spApiStatus, setSpApiStatus] = useState<"idle" | "loading" | "done">("idle");
+  // ── Catalog lookup preview (display only; save still re-runs server resolver) ─
+  const [catalogPreview, setCatalogPreview] = useState<{ name: string; image_url?: string | null; reason?: string | null } | null>(null);
+  const [catalogAmbiguousChoices, setCatalogAmbiguousChoices] = useState<AmbiguousProductChoice[]>([]);
+  const lookupRef = useRef<{ value: string; at: number } | null>(null);
+
+  async function handleWizardAmbiguousPick(choice: AmbiguousProductChoice) {
+    setCatalogResolution("loading");
+    try {
+      const res = await loadReturnItemLookupFieldsFromProduct({
+        organizationId: workspaceOrgId,
+        productId: choice.product_id,
+      });
+      if (!res.ok) {
+        setCatalogPreview({ name: res.error });
+        setCatalogResolution("review");
+        return;
+      }
+      const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+      setState((p) => ({
+        ...p,
+        product_identifier: res.fields.product_identifier ?? p.product_identifier,
+        asin: res.fields.asin ?? p.asin,
+        fnsku: res.fields.fnsku ?? p.fnsku,
+        sku: res.fields.sku ?? p.sku,
+        upc_gtin: res.fields.upc ?? p.upc_gtin,
+        item_name: itemName ?? p.item_name,
+        catalog_resolution: "local",
+      }));
+      setCatalogAmbiguousChoices([]);
+      setCatalogPreview({
+        name: itemName ?? res.product_linkage.product_name ?? res.product_linkage.fallback_display_name ?? "",
+        image_url: res.fields.image_url,
+      });
+    } catch (e) {
+      setCatalogPreview({ name: e instanceof Error ? e.message : "Product load failed." });
+      setCatalogResolution("review");
+    }
+  }
 
   async function handleBarcodeLookup(barcode: string) {
-    if (!barcode.trim()) { setCatalogResolution("idle"); return; }
+    const raw = barcode.trim();
+    if (!raw) { setCatalogResolution("idle"); return; }
+    const last = lookupRef.current;
+    const now = Date.now();
+    if (last?.value === raw && now - last.at < 800) return;
+    lookupRef.current = { value: raw, at: now };
     setCatalogResolution("loading");
     setCatalogPreview(null);
-
-    const classified = classifyProductBarcode(barcode.trim());
-    if (classified.kind === "fnsku") {
-      up("fnsku", classified.normalized);
-      up("product_identifier", classified.normalized);
-    } else if (classified.kind === "asin") {
-      up("asin", classified.normalized);
-      up("product_identifier", classified.normalized);
-    } else if (classified.kind === "upc_ean") {
-      up("product_identifier", classified.normalized);
-    } else {
-      up("product_identifier", classified.normalized);
-    }
+    setCatalogAmbiguousChoices([]);
 
     // Auto-detect marketplace from barcode prefix (Amazon FNSKU: X00… / B00…)
-    const detectedSource = parseBarcodeSource(barcode.trim(), state.marketplace);
+    const detectedSource = parseBarcodeSource(raw, state.marketplace);
     if (detectedSource && detectedSource !== state.marketplace && (detectedSource === "amazon" || detectedSource === "walmart" || detectedSource === "ebay")) {
       up("marketplace", detectedSource);
     }
 
     // Smart store_id fallback — only for standalone items (no parent package)
+    let lookupStoreId = state.store_id;
     const isStandalone = !state.package_link_id && !inherited?.packageId;
     if (isStandalone) {
-      const upper = barcode.trim().toUpperCase();
+      const upper = raw.toUpperCase();
       if (upper.startsWith("X00") || upper.startsWith("B00")) {
         // Amazon FNSKU → find first active Amazon store, else use default
         const amazonStore = connectedStores.find(
@@ -4120,64 +4301,73 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
         );
         const defRaw = getDefaultStoreIdFromStorage().trim();
         const defStore = isUuidString(defRaw) ? defRaw : "";
-        up("store_id", amazonStore?.id ?? defStore);
+        lookupStoreId = amazonStore?.id ?? defStore;
+        if (lookupStoreId) up("store_id", lookupStoreId);
       } else if (!state.store_id) {
         // No known prefix → fallback to operator's saved default store
         const fallbackRaw = getDefaultStoreIdFromStorage().trim();
         const fallback = isUuidString(fallbackRaw) ? fallbackRaw : "";
-        if (fallback) up("store_id", fallback);
+        if (fallback) {
+          lookupStoreId = fallback;
+          up("store_id", fallback);
+        }
       }
     }
 
-    // Step A: check local products cache first
-    const { data: local } = await supabaseBrowser
-      .from("products")
-      .select("*")
-      .eq("barcode", barcode.trim())
-      .maybeSingle();
+    try {
+      const res = await withLookupTimeout(
+        lookupProductInputForReturnItem({
+          organizationId: workspaceOrgId,
+          storeId: lookupStoreId,
+          value: raw,
+          actorProfileId,
+        }),
+      );
+      if (!res.ok) {
+        setCatalogPreview({ name: res.error });
+        setCatalogResolution("unknown");
+        return;
+      }
 
-    if (local) {
-      up("item_name", local.name);
-      setCatalogPreview({ name: local.name, price: local.price, image_url: local.image_url });
-      setCatalogResolution("local");
-      return;
-    }
-
-    // Step B: call the Amazon adapter
-    const amazon = await fetchProductFromAmazon(barcode.trim());
-    if (amazon) {
-      up("item_name", amazon.name);
-      setCatalogPreview({ name: amazon.name, price: amazon.price, image_url: amazon.image_url });
-      setCatalogResolution("amazon");
-      // Governed cache insert (ENABLE_RETURNS_BARCODE_PRODUCT_CACHE_INSERT); preview works when off
-      void cacheBarcodeProductFromAmazonLookup({
-        barcode: barcode.trim(),
-        name: amazon.name,
-        price: amazon.price,
-        image_url: amazon.image_url,
+      const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+      setCatalogAmbiguousChoices(
+        res.status === "ambiguous" ? (res.ambiguous_candidates ?? []) : [],
+      );
+      setState((p) => ({
+        ...p,
+        product_identifier: res.fields.product_identifier ?? res.normalized_input,
+        asin: res.fields.asin ?? p.asin,
+        fnsku: res.fields.fnsku ?? p.fnsku,
+        sku: res.fields.sku ?? p.sku,
+        upc_gtin: res.fields.upc ?? p.upc_gtin,
+        item_name: itemName ?? res.fields.item_name ?? p.item_name,
+        catalog_resolution:
+          res.status === "local_resolved"
+            ? "local"
+            : res.status === "backend_enriched"
+              ? "amazon"
+              : res.status === "ambiguous"
+                ? "review"
+                : "unknown",
+      }));
+      setCatalogPreview({
+        name:
+          itemName ??
+          res.product_linkage.product_name ??
+          res.product_linkage.fallback_display_name ??
+          "",
+        image_url: res.fields.image_url,
+        reason: res.enrichment.reason,
       });
-      return;
+    } catch (e) {
+      setCatalogPreview({ name: e instanceof Error ? e.message : "Product lookup failed." });
+      setCatalogResolution("unknown");
+    } finally {
+      setState((p) => ({
+        ...p,
+        catalog_resolution: p.catalog_resolution === "loading" ? "unknown" : p.catalog_resolution,
+      }));
     }
-
-    setCatalogResolution("unknown");
-  }
-
-  // ── SP-API Phase B mock: auto-fill ASIN / FNSKU / Item Name ──────────────
-  async function handleSpApiLookup() {
-    if (!state.product_identifier.trim()) return;
-    setSpApiStatus("loading");
-    await new Promise((r) => setTimeout(r, 1500));
-    const clean = state.product_identifier.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const mockAsin  = `B0${clean.slice(0, 6).padEnd(6, "0")}`;
-    const mockFnsku = `X00${clean.slice(0, 5).padEnd(5, "0")}`;
-    setState((p) => ({
-      ...p,
-      asin:      mockAsin,
-      fnsku:     mockFnsku,
-      item_name: p.item_name.trim() || `Amazon Return Product (${state.product_identifier.trim()})`,
-    }));
-    setSpApiStatus("done");
-    setTimeout(() => setSpApiStatus("idle"), 3500);
   }
 
   // ── Physical hardware scanner — attached directly to the barcode input only ─
@@ -4350,7 +4540,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             <QrCode className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              className={`${INPUT} pl-11 transition-all ${state.catalog_resolution === "unknown" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
+              className={`${INPUT} pl-11 transition-all ${state.catalog_resolution === "unknown" || state.catalog_resolution === "review" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
               placeholder="Scan or type product identifier…"
               value={state.product_identifier}
               onChange={(e) => {
@@ -4359,45 +4549,26 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
               autoFocus
               onKeyDown={(e) => {
                 barcodeKeyDown(e);
-                if (!e.defaultPrevented && e.key === "Enter") { e.preventDefault(); rmaRef.current?.focus(); }
+                if (!e.defaultPrevented && e.key === "Enter") {
+                  e.preventDefault();
+                  if (state.product_identifier.trim()) void handleBarcodeLookup(state.product_identifier);
+                  rmaRef.current?.focus();
+                }
               }}
               onBlur={(e) => { if (e.target.value.trim()) void handleBarcodeLookup(e.target.value); }}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (pasted.trim()) setTimeout(() => void handleBarcodeLookup(pasted), 0);
+              }}
             />
           </div>
           <ContextualScanButton
             onDetected={(code) => { up("product_identifier", code); void handleBarcodeLookup(code); }}
             modalTitle="Scan Product Barcode"
           />
-          {/* SP-API auto-fill trigger */}
-          <button
-            type="button"
-            onClick={() => void handleSpApiLookup()}
-            disabled={!state.product_identifier.trim() || spApiStatus === "loading"}
-            title="Auto-fill ASIN, FNSKU & Item Name from SP-API (mock)"
-            aria-label="Fetch product details from SP-API"
-            className="inline-flex h-12 items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
-          >
-            {spApiStatus === "loading"
-              ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-              : <Zap className="h-4 w-4 shrink-0" />}
-            <span className="hidden sm:inline">{spApiStatus === "loading" ? "Fetching…" : "SP-API"}</span>
-          </button>
         </div>
-        {/* SP-API fetch feedback */}
-        {spApiStatus === "loading" && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
-            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-            Fetching product details from SP-API…
-          </div>
-        )}
-        {spApiStatus === "done" && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-            SP-API — ASIN, FNSKU &amp; Item Name auto-filled (mock data)
-          </div>
-        )}
         {/* Catalog lookup feedback */}
-        {state.catalog_resolution === "loading" && spApiStatus === "idle" && (
+        {state.catalog_resolution === "loading" && (
           <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-400">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />Looking up barcode…
           </div>
@@ -4405,18 +4576,27 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
         {state.catalog_resolution === "local" && catalogPreview && (
           <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            Found in Catalog — {catalogPreview.name}
+            Found locally — {catalogPreview.name}
           </div>
         )}
         {state.catalog_resolution === "amazon" && catalogPreview && (
           <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            Found on Amazon — {catalogPreview.name}{catalogPreview.price != null ? ` · $${catalogPreview.price.toFixed(2)}` : ""}
+            Backend enriched — {catalogPreview.name}
+          </div>
+        )}
+        {state.catalog_resolution === "review" && (
+          <div className="mt-1.5 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/20 dark:text-amber-200">
+            <p>Needs review — {catalogAmbiguousChoices.length > 1 ? `${catalogAmbiguousChoices.length} distinct local products` : "multiple local products"} matched. Pick the correct product:</p>
+            <AmbiguousProductPicker
+              choices={catalogAmbiguousChoices}
+              onPick={(c) => void handleWizardAmbiguousPick(c)}
+            />
           </div>
         )}
         {state.catalog_resolution === "unknown" && (
           <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-            ⚠️ Unknown Item — Not found locally or on Amazon. Enter the item name below — you can continue without a catalog match.
+            Unknown Item — not found locally{catalogPreview?.reason ? ` (${catalogPreview.reason})` : ""}. Enter the item name below if this business flow permits.
           </div>
         )}
         <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
@@ -4496,7 +4676,9 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             setState((p) => ({
               ...p,
               item_name: v,
-              ...(p.catalog_resolution === "unknown" ? { catalog_resolution: "idle" as const } : {}),
+              ...(p.catalog_resolution === "unknown" || p.catalog_resolution === "review"
+                ? { catalog_resolution: "idle" as const }
+                : {}),
             }));
           }}
           onKeyDown={(e) => { if (e.key === "Enter" && onAdvance) { e.preventDefault(); onAdvance(); } }}
@@ -4570,6 +4752,16 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             >
               <Store className="h-4 w-4" aria-hidden />
             </button>
+          </div>
+        </div>
+        <div>
+          <label className={LABEL}>UPC / GTIN <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+          <div className="flex gap-2">
+            <input
+              type="text" className={INPUT} placeholder="12-digit UPC…"
+              value={state.upc_gtin} onChange={(e) => up("upc_gtin", e.target.value)}
+            />
+            <button type="button" title="Copy UPC" className={wizardIdIconBtn} onClick={() => void copyWizardCode(state.upc_gtin)} disabled={!state.upc_gtin.trim()}><Copy className="h-4 w-4" /></button>
           </div>
         </div>
       </div>
@@ -5465,7 +5657,8 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
     hasManualProductIds ||
     state.catalog_resolution === "unknown" ||
     state.catalog_resolution === "local" ||
-    state.catalog_resolution === "amazon";
+    state.catalog_resolution === "amazon" ||
+    state.catalog_resolution === "review";
 
   const rawPkgLink = (inheritedContext?.packageId ?? state.package_link_id)?.trim() ?? "";
   const packageLinkUuidOk =
@@ -5595,7 +5788,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         asin: state.asin.trim() || undefined,
         fnsku: state.fnsku.trim() || undefined,
         sku: state.sku.trim() || undefined,
-        product_identifier: state.product_identifier.trim() || undefined,
+        product_identifier: state.product_identifier.trim() || state.upc_gtin.trim() || undefined,
         amazon_order_id: orderId,
         notes: state.notes, photo_evidence: photoEvidence ?? undefined,
         expiration_date: state.expiration_date || undefined,
@@ -5671,6 +5864,8 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
               onAdvance={step1Valid ? () => setStep(2) : undefined}
               onNavigateToPackage={onNavigateToPackage}
               onNavigateToPallet={onNavigateToPallet}
+              organizationId={workspaceOrgId}
+              actorProfileId={actorProfileId}
             />
           )}
           {step === 2 && (
@@ -6727,7 +6922,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
 
       <div className="w-full overflow-x-auto rounded-2xl border border-border">
         <div className="w-full min-w-0">
-          <table className="w-full min-w-[1460px] text-sm">
+          <table className="w-full min-w-[1580px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
@@ -6739,7 +6934,8 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                   <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
                 )}
                 <th className="w-12 px-2 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500" title="Marketplace">MP</th>
-                <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Item / Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Product</th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="lpn" label="LPN" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6783,9 +6979,12 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         asin={r.asin}
                         fnsku={r.fnsku}
                         sku={r.sku}
+                        upc={upcFromProductIdentifier(r.product_identifier)}
                         storePlatform={r.stores?.platform}
                         onToast={onToast}
                       />
+                    </td>
+                    <td className="min-w-[220px] px-4 py-3 align-top" onClick={(e) => e.stopPropagation()}>
                       <ReturnItemProductLinkage
                         organizationId={r.organization_id}
                         fields={r}
@@ -7098,6 +7297,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                 <table className="w-full text-xs">
                                   <thead><tr className="border-b border-violet-200 bg-violet-100/60 dark:border-violet-800/50 dark:bg-violet-950/40">
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Item</th>
+                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Product</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Store</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Condition</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Status</th>
@@ -7113,9 +7313,13 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                             asin={r.asin}
                                             fnsku={r.fnsku}
                                             sku={r.sku}
+                                            upc={upcFromProductIdentifier(r.product_identifier)}
                                             storePlatform={r.stores?.platform}
                                             onToast={onToast}
                                           />
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
                                         </td>
                                         <td className="px-3 py-2">
                                           {r.stores ? (
@@ -7416,6 +7620,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                       <table className="w-full text-[11px]">
                                                         <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Item</th>
+                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Product</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Store</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Condition</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Status</th>
@@ -7431,9 +7636,13 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                                   asin={r.asin}
                                                                   fnsku={r.fnsku}
                                                                   sku={r.sku}
+                                                                  upc={upcFromProductIdentifier(r.product_identifier)}
                                                                   storePlatform={r.stores?.platform}
                                                                   onToast={onToast}
                                                                 />
+                                                              </td>
+                                                              <td className="px-2 py-1.5">
+                                                                <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
                                                               </td>
                                                               <td className="px-2 py-1.5">
                                                                 {r.stores ? (

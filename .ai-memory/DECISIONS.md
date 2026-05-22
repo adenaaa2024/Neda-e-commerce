@@ -14,5 +14,7 @@ Append-only policy decisions. Full program history: [HISTORY_POINTERS.md](HISTOR
 | D-008 | V174 | **Staging `return_items` is test data** | 6 rows; do not treat coverage % as production truth. |
 | D-009 | ENV-06 | **Preview must use staging ref** | Branch-scoped active quartet; protection separate from DB wiring. |
 | D-010 | V175 | **Paired-update law** | Every memory update: append-only **full history + `.ai-memory` together** (same session); `TASKS.md` aligned; never one without the other. |
+| D-011 | V193 | **Product input enrichment is backend-gated only** | Barcode blur/scan/paste/Enter may auto-lookup locally; Amazon/API enrichment must run only server-side on staging with explicit gates, never from browser or fake SP-API data. |
+| D-012 | V198 | **E1B map-only requires active `products.id` FK** | Import-table `product_id` alone is insufficient; execute must prove trusted id exists on spine (`deleted_at IS NULL`, not merged) before `product_identifier_map` insert. |
 
 When you make a new decision, add a row here and bump `CURRENT_STATE.md` if facts change.

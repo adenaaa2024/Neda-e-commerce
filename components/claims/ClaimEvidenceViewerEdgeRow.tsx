@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 
 import { EDGE_TYPE_LABELS, type ClaimEvidencePreviewEdge } from "@/lib/claim-evidence-preview";
@@ -14,7 +15,9 @@ function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
 
-export function EdgeRow({ edge, organizationId }: { edge: ClaimEvidencePreviewEdge; organizationId: string }) {
+export function EdgeRow({ edge }: { edge: ClaimEvidencePreviewEdge; organizationId: string }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const typeLabel = EDGE_TYPE_LABELS[edge.edge_type] ?? edge.edge_type;
   const refLabel =
     edge.reference_kind === "internal_trid_key"
@@ -26,6 +29,8 @@ export function EdgeRow({ edge, organizationId }: { edge: ClaimEvidencePreviewEd
     edge.edge_type === "slip_line_to_product" && edge.to_source_row_id !== "unresolved"
       ? edge.to_source_row_id
       : null;
+  const currentSearch = searchParams.toString();
+  const currentPath = `${pathname}${currentSearch ? `?${currentSearch}` : ""}`;
   const resStatus = edge.reference_kind === "identifier_resolution_status" ? edge.reference_value : null;
 
   return (
@@ -53,7 +58,8 @@ export function EdgeRow({ edge, organizationId }: { edge: ClaimEvidencePreviewEd
       ) : null}
       {productId ? (
         <Link
-          href={`/dashboard/products?organization_id=${encodeURIComponent(organizationId)}&highlight=${encodeURIComponent(productId)}`}
+          href={`/pim/products/${encodeURIComponent(productId)}?back=${encodeURIComponent(currentPath)}`}
+          onClick={(e) => e.stopPropagation()}
           className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-medium text-sky-600 hover:underline dark:text-sky-400"
         >
           Product {productId.slice(0, 8)}…

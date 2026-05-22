@@ -163,8 +163,25 @@ export function pickBestProductIdentifierMatch(
   scored.sort((a, b) => a.tier - b.tier || a.sub - b.sub || (a.row.id > b.row.id ? 1 : -1));
   const best = scored[0]!;
   const winners = scored.filter((s) => s.tier === best.tier && s.sub === best.sub);
-  const distinctIds = new Set(winners.map((w) => w.row.id));
-  if (distinctIds.size > 1) {
+  const distinctMapRowIds = new Set(winners.map((w) => w.row.id));
+  const distinctProductIds = new Set(
+    winners.map((w) => n(w.row.product_id)).filter((x): x is string => !!x),
+  );
+
+  /** Multiple map rows pointing at the same product_id → single resolved match (V196). */
+  if (distinctProductIds.size === 1) {
+    const pid = [...distinctProductIds][0]!;
+    const resolvedRow = winners.find((w) => n(w.row.product_id) === pid)?.row ?? best.row;
+    return {
+      row: resolvedRow,
+      status: "resolved",
+      tier: best.tier,
+      confidence: tierConfidence(best.tier),
+      candidatesConsidered: pool.length,
+    };
+  }
+
+  if (distinctProductIds.size > 1 || distinctMapRowIds.size > 1) {
     return {
       row: null,
       status: "ambiguous",
@@ -176,11 +193,41 @@ export function pickBestProductIdentifierMatch(
 
   return {
     row: best.row,
-    status: "resolved",
+    status: n(best.row.product_id) ? "resolved" : "unresolved",
     tier: best.tier,
     confidence: tierConfidence(best.tier),
     candidatesConsidered: pool.length,
   };
+}
+
+/** Distinct `product_id` values tied at the best match tier (true ambiguous only when count > 1). */
+export function listAmbiguousProductIdsAtBestTier(
+  candidates: ProductIdentifierMapRow[],
+  hints: IdentifierLookupHints,
+): string[] {
+  const uniq = new Map<string, ProductIdentifierMapRow>();
+  for (const c of candidates) {
+    const id = String(c.id ?? "").trim();
+    if (id) uniq.set(id, c);
+  }
+  const scopeStore = n(hints.storeId);
+  let pool = [...uniq.values()];
+  if (scopeStore) {
+    pool = pool.filter((r) => n(r.store_id) === scopeStore);
+  }
+  const scored: Scored[] = [];
+  for (const row of pool) {
+    const s = scoreCandidate(row, hints);
+    if (s) scored.push(s);
+  }
+  if (scored.length === 0) return [];
+  scored.sort((a, b) => a.tier - b.tier || a.sub - b.sub || (a.row.id > b.row.id ? 1 : -1));
+  const best = scored[0]!;
+  const winners = scored.filter((s) => s.tier === best.tier && s.sub === best.sub);
+  const distinctProductIds = [
+    ...new Set(winners.map((w) => n(w.row.product_id)).filter((x): x is string => !!x)),
+  ];
+  return distinctProductIds.length > 1 ? distinctProductIds : [];
 }
 
 const FETCH_CHUNK = 60;

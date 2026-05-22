@@ -1,26 +1,34 @@
-# Current state — V192 product resolution contract lock (authoritative)
+# Current state — V196 closeout + V202 proof (authoritative)
 
-**Last updated:** V192 contract lock `20260521T012000Z`  
-**Latest operator history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
-`.cursor/audit-reports/history-v191/20260526T120000Z/ERP_PIM_FULL_HISTORY_V191_APPEND_ONLY_ITEM_ADD_EDIT_RESOLVER_STANDARD.md`  
-**Canonical base:** `history-canonical-rebuild-v182/20260518T120000Z/ERP_PIM_FULL_HISTORY_V182_CANONICAL_APPEND_ONLY_REBUILT.md`
+**Last updated:** 2026-05-22 (`expected-packages-identifier-manual-review-batch-v202` `20260522T220000Z`)  
+**V196 history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
+`.cursor/audit-reports/history-v196/20260522T230000Z/ERP_PIM_FULL_HISTORY_V196_APPEND_ONLY_LOOKUP_EXPECTED_VENDOR_PACKAGING_ROADMAP.md`  
+**Latest browser proof:** `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` (**PASS** 11/11)  
+**Neda handoff:** [`NEDA_FINAL_BACKEND_HANDOFF_V193.md`](../NEDA_FINAL_BACKEND_HANDOFF_V193.md)
 
-## Milestone — V191 item add/edit + read alignment
+## Milestone — V196/V197 planning + proof (this closeout)
 
 | Gate | Status |
 |------|--------|
-| Operator item add/edit resolver standard | **PASS** (16/16 smoke; server actions only) |
-| Direct browser `return_items` writes on save | **Blocked / not detected** |
-| Detail + package/pallet linkage display | **PASS** (`ProductLinkageDisplayContract`) |
-| Inventory expected/scanned read alignment | **PASS** (read-layer `product_comparison`; no DDL) |
-| V190 return_items test cohort | **3** active · **3** resolved · **0** unresolved · **4** soft-deleted |
-| Neda final backend handoff V191 | **PASS** (docs-only) |
-| AFI guarded Tier 3 SKU/no-ASIN-conflict execute | **PASS** — 109 rows updated on staging |
-| Product resolution contract lock V192 | **PASS** — guard script + scanner server-action wrapper |
-| Expected packages E1 map bridge V192 plan | **PASS** — 254 candidate rows / 134 insert-plan map rows; approval false |
-| NEDA-20 | **NOT_FOUND** |
+| V196 lookup item_name/UPC/ambiguous fix | **PASS** code; ambiguous collapse; UPC field; picker UI |
+| V196 lookup browser proof (V196 harness) | **CONDITIONAL_PASS** — auth only; superseded by V200/V202 **PASS** |
+| V196 expected API/manual plan | **PASS** plan — V199 review + V201 triage + API dry-run gates |
+| V196 vendor 1883 plan | **PASS** plan — supplier code, not category; allowlist + display name path |
+| V196 packaging model plan | **PASS** plan — `packaging_level` + `fulfillment_context`; DDL deferred V201 |
+| V197 product linkage census | **PASS** — 20 tables ranked; expected_packages top unresolved |
+| V198 E1B map-only execute | **BLOCKED** — orphan import `product_id`; closed in V200 |
+| Product resolution contract | **LOCKED** — guard **PASS** |
 
-## Environment
+## Subsequent (after V196 closeout — operator state)
+
+| Gate | Status |
+|------|--------|
+| V200 E1B blocker materialize + map | **PASS** — E1B cohort closed |
+| Expected read-layer (current) | **1,577 / 1,626**; **49** unresolved; **6** ambiguous (V201) |
+| V202 browser proof signoff | **PASS** — supersedes V196 CONDITIONAL_PASS |
+| V195 original view parity | **APPLIED_VERIFIED** on `kxsvedvpjldygtdbylsy` |
+
+## Environment topology
 
 | Surface | DB ref |
 |---------|--------|
@@ -28,77 +36,67 @@
 | Original (Vercel Production app) | `kxsvedvpjldygtdbylsy` |
 | Future production project | **NOT_CREATED_YET** / **BLOCKED** |
 
-## Add/edit/save standard (authoritative)
+## Lookup (V196)
 
-- Add: UI → `insertReturn` → deterministic resolver → persist.
-- Edit: UI → `updateReturn` → re-run resolver when identifiers or org/store scope change.
-- Inputs: `fnsku`, `asin`, `sku`, `product_identifier` (UPC/GTIN/barcode).
-- One map winner → `resolved_product_id`; no winner / ambiguous / mismatch → no auto-create; review labels preserved.
+- Ambiguous: duplicate map rows sharing one `product_id` resolve (not false ambiguous).
+- Lookup returns UPC/GTIN, canonical `item_name`, `ambiguous_candidates[]`.
+- UI: `AmbiguousProductPicker`, `IdentifierStack` UPC row.
+- Save unchanged: `insertReturn` / `updateReturn` resolver-on-save.
 
-## Product Resolution Contract — Non-Negotiable
+## Expected packages (plan status at V196 closeout)
 
-All product-aware paths must use:
+| Bucket | Rows (V199/V201 era) | Status |
+|--------|---------------------:|--------|
+| Read-layer resolved (post-E2) | 1,546 | at V199 review |
+| Unresolved | 80 → **52** after V200 E1B | triage ongoing |
+| API evidence execute V202 | **FAIL** (catalog 404) — 3 SP-API calls, 0 inserts (`20260522T210000Z`) |
+| API evidence dry-run V202 | **READY** — 5 would call, 3 skip linked (`20260522T200000Z`) |
+| Manual identifier batch V202 | 38 + 5 API 404 | **PASS** queue (`20260522T220000Z`) — all 38 → quarantine/fix source; 0 map-bridge |
+| Source disagreement | 6 | manual reconcile |
+| E1B map-missing | 28 | blocked V198; **closed V200** |
 
-`input -> normalize identifiers -> resolver -> products + product_identifier_map -> persist resolved_product_id only when deterministic -> hydrate ProductLinkageDisplayContract -> render the same contract.`
+## Vendor 1883 decision
 
-Forbidden: direct browser product-aware writes, UI-side `products.insert` / `products.upsert`, `package_items`, legacy `.from("returns")`, raw detail reads without hydration, and title/OCR/fuzzy/AI auto-link or auto-create.
+- **630** products under vendor code `1883` (1883 MAISON ROUTIN + mixed brands).
+- Not invalid category data — PIM numeric-label audit false positive.
+- Plan: allowlist + `display_name` / alias; optional split for **171** mixed-brand rows.
 
-Guard command: `npm run check:product-resolution-contract-v192`.
+## Packaging model decision
 
-V192 remediation: scanner `expected_packages.actual_scanned_count` save moved from direct client Supabase update to server action `updateExpectedPackageScannedCount`.
+Composite profile key:
 
-## View comparison status
+- `organization_id` + `store_id` + `product_id`
+- **`packaging_level`**: `unit`, `inner_pack`, `case`, `master_carton`
+- **`fulfillment_context`**: FBA / MFN / wholesale (and governed enums)
 
-| Layer | Status |
-|-------|--------|
-| `fetchExpectedPackagesNedaRead` | Product-key-first `product_comparison`; active `return_items` exclude soft-deleted |
-| `fetchInventoryItemStatusForNeda` | Same comparison model + hydrated linkage display |
-| Live `v_scanned_items_counted` | `deleted_at IS NULL` present |
-| Live `v_inventory_item_status` / `v_inventory_status` | DB still raw-group / package-aggregate; DDL plan only — not applied |
+Tables (plan only): `product_packaging_profiles`, `product_packaging_profile_versions`, `product_dimensions_current`.  
+DDL staging plan: **V201** (not applied in V196).
 
-## expected_packages coverage (staging)
+## Roadmap — next 3 days (V196)
 
-| Metric | Value |
-|--------|------:|
-| Total rows | 1,626 |
-| Read-layer resolved | 1,263 |
-| Unresolved (V191 baseline) | 363 |
-| E1 map-only bridge recompute | **254** expected rows, **134** unique map insert-plan rows |
-| E1 ambiguity exclusions | **10** rows |
-| E1 approval | `.cursor/operator-approvals/expected-packages-e1-map-bridge-v192-approval.md` default false |
-| Remaining governed waves | E2 promote **29** · E4 review **117** baseline; refresh after E1 execute |
+| Day | Focus |
+|-----|--------|
+| **Day 1** | Product linkage: V196 lookup landed, V197 census, V199 expected classification |
+| **Day 2** | Vendor 1883 + packaging architecture; E1B spine repair; API dry-run prep |
+| **Day 3** | Claims scoping; gated API path; TRID/reference graph entry |
 
-## Unresolved product policy
+## Next phase (claims / API / TRID / catalog)
 
-Display unresolved until governed catalog/import fills `products` + `product_identifier_map`. No OCR/title/fuzzy/AI auto-create. Ambiguous → needs review. Amazon API not used for resolution in V191 packs.
-
-## Catalog/import wave status
-
-| Metric | Value |
-|--------|------:|
-| AFI resolved | 14,693 / 19,503 (**75.34%**) |
-| AFI unresolved | 4,810 |
-| Guarded Tier 3 SKU/no-ASIN-conflict execute | **109** rows updated; products/map counts unchanged |
-| Broad Tier 3 with ASIN conflict | **14** excluded from guarded batch |
-
-## Next program priorities
-
-1. Execute Expected_packages E1 map-only bridge only after approval flags are flipped  
-2. Optional approval-gated inventory view DDL  
-3. Claim cleanup / TRID / API hardening  
-4. Remaining product catalog/import completeness cohorts under separate governance  
-5. Keep V192 guard passing on all product-aware changes  
-6. AI layer (later; default deny)
+1. **Claims** — cleanup / regeneration (governed)  
+2. **Manual / source queues** — operator CSV at `expected-packages-identifier-manual-review-batch-v202/20260522T220000Z/`; fix UNKNOW/ASIN-in-FNSKU before map/E2; 6 source disagreement next  
+3. **TRID / reference graph** — after product linkage stable  
+4. **Product catalog** — E1B closed; remaining 52 + AFI/spine waves  
+5. **Packaging DDL V201** — approval-gated staging apply  
+6. **AI layer** (later; default deny)
 
 ## Carried gates
 
 | Gate | Status |
 |------|--------|
-| V181 Neda read signoff | **PASS** |
-| Claims staging | **72.7%** / **51.5%** |
 | `package_items` | **FORBIDDEN** |
 | Legacy `returns` | **FORBIDDEN** |
+| Claims staging | **72.7%** / **51.5%** |
 
 ## Evidence
 
-`history-memory-after-v191-item-resolver/20260526T120000Z/` · `operator-item-add-edit-resolver-standard-v191/20260520T235500Z/` · `inventory-expected-return-product-id-view-alignment-v191/20260521T001108Z/` · `neda-final-backend-handoff-v191/20260521T004000Z/` · `product-catalog-afi-guarded-tier3-sku-no-asin-conflict-v191/20260521T010000Z/` · `backend-product-resolution-contract-lock-v192/20260521T012000Z/` · `expected-packages-e1-map-bridge-plan-v192/20260521T013000Z/`
+`history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v196-vendor-category-cleanup-1883-plan/20260521T214500Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `v199-expected-identifier-ambiguous-review-pack/20260522T130000Z/` · `product-linkage-browser-proof-signoff-v202/20260522T195000Z/`

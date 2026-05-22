@@ -1,42 +1,39 @@
-# Tasks — active board (V191 item resolver milestone)
+# Tasks — active board (V196 closeout; V202 proof carried)
 
 Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md).
 
-## Done — V191 item resolver
+## Done — V196/V197 closeout
 
-- [x] Operator item add/edit resolver standard **PASS**
-- [x] No direct browser `return_items` writes on save paths
-- [x] Detail / package / pallet linkage display **PASS**
-- [x] Inventory read-layer product-key comparison **PASS**
-- [x] History V191 + `.ai-memory` sync `20260526T120000Z`
-- [x] AFI guarded Tier 3 SKU/no-ASIN-conflict execute **PASS** (109 rows)
-- [x] Product resolution contract lock V192 **PASS**
-- [x] Expected_packages E1 map bridge V192 preflight **PASS** (254 candidates; approval false)
+- [x] V196 lookup item_name/UPC/ambiguous **PASS**
+- [x] V196 expected API/manual plan **PASS**
+- [x] V196 vendor 1883 plan **PASS**
+- [x] V196 packaging model plan **PASS**
+- [x] V197 table census **PASS**
+- [x] History V196 + `.ai-memory` sync `20260522T230000Z`
 
-## Done — prior milestone (V190)
+## Done — after V196
 
-- [x] V189 staging + original view filter
-- [x] Preview staging quartet + redeploy (ENV-06B)
-- [x] Return_items 3/3/0 + 4 soft-deleted
-- [x] Neda runtime replay + NEDA-18 **PASS**
-- [x] Neda final backend handoff V191 docs **PASS**
+- [x] V200 E1B materialize **PASS**
+- [x] V202 browser proof **PASS**
+- [x] V195 original parity, V194/V193/V192
 
-## P1 — Catalog & packages
+## Done — V202 API dry-run
 
-- [ ] Expected_packages E1 map-only execute after approval (254 expected rows / 134 map rows)
-- [ ] Expected_packages E2/E4 refresh after E1 execute
-- [ ] Optional inventory view DDL after approval
-- [ ] Remaining product catalog/import completeness cohorts under separate governance
-- [ ] Keep `npm run check:product-resolution-contract-v192` passing on product-aware changes
+- [x] Amazon API evidence dry-run **READY_FOR_EXECUTE_REVIEW** (`20260522T200000Z`)
 
-## P2 — Claims & TRID
+## P1 — Claims / API / TRID / catalog
 
-- [ ] Claim cleanup / regeneration (governed)
-- [ ] TRID / reference graph
+- [x] EXPECTED-PACKAGES-AMAZON-API-EVIDENCE-EXECUTE-V202 — **FAIL** (catalog 404; 0 inserts)
+- [x] EXPECTED-PACKAGES-IDENTIFIER-MANUAL-REVIEW-BATCH-V202 — **PASS** (`20260522T220000Z`)
+- [ ] EXPECTED-PACKAGES-SOURCE-DISAGREEMENT-RECONCILE-PLAN-V202 — 6 rows
+- [ ] Claims cleanup / regeneration (governed)
+- [ ] API / TRID hardening
+- [ ] Dirty identifier quarantine / source fix (38-row cluster)
+- [ ] Vendor 1883 allowlist execute (governed)
+- [ ] Packaging DDL V201 (approval-gated)
 
-## P3 — Platform
+## P2 — Platform
 
-- [ ] API / hardening
 - [ ] AI layer (later)
 
 ## P0 — Policy

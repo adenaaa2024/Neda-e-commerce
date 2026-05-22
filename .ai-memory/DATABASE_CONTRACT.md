@@ -1,4 +1,4 @@
-# Database contract — V192 product resolution contract lock
+# Database contract — V195 closeout + product resolution contract
 
 Staging ref: **`eiqfaapyumhixxoeltgu`**  
 Original ref: **`kxsvedvpjldygtdbylsy`**  
@@ -22,7 +22,7 @@ Original/Vercel Production is not the future production cutover. Do not point Ve
 | `products` | Canonical product row; `products.id` is the first comparison key |
 | `product_identifier_map` | Deterministic identifier bridge for ASIN/FNSKU/SKU/UPC/GTIN to product |
 
-Do not create products automatically from OCR/title/free text/fuzzy/UI guesses. Product creation or promotion belongs to governed catalog/import waves only.
+Do not create products automatically from OCR/title/free text/fuzzy/UI guesses. Product creation or promotion belongs to governed catalog/import/API-backed waves only.
 
 ## Product Resolution Contract — Non-Negotiable
 
@@ -31,8 +31,9 @@ All product-aware reads and writes must follow this path:
 ```text
 Manual/UI/API/import input
 -> normalize identifiers
--> product resolver
+-> local product resolver first
 -> products + product_identifier_map
+-> gated backend enrichment only if no local match and gates allow it
 -> persist resolved_product_id only when deterministic
 -> return/hydrate ProductLinkageDisplayContract
 -> UI/detail/package/pallet/views render the same contract
@@ -47,6 +48,7 @@ Allowed patterns:
 - Governed import/resolver scripts with evidence and rollback.
 - Read hydration through `ProductLinkageDisplayContract`.
 - Explicit unresolved, ambiguous, and mismatch states.
+- Exact product detail links to `/pim/products/<product_id>` for resolved products.
 
 Forbidden patterns:
 
@@ -56,6 +58,7 @@ Forbidden patterns:
 - Legacy `.from("returns")`.
 - Raw `return_items` detail reads without product-linkage hydration.
 - Title/OCR/fuzzy/AI auto-linking or product auto-create.
+- Browser Amazon/API lookup and fake SP-API product truth.
 
 Repo guard: `npm run check:product-resolution-contract-v192`.
 
@@ -85,13 +88,13 @@ Repo guard: `npm run check:product-resolution-contract-v192`.
 | Read/view | Contract |
 |---|---|
 | `v_scanned_items_counted` | Count active scanned `return_items`; preserve `deleted_at IS NULL` |
-| `v_inventory_item_status` | Item-level expected/scanned status view; current DB view still groups by raw identifiers |
+| `v_inventory_item_status` | Item-level expected/scanned status view with V193 product ID/status columns |
 | `v_inventory_status` | Package-level aggregate/chip view only |
 | `fetchExpectedPackagesNedaRead` | Approved read layer; emits product-key-first `product_comparison` |
 | `fetchInventoryItemStatusForNeda` | Approved item read layer; emits hydrated linkage/display data |
 | `ProductLinkageDisplayContract` | Canonical UI/API product display contract |
 
-V191 did not apply view DDL. Future DDL may replace the views with product-key grouping only after explicit approval.
+V193 view DDL is applied on staging. Item-level inventory views expose product ID/status/name columns; `v_inventory_status` remains package aggregate only.
 
 ## Expected vs scanned comparison
 
@@ -115,9 +118,18 @@ If expected and scanned rows both have product identity and the products differ,
 | Inventory V189 deleted filter | PASS on staging and original |
 | V191 operator add/edit resolver | PASS; server actions only; no browser writes |
 | V191 read-layer product-key alignment | PASS; no DDL applied |
-| Expected packages product coverage | `1,263 / 1,626` read-layer resolved; `363` unresolved |
+| Expected packages product coverage | `1,574 / 1,626` read-layer resolved; `52` unresolved (V201) |
+| V196 lookup ambiguous collapse | PASS — same `product_id` ties not ambiguous |
+| V196 packaging model (plan) | `packaging_level` + `fulfillment_context`; versioned profiles; DDL V201 |
+| V197 linkage census | PASS — read-only table matrix |
 | AFI catalog coverage | `14,693 / 19,503` resolved (`75.34%`) |
 | V192 contract guard | PASS after scanner save moved behind server action |
+| V193 product input lookup | PASS: local first; gated backend enrichment only; no browser/fake SP-API |
+| V193 product detail links | PASS: `/pim/products/<product_id>` |
+| V193 inventory view columns | PASS: staging DDL applied |
+| V195 inventory original parity | PASS on `kxsvedvpjldygtdbylsy`; product columns applied + verified |
+| V194 lookup/link UI polish | PASS: timeout, Product column, source back links |
+| V194 expected_packages E2 | PASS: 19 products + 19 map rows on staging |
 
 ## Forbidden / absent
 
@@ -129,7 +141,8 @@ If expected and scanned rows both have product identity and the products differ,
 | production DB mutation | Forbidden without explicit approval |
 | Amazon API / AI/OpenAI | Forbidden for this path unless separately approved |
 | raw detail read without hydration | Forbidden for product-aware UI/detail/package/pallet surfaces |
+| fake SP-API product data | Forbidden as product truth |
 
 ## Evidence
 
-`NEDA_FINAL_BACKEND_HANDOFF_V192.md` · `history-v191/20260526T120000Z/` · `history-memory-after-v191-item-resolver/20260526T120000Z/` · `operator-item-add-edit-resolver-standard-v191/20260520T235500Z/` · `inventory-expected-return-product-id-view-alignment-v191/20260521T001108Z/` · `expected-packages-product-spine-completion-plan-v191/20260521T001400Z/` · `product-catalog-afi-guarded-tier3-sku-no-asin-conflict-v191/20260521T010000Z/` · `backend-product-resolution-contract-lock-v192/20260521T012000Z/`
+`NEDA_FINAL_BACKEND_HANDOFF_V193.md` · `history-v196/20260522T230000Z/` · `history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `v199-expected-identifier-ambiguous-review-pack/20260522T130000Z/` · `expected-packages-e1-map-bridge-execute-v192/20260521T190300Z/` · `backend-product-resolution-contract-lock-v192/20260521T012000Z/`

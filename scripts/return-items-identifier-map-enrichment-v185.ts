@@ -227,14 +227,14 @@ function classifyRow(
     for (const h of hits) if (h.product_id) allMapPids.add(h.product_id!);
   }
 
-  const notes: string[] = [...dirty];
+  const notes: string[] = [...dirty.notes];
   let classification: Classification = "no_existing_product";
   let enrichment: EnrichmentCandidate[] = [];
 
   const hasMapForAny =
     (mapHits.fnsku?.length ?? 0) > 0 || (mapHits.asin?.length ?? 0) > 0 || (mapHits.sku?.length ?? 0) > 0;
 
-  if (dirty.length > 0 && allProductIds.size === 0 && !hasMapForAny) {
+  if (dirty.strongly_test && allProductIds.size === 0 && !hasMapForAny) {
     classification = "source_identifier_dirty_or_test";
     notes.push("No product or map match; identifiers appear test/synthetic");
   } else if (allProductIds.size > 1) {
@@ -437,7 +437,7 @@ async function main(): Promise<void> {
   const blockers = [
     "return_items backfill execute blocked until dry-run shows set_resolved > 0",
     ...(allCandidates.length === 0 ? ["no_safe_map_enrichment_candidates"] : []),
-    ...(!approval.approved ? ["operator_approval_required"] : []),
+    ...(allCandidates.length > 0 && !approval.approved ? ["operator_approval_required"] : []),
     "tier_4_upc_gtin still disabled in matcher",
   ];
 
@@ -599,7 +599,7 @@ async function main(): Promise<void> {
     enrichable_count: enrichable.length,
     non_enrichable_count: nonEnrichable.length,
     enrichment_candidates: allCandidates.length,
-    approval_required: !approval.approved,
+    approval_required: allCandidates.length > 0 && !approval.approved,
     enrichment_executed: executeResult.executed,
     map_rows_applied: executeResult.applied,
     classifications: Object.fromEntries(

@@ -1,9 +1,9 @@
-# Neda handoff — product resolution contract lock V192
+# Neda handoff — final backend path V193
 
 **Staging / Preview:** `eiqfaapyumhixxoeltgu`  
 **Production app DB:** `kxsvedvpjldygtdbylsy` (unchanged; not a cutover)  
 **Future production project:** **NOT_CREATED_YET** / **BLOCKED**  
-**Authoritative handoff:** [`../NEDA_FINAL_BACKEND_HANDOFF_V192.md`](../NEDA_FINAL_BACKEND_HANDOFF_V192.md)
+**Authoritative handoff:** [`../NEDA_FINAL_BACKEND_HANDOFF_V193.md`](../NEDA_FINAL_BACKEND_HANDOFF_V193.md)
 
 ## Product Resolution Contract — Non-Negotiable
 
@@ -12,8 +12,9 @@ Every Neda product-aware surface must follow this path:
 ```text
 manual/UI/API/import input
 -> normalize identifiers
--> product resolver
+-> local product resolver first
 -> products + product_identifier_map
+-> gated backend enrichment only if no local match and gates allow it
 -> persist resolved_product_id only when deterministic
 -> hydrate ProductLinkageDisplayContract
 -> render the same contract everywhere
@@ -35,6 +36,11 @@ Neda-facing item/product display uses one backend path:
 
 ## Add and edit
 
+- Product barcode/code lookup is automatic through backend action `lookupProductInputForReturnItem` on blur/scan/paste/Enter.
+- Lookup normalizes FNSKU, ASIN, UPC/EAN/GTIN, and SKU/MSKU; local resolver/map/products are checked first.
+- V194 adds timeout/debounce handling so lookup does not stay stuck on loading; disabled enrichment returns an unresolved reason.
+- Gated backend Amazon/product enrichment is allowed only when no local match exists and backend gates are enabled.
+- Browser Amazon/mock/fake SP-API lookup is forbidden.
 - Add item: UI -> approved server action `insertReturn` -> deterministic resolver -> persist `resolved_product_id` only when exactly one product wins.
 - Edit item: UI -> approved server action `updateReturn` -> re-run resolver when identifiers or org/store scope changed.
 - Scanner save: UI -> approved server action wrapper; no direct browser write for product-aware rows.
@@ -46,7 +52,10 @@ Neda-facing item/product display uses one backend path:
 - Detail reads hydrated item data and renders `ProductLinkageDisplayContract`.
 - Package detail child rows are `return_items` rendered through the same contract.
 - Pallet drilldown shows package child `return_items` through the same contract.
+- Resolved product labels/IDs link to `/pim/products/<product_id>?back=<source>` and stop row-click propagation; unresolved rows do not link to the generic product list.
+- Returns/package/pallet item tables have a separate Product column; identifiers remain separate.
 - `v_inventory_status` is package aggregate/chip data only; item-level product display comes from item rows/read-layer hydration.
+- V193 view DDL applied on staging: item-level inventory views now expose product-id/status/name columns; `v_inventory_status` remains aggregate-only.
 
 ## Expected vs scanned
 
@@ -69,17 +78,33 @@ If both sides have product IDs and they differ, do not let matching raw identifi
 | V190 return_items/Neda milestone | PASS: `3` active, `3` resolved, `0` unresolved, `4` soft-deleted fake/test |
 | V191 add/edit resolver standard | PASS: server actions and deterministic resolver path documented |
 | V191 package/pallet/detail proof | PASS: shared `ProductLinkageDisplayContract` path |
-| V191 inventory read alignment | PASS: read-layer product-key comparison; no DDL applied |
-| Expected package spine plan | `1,263 / 1,626` read-layer resolved; `363` unresolved for governed waves |
+| V193 inventory view product-id columns | PASS: staging DDL applied; item views expose product columns |
+| Expected package E1 map bridge | PASS: `134` map rows inserted; no products or expected rows updated |
+| Expected package coverage | `1,574 / 1,626` read-layer (post-V200 E1B); **52** unresolved (V201) |
+| V196 lookup item_name/UPC/ambiguous | **PASS** code; UPC field; ambiguous picker; collapse same-product_id |
+| V196 vendor 1883 plan | **Plan** — supplier code 1883; allowlist + display name |
+| V196 packaging model | **Plan** — `packaging_level` + `fulfillment_context`; DDL V201 |
+| V197 linkage census | **PASS** — table priority matrix |
 | Product catalog AFI | `14,693 / 19,503` resolved (`75.34%`); guarded Tier 3 execute `109` rows |
 | V192 contract guard | PASS; scanner save moved behind server action |
-| NEDA-20 | No artifact found in audit reports during V191 handoff creation |
+| Product input auto lookup V193 | PASS: local first, backend gated, no browser/fake SP-API |
+| Product detail links V193 | PASS: `/pim/products/<product_id>` |
+| Neda operator enforcement | Same path required for all operator/warehouse UI surfaces |
+| Neda V23 / NEDA-23 | No separate audit artifact; rules in `NEDA_FINAL_BACKEND_HANDOFF_V193.md` |
+| Neda V194 UI polish | **PASS** via `v194-lookup-stuck-link-ui-polish` (timeout, Product column, back links); no separate Neda V194 audit |
+| V195 original view parity | **APPLIED_VERIFIED** on `kxsvedvpjldygtdbylsy`; staging + original item views aligned |
+| V195 returns edit route | **PASS** — menu Edit opens drawer in edit mode; save via `updateReturn` |
+| V202 / V200 lookup browser proof | **PASS** — 11/11 UI + 7/7 preflight (`v200-product-lookup-browser-proof-complete/20260522T195000Z/`) |
+| V195 lookup browser proof | **SUPERSEDED** — was CONDITIONAL_PASS (auth only) |
+| Neda V195 handoff file | **NOT_FOUND** — this closeout synced `.ai-memory` only |
 
 ## Missing product rule
 
 Missing product means display unresolved now. Later catalog/import waves fill `products` and `product_identifier_map` with governed evidence and approval.
 
 Do not auto-create products from OCR/title/free text, do not fuzzy-match, do not call Amazon API, and do not call AI/OpenAI.
+
+V193 exception path: backend enrichment is allowed only if staging/server gates are enabled (`AMAZON_SP_API_ENABLED` and `PRODUCT_ENRICHMENT_AUTO_CREATE_ENABLED`). The browser must not call Amazon and must not use fake SP-API data.
 
 ## Forbidden
 
@@ -89,9 +114,11 @@ Do not auto-create products from OCR/title/free text, do not fuzzy-match, do not
 - No direct browser Supabase writes for product-aware rows.
 - No UI-side `products.insert` / `products.upsert`.
 - No raw `return_items` detail reads without `ProductLinkageDisplayContract` hydration.
+- No fake SP-API data as product truth.
+- No title/OCR/fuzzy/AI auto-link.
 - No production DB touch.
 - No DB mutation, migration, Amazon API, or AI/OpenAI work for this docs-only handoff.
 
 ## Evidence
 
-`NEDA_FINAL_BACKEND_HANDOFF_V192.md` · `history-v191/20260526T120000Z/` · `history-memory-after-v191-item-resolver/20260526T120000Z/` · `operator-item-add-edit-resolver-standard-v191/20260520T235500Z/` · `inventory-expected-return-product-id-view-alignment-v191/20260521T001108Z/` · `expected-packages-product-spine-completion-plan-v191/20260521T001400Z/` · `backend-product-resolution-contract-lock-v192/20260521T012000Z/`
+`NEDA_FINAL_BACKEND_HANDOFF_V193.md` · `history-v196/20260522T230000Z/` · `history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` · `v200-product-lookup-browser-proof-complete/20260522T195000Z/`

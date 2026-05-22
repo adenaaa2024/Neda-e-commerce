@@ -13,6 +13,8 @@ export type IdentifierStackProps = {
   asin?: string | null;
   fnsku?: string | null;
   sku?: string | null;
+  /** UPC / GTIN when known (V196). */
+  upc?: string | null;
   /** Store platform / marketplace (e.g. amazon, walmart) — drives search URL. */
   storePlatform?: string | null;
   compact?: boolean;
@@ -30,6 +32,7 @@ export function IdentifierStack({
   asin,
   fnsku,
   sku,
+  upc,
   storePlatform,
   compact,
   onToast,
@@ -100,6 +103,7 @@ export function IdentifierStack({
       <Row label="ASIN" raw={asin} />
       <Row label="FNSKU" raw={fnsku} />
       <Row label="SKU" raw={sku} />
+      <Row label="UPC" raw={upc} />
     </div>
   );
 }
