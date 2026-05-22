@@ -16,7 +16,7 @@ function noStoreFetch(input: RequestInfo | URL, init?: RequestInit): ReturnType<
  * Typed rows live in `@/types/database.types` — wire `createClient<Database>` after
  * `supabase gen types` (full schema) so `.select()` column names stay in sync.
  */
-function getServerSupabase(): SupabaseClient {
+function createServerSupabase(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -32,4 +32,21 @@ function getServerSupabase(): SupabaseClient {
   });
 }
 
-export const supabaseServer = getServerSupabase();
+let cachedServerSupabase: SupabaseClient | undefined;
+
+/** Lazy singleton — do not read env at module import (breaks `next build` on Vercel otherwise). */
+export function getSupabaseServer(): SupabaseClient {
+  if (!cachedServerSupabase) {
+    cachedServerSupabase = createServerSupabase();
+  }
+  return cachedServerSupabase;
+}
+
+/** Back-compat: `supabaseServer.from(...)` delegates to lazy client. */
+export const supabaseServer: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, prop, receiver) {
+    const client = getSupabaseServer();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});
