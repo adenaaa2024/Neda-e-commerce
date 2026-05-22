@@ -1,38 +1,44 @@
-# Neda — next actions (safe, UI-only)
+# Next actions — V196 closeout (carried forward to V202 proof)
 
-**Updated:** V195 handoff sync (2026-05-21)  
-**Do not:** run migrations, touch production, write DB from browser, add `package_items`, call Amazon SP-API or OpenAI from scripts
-
----
-
-## When resuming Neda work
-
-1. Read `NEDA_FINAL_BACKEND_HANDOFF_V193.md` and `.ai-memory/NEDA_HANDOFF.md` first.
-2. Confirm `.env.local` points at staging `eiqfaapyumhixxoeltgu` (not `kxsvedvpjldygtdbylsy`).
-3. Re-run verification:
-   ```bash
-   npx tsx scripts/neda-handoff-file-sync-and-usage-v195.ts
-   npx tsx scripts/v194-neda-ui-polish-lookup-sync.ts
-   ```
+See [TASKS.md](../TASKS.md).
 
 ---
 
-## Optional polish (no schema)
+## Done — V196/V197 (this closeout)
 
-- Browser spot-check: package drawer product link → detail → back to package context.
-- Returns table: confirm row click opens item drawer; product link does not steal row navigation.
-- Re-run `neda-runtime-browser-proof-v184.ts` after env or auth changes.
+- [x] V196 item_name/UPC/ambiguous lookup fix **PASS** (code)
+- [x] V196 expected API/manual plan **PASS** (V199 + V201 + API dry-run packs)
+- [x] V196 vendor 1883 plan **PASS** (read-only)
+- [x] V196 packaging model plan **PASS** (`packaging_level` + `fulfillment_context`)
+- [x] V197 product linkage table census **PASS**
+- [x] V198 E1B execute **BLOCKED** (documented; closed V200)
+- [x] History V196 + memory sync `20260522T230000Z` **PASS**
+
+## Done — subsequent (after V196)
+
+- [x] V200 E1B materialize + E1B cohort closed
+- [x] V202 / V200 browser proof **PASS** (11/11)
+- [x] V195 original parity, V194/V193/V192 (carried)
+- [x] MAIN V205/V206 inventory `package_code` on views + staging UI browser proof **PASS**
+
+- [x] V202 Amazon API evidence dry-run **READY_FOR_EXECUTE_REVIEW** (`20260522T200000Z`)
+- [x] V202 Amazon API evidence execute **FAIL** — 3 real SP-API calls; catalog 404 US MP; 0 inserts (`20260522T210000Z`)
+- [x] V202 identifier manual review batch **PASS** — 43 queued; 38 quarantine/fix source; 5 API 404 manual (`20260522T220000Z`)
 
 ---
 
-## Blocked on operator (not Neda)
+## P1 — Next phase (claims / API / TRID / catalog)
 
-- Apply migration `20260717120000_scanner_product_linkage_columns.sql` on staging when approved.
-- EP extended product columns (`identifier_resolution_status` on `expected_packages`) — remain absent by policy until migration.
+1. **EXPECTED-PACKAGES-SOURCE-DISAGREEMENT-RECONCILE-PLAN-V202** — 6 rows  
+2. **EXPECTED-PACKAGES-DIRTY-TEST-QUARANTINE-V202** — optional; 38 rows need source identifier fix (UNKNOW / ASIN in FNSKU)  
+3. **Claims** — governed cleanup / regeneration  
+4. **API / TRID** — hardening after execute review  
+5. **API 404 ASINs** — operator_verify_asin_or_manual_pim (5 rows in batch queue)  
+6. **V196B vendor 1883** — allowlist + display name (governed)  
+7. **PRODUCT-PACKAGING-DDL-STAGING-PLAN-V201** — approval-gated  
 
 ---
 
-## After backend changes
+## Production (blocked)
 
-- Update `.ai-memory/PRODUCT_ID_MAPPING_STATUS.md` from a new `product-id-linkage-closure` probe.
-- Append script row to `.ai-memory/NEDA_HANDOFF.md` verification table.
+Future production Supabase project **NOT_CREATED_YET**. Do not point Vercel Production at staging.

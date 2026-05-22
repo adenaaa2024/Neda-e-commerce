@@ -9,18 +9,22 @@ import {
   Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, CircleDot, ClipboardCheck,
   Clock, Copy, ExternalLink, Eye, FileImage, FileText, Loader2, Minus, MoreHorizontal, Package2, Store,
   PackageCheck, PackageX, Pencil, Plus, QrCode, Save, ScanLine, Search,
-  ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, Zap, ZoomIn,
+  ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, ZoomIn,
 } from "lucide-react";
 import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColumn";
+import { ReturnItemProductLinkage } from "../../components/returns/ReturnItemProductLinkage";
+import { ManifestLineProductLinkage } from "../../components/returns/ManifestLineProductLinkage";
+import { ExpectedPackagesLinkagePanel } from "../../components/returns/ExpectedPackagesLinkagePanel";
+import { InventoryItemStatusLinkagePanel } from "../../components/returns/InventoryItemStatusLinkagePanel";
 import { SmartCameraUpload } from "../../components/ui/SmartCameraUpload";
 import { BarcodeScannerModal } from "../../components/ui/BarcodeScannerModal";
 import {
-  insertReturn, updateReturn, deleteReturn, bulkDeleteReturns, fetchReturnItemProductLinkageAction,
+  insertReturn, updateReturn, deleteReturn, bulkDeleteReturns,
   createPallet, updatePallet, updatePalletStatus, deletePallet,
   createPackage, updatePackage, closePackage, deletePackage,
   getAmazonExpectedItems,
 } from "./actions";
-import { RETURN_SELECT, RETURN_ITEMS_TABLE, RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT } from "./returns-constants";
+import { RETURN_ITEMS_TABLE, RETURN_SELECT } from "./returns-constants";
 import type {
   ExpectedItem,
   OrgSettings,
@@ -34,7 +38,6 @@ import type {
 import { marketplaceSearchUrl as marketplaceSearchUrlLib } from "../../lib/marketplace-search-url";
 import { itemMatchesPackageExpectation } from "../../lib/package-expectations";
 import { getBarcodeModeFromStorage, getDefaultStoreIdFromStorage } from "../../lib/openai-settings";
-import { classifyProductBarcode } from "../../lib/product-barcode-classify";
 import { parseBarcodeSource } from "../../lib/utils/barcode-parser";
 import { supabase as supabaseBrowser } from "../../src/lib/supabase";
 import { uploadToMedia, uploadToStorage } from "../../lib/supabase/storage";
@@ -48,9 +51,24 @@ import {
   resolvePackageClaimPhotoUrls,
 } from "../../lib/entity-photo-evidence";
 import {
-  packageLegacyPhotosFromRow,
-  palletLegacyPhotosFromRow,
-} from "../../lib/returns-canonical-photos";
+  firstUrl,
+  mergeSlipPhotoUrl,
+  packageGalleryUrls,
+  packagePhotoArraysFromClaimSlots,
+  palletGalleryUrls,
+} from "../../lib/package-pallet-canonical";
+import {
+  loadReturnItemLookupFieldsFromProduct,
+  lookupProductInputForReturnItem,
+  type AmbiguousProductChoice,
+  type ProductInputLookupResult,
+  type ProductInputLookupStatus,
+} from "./product-input-lookup-actions";
+import { AmbiguousProductPicker } from "../../components/returns/AmbiguousProductPicker";
+import {
+  canonicalItemNameFromLookup,
+  upcFromProductIdentifier,
+} from "../../lib/returns-lookup-field-apply";
 import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
 import {
@@ -62,44 +80,33 @@ import {
 import { listStores } from "../settings/adapters/actions";
 import { isUuidString, uuidFkInvalidMessage } from "../../lib/uuid";
 import { isAdminRole, type UserRole } from "../../components/UserRoleContext";
-import { scannerProductResolutionBadges } from "../../lib/scanner/product-resolution-badges";
-import { manualOverrideReturnItemProductResolution } from "../scanner/operator-mobile/item-actions";
-import {
-  previewOperatorItemBarcodeLinkageAction,
-  searchOperatorProductsForStoreAction,
-} from "../scanner/operator-mobile/_components/operator-store-actions";
-import { OperatorProductLinkageMeta } from "../scanner/operator-mobile/_components/OperatorProductLinkageMeta";
-import { ProductLinkagePrimaryLink } from "../scanner/operator-mobile/_components/ProductLinkagePrimaryLink";
-import {
-  buildProductLinkageDisplayContract,
-  productLinkagePrimaryLabel,
-  type ProductLinkageDisplayContract,
-} from "../../lib/scanner/product-linkage-display-contract";
-import { productLinkageFromReturnRecord } from "../../lib/scanner/return-record-product-linkage";
 
 /** Seeded MVP org — use in client `stores` queries so RLS returns rows for local dev. */
 export const MVP_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001";
 
-/** Wizard / review summary — canonical arrays, derived scalars, then client `photo_evidence` mirror. */
+/** Wizard / review summary — staging array columns (`inside` / `outside` / `slip`). */
 function packageEvidenceGalleryUrls(pkg: PackageRecord | undefined | null): string[] {
-  if (!pkg) return [];
-  const outside = (pkg.outside_photo_urls ?? []).map((s) => String(s).trim()).filter(Boolean);
-  const inside = (pkg.inside_photo_urls ?? []).map((s) => String(s).trim()).filter(Boolean);
-  const slip = (pkg.slip_photo_urls ?? []).map((s) => String(s).trim()).filter(Boolean);
-  const pe = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
-  const o = (inside[0] ?? pkg.photo_opened_url?.trim()) || pe[0] || "";
-  const l = (slip[0] ?? pkg.photo_return_label_url?.trim()) || pe[1] || "";
-  const c = (outside[1] ?? pkg.photo_closed_url?.trim()) || pe[2] || "";
-  const u = (outside[0] ?? pkg.photo_url?.trim()) || pe[3] || "";
-  const head = [o, l, c, u].filter(Boolean);
-  return [...head, ...outside.slice(2), ...inside.slice(1), ...slip.slice(1), ...pe.slice(4)];
+  return packageGalleryUrls(pkg);
 }
 
-/** Pallet gallery — shipping_label_urls, bol_photo_urls, pallet_photo_urls (ordered for summary / claims). */
+/** Pallet gallery — `shipping_label_urls`, `bol_photo_urls`, `pallet_photo_urls`. */
 function palletEvidenceValue(p: PalletRecord | null | undefined): unknown | null {
   if (!p) return null;
-  const urls = palletPhotoEvidenceUrlsFromRow(p);
+  const urls = palletGalleryUrls(p);
   return urls.length ? { urls } : null;
+}
+
+/** Claim-slot labels for wizard inheritance UI (derived from staging array columns). */
+function packagePhotoSlotsFromRow(
+  row: Pick<PackageRecord, "inside_photo_urls" | "outside_photo_urls" | "slip_photo_urls"> | null | undefined,
+) {
+  const g = packageGalleryUrls(row ?? undefined);
+  return {
+    photo_opened_url: g[0] ?? null,
+    photo_return_label_url: g[1] ?? null,
+    photo_closed_url: g[2] ?? null,
+    photo_url: g[3] ?? null,
+  };
 }
 
 function validateCreatePackageModal(input: {
@@ -256,8 +263,7 @@ export const canDelete = (r: UserRole) => isAdminRole(r);
 export const MARKETPLACES = ["amazon", "walmart", "ebay"] as const;
 export type Marketplace = (typeof MARKETPLACES)[number];
 export const MP_LABELS: Record<Marketplace, string> = { amazon: "Amazon", walmart: "Walmart", ebay: "eBay" };
-import { CARRIERS } from "../../lib/carriers";
-export { CARRIERS };
+export const CARRIERS = ["UPS", "FedEx", "USPS", "DHL", "OnTrac", "Amazon Logistics", "Other"];
 
 // ─── Condition Tree ────────────────────────────────────────────────────────────
 
@@ -567,13 +573,8 @@ function manifestLineTokens(exp: SlipExpectedItem): string[] {
   return [...out];
 }
 
-/** Whether a scanned item matches an expected slip line — product_id first, then identifier tokens. */
+/** Whether a scanned item matches an expected slip line — trimmed, case-insensitive; exact first, then light OCR fallbacks. */
 function physicalItemMatchesExpectedLine(it: ReturnRecord, exp: SlipExpectedItem): boolean {
-  const scannedPid = String((it as { resolved_product_id?: string | null }).resolved_product_id ?? "").trim();
-  const expectedPid = String((exp as { expected_product_id?: string | null }).expected_product_id ?? "").trim();
-  if (scannedPid && expectedPid && isUuidString(scannedPid) && isUuidString(expectedPid) && scannedPid === expectedPid) {
-    return true;
-  }
   const itemIds = itemManifestIdentifierSet(it);
   const lineToks = manifestLineTokens(exp);
   for (const lt of lineToks) {
@@ -626,6 +627,8 @@ export type WizardState = {
   fnsku: string;
   /** Seller SKU — Amazon warehouse / Seller Central (MSKU) */
   sku: string;
+  /** UPC / GTIN when known (V196). */
+  upc_gtin: string;
   /** Multi-select condition keys — see {@link CONDITION_CHIP_DEFS}. */
   condition_keys: string[];
   expiration_date: string; batch_number: string;
@@ -642,7 +645,7 @@ export type WizardState = {
   /** Extra gallery URLs in `photo_evidence.urls` (`media` bucket). */
   evidence_gallery_urls: string[];
   /**
-   * Package-context shots captured during the item wizard — stored only on `return_items.photo_evidence`
+   * Package-context shots captured during the item wizard — stored only on `returns.photo_evidence`
    * (never written to `packages`).
    */
   wizard_outer_box_url: string;
@@ -650,17 +653,17 @@ export type WizardState = {
   wizard_pkg_return_label_url: string;
   /** Connected store UUID — links this item to a specific store account. */
   store_id: string;
-  /** Optional seller RMA — persisted on `return_items.rma_number`. */
+  /** Optional seller RMA — persisted on `returns.rma_number`. */
   rma_number: string;
-  /** Optional Amazon order ID — stored on `return_items.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
+  /** Optional Amazon order ID — stored on `returns.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
   amazon_order_id: string;
-  /** Resolver preview — `unknown` allows Next with manual item name; no client catalog/Amazon writes. */
-  catalog_resolution: "idle" | "loading" | "resolved" | "unresolved" | "ambiguous" | "unknown";
+  /** Product catalog lookup — when `unknown`, Step 1 allows Next without a resolved ASIN/UPC (manual item name). */
+  catalog_resolution: "idle" | "loading" | "local" | "amazon" | "review" | "unknown";
 };
 
 export const EMPTY_WIZARD: WizardState = {
   lpn: "", product_identifier: "", marketplace: "", item_name: "",
-  asin: "", fnsku: "", sku: "",
+  asin: "", fnsku: "", sku: "", upc_gtin: "",
   condition_keys: [],
   expiration_date: "", batch_number: "", package_link_id: "",
   loose_item: false,
@@ -673,6 +676,18 @@ export const EMPTY_WIZARD: WizardState = {
   amazon_order_id: "",
   catalog_resolution: "idle",
 };
+
+function withLookupTimeout(
+  promise: Promise<ProductInputLookupResult>,
+  timeoutMs = 8000,
+): Promise<ProductInputLookupResult> {
+  return Promise.race([
+    promise,
+    new Promise<ProductInputLookupResult>((resolve) => {
+      window.setTimeout(() => resolve({ ok: false, error: "Product lookup timed out. Try again." }), timeoutMs);
+    }),
+  ]);
+}
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -706,9 +721,9 @@ export function ToastStack({ toasts }: { toasts: Toast[] }) {
 // ─── Drawer Content Type ───────────────────────────────────────────────────────
 
 export type DrawerContent =
-  | { type: "item";    record: ReturnRecord  }
+  | { type: "item"; record: ReturnRecord; startInEditMode?: boolean }
   | { type: "package"; record: PackageRecord }
-  | { type: "pallet";  record: PalletRecord  };
+  | { type: "pallet"; record: PalletRecord };
 
 // ─── Badge components ──────────────────────────────────────────────────────────
 
@@ -723,21 +738,31 @@ export function StatusBadge({ status }: { status: string }) {
   const Icon = cfg.icon;
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}><Icon className="h-3 w-3" />{cfg.label}</span>;
 }
-const STATUS_BADGE_FALLBACK_CLS =
-  "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400";
+const PKG_STATUS_FALLBACK = {
+  label: "Unknown",
+  cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400",
+};
 
-export function PkgStatusBadge({ status }: { status: PackageStatus | string | null | undefined }) {
-  const raw = String(status ?? "").trim();
+export function PkgStatusBadge({ status }: { status: PackageStatus | string }) {
   const cfg =
-    (raw ? PKG_STATUS_CFG[raw as PackageStatus] : undefined) ??
-    { label: raw || "—", cls: STATUS_BADGE_FALLBACK_CLS };
+    PKG_STATUS_CFG[status as PackageStatus] ??
+    (status
+      ? {
+          label: String(status).replace(/_/g, " "),
+          cls: PKG_STATUS_FALLBACK.cls,
+        }
+      : PKG_STATUS_FALLBACK);
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
-export function PalletStatusBadge({ status }: { status: PalletStatus | string | null | undefined }) {
-  const raw = String(status ?? "").trim();
+export function PalletStatusBadge({ status }: { status: PalletStatus | string }) {
   const cfg =
-    (raw ? PALLET_STATUS_CFG[raw as PalletStatus] : undefined) ??
-    { label: raw || "—", cls: STATUS_BADGE_FALLBACK_CLS };
+    PALLET_STATUS_CFG[status as PalletStatus] ??
+    (status
+      ? {
+          label: String(status).replace(/_/g, " "),
+          cls: PKG_STATUS_FALLBACK.cls,
+        }
+      : PKG_STATUS_FALLBACK);
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}>{cfg.label}</span>;
 }
 
@@ -810,7 +835,7 @@ export function SortButton({ field, label, sortField, sortAsc, onSort }: {
   );
 }
 
-/** Display label for `return_items.marketplace` (Source column / filters). */
+/** Display label for `returns.marketplace` (Source column / filters). */
 function resolveReturnMarketplaceIconUrl(
   r: ReturnRecord,
   platformIconBySlug: Record<string, string | null | undefined>,
@@ -841,7 +866,7 @@ function formatMarketplaceSource(marketplace: string): string {
   return marketplace?.trim() || "—";
 }
 
-/** Map connected store `platform` string to `return_items.marketplace` enum. */
+/** Map connected store `platform` string to `returns.marketplace` enum. */
 export function platformToMarketplace(platform: string): Marketplace {
   const p = platform.toLowerCase();
   if (p.includes("walmart")) return "walmart";
@@ -1012,8 +1037,8 @@ function sortKeyItem(
     case "rma_number": return (r.rma_number ?? "").toLowerCase();
     case "marketplace":
     case "store_name": return (r.stores?.name ?? r.marketplace ?? "").toLowerCase();
-    case "item_name": return r.item_name.toLowerCase();
-    case "item_conditions": return [...r.conditions].sort().join(",");
+    case "item_name": return (r.item_name ?? "").toLowerCase();
+    case "item_conditions": return [...(r.conditions ?? [])].sort().join(",");
     case "status": return r.status.toLowerCase();
     case "hierarchy_key": {
       if (!linkedPkg) return "\uffff";
@@ -1221,8 +1246,34 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
       className="fixed z-[220] w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: 0, visibility: "hidden" as const }}
     >
-      {onView && <button type="button" onClick={() => { onView(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"><Eye className="h-4 w-4 text-slate-400" />View Detail</button>}
-      {onEdit && <button type="button" onClick={() => { onEdit(); setOpen(false); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"><Pencil className="h-4 w-4 text-slate-400" />Edit</button>}
+      {onView && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onView();
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <Eye className="h-4 w-4 text-slate-400" />
+          View Detail
+        </button>
+      )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <Pencil className="h-4 w-4 text-slate-400" />
+          Edit
+        </button>
+      )}
       {onDelete && (
         <>
           <div className="my-1 border-t border-border" />
@@ -1612,10 +1663,9 @@ export function ClaimEvidencePhotoGrid({
 
 // ─── Items Sub-Table (inside Package Drawer) ────────────────────────────────────
 
-function ItemsSubTable({ items, role, actor, actorProfileId = null, packageId = null, onItemClick, onItemDeleted, showToast }: {
+function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick, onItemDeleted, showToast }: {
   items: ReturnRecord[]; role: UserRole; actor: string;
   actorProfileId?: string | null;
-  packageId?: string | null;
   onItemClick: (r: ReturnRecord) => void;
   onItemDeleted: (id: string) => void;
   showToast: (msg: string, kind?: ToastKind) => void;
@@ -1652,6 +1702,7 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, packageId = 
               <thead>
                 <tr className="rounded-t-xl border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">LPN</th>
+                  <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Item</th>
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Product</th>
                   <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 sm:table-cell">Status</th>
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Date</th>
@@ -1667,21 +1718,16 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, packageId = 
                         {r.lpn ? <InlineCopy value={r.lpn} label="LPN" onToast={showToast} stopPropagation /> : null}
                       </div>
                     </td>
-                    <td className="min-w-0 max-w-[14rem] px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                      {(() => {
-                        const linkage = productLinkageFromReturnRecord(r);
-                        return (
-                          <div className="min-w-0">
-                            <ProductLinkagePrimaryLink
-                              linkage={linkage}
-                              detailFrom="package"
-                              detailFromId={packageId ?? r.package_id ?? undefined}
-                              className="block truncate text-xs font-semibold text-sky-700 dark:text-sky-300"
-                            />
-                            <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="package" detailFromId={packageId ?? r.package_id ?? undefined} />
-                          </div>
-                        );
-                      })()}
+                    <td className="min-w-0 max-w-[220px] px-3 py-2.5 text-slate-600 dark:text-slate-300">
+                      <p className="truncate font-medium">{r.item_name}</p>
+                    </td>
+                    <td className="min-w-0 max-w-[240px] px-3 py-2.5 text-slate-600 dark:text-slate-300">
+                      <ReturnItemProductLinkage
+                        organizationId={r.organization_id}
+                        fields={r}
+                        compact
+                        showCanonical={false}
+                      />
                     </td>
                     <td className="hidden px-3 py-2.5 sm:table-cell"><StatusBadge status={r.status} /></td>
                     <td className="px-3 py-2.5 text-slate-400">{fmt(r.created_at)}</td>
@@ -1770,7 +1816,11 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   sessionPhotos?: Record<string, File[]>;
   onToast?: (msg: string, kind?: ToastKind) => void;
 }) {
-  const [editing,    setEditing]    = useState(startInEditMode);
+  const [editing, setEditing] = useState(startInEditMode);
+
+  useEffect(() => {
+    setEditing(startInEditMode);
+  }, [startInEditMode, record.id]);
   const [saving,     setSaving]     = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting,   setDeleting]   = useState(false);
@@ -1779,10 +1829,12 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   const itemOperatorNames = useProfileNames([record.created_by, record.updated_by]);
   const [editLpn,    setEditLpn]    = useState(record.lpn ?? "");
   const [editRmaNumber, setEditRmaNumber] = useState(record.rma_number ?? "");
-  const [editProductId, setEditProductId] = useState(record.asin ?? record.fnsku ?? record.sku ?? "");
+  const [editProductId, setEditProductId] = useState(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
   const [editAsin,   setEditAsin]   = useState(record.asin ?? "");
   const [editFnsku,  setEditFnsku]  = useState(record.fnsku ?? "");
   const [editSku, setEditSku] = useState(record.sku ?? "");
+  const [editUpc, setEditUpc] = useState(() => upcFromProductIdentifier(record.product_identifier));
+  const [editAmbiguousChoices, setEditAmbiguousChoices] = useState<AmbiguousProductChoice[]>([]);
   const [editStoreId, setEditStoreId] = useState(record.store_id ?? "");
   const [editPackageId, setEditPackageId] = useState(record.package_id ?? "");
   const [itemStoresList, setItemStoresList] = useState<{ id: string; name: string; platform: string }[]>([]);
@@ -1799,9 +1851,9 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     () => photoEvidenceCategoryCounts(record.photo_evidence),
   );
   const [editNewPhotos, setEditNewPhotos] = useState<Record<string, File[]>>({});
-  const [editCatalogStatus, setEditCatalogStatus] = useState<
-    "idle" | "loading" | "resolved" | "unresolved" | "ambiguous" | "unknown"
-  >("idle");
+  const [editCatalogStatus, setEditCatalogStatus] = useState<"idle" | "loading" | ProductInputLookupStatus>("idle");
+  const [editCatalogPreview, setEditCatalogPreview] = useState<{ name: string; image_url?: string | null; reason?: string | null } | null>(null);
+  const editLookupRef = useRef<{ value: string; at: number } | null>(null);
   const [editExpiryDate,     setEditExpiryDate]     = useState(record.expiration_date ?? "");
   const [editPhotoItemUrl,   setEditPhotoItemUrl]   = useState(
     () => getReturnPhotoEvidenceUrls(record.photo_evidence).item_url,
@@ -1813,14 +1865,6 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   const [itemEditFiles, setItemEditFiles] = useState<File[]>([]);
   const [itemPhotoUploading,   setItemPhotoUploading]   = useState(false);
   const [expiryPhotoUploading, setExpiryPhotoUploading] = useState(false);
-  const [scannerOverrideProducts, setScannerOverrideProducts] = useState<{ id: string; label: string }[]>([]);
-  const [scannerOverrideProductsLoading, setScannerOverrideProductsLoading] = useState(false);
-  const [scannerOverrideSelectId, setScannerOverrideSelectId] = useState("");
-  const [scannerOverrideUuid, setScannerOverrideUuid] = useState("");
-  const [scannerOverrideBusy, setScannerOverrideBusy] = useState(false);
-  const [scannerOverrideErr, setScannerOverrideErr] = useState("");
-  const [itemProductLinkage, setItemProductLinkage] = useState<ProductLinkageDisplayContract | null>(null);
-  const [itemLinkageLoading, setItemLinkageLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1839,10 +1883,12 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
   useEffect(() => {
     setEditLpn(record.lpn ?? "");
     setEditRmaNumber(record.rma_number ?? "");
-    setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
+    setEditProductId(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
     setEditAsin(record.asin ?? "");
     setEditFnsku(record.fnsku ?? "");
     setEditSku(record.sku ?? "");
+    setEditUpc(upcFromProductIdentifier(record.product_identifier));
+    setEditAmbiguousChoices([]);
     setEditStoreId(record.store_id ?? "");
     setEditPackageId(record.package_id ?? "");
     setEditItem(record.item_name);
@@ -1855,163 +1901,96 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
     setExpiryEditFiles([]);
     setItemEditFiles([]);
     setEditCatalogStatus("idle");
-  }, [
-    record.id,
-    record.lpn,
-    record.rma_number,
-    record.asin,
-    record.fnsku,
-    record.sku,
-    record.store_id,
-    record.package_id,
-    record.item_name,
-    record.notes,
-    record.order_id,
-    record.photo_evidence,
-    record.expiration_date,
-    record.product_review_required,
-    record.product_match_status,
-    record.identifier_resolution_status,
-    record.identifier_resolution_source,
-  ]);
+    setEditCatalogPreview(null);
+    setEditAmbiguousChoices([]);
+  }, [record.id, record.lpn, record.rma_number, record.asin, record.fnsku, record.sku, record.product_identifier, record.store_id, record.package_id, record.item_name, record.notes, record.order_id, record.photo_evidence, record.expiration_date]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setItemLinkageLoading(true);
-    void fetchReturnItemProductLinkageAction(record.id, actorProfileId ?? null).then((res) => {
-      if (cancelled) return;
-      setItemLinkageLoading(false);
-      if (res.ok && res.linkage) setItemProductLinkage(res.linkage);
-      else setItemProductLinkage(null);
+  function applyEditLookupFields(
+    res: Extract<ProductInputLookupResult, { ok: true }>,
+  ) {
+    setEditProductId(res.fields.product_identifier ?? res.normalized_input);
+    if (res.fields.asin) setEditAsin(res.fields.asin);
+    if (res.fields.fnsku) setEditFnsku(res.fields.fnsku);
+    if (res.fields.sku) setEditSku(res.fields.sku);
+    if (res.fields.upc) setEditUpc(res.fields.upc);
+    const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+    if (itemName) setEditItem(itemName);
+    setEditCatalogPreview({
+      name:
+        itemName ??
+        res.product_linkage.product_name ??
+        res.product_linkage.fallback_display_name ??
+        undefined,
+      image_url: res.fields.image_url,
+      reason: res.enrichment.reason,
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    record.id,
-    record.resolved_product_id,
-    record.identifier_resolution_status,
-    record.identifier_resolution_confidence,
-    actorProfileId,
-  ]);
+  }
 
-  const scannerProductNeedsAttention = Boolean(
-    record.product_review_required ||
-      String(record.product_match_status ?? "").trim().toLowerCase() === "mismatch" ||
-      ["unresolved", "ambiguous"].includes(String(record.identifier_resolution_status ?? "").trim().toLowerCase()) ||
-      String(record.identifier_resolution_source ?? "").trim().toLowerCase() === "manual_override",
-  );
-
-  useEffect(() => {
-    setScannerOverrideErr("");
-    setScannerOverrideSelectId("");
-    setScannerOverrideUuid("");
-    setScannerOverrideProducts([]);
-    if (!scannerProductNeedsAttention) return;
-    const org = record.organization_id?.trim();
-    const sid = record.store_id?.trim();
-    const sku = record.sku?.trim();
-    if (!org || !isUuidString(org) || !sid || !isUuidString(sid) || !sku) return;
-    let cancelled = false;
-    setScannerOverrideProductsLoading(true);
-    void (async () => {
-      const res = await searchOperatorProductsForStoreAction({
-        requestedOrganizationId: org,
-        storeId: sid,
-        query: sku,
-        limit: 30,
+  async function handleEditAmbiguousPick(choice: AmbiguousProductChoice) {
+    setEditCatalogStatus("loading");
+    try {
+      const res = await loadReturnItemLookupFieldsFromProduct({
+        organizationId: record.organization_id,
+        productId: choice.product_id,
       });
-      if (cancelled) return;
-      setScannerOverrideProductsLoading(false);
       if (!res.ok) {
-        console.warn("[ItemDrawerContent] scanner override product list:", res.message);
+        setEditCatalogPreview({ name: res.error });
+        setEditCatalogStatus("ambiguous");
         return;
       }
-      setScannerOverrideProducts(
-        res.rows.map((r) => ({
-          id: r.id,
-          label: r.label,
-        })),
-      );
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    scannerProductNeedsAttention,
-    record.organization_id,
-    record.store_id,
-    record.sku,
-    record.id,
-  ]);
+      applyEditLookupFields({
+        ok: true,
+        status: "local_resolved",
+        normalized_input: res.fields.product_identifier ?? "",
+        classified_kind: "unknown",
+        fields: res.fields,
+        product_linkage: res.product_linkage,
+        enrichment: { attempted: false, enabled: false, reason: null },
+        audit_id: "",
+      });
+      setEditAmbiguousChoices([]);
+      setEditCatalogStatus("local_resolved");
+    } catch (e) {
+      setEditCatalogPreview({ name: e instanceof Error ? e.message : "Product load failed." });
+      setEditCatalogStatus("ambiguous");
+    }
+  }
 
   async function handleEditBarcodeLookup(barcode: string) {
-    const trimmed = barcode.trim();
-    if (!trimmed) {
-      setEditCatalogStatus("idle");
-      setItemProductLinkage(null);
-      return;
-    }
+    const raw = barcode.trim();
+    if (!raw) { setEditCatalogStatus("idle"); return; }
+    const last = editLookupRef.current;
+    const now = Date.now();
+    if (last?.value === raw && now - last.at < 800) return;
+    editLookupRef.current = { value: raw, at: now };
     setEditCatalogStatus("loading");
-    const classified = classifyProductBarcode(trimmed);
-    let matchKind: "fnsku" | "upc" | "unexpected" = "unexpected";
-    if (classified.kind === "fnsku") {
-      setEditFnsku(classified.normalized);
-      setEditProductId(classified.normalized);
-      matchKind = "fnsku";
-    } else if (classified.kind === "asin") {
-      setEditAsin(classified.normalized);
-      setEditProductId(classified.normalized);
-    } else if (classified.kind === "upc_ean") {
-      setEditProductId(classified.normalized);
-      setEditSku(classified.normalized);
-      matchKind = "upc";
-    } else {
-      setEditProductId(classified.normalized);
-    }
-
-    const org = record.organization_id?.trim();
-    const sid = editStoreId.trim() || record.store_id?.trim();
-    const fallbackLinkage = () =>
-      buildProductLinkageDisplayContract(
-        {
-          item_name: editItem,
-          fnsku: classified.kind === "fnsku" ? classified.normalized : editFnsku,
-          asin: classified.kind === "asin" ? classified.normalized : editAsin,
-          sku: classified.kind === "upc_ean" ? classified.normalized : editSku,
-          identifier_resolution_status: "unresolved",
-        },
-        new Map(),
-      );
-
-    if (!org || !isUuidString(org) || !sid || !isUuidString(sid)) {
-      setItemProductLinkage(fallbackLinkage());
-      setEditCatalogStatus("unknown");
-      return;
-    }
+    setEditCatalogPreview(null);
 
     try {
-      const preview = await previewOperatorItemBarcodeLinkageAction({
-        requestedOrganizationId: org,
-        storeId: sid,
-        scannedBarcode: trimmed,
-        matchKind,
-      });
-      if (preview.ok) {
-        const label = productLinkagePrimaryLabel(preview.product_linkage);
-        if (label && label !== "Line item") setEditItem(label);
-        setItemProductLinkage(preview.product_linkage);
-        const st = preview.product_linkage.identifier_resolution_status;
-        setEditCatalogStatus(
-          st === "resolved" ? "resolved" : st === "ambiguous" ? "ambiguous" : "unresolved",
-        );
+      const res = await withLookupTimeout(
+        lookupProductInputForReturnItem({
+          organizationId: record.organization_id,
+          storeId: editStoreId || record.store_id,
+          value: raw,
+          actorProfileId,
+        }),
+      );
+      if (!res.ok) {
+        setEditCatalogPreview({ name: res.error });
+        setEditCatalogStatus("unresolved");
         return;
       }
-      setItemProductLinkage(fallbackLinkage());
+
+      setEditAmbiguousChoices(
+        res.status === "ambiguous" ? (res.ambiguous_candidates ?? []) : [],
+      );
+      applyEditLookupFields(res);
+      setEditCatalogStatus(res.status);
+    } catch (e) {
+      setEditCatalogPreview({ name: e instanceof Error ? e.message : "Product lookup failed." });
       setEditCatalogStatus("unresolved");
-    } catch {
-      setItemProductLinkage(fallbackLinkage());
-      setEditCatalogStatus("unresolved");
+    } finally {
+      setEditCatalogStatus((prev) => (prev === "loading" ? "unresolved" : prev));
     }
   }
 
@@ -2091,58 +2070,17 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
       order_id: isLooseItem ? (editOrderId.trim() || null) : null,
       expiration_date:  editExpiryDate  || undefined,
       photo_evidence:   mergedPhotoEvidence ?? undefined,
-      asin: editAsin.trim() || editProductId.trim() || null,
+      asin: editAsin.trim() || null,
       fnsku: editFnsku.trim() || null,
       sku: editSku.trim() || null,
+      product_identifier: editProductId.trim() || editUpc.trim() || null,
       store_id: editStoreId.trim() || null,
       marketplace: pickedStore ? platformToMarketplace(pickedStore.platform) : record.marketplace,
       package_id: editPackageId.trim() || null,
     }, actor, actorProfileId);
     setSaving(false);
-    if (res.ok && res.data) {
-      onUpdated(res.data);
-      setEditing(false);
-      setEditNewPhotos({});
-      const linkRes = await fetchReturnItemProductLinkageAction(res.data.id, actorProfileId ?? null);
-      if (linkRes.ok && linkRes.linkage) setItemProductLinkage(linkRes.linkage);
-    } else setErr(res.error ?? "Save failed.");
-  }
-
-  async function handleScannerManualOverride() {
-    const pid = (scannerOverrideSelectId.trim() || scannerOverrideUuid.trim()).trim();
-    if (!isUuidString(pid)) {
-      setScannerOverrideErr("Choose a catalog product from the list or paste a valid product UUID.");
-      return;
-    }
-    setScannerOverrideBusy(true);
-    setScannerOverrideErr("");
-    try {
-      const res = await manualOverrideReturnItemProductResolution({
-        return_item_id: record.id,
-        resolved_product_id: pid,
-        actor_profile_id: actorProfileId ?? null,
-        actor,
-      });
-      if (!res.ok) {
-        setScannerOverrideErr(res.error ?? "Could not apply manual product link.");
-        return;
-      }
-      const linkRes = await fetchReturnItemProductLinkageAction(record.id, actorProfileId ?? null);
-      if (linkRes.ok && linkRes.linkage) setItemProductLinkage(linkRes.linkage);
-      const { data, error } = await supabaseBrowser
-        .from(RETURN_ITEMS_TABLE)
-        .select(RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT)
-        .eq("id", record.id)
-        .maybeSingle();
-      if (!error && data && typeof data === "object") {
-        onUpdated({ ...record, ...(data as Record<string, unknown>) } as ReturnRecord);
-      }
-      onToast?.("Product link updated.", "success");
-      setScannerOverrideUuid("");
-      setScannerOverrideSelectId("");
-    } finally {
-      setScannerOverrideBusy(false);
-    }
+    if (res.ok && res.data) { onUpdated(res.data); setEditing(false); setEditNewPhotos({}); }
+    else setErr(res.error ?? "Save failed.");
   }
 
   async function handleDelete() {
@@ -2171,123 +2109,26 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
         {linkedPallet && <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><Boxes className="h-3 w-3" />{linkedPallet.pallet_number}</span>}
       </div>
 
-      {scannerProductNeedsAttention ? (
-        <div
-          className="rounded-xl border border-amber-200/90 bg-amber-50 px-3 py-3 text-sm dark:border-amber-700/55 dark:bg-amber-950/35"
-          role="region"
-          aria-label="Scanner product resolution"
-        >
-          <p className="text-xs font-bold uppercase tracking-wide text-amber-900/90 dark:text-amber-200/95">
-            Product linkage review
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {scannerProductResolutionBadges({
-              identifier_resolution_status: record.identifier_resolution_status,
-              product_match_status: record.product_match_status,
-              product_review_required: record.product_review_required,
-              identifier_resolution_source: record.identifier_resolution_source,
-            }).map((b) => (
-              <span
-                key={b.key}
-                className="rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide"
-                style={{
-                  borderColor: b.borderColor,
-                  backgroundColor: b.backgroundColor,
-                  color: b.color,
-                }}
-              >
-                {b.label}
-              </span>
-            ))}
-          </div>
-          <p className="mt-2 text-xs leading-snug text-amber-950/90 dark:text-amber-100/90">
-            Link this receive line to the correct catalog product when automatic resolution is unresolved, ambiguous, mismatched,
-            or was overridden. Only existing catalog rows are allowed — nothing is merged or auto-created.
-          </p>
-          {scannerOverrideProductsLoading ? (
-            <p className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              Loading catalog matches…
-            </p>
-          ) : scannerOverrideProducts.length > 0 ? (
-            <label className="mt-3 block text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Catalog match (same SKU)
-              <select
-                className={`${INPUT_SM} mt-1 w-full`}
-                value={scannerOverrideSelectId}
-                onChange={(e) => setScannerOverrideSelectId(e.target.value)}
-              >
-                <option value="">Select product…</option>
-                {scannerOverrideProducts.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label className="mt-3 block text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Catalog product UUID
-              <input
-                type="text"
-                className={`${INPUT_SM} mt-1 w-full font-mono text-xs`}
-                placeholder="00000000-0000-…"
-                value={scannerOverrideUuid}
-                onChange={(e) => setScannerOverrideUuid(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-          )}
-          {scannerOverrideProducts.length > 0 ? (
-            <label className="mt-2 block text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Or paste product UUID
-              <input
-                type="text"
-                className={`${INPUT_SM} mt-1 w-full font-mono text-xs`}
-                placeholder="Override UUID if not in list"
-                value={scannerOverrideUuid}
-                onChange={(e) => setScannerOverrideUuid(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-          ) : null}
-          {scannerOverrideErr ? (
-            <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-300">{scannerOverrideErr}</p>
-          ) : null}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={scannerOverrideBusy}
-              onClick={() => void handleScannerManualOverride()}
-              className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-400"
-            >
-              {scannerOverrideBusy ? (
-                <>
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-                  Saving…
-                </>
-              ) : (
-                "Apply manual product link"
-              )}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {editing ? (
         <div className="space-y-4">
           <div>
             <label className={LABEL}>Product barcode (UPC / scan)</label>
             <input
-              className={`${INPUT} transition-all ${editCatalogStatus === "unknown" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
+              className={`${INPUT} transition-all ${editCatalogStatus === "unresolved" || editCatalogStatus === "ambiguous" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
               value={editProductId}
               onChange={(e) => { setEditProductId(e.target.value); setEditCatalogStatus("idle"); }}
               placeholder="Product identifier…"
-              onKeyDown={editBarcodeKeyDown}
+              onKeyDown={(e) => {
+                editBarcodeKeyDown(e);
+                if (!e.defaultPrevented && e.key === "Enter") {
+                  e.preventDefault();
+                  void handleEditBarcodeLookup(e.currentTarget.value);
+                }
+              }}
               onBlur={(e) => { if (e.target.value.trim()) void handleEditBarcodeLookup(e.target.value); }}
               onPaste={(e) => {
-                const text = e.clipboardData.getData("text");
-                if (text.trim()) window.setTimeout(() => void handleEditBarcodeLookup(text.trim()), 0);
+                const pasted = e.clipboardData.getData("text");
+                if (pasted.trim()) setTimeout(() => void handleEditBarcodeLookup(pasted), 0);
               }}
             />
             {editCatalogStatus === "loading" && (
@@ -2295,20 +2136,29 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />Looking up barcode…
               </div>
             )}
-            {editCatalogStatus === "resolved" && itemProductLinkage && (
-              <div className="mt-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs dark:border-emerald-700/50 dark:bg-emerald-950/30">
-                <ProductLinkagePrimaryLink linkage={itemProductLinkage} detailFrom="returns" detailFromId={record.id} className="font-semibold text-emerald-700 dark:text-emerald-300" />
-                <OperatorProductLinkageMeta linkage={itemProductLinkage} linkResolvedProductId={false} detailFrom="returns" detailFromId={record.id} />
+            {editCatalogStatus === "local_resolved" && editCatalogPreview && (
+              <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Found locally — {editCatalogPreview.name}
               </div>
             )}
-            {(editCatalogStatus === "unresolved" || editCatalogStatus === "ambiguous") && itemProductLinkage && (
-              <div className="mt-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs dark:border-amber-700/50 dark:bg-amber-950/30">
-                <OperatorProductLinkageMeta linkage={itemProductLinkage} linkResolvedProductId={false} detailFrom="returns" detailFromId={record.id} />
+            {editCatalogStatus === "backend_enriched" && editCatalogPreview && (
+              <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Backend enriched — {editCatalogPreview.name}
               </div>
             )}
-            {editCatalogStatus === "unknown" && (
+            {editCatalogStatus === "ambiguous" && (
+              <div className="mt-1.5 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/20 dark:text-amber-200">
+                <p>Needs review — {editAmbiguousChoices.length > 1 ? `${editAmbiguousChoices.length} distinct local products` : "multiple local products"} matched this scan. Pick the correct product:</p>
+                <AmbiguousProductPicker
+                  choices={editAmbiguousChoices}
+                  disabled={saving}
+                  onPick={(c) => void handleEditAmbiguousPick(c)}
+                />
+              </div>
+            )}
+            {editCatalogStatus === "unresolved" && (
               <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-                Unknown product — no catalog link from resolver.
+                Unknown Item — not found locally{editCatalogPreview?.reason ? ` (${editCatalogPreview.reason})` : ""}.
               </div>
             )}
           </div>
@@ -2374,6 +2224,15 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                 >
                   <Store className="h-4 w-4" aria-hidden />
                 </button>
+              </div>
+            </div>
+            <div>
+              <label className={LABEL}>
+                UPC / GTIN <span className="text-xs font-normal text-slate-400">(optional)</span>
+              </label>
+              <div className="flex gap-2">
+                <input type="text" className={INPUT} placeholder="12-digit UPC…" value={editUpc} onChange={(e) => setEditUpc(e.target.value)} />
+                <button type="button" title="Copy UPC" className={drawerEditIdBtn} onClick={() => void copyEditCode(editUpc, "UPC")} disabled={!editUpc.trim()}><Copy className="h-4 w-4" /></button>
               </div>
             </div>
             <div>
@@ -2635,7 +2494,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                 setEditing(false);
                 setEditLpn(record.lpn ?? "");
                 setEditRmaNumber(record.rma_number ?? "");
-                setEditProductId(record.asin ?? record.fnsku ?? record.sku ?? "");
+                setEditProductId(record.product_identifier ?? record.asin ?? record.fnsku ?? record.sku ?? "");
                 setEditAsin(record.asin ?? "");
                 setEditFnsku(record.fnsku ?? "");
                 setEditSku(record.sku ?? "");
@@ -2658,26 +2517,6 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
             <div className="col-span-2">
               <p className="text-xs text-slate-400">Item Name</p>
               <p className="font-semibold text-foreground">{record.item_name || "Unknown Item"}</p>
-              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/50">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Product link
-                </p>
-                {itemLinkageLoading ? (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                    Loading…
-                  </p>
-                ) : itemProductLinkage ? (
-                  <>
-                    <div className="mt-1">
-                      <ProductLinkagePrimaryLink linkage={itemProductLinkage} detailFrom="returns" detailFromId={record.id} className="text-sm font-semibold text-foreground" />
-                    </div>
-                    <OperatorProductLinkageMeta linkage={itemProductLinkage} linkResolvedProductId={false} detailFrom="returns" detailFromId={record.id} />
-                  </>
-                ) : (
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No product link yet</p>
-                )}
-              </div>
             </div>
             {showClaimLinkage ? (
               <div className="col-span-2 rounded-2xl border border-violet-200 bg-violet-50/90 p-4 dark:border-violet-800/50 dark:bg-violet-950/30">
@@ -2702,20 +2541,27 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   </div>
                 </div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Product title &amp; identifiers
+                  Product
+                </p>
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
+                <p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Identifiers
                 </p>
                 <ReturnIdentifiersColumn
                   itemName={record.item_name}
                   asin={record.asin}
                   fnsku={record.fnsku}
                   sku={record.sku}
+                  upc={upcFromProductIdentifier(record.product_identifier)}
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
               </div>
             ) : (
               <div className="col-span-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-4 dark:border-slate-700 dark:bg-slate-900/50">
-                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product codes</p>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Product</p>
+                <ReturnItemProductLinkage organizationId={record.organization_id} fields={record} />
+                <p className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Identifiers</p>
                 <p className="mb-3 text-[10px] leading-relaxed text-slate-500 dark:text-slate-500">
                   ASIN = Amazon catalog ID · FNSKU = your FBA label on Amazon · SKU = Seller / warehouse SKU (MSKU)
                 </p>
@@ -2725,6 +2571,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   asin={record.asin}
                   fnsku={record.fnsku}
                   sku={record.sku}
+                  upc={upcFromProductIdentifier(record.product_identifier)}
                   storePlatform={record.stores?.platform}
                   onToast={onToast}
                 />
@@ -2809,7 +2656,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Conditions</p>
-            <div className="flex flex-wrap gap-1.5">{record.conditions.map((c) => <ConditionBadge key={c} value={c} />)}</div>
+            <div className="flex flex-wrap gap-1.5">{(record.conditions ?? []).map((c) => <ConditionBadge key={c} value={c} />)}</div>
           </div>
           {(record.expiration_date || record.batch_number) && (
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-700/40 dark:bg-orange-950/30 grid grid-cols-2 gap-3 text-sm">
@@ -2994,9 +2841,9 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   onOpenItem: (r: ReturnRecord) => void;
   /** Open pallet drawer from wizard (PLT link). */
   onOpenPallet?: (pallet: PalletRecord) => void;
-  /** After assigning an existing return item to this package — sync parent `return_items` / package counts (accordion + table). */
+  /** After assigning an existing return to this package — sync parent `returns` / package counts (accordion + table). */
   onReturnAssigned?: (updated: ReturnRecord, prevPackageId: string | null) => void;
-  /** When an item is deleted from this package — keep page `return_items` state / counts in sync (no full reload). */
+  /** When an item is deleted from this package — keep page `returns` / counts in sync (no full reload). */
   onReturnRemoved?: (id: string) => void;
   showToast: (msg: string, kind?: ToastKind) => void;
 }) {
@@ -3018,9 +2865,9 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   const [saveErr,    setSaveErr]    = useState("");
   const [saving,     setSaving]     = useState(false);
 
-  const [editPhotoClosedUrl,        setEditPhotoClosedUrl]        = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[2] ?? "");
-  const [editPhotoOpenedUrl,        setEditPhotoOpenedUrl]        = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[0] ?? "");
-  const [editPhotoReturnLabelUrl,   setEditPhotoReturnLabelUrl]   = useState(() => normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence)[1] ?? "");
+  const [editPhotoClosedUrl,        setEditPhotoClosedUrl]        = useState(() => packageGalleryUrls(initPkg)[2] ?? "");
+  const [editPhotoOpenedUrl,        setEditPhotoOpenedUrl]        = useState(() => packageGalleryUrls(initPkg)[0] ?? "");
+  const [editPhotoReturnLabelUrl,   setEditPhotoReturnLabelUrl]   = useState(() => packageGalleryUrls(initPkg)[1] ?? "");
   const [editPhotoClosedUploading,  setEditPhotoClosedUploading]  = useState(false);
   const [editPhotoOpenedUploading,  setEditPhotoOpenedUploading]  = useState(false);
   const [editPhotoReturnLabelUploading, setEditPhotoReturnLabelUploading] = useState(false);
@@ -3050,25 +2897,26 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     return () => { cancelled = true; };
   }, [editing, editPalletId, pkg.pallet_id, pkg.id]);
 
-  /** List queries omit box photo arrays — load once for edit/reconciliation UI. */
+  /** Refresh photo arrays when list row omitted detail columns. */
   useEffect(() => {
     let cancelled = false;
     void supabaseBrowser
       .from("packages")
-      .select("outside_photo_urls, inside_photo_urls, slip_photo_urls, manifest_url")
+      .select("inside_photo_urls, outside_photo_urls, slip_photo_urls")
       .eq("id", initPkg.id)
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelled || error || !data) return;
-        const photos = packageLegacyPhotosFromRow(data as Record<string, unknown>);
+        const row = data as {
+          inside_photo_urls?: string[] | null;
+          outside_photo_urls?: string[] | null;
+          slip_photo_urls?: string[] | null;
+        };
         setPkg((p) => ({
           ...p,
-          ...photos,
-          photo_evidence: buildStructuredPackagePhotoEvidence({
-            label_urls: photos.slip_photo_urls,
-            outer_box_urls: photos.outside_photo_urls,
-            inside_content_urls: photos.inside_photo_urls,
-          }),
+          inside_photo_urls: row.inside_photo_urls ?? p.inside_photo_urls ?? [],
+          outside_photo_urls: row.outside_photo_urls ?? p.outside_photo_urls ?? [],
+          slip_photo_urls: row.slip_photo_urls ?? p.slip_photo_urls ?? [],
         }));
       });
     return () => { cancelled = true; };
@@ -3093,7 +2941,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     setEditExpected(String(initPkg.expected_item_count));
     setEditPalletId(initPkg.pallet_id ?? "");
     setEditOrderId(initPkg.order_id ?? "");
-    const pe = normalizeEntityPhotoEvidenceUrls(initPkg.photo_evidence);
+    const pe = packageGalleryUrls(initPkg);
     setEditPhotoClosedUrl(pe[2] ?? "");
     setEditPhotoOpenedUrl(pe[0] ?? "");
     setEditPhotoReturnLabelUrl(pe[1] ?? "");
@@ -3137,10 +2985,21 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   const [editManifestErr, setEditManifestErr] = useState("");
 
   const [reconciliationLines, setReconciliationLines] = useState<SlipExpectedItem[] | null>(null);
-  const [reconciliationSource, setReconciliationSource] = useState<"amazon" | "ocr" | null>(null);
+  const [reconciliationSource, setReconciliationSource] = useState<
+    "expected_packages" | "amazon" | "ocr" | null
+  >(null);
+  /** null = panel still loading; 0 = no expected_packages rows; >0 = panel is primary source */
+  const [expectedPackagesRowCount, setExpectedPackagesRowCount] = useState<number | null>(null);
 
   useEffect(() => {
+    setExpectedPackagesRowCount(null);
+  }, [pkg.id, pkg.tracking_number, pkg.order_id]);
+
+  useEffect(() => {
+    if (expectedPackagesRowCount === null) return;
+
     const tn = pkg.tracking_number?.trim() ?? "";
+    const oid = pkg.order_id?.trim() ?? "";
 
     function applyOcrFallback() {
       const md = pkg.manifest_data;
@@ -3155,13 +3014,19 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       }
     }
 
-    if (!tn) {
+    if (expectedPackagesRowCount > 0) {
+      setReconciliationLines(null);
+      setReconciliationSource("expected_packages");
+      return;
+    }
+
+    if (!tn && !oid) {
       applyOcrFallback();
       return;
     }
 
     let cancelled = false;
-    void getAmazonExpectedItems(tn, pkg.organization_id).then((res) => {
+    void getAmazonExpectedItems(tn, pkg.organization_id, { storeId: pkg.store_id ?? undefined }).then((res) => {
       if (cancelled) return;
       if (res.ok && res.data.length > 0) {
         setReconciliationLines(
@@ -3173,7 +3038,14 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       }
     });
     return () => { cancelled = true; };
-  }, [pkg.tracking_number, pkg.organization_id, pkg.manifest_data]);
+  }, [
+    pkg.tracking_number,
+    pkg.order_id,
+    pkg.organization_id,
+    pkg.manifest_data,
+    pkg.store_id,
+    expectedPackagesRowCount,
+  ]);
 
   /** Same source as the Packages accordion — `listReturns()` page state (`allReturns`). */
   const items = useMemo(
@@ -3236,7 +3108,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
         pkg.id,
         {
           expected_item_count,
-          photo_evidence: mergeEntityPhotoEvidence(pkg.photo_evidence, [publicUrl]) ?? undefined,
+          slip_photo_urls: mergeSlipPhotoUrl(pkg.slip_photo_urls, publicUrl),
         },
         actor,
         actorProfileId,
@@ -3273,8 +3145,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     if (o) claimUrls.push(o);
     if (l) claimUrls.push(l);
     if (c) claimUrls.push(c);
-    const tail = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).slice(3);
-    const mergedPe = buildEntityPhotoEvidence([...claimUrls, ...tail]);
+    const photoArrays = packagePhotoArraysFromClaimSlots(o, l, c, pkg);
     const res = await updatePackage(pkg.id, {
       carrier_name:         carrierPayload,
       tracking_number:      editTracking   || undefined,
@@ -3282,7 +3153,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       expected_item_count:  parseInt(editExpected, 10) || 0,
       order_id:             editOrderId.trim() || null,
       pallet_id:            editPalletId.trim() || null,
-      photo_evidence: mergedPe ?? null,
+      ...photoArrays,
     }, actor, actorProfileId);
     setSaving(false);
     if (res.ok && res.data) { setPkg(res.data); onPackageUpdated(res.data); setEditing(false); }
@@ -3335,10 +3206,10 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
         {pct !== null && <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60 dark:bg-slate-900/50"><div className={`h-full rounded-full ${atCapacity ? "bg-emerald-500" : mismatch ? "bg-amber-500" : "bg-sky-500"}`} style={{ width: `${pct}%` }} /></div>}
       </div>
 
-      {pkg.status === "suspicious" && pkg.notes && (
+      {pkg.status === "suspicious" && pkg.discrepancy_note && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-700/50 dark:bg-amber-950/30">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div><p className="text-xs font-bold text-amber-700 dark:text-amber-300 mb-0.5">Notes</p><p className="text-sm text-amber-700 dark:text-amber-400">{pkg.notes}</p></div>
+          <div><p className="text-xs font-bold text-amber-700 dark:text-amber-300 mb-0.5">Discrepancy Note</p><p className="text-sm text-amber-700 dark:text-amber-400">{pkg.discrepancy_note}</p></div>
         </div>
       )}
 
@@ -3424,11 +3295,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               className="hidden"
               onChange={handleEditManifestUpload}
             />
-            {reconciliationSource === "amazon" ? (
+            {reconciliationSource === "expected_packages" || reconciliationSource === "amazon" ? (
               <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  Amazon Sync active — packing slip scan not required.
+                  {reconciliationSource === "expected_packages"
+                    ? "Expected packages loaded — packing slip scan not required."
+                    : "Amazon Sync active — packing slip scan not required."}
                 </span>
               </div>
             ) : editManifestOcrRunning ? (
@@ -3447,7 +3320,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                 </button>
               </div>
             )}
-            {(reconciliationLines || normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).length > 0) && (
+            {(reconciliationLines || packageGalleryUrls(pkg).length > 0) && (
               <button
                 type="button"
                 onClick={() => {
@@ -3578,7 +3451,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             </div>
           )}
           {(() => {
-            const peUrls = normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
+            const peUrls = packageGalleryUrls(pkg);
             if (peUrls.length === 0) return null;
             const labels = ["Opened box", "Return label", "Closed box"];
             return (
@@ -3674,12 +3547,29 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
         />
       )}
 
+      {pkg.tracking_number?.trim() ? (
+        <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-800 dark:bg-sky-950/20">
+          <p className="mb-3 text-sm font-bold text-foreground">Inventory status</p>
+          <InventoryItemStatusLinkagePanel
+            organizationId={pkg.organization_id}
+            storeId={pkg.store_id}
+            trackingNumber={pkg.tracking_number}
+            compact
+          />
+        </section>
+      ) : null}
+
       {/* ── Read-only: reconciliation from Amazon sync or manifest_data OCR ── */}
       <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-bold text-foreground">Packing slip / manifest</p>
-            {reconciliationSource === "amazon" ? (
+            <p className="text-sm font-bold text-foreground">Expected vs scanned</p>
+            {reconciliationSource === "expected_packages" ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <CheckCircle2 className="h-3 w-3" />
+                Expected packages
+              </span>
+            ) : reconciliationSource === "amazon" ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                 <CheckCircle2 className="h-3 w-3" />
                 Amazon Sync
@@ -3691,14 +3581,22 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               </span>
             )}
           </div>
+          {reconciliationSource === "expected_packages" && (
+            <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              From expected_packages with product linkage (read-only).
+            </p>
+          )}
           {reconciliationSource === "amazon" && (
             <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               Expected items loaded securely from Amazon files.
             </p>
           )}
-          {reconciliationSource !== "amazon" && reconciliationLines && normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).length > 0 && (
+          {reconciliationSource !== "amazon" &&
+            reconciliationSource !== "expected_packages" &&
+            reconciliationLines &&
+            packageGalleryUrls(pkg).length > 0 && (
             <a
-              href={normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence).slice(-1)[0] ?? "#"}
+              href={packageGalleryUrls(pkg).slice(-1)[0] ?? "#"}
               target="_blank"
               rel="noreferrer"
               className="text-[10px] font-semibold text-sky-600 underline hover:text-sky-700 dark:text-sky-400"
@@ -3707,12 +3605,24 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             </a>
           )}
         </div>
-        {!reconciliationLines && (
+        {(pkg.tracking_number?.trim() || pkg.order_id?.trim()) ? (
+          <ExpectedPackagesLinkagePanel
+            organizationId={pkg.organization_id}
+            storeId={pkg.store_id}
+            orderId={pkg.order_id}
+            trackingNumber={pkg.tracking_number}
+            scannedItems={displayItems}
+            compact
+            onLoaded={setExpectedPackagesRowCount}
+            className="mb-3"
+          />
+        ) : null}
+        {!reconciliationLines && reconciliationSource !== "expected_packages" && (
           <p className="text-center text-[13px] text-muted-foreground">
             No manifest line items on file. Use <strong>Edit</strong> to photograph or load a packing slip — reconciliation appears here once saved.
           </p>
         )}
-        {reconciliationLines && (
+        {reconciliationLines && reconciliationSource !== "expected_packages" && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reconciliation</p>
@@ -3741,11 +3651,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                     const need = exp.expected_qty ?? 1;
                     const matched = displayItems.filter((it) => physicalItemMatchesExpectedLine(it, exp));
                     const isMatch = matched.length >= need;
+                    const manifestLine = pkg.manifest_data?.[slipIdx];
                     return (
                       <tr key={`slip-${slipIdx}-${exp.barcode}`} className={isMatch ? "bg-emerald-50/70 dark:bg-emerald-950/20" : "bg-rose-50/70 dark:bg-rose-950/20"}>
                         <td className="px-3 py-2.5">
                           <p className="font-mono font-semibold text-slate-700 dark:text-slate-300">{exp.barcode}</p>
                           <p className="text-slate-500">{exp.name}</p>
+                          {manifestLine ? <ManifestLineProductLinkage line={manifestLine} /> : null}
                         </td>
                         <td className="px-3 py-2.5 text-center font-bold text-slate-600 dark:text-slate-300">{need}</td>
                         <td className="px-3 py-2.5 text-center font-bold">
@@ -3771,6 +3683,20 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                             {(it as { product_identifier?: string | null }).product_identifier?.trim()
                               || (it.asin ?? it.fnsku ?? it.sku ?? it.lpn ?? "—")}
                           </p>
+                          {(() => {
+                            const upc = upcFromProductIdentifier(
+                              (it as { product_identifier?: string | null }).product_identifier,
+                            );
+                            return upc ? (
+                              <p className="font-mono text-[10px] text-slate-500">UPC {upc}</p>
+                            ) : null;
+                          })()}
+                          <ReturnItemProductLinkage
+                            organizationId={it.organization_id}
+                            fields={it}
+                            compact
+                            showCanonical={false}
+                          />
                         </td>
                         <td className="px-3 py-2.5 text-center text-slate-400">—</td>
                         <td className="px-3 py-2.5 text-center font-bold text-amber-600">1</td>
@@ -3794,7 +3720,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       {/* Items sub-table */}
       <div>
         <p className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">Items ({displayItems.length})</p>
-        <ItemsSubTable items={displayItems} role={role} actor={actor} actorProfileId={actorProfileId} packageId={pkg.id} onItemClick={onOpenItem} onItemDeleted={handleItemDeleted} showToast={showToast} />
+        <ItemsSubTable items={displayItems} role={role} actor={actor} actorProfileId={actorProfileId} onItemClick={onOpenItem} onItemDeleted={handleItemDeleted} showToast={showToast} />
       </div>
 
       {wizardOpen && (() => {
@@ -3904,7 +3830,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
       const url = await uploadToStorage(f, "pallets/bol", orgId);
       const res = await updatePallet(
         plt.id,
-        { bol_photo_url: url },
+        { bol_photo_urls: [url] },
         actor,
         orgId,
         actorProfileId,
@@ -3932,7 +3858,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
       const url = await uploadToStorage(f, "pallets", orgId);
       const res = await updatePallet(
         plt.id,
-        { photo_url: url },
+        { pallet_photo_urls: [url] },
         actor,
         orgId,
         actorProfileId,
@@ -4062,15 +3988,15 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
                 <label className={LABEL}>Pallet photo <span className="text-xs font-normal text-slate-400">(optional)</span></label>
                 <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 py-3 text-sm font-semibold text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200 ${generalPhotoUploading ? "opacity-60" : ""}`}>
                   {generalPhotoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                  {generalPhotoUploading ? "Uploading…" : plt.photo_url?.trim() ? "Replace pallet photo" : "Upload pallet photo"}
+                  {generalPhotoUploading ? "Uploading…" : firstUrl(plt.pallet_photo_urls) ? "Replace pallet photo" : "Upload pallet photo"}
                   <input type="file" className="hidden" accept="image/*" capture="environment" onChange={handleGeneralPalletPhotoUpload} disabled={generalPhotoUploading} />
                 </label>
-                {plt.photo_url?.trim() ? (
+                {firstUrl(plt.pallet_photo_urls) ? (
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
                     <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">Latest uploads (see gallery above)</p>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={plt.photo_url.trim()}
+                      src={firstUrl(plt.pallet_photo_urls)!}
                       alt="Pallet"
                       className="max-h-48 w-full object-contain"
                     />
@@ -4085,7 +4011,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
                   <input type="file" className="hidden" accept="image/*,application/pdf" onChange={handleBolUpload} disabled={bolUploading} />
                 </label>
                 {(() => {
-                  const bol = plt.bol_photo_url?.trim() ?? "";
+                  const bol = firstUrl(plt.bol_photo_urls) ?? "";
                   return bol ? (
                   <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
                     <p className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-foreground dark:border-slate-700">BoL preview</p>
@@ -4165,7 +4091,7 @@ export function DiscrepancyModal({ pkg, scannedCount, onConfirm, onCancel }: {
 
 // ─── Wizard Steps ──────────────────────────────────────────────────────────────
 
-export function WizardStep1({ state, setState, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet, organizationId }: {
+export function WizardStep1({ state, setState, openPackages, openPallets, existingReturns = [], onCreatePackage, onCreatePallet, inherited, aiLabelEnabled = false, onAdvance, onNavigateToPackage, onNavigateToPallet, organizationId = MVP_ORGANIZATION_ID, actorProfileId = null }: {
   state: WizardState; setState: React.Dispatch<React.SetStateAction<WizardState>>;
   openPackages: PackageRecord[]; openPallets: PalletRecord[];
   /** Live counts for package picker (same as Packages ITEMS column). */
@@ -4173,12 +4099,16 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   onCreatePackage: () => void; onCreatePallet: () => void;
   inherited?: WizardInheritedContext;
   aiLabelEnabled?: boolean;
-  organizationId?: string;
   /** Scanner UX: called when Enter is pressed on the last wizard field and all step-1 fields are valid. */
   onAdvance?: () => void;
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
+  organizationId?: string;
+  actorProfileId?: string | null;
 }) {
+  const workspaceOrgId = isUuidString((organizationId ?? "").trim())
+    ? (organizationId ?? "").trim()
+    : MVP_ORGANIZATION_ID;
   const up = (k: keyof WizardState, v: unknown) => setState((p) => ({ ...p, [k]: v }));
   const assignedByPackage = useMemo(() => {
     const m = new Map<string, number>();
@@ -4291,7 +4221,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.package_link_id, inherited?.packageId]);
 
-  // Keep `return_items.marketplace` aligned with the selected Store (fixes Next disabled when only store is set).
+  // Keep `returns.marketplace` aligned with the selected Store (fixes Next disabled when only store is set).
   useEffect(() => {
     if (!state.store_id || connectedStores.length === 0) return;
     const store = connectedStores.find((s) => s.id === state.store_id);
@@ -4303,120 +4233,141 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
   const setCatalogResolution = (s: WizardState["catalog_resolution"]) =>
     setState((p) => ({ ...p, catalog_resolution: s }));
 
-  // ── Catalog lookup preview (server resolver — no client products/Amazon writes) ─
-  const [wizardProductLinkage, setWizardProductLinkage] = useState<ProductLinkageDisplayContract | null>(null);
-  const showDevSpApi = process.env.NODE_ENV === "development";
-  // ── SP-API mock auto-fill state (dev/debug only) ───────────────────────────
-  const [spApiStatus, setSpApiStatus] = useState<"idle" | "loading" | "done">("idle");
+  // ── Catalog lookup preview (display only; save still re-runs server resolver) ─
+  const [catalogPreview, setCatalogPreview] = useState<{ name: string; image_url?: string | null; reason?: string | null } | null>(null);
+  const [catalogAmbiguousChoices, setCatalogAmbiguousChoices] = useState<AmbiguousProductChoice[]>([]);
+  const lookupRef = useRef<{ value: string; at: number } | null>(null);
+
+  async function handleWizardAmbiguousPick(choice: AmbiguousProductChoice) {
+    setCatalogResolution("loading");
+    try {
+      const res = await loadReturnItemLookupFieldsFromProduct({
+        organizationId: workspaceOrgId,
+        productId: choice.product_id,
+      });
+      if (!res.ok) {
+        setCatalogPreview({ name: res.error });
+        setCatalogResolution("review");
+        return;
+      }
+      const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+      setState((p) => ({
+        ...p,
+        product_identifier: res.fields.product_identifier ?? p.product_identifier,
+        asin: res.fields.asin ?? p.asin,
+        fnsku: res.fields.fnsku ?? p.fnsku,
+        sku: res.fields.sku ?? p.sku,
+        upc_gtin: res.fields.upc ?? p.upc_gtin,
+        item_name: itemName ?? p.item_name,
+        catalog_resolution: "local",
+      }));
+      setCatalogAmbiguousChoices([]);
+      setCatalogPreview({
+        name: itemName ?? res.product_linkage.product_name ?? res.product_linkage.fallback_display_name ?? "",
+        image_url: res.fields.image_url,
+      });
+    } catch (e) {
+      setCatalogPreview({ name: e instanceof Error ? e.message : "Product load failed." });
+      setCatalogResolution("review");
+    }
+  }
 
   async function handleBarcodeLookup(barcode: string) {
-    const trimmed = barcode.trim();
-    if (!trimmed) {
-      setCatalogResolution("idle");
-      setWizardProductLinkage(null);
-      return;
-    }
+    const raw = barcode.trim();
+    if (!raw) { setCatalogResolution("idle"); return; }
+    const last = lookupRef.current;
+    const now = Date.now();
+    if (last?.value === raw && now - last.at < 800) return;
+    lookupRef.current = { value: raw, at: now };
     setCatalogResolution("loading");
-    setWizardProductLinkage(null);
+    setCatalogPreview(null);
+    setCatalogAmbiguousChoices([]);
 
-    const classified = classifyProductBarcode(trimmed);
-    let matchKind: "fnsku" | "upc" | "unexpected" = "unexpected";
-    if (classified.kind === "fnsku") {
-      up("fnsku", classified.normalized);
-      up("product_identifier", classified.normalized);
-      matchKind = "fnsku";
-    } else if (classified.kind === "asin") {
-      up("asin", classified.normalized);
-      up("product_identifier", classified.normalized);
-    } else if (classified.kind === "upc_ean") {
-      up("product_identifier", classified.normalized);
-      up("sku", classified.normalized);
-      matchKind = "upc";
-    } else {
-      up("product_identifier", classified.normalized);
-    }
-
-    const detectedSource = parseBarcodeSource(trimmed, state.marketplace);
+    // Auto-detect marketplace from barcode prefix (Amazon FNSKU: X00… / B00…)
+    const detectedSource = parseBarcodeSource(raw, state.marketplace);
     if (detectedSource && detectedSource !== state.marketplace && (detectedSource === "amazon" || detectedSource === "walmart" || detectedSource === "ebay")) {
       up("marketplace", detectedSource);
     }
 
+    // Smart store_id fallback — only for standalone items (no parent package)
+    let lookupStoreId = state.store_id;
     const isStandalone = !state.package_link_id && !inherited?.packageId;
     if (isStandalone) {
-      const upper = trimmed.toUpperCase();
+      const upper = raw.toUpperCase();
       if (upper.startsWith("X00") || upper.startsWith("B00")) {
-        const amazonStore = connectedStores.find((s) => s.platform.toLowerCase() === "amazon");
+        // Amazon FNSKU → find first active Amazon store, else use default
+        const amazonStore = connectedStores.find(
+          (s) => s.platform.toLowerCase() === "amazon",
+        );
         const defRaw = getDefaultStoreIdFromStorage().trim();
         const defStore = isUuidString(defRaw) ? defRaw : "";
-        up("store_id", amazonStore?.id ?? defStore);
+        lookupStoreId = amazonStore?.id ?? defStore;
+        if (lookupStoreId) up("store_id", lookupStoreId);
       } else if (!state.store_id) {
+        // No known prefix → fallback to operator's saved default store
         const fallbackRaw = getDefaultStoreIdFromStorage().trim();
         const fallback = isUuidString(fallbackRaw) ? fallbackRaw : "";
-        if (fallback) up("store_id", fallback);
+        if (fallback) {
+          lookupStoreId = fallback;
+          up("store_id", fallback);
+        }
       }
-    }
-
-    const org = (organizationId ?? "").trim();
-    const sid = state.store_id.trim();
-    const fallbackLinkage = () =>
-      buildProductLinkageDisplayContract(
-        {
-          item_name: state.item_name,
-          fnsku: state.fnsku,
-          asin: state.asin,
-          sku: state.sku,
-          product_identifier: state.product_identifier,
-          identifier_resolution_status: "unresolved",
-        },
-        new Map(),
-      );
-
-    if (!org || !isUuidString(org) || !sid || !isUuidString(sid)) {
-      setWizardProductLinkage(fallbackLinkage());
-      setCatalogResolution("unknown");
-      return;
     }
 
     try {
-      const preview = await previewOperatorItemBarcodeLinkageAction({
-        requestedOrganizationId: org,
-        storeId: sid,
-        scannedBarcode: trimmed,
-        matchKind,
-      });
-      if (preview.ok) {
-        const label = productLinkagePrimaryLabel(preview.product_linkage);
-        if (label && label !== "Line item") up("item_name", label);
-        setWizardProductLinkage(preview.product_linkage);
-        const st = preview.product_linkage.identifier_resolution_status;
-        setCatalogResolution(
-          st === "resolved" ? "resolved" : st === "ambiguous" ? "ambiguous" : "unresolved",
-        );
+      const res = await withLookupTimeout(
+        lookupProductInputForReturnItem({
+          organizationId: workspaceOrgId,
+          storeId: lookupStoreId,
+          value: raw,
+          actorProfileId,
+        }),
+      );
+      if (!res.ok) {
+        setCatalogPreview({ name: res.error });
+        setCatalogResolution("unknown");
         return;
       }
-      setWizardProductLinkage(fallbackLinkage());
-      setCatalogResolution("unresolved");
-    } catch {
-      setWizardProductLinkage(fallbackLinkage());
-      setCatalogResolution("unresolved");
-    }
-  }
 
-  async function handleSpApiLookup() {
-    if (!state.product_identifier.trim()) return;
-    setSpApiStatus("loading");
-    await new Promise((r) => setTimeout(r, 1500));
-    const clean = state.product_identifier.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const mockAsin  = `B0${clean.slice(0, 6).padEnd(6, "0")}`;
-    const mockFnsku = `X00${clean.slice(0, 5).padEnd(5, "0")}`;
-    setState((p) => ({
-      ...p,
-      asin:      mockAsin,
-      fnsku:     mockFnsku,
-      item_name: p.item_name.trim() || `Amazon Return Product (${state.product_identifier.trim()})`,
-    }));
-    setSpApiStatus("done");
-    setTimeout(() => setSpApiStatus("idle"), 3500);
+      const itemName = canonicalItemNameFromLookup(res.fields, res.product_linkage);
+      setCatalogAmbiguousChoices(
+        res.status === "ambiguous" ? (res.ambiguous_candidates ?? []) : [],
+      );
+      setState((p) => ({
+        ...p,
+        product_identifier: res.fields.product_identifier ?? res.normalized_input,
+        asin: res.fields.asin ?? p.asin,
+        fnsku: res.fields.fnsku ?? p.fnsku,
+        sku: res.fields.sku ?? p.sku,
+        upc_gtin: res.fields.upc ?? p.upc_gtin,
+        item_name: itemName ?? res.fields.item_name ?? p.item_name,
+        catalog_resolution:
+          res.status === "local_resolved"
+            ? "local"
+            : res.status === "backend_enriched"
+              ? "amazon"
+              : res.status === "ambiguous"
+                ? "review"
+                : "unknown",
+      }));
+      setCatalogPreview({
+        name:
+          itemName ??
+          res.product_linkage.product_name ??
+          res.product_linkage.fallback_display_name ??
+          "",
+        image_url: res.fields.image_url,
+        reason: res.enrichment.reason,
+      });
+    } catch (e) {
+      setCatalogPreview({ name: e instanceof Error ? e.message : "Product lookup failed." });
+      setCatalogResolution("unknown");
+    } finally {
+      setState((p) => ({
+        ...p,
+        catalog_resolution: p.catalog_resolution === "loading" ? "unknown" : p.catalog_resolution,
+      }));
+    }
   }
 
   // ── Physical hardware scanner — attached directly to the barcode input only ─
@@ -4589,7 +4540,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             <QrCode className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              className={`${INPUT} pl-11 transition-all ${state.catalog_resolution === "unknown" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
+              className={`${INPUT} pl-11 transition-all ${state.catalog_resolution === "unknown" || state.catalog_resolution === "review" ? "border-yellow-400 ring-2 ring-yellow-300 focus:border-yellow-400 focus:ring-yellow-300" : ""}`}
               placeholder="Scan or type product identifier…"
               value={state.product_identifier}
               onChange={(e) => {
@@ -4598,12 +4549,16 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
               autoFocus
               onKeyDown={(e) => {
                 barcodeKeyDown(e);
-                if (!e.defaultPrevented && e.key === "Enter") { e.preventDefault(); rmaRef.current?.focus(); }
+                if (!e.defaultPrevented && e.key === "Enter") {
+                  e.preventDefault();
+                  if (state.product_identifier.trim()) void handleBarcodeLookup(state.product_identifier);
+                  rmaRef.current?.focus();
+                }
               }}
               onBlur={(e) => { if (e.target.value.trim()) void handleBarcodeLookup(e.target.value); }}
               onPaste={(e) => {
-                const text = e.clipboardData.getData("text");
-                if (text.trim()) window.setTimeout(() => void handleBarcodeLookup(text.trim()), 0);
+                const pasted = e.clipboardData.getData("text");
+                if (pasted.trim()) setTimeout(() => void handleBarcodeLookup(pasted), 0);
               }}
             />
           </div>
@@ -4611,53 +4566,37 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             onDetected={(code) => { up("product_identifier", code); void handleBarcodeLookup(code); }}
             modalTitle="Scan Product Barcode"
           />
-          {showDevSpApi ? (
-            <button
-              type="button"
-              onClick={() => void handleSpApiLookup()}
-              disabled={!state.product_identifier.trim() || spApiStatus === "loading"}
-              title="Dev only — mock SP-API auto-fill"
-              aria-label="Fetch product details from SP-API (dev)"
-              className="inline-flex h-12 items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
-            >
-              {spApiStatus === "loading"
-                ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                : <Zap className="h-4 w-4 shrink-0" />}
-              <span className="hidden sm:inline">{spApiStatus === "loading" ? "Fetching…" : "SP-API"}</span>
-            </button>
-          ) : null}
         </div>
-        {showDevSpApi && spApiStatus === "loading" && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
-            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-            Fetching product details from SP-API…
-          </div>
-        )}
-        {showDevSpApi && spApiStatus === "done" && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-            SP-API — ASIN, FNSKU &amp; Item Name auto-filled (mock data)
-          </div>
-        )}
-        {state.catalog_resolution === "loading" && spApiStatus === "idle" && (
+        {/* Catalog lookup feedback */}
+        {state.catalog_resolution === "loading" && (
           <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-400">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />Looking up product…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />Looking up barcode…
           </div>
         )}
-        {state.catalog_resolution === "resolved" && wizardProductLinkage && (
-          <div className="mt-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300">
-            <ProductLinkagePrimaryLink linkage={wizardProductLinkage} detailFrom="returns" className="text-emerald-800 dark:text-emerald-200" />
-            <OperatorProductLinkageMeta linkage={wizardProductLinkage} linkResolvedProductId={false} detailFrom="returns" />
+        {state.catalog_resolution === "local" && catalogPreview && (
+          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            Found locally — {catalogPreview.name}
           </div>
         )}
-        {(state.catalog_resolution === "unresolved" || state.catalog_resolution === "ambiguous") && wizardProductLinkage && (
-          <div className="mt-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs dark:border-amber-700/50 dark:bg-amber-950/30">
-            <OperatorProductLinkageMeta linkage={wizardProductLinkage} linkResolvedProductId={false} detailFrom="returns" />
+        {state.catalog_resolution === "amazon" && catalogPreview && (
+          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            Backend enriched — {catalogPreview.name}
+          </div>
+        )}
+        {state.catalog_resolution === "review" && (
+          <div className="mt-1.5 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/20 dark:text-amber-200">
+            <p>Needs review — {catalogAmbiguousChoices.length > 1 ? `${catalogAmbiguousChoices.length} distinct local products` : "multiple local products"} matched. Pick the correct product:</p>
+            <AmbiguousProductPicker
+              choices={catalogAmbiguousChoices}
+              onPick={(c) => void handleWizardAmbiguousPick(c)}
+            />
           </div>
         )}
         {state.catalog_resolution === "unknown" && (
           <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-            ⚠️ Unknown Item — Not found locally or on Amazon. Enter the item name below — you can continue without a catalog match.
+            Unknown Item — not found locally{catalogPreview?.reason ? ` (${catalogPreview.reason})` : ""}. Enter the item name below if this business flow permits.
           </div>
         )}
         <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
@@ -4737,7 +4676,9 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             setState((p) => ({
               ...p,
               item_name: v,
-              ...(p.catalog_resolution === "unknown" ? { catalog_resolution: "idle" as const } : {}),
+              ...(p.catalog_resolution === "unknown" || p.catalog_resolution === "review"
+                ? { catalog_resolution: "idle" as const }
+                : {}),
             }));
           }}
           onKeyDown={(e) => { if (e.key === "Enter" && onAdvance) { e.preventDefault(); onAdvance(); } }}
@@ -4811,6 +4752,16 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             >
               <Store className="h-4 w-4" aria-hidden />
             </button>
+          </div>
+        </div>
+        <div>
+          <label className={LABEL}>UPC / GTIN <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+          <div className="flex gap-2">
+            <input
+              type="text" className={INPUT} placeholder="12-digit UPC…"
+              value={state.upc_gtin} onChange={(e) => up("upc_gtin", e.target.value)}
+            />
+            <button type="button" title="Copy UPC" className={wizardIdIconBtn} onClick={() => void copyWizardCode(state.upc_gtin)} disabled={!state.upc_gtin.trim()}><Copy className="h-4 w-4" /></button>
           </div>
         </div>
       </div>
@@ -4971,8 +4922,8 @@ export function WizardStep2({
 
   const pkgClaimResolved = linkedPackage ? resolvePackageClaimPhotoUrls(linkedPackage) : { opened: null as string | null, label: null as string | null };
   const hasPkgOpenedOnly = !!pkgClaimResolved.opened?.trim();
-  const pkgPe = normalizeEntityPhotoEvidenceUrls(linkedPackage?.photo_evidence);
-  const hasPkgOuterPhoto = !!(linkedPackage?.photo_url?.trim() || pkgPe[3]?.trim());
+  const pkgGal = packageGalleryUrls(linkedPackage ?? undefined);
+  const hasPkgOuterPhoto = !!(pkgGal[3]?.trim());
   const hasPkgReturnLabel = !!pkgClaimResolved.label?.trim();
   const packageMissingMandatoryPhotos = !hasPkgOpenedOnly || !hasPkgReturnLabel;
   const showPackageBackfill =
@@ -5068,7 +5019,7 @@ export function WizardStep2({
                 Package claim photos missing on file
               </p>
               <p className="mb-3 text-[11px] leading-snug text-amber-950/90 dark:text-amber-100/90">
-                The linked package does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">return_items.photo_evidence</span>), not on the package row.
+                The linked package does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">returns.photo_evidence</span>), not on the package row.
               </p>
               <div className="space-y-4">
                 {!hasPkgOpenedOnly && (
@@ -5195,19 +5146,13 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
   /** Pallet photo columns when the linked pallet is not fully loaded in `pallets` (DB fetch in wizard). */
-  palletEvidenceFromDb?: {
-    photo_url?: string | null;
-    bol_photo_url?: string | null;
-    manifest_photo_url?: string | null;
-  } | null;
-  /** Fresh package link + legacy photo columns from DB when `openPackages` is stale (no `packages.photo_evidence`). */
+  palletEvidenceFromDb?: Pick<PalletRecord, "pallet_photo_urls" | "bol_photo_urls" | "shipping_label_urls"> | null;
   packageEvidenceFromDb?: {
     pallet_id?: string | null;
     order_id?: string | null;
-    photo_opened_url?: string | null;
-    photo_return_label_url?: string | null;
-    photo_closed_url?: string | null;
-    photo_url?: string | null;
+    inside_photo_urls?: string[];
+    outside_photo_urls?: string[];
+    slip_photo_urls?: string[];
   } | null;
 }) {
   const photoTotal = Object.values(state.photos).reduce((a, files) => a + files.length, 0);
@@ -5221,10 +5166,9 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         ...pkgFromList,
         pallet_id: fromDb.pallet_id ?? pkgFromList.pallet_id,
         order_id: fromDb.order_id ?? pkgFromList.order_id,
-        photo_opened_url: fromDb.photo_opened_url ?? pkgFromList.photo_opened_url,
-        photo_return_label_url: fromDb.photo_return_label_url ?? pkgFromList.photo_return_label_url,
-        photo_closed_url: fromDb.photo_closed_url ?? pkgFromList.photo_closed_url,
-        photo_url: fromDb.photo_url ?? pkgFromList.photo_url,
+        inside_photo_urls: fromDb.inside_photo_urls?.length ? fromDb.inside_photo_urls : pkgFromList.inside_photo_urls,
+        outside_photo_urls: fromDb.outside_photo_urls?.length ? fromDb.outside_photo_urls : pkgFromList.outside_photo_urls,
+        slip_photo_urls: fromDb.slip_photo_urls?.length ? fromDb.slip_photo_urls : pkgFromList.slip_photo_urls,
       };
     }
     if (pkgFromList) return pkgFromList;
@@ -5240,11 +5184,10 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         pallet_id: fromDb.pallet_id ?? null,
         order_id: fromDb.order_id ?? null,
         status: "open",
-        notes: null,
-        photo_opened_url: fromDb.photo_opened_url ?? null,
-        photo_return_label_url: fromDb.photo_return_label_url ?? null,
-        photo_closed_url: fromDb.photo_closed_url ?? null,
-        photo_url: fromDb.photo_url ?? null,
+        discrepancy_note: null,
+        inside_photo_urls: fromDb.inside_photo_urls ?? [],
+        outside_photo_urls: fromDb.outside_photo_urls ?? [],
+        slip_photo_urls: fromDb.slip_photo_urls ?? [],
         created_at: "",
         updated_at: "",
       } as PackageRecord;
@@ -5505,7 +5448,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   onToast?: (msg: string, kind?: ToastKind) => void;
   onNavigateToPackage?: (packageId: string) => void;
   onNavigateToPallet?: (palletId: string) => void;
-  /** Workspace org for `return_items.organization_id` / claim_submissions (defaults to MVP seed). */
+  /** Workspace org for `returns.organization_id` / claim_submissions (defaults to MVP seed). */
   organizationId?: string;
   actorProfileId?: string | null;
 }) {
@@ -5519,21 +5462,17 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   const [submitting, setSubmitting] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
   const [flash, setFlash] = useState(false);
-  /** Fresh `order_id` / pallet link + legacy claim photo URLs from DB (no `packages.photo_evidence` read — item photos stay on `return_items` only). */
+  /** Fresh `order_id` / pallet link + legacy claim photo URLs from DB (no `packages.photo_evidence` read — item photos stay on `returns` only). */
   const [fetchedPkgMeta, setFetchedPkgMeta] = useState<{
     pallet_id?: string | null;
     order_id?: string | null;
-    photo_opened_url?: string | null;
-    photo_return_label_url?: string | null;
-    photo_closed_url?: string | null;
-    photo_url?: string | null;
+    inside_photo_urls?: string[];
+    outside_photo_urls?: string[];
+    slip_photo_urls?: string[];
   } | null>(null);
-  /** Pallet photo columns when package → pallet chain is resolved (matches claim payload family tree). */
-  const [fetchedPalletEvidence, setFetchedPalletEvidence] = useState<{
-    photo_url?: string | null;
-    bol_photo_url?: string | null;
-    manifest_photo_url?: string | null;
-  } | null>(null);
+  const [fetchedPalletEvidence, setFetchedPalletEvidence] = useState<
+    Pick<PalletRecord, "pallet_photo_urls" | "bol_photo_urls" | "shipping_label_urls"> | null
+  >(null);
   /** Resolves `marketplace` on submit when Step 1 synced only `store_id` (same source as listStores in WizardStep1). */
   const [wizardStoresForSubmit, setWizardStoresForSubmit] = useState<{ id: string; platform: string }[]>([]);
   useEffect(() => {
@@ -5569,9 +5508,9 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
       if (localPlt) {
         if (!cancelled) {
           setFetchedPalletEvidence({
-            photo_url: localPlt.photo_url,
-            bol_photo_url: localPlt.bol_photo_url,
-            manifest_photo_url: localPlt.manifest_photo_url,
+            pallet_photo_urls: localPlt.pallet_photo_urls,
+            bol_photo_urls: localPlt.bol_photo_urls,
+            shipping_label_urls: localPlt.shipping_label_urls,
           });
         }
         return;
@@ -5587,20 +5526,22 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
             setFetchedPalletEvidence(null);
             return;
           }
-          const row = data as Record<string, unknown>;
-          const photos = palletLegacyPhotosFromRow(row);
+          const row = data as {
+            pallet_photo_urls?: string[] | null;
+            bol_photo_urls?: string[] | null;
+            shipping_label_urls?: string[] | null;
+          };
           setFetchedPalletEvidence({
-            photo_url: photos.photo_url,
-            bol_photo_url: photos.bol_photo_url,
-            manifest_photo_url: photos.manifest_photo_url,
+            pallet_photo_urls: row.pallet_photo_urls ?? [],
+            bol_photo_urls: row.bol_photo_urls ?? [],
+            shipping_label_urls: row.shipping_label_urls ?? [],
           });
         });
     }
 
-    /** Load pallet link + marketplace order id + legacy package photo columns only (no `photo_evidence` JSONB). */
     void supabaseBrowser
       .from("packages")
-      .select("order_id, pallet_id, outside_photo_urls, inside_photo_urls, slip_photo_urls")
+      .select("order_id, pallet_id, inside_photo_urls, outside_photo_urls, slip_photo_urls")
       .eq("id", pkgKey)
       .maybeSingle()
       .then(({ data }) => {
@@ -5610,19 +5551,23 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
           setFetchedPalletEvidence(null);
           return;
         }
-        const row = data as Record<string, unknown>;
-        const photos = packageLegacyPhotosFromRow(row);
+        const row = data as {
+          order_id?: string | null;
+          pallet_id?: string | null;
+          inside_photo_urls?: string[] | null;
+          outside_photo_urls?: string[] | null;
+          slip_photo_urls?: string[] | null;
+        };
         setFetchedPkgMeta({
-          pallet_id: (row.pallet_id as string | null | undefined) ?? null,
-          order_id: (row.order_id as string | null | undefined) ?? null,
-          photo_opened_url: photos.photo_opened_url,
-          photo_return_label_url: photos.photo_return_label_url,
-          photo_closed_url: photos.photo_closed_url,
-          photo_url: photos.photo_url,
+          pallet_id: row.pallet_id ?? null,
+          order_id: row.order_id ?? null,
+          inside_photo_urls: row.inside_photo_urls ?? [],
+          outside_photo_urls: row.outside_photo_urls ?? [],
+          slip_photo_urls: row.slip_photo_urls ?? [],
         });
-        const oid = String(row.order_id ?? "").trim();
+        const oid = row.order_id?.trim();
         if (oid) setState((p) => (p.amazon_order_id.trim() ? p : { ...p, amazon_order_id: oid }));
-        applyPalletEvidence((row.pallet_id as string | null | undefined) ?? null);
+        applyPalletEvidence(row.pallet_id ?? null);
       });
     return () => { cancelled = true; };
   }, [resolvedPkgId, openPallets, openPackages, workspaceOrgId]);
@@ -5632,26 +5577,25 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
     if (!id) return null;
     const base = openPackages.find((p) => p.id === id);
     const meta = fetchedPkgMeta;
-    const merged = base
+    const mergedRow = base
       ? {
-          photo_opened_url: (meta?.photo_opened_url ?? base.photo_opened_url)?.trim() || null,
-          photo_closed_url: (meta?.photo_closed_url ?? base.photo_closed_url)?.trim() || null,
-          photo_return_label_url: (meta?.photo_return_label_url ?? base.photo_return_label_url)?.trim() || null,
-          photo_url: (meta?.photo_url ?? base.photo_url)?.trim() || null,
+          inside_photo_urls: meta?.inside_photo_urls?.length ? meta.inside_photo_urls : base.inside_photo_urls,
+          outside_photo_urls: meta?.outside_photo_urls?.length ? meta.outside_photo_urls : base.outside_photo_urls,
+          slip_photo_urls: meta?.slip_photo_urls?.length ? meta.slip_photo_urls : base.slip_photo_urls,
         }
       : meta
         ? {
-            photo_opened_url: meta.photo_opened_url?.trim() || null,
-            photo_closed_url: meta.photo_closed_url?.trim() || null,
-            photo_return_label_url: meta.photo_return_label_url?.trim() || null,
-            photo_url: meta.photo_url?.trim() || null,
+            inside_photo_urls: meta.inside_photo_urls,
+            outside_photo_urls: meta.outside_photo_urls,
+            slip_photo_urls: meta.slip_photo_urls,
           }
         : null;
-    if (!merged) return null;
-    if (!merged.photo_opened_url && !merged.photo_closed_url && !merged.photo_return_label_url && !merged.photo_url) {
+    if (!mergedRow) return null;
+    const slots = packagePhotoSlotsFromRow(mergedRow);
+    if (!slots.photo_opened_url && !slots.photo_closed_url && !slots.photo_return_label_url && !slots.photo_url) {
       return null;
     }
-    return merged;
+    return slots;
   }, [resolvedPkgId, openPackages, fetchedPkgMeta]);
 
   const packageInheritsBoxPhotos = !!(
@@ -5671,10 +5615,9 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         ...base,
         order_id: meta.order_id ?? base.order_id,
         pallet_id: meta.pallet_id ?? base.pallet_id,
-        photo_opened_url: meta.photo_opened_url ?? base.photo_opened_url,
-        photo_return_label_url: meta.photo_return_label_url ?? base.photo_return_label_url,
-        photo_closed_url: meta.photo_closed_url ?? base.photo_closed_url,
-        photo_url: meta.photo_url ?? base.photo_url,
+        inside_photo_urls: meta.inside_photo_urls?.length ? meta.inside_photo_urls : base.inside_photo_urls,
+        outside_photo_urls: meta.outside_photo_urls?.length ? meta.outside_photo_urls : base.outside_photo_urls,
+        slip_photo_urls: meta.slip_photo_urls?.length ? meta.slip_photo_urls : base.slip_photo_urls,
       };
     }
     if (meta) {
@@ -5689,11 +5632,10 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         pallet_id: meta.pallet_id ?? null,
         order_id: meta.order_id ?? null,
         status: "open",
-        notes: null,
-        photo_opened_url: meta.photo_opened_url ?? null,
-        photo_return_label_url: meta.photo_return_label_url ?? null,
-        photo_closed_url: meta.photo_closed_url ?? null,
-        photo_url: meta.photo_url ?? null,
+        discrepancy_note: null,
+        inside_photo_urls: meta.inside_photo_urls ?? [],
+        outside_photo_urls: meta.outside_photo_urls ?? [],
+        slip_photo_urls: meta.slip_photo_urls ?? [],
         created_at: "",
         updated_at: "",
       } as PackageRecord;
@@ -5714,9 +5656,9 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
   const productIdOk =
     hasManualProductIds ||
     state.catalog_resolution === "unknown" ||
-    state.catalog_resolution === "resolved" ||
-    state.catalog_resolution === "unresolved" ||
-    state.catalog_resolution === "ambiguous";
+    state.catalog_resolution === "local" ||
+    state.catalog_resolution === "amazon" ||
+    state.catalog_resolution === "review";
 
   const rawPkgLink = (inheritedContext?.packageId ?? state.package_link_id)?.trim() ?? "";
   const packageLinkUuidOk =
@@ -5843,9 +5785,10 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
         marketplace: marketplaceResolved,
         item_name: state.item_name,
         conditions,
-        asin: state.asin.trim() || state.product_identifier.trim() || undefined,
+        asin: state.asin.trim() || undefined,
         fnsku: state.fnsku.trim() || undefined,
         sku: state.sku.trim() || undefined,
+        product_identifier: state.product_identifier.trim() || state.upc_gtin.trim() || undefined,
         amazon_order_id: orderId,
         notes: state.notes, photo_evidence: photoEvidence ?? undefined,
         expiration_date: state.expiration_date || undefined,
@@ -5914,7 +5857,6 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
               openPackages={openPackages}
               openPallets={openPallets}
               existingReturns={existingReturns}
-              organizationId={workspaceOrgId}
               onCreatePackage={onCreatePackage}
               onCreatePallet={onCreatePallet}
               inherited={inheritedContext}
@@ -5922,6 +5864,8 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
               onAdvance={step1Valid ? () => setStep(2) : undefined}
               onNavigateToPackage={onNavigateToPackage}
               onNavigateToPallet={onNavigateToPallet}
+              organizationId={workspaceOrgId}
+              actorProfileId={actorProfileId}
             />
           )}
           {step === 2 && (
@@ -6027,7 +5971,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
     tracking: p.tracking_number ?? undefined,
   }));
 
-  // ── Pallet → Package: inherit carrier_name and pallets.order_id ───────────
+  // ── Pallet → Package: inherit carrier_name and marketplace order_id ───────────
   // Priority: pallet.carrier_name  →  sibling package carrier  →  keep current value
   // Priority: pallet.order_id  →  keep current value
   // CRITICAL: fields are NOT locked — operators may override freely.
@@ -6039,7 +5983,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
 
     // 1. Resolve from in-memory pallet list first (zero network cost)
     const localPallet = openPallets.find((p) => p.id === pid);
-    if (localPallet?.carrier_name) setCarrier(localPallet.carrier_name);
+    if (localPallet?.carrier_name)    setCarrier(localPallet.carrier_name);
     if (localPallet?.order_id) setAmazonOrderId(localPallet.order_id);
 
     // 2. Always confirm from DB (covers pallets not yet in the local list)
@@ -6050,7 +5994,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
       .maybeSingle()
       .then(({ data: plt }) => {
         if (cancelled) return;
-        if (plt?.carrier_name) setCarrier(plt.carrier_name as string);
+        if (plt?.carrier_name)    setCarrier(plt.carrier_name as string);
         if (plt?.order_id) setAmazonOrderId(plt.order_id as string);
 
         // 3. Fallback for carrier: if pallet has no carrier_name, check sibling packages
@@ -6261,7 +6205,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
       const photo_evidence = noBoxMode
         ? (polyOnly ?? undefined)
         : struct
-          ? (struct as Record<string, unknown>)
+          ? (struct as unknown as Record<string, unknown>)
           : undefined;
       const res = await createPackage({
         organization_id: pkgOrgId,
@@ -6280,6 +6224,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
         pallet_id: palletId || undefined,
         store_id: pkgStoreId || undefined,
         created_by: actor,
+        ...(manifestParsedLines && manifestParsedLines.length > 0 ? { manifest_data: manifestParsedLines } : {}),
         ...(manifestPhotoUrl ? { manifest_photo_url: manifestPhotoUrl } : {}),
         ...(photo_evidence ? { photo_evidence } : {}),
       });
@@ -6664,10 +6609,6 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
   async function handleOcr(f: File) { setFile(f); setOcrLoad(true); const res = await mockPalletOcr(f); setOcrLoad(false); if (res.ok && res.data) { setOcrResult(res.data); setPalletNum(res.data.pallet_number); } else setError(res.error ?? "OCR failed."); }
   async function handleCreate() {
     if (!palletNum.trim()) return;
-    if (!palletCarrier.trim()) {
-      setError("Select a carrier.");
-      return;
-    }
     if (!palletStoreId.trim() || !isUuidString(palletStoreId.trim())) {
       setError("Select a valid Store from the dropdown.");
       return;
@@ -6680,14 +6621,14 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
         organization_id: pltOrgId,
         actor_profile_id: actorProfileId,
         pallet_number: palletNum.trim(),
-        pallet_photo_urls: palletPhotoUrls.map((u) => u.trim()).filter(Boolean),
-        bol_photo_urls: bolUrls.map((u) => u.trim()).filter(Boolean),
+        pallet_photo_urls: palletPhotoUrls[0]?.trim() ? [palletPhotoUrls[0].trim()] : null,
+        bol_photo_urls: bolUrls[0]?.trim() ? [bolUrls[0].trim()] : null,
         ...(manifestPhotoUrl ? { shipping_label_urls: [manifestPhotoUrl] } : {}),
         store_id: palletStoreId,
         notes,
         created_by: actor,
-        carrier_name: palletCarrier.trim(),
-        order_id:     palletAmazonOrderId.trim() || null,
+        carrier_name:    palletCarrier.trim()         || null,
+        order_id: palletAmazonOrderId.trim() || null,
       });
       setSaving(false);
       if (res.ok && res.data) onCreated(res.data); else setError(res.error ?? "Failed.");
@@ -6779,7 +6720,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
             </div>
             <MasterUploader
               label="Pallet photo (optional)"
-              hint="Up to 3 images — stored in pallet_photo_urls."
+              hint="Up to 3 images — first is saved to photo_url (extras are not stored on the pallet row)."
               value={palletPhotoUrls}
               onChange={setPalletPhotoUrls}
               organizationId={organizationId}
@@ -6787,7 +6728,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
             />
             <MasterUploader
               label="Bill of Lading (optional)"
-              hint="Up to 3 images — stored in bol_photo_urls."
+              hint="Up to 3 images — first is saved to bol_photo_url (extras are not stored on the pallet row)."
               value={bolUrls}
               onChange={setBolUrls}
               organizationId={organizationId}
@@ -6827,13 +6768,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
             <button
               type="button"
               onClick={handleCreate}
-              disabled={
-                saving ||
-                !palletNum.trim() ||
-                !palletCarrier.trim() ||
-                !palletStoreId.trim() ||
-                !isUuidString(palletStoreId.trim())
-              }
+              disabled={saving || !palletNum.trim() || !palletStoreId.trim() || !isUuidString(palletStoreId.trim())}
               className={MODAL_FOOTER_SUBMIT}
             >
               {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
@@ -6959,6 +6894,14 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           This session loads the latest {items.length} of {returnsTotalInDb} return items in the database. The table shows {PER} rows per page; use Next / Prev below or narrow with filters.
         </div>
       )}
+      {returnsTotalInDb != null && returnsTotalInDb <= 50 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-100">
+          <strong>Staging data note:</strong> <code className="font-mono">return_items</code> on staging is mostly
+          fake/test data (low row count). Resolver coverage on this table is not production truth — see{" "}
+          <code className="font-mono">PROJECT_CONTEXT.md</code> and V178 audit{" "}
+          <code className="font-mono">return_items-test-data.md</code>.
+        </div>
+      ) : null}
       {selectedIds.size > 0 && (
         <BulkActionsBar count={selectedIds.size} onDelete={canDelete(role) ? handleBulkDelete : undefined} onMove={() => setShowBulkMove(true)} onClear={() => setSelectedIds(new Set())} deleting={bulkDeleting} />
       )}
@@ -6979,7 +6922,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
 
       <div className="w-full overflow-x-auto rounded-2xl border border-border">
         <div className="w-full min-w-0">
-          <table className="w-full min-w-[1460px] text-sm">
+          <table className="w-full min-w-[1580px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
@@ -6991,7 +6934,8 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                   <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
                 )}
                 <th className="w-12 px-2 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500" title="Marketplace">MP</th>
-                <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Item / Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Product</th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="lpn" label="LPN" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -7035,8 +6979,16 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         asin={r.asin}
                         fnsku={r.fnsku}
                         sku={r.sku}
+                        upc={upcFromProductIdentifier(r.product_identifier)}
                         storePlatform={r.stores?.platform}
                         onToast={onToast}
+                      />
+                    </td>
+                    <td className="min-w-[220px] px-4 py-3 align-top" onClick={(e) => e.stopPropagation()}>
+                      <ReturnItemProductLinkage
+                        organizationId={r.organization_id}
+                        fields={r}
+                        compact
                       />
                     </td>
                     <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
@@ -7058,7 +7010,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         fallback="—"
                       />
                     </td>
-                    <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{r.conditions.slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                    <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     {/* ── Expiry Date cell (FEFO) ── */}
                     <td className="hidden px-4 py-3 md:table-cell">
@@ -7345,6 +7297,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                 <table className="w-full text-xs">
                                   <thead><tr className="border-b border-violet-200 bg-violet-100/60 dark:border-violet-800/50 dark:bg-violet-950/40">
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Item</th>
+                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Product</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Store</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Condition</th>
                                     <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Status</th>
@@ -7360,9 +7313,13 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                             asin={r.asin}
                                             fnsku={r.fnsku}
                                             sku={r.sku}
+                                            upc={upcFromProductIdentifier(r.product_identifier)}
                                             storePlatform={r.stores?.platform}
                                             onToast={onToast}
                                           />
+                                        </td>
+                                        <td className="px-3 py-2">
+                                          <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
                                         </td>
                                         <td className="px-3 py-2">
                                           {r.stores ? (
@@ -7371,7 +7328,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                             <span className="text-[11px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
                                           )}
                                         </td>
-                                        <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{r.conditions.slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                                        <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                         <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
                                         <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(r, pkgTableOperatorNames)}</td>
                                       </tr>
@@ -7663,6 +7620,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                       <table className="w-full text-[11px]">
                                                         <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Item</th>
+                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Product</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Store</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Condition</th>
                                                           <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Status</th>
@@ -7678,9 +7636,13 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                                   asin={r.asin}
                                                                   fnsku={r.fnsku}
                                                                   sku={r.sku}
+                                                                  upc={upcFromProductIdentifier(r.product_identifier)}
                                                                   storePlatform={r.stores?.platform}
                                                                   onToast={onToast}
                                                                 />
+                                                              </td>
+                                                              <td className="px-2 py-1.5">
+                                                                <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
                                                               </td>
                                                               <td className="px-2 py-1.5">
                                                                 {r.stores ? (
@@ -7689,7 +7651,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                                   <span className="text-[10px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
                                                                 )}
                                                               </td>
-                                                              <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{r.conditions.slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
+                                                              <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                                               <td className="px-2 py-1.5"><StatusBadge status={r.status} /></td>
                                                               <td className="px-2 py-1.5 capitalize text-slate-400">{operatorDisplayLabel(r, pltTableOperatorNames)}</td>
                                                             </tr>

@@ -58,9 +58,9 @@ function resolveAvailableHeaders(row: RawReportUploadRow): string[] {
   if (
     meta &&
     typeof meta === "object" &&
-    Array.isArray((meta as Record<string, unknown>).csv_headers)
+    Array.isArray((meta as unknown as Record<string, unknown>).csv_headers)
   ) {
-    return (meta as Record<string, unknown>).csv_headers as string[];
+    return (meta as unknown as Record<string, unknown>).csv_headers as string[];
   }
   // Fallback: use the values from any existing mapping as options.
   if (row.column_mapping) {

@@ -3,6 +3,8 @@
  * Do not rely on legacy columns (total_bytes, upload_progress, storage_prefix, etc.).
  */
 
+import { isUuidString } from "./uuid";
+
 /** Client ledger sessions — must live outside `"use server"` modules (only async exports allowed there). */
 export const AMAZON_LEDGER_UPLOAD_SOURCE = "amazon_ledger_uploader" as const;
 
@@ -23,6 +25,10 @@ export type ImportRunMetrics = {
   /** Live Phase 3 flush progress (sync route bump). */
   rows_synced?: number;
   total_staging_rows?: number;
+  /** File plan total (parsed / upload metadata), not staging row count. */
+  file_row_total_plan?: number;
+  /** Staging row count query failed or totals could not be reconciled. */
+  sync_count_verification_pending?: boolean;
   rows_invalid?: number;
   rows_skipped_empty?: number;
   rows_skipped_malformed?: number;
@@ -37,6 +43,60 @@ export type ImportRunMetrics = {
     | "complete"
     | "failed";
   failure_reason?: string;
+  // ── Product Identity validation metrics (mirrors metadata.product_identity_validation).
+  // Surfaced here so the unified `import_metrics` blob the UI/SQL inspects has the same shape
+  // for every report type that exposes parsed-vs-synced counters.
+  detected_headers?: string[];
+  detected_report_type?: string;
+  rows_parsed?: number;
+  products_upserted?: number;
+  catalog_products_upserted?: number;
+  identifiers_upserted?: number;
+  invalid_identifier_counts?: {
+    asin?: number;
+    fnsku?: number;
+    upc?: number;
+    total?: number;
+  };
+  /** Product Identity intra-batch dedupe counters (see lib/product-identity-import.ts). */
+  normalized_rows_count?: number;
+  unique_product_sku_count?: number;
+  duplicate_sku_count?: number;
+  duplicate_sku_conflict_count?: number;
+  catalog_unique_count?: number;
+  identifier_unique_count?: number;
+  /** Per-row CSV diagnostics (Product Identity). */
+  rows_missing_seller_sku?: number;
+  rows_invalid_seller_sku?: number;
+  rows_skipped?: number;
+  skipped_reason_counts?: {
+    missing_seller_sku?: number;
+    invalid_seller_sku?: number;
+  };
+  invalid_sku_examples?: { rowNumber: number; rawValue: string; reason: string }[];
+  /** Informational note surfaced in import_metrics for debugging. */
+  note?: string;
+  /** Phase 2 operator-facing line (Import History / importer card). */
+  phase2_operator_line?: string;
+  /**
+   * Phase 2 UI state — Nano retries, deferred DB count verification, batch exhaustion.
+   */
+  phase2_operator_state?:
+    | "processing"
+    | "retrying_batch"
+    | "waiting_before_retry"
+    | "count_verification_delayed"
+    | "final_verification_pending"
+    | "failed_after_retries"
+    | "resume_available"
+    | "completed";
+  phase2_operator_batch?: number;
+  phase2_operator_row_range?: string;
+  phase2_operator_batch_attempts?: number;
+  /** True when end-of-run DB count could not be confirmed; parser counters trusted. */
+  staging_final_count_verify_pending?: boolean;
+  /** Target staging table for the current phase (Product Identity pipeline). */
+  stage_target_table?: string;
 };
 
 export type RawReportUploadMetadata = {
@@ -70,6 +130,10 @@ export type RawReportUploadMetadata = {
   row_count?: number;
   /** Rows in amazon_staging before Phase 3 (for UI: staged vs synced). */
   staging_row_count?: number;
+  /** Phase 2 CSV stream: contiguous-prefix watermark (not a verified DB row count). */
+  staging_contiguous_watermark?: number;
+  /** Phase 3: staging count vs file plan could not be verified (see sync route). */
+  sync_count_verification_pending?: boolean;
   /** Rows written in Phase 3 after dedupe / shipment archive (see sync route). */
   sync_row_count?: number;
   /** Staging rows where the domain mapper returned null (Phase 3). */
@@ -110,6 +174,8 @@ export type RawReportUploadMetadata = {
   import_store_id?: string;
   /** e.g. `amazon_ledger_uploader` — distinguishes client-only ledger sessions */
   source?: string;
+  /** Amazon Reports API / Finances pull control plane (IMPORT-API-02). */
+  source_run?: Record<string, unknown>;
   /** Original CSV header row captured on upload — used to populate manual mapping dropdowns. */
   csv_headers?: string[];
   /**
@@ -174,6 +240,133 @@ export type RawReportUploadMetadata = {
   removal_shipment_lines_for_generic?: number;
   /** REMOVAL_SHIPMENT Phase 4: shipment lines used as generic progress denominator. */
   removal_shipment_phase4_generic_rows_written?: number;
+  /**
+   * Product Identity validation block — written by the process / sync routes
+   * for `report_type = 'PRODUCT_IDENTITY'`. Mirrors the same keys exposed
+   * inside `metadata.import_metrics` so the validation SQL can read either.
+   */
+  product_identity_validation?: {
+    detected_headers: string[];
+    detected_report_type: "PRODUCT_IDENTITY";
+    rows_parsed: number;
+    rows_synced: number;
+    products_upserted: number;
+    catalog_products_upserted: number;
+    identifiers_upserted: number;
+    invalid_identifier_counts: {
+      asin: number;
+      fnsku: number;
+      upc: number;
+      total: number;
+    };
+    /** Intra-batch dedupe stats (see lib/product-identity-import.ts). */
+    normalized_rows_count?: number;
+    unique_product_sku_count?: number;
+    duplicate_sku_count?: number;
+    duplicate_sku_conflict_count?: number;
+    catalog_unique_count?: number;
+    identifier_unique_count?: number;
+    /** Per-row CSV diagnostics (Product Identity). */
+    rows_missing_seller_sku?: number;
+    rows_invalid_seller_sku?: number;
+    rows_skipped?: number;
+    skipped_reason_counts?: {
+      missing_seller_sku?: number;
+      invalid_seller_sku?: number;
+    };
+    invalid_sku_examples?: { rowNumber: number; rawValue: string; reason: string }[];
+  };
+  /** SETTLEMENT Phase 3 pre-flight: mapping guard blocked sync (operator reviews mapping report). */
+  settlement_mapping_guard_blocked?: boolean;
+  settlement_mapping_guard_reason?: string;
+  settlement_mapping_guard_summary?: {
+    mapperAcceptedSample?: number;
+    mapperRejectedSample?: number;
+    lowConfidenceFinancialKeys?: string[];
+  };
+  /** PIM Product Master chunked import: uploaded | previewing | preview_ready | failed */
+  preview_status?: string;
+  /** Persisted async preview contract (quality, mapping, samples) for resume / Confirm & Import. */
+  pim_preview_result?: Record<string, unknown>;
+  /** PIM import job state (lifecycle, scan cursor, frozen_plan, preview_quality). */
+  pim_import_job?: Record<string, unknown>;
+  pim_seed_session_id?: string;
+  pim_import_confirmed?: boolean;
+  pim_import_confirmed_at?: string;
+  pim_import_cancelled?: boolean;
+  /** ISO timestamp when user chose Reset active import (dashboard). */
+  pim_ui_reset_at?: string;
+  /** Normalized driver status for UI (uploaded, previewing, preview_ready, import_queued, …). */
+  import_job_status?: string;
+  /** Single merged object path after multi-part upload (see `pim_import_async._ensure_pim_merged_source`). */
+  pim_merged_storage_path?: string | null;
+  /** Pickled DataFrame path for CSV preview/apply chunks (avoids re-parsing CSV each step). */
+  pim_csv_scan_cache_storage?: string | null;
+  /** Optional legacy key; PIM UI uses `raw_report_uploads.id` as the import job id. */
+  pim_import_session_id?: string;
+  /**
+   * Last incremental resolver orchestration run for this upload (NEXT-UNIVERSAL-RESOLVER-06).
+   * Upload-scoped only; no org-wide sweeps.
+   */
+  resolver_incremental_last_run?: ResolverIncrementalLastRunMetadata;
+  /**
+   * ImportDescriptorV1 advisory slice (NEXT-IMPORT-04). Does not drive sync until explicitly wired.
+   * @see lib/import/import-upload-descriptor-metadata.ts
+   */
+  import_descriptor?: {
+    descriptor_id: string;
+    descriptor_version: number;
+    classify_profile: string;
+    import_kind: string | null;
+    source_family: string;
+    provider: string;
+    classification_source?: string;
+    matched_rule?: string;
+  };
+};
+
+/** Persisted under `metadata.resolver_incremental_last_run` after orchestrated resolver runs. */
+export type ResolverIncrementalLastRunMetadata = {
+  at: string;
+  /** Same as `raw_report_uploads.id` — explicit for log export / cross-system joins. */
+  upload_id?: string;
+  /** Monotonic per (upload, table) orchestration attempts (incremented on each persisted run). */
+  run_sequence?: number;
+  /** ISO timestamp of the prior persisted run for the same table on this upload, if any. */
+  previous_run_at?: string | null;
+  table: string;
+  lane: "A" | "B";
+  verify_only?: boolean;
+  /** Lane B blocked the execute pass due to ambiguity ratio — ambiguity isolation preserved (no auto-resolve). */
+  lane_b_ambiguity_execute_skipped?: boolean;
+  /** Orchestration finished without fatal error (individual row patch warnings may still exist). */
+  orchestration_completed_ok?: boolean;
+  /** Set when `AbortError` fires between phases or fatal throw from resolver. */
+  orchestration_error?: string | null;
+  /** False when metadata merge/update failed after a run (observability). */
+  persist_metadata_ok?: boolean;
+  /** Count of UUIDs passed as `onlyRowIds` to the resolver (governed sub-batch). */
+  only_row_ids_count?: number | null;
+  phases: Array<{
+    name: "preflight_dry_run" | "execute" | "verify_only";
+    duration_ms: number;
+    metrics?: {
+      rows_scanned: number;
+      rows_resolved: number;
+      rows_ambiguous: number;
+      rows_unresolved: number;
+    };
+    aborted_reason?: string;
+  }>;
+  duration_ms_total: number;
+  rows_scanned?: number | null;
+  rows_resolved?: number | null;
+  rows_ambiguous?: number | null;
+  rows_unresolved?: number | null;
+  /** Reserved — bridge “safe new” counts when a dedicated counter exists. */
+  safe_new_count?: number | null;
+  rollback_event_count?: number;
+  aborted_execute?: string;
 };
 
 function num(v: unknown, fallback = 0): number {
@@ -195,7 +388,7 @@ export function parseRawReportMetadata(raw: unknown): {
   errorMessage: string | null;
   rowCount: number | null;
 } {
-  const m = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const m = raw && typeof raw === "object" ? (raw as unknown as Record<string, unknown>) : {};
   const rc = m.row_count;
   const tr = m.total_rows;
   const rowCountFromRowCount =
@@ -226,7 +419,30 @@ export function mergeUploadMetadata(
 ): RawReportUploadMetadata {
   const base =
     prev && typeof prev === "object" && !Array.isArray(prev)
-      ? { ...(prev as Record<string, unknown>) }
+      ? { ...(prev as unknown as Record<string, unknown>) }
       : {};
   return { ...base, ...patch } as RawReportUploadMetadata;
+}
+
+/** Imports Target Store: Wave-1 metadata on `raw_report_uploads`. */
+export function resolveImportStoreIdFromMetadata(metadata: unknown): string | null {
+  const m =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as unknown as Record<string, unknown>)
+      : {};
+  const a = typeof m.import_store_id === "string" ? m.import_store_id.trim() : "";
+  if (a && isUuidString(a)) return a;
+  const b = typeof m.ledger_store_id === "string" ? m.ledger_store_id.trim() : "";
+  if (b && isUuidString(b)) return b;
+  return null;
+}
+
+export function requireImportStoreIdFromMetadata(metadata: unknown, ctx = "Import"): string {
+  const id = resolveImportStoreIdFromMetadata(metadata);
+  if (!id) {
+    throw new Error(
+      `${ctx} requires metadata.import_store_id or metadata.ledger_store_id (UUID). Choose Imports Target Store in the importer.`,
+    );
+  }
+  return id;
 }

@@ -1,0 +1,7 @@
+{
+  "id": "finances_api_placeholder",
+  "skip_detector": true,
+  "reason": "Finances API listFinancialEvents is JSON — no CSV header classifier; tracked in crosswalk placeholders only.",
+  "headers": [],
+  "expect_report_type": null
+}

@@ -1,11 +1,6 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  experimental: {
-    serverActions: {
-      bodySizeLimit: "10mb",
-    },
-  },
-};
+/** ETL traffic is proxied by `app/api/etl/[[...path]]/route.ts` (streaming) — no rewrites needed. */
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

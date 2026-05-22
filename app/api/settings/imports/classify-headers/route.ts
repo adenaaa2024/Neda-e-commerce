@@ -3,8 +3,16 @@ import { NextResponse } from "next/server";
 import {
   buildColumnMappingFromHeaders,
   classifyCsvHeadersRuleBased,
+  headersLookLikeAmazonTransactionDetailReport,
+  headersLookLikeProductIdentity,
+  headersLookLikeReportsRepository,
+  headersLookLikeSimpleTransactionsSummary,
   mappingHasRequiredGaps,
 } from "../../../../../lib/csv-import-detected-type";
+import {
+  buildPositionalLedgerCanonicalColumnMapping,
+  headersMatchPositionalLedgerStaging,
+} from "../../../../../lib/inventory-ledger-positional";
 import { classifyImportHeadersWithGpt } from "../../../../../lib/classify-import-headers-openai";
 import { resolveWriteOrganizationId } from "../../../../../lib/server-tenant";
 import { supabaseServer } from "../../../../../lib/supabase-server";
@@ -14,6 +22,7 @@ import {
   contentSuggestsReportsRepositorySample,
   fileNameSuggestsReportsRepository,
 } from "../../../../../lib/reports-repository-header";
+import { applyImportDescriptorClassifyHook } from "../../../../../lib/import/import-classify-profile-hook";
 
 export const runtime = "nodejs";
 
@@ -24,6 +33,8 @@ type Body = {
   file_name?: unknown;
   /** First ~64KB of file text — detects Reports Repository preamble / header line hints. */
   content_sample?: unknown;
+  /** Optional ImportDescriptorV1 id — enriches response metadata only; does not override rules. */
+  descriptor_id?: unknown;
 };
 
 /**
@@ -63,22 +74,67 @@ const SAFET_FALLBACK_ALIASES: Record<string, string[]> = {
 const TRANSACTIONS_FALLBACK_ALIASES: Record<string, string[]> = {
   settlement_id:           ["settlement-id", "settlement id", "Settlement ID"],
   transaction_type:        ["transaction-type", "transaction type", "type"],
-  order_id:                ["order-id", "order id", "amazon-order-id", "amazon order id"],
-  amount:                  ["amount", "Amount", "total", "total-amount", "total amount", "price-amount", "price amount"],
-  total_product_charges:   ["total-product-charges", "total product charges"],
-  posted_date:             ["date/time", "date-time", "posted-date", "posted date"],
+  order_id:                ["order-id", "order id", "amazon-order-id", "amazon order id", "Order ID"],
+  amount:                  [
+    "amount", "Amount", "total", "total-amount", "total amount",
+    "Total (USD)", "total (usd)", "total-usd", "total usd",
+    "price-amount", "price amount",
+  ],
+  total_product_charges:   ["total-product-charges", "total product charges", "Total product charges"],
+  posted_date:             ["date/time", "date-time", "posted-date", "posted date", "date", "Date"],
   sku:                     ["sku", "SKU"],
 };
 
 /** Gap-fill for Reports Repository transaction CSV (lowercase headers, column "type"). */
 const REPORTS_REPOSITORY_FALLBACK_ALIASES: Record<string, string[]> = {
-  date_time:         ["date/time", "date-time", "datetime", "posted-date", "posted date"],
-  settlement_id:     ["settlement-id", "settlement id", "Settlement ID"],
-  transaction_type:  ["type", "transaction-type", "transaction type"],
-  order_id:          ["order-id", "order id", "amazon-order-id", "amazon order id"],
-  sku:               ["sku", "SKU", "merchant-sku", "msku"],
-  description:       ["description", "Description"],
-  total_amount:      ["total", "Total", "total-amount", "total amount"],
+  date_time: ["date/time", "date-time", "datetime", "posted-date", "posted date"],
+  settlement_id: ["settlement-id", "settlement id", "Settlement ID"],
+  transaction_type: ["type", "transaction-type", "transaction type"],
+  order_id: ["order-id", "order id", "amazon-order-id", "amazon order id"],
+  sku: ["sku", "SKU", "merchant-sku", "msku"],
+  description: ["description", "Description"],
+  total_amount: ["total", "Total", "total-amount", "total amount"],
+  quantity: ["quantity", "Quantity"],
+  marketplace: ["marketplace", "Marketplace"],
+  account_type: ["account-type", "account type", "Account Type"],
+  fulfillment: ["fulfillment", "Fulfillment"],
+  order_city: ["order-city", "order city", "Order City"],
+  order_state: ["order-state", "order state", "Order State"],
+  order_postal: ["order-postal", "order postal", "Order Postal"],
+  tax_collection_model: ["tax-collection-model", "tax collection model", "Tax Collection Model"],
+  product_sales: ["product-sales", "product sales", "Product Sales"],
+  product_sales_tax: ["product-sales-tax", "product sales tax", "Product Sales Tax"],
+  shipping_credits: ["shipping-credits", "shipping credits", "Shipping Credits"],
+  shipping_credits_tax: ["shipping-credits-tax", "shipping credits tax", "Shipping Credits Tax"],
+  gift_wrap_credits: ["gift-wrap-credits", "gift wrap credits", "Gift Wrap Credits"],
+  giftwrap_credits_tax: ["giftwrap-credits-tax", "giftwrap credits tax", "Giftwrap Credits Tax"],
+  regulatory_fee: ["regulatory-fee", "regulatory fee", "Regulatory Fee"],
+  tax_on_regulatory_fee: ["tax-on-regulatory-fee", "tax on regulatory fee", "Tax On Regulatory Fee"],
+  promotional_rebates: ["promotional-rebates", "promotional rebates", "Promotional Rebates"],
+  promotional_rebates_tax: [
+    "promotional-rebates-tax",
+    "promotional rebates tax",
+    "Promotional Rebates Tax",
+  ],
+  marketplace_withheld_tax: [
+    "marketplace-withheld-tax",
+    "marketplace withheld tax",
+    "Marketplace Withheld Tax",
+  ],
+  selling_fees: ["selling-fees", "selling fees", "Selling Fees"],
+  fba_fees: ["fba-fees", "fba fees", "FBA Fees"],
+  other_transaction_fees: [
+    "other-transaction-fees",
+    "other transaction fees",
+    "Other Transaction Fees",
+  ],
+  other_amount: ["other", "Other"],
+  transaction_status: ["transaction-status", "transaction status", "Transaction Status"],
+  transaction_release_date: [
+    "transaction-release-date",
+    "transaction release date",
+    "Transaction Release Date",
+  ],
 };
 
 const PRODUCT_IDENTITY_FALLBACK_ALIASES: Record<string, string[]> = {
@@ -142,14 +198,41 @@ function applyListingFallbackMapping(
 }
 
 const SETTLEMENT_FLAT_FALLBACK_ALIASES: Record<string, string[]> = {
-  settlement_id:         ["settlement-id", "settlement id", "Settlement ID"],
-  settlement_start_date: ["settlement-start-date", "settlement start date"],
-  settlement_end_date:   ["settlement-end-date", "settlement end date"],
-  deposit_date:          ["deposit-date", "deposit date"],
-  total_amount:          ["total-amount", "total amount"],
-  currency:              ["currency", "Currency"],
-  transaction_status:    ["transaction-type", "transaction type", "transaction-status", "transaction status"],
-  order_id:              ["order-id", "order id", "amazon-order-id", "amazon order id"],
+  settlement_id:           ["settlement-id", "settlement id", "Settlement ID"],
+  settlement_start_date:   ["settlement-start-date", "settlement start date"],
+  settlement_end_date:     ["settlement-end-date", "settlement end date"],
+  deposit_date:            ["deposit-date", "deposit date"],
+  total_amount:            ["total-amount", "total amount"],
+  currency:                ["currency", "Currency"],
+  // For the Transaction / Payment Detail report `transaction_status` is its own
+  // physical column; `transaction_type` keeps the legacy `type` mapping.
+  transaction_type:        ["type", "Type", "transaction-type", "transaction type"],
+  transaction_status:      ["transaction-status", "transaction status", "Transaction Status"],
+  transaction_release_date:["transaction-release-date", "Transaction Release Date"],
+  order_id:                ["order-id", "order id", "amazon-order-id", "amazon order id", "Order ID"],
+  sku:                     ["sku", "SKU"],
+  posted_date:             ["date/time", "Date/Time", "date-time"],
+  description:             ["description", "Description"],
+  quantity:                ["quantity", "Quantity"],
+  marketplace:             ["marketplace", "Marketplace"],
+  account_type:            ["account type", "account-type"],
+  fulfillment_channel:     ["fulfillment", "Fulfillment", "fulfillment-channel", "fulfillment channel"],
+  product_sales:           ["product sales", "product-sales"],
+  product_sales_tax:       ["product sales tax", "product-sales-tax"],
+  shipping_credits:        ["shipping credits", "shipping-credits"],
+  shipping_credits_tax:    ["shipping credits tax", "shipping-credits-tax"],
+  gift_wrap_credits:       ["gift wrap credits", "gift-wrap-credits", "giftwrap credits"],
+  giftwrap_credits_tax:    ["giftwrap credits tax", "giftwrap-credits-tax", "gift wrap credits tax"],
+  regulatory_fee:          ["Regulatory Fee", "regulatory fee", "regulatory-fee"],
+  tax_on_regulatory_fee:   ["Tax On Regulatory Fee", "tax on regulatory fee", "tax-on-regulatory-fee"],
+  promotional_rebates:     ["promotional rebates", "promotional-rebates"],
+  promotional_rebates_tax: ["promotional rebates tax", "promotional-rebates-tax"],
+  marketplace_withheld_tax:["marketplace withheld tax", "marketplace-withheld-tax"],
+  selling_fees:            ["selling fees", "selling-fees"],
+  fba_fees:                ["fba fees", "fba-fees"],
+  other_transaction_fees:  ["other transaction fees", "other-transaction-fees"],
+  other_amount:            ["other", "Other", "other-amount"],
+  amount_total:            ["total", "Total"],
 };
 
 function applySafeTFallbackMapping(
@@ -279,6 +362,8 @@ export async function POST(req: Request): Promise<Response> {
 
     const fileName = typeof body.file_name === "string" ? body.file_name.trim() : "";
     const contentSample = typeof body.content_sample === "string" ? body.content_sample.slice(0, 65536) : "";
+    const descriptorIdHint =
+      typeof body.descriptor_id === "string" ? body.descriptor_id.trim() : "";
 
     const orgId = await resolveWriteOrganizationId(actor, null);
     if (!isUuidString(orgId)) {
@@ -296,7 +381,7 @@ export async function POST(req: Request): Promise<Response> {
       SAFET_CLAIMS:       "Amazon SAFE-T Claims Report",
       TRANSACTIONS:       "Amazon Transactions Report",
       REPORTS_REPOSITORY: "Amazon Reports Repository Export",
-      PRODUCT_IDENTITY:   "Product Identity CSV",
+      PRODUCT_IDENTITY:   "Product Identity Report",
       CATEGORY_LISTINGS:  "Amazon Category Listings Report",
       ALL_LISTINGS:       "Amazon All Listings Report",
       ACTIVE_LISTINGS:    "Amazon Active Listings Report",
@@ -344,6 +429,12 @@ export async function POST(req: Request): Promise<Response> {
           fingerprint.slice(0, 60),
         );
         const memType = memoryRow.report_type as string;
+        const memDescriptorHook = applyImportDescriptorClassifyHook({
+          headers,
+          report_type: memType as RawReportType,
+          matched_rule: "memory",
+          descriptor_id: descriptorIdHint || null,
+        });
         return NextResponse.json({
           ok: true,
           report_type: memType as RawReportType,
@@ -354,6 +445,13 @@ export async function POST(req: Request): Promise<Response> {
           detected_file_type: REPORT_TYPE_HUMAN_LABELS[memType] ?? memType,
           is_supported: memType !== "UNKNOWN",
           message: `Previously recognized as ${REPORT_TYPE_HUMAN_LABELS[memType] ?? memType}.`,
+          import_descriptor: memDescriptorHook.import_descriptor,
+          classify_profile: memDescriptorHook.classify_profile,
+          descriptor_id: memDescriptorHook.descriptor_id,
+          descriptor_version: memDescriptorHook.descriptor_version,
+          import_kind: memDescriptorHook.import_kind,
+          source_family: memDescriptorHook.source_family,
+          provider: memDescriptorHook.provider,
         });
       }
     }
@@ -369,11 +467,28 @@ export async function POST(req: Request): Promise<Response> {
       source = "gpt";
     }
 
+    // Product Identity is intentionally exact-header only. If GPT tries to
+    // classify an inventory/listing report with SKU/FNSKU/ASIN overlap as
+    // PRODUCT_IDENTITY, reject that classification unless the full canonical
+    // Product Identity signature is present.
+    if ((reportType as string) === "PRODUCT_IDENTITY" && !headersLookLikeProductIdentity(headers)) {
+      reportType = "UNKNOWN";
+      aiColumnMapping = {};
+      detectedFileType = "Unknown File";
+      isSupported = false;
+      aiMessage =
+        "This file is not a Product Identity Report because it does not contain the exact Product Identity headers.";
+      source = "rules";
+    }
+
     // ── Step 3: Build rule-based alias mapping for the resolved type ───────────
-    const ruleMapping: Record<string, string> =
+    let ruleMapping: Record<string, string> =
       (reportType as string) !== "UNKNOWN"
         ? buildColumnMappingFromHeaders(headers, reportType)
         : {};
+    if (reportType === "INVENTORY_LEDGER" && headersMatchPositionalLedgerStaging(headers)) {
+      ruleMapping = { ...ruleMapping, ...buildPositionalLedgerCanonicalColumnMapping() };
+    }
 
     // Merge: rule-based fills gaps; AI mapping wins when both have a key
     const merged: Record<string, string> = { ...ruleMapping, ...aiColumnMapping };
@@ -406,7 +521,34 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     // ── Step 3.6: Filename / content — do not mis-file Reports Repository as Settlement ─
-    if (fileNameSuggestsReportsRepository(fileName)) {
+    //
+    // Order matters:
+    //   • Filename + Reports Repository header fingerprint wins over Transaction Detail
+    //     (wide Repository CSVs include Transaction Status / Release Date).
+    //   • Transaction / Payment Detail → SETTLEMENT (when not a Repository file).
+    //   • Simple Transactions Summary → TRANSACTIONS.
+    const isTransactionDetail = headersLookLikeAmazonTransactionDetailReport(headers);
+    const isSimpleSummary = headersLookLikeSimpleTransactionsSummary(headers);
+
+    const filenameReportsRepoLocked =
+      fileNameSuggestsReportsRepository(fileName) && headersLookLikeReportsRepository(headers);
+
+    if (filenameReportsRepoLocked) {
+      reportType = "REPORTS_REPOSITORY";
+      source = "filename";
+      column_mapping = applyReportsRepositoryFallbackMapping(
+        headers,
+        { ...buildColumnMappingFromHeaders(headers, "REPORTS_REPOSITORY"), ...column_mapping },
+      );
+    } else if (isTransactionDetail) {
+      reportType = "SETTLEMENT";
+      source = "rules";
+      column_mapping = applySettlementFlatFallbackMapping(headers, column_mapping);
+    } else if (isSimpleSummary) {
+      reportType = "TRANSACTIONS";
+      source = "rules";
+      column_mapping = applyTransactionsFallbackMapping(headers, column_mapping);
+    } else if (fileNameSuggestsReportsRepository(fileName)) {
       reportType = "REPORTS_REPOSITORY";
       source = "filename";
       column_mapping = applyReportsRepositoryFallbackMapping(
@@ -469,6 +611,13 @@ export async function POST(req: Request): Promise<Response> {
       (reportType as string) === "UNKNOWN" ||
       ((reportType as string) !== "UNKNOWN" && mappingHasRequiredGaps(column_mapping, reportType));
 
+    const descriptorHook = applyImportDescriptorClassifyHook({
+      headers,
+      report_type: reportType,
+      matched_rule: rules.matchedRule,
+      descriptor_id: descriptorIdHint || null,
+    });
+
     return NextResponse.json({
       ok: true,
       report_type: reportType,
@@ -482,6 +631,13 @@ export async function POST(req: Request): Promise<Response> {
         ? `Recognized as ${detectedFileType}.`
         : `This file was identified as "${detectedFileType}" but is not yet supported.`
       ),
+      import_descriptor: descriptorHook.import_descriptor,
+      classify_profile: descriptorHook.classify_profile,
+      descriptor_id: descriptorHook.descriptor_id,
+      descriptor_version: descriptorHook.descriptor_version,
+      import_kind: descriptorHook.import_kind,
+      source_family: descriptorHook.source_family,
+      provider: descriptorHook.provider,
     });
   } catch (e) {
     return NextResponse.json(

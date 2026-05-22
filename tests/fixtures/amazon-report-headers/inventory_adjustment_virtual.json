@@ -1,0 +1,7 @@
+{
+  "id": "inventory_adjustment_virtual",
+  "skip_detector": true,
+  "reason": "Virtual bundle (ledger + financial + removals); no single classifyCsvHeadersRuleBased outcome.",
+  "headers": [],
+  "expect_report_type": null
+}

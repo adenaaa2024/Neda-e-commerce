@@ -1,0 +1,12 @@
+{
+  "id": "inventory_ledger_event",
+  "description": "Inventory Ledger event-level export",
+  "headers": [
+    "fnsku",
+    "event-type",
+    "fulfillment-center",
+    "disposition",
+    "reference-id"
+  ],
+  "expect_report_type": "INVENTORY_LEDGER"
+}

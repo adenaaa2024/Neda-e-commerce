@@ -3,11 +3,7 @@
 import { supabaseServer } from "../../lib/supabase-server";
 import { resolveOrganizationId } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
-import {
-  CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY,
-  CLAIM_SUBMISSIONS_TABLE,
-  CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED,
-} from "./claim-submissions-constants";
+import { CLAIM_SUBMISSIONS_TABLE, CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED } from "./claim-submissions-constants";
 
 export type ClaimReportHistoryStatusLabel =
   | "Generated"
@@ -30,13 +26,13 @@ export type ClaimReportHistoryRow = {
 };
 
 function returnFromSubmissionEmbed(sub: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = sub[CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY];
+  const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
-  return (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown>;
+  return (Array.isArray(raw) ? raw[0] : raw) as unknown as Record<string, unknown>;
 }
 
 function claimTypeFromRow(sub: Record<string, unknown>, ret: Record<string, unknown> | null): string | null {
-  const payload = (sub.source_payload as Record<string, unknown>) ?? {};
+  const payload = (sub.source_payload as unknown as Record<string, unknown>) ?? {};
   const fromPayload = payload.claim_type;
   if (typeof fromPayload === "string" && fromPayload.trim()) return fromPayload.trim();
   const cond = ret?.conditions;
@@ -99,7 +95,7 @@ export type ListClaimReportHistoryParams = {
 
 /**
  * Report archive: `claim_submissions` rows that have a stored PDF (`report_url` set).
- * Embedded `return_items` for claim “case” type via `source_payload.claim_type` or return conditions.
+ * Embedded `returns` for claim “case” type via `source_payload.claim_type` or return conditions.
  * Generator: `profiles.full_name` when `created_by` (submission or return) is a UUID; otherwise the text label.
  */
 export async function listClaimReportHistory(
@@ -112,7 +108,7 @@ export async function listClaimReportHistory(
   try {
     let q = supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
       .eq("organization_id", orgId)
       .not("report_url", "is", null)
       .neq("report_url", "")

@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 
 import { syncFinancialReferenceResolverForUpload } from "../../../../../lib/financial-reference-resolver-sync";
 import { completeInventoryLedgerProductIdentifierMapPhase } from "../../../../../lib/inventory-ledger-generic-completion";
+import { completeReportsRepositoryGenericPhase } from "../../../../../lib/reports-repository-generic-completion";
 import { logAmazonImportEngineEvent } from "../../../../../lib/pipeline/amazon-import-engine-log";
 import { FPS_KEY_GENERIC, fpsLabelGeneric } from "../../../../../lib/pipeline/file-processing-status-contract";
 import {
@@ -17,7 +18,7 @@ import {
   resolveAmazonImportSyncKind,
 } from "../../../../../lib/pipeline/amazon-report-registry";
 import { runListingCatalogGenericPhase } from "../../../../../lib/pipeline/listing-import-complete-from-staging";
-import { mergeUploadMetadata } from "../../../../../lib/raw-report-upload-metadata";
+import { mergeUploadMetadata, resolveImportStoreIdFromMetadata } from "../../../../../lib/raw-report-upload-metadata";
 import { supabaseServer } from "../../../../../lib/supabase-server";
 import { isUuidString } from "../../../../../lib/uuid";
 
@@ -41,16 +42,9 @@ function phase4CompleteDb(v: unknown): boolean {
   return normLower(v) === "complete";
 }
 
-function resolveImportStoreId(meta: unknown): string | null {
-  const m =
-    meta && typeof meta === "object" && !Array.isArray(meta)
-      ? (meta as Record<string, unknown>)
-      : {};
-  const a = typeof m.import_store_id === "string" ? m.import_store_id.trim() : "";
-  if (a && isUuidString(a)) return a;
-  const b = typeof m.ledger_store_id === "string" ? m.ledger_store_id.trim() : "";
-  if (b && isUuidString(b)) return b;
-  return null;
+function intOrFiniteInt(v: unknown, fallback: number): number {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.floor(v);
+  return fallback;
 }
 
 async function acquireRemovalPipelineLock(orgId: string, storeId: string, uploadId: string): Promise<void> {
@@ -100,7 +94,7 @@ async function enrichExpectedPackagesFromShipmentAllocations(opts: {
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || typeof row !== "object") return;
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     console.log(
       JSON.stringify({
         phase: "expected_packages_allocation_enrich",
@@ -140,7 +134,7 @@ async function backfillExpectedPackagesShipmentMeta(opts: {
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || typeof row !== "object") return;
-    const r = row as Record<string, unknown>;
+    const r = row as unknown as Record<string, unknown>;
     console.log(
       JSON.stringify({
         phase: "expected_packages_shipment_meta_backfill",
@@ -203,10 +197,10 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     const meta = (row as { metadata?: unknown }).metadata;
-    const importStoreId = resolveImportStoreId(meta);
+    const importStoreId = resolveImportStoreIdFromMetadata(meta);
     const failedPhaseRaw =
       meta && typeof meta === "object" && !Array.isArray(meta)
-        ? normLower((meta as Record<string, unknown>).failed_phase)
+        ? normLower((meta as unknown as Record<string, unknown>).failed_phase)
         : "";
 
     const { data: fpsGate } = await supabaseServer
@@ -250,7 +244,7 @@ export async function POST(req: Request): Promise<Response> {
       const merged = mergeUploadMetadata(meta, {
         etl_phase: "generic",
         error_message: "",
-      }) as Record<string, unknown>;
+      }) as unknown as Record<string, unknown>;
       delete merged.failed_phase;
       return merged;
     })();
@@ -392,7 +386,7 @@ export async function POST(req: Request): Promise<Response> {
           etl_phase: "complete",
           error_message: "",
           removal_shipment_phase4_generic_rows_written: genericEligibleRows,
-        }) as Record<string, unknown>;
+        }) as unknown as Record<string, unknown>;
         delete mergedMeta.failed_phase;
 
         await supabaseServer
@@ -460,6 +454,16 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     if (kind === "INVENTORY_LEDGER") {
+      if (!importStoreId) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Imports Target Store is required for Inventory Ledger generic phase. Set metadata.import_store_id on the upload, then retry.",
+          },
+          { status: 422 },
+        );
+      }
       const { enriched, mapUpserts } = await completeInventoryLedgerProductIdentifierMapPhase({
         supabase: supabaseServer,
         organizationId: orgId,
@@ -480,6 +484,17 @@ export async function POST(req: Request): Promise<Response> {
       });
     }
 
+    if (kind === "REPORTS_REPOSITORY") {
+      const { domainRowCount } = await completeReportsRepositoryGenericPhase({
+        supabase: supabaseServer,
+        organizationId: orgId,
+        uploadId,
+        engine,
+        reportTypeRaw: rt,
+      });
+      return NextResponse.json({ ok: true, kind: "REPORTS_REPOSITORY", domainRowCount });
+    }
+
     if (kind === "SETTLEMENT" || kind === "TRANSACTIONS" || kind === "REIMBURSEMENTS") {
       await syncFinancialReferenceResolverForUpload(supabaseServer, orgId, uploadId, kind);
 
@@ -488,7 +503,7 @@ export async function POST(req: Request): Promise<Response> {
       if (domainTable) {
         const { count } = await supabaseServer
           .from(domainTable)
-          .select("*", { count: "exact", head: true })
+          .select("id", { count: "exact", head: true })
           .eq("organization_id", orgId)
           .eq("upload_id", uploadId);
         domainRowCount = typeof count === "number" ? count : 0;
@@ -504,7 +519,7 @@ export async function POST(req: Request): Promise<Response> {
         import_metrics: { current_phase: "complete" },
         etl_phase: "complete",
         error_message: "",
-      }) as Record<string, unknown>;
+      }) as unknown as Record<string, unknown>;
       delete mergedFin.failed_phase;
 
       await supabaseServer
@@ -518,10 +533,19 @@ export async function POST(req: Request): Promise<Response> {
         .eq("id", uploadId)
         .eq("organization_id", orgId);
 
+      const { data: fpsPriorFin } = await supabaseServer
+        .from("file_processing_status")
+        .select("total_rows, processed_rows")
+        .eq("upload_id", uploadId)
+        .maybeSingle();
+      const priorF = (fpsPriorFin ?? {}) as { total_rows?: unknown; processed_rows?: unknown };
+
       await supabaseServer.from("file_processing_status").upsert(
         {
           upload_id: uploadId,
           organization_id: orgId,
+          total_rows: intOrFiniteInt(priorF.total_rows, domainRowCount),
+          processed_rows: intOrFiniteInt(priorF.processed_rows, domainRowCount),
           status: "complete",
           current_phase: "complete",
           phase_key: "complete",

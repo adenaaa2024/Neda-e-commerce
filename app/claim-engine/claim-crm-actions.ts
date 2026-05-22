@@ -1,6 +1,7 @@
 "use server";
 
 import { supabaseServer } from "../../lib/supabase-server";
+import { isUuidString } from "../../lib/uuid";
 import { estimateClaimSuccessProbability } from "./claim-crm-utils";
 import { CLAIM_SUBMISSION_RETURN_ID_COLUMN, CLAIM_SUBMISSIONS_TABLE } from "./claim-submissions-constants";
 import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
@@ -35,7 +36,7 @@ const CLAIM_HISTORY_SELECT =
   "id, organization_id, claim_id, action, details, actor, created_at";
 
 function asDetailsObj(raw: unknown): Record<string, unknown> {
-  if (raw != null && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (raw != null && typeof raw === "object" && !Array.isArray(raw)) return raw as unknown as Record<string, unknown>;
   return {};
 }
 
@@ -98,6 +99,9 @@ function resolveReturnSku(ret: Record<string, unknown> | null): string | null {
 export async function getClaimEngineKpis(
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data?: ClaimEngineKpis; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, error: "organization_id must be a valid UUID." };
+  }
   try {
     const { data, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
@@ -177,6 +181,12 @@ export async function getClaimHistoryLogsForSubmission(
   submissionId: string,
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data: ClaimHistoryLogRow[]; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, data: [], error: "organization_id must be a valid UUID." };
+  }
+  if (!isUuidString(submissionId)) {
+    return { ok: false, data: [], error: "submission id must be a valid UUID." };
+  }
   try {
     const { data, error } = await supabaseServer
       .from(CLAIM_HISTORY_TABLE)
@@ -187,7 +197,7 @@ export async function getClaimHistoryLogsForSubmission(
 
     if (error) throw new Error(error.message);
 
-    const logs: ClaimHistoryLogRow[] = (data ?? []).map((row) => mapClaimHistoryLogRow(row as Record<string, unknown>));
+    const logs: ClaimHistoryLogRow[] = (data ?? []).map((row) => mapClaimHistoryLogRow(row as unknown as Record<string, unknown>));
 
     return { ok: true, data: logs };
   } catch (e) {
@@ -203,6 +213,12 @@ export async function getClaimInvestigationPayload(
   submissionId: string,
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; data?: ClaimInvestigationPayload; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, error: "organization_id must be a valid UUID." };
+  }
+  if (!isUuidString(submissionId)) {
+    return { ok: false, error: "submission id must be a valid UUID." };
+  }
   try {
     const { data: sub, error: sErr } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
@@ -214,7 +230,7 @@ export async function getClaimInvestigationPayload(
     if (sErr) throw new Error(sErr.message);
     if (!sub) return { ok: false, error: "Submission not found." };
 
-    const subRow = sub as Record<string, unknown>;
+    const subRow = sub as unknown as Record<string, unknown>;
     const returnId = subRow[CLAIM_SUBMISSION_RETURN_ID_COLUMN] as string | null | undefined;
 
     const { data: ret } = returnId
@@ -231,7 +247,7 @@ export async function getClaimInvestigationPayload(
     if (lErr) throw new Error(lErr.message);
 
     const logs: ClaimHistoryLogRow[] = (logsRaw ?? []).map((row) =>
-      mapClaimHistoryLogRow(row as Record<string, unknown>),
+      mapClaimHistoryLogRow(row as unknown as Record<string, unknown>),
     );
 
     const preview_url = await signedUrlForReport(subRow.report_url as string | null);
@@ -241,7 +257,7 @@ export async function getClaimInvestigationPayload(
       data: {
         submission: subRow,
         logs,
-        returnRow: ret ? (ret as Record<string, unknown>) : null,
+        returnRow: ret ? (ret as unknown as Record<string, unknown>) : null,
         preview_url,
       },
     };
@@ -274,6 +290,12 @@ export async function syncMarketplaceStatus(opts: {
   lastMessageForProbability?: string;
 }): Promise<{ ok: boolean; successProbability?: number; error?: string }> {
   const organizationId = opts.organizationId ?? DEFAULT_ORG;
+  if (!isUuidString(organizationId)) {
+    return { ok: false, error: "organization_id must be a valid UUID." };
+  }
+  if (!isUuidString(opts.submissionId)) {
+    return { ok: false, error: "submission id must be a valid UUID." };
+  }
 
   try {
     const lastText =

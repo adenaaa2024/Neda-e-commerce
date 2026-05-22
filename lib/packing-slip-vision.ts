@@ -19,7 +19,7 @@ function parseLinesJson(content: string): PackingSlipLine[] {
   const out: PackingSlipLine[] = [];
   for (const row of parsed) {
     if (!row || typeof row !== "object") continue;
-    const o = row as Record<string, unknown>;
+    const o = row as unknown as Record<string, unknown>;
     const barcode = String(o.barcode ?? "").trim();
     const q = Number(o.expected_qty);
     if (!barcode || !Number.isFinite(q) || q < 0) continue;

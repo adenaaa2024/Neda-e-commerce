@@ -6,17 +6,14 @@ import {
   storePlatformFromEmbed,
 } from "../returns/claim-queue-helpers";
 import { generateDailyClaimReports } from "./claim-submission-actions";
-import {
-  CLAIM_SUBMISSION_RETURN_ID_COLUMN,
-  CLAIM_SUBMISSIONS_TABLE,
-} from "./claim-submissions-constants";
+import { CLAIM_SUBMISSION_RETURN_ID_COLUMN, CLAIM_SUBMISSIONS_TABLE } from "./claim-submissions-constants";
 import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
 
 const DEFAULT_ORG = "00000000-0000-0000-0000-000000000001";
 
 /**
  * Returns counts for Settings "Logistics AI Agent" sync UI:
- * - `pendingSyncCount`: Amazon `ready_for_claim` return_items not yet represented as `ready_to_send` in `claim_submissions`.
+ * - `pendingSyncCount`: Amazon `ready_for_claim` returns not yet represented as `ready_to_send` in `claim_submissions`.
  */
 export async function getClaimQueueSyncStatus(
   organizationId: string = DEFAULT_ORG,
@@ -78,7 +75,7 @@ export async function getClaimQueueSyncStatus(
   }
 }
 
-/** Enqueues / upserts `claim_submissions` for all `ready_for_claim` return_items (same as pipeline builder). */
+/** Enqueues / upserts `claim_submissions` for all `ready_for_claim` returns (same as pipeline builder). */
 export async function syncClaimQueueNow(
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; generated?: number; error?: string }> {

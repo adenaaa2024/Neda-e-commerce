@@ -3,18 +3,18 @@
  * Joins `return_items` for ASIN/FNSKU/SKU whenever `return_id` is set.
  */
 import { supabaseServer } from "../../lib/supabase-server";
+import { isUuidString } from "../../lib/uuid";
 import type { ReturnRecord } from "../returns/returns-action-types";
 import {
-  CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY,
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
   CLAIM_SUBMISSIONS_TABLE,
-  CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED,
+  CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED,
 } from "./claim-submissions-constants";
 import type { ClaimRecord } from "./claim-types";
 
 function normalizeReturnEmbed(raw: unknown): ReturnRecord | null {
   if (!raw) return null;
-  const r = raw as Record<string, unknown>;
+  const r = raw as unknown as Record<string, unknown>;
   const sr = r.stores;
   let stores: ReturnRecord["stores"];
   if (Array.isArray(sr)) {
@@ -41,7 +41,7 @@ function resolveSkuFromReturn(ret: ReturnRecord | null): string | null {
 
 /** PostgREST `return_items` FK embed on `claim_submissions` (object or one-element array). */
 function returnFromSubmissionEmbed(sub: Record<string, unknown>): ReturnRecord | null {
-  const raw = sub[CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY];
+  const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
   const r = Array.isArray(raw) ? raw[0] : raw;
   return normalizeReturnEmbed(r);
@@ -60,21 +60,24 @@ const WORKSPACE_STATUSES = [
 ] as const;
 
 /**
- * Submissions in review / filed states. V16.4.23: org filter removed temporarily so rows are visible under RLS testing.
+ * Submissions in review / filed states for one tenant (organization_id required).
  */
 export async function fetchClaimWorkspaceRows(
-  _organizationId: string,
+  organizationId: string,
   limit = 200,
 ): Promise<{ ok: boolean; data: ClaimRecord[]; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, data: [], error: "organization_id must be a valid UUID." };
+  }
   try {
     const { data: subs, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
+      .eq("organization_id", organizationId)
       .in("status", [...WORKSPACE_STATUSES])
       .order("updated_at", { ascending: false })
       .limit(limit);
 
-    console.log("Claim workspace submissions:", subs, error);
     if (error) throw new Error(error.message);
     const list = subs ?? [];
 
@@ -94,12 +97,12 @@ export async function fetchClaimWorkspaceRows(
   }
 }
 
-/** Maps `claim_submissions` + optional `return_items` row + source_payload → UI `ClaimRecord`. */
+/** Maps `claim_submissions` + optional `returns` row + source_payload → UI `ClaimRecord`. */
 export function mapSubmissionToClaimRecord(
   sub: Record<string, unknown>,
   ret: ReturnRecord | null,
 ): ClaimRecord {
-  const payload = (sub.source_payload as Record<string, unknown>) ?? {};
+  const payload = (sub.source_payload as unknown as Record<string, unknown>) ?? {};
   const amount = Number(sub.claim_amount ?? payload.amount ?? 0) || 0;
   const reimbursementRaw = sub.reimbursement_amount;
   const reimbursement_amount =
@@ -130,16 +133,19 @@ export function mapSubmissionToClaimRecord(
 }
 
 /**
- * Lists submissions with return_items embedded (PostgREST FK). Falls back to `select` + batch return_items fetch.
+ * Lists submissions with returns embedded (PostgREST FK). Falls back to `select` + batch returns fetch.
  */
 export async function fetchClaimSubmissionsWithReturns(
   organizationId: string,
   limit = 100,
 ): Promise<{ ok: boolean; data: ClaimRecord[]; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, data: [], error: "organization_id must be a valid UUID." };
+  }
   try {
     const { data: subs, error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
       .limit(limit);

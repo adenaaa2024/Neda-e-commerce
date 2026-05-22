@@ -1,0 +1,74 @@
+# Codex onboarding — ecommerce-os (V176)
+
+Welcome. This repo uses a **shared AI memory** pack so you do not need prior chat context.
+
+## 5-minute start
+
+1. Read [`.ai-memory/CURRENT_STATE.md`](.ai-memory/CURRENT_STATE.md)
+2. Read [`.ai-memory/FORBIDDEN_ACTIONS.md`](.ai-memory/FORBIDDEN_ACTIONS.md)
+3. Read [`.ai-memory/CODEX_RULES.md`](.ai-memory/CODEX_RULES.md)
+4. Skim [ARCHITECTURE.md](ARCHITECTURE.md) and [`.ai-memory/DATABASE_CONTRACT.md`](.ai-memory/DATABASE_CONTRACT.md)
+
+## Environment
+
+- **Work against staging:** `eiqfaapyumhixxoeltgu` via active quartet in `.env.local` (not `STAGING_*` aliases alone).
+- **Never** set production vars to staging values.
+- **Original** `kxsvedvpjldygtdbylsy` is live Vercel Production — treat as read-only unless user explicitly asks for production work (usually forbidden).
+
+## Code conventions
+
+- Product linkage UI: `ProductLinkageDisplayContract` only.
+- Returns lines: `return_items` table — **never** `returns`.
+- Packages: no `package_items` table or inserts.
+- Resolvers: `scripts/claim-candidate-resolver-project-v175-staging.ts` patterns — deterministic tiers, no product auto-create.
+
+## Product Resolution Contract — Non-Negotiable
+
+For every product-aware flow, preserve this path:
+
+```text
+manual/UI/API/import input
+-> normalize identifiers
+-> deterministic product resolver
+-> products + product_identifier_map
+-> persist resolved_product_id only for one deterministic winner
+-> hydrate ProductLinkageDisplayContract
+-> render the same linked/unresolved/ambiguous/mismatch contract everywhere
+```
+
+This applies to manual add/edit, scanner save, package/pallet child item rows, return item detail, expected packages, slip contents, imports/Amazon files, API ingestion, claim generation, and Neda UI.
+
+Allowed patterns:
+
+- Approved server actions and governed import/resolver scripts.
+- Resolver-on-save when identifiers or org/store scope change.
+- `ProductLinkageDisplayContract` read hydration.
+- Unresolved/ambiguous/mismatch fallback display.
+
+Forbidden patterns:
+
+- Direct browser Supabase writes for product-aware rows.
+- UI-side `products.insert` / `products.upsert`.
+- `package_items`.
+- Legacy `.from("returns")`.
+- Raw `return_items` detail reads without hydration.
+- Title/OCR/fuzzy/AI auto-link or auto-create.
+
+Before handing off product-aware changes, run:
+
+```bash
+npm run check:product-resolution-contract-v192
+```
+
+## Commands
+
+See [`.ai-memory/COMMANDS.md`](.ai-memory/COMMANDS.md) for npm scripts used in audits.
+
+## Evidence
+
+- Latest history: `.cursor/audit-reports/history-v175/20260604T120000Z/ERP_PIM_FULL_HISTORY_V175_APPEND_ONLY_CLAIM_RESOLVER_PREVIEW_STATUS.md`
+- Bootstrap audit: `.cursor/audit-reports/ai-shared-memory-bootstrap-v176/20260519T223000Z/`
+
+## When unsure
+
+Stop and ask the user rather than running production migrations, Amazon API calls, or product auto-create.

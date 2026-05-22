@@ -5,6 +5,7 @@ import {
   Database,
   DollarSign,
   FileText,
+  FileUp,
   Network,
   Package,
   Palette,
@@ -15,6 +16,7 @@ import {
   ShieldAlert,
   Users,
   ClipboardList,
+  Inbox,
 } from "lucide-react";
 import type { SidebarIconName } from "./sidebar-config";
 
@@ -26,6 +28,7 @@ export const SIDEBAR_ICONS: Record<SidebarIconName, LucideIcon> = {
   DollarSign: DollarSign,
   ShieldAlert: ShieldAlert,
   FileText: FileText,
+  FileUp: FileUp,
   Settings: Settings,
   Building2: Building2,
   Users: Users,
@@ -34,6 +37,7 @@ export const SIDEBAR_ICONS: Record<SidebarIconName, LucideIcon> = {
   Shield: Shield,
   Database: Database,
   ScanLine: ScanLine,
+  Inbox: Inbox,
 };
 
 export function getSidebarIcon(name: SidebarIconName): LucideIcon {

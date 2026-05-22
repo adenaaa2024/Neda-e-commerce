@@ -51,7 +51,7 @@ export async function listAssignableRolesForUsers(): Promise<
       .order("name", { ascending: true });
     if (error) return { ok: false, error: error.message };
     const rows: AssignableRoleRow[] = (data ?? []).map((raw) => {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       const scope = r.scope === "system" || r.scope === "tenant" ? r.scope : "tenant";
       return {
         id: String(r.id ?? ""),
@@ -131,7 +131,7 @@ async function fetchOrgNameMap(orgIds: string[]): Promise<Map<string, string>> {
     }
 
     for (const row of settingsRes.data ?? []) {
-      const r = row as Record<string, unknown>;
+      const r = row as unknown as Record<string, unknown>;
       const oid = String(r.organization_id ?? "").trim();
       if (!oid) continue;
       const custom =
@@ -259,7 +259,7 @@ export async function listGroupsForOrganization(
       .order("name", { ascending: true });
     if (error) return { ok: false, error: error.message };
     const rows: OrgGroupRow[] = (data ?? []).map((raw) => {
-      const r = raw as Record<string, unknown>;
+      const r = raw as unknown as Record<string, unknown>;
       return {
         id: String(r.id ?? ""),
         key: String(r.key ?? "").trim(),
@@ -316,7 +316,7 @@ export async function listUserGroupAssignmentsForProfiles(
     if (pe) return { ok: false, error: pe.message };
     const profileOrg = new Map<string, string>();
     for (const p of profileRows ?? []) {
-      const r = p as Record<string, unknown>;
+      const r = p as unknown as Record<string, unknown>;
       const id = String(r.id ?? "").trim();
       const oid = r.organization_id != null ? String(r.organization_id).trim() : "";
       if (id && oid && isUuidString(oid)) profileOrg.set(id, oid);
@@ -332,7 +332,7 @@ export async function listUserGroupAssignmentsForProfiles(
     for (const id of ids) byProfileId[id] = [];
 
     for (const raw of data ?? []) {
-      const row = raw as Record<string, unknown>;
+      const row = raw as unknown as Record<string, unknown>;
       const profileId = String(row.profile_id ?? "").trim();
       const ugId = String(row.id ?? "").trim();
       const groupId = String(row.group_id ?? "").trim();
@@ -577,7 +577,7 @@ export async function listUserProfiles(ctx?: {
     const { data, error } = await query;
     if (error) return { ok: false, error: error.message };
 
-    const rawRows = (data ?? []) as Record<string, unknown>[];
+    const rawRows = (data ?? []) as unknown as Record<string, unknown>[];
     const rows = await mapRawProfileRowsToProfileRows(rawRows);
 
     return { ok: true, rows };
@@ -611,7 +611,7 @@ export async function listAllUserProfilesForPlatformDirectory(): Promise<
       .order("full_name", { ascending: true });
     if (error) return { ok: false, error: error.message };
 
-    const rawRows = (data ?? []) as Record<string, unknown>[];
+    const rawRows = (data ?? []) as unknown as Record<string, unknown>[];
     const rows = await mapRawProfileRowsToProfileRows(rawRows);
     return { ok: true, rows };
   } catch (e) {

@@ -14,8 +14,29 @@ import type { ImportFpsSnapshot } from "../../../lib/import-ui-action-state";
 import { resolveOrganizationId } from "../../../lib/organization";
 import { resolveWriteOrganizationId } from "../../../lib/server-tenant";
 import type { RawReportType } from "../../../lib/raw-report-types";
+import { isPimRawReportType } from "../../../lib/pim-import-report-types";
 import { isUuidString } from "../../../lib/uuid";
 import { DB_TABLES, RAW_REPORTS_BUCKET, RAW_REPORT_UPLOADS_SELECT } from "../lib/constants";
+import {
+  buildImportUploadDescriptorMetadataFromReportType,
+  isImportDescriptorMetadataEnabled,
+  mergeImportDescriptorIntoUploadMetadata,
+  type ImportUploadDescriptorMetadata,
+} from "../../../lib/import/import-upload-descriptor-metadata";
+
+/** PIM Quick Import / catalog seed rows — excluded from generic Amazon/raw Import History. */
+function isPimCatalogOrAsyncUploadRow(raw: Record<string, unknown>): boolean {
+  if (isPimRawReportType(String(raw.report_type ?? "").trim())) return true;
+  const md = raw.metadata;
+  if (md && typeof md === "object" && !Array.isArray(md)) {
+    const m = md as unknown as Record<string, unknown>;
+    if (m.module === "pim") return true;
+    if (m.pim_async_import === true) return true;
+    if (m.pim_catalog_seed === true) return true;
+    if (String(m.import_area ?? "") === "product_master") return true;
+  }
+  return false;
+}
 
 /**
  * Inserts use **only** snake_case keys that match PostgREST / Postgres.
@@ -222,7 +243,7 @@ export async function findActiveProductIdentityImport(input: {
     if (!row) return { ok: true, existing: null };
 
     const meta = (row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata))
-      ? (row.metadata as Record<string, unknown>)
+      ? (row.metadata as unknown as Record<string, unknown>)
       : {};
     const importStoreId =
       typeof meta.import_store_id === "string" && isUuidString(meta.import_store_id)
@@ -415,14 +436,18 @@ export async function listRawReportUploads(input?: {
   // would mask the actor's home org for super_admins. `resolveWriteOrganizationId`
   // already gates the override to roles that may pick a workspace org.
   const requestedRaw = (input?.organizationId ?? "").trim();
+  if (!requestedRaw || !isUuidString(requestedRaw)) {
+    return { ok: false, error: "Active organization is required. Select a workspace organization in the app header." };
+  }
   let requestedOrgId: string | null = null;
-  if (isUuidString(requestedRaw)) {
-    const { data: orgRow } = await supabaseServer
-      .from("organizations")
-      .select("id")
-      .eq("id", requestedRaw)
-      .maybeSingle();
-    if (orgRow?.id) requestedOrgId = String(orgRow.id);
+  const { data: orgRow } = await supabaseServer
+    .from("organizations")
+    .select("id")
+    .eq("id", requestedRaw)
+    .maybeSingle();
+  if (orgRow?.id) requestedOrgId = String(orgRow.id);
+  if (!requestedOrgId) {
+    return { ok: false, error: "Selected workspace organization does not exist." };
   }
 
   const orgId = await resolveWriteOrganizationId(actorId, requestedOrgId);
@@ -448,13 +473,14 @@ export async function listRawReportUploads(input?: {
       .select(RAW_REPORT_UPLOADS_SELECT)
       .eq("organization_id", orgId)
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(200);
 
     if (error) return { ok: false, error: error.message };
 
-    const base = (data ?? []) as Record<string, unknown>[];
+    const base = (data ?? []) as unknown as Record<string, unknown>[];
+    const baseFiltered = base.filter((raw) => !isPimCatalogOrAsyncUploadRow(raw)).slice(0, 100);
 
-    const uploadIds = base
+    const uploadIds = baseFiltered
       .map((raw) => String((raw as { id?: unknown }).id ?? "").trim())
       .filter((id) => isUuidString(id));
     const fpsByUpload = new Map<string, ImportFpsSnapshot>();
@@ -539,12 +565,12 @@ export async function listRawReportUploads(input?: {
       }
     }
 
-    const rows: RawReportUploadRow[] = base.map((raw) => {
-      const r = raw as Record<string, unknown>;
+    const rows: RawReportUploadRow[] = baseFiltered.map((raw) => {
+      const r = raw as unknown as Record<string, unknown>;
       const meta = parseRawReportMetadata(r.metadata);
       const metaObj =
         r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata)
-          ? (r.metadata as Record<string, unknown>)
+          ? (r.metadata as unknown as Record<string, unknown>)
           : null;
       const id = String(r.id);
       return {
@@ -681,6 +707,12 @@ export async function createRawReportUploadSession(input: {
 > {
   const userId = await resolveActorForImportAction(input.actorUserId);
   const requestedOrg = input.organizationId?.trim() ?? null;
+  if (!requestedOrg || !isUuidString(requestedOrg)) {
+    return {
+      ok: false,
+      error: "Active organization is required. Choose a workspace organization in the app header before importing.",
+    };
+  }
   const storeOwnerOrg = await lookupStoreOrganizationId(input.storeId);
 
   // Tenant resolution priority for imports:
@@ -689,8 +721,7 @@ export async function createRawReportUploadSession(input: {
   //   3. The actor's profile org (legacy single-tenant fallback)
   // We never silently default to the parent/platform org for super_admins —
   // either the picker or the store's own organization wins.
-  const preferred = requestedOrg ?? storeOwnerOrg ?? null;
-  const orgId = await resolveWriteOrganizationId(userId, preferred);
+  const orgId = await resolveWriteOrganizationId(userId, requestedOrg);
 
   // Hard guard: when a store is specified, it MUST belong to the resolved org.
   // Without this, a super_admin whose profile lives in the platform/parent org
@@ -873,22 +904,49 @@ export async function updateUploadSessionClassification(input: {
    * Zero-based index of the actual header row detected by findHeaderRowIndex.
    * Saved so Phase 2 (stage route) can pass skipLines to csv-parser and skip
    * metadata preamble rows that Amazon's Reports Repository files prepend.
+   *
+   * Set to `-1` for the headerless Amazon Inventory Ledger export so Phase 2
+   * knows to use `synthesizedHeaders` instead of reading row 0 as a header.
    */
   headerRowIndex?: number | null;
+  /**
+   * When the file has no header (e.g. headerless Amazon Inventory Ledger),
+   * pass the synthesised header order here. Phase 2 will configure
+   * `csv-parser` to use these directly and treat row 0 as data.
+   */
+  synthesizedHeaders?: string[] | null;
+  /**
+   * When true, staging uses strict `ledger_pos_01`…`ledger_pos_15` keys (real Amazon column order).
+   * Sync maps via `mapLedgerPositionalRawRowToAmazonInventoryLedgerInsert` — not semantic synthetic headers.
+   */
+  inventoryLedgerPositional?: boolean | null;
+  /** When set (or when ENABLE_IMPORT_DESCRIPTOR_METADATA), merged into metadata.import_descriptor. */
+  importDescriptor?: ImportUploadDescriptorMetadata | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const userId = await resolveActorForImportAction(input.actorUserId);
   if (!isUuidString(input.uploadId)) return { ok: false, error: "Invalid upload id." };
 
-  const orgId = await resolveWriteOrganizationId(userId, null);
-
+  // CRITICAL: Read the upload row's organization_id directly (do NOT resolve
+  // from the actor's profile org). The previous version called
+  // `resolveWriteOrganizationId(userId, null)` which only ever returns the
+  // actor's home org. When a super_admin imports for a tenant store whose
+  // owner org differs from their own profile org, the WHERE clause below
+  // never matched the row and the UPDATE silently returned "Upload not
+  // found." — leaving `report_type='UNKNOWN'` even after classification
+  // succeeded. This was the root cause of the Product Identity CSV staying
+  // at UNKNOWN/needs_mapping in History.
   const { data: row, error: fetchErr } = await supabaseServer
     .from(DB_TABLES.rawReportUploads)
-    .select("id, metadata")
+    .select("id, organization_id, metadata")
     .eq("id", input.uploadId)
-    .eq("organization_id", orgId)
     .maybeSingle();
 
   if (fetchErr || !row) return { ok: false, error: fetchErr?.message ?? "Upload not found." };
+
+  const orgId = String((row as { organization_id?: unknown }).organization_id ?? "").trim();
+  if (!isUuidString(orgId)) {
+    return { ok: false, error: "Upload row has invalid organization_id." };
+  }
 
   const metaPatch: Record<string, unknown> = { upload_progress: 100 };
   if (input.csvHeaders && input.csvHeaders.length > 0) {
@@ -926,6 +984,9 @@ export async function updateUploadSessionClassification(input: {
   }
   if (typeof input.totalRows === "number" && Number.isFinite(input.totalRows)) {
     metaPatch.total_rows = input.totalRows;
+    // NOTE: `metadata.row_count` lives in the JSONB blob, not the legacy
+    // `raw_report_uploads.row_count` column (which is no longer relied on
+    // by the UI or the Product Identity pipeline — see file_processing_status).
     metaPatch.row_count = 0;
   }
   if (input.importFullFile != null) {
@@ -936,8 +997,28 @@ export async function updateUploadSessionClassification(input: {
   if (typeof input.headerRowIndex === "number" && input.headerRowIndex >= 0) {
     metaPatch.header_row_index = input.headerRowIndex;
   }
+  if (Array.isArray(input.synthesizedHeaders) && input.synthesizedHeaders.length > 0) {
+    metaPatch.synthesized_headers = input.synthesizedHeaders;
+    // header_row_index = -1 sentinel: row 0 is a data line, not a header.
+    metaPatch.header_row_index = -1;
+  }
+  if (input.inventoryLedgerPositional === true) {
+    metaPatch.inventory_ledger_positional = true;
+  } else if (input.inventoryLedgerPositional === false) {
+    metaPatch.inventory_ledger_positional = false;
+  }
 
-  const mergedForWrite = mergeUploadMetadata((row as { metadata?: unknown }).metadata, metaPatch);
+  let mergedForWrite = mergeUploadMetadata((row as { metadata?: unknown }).metadata, metaPatch);
+  const descriptorToPersist =
+    input.importDescriptor ??
+    (isImportDescriptorMetadataEnabled()
+      ? buildImportUploadDescriptorMetadataFromReportType(input.reportType, {
+          classification_source: "report_type",
+        })
+      : null);
+  if (descriptorToPersist) {
+    mergedForWrite = mergeImportDescriptorIntoUploadMetadata(mergedForWrite, descriptorToPersist);
+  }
   const updateRow: Record<string, unknown> = {
     report_type: input.reportType,
     column_mapping: serializeColumnMappingJson(input.columnMapping ?? null),
@@ -1232,7 +1313,16 @@ export async function approveColumnMapping(input: {
   const userId = await resolveActorForImportAction(input.actorUserId);
   if (!isUuidString(input.uploadId)) return { ok: false, error: "Invalid upload id." };
 
-  const orgId = await resolveWriteOrganizationId(userId, null);
+  // Read org from the row directly so super_admin imports targeting a tenant
+  // store are not silently rejected when their profile org differs.
+  const { data: row, error: fetchErr } = await supabaseServer
+    .from(DB_TABLES.rawReportUploads)
+    .select("id, organization_id")
+    .eq("id", input.uploadId)
+    .maybeSingle();
+  if (fetchErr || !row) return { ok: false, error: fetchErr?.message ?? "Upload not found." };
+  const orgId = String((row as { organization_id?: unknown }).organization_id ?? "").trim();
+  if (!isUuidString(orgId)) return { ok: false, error: "Upload row has invalid organization_id." };
 
   const updateRow: Record<string, unknown> = {
     column_mapping: serializeColumnMappingJson(input.mapping),
@@ -1336,6 +1426,133 @@ export async function resetStuckUpload(input: {
   return { ok: true };
 }
 
+/**
+ * Clears pipeline artifacts for a single upload: `amazon_staging`, listing raw archive,
+ * `product_identity_staging_rows`, `import_pipeline_locks`, `file_processing_status`, and
+ * `raw_report_import_audit` rows for this upload. Keeps `raw_report_uploads` and storage;
+ * sets status back to `mapped` with cleared progress fields. Use after a failed or
+ * partial import — not a substitute for full delete.
+ */
+export async function clearImportPipelineArtifactsForUpload(input: {
+  uploadId: string;
+  actorUserId?: string | null;
+}): Promise<{ ok: boolean; error?: string; deleted?: Record<string, number> }> {
+  const userId = await resolveActorForImportAction(input.actorUserId);
+  if (!isUuidString(input.uploadId)) return { ok: false, error: "Invalid upload id." };
+
+  const { data: row, error: fetchErr } = await supabaseServer
+    .from(DB_TABLES.rawReportUploads)
+    .select("id, organization_id, metadata, status")
+    .eq("id", input.uploadId)
+    .maybeSingle();
+
+  if (fetchErr || !row) return { ok: false, error: fetchErr?.message ?? "Upload not found." };
+  const orgId = String((row as { organization_id?: unknown }).organization_id ?? "").trim();
+  if (!isUuidString(orgId)) return { ok: false, error: "Invalid organization." };
+
+  const currentStatus = String((row as { status?: unknown }).status ?? "");
+  const allowed = ["failed", "processing", "staged"];
+  if (!allowed.includes(currentStatus)) {
+    return {
+      ok: false,
+      error: `Clear staging applies only to failed, processing, or staged uploads (current: "${currentStatus}").`,
+    };
+  }
+
+  const deleted: Record<string, number> = {};
+
+  try {
+    {
+      const { data, error } = await supabaseServer
+        .from("import_pipeline_locks")
+        .delete()
+        .eq("upload_id", input.uploadId)
+        .select("upload_id");
+      if (error) throw new Error(`import_pipeline_locks: ${error.message}`);
+      deleted.import_pipeline_locks = data?.length ?? 0;
+    }
+    {
+      const { data, error } = await supabaseServer
+        .from("file_processing_status")
+        .delete()
+        .eq("upload_id", input.uploadId)
+        .select("upload_id");
+      if (error) throw new Error(`file_processing_status: ${error.message}`);
+      deleted.file_processing_status = data?.length ?? 0;
+    }
+    {
+      const { data, error } = await supabaseServer
+        .from("amazon_listing_report_rows_raw")
+        .delete()
+        .eq("organization_id", orgId)
+        .eq("source_upload_id", input.uploadId)
+        .select("id");
+      if (error) throw new Error(`amazon_listing_report_rows_raw: ${error.message}`);
+      deleted.amazon_listing_report_rows_raw = data?.length ?? 0;
+    }
+    {
+      const { data, error } = await supabaseServer
+        .from("product_identity_staging_rows")
+        .delete()
+        .eq("organization_id", orgId)
+        .eq("upload_id", input.uploadId)
+        .select("id");
+      if (error) throw new Error(`product_identity_staging_rows: ${error.message}`);
+      deleted.product_identity_staging_rows = data?.length ?? 0;
+    }
+    {
+      const { data, error } = await supabaseServer
+        .from(DB_TABLES.amazonLedgerStaging)
+        .delete()
+        .eq("organization_id", orgId)
+        .eq("upload_id", input.uploadId)
+        .select("id");
+      if (error) throw new Error(`amazon_staging: ${error.message}`);
+      deleted.amazon_staging = data?.length ?? 0;
+    }
+    {
+      const { data, error } = await supabaseServer
+        .from("raw_report_import_audit")
+        .delete()
+        .eq("entity_id", input.uploadId)
+        .select("id");
+      if (error) throw new Error(`raw_report_import_audit: ${error.message}`);
+      deleted.raw_report_import_audit = data?.length ?? 0;
+    }
+
+    const metadata = mergeUploadMetadata((row as { metadata?: unknown }).metadata, {
+      error_message: "Staging and progress cleared — click Process to run again.",
+      process_progress: 0,
+      sync_progress: 0,
+      staging_row_count: 0,
+      import_metrics: { current_phase: "upload" },
+    });
+
+    const { error: upErr } = await supabaseServer
+      .from(DB_TABLES.rawReportUploads)
+      .update({
+        status: "mapped",
+        import_pipeline_started_at: null,
+        import_pipeline_completed_at: null,
+        import_pipeline_failed_at: null,
+        metadata,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", input.uploadId)
+      .eq("organization_id", orgId);
+
+    if (upErr) return { ok: false, error: upErr.message };
+
+    await audit(orgId, userId, "import.pipeline_artifacts_cleared", input.uploadId, {
+      previousStatus: currentStatus,
+      deleted,
+    });
+    return { ok: true, deleted };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Clear failed." };
+  }
+}
+
 export async function updateRawReportType(input: {
   uploadId: string;
   reportType: RawReportType;
@@ -1344,7 +1561,16 @@ export async function updateRawReportType(input: {
   const userId = await resolveActorForImportAction(input.actorUserId);
   if (!isUuidString(input.uploadId)) return { ok: false, error: "Invalid upload id." };
 
-  const orgId = await resolveWriteOrganizationId(userId, null);
+  // Read row's actual org so super_admin updates against tenant-org rows are not silently rejected.
+  const { data: row, error: fetchErr } = await supabaseServer
+    .from(DB_TABLES.rawReportUploads)
+    .select("id, organization_id")
+    .eq("id", input.uploadId)
+    .maybeSingle();
+  if (fetchErr || !row) return { ok: false, error: fetchErr?.message ?? "Upload not found." };
+  const orgId = String((row as { organization_id?: unknown }).organization_id ?? "").trim();
+  if (!isUuidString(orgId)) return { ok: false, error: "Upload row has invalid organization_id." };
+
   const { error } = await supabaseServer
     .from(DB_TABLES.rawReportUploads)
     .update({
@@ -1370,7 +1596,15 @@ export async function recordColumnMappingDecision(input: {
   const userId = await resolveActorForImportAction(input.actorUserId);
   if (!isUuidString(input.uploadId)) return { ok: false, error: "Invalid upload id." };
 
-  const orgId = await resolveWriteOrganizationId(userId, null);
+  const { data: row, error: fetchErr } = await supabaseServer
+    .from(DB_TABLES.rawReportUploads)
+    .select("id, organization_id")
+    .eq("id", input.uploadId)
+    .maybeSingle();
+  if (fetchErr || !row) return { ok: false, error: fetchErr?.message ?? "Upload not found." };
+  const orgId = String((row as { organization_id?: unknown }).organization_id ?? "").trim();
+  if (!isUuidString(orgId)) return { ok: false, error: "Upload row has invalid organization_id." };
+
   const { error } = await supabaseServer
     .from(DB_TABLES.rawReportUploads)
     .update({
@@ -1423,7 +1657,7 @@ export async function deleteRawReportUpload(
   const metaRaw = (row as { metadata?: unknown }).metadata;
   const metaObj =
     metaRaw && typeof metaRaw === "object" && !Array.isArray(metaRaw)
-      ? (metaRaw as Record<string, unknown>)
+      ? (metaRaw as unknown as Record<string, unknown>)
       : {};
 
   // ── 1. Storage cleanup ────────────────────────────────────────────────────
@@ -1514,7 +1748,7 @@ export async function removeOlderRemovalImportsWithSameFileContent(
     return { ok: false, error: "Invalid ids." };
   }
   const m = metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? (metadata as Record<string, unknown>)
+    ? (metadata as unknown as Record<string, unknown>)
     : {};
   const contentSha256 =
     typeof m.content_sha256 === "string" ? m.content_sha256.trim().toLowerCase() : "";
@@ -1542,4 +1776,119 @@ export async function removeOlderRemovalImportsWithSameFileContent(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Cleanup failed." };
   }
+}
+
+/**
+ * Reset a Product Identity upload that is stuck in `processing` (Phase 2 or
+ * Phase 3) without any progress. Safe to call when the Vercel/serverless
+ * worker timed out mid-flight.
+ *
+ * What it does:
+ *   * Deletes only the `product_identity_staging_rows` rows for this upload.
+ *     This is safe: staging rows are ephemeral and are recreated cleanly on
+ *     re-run.
+ *   * Does NOT touch `products`, `catalog_products`, or `product_identifier_map` —
+ *     those are owned by the supersede flow.
+ *   * Resets `raw_report_uploads.status` to `mapped` so the user can click
+ *     Process again.
+ *   * Resets `file_processing_status` phase2/phase3 fields to zero.
+ */
+export async function resetStuckProductIdentityUpload(input: {
+  uploadId: string;
+  actorUserId?: string | null;
+}): Promise<{ ok: boolean; error?: string; stagingRowsDeleted?: number }> {
+  const userId = await resolveActorForImportAction(input.actorUserId);
+  if (!isUuidString(input.uploadId)) return { ok: false, error: "Invalid upload id." };
+
+  const { data: row, error: fetchErr } = await supabaseServer
+    .from(DB_TABLES.rawReportUploads)
+    .select("id, organization_id, metadata, status, report_type")
+    .eq("id", input.uploadId)
+    .maybeSingle();
+
+  if (fetchErr || !row) return { ok: false, error: fetchErr?.message ?? "Upload not found." };
+  const orgId = String((row as { organization_id?: unknown }).organization_id ?? "").trim();
+  if (!isUuidString(orgId)) return { ok: false, error: "Invalid organization." };
+
+  const reportType = String((row as { report_type?: unknown }).report_type ?? "");
+  if (reportType !== "PRODUCT_IDENTITY") {
+    return { ok: false, error: `This action only applies to PRODUCT_IDENTITY uploads (got "${reportType}").` };
+  }
+
+  const currentStatus = String((row as { status?: unknown }).status ?? "");
+  const allowedStatuses = ["processing", "staged", "failed"];
+  if (!allowedStatuses.includes(currentStatus)) {
+    return {
+      ok: false,
+      error: `Upload is not in a resettable state (current: "${currentStatus}"). Expected one of: ${allowedStatuses.join(", ")}.`,
+    };
+  }
+
+  // 1. Delete staging rows for this upload only.
+  const { data: stagingDel, error: stagingDelErr } = await supabaseServer
+    .from("product_identity_staging_rows")
+    .delete()
+    .eq("upload_id", input.uploadId)
+    .eq("organization_id", orgId)
+    .select("id");
+
+  if (stagingDelErr) {
+    return { ok: false, error: `Staging cleanup failed: ${stagingDelErr.message}` };
+  }
+
+  const stagingRowsDeleted = stagingDel?.length ?? 0;
+
+  // 2. Reset raw_report_uploads back to `mapped`.
+  const metadata = mergeUploadMetadata((row as { metadata?: unknown }).metadata, {
+    error_message: "Reset by user — staging rows cleared. Re-run Process.",
+    process_progress: 0,
+    sync_progress: 0,
+    import_metrics: { current_phase: "upload" },
+  });
+
+  const { error: upErr } = await supabaseServer
+    .from(DB_TABLES.rawReportUploads)
+    .update({
+      status: "mapped",
+      import_pipeline_failed_at: null,
+      metadata,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.uploadId)
+    .eq("organization_id", orgId);
+
+  if (upErr) return { ok: false, error: upErr.message };
+
+  // 3. Reset file_processing_status.
+  await supabaseServer.from("file_processing_status").upsert({
+    upload_id: input.uploadId,
+    organization_id: orgId,
+    status: "pending",
+    current_phase: "upload",
+    current_phase_label: "Ready for Process",
+    upload_pct: 100,
+    phase1_upload_pct: 100,
+    process_pct: 0,
+    phase2_stage_pct: 0,
+    phase2_status: null,
+    phase2_completed_at: null,
+    phase3_raw_sync_pct: 0,
+    phase3_status: null,
+    phase3_completed_at: null,
+    sync_pct: 0,
+    processed_rows: 0,
+    staged_rows_written: 0,
+    raw_rows_written: 0,
+    error_message: null,
+    next_action_key: "process",
+    next_action_label: "Process",
+    import_metrics: { current_phase: "upload" },
+  }, { onConflict: "upload_id" });
+
+  await audit(orgId, userId, "import.product_identity_reset_stuck", input.uploadId, {
+    stagingRowsDeleted,
+    previousStatus: currentStatus,
+  });
+
+  return { ok: true, stagingRowsDeleted };
 }

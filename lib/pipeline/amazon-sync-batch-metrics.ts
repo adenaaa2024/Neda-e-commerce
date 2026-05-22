@@ -149,7 +149,7 @@ async function byPhysicalLine(
         return { ...EMPTY_DELTA };
       }
       for (const row of data ?? []) {
-        existingByKey.set(keyOf(row as Record<string, unknown>), row as Record<string, unknown>);
+        existingByKey.set(keyOf(row as unknown as Record<string, unknown>), row as unknown as Record<string, unknown>);
       }
     }
   }
@@ -180,8 +180,8 @@ async function byColumnIn(
       return { ...EMPTY_DELTA };
     }
     for (const row of data ?? []) {
-      const k = keyFn(row as Record<string, unknown>);
-      if (k) existingByKey.set(k, row as Record<string, unknown>);
+      const k = keyFn(row as unknown as Record<string, unknown>);
+      if (k) existingByKey.set(k, row as unknown as Record<string, unknown>);
     }
   }
 
@@ -221,8 +221,8 @@ async function byRemovalBusinessLine(
       return { ...EMPTY_DELTA };
     }
     for (const row of data ?? []) {
-      const k = keyFn(row as Record<string, unknown>);
-      if (packedKeys.has(k)) existingByKey.set(k, row as Record<string, unknown>);
+      const k = keyFn(row as unknown as Record<string, unknown>);
+      if (packedKeys.has(k)) existingByKey.set(k, row as unknown as Record<string, unknown>);
     }
   }
 

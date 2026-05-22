@@ -44,6 +44,13 @@ export const SITE_FEATURE_TREE: SiteFeatureNode[] = [
         writeKeys: ["claims.create"],
       },
       {
+        id: "ops.claim_inbox",
+        label: "Claim inbox",
+        path: "/claim-engine/inbox",
+        readKeys: ["claims.view"],
+        writeKeys: ["claims.create"],
+      },
+      {
         id: "ops.report_history",
         label: "Report history",
         path: "/claim-engine/report-history",

@@ -30,7 +30,9 @@ export type SidebarIconName =
   | "Network"
   | "Shield"
   | "Database"
-  | "ScanLine";
+  | "FileUp"
+  | "ScanLine"
+  | "Inbox";
 
 export type SidebarLeaf = {
   kind: "leaf";
@@ -125,6 +127,17 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             rbac: "canSeeWmsTools",
             order: 3,
           },
+          {
+            kind: "leaf",
+            id: "pim_products",
+            label: "Product Information Management",
+            path: "/dashboard/products",
+            featureKey: "etl.products",
+            permissionBase: "etl.products",
+            icon: "Package",
+            rbac: "always",
+            order: 4,
+          },
         ],
       },
       {
@@ -159,6 +172,28 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
           },
           {
             kind: "leaf",
+            id: "claim_inbox",
+            label: "Claim Inbox",
+            path: "/claim-engine/inbox",
+            featureKey: "claims.engine",
+            permissionBase: "claims.engine",
+            icon: "Inbox",
+            rbac: "canSeeClaimEngine",
+            order: 2.5,
+          },
+          {
+            kind: "leaf",
+            id: "claim_review_ops",
+            label: "Review operations",
+            path: "/claim-engine/review-ops",
+            featureKey: "claims.engine",
+            permissionBase: "claims.engine",
+            icon: "ClipboardList",
+            rbac: "canSeeClaimEngine",
+            order: 2.55,
+          },
+          {
+            kind: "leaf",
             id: "report_history",
             label: "Report History",
             path: "/claim-engine/report-history",
@@ -167,6 +202,27 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             icon: "FileText",
             rbac: "canSeeReportHistory",
             order: 3,
+          },
+        ],
+      },
+      {
+        kind: "group",
+        id: "etl_imports",
+        label: "Data Management",
+        icon: "Database",
+        moduleKey: "etl",
+        order: 25,
+        children: [
+          {
+            kind: "leaf",
+            id: "imports",
+            label: "Imports",
+            path: "/dashboard/file-import",
+            featureKey: "etl.imports",
+            permissionBase: "etl.imports",
+            icon: "FileUp",
+            rbac: "canSeeImports",
+            order: 1,
           },
         ],
       },
@@ -252,33 +308,6 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
       },
     ],
   },
-  {
-    id: "admin",
-    label: "System Admin",
-    order: 50,
-    groups: [
-      {
-        kind: "group",
-        id: "admin_imports",
-        label: "System Admin",
-        icon: "Database",
-        moduleKey: "tenant_admin",
-        order: 10,
-        children: [
-          {
-            kind: "leaf",
-            id: "imports",
-            label: "Imports",
-            path: "/imports",
-            featureKey: "tenant_admin.imports",
-            permissionBase: "tenant_admin.imports",
-            rbac: "canSeeImports",
-            order: 1,
-          },
-        ],
-      },
-    ],
-  },
 ];
 
 export const WMS_ONLY_NAV: { section: "wms"; label: string; order: number; leaves: SidebarLeaf[] } = {
@@ -336,6 +365,7 @@ export const MODULE_CATALOG: Record<string, { name: string; sort_order: number }
   claims: { name: "Claims", sort_order: 30 },
   settings: { name: "Settings", sort_order: 40 },
   platform: { name: "Platform", sort_order: 50 },
+  etl:          { name: "ETL / Imports", sort_order: 35 },
   tenant_admin: { name: "Tenant admin", sort_order: 60 },
   wms: { name: "WMS", sort_order: 5 },
   tech_debug: { name: "Tech debug", sort_order: 90 },

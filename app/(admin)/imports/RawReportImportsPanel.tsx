@@ -15,9 +15,11 @@ import {
 import { AMAZON_LEDGER_UPLOAD_SOURCE } from "../../../lib/raw-report-upload-metadata";
 import type { RawReportUploadRow } from "../../../lib/raw-report-upload-row";
 import {
+  clearImportPipelineArtifactsForUpload,
   deleteRawReportUpload,
   listRawReportUploads,
   resetStuckUpload,
+  resetStuckProductIdentityUpload,
   updateRawReportType,
 } from "./import-actions";
 import { ColumnMappingModal } from "./ColumnMappingModal";
@@ -27,6 +29,12 @@ import { REPORT_TYPE_SPECS } from "../../../lib/csv-import-mapping";
 import { RAW_REPORT_TYPE_ORDER } from "../../../lib/raw-report-types";
 import { DatabaseTag } from "../../../components/DatabaseTag";
 import {
+  buildImportHistorySourceRunView,
+  filterImportHistoryRows,
+  IMPORT_HISTORY_FILTER_LABELS,
+  type ImportHistoryFilter,
+} from "../../../lib/amazon/import-history-source-run";
+import {
   buildUnifiedPipeline,
   pipelineBadgeColor,
   stepBarColor,
@@ -34,6 +42,8 @@ import {
   type PipelineStep,
   type UnifiedPipelineModel,
 } from "../../../lib/pipeline/unified-import-pipeline";
+import { SourceRunHistoryBadge } from "./SourceRunHistoryBadge";
+import { SettlementFrrReconciliationDrawer } from "./SettlementFrrReconciliationDrawer";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -47,6 +57,28 @@ const LEGACY_REPORT_TYPE: Record<string, RawReportType> = {
 function coerceReportType(v: string): RawReportType {
   if (RAW_REPORT_TYPE_ORDER.includes(v as RawReportType)) return v as RawReportType;
   return LEGACY_REPORT_TYPE[v] ?? "UNKNOWN";
+}
+
+async function readImportApiJson<T extends { ok?: boolean; error?: string; details?: string }>(
+  res: Response,
+): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) {
+    return {
+      ok: false,
+      error: `Import API returned an empty ${res.status} response.`,
+      details: "",
+    } as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return {
+      ok: false,
+      error: `Import API returned non-JSON ${res.status} response.`,
+      details: text.slice(0, 2000),
+    } as T;
+  }
 }
 
 // ── Compact pipeline cell ─────────────────────────────────────────────────────
@@ -117,6 +149,11 @@ export function RawReportImportsPanel({
   const [rows, setRows] = useState<RawReportUploadRow[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [tableSearch, setTableSearch] = useState("");
+  const [historyFilter, setHistoryFilter] = useState<ImportHistoryFilter>("all");
+  const [frrReconTarget, setFrrReconTarget] = useState<{
+    uploadId: string;
+    fileName: string;
+  } | null>(null);
   const [reportTypeSaveFlash, setReportTypeSaveFlash] = useState<Record<string, boolean>>({});
 
   const [busyIds, setBusyIds] = useState<Record<string, string>>({});
@@ -167,7 +204,11 @@ export function RawReportImportsPanel({
   }, [refresh, refreshSignal]);
 
   useEffect(() => {
-    pollRef.current = setInterval(() => void refresh(), 5000);
+    // 10s instead of 5s — the active pipeline card in UniversalImporter
+    // already polls by upload_id every 1.5s. The history panel only needs
+    // to catch newly-uploaded files from other sessions or status changes
+    // that the active card poller doesn't see.
+    pollRef.current = setInterval(() => void refresh(), 10000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -176,8 +217,23 @@ export function RawReportImportsPanel({
   useEffect(() => {
     const hasBusy = Object.keys(busyIds).length > 0;
     if (!hasBusy) return;
-    const t = setInterval(() => void refresh(), 1200);
-    return () => clearInterval(t);
+    let cancelled = false;
+    let delayMs = 4000;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timeoutId = setTimeout(async () => {
+        if (cancelled) return;
+        await refresh();
+        if (cancelled) return;
+        delayMs = Math.min(15000, Math.floor(delayMs * 1.25));
+        schedule();
+      }, delayMs);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [busyIds, refresh]);
 
   // ── Operations ──────────────────────────────────────────────────────────────
@@ -252,9 +308,14 @@ export function RawReportImportsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ upload_id: r.id }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !json.ok) {
-        setLoadErr(json.error ?? "Processing failed.");
+      const json = await readImportApiJson<{
+        ok?: boolean;
+        recoverable?: boolean;
+        error?: string;
+        details?: string;
+      }>(res);
+      if (!res.ok || (!json.ok && !json.recoverable)) {
+        setLoadErr(json.details || json.error || "Processing failed.");
       }
       await refresh();
     } catch (e) {
@@ -273,9 +334,25 @@ export function RawReportImportsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ upload_id: r.id }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const json = await readImportApiJson<{
+        ok?: boolean;
+        error?: string;
+        details?: string;
+        settlement_mapping_guard?: boolean;
+        lowConfidenceFinancialKeys?: string[];
+      }>(res);
       if (!res.ok || !json.ok) {
-        setLoadErr(json.error ?? "Sync failed.");
+        if (json.settlement_mapping_guard) {
+          const keys = json.lowConfidenceFinancialKeys?.length
+            ? ` Unmapped financial-like headers: ${json.lowConfidenceFinancialKeys.join(", ")}.`
+            : "";
+          setLoadErr(
+            `${json.details || json.error || "Settlement mapping guard blocked sync."}${keys}` +
+              " See Network response JSON for full mappingReport.",
+          );
+        } else {
+          setLoadErr(json.details || json.error || "Sync failed.");
+        }
       }
       await refresh();
     } catch (e) {
@@ -294,9 +371,9 @@ export function RawReportImportsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ upload_id: r.id }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const json = await readImportApiJson<{ ok?: boolean; error?: string; details?: string }>(res);
       if (!res.ok || !json.ok) {
-        setLoadErr(json.error ?? "Generic phase failed.");
+        setLoadErr(json.details || json.error || "Generic phase failed.");
       }
       await refresh();
     } catch (e) {
@@ -315,9 +392,9 @@ export function RawReportImportsPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ upload_id: r.id }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const json = await readImportApiJson<{ ok?: boolean; error?: string; details?: string }>(res);
       if (!res.ok || !json.ok) {
-        setLoadErr(json.error ?? "Generate Worklist failed.");
+        setLoadErr(json.details || json.error || "Generate Worklist failed.");
       }
       await refresh();
     } catch (e) {
@@ -343,6 +420,46 @@ export function RawReportImportsPanel({
     }
   };
 
+  const runResetStuckProductIdentity = async (r: RawReportUploadRow) => {
+    markBusy(r.id, "resetting-pi");
+    setLoadErr(null);
+    try {
+      const res = await resetStuckProductIdentityUpload({ uploadId: r.id, actorUserId });
+      if (!res.ok) {
+        setLoadErr(res.error ?? "Reset failed.");
+      } else if (res.stagingRowsDeleted != null) {
+        setLoadErr(null);
+      }
+      await refresh();
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : "Reset failed.");
+    } finally {
+      clearBusy(r.id);
+    }
+  };
+
+  const runClearImportPipeline = async (r: RawReportUploadRow) => {
+    if (
+      !window.confirm(
+        "Clear staging rows, listing raw archive, product-identity staging, progress (FPS), locks, and import audit for this upload? " +
+          "The file record stays in history — click Process to run again.",
+      )
+    ) {
+      return;
+    }
+    markBusy(r.id, "clear-pipeline");
+    setLoadErr(null);
+    try {
+      const res = await clearImportPipelineArtifactsForUpload({ uploadId: r.id, actorUserId });
+      if (!res.ok) setLoadErr(res.error ?? "Clear failed.");
+      await refresh();
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : "Clear failed.");
+    } finally {
+      clearBusy(r.id);
+    }
+  };
+
   // ── Selection helpers ───────────────────────────────────────────────────────
 
   const toggleRow = (id: string) =>
@@ -360,14 +477,25 @@ export function RawReportImportsPanel({
 
   // ── Filter rows ─────────────────────────────────────────────────────────────
 
-  const q = tableSearch.trim().toLowerCase();
-  const filteredRows = q
-    ? rows.filter(
-        (r) =>
-          r.file_name.toLowerCase().includes(q) ||
-          (r.report_type ?? "").toLowerCase().includes(q),
-      )
-    : rows;
+  const filteredRows = filterImportHistoryRows(rows, historyFilter, tableSearch);
+
+  const historyFilterCounts = React.useMemo(() => {
+    const counts: Record<ImportHistoryFilter, number> = {
+      all: rows.length,
+      api: 0,
+      manual: 0,
+      failed: 0,
+      needs_resume: 0,
+    };
+    for (const r of rows) {
+      const v = buildImportHistorySourceRunView(r);
+      if (v.origin === "api") counts.api++;
+      if (v.origin === "manual" || v.origin === "ledger") counts.manual++;
+      if (v.isFailed) counts.failed++;
+      if (v.needsResume) counts.needs_resume++;
+    }
+    return counts;
+  }, [rows]);
 
   return (
     <>
@@ -439,10 +567,46 @@ export function RawReportImportsPanel({
           )}
         </div>
 
-        {/* Info text */}
-        <div className="px-5 pt-2 pb-3 text-[11px] text-muted-foreground">
-          <p>
-            Every file follows: <strong className="text-foreground">Upload</strong> → <strong className="text-foreground">Process</strong> → <strong className="text-foreground">Sync</strong> → <strong className="text-foreground">Generic</strong> (when applicable).
+        {/* Filters + info */}
+        <div className="space-y-2 px-5 pt-2 pb-3">
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            role="group"
+            aria-label="Import history filters"
+          >
+            {(
+              ["all", "api", "manual", "failed", "needs_resume"] as ImportHistoryFilter[]
+            ).map((key) => {
+              const active = historyFilter === key;
+              const count = historyFilterCounts[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setHistoryFilter(key)}
+                  className={[
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-medium transition",
+                    active
+                      ? "border-primary/50 bg-primary/10 text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground",
+                  ].join(" ")}
+                  aria-pressed={active}
+                >
+                  {IMPORT_HISTORY_FILTER_LABELS[key]}
+                  <span
+                    className={[
+                      "tabular-nums rounded-full px-1.5 py-px text-[9px]",
+                      active ? "bg-primary/20" : "bg-muted",
+                    ].join(" ")}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Every file follows: <strong className="text-foreground">Upload</strong> → <strong className="text-foreground">Process</strong> → <strong className="text-foreground">Sync</strong> → <strong className="text-foreground">Generic</strong> (when applicable). API pull rows show Reports API source-run status.
           </p>
         </div>
 
@@ -498,7 +662,7 @@ export function RawReportImportsPanel({
                   >
                     {rows.length === 0
                       ? "No imports yet."
-                      : `No results for "${tableSearch}".`}
+                      : `No imports match the current filter or search.`}
                   </td>
                 </tr>
               ) : (
@@ -518,6 +682,8 @@ export function RawReportImportsPanel({
                     onWorklist={() => void runWorklist(r)}
                     onDelete={() => void runDeleteUpload(r)}
                     onResetStuck={() => void runResetStuck(r)}
+                    onResetStuckProductIdentity={() => void runResetStuckProductIdentity(r)}
+                    onClearImportPipeline={() => void runClearImportPipeline(r)}
                     onMapColumns={() => setMappingRow(r)}
                     onReportTypeChange={async (v: RawReportType) => {
                       const prevType = r.report_type;
@@ -559,6 +725,9 @@ export function RawReportImportsPanel({
                       }
                     }}
                     reportTypeSaved={!!reportTypeSaveFlash[r.id]}
+                    onOpenFrrReconciliation={() =>
+                      setFrrReconTarget({ uploadId: r.id, fileName: r.file_name })
+                    }
                   />
                 ))
               )}
@@ -566,6 +735,16 @@ export function RawReportImportsPanel({
           </table>
         </div>
       </div>
+
+      {organizationId && frrReconTarget ? (
+        <SettlementFrrReconciliationDrawer
+          open
+          organizationId={organizationId}
+          uploadId={frrReconTarget.uploadId}
+          fileName={frrReconTarget.fileName}
+          onClose={() => setFrrReconTarget(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -586,9 +765,12 @@ type HistoryRowProps = {
   onWorklist: () => void;
   onDelete: () => void;
   onResetStuck: () => void;
+  onResetStuckProductIdentity: () => void;
+  onClearImportPipeline: () => void;
   onMapColumns: () => void;
   onReportTypeChange: (v: RawReportType) => void;
   reportTypeSaved: boolean;
+  onOpenFrrReconciliation: () => void;
 };
 
 const HistoryRow = React.memo(function HistoryRow({
@@ -605,14 +787,25 @@ const HistoryRow = React.memo(function HistoryRow({
   onWorklist,
   onDelete,
   onResetStuck,
+  onResetStuckProductIdentity,
+  onClearImportPipeline,
   onMapColumns,
   onReportTypeChange,
-  reportTypeSaved
+  reportTypeSaved,
+  onOpenFrrReconciliation,
 }: HistoryRowProps) {
   const rt = coerceReportType(r.report_type);
   const metaObj =
     r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata)
-      ? (r.metadata as Record<string, unknown>)
+      ? (r.metadata as unknown as Record<string, unknown>)
+      : null;
+  const importMetricsPoll =
+    metaObj?.import_metrics && typeof metaObj.import_metrics === "object" && !Array.isArray(metaObj.import_metrics)
+      ? (metaObj.import_metrics as unknown as Record<string, unknown>)
+      : null;
+  const phase2OperatorLine =
+    typeof importMetricsPoll?.phase2_operator_line === "string" && importMetricsPoll.phase2_operator_line.trim() !== ""
+      ? importMetricsPoll.phase2_operator_line
       : null;
   const isLedgerSession = metaObj?.source === AMAZON_LEDGER_UPLOAD_SOURCE;
 
@@ -620,7 +813,7 @@ const HistoryRow = React.memo(function HistoryRow({
     reportType: String(r.report_type ?? ""),
     status: r.status,
     metadata: metaObj,
-    fps: r.file_processing_status as Record<string, unknown> | null,
+    fps: r.file_processing_status as unknown as Record<string, unknown> | null,
     ui:
       busyPhase === "syncing"
         ? { isSyncing: true }
@@ -630,6 +823,8 @@ const HistoryRow = React.memo(function HistoryRow({
             ? { isWorklisting: true }
             : undefined,
   });
+
+  const sourceRunView = buildImportHistorySourceRunView(r);
 
   const anyBusy = busy || isDeleting;
 
@@ -651,7 +846,23 @@ const HistoryRow = React.memo(function HistoryRow({
     pipeline.nextAction === "worklist" &&
     !busy;
   const showResetStuck =
-    r.status === "processing" && !busy;
+    r.status === "processing" && !busy && r.report_type !== "PRODUCT_IDENTITY";
+  const showResetStuckProductIdentity =
+    r.report_type === "PRODUCT_IDENTITY" &&
+    (r.status === "processing" || r.status === "staged" || r.status === "failed") &&
+    !busy;
+  const showClearImportPipeline =
+    !isLedgerSession &&
+    (r.status === "failed" || r.status === "staged") &&
+    !busy;
+
+  const showFrrReconciliation =
+    rt === "SETTLEMENT" &&
+    !isLedgerSession &&
+    (r.status === "raw_synced" ||
+      r.status === "complete" ||
+      r.status === "synced" ||
+      sourceRunView.sourceRun?.state === "complete");
 
   return (
     <tr
@@ -694,6 +905,7 @@ const HistoryRow = React.memo(function HistoryRow({
           <span className="font-mono text-[9px] text-muted-foreground">
             {r.id.slice(0, 8)}…
           </span>
+          <SourceRunHistoryBadge view={sourceRunView} compact />
         </div>
       </td>
 
@@ -757,7 +969,9 @@ const HistoryRow = React.memo(function HistoryRow({
                     ? "Generic…"
                     : busyPhase === "worklist"
                       ? "Worklist…"
-                      : "Working…"}
+                      : busyPhase === "clear-pipeline"
+                        ? "Clearing…"
+                        : "Working…"}
             </span>
           ) : (
             <span
@@ -777,6 +991,14 @@ const HistoryRow = React.memo(function HistoryRow({
               title={r.errorMessage}
             >
               {r.errorMessage}
+            </span>
+          )}
+          {(r.status === "processing" || busyPhase === "processing") && phase2OperatorLine && (
+            <span
+              className="max-w-[200px] break-words text-[9px] leading-snug text-muted-foreground"
+              title={phase2OperatorLine}
+            >
+              {phase2OperatorLine}
             </span>
           )}
         </div>
@@ -884,6 +1106,40 @@ const HistoryRow = React.memo(function HistoryRow({
               small
             >
               Reset
+            </ActionButton>
+          )}
+
+          {showResetStuckProductIdentity && (
+            <ActionButton
+              onClick={onResetStuckProductIdentity}
+              disabled={anyBusy}
+              color="amber"
+              icon={<RotateCcw className="h-3 w-3" aria-hidden />}
+              small
+            >
+              Reset&nbsp;PI
+            </ActionButton>
+          )}
+
+          {showClearImportPipeline && (
+            <ActionButton
+              onClick={onClearImportPipeline}
+              disabled={anyBusy}
+              color="amber"
+              small
+            >
+              Clear staging
+            </ActionButton>
+          )}
+
+          {showFrrReconciliation && (
+            <ActionButton
+              onClick={onOpenFrrReconciliation}
+              disabled={anyBusy}
+              color="emerald"
+              small
+            >
+              FRR recon
             </ActionButton>
           )}
 

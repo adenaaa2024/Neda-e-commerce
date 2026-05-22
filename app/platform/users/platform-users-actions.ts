@@ -60,7 +60,7 @@ export async function listOrganizationsForPlatformUserDirectory(): Promise<
       .select("organization_id, company_display_name, organizations(name, type)")
       .order("organization_id", { ascending: true });
     if (error) return { ok: false, error: error.message };
-    const rows = (data ?? []) as Record<string, unknown>[];
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
     const out = rows.map(mapOrgSettingsRow);
     out.sort((a, b) => a.display_name.localeCompare(b.display_name));
     return { ok: true, rows: out };

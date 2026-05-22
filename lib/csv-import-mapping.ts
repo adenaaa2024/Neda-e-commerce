@@ -145,9 +145,51 @@ export const REPORT_TYPE_SPECS: Record<
   },
   PRODUCT_IDENTITY: {
     canonicalKey: "seller_sku",
-    shortLabel: "Product Identity CSV",
+    shortLabel: "Product Identity Report",
     description: "Seller SKU identity file — upserts products, catalog_products, and identifier map",
     aliases: ["Seller SKU", "seller sku", "Product Name", "UPC", "Vendor", "Mfg #", "FNSKU", "ASIN"],
+  },
+  PIM_CATALOG_SEED: {
+    canonicalKey: "seller_sku",
+    shortLabel: "PIM catalog seed (ETL)",
+    description: "Quick CSV/XLSX catalog import via Python /etl/seed-products — not the Amazon report pipeline",
+    aliases: ["Seller SKU", "seller sku", "Product Name", "UPC", "Vendor", "Mfg #", "FNSKU", "ASIN"],
+  },
+  pim_catalog_seed: {
+    canonicalKey: "seller_sku",
+    shortLabel: "PIM catalog seed",
+    description: "Same as PIM_CATALOG_SEED — lowercase report_type discriminator",
+    aliases: ["Seller SKU", "seller sku", "Product Name", "UPC", "Vendor", "Mfg #", "FNSKU", "ASIN"],
+  },
+  pim_product_master: {
+    canonicalKey: "seller_sku",
+    shortLabel: "PIM Product Master",
+    description: "Chunked Product Master import — raw_report_uploads + metadata.module=pim",
+    aliases: ["Seller SKU", "seller sku", "Product Name", "UPC", "Vendor", "Mfg #", "FNSKU", "ASIN"],
+  },
+  pim_price_history: {
+    canonicalKey: "seller_sku",
+    shortLabel: "PIM price history",
+    description: "Future: price history sheets — not Amazon settlement pipeline",
+    aliases: ["Seller SKU", "sku", "cost", "price", "unit cost"],
+  },
+  pim_identifier_map: {
+    canonicalKey: "seller_sku",
+    shortLabel: "PIM identifier map",
+    description: "Future: identifier reference sheets",
+    aliases: ["Seller SKU", "ASIN", "FNSKU", "UPC"],
+  },
+  pim_vendor_reference: {
+    canonicalKey: "vendor",
+    shortLabel: "PIM vendor reference",
+    description: "Future: vendor lookup sheets",
+    aliases: ["Vendor", "Supplier", "Manufacturer"],
+  },
+  pim_category_reference: {
+    canonicalKey: "category",
+    shortLabel: "PIM category reference",
+    description: "Future: category lookup sheets",
+    aliases: ["Category", "Department", "Product Category"],
   },
   ALL_ORDERS: {
     canonicalKey: "amazon-order-id",

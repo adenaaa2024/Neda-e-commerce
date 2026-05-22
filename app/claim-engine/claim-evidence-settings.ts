@@ -77,13 +77,15 @@ export function buildClaimEvidenceSlots(detail: {
     photo_evidence?: ReturnPhotoEvidenceRow;
   } | null;
   packageRow: {
+    inside_photo_urls?: unknown;
+    outside_photo_urls?: unknown;
+    slip_photo_urls?: unknown;
     photo_evidence?: unknown;
   } | null;
-  /** Pallet TEXT columns only (no JSONB on `pallets`). */
   pallet: {
-    manifest_photo_url?: string | null;
-    bol_photo_url?: string | null;
-    photo_url?: string | null;
+    shipping_label_urls?: unknown;
+    bol_photo_urls?: unknown;
+    pallet_photo_urls?: unknown;
   } | null;
 }): ClaimEvidenceSlot[] {
   const slots: ClaimEvidenceSlot[] = [];
@@ -113,7 +115,23 @@ export function buildClaimEvidenceSlots(detail: {
   const ret = detail.returnRow;
 
   const pltUrls = plt ? palletPhotoEvidenceUrlsFromRow(plt) : [];
-  const pkgUrls = pkg ? normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence) : [];
+  const pkgUrls = pkg
+    ? (() => {
+        const inside = Array.isArray(pkg.inside_photo_urls) ? pkg.inside_photo_urls : [];
+        const outside = Array.isArray(pkg.outside_photo_urls) ? pkg.outside_photo_urls : [];
+        const slip = Array.isArray(pkg.slip_photo_urls) ? pkg.slip_photo_urls : [];
+        const fromArrays = [
+          ...(inside[0] ? [String(inside[0])] : []),
+          ...(outside[0] ? [String(outside[0])] : []),
+          ...(outside[1] ? [String(outside[1])] : []),
+          ...(outside[2] ? [String(outside[2])] : []),
+          ...inside.slice(1).map(String),
+          ...outside.slice(3).map(String),
+          ...slip.map(String),
+        ].filter((u) => u.trim());
+        return fromArrays.length ? fromArrays : normalizeEntityPhotoEvidenceUrls(pkg.photo_evidence);
+      })()
+    : [];
 
   if (pltUrls.length > 0) {
     add(pltUrls[0], "Packing Slip / Manifest (pallet)", "pallet", "packing_slip_manifest", "manifest");

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Package2, ScanLine, XCircle, AlertTriangle, RotateCcw } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "../../src/lib/supabase";
+import { updateExpectedPackageScannedCount } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -182,20 +183,20 @@ export default function ScannerPage() {
         setPhase("complete");
       }
 
-      // Persist to Supabase
-      const { error } = await supabase
-        .from("expected_packages")
-        .update({ actual_scanned_count: newCount })
-        .eq("id", target.id);
+      // Persist through a server action so scanner saves cannot bypass backend guardrails.
+      const result = await updateExpectedPackageScannedCount({
+        id: target.id,
+        actualScannedCount: newCount,
+      });
 
-      if (error) {
+      if (!result.ok) {
         // Roll back on failure
         setRows((prev) => {
           const rolled = [...prev];
           rolled[rowIndex] = { ...rolled[rowIndex], actual_scanned_count: target.actual_scanned_count };
           return rolled;
         });
-        setSkuError(`Failed to save: ${error.message}`);
+        setSkuError(`Failed to save: ${result.error}`);
         haptic(HAPTIC_ERR);
         if (phase === "complete") setPhase("found");
       }

@@ -1,0 +1,24 @@
+{
+  "payload": {
+    "FinancialEvents": {
+      "ShipmentEventList": [
+        {
+          "AmazonOrderId": "111-2223333-4445555",
+          "SellerOrderId": "SO-1",
+          "PostedDate": "2026-01-05T12:00:00Z",
+          "SKU": "SKU-ABC",
+          "ShipmentId": "FBA123",
+          "Amount": { "CurrencyCode": "USD", "CurrencyAmount": 12.34 }
+        }
+      ],
+      "RefundEventList": [
+        {
+          "AmazonOrderId": "111-2223333-4445555",
+          "PostedDate": "2026-01-06T08:00:00Z",
+          "Amount": { "CurrencyCode": "USD", "CurrencyAmount": -5.0 }
+        }
+      ]
+    },
+    "NextToken": null
+  }
+}

@@ -13,13 +13,13 @@ import {
   shouldAutoEnqueueAmazonClaimSubmission,
   storePlatformFromEmbed,
 } from "../returns/claim-queue-helpers";
-import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
 import {
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
-  CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY,
   CLAIM_SUBMISSIONS_TABLE,
-  CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED,
+  CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED,
 } from "./claim-submissions-constants";
+import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
+import { assertClaimSubmissionBelongsToOrganization, assertStoreBelongsToOrganization } from "../../lib/claim-org-scope";
 import {
   appendClaimHistoryTimelineEntry,
   resolveProfileDisplayName,
@@ -79,7 +79,12 @@ export async function approveClaimSubmission(
   organizationId: string = DEFAULT_ORG,
   actorUserId?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!isUuidString(organizationId)) return { ok: false, error: "organization_id must be a valid UUID." };
+  if (!isUuidString(submissionId)) return { ok: false, error: "submission id must be a valid UUID." };
   try {
+    const gate = await assertClaimSubmissionBelongsToOrganization(submissionId, organizationId);
+    if (!gate.ok) return { ok: false, error: gate.error };
+
     const { error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
       .update({ status: "accepted" })
@@ -109,6 +114,9 @@ export async function approveClaimSubmission(
 export async function generateDailyClaimReports(
   organizationId: string = DEFAULT_ORG,
 ): Promise<{ ok: boolean; generated: number; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, generated: 0, error: "organization_id must be a valid UUID." };
+  }
   try {
     const { data: readyRows, error: rErr } = await supabaseServer
       .from(RETURN_ITEMS_TABLE)
@@ -204,27 +212,47 @@ function resolveReturnSku(ret: Record<string, unknown> | null): string | null {
 }
 
 function returnRowFromSubmissionEmbed(sub: Record<string, unknown>): Record<string, unknown> | null {
-  const raw = sub[CLAIM_SUBMISSION_RETURN_ITEMS_EMBED_KEY];
+  const raw = sub.return_items ?? (sub as { returns?: unknown }).returns;
   if (!raw) return null;
   const r = Array.isArray(raw) ? raw[0] : raw;
-  return r as Record<string, unknown>;
+  return r as unknown as Record<string, unknown>;
 }
 
+export type ListClaimSubmissionsOpts = {
+  /** When set, only rows for this store; validated against `stores.organization_id`. */
+  storeId?: string | null;
+};
+
 export async function listClaimSubmissions(
-  _organizationId: string = DEFAULT_ORG,
+  organizationId: string = DEFAULT_ORG,
+  opts?: ListClaimSubmissionsOpts,
 ): Promise<{ ok: boolean; data: ClaimSubmissionListRow[]; error?: string }> {
+  if (!isUuidString(organizationId)) {
+    return { ok: false, data: [], error: "organization_id must be a valid UUID." };
+  }
   try {
-    /** V16.4.23: Temporarily ignore org filter (RLS/testing) — queue shows all tenants' ready_to_send rows. */
-    const { data: subs, error } = await supabaseServer
+    const storeFilter = String(opts?.storeId ?? "").trim();
+    if (storeFilter) {
+      if (!isUuidString(storeFilter)) {
+        return { ok: false, data: [], error: "store_id must be a UUID when provided." };
+      }
+      const storeOk = await assertStoreBelongsToOrganization(organizationId, storeFilter);
+      if (!storeOk.ok) return { ok: false, data: [], error: storeOk.error };
+    }
+
+    let q = supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
-      .select(CLAIM_SUBMISSIONS_WITH_RETURN_ITEMS_EMBED)
+      .select(CLAIM_SUBMISSIONS_WITH_RETURNS_EMBED)
+      .eq("organization_id", organizationId)
       .eq("status", "ready_to_send")
       .order("created_at", { ascending: false })
       .limit(200);
+    if (storeFilter) q = q.eq("store_id", storeFilter);
 
-    console.log("Fetched Claims:", subs, error);
+    const { data: subs, error } = await q;
     if (error) throw new Error(error.message);
-    const list = (subs ?? []) as unknown as Record<string, unknown>[];
+    const list = subs ?? [];
+
     const rows: ClaimSubmissionListRow[] = [];
     for (const raw of list) {
       const r = raw as unknown as Record<string, unknown>;
@@ -289,9 +317,12 @@ export async function uploadClaimPdfExport(formData: FormData): Promise<{ ok: bo
   const organizationId = String(formData.get("organizationId") ?? "").trim();
   const actorUserIdRaw = String(formData.get("actorUserId") ?? "").trim();
   const actorUserId = actorUserIdRaw && isUuidString(actorUserIdRaw) ? actorUserIdRaw : null;
-  if (!isUuidString(submissionId) || !organizationId) return { ok: false, error: "Invalid parameters." };
+  if (!isUuidString(submissionId) || !isUuidString(organizationId)) return { ok: false, error: "Invalid parameters." };
 
   try {
+    const gate = await assertClaimSubmissionBelongsToOrganization(submissionId, organizationId);
+    if (!gate.ok) return { ok: false, error: gate.error };
+
     const buf = Buffer.from(await file.arrayBuffer());
     const path = `${organizationId}/${submissionId}/claim-export-${Date.now()}.pdf`;
     const { error: upErr } = await supabaseServer.storage.from(BUCKET).upload(path, buf, {
@@ -322,9 +353,14 @@ export async function markClaimSubmissionManualSubmit(
   organizationId: string = DEFAULT_ORG,
   actorUserId?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!isUuidString(organizationId)) return { ok: false, error: "organization_id must be a valid UUID." };
+  if (!isUuidString(submissionId)) return { ok: false, error: "submission id must be a valid UUID." };
   const id = marketplaceCaseId.trim();
   if (!id) return { ok: false, error: "Marketplace case ID is required." };
   try {
+    const gate = await assertClaimSubmissionBelongsToOrganization(submissionId, organizationId);
+    if (!gate.ok) return { ok: false, error: gate.error };
+
     const { error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
       .update({
@@ -363,6 +399,7 @@ export async function bulkSubmitClaimsToMarketplace(
   selectedSubmissionIds?: string[] | null,
   actorUserId?: string | null,
 ): Promise<{ ok: boolean; count?: number; error?: string }> {
+  if (!isUuidString(organizationId)) return { ok: false, error: "organization_id must be a valid UUID." };
   const HISTORY_TABLE = "claim_history_logs";
   try {
     let targetIds: string[] = [];

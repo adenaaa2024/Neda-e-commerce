@@ -1,0 +1,6 @@
+{
+  "id": "settlement_legacy_status",
+  "description": "Settlement CSV with transaction status but without full Reports Repository core",
+  "headers": ["Settlement ID", "Transaction Status", "Order ID"],
+  "expect_report_type": "SETTLEMENT"
+}

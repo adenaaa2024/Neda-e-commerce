@@ -26,6 +26,8 @@ import {
   type WorkspaceOrganizationOption,
 } from "../session/tenant-actions";
 import { listPlatformMarketplaceIcons } from "../(admin)/lib/platform-actions";
+import { ExpectedPackagesLinkagePanel } from "../../components/returns/ExpectedPackagesLinkagePanel";
+import { InventoryItemStatusLinkagePanel } from "../../components/returns/InventoryItemStatusLinkagePanel";
 import {
   DEFAULT_ORG_SETTINGS,
   type DrawerContent, type WizardInheritedContext,
@@ -110,6 +112,12 @@ export default function ReturnsPage() {
   const canGoBack    = drawerStack.length > 1;
 
   function openDrawer(c: DrawerContent) { setDrawerStack([c]); }
+  function openItemDetail(r: ReturnRecord) {
+    openDrawer({ type: "item", record: r });
+  }
+  function openItemEdit(r: ReturnRecord) {
+    openDrawer({ type: "item", record: r, startInEditMode: true });
+  }
   function pushDrawer(c: DrawerContent) { setDrawerStack((p) => [...p, c]); }
   function popDrawer()                  { setDrawerStack((p) => p.slice(0, -1)); }
   function closeDrawer()                { setDrawerStack([]); }
@@ -337,7 +345,8 @@ export default function ReturnsPage() {
   }
   function drawerSubtitle() {
     if (!activeDrawer) return "";
-    if (activeDrawer.type === "item")    return "Return Item";
+    if (activeDrawer.type === "item")
+      return activeDrawer.startInEditMode ? "Return Item · Edit" : "Return Item";
     if (activeDrawer.type === "package") return "Package";
     if (activeDrawer.type === "pallet")  return "Pallet";
     return "";
@@ -491,8 +500,8 @@ export default function ReturnsPage() {
                   externalSearch={globalSearchQuery}
                   onToast={showToast}
                   returnsTotalInDb={returnsTotalCount}
-                  onRowClick={(r) => openDrawer({ type: "item", record: r })}
-                  onRowEdit={(r)  => openDrawer({ type: "item", record: r })}
+                  onRowClick={openItemDetail}
+                  onRowEdit={openItemEdit}
                   onBulkDeleted={bulkRemoveReturns}
                   onBulkMoved={bulkUpdateReturns}
                   onNewItem={() => openWizard()}
@@ -501,8 +510,31 @@ export default function ReturnsPage() {
             )}
 
             {activeTab === "packages" && (
-              <div className="relative min-h-0">
+              <div className="relative min-h-0 space-y-4">
                 <DatabaseTag table="packages" />
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <p className="mb-2 text-sm font-bold text-foreground">Inventory item status</p>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Line-level rows from v_inventory_item_status with product linkage; package rollup chip from
+                    v_inventory_status only (no product linkage on chip).
+                  </p>
+                  <InventoryItemStatusLinkagePanel
+                    organizationId={effectiveWriteOrgId}
+                    storeId={storeFilter || null}
+                    showFilters
+                  />
+                </div>
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <p className="mb-2 text-sm font-bold text-foreground">Expected packages lookup</p>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Search removal expected lines by Amazon order ID or tracking (read-only, with product linkage).
+                  </p>
+                  <ExpectedPackagesLinkagePanel
+                    organizationId={effectiveWriteOrgId}
+                    storeId={storeFilter || null}
+                    showFilters
+                  />
+                </div>
                 <PackagesDataTable
                   packages={filteredPackages}
                   returns={visibleReturns}
@@ -559,6 +591,7 @@ export default function ReturnsPage() {
         {activeDrawer?.type === "item" && (
           <ItemDrawerContent
             record={activeDrawer.record}
+            startInEditMode={activeDrawer.startInEditMode ?? false}
             role={role}
             actor={actor}
             actorProfileId={actorUserId}
@@ -566,7 +599,7 @@ export default function ReturnsPage() {
             pallets={pallets}
             sessionPhotos={sessionPhotos.get(activeDrawer.record.id)}
             onToast={showToast}
-            onUpdated={(r) => { updateReturn_(r); openDrawer({ type: "item", record: r }); }}
+            onUpdated={(r) => { updateReturn_(r); openItemDetail(r); }}
             onDeleted={(id) => { removeReturn(id); closeDrawer(); showToast("Return deleted.", "warning"); }}
           />
         )}

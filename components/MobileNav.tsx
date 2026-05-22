@@ -5,9 +5,12 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   FileText,
+  FileUp,
   LayoutDashboard,
+  Package,
   RotateCcw,
   ShieldAlert,
+  Inbox,
   Settings,
   Store,
   Menu,
@@ -22,8 +25,14 @@ const navLinks = [
       { label: "Dashboard", icon: LayoutDashboard, href: "/" },
       { label: "Returns Processing", icon: RotateCcw, href: "/returns" },
       { label: "Claim Engine", icon: ShieldAlert, href: "/claim-engine" },
+      { label: "Claim Inbox", icon: Inbox, href: "/claim-engine/inbox" },
       { label: "Report history", icon: FileText, href: "/claim-engine/report-history" },
+      { label: "Product Information Management", icon: Package, href: "/dashboard/products" },
     ],
+  },
+  {
+    section: "Data Management",
+    items: [{ label: "Imports", icon: FileUp, href: "/dashboard/file-import" }],
   },
   {
     section: "Integrations",
@@ -40,7 +49,7 @@ export function MobileNav() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    queueMicrotask(() => setMounted(true));
   }, []);
 
   // Prevent body scroll when drawer is open

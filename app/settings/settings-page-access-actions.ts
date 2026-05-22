@@ -138,7 +138,7 @@ export async function getSettingsPageAccessDataAction(
 
   const roleOut: SettingsPageAccessEntityRow[] = [];
   for (const raw of roleRows ?? []) {
-    const r = raw as Record<string, unknown>;
+    const r = raw as unknown as Record<string, unknown>;
     const id = String(r.id ?? "").trim();
     if (!id) continue;
     const { data: rp } = await supabaseServer

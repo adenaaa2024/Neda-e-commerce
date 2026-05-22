@@ -18,7 +18,7 @@ export type Json =
   | Json[];
 
 // ---------------------------------------------------------------------------
-// return_items (physical return line items; renamed from `returns`)
+// return_items (scanner / warehouse operational lines; renamed from `returns`)
 // ---------------------------------------------------------------------------
 
 /**
@@ -28,7 +28,7 @@ export type Json =
  * amazon_fees_lost, return_shipping_fee, currency, condition_note) are
  * preserved as nullable to protect historical data.
  */
-export type ReturnItemsRow = {
+export type ReturnsRow = {
   /** Primary key. */
   id: string;
   /** FK to `stores` — resolves marketplace channel. */
@@ -83,26 +83,14 @@ export type ReturnItemsRow = {
   estimated_value: number | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
-  /** `expected_packages.id` when receive linked this unit to an expectation row. */
-  expected_item_id?: string | null;
-  expected_product_id?: string | null;
-  scanned_product_id?: string | null;
+  /** Deterministic resolver — nullable until populated (migration 20260815150000). */
   resolved_product_id?: string | null;
   resolved_catalog_product_id?: string | null;
   identifier_resolution_status?: string | null;
   identifier_resolution_confidence?: number | null;
-  identifier_resolution_source?: string | null;
-  identifier_resolution_meta?: Json | null;
-  product_match_status?: string | null;
-  product_review_required?: boolean | null;
-  product_resolved_at?: string | null;
-  product_resolved_by?: string | null;
   // --- PostgREST embed (list selects only) ---
   stores?: { name: string; platform: string } | null;
 };
-
-/** @deprecated Use `ReturnItemsRow` — alias for table rename `returns` → `return_items`. */
-export type ReturnsRow = ReturnItemsRow;
 
 // ---------------------------------------------------------------------------
 // packages
@@ -119,6 +107,7 @@ export type PackagesRow = {
   status: string | null;
   organization_id: string | null;
   store_id: string | null;
+  package_code: string | null;
   expected_item_count: number | null;
   actual_item_count: number | null;
   created_at: string | null;
@@ -126,29 +115,18 @@ export type PackagesRow = {
   rma_number: string | null;
   // --- Added by migration 20260413 ---
   manifest_url: string | null;
-  /** Operator / receiving free-text notes (replaces legacy `discrepancy_note`). */
-  notes: string | null;
+  discrepancy_note: string | null;
   order_id: string | null;
   created_by: string | null;
   updated_by: string | null;
   updated_at: string | null;
+  inside_photo_urls: string[] | null;
+  outside_photo_urls: string[] | null;
+  slip_photo_urls: string[] | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
-  /** Exterior / damage — up to 3 public media URLs (canonical; replaces legacy `photo_url`). */
-  outside_photo_urls: string[] | null;
-  /** Interior contents — up to 3 public media URLs (canonical; replaces legacy `photo_opened_url`). */
-  inside_photo_urls: string[] | null;
-  /** Packing slip pages — up to 3 public media URLs (canonical; replaces legacy slip/label columns). */
-  slip_photo_urls: string[] | null;
   /** Parsed packing-slip lines [{sku, expected_qty, description}]. */
   manifest_data: Json | null;
-  /**
-   * Physical carton / box barcode (operator lock field).
-   * Renamed from legacy `slip_id` (migration 20260511140000).
-   */
-  package_code: string | null;
-  /** Packing-slip document id on paper (often `S…`) — column `packages.id_slip_contents`. */
-  id_slip_contents: string | null;
   // --- PostgREST embed ---
   stores?: { name: string; platform: string } | null;
 };
@@ -170,23 +148,20 @@ export type PalletsRow = {
   item_count: number | null;
   created_at: string | null;
   tracking_number: string | null;
-  /** Marketplace / removal order id (see migration 20260705120000_pallets_order_id). */
-  order_id: string | null;
-  /** Primary carrier for this receiving pallet (BOX SCAN saves here). */
-  carrier_name: string | null;
   notes: string | null;
   // --- Added by migration 20260413 ---
   created_by: string | null;
   updated_by: string | null;
   updated_at: string | null;
-  /** Pallet overview images (canonical; replaces legacy `photo_url`). */
   pallet_photo_urls: string[] | null;
-  /** Bill of lading images (canonical; replaces legacy `bol_photo_url`). */
   bol_photo_urls: string[] | null;
-  /** Shipping label / manifest scans (canonical; replaces legacy `manifest_photo_url`). */
   shipping_label_urls: string[] | null;
   /** Soft-delete timestamp — NULL means active. */
   deleted_at: string | null;
+  /** Shipping carrier — pallet-level; inherited by child packages. */
+  carrier_name: string | null;
+  /** Marketplace order ID for this pallet (renamed from `amazon_order_id`). */
+  order_id: string | null;
   // --- PostgREST embed ---
   stores?: { name: string; platform: string } | null;
 };
@@ -301,67 +276,10 @@ export type OrganizationSettingsRow = {
   company_display_name: string | null;
   /** Pre-selected store FK for new returns/packages in this org. */
   default_store_id: string | null;
+  /** ISO 4217 code for catalog/UI price display when row currency is absent. */
+  display_currency_code: string | null;
   /** Enables verbose debug logging/UI for this tenant. */
   is_debug_mode_enabled: boolean | null;
-};
-
-// ---------------------------------------------------------------------------
-// package_items (operator ITEM SCAN — one row per scanned unit)
-// ---------------------------------------------------------------------------
-
-export type PackageItemsRow = {
-  id: string;
-  organization_id: string;
-  package_id: string;
-  store_id: string | null;
-  slip_content_id: string | null;
-  scanned_barcode: string;
-  match_kind: string;
-  quantity: number;
-  /** Item-level discrepancy chips (see `lib/scanner/item-unit-discrepancy-tags.ts`). */
-  discrepancy_tags: string[] | null;
-  expiry_date: string | null;
-  lot_number: string | null;
-  evidence_urls: string[] | null;
-  created_at: string;
-  created_by: string | null;
-};
-
-// ---------------------------------------------------------------------------
-// slip_contents (BOX scan GPT lines)
-// ---------------------------------------------------------------------------
-
-export type SlipContentsRow = {
-  id: string;
-  organization_id: string;
-  package_id: string;
-  store_id: string | null;
-  /** Denormalized packing-slip id for this line row. */
-  slip_code: string | null;
-  rma_number: string | null;
-  upc: string | null;
-  fnsku: string | null;
-  description: string | null;
-  quantity: number;
-  condition: string | null;
-  /** Line flags JSON, e.g. `{ "missing": true }` — migration `20260641130000_slip_contents_notes.sql`. */
-  notes?: string | null;
-  sort_index: number;
-  created_at: string;
-  ocr_text?: string | null;
-  ocr_product_name?: string | null;
-  ocr_confidence?: number | null;
-  parsed_asin?: string | null;
-  parsed_fnsku?: string | null;
-  parsed_sku?: string | null;
-  parsed_upc?: string | null;
-  resolved_product_id?: string | null;
-  resolved_catalog_product_id?: string | null;
-  identifier_resolution_status?: string | null;
-  identifier_resolution_confidence?: number | null;
-  identifier_resolution_source?: string | null;
-  identifier_resolution_meta?: Json | null;
-  product_review_required?: boolean | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -391,19 +309,7 @@ export type Database = {
         ];
       };
       return_items: {
-        Row: ReturnItemsRow;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
-        Relationships: [];
-      };
-      slip_contents: {
-        Row: SlipContentsRow;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
-        Relationships: [];
-      };
-      package_items: {
-        Row: PackageItemsRow;
+        Row: ReturnsRow;
         Insert: Record<string, unknown>;
         Update: Record<string, unknown>;
         Relationships: [];
@@ -434,6 +340,18 @@ export type Database = {
       };
       platform_settings: {
         Row: PlatformSettingsRow;
+        Insert: Record<string, unknown>;
+        Update: Record<string, unknown>;
+        Relationships: [];
+      };
+      claim_filing_requests: {
+        Row: Record<string, unknown>;
+        Insert: Record<string, unknown>;
+        Update: Record<string, unknown>;
+        Relationships: [];
+      };
+      claim_filing_request_events: {
+        Row: Record<string, unknown>;
         Insert: Record<string, unknown>;
         Update: Record<string, unknown>;
         Relationships: [];

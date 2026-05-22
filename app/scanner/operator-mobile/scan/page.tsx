@@ -69,6 +69,7 @@ import { scannerProductResolutionBadges } from "@/lib/scanner/product-resolution
 import {
   isShipmentEntryOffManifest,
   lookupShipmentEntryScanCode,
+  resolveShipmentEntryInventoryVisual,
   mockLookupShipmentEntryScanCode,
 } from "@/lib/scanner/shipment-entry-lookup";
 import {
@@ -81,6 +82,7 @@ import {
   safeInventoryProgressPercent,
   type InventoryGateVisualStatus,
   type InventoryViewMatchField,
+  type ShipmentEntryItemViewMatchField,
   type VInventoryStatusRow,
 } from "@/lib/scanner/v-inventory-status";
 import { resolveItemBarcodeAgainstExpectedRows, type ItemResolveTier } from "@/lib/scanner/operator-item-resolve";
@@ -567,12 +569,12 @@ const IDENTIFICATION_GATE_THEME: Record<
   },
 };
 
-function identificationGatePrimaryCta(visual: InventoryGateVisualStatus): string {
+function identificationGatePrimaryCta(visual: InventoryGateVisualStatus, manifestKnown = false): string {
   switch (visual) {
     case "new":
       return "Continue Shipment";
     case "manual_new":
-      return "Create & Start";
+      return manifestKnown ? "Continue Shipment" : "Create & Start";
     case "unexpected":
       return "Continue Scanning";
     case "in_progress":
@@ -876,12 +878,15 @@ function CarrierCombobox(props: {
 }
 
 /** Compact label for the identify gate status pill (top-right). */
-function identifyGateStatusBadgeLabel(visual: InventoryGateVisualStatus): string {
+function identifyGateStatusBadgeLabel(
+  visual: InventoryGateVisualStatus,
+  manifestKnown = false,
+): string {
   switch (visual) {
     case "new":
       return "New";
     case "manual_new":
-      return "Off manifest";
+      return manifestKnown ? "On manifest" : "Off manifest";
     case "unexpected":
       return "Unexpected";
     case "in_progress":
@@ -1439,12 +1444,23 @@ async function preprocessIdentifyGatePhotoForOcr(file: File | Blob): Promise<Blo
   }
 }
 
-function identifyGateMatchFieldUiLabel(field: InventoryViewMatchField): string {
+function identifyGateMatchFieldUiLabel(field: ShipmentEntryItemViewMatchField): string {
   switch (field) {
+    case "order_id":
+      return "Order ID";
     case "tracking_number":
       return "Tracking number";
     case "id_slip_contents":
+    case "slip_code":
       return "Slip ID";
+    case "package_code":
+      return "Package code";
+    case "pallet_code":
+      return "Pallet code";
+    case "container_code":
+      return "Container code";
+    case "lpn":
+      return "LPN";
     case "fnsku":
       return "FNSKU";
     case "sku":
@@ -1559,6 +1575,17 @@ function epRowToSlipDescriptionForItemModal(row: Record<string, unknown>): strin
 
 type IdentifyGateEntity = "pallet" | "package" | "item" | "single_box";
 type IdentifyGatePhase = "idle" | "searching" | "matched" | "new";
+
+function identifyGateEntityForManifestMatch(
+  matchField: ShipmentEntryItemViewMatchField | null,
+  matchStatus: string,
+): IdentifyGateEntity {
+  if (matchStatus === "found_pallet") return "pallet";
+  if (matchField === "package_code" || matchField === "slip_code" || matchField === "id_slip_contents") {
+    return "package";
+  }
+  return "single_box";
+}
 
 /** Gate physical box count: empty, zero, or non-numeric → invalid (must be ≥ 1 when required). */
 function parseMandatoryGateBoxCount(raw: string): { valid: true; n: number } | { valid: false } {
@@ -2365,13 +2392,15 @@ function OperatorMobileScanPageContent() {
 
   /** Identification gate: hide workflow steps until operator confirms tracking context. */
   const [isIdentified, setIsIdentified] = useState(false);
+  /** Continue from Shipment Entry should land on Neda's modern Pallet workspace, never the legacy docs form. */
+  const [modernPalletWorkspace, setModernPalletWorkspace] = useState(false);
   const [identifyGatePhase, setIdentifyGatePhase] = useState<IdentifyGatePhase>("idle");
   const [identifyGateError, setIdentifyGateError] = useState<string | null>(null);
   const [identifyGateEnteredCode, setIdentifyGateEnteredCode] = useState("");
   const [identifyGateRows, setIdentifyGateRows] = useState<Record<string, unknown>[]>([]);
   const [identifyGateCanonicalTracking, setIdentifyGateCanonicalTracking] = useState<string | null>(null);
   /** Which column matched the scan on `v_inventory_item_status` (slip “ASIN” column → `fnsku`). */
-  const [identifyGateMatchField, setIdentifyGateMatchField] = useState<InventoryViewMatchField | null>(null);
+  const [identifyGateMatchField, setIdentifyGateMatchField] = useState<ShipmentEntryItemViewMatchField | null>(null);
   const [identifyGateEntity, setIdentifyGateEntity] = useState<IdentifyGateEntity | null>(null);
   const [identifyGatePhysicalBoxStr, setIdentifyGatePhysicalBoxStr] = useState("");
   /** Aggregated `v_inventory_item_status` totals for the current scan (null until search completes). */
@@ -3007,6 +3036,7 @@ function OperatorMobileScanPageContent() {
       const trimmed = rawCode.trim();
       if (!trimmed) return;
       setIdentifyGateError(null);
+      setModernPalletWorkspace(false);
       setIdentifyGateEntity(null);
       setIdentifyGatePhysicalBoxStr("");
       setIdentifyGateEnteredCode(trimmed);
@@ -3030,7 +3060,7 @@ function OperatorMobileScanPageContent() {
           const invRowsDemo = demoLookup.inventory_rows;
           setIdentifyGateMatchField(demoLookup.inventory_matched_field);
           const agg = aggregateInventoryStatus(invRowsDemo);
-          const vis = demoLookup.inventory_visual;
+          const vis = resolveShipmentEntryInventoryVisual(invRowsDemo, agg);
           setIdentifyGateInventoryAgg(agg);
           setIdentifyGateInventoryVisual(vis);
           setIdentifyGateViewHints(pickInventoryViewHints(invRowsDemo));
@@ -3051,12 +3081,23 @@ function OperatorMobileScanPageContent() {
           const canonDemo = demoLookup.canonical_tracking ?? trimmed;
           setIdentifyGateRows(detailRows);
           setIdentifyGateCanonicalTracking(canonDemo);
+          setIdentifyGateEntity(
+            identifyGateEntityForManifestMatch(demoLookup.inventory_matched_field, demoLookup.match_status),
+          );
           const demoSnap = mockTrackingExpectationSnapshot(canonDemo);
           setIdentifyGateExpectationLines(demoSnap.lines);
-          const lineField: InventoryViewMatchField = demoLookup.inventory_matched_field ?? "tracking_number";
+          const lineField: ShipmentEntryItemViewMatchField =
+            demoLookup.inventory_matched_field ?? "tracking_number";
           const lineValue =
             lineField === "id_slip_contents" || lineField === "fnsku" || lineField === "sku" ? trimmed : canonDemo;
-          setIdentifyGateShipmentLines(mockVInventoryItemStatusLinesForExact(lineField, lineValue));
+          setIdentifyGateShipmentLines(
+            invRowsDemo.length
+              ? invRowsDemo
+              : mockVInventoryItemStatusLinesForExact(
+                  lineField as InventoryViewMatchField,
+                  lineValue,
+                ),
+          );
           setIdentifyGatePhase("matched");
           playOperatorSuccessBeep();
           setIdentifyGateGlowFlash(true);
@@ -3099,9 +3140,12 @@ function OperatorMobileScanPageContent() {
         const invRows = gateLookup.inventory_rows;
         const gateMatchField = gateLookup.inventory_matched_field;
         setIdentifyGateMatchField(gateMatchField);
+        if (invRows.length) {
+          setIdentifyGateEntity(identifyGateEntityForManifestMatch(gateMatchField, gateLookup.match_status));
+        }
 
         const agg = aggregateInventoryStatus(invRows);
-        const vis = gateLookup.inventory_visual;
+        const vis = resolveShipmentEntryInventoryVisual(invRows, agg);
         setIdentifyGateInventoryAgg(agg);
         setIdentifyGateInventoryVisual(vis);
         setIdentifyGateViewHints(pickInventoryViewHints(invRows));
@@ -3194,23 +3238,31 @@ function OperatorMobileScanPageContent() {
         }
         setIdentifyGateExpectationLines(expectationLines);
 
-        let shipmentLines: VInventoryStatusRow[] = [];
-        if (sessionStoreId && gateMatchField) {
-          const lineValue =
-            gateMatchField === "id_slip_contents" || gateMatchField === "fnsku" || gateMatchField === "sku"
-              ? trimmed
-              : canon || trimmed;
-          try {
-            const { rows } = await fetchVInventoryItemStatusLinesExact(
-              supabase,
-              orgId,
-              sessionStoreId,
-              gateMatchField,
-              lineValue,
-            );
-            shipmentLines = rows;
-          } catch (err) {
-            console.warn("fetchVInventoryItemStatusLinesExact failed", err);
+        let shipmentLines: VInventoryStatusRow[] = invRows.length ? invRows : [];
+        if (!shipmentLines.length && sessionStoreId && gateMatchField) {
+          const narrowFields: InventoryViewMatchField[] = [
+            "fnsku",
+            "sku",
+            "tracking_number",
+            "id_slip_contents",
+          ];
+          if (narrowFields.includes(gateMatchField as InventoryViewMatchField)) {
+            const lineValue =
+              gateMatchField === "id_slip_contents" || gateMatchField === "fnsku" || gateMatchField === "sku"
+                ? trimmed
+                : canon || trimmed;
+            try {
+              const { rows } = await fetchVInventoryItemStatusLinesExact(
+                supabase,
+                orgId,
+                sessionStoreId,
+                gateMatchField as InventoryViewMatchField,
+                lineValue,
+              );
+              shipmentLines = rows;
+            } catch (err) {
+              console.warn("fetchVInventoryItemStatusLinesExact failed", err);
+            }
           }
         }
         setIdentifyGateShipmentLines(shipmentLines);
@@ -5908,6 +5960,36 @@ function OperatorMobileScanPageContent() {
 
   resumeFromPalletLookupRef.current = resumeWorkflowFromExistingPalletRow;
 
+  const initializeUnlistedTrackingBaselineReturnItem = useCallback(
+    async (code: string): Promise<boolean> => {
+      if (!isSupabaseConfigured()) return true;
+      const scannedCode = code.trim();
+      if (!scannedCode) return false;
+      if (!sessionStoreId) {
+        setSyncErrorToast("Select a store before creating records.");
+        return false;
+      }
+
+      const res = await insertOperatorPackageItemAction({
+        requestedOrganizationId: orgId,
+        storeId: sessionStoreId,
+        slipContentId: null,
+        scannedBarcode: scannedCode,
+        matchKind: "unexpected",
+        quantity: 1,
+        discrepancyTags: ["sellable_ok"],
+        looseItem: true,
+        operatorNotes: `Shipment Entry baseline initialized for unlisted tracking ${scannedCode}.`,
+      });
+      if (!res.ok) {
+        setSyncErrorToast(res.message?.trim() || "Could not initialize baseline return item.");
+        return false;
+      }
+      return true;
+    },
+    [orgId, sessionStoreId],
+  );
+
   const runIdentifyGatePhotoOcr = useCallback(async (file: File) => {
     if (identifyGateOcrBusyRef.current) return;
     if (!isAllowedIdentifyGateImageFile(file)) {
@@ -6254,6 +6336,7 @@ function OperatorMobileScanPageContent() {
       }
 
       if (shipContinueVisual) {
+        setModernPalletWorkspace(false);
         setActiveSlipOrPackage(null);
         setActiveTracking(null);
         setCurrentPalletTrackingId(effectiveTracking);
@@ -6275,6 +6358,7 @@ function OperatorMobileScanPageContent() {
         }
         setFlowPhase("package_scan");
       } else {
+        setModernPalletWorkspace(true);
         if (identifyGateEntity === "single_box") {
           setActiveSlipOrPackage(null);
           setDirectBox(false);
@@ -6288,29 +6372,27 @@ function OperatorMobileScanPageContent() {
             setActiveTracking(null);
             setCurrentPalletTrackingId(effectiveTracking);
             setFlowPhase("scan");
-          } else if (applied && lastResolve?.kind === "pallet") {
-            const pid = String(lastResolve.row.id ?? "").trim();
-            const pnum = String(lastResolve.row.pallet_number ?? "").trim();
-            if (isUuidString(pid) && pnum) {
-              const cn = String(lastResolve.row.carrier_name ?? "").trim();
-              const oidRow = String((lastResolve.row as { order_id?: unknown }).order_id ?? "").trim();
-              setPalletResolvedOrderId(oidRow);
+          } else {
+            const receivingPallet = await ensureReceivingPalletForTracking(effectiveTracking, orderId);
+            if (receivingPallet && "blocked" in receivingPallet) {
+              setSyncErrorToast(receivingPallet.message);
+              return;
+            }
+            if (receivingPallet) {
               setActivePallet({
-                id: pid,
-                pallet_number: pnum,
-                ...(cn ? { carrier_name: cn } : {}),
-                order_id: oidRow.length ? oidRow : null,
+                id: receivingPallet.id,
+                pallet_number: receivingPallet.pallet_number,
+                order_id: orderId,
               });
               setActiveTracking(null);
-              const rowTn = String(lastResolve.row.tracking_number ?? "").trim();
-              setCurrentPalletTrackingId(tracking || rowTn || effectiveTracking);
+              setCurrentPalletTrackingId(effectiveTracking);
+              setFlowPhase("scan");
+            } else {
+              setActivePallet(null);
+              setActiveTracking(effectiveTracking);
+              setCurrentPalletTrackingId(effectiveTracking);
+              setFlowPhase("scan");
             }
-            setFlowPhase("scan");
-          } else {
-            setActivePallet(null);
-            setActiveTracking(null);
-            setCurrentPalletTrackingId(effectiveTracking);
-            setFlowPhase("scan");
           }
         } else {
           if (!applied) {
@@ -6349,6 +6431,7 @@ function OperatorMobileScanPageContent() {
     sessionStoreId,
     orgId,
     applyResult,
+    ensureReceivingPalletForTracking,
     scheduleFocusScanner,
     resetIdentifyGateForm,
   ]);
@@ -6382,16 +6465,19 @@ function OperatorMobileScanPageContent() {
         setActiveTracking(null);
         setCurrentPalletTrackingId(code.trim());
         setDirectBox(false);
+        setModernPalletWorkspace(true);
         setFlowPhase("scan");
       } else if (identifyGateEntity === "package") {
         setActivePallet(null);
         setActiveTracking(code);
         setDirectBox(true);
+        setModernPalletWorkspace(false);
         setFlowPhase("package_scan");
       } else {
         setActivePallet(null);
         setActiveTracking(null);
         setDirectBox(false);
+        setModernPalletWorkspace(true);
         setFlowPhase("items");
       }
       setIsIdentified(true);
@@ -6403,6 +6489,14 @@ function OperatorMobileScanPageContent() {
     if (!sessionStoreId) {
       setSyncErrorToast("Select a store before creating records.");
       return;
+    }
+
+    setBusy(true);
+    try {
+      const baselineReady = await initializeUnlistedTrackingBaselineReturnItem(code);
+      if (!baselineReady) return;
+    } finally {
+      setBusy(false);
     }
 
     if (identifyGateEntity === "pallet" || identifyGateEntity === "single_box") {
@@ -6419,6 +6513,7 @@ function OperatorMobileScanPageContent() {
       setActiveTracking(null);
       setCurrentPalletTrackingId(code.trim());
       setDirectBox(false);
+      setModernPalletWorkspace(true);
       setFlowPhase("scan");
       setIsIdentified(true);
       resetIdentifyGateForm();
@@ -6439,17 +6534,19 @@ function OperatorMobileScanPageContent() {
         setActiveTracking(code);
         setDirectBox(false);
         setBoxNotes("");
+        setModernPalletWorkspace(false);
         setActiveBoxSession({ barcode: code.trim(), packageId: null });
         setCurrentPackageTrackingId(code.trim());
         setFlowPhase("package_scan");
       } else {
-        // v165: do not write return_items at identify gate — item saves use insertOperatorPackageItemAction on a box.
+        // Baseline return_items initialization already happened before this phase transition.
         setPhysicalBoxCount(null);
         setBoxScanTargetDenominator(null);
         setActivePallet(null);
         setActiveTracking(null);
         setActiveSlipOrPackage(null);
         setDirectBox(false);
+        setModernPalletWorkspace(true);
         setFlowPhase("items");
       }
       setIsIdentified(true);
@@ -6467,6 +6564,7 @@ function OperatorMobileScanPageContent() {
     identifyGatePhysicalBoxStr,
     sessionStoreId,
     orgId,
+    initializeUnlistedTrackingBaselineReturnItem,
     scheduleFocusScanner,
     resetIdentifyGateForm,
   ]);
@@ -6475,9 +6573,14 @@ function OperatorMobileScanPageContent() {
     const visual = identifyGateInventoryVisual;
     if (!visual) return;
     if (visual === "completed") return;
-    if (visual === "manual_new") void handleIdentifyNewCreateAndStart();
+    if (visual === "manual_new" && identifyGatePhase === "new") void handleIdentifyNewCreateAndStart();
     else void handleIdentifyMatchedStartWorkflow();
-  }, [identifyGateInventoryVisual, handleIdentifyNewCreateAndStart, handleIdentifyMatchedStartWorkflow]);
+  }, [
+    identifyGateInventoryVisual,
+    identifyGatePhase,
+    handleIdentifyNewCreateAndStart,
+    handleIdentifyMatchedStartWorkflow,
+  ]);
 
   const palletIdentified = Boolean(activePallet);
   const trackingIdentified =
@@ -6499,9 +6602,10 @@ function OperatorMobileScanPageContent() {
   const identifyGateBoxCountValid = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr).valid;
   const identifyGateBoxCountShowsError = identifyGateNeedsValidBoxCount && !identifyGateBoxCountValid;
   const identifyGateMandatoryFieldsOk =
-    identifyGateEntity !== null && (!identifyGateNeedsValidBoxCount || identifyGateBoxCountValid);
+    identifyGatePhase === "matched" ||
+    (identifyGateEntity !== null && (!identifyGateNeedsValidBoxCount || identifyGateBoxCountValid));
 
-  const showIdentifyGatePhysicalBoxInput = identifyGateEntity === "pallet";
+  const showIdentifyGatePhysicalBoxInput = identifyGatePhase === "new" && identifyGateEntity === "pallet";
 
   const hasItemReceivableBox = hasReceivableBoxForItems(itemScanPackageId, activeBoxSession);
 
@@ -7771,6 +7875,18 @@ function OperatorMobileScanPageContent() {
     setPalletPackagePickerQuery("");
   }, []);
 
+  const continueModernPalletToBoxInfo = useCallback(() => {
+    if (typeof physicalBoxCount === "number" && physicalBoxCount > 0) {
+      setBoxScanTargetDenominator(physicalBoxCount);
+    }
+    setBoxIntakeError(null);
+    setEditAllMode(false);
+    setScanLine("");
+    setCurrentPackageTrackingId(null);
+    setFlowPhase("package_scan");
+    setPalletDocHydrationNonce((n) => n + 1);
+  }, [physicalBoxCount]);
+
   const scrollToActiveBoxSummary = useCallback(() => {
     document
       .getElementById("operator-mobile-box-summary-bar")
@@ -7796,10 +7912,19 @@ function OperatorMobileScanPageContent() {
     }
     const fromScan = flowPhase === "scan";
     if (fromScan) {
-      await handleConfirmStartBoxScan();
+      if (modernPalletWorkspace) continueModernPalletToBoxInfo();
+      else await handleConfirmStartBoxScan();
     }
     window.setTimeout(() => scrollToSavedBoxesFilter(), fromScan ? 260 : 0);
-  }, [activeBoxSession, flowPhase, handleConfirmStartBoxScan, scrollToActiveBoxSummary, scrollToSavedBoxesFilter]);
+  }, [
+    activeBoxSession,
+    flowPhase,
+    modernPalletWorkspace,
+    continueModernPalletToBoxInfo,
+    handleConfirmStartBoxScan,
+    scrollToActiveBoxSummary,
+    scrollToSavedBoxesFilter,
+  ]);
 
   const handlePalletSummaryRemainingClick = useCallback(async () => {
     if (activeBoxSession) {
@@ -7808,7 +7933,8 @@ function OperatorMobileScanPageContent() {
     }
     const fromScan = flowPhase === "scan";
     if (fromScan) {
-      await handleConfirmStartBoxScan();
+      if (modernPalletWorkspace) continueModernPalletToBoxInfo();
+      else await handleConfirmStartBoxScan();
     }
     window.setTimeout(() => {
       openOperatorAddNewBox();
@@ -7817,6 +7943,8 @@ function OperatorMobileScanPageContent() {
   }, [
     activeBoxSession,
     flowPhase,
+    modernPalletWorkspace,
+    continueModernPalletToBoxInfo,
     handleConfirmStartBoxScan,
     openOperatorAddNewBox,
     scrollToActiveBoxSummary,
@@ -8681,7 +8809,10 @@ function OperatorMobileScanPageContent() {
                       color: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].headline,
                     }}
                   >
-                    {identifyGateStatusBadgeLabel(identifyGateInventoryVisual)}
+                    {identifyGateStatusBadgeLabel(
+                      identifyGateInventoryVisual,
+                      identifyGatePhase === "matched",
+                    )}
                   </span>
                   {identifyGateInventoryVisual === "completed" ? (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-300/90" strokeWidth={2.25} aria-hidden />
@@ -8716,7 +8847,7 @@ function OperatorMobileScanPageContent() {
                   ) : null}
 
                   <p className="mb-1 max-w-[calc(100%-5.5rem)] text-[13px] font-medium leading-snug text-white/90">
-                    {identifyGateInventoryVisual === "manual_new"
+                    {identifyGateInventoryVisual === "manual_new" && identifyGatePhase === "new"
                       ? "No manifest lines for this code — create a record or pick entity type."
                       : identifyGateInventoryVisual === "new"
                         ? "New on manifest — confirm entity and continue."
@@ -8982,40 +9113,44 @@ function OperatorMobileScanPageContent() {
                     </div>
                   ) : null}
 
-                  <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Identify as</p>
-                  <div className="operator-shipment-entry-gate__entity-grid mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {(
-                      [
-                        ["pallet", "PALLET"] as const,
-                        ["single_box", "SINGLE BOX / ITEM"] as const,
-                      ] as const
-                    ).map(([id, label]) => {
-                      const selected = identifyGateEntity === id;
-                      const th = IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual];
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => {
-                            setIdentifyGateEntity(id);
-                            if (id !== "pallet") setIdentifyGatePhysicalBoxStr("");
-                          }}
-                          className={`operator-shipment-entry-gate__entity-btn rounded-xl border px-2 py-3 text-[11px] font-bold leading-snug transition active:scale-95 sm:min-h-[3.25rem] ${
-                            selected
-                              ? "operator-shipment-entry-gate__entity-btn--selected"
-                              : "operator-shipment-entry-gate__entity-btn--idle"
-                          }`}
-                          style={{
-                            borderColor: selected ? th.border : BORDER,
-                            backgroundColor: selected ? th.chipBg : CARD_INNER,
-                            color: selected ? th.headline : TEXT_PRIMARY,
-                          }}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {identifyGatePhase === "new" ? (
+                    <>
+                      <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Identify as</p>
+                      <div className="operator-shipment-entry-gate__entity-grid mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {(
+                          [
+                            ["pallet", "PALLET"] as const,
+                            ["single_box", "SINGLE BOX / ITEM"] as const,
+                          ] as const
+                        ).map(([id, label]) => {
+                          const selected = identifyGateEntity === id;
+                          const th = IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual];
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => {
+                                setIdentifyGateEntity(id);
+                                if (id !== "pallet") setIdentifyGatePhysicalBoxStr("");
+                              }}
+                              className={`operator-shipment-entry-gate__entity-btn rounded-xl border px-2 py-3 text-[11px] font-bold leading-snug transition active:scale-95 sm:min-h-[3.25rem] ${
+                                selected
+                                  ? "operator-shipment-entry-gate__entity-btn--selected"
+                                  : "operator-shipment-entry-gate__entity-btn--idle"
+                              }`}
+                              style={{
+                                borderColor: selected ? th.border : BORDER,
+                                backgroundColor: selected ? th.chipBg : CARD_INNER,
+                                color: selected ? th.headline : TEXT_PRIMARY,
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null}
                   {showIdentifyGatePhysicalBoxInput ? (
                     <div className="mt-4">
                       <div className="flex items-center justify-center gap-2">
@@ -9117,7 +9252,10 @@ function OperatorMobileScanPageContent() {
                     {identifyGateInventoryVisual === "completed" ? (
                       <ThumbsUp className="h-5 w-5" strokeWidth={2.25} />
                     ) : null}
-                    {identificationGatePrimaryCta(identifyGateInventoryVisual)}
+                    {identificationGatePrimaryCta(
+                      identifyGateInventoryVisual,
+                      identifyGatePhase === "matched",
+                    )}
                   </button>
                 </div>
               </section>
@@ -9152,7 +9290,7 @@ function OperatorMobileScanPageContent() {
           </p>
         ) : null}
 
-        {flowPhase === "scan" && parentIdentified ? (
+        {flowPhase === "scan" && parentIdentified && !modernPalletWorkspace ? (
           <div className="operator-pallet-step-screen">
             {activePallet?.id ? (
               <section
@@ -9464,7 +9602,7 @@ function OperatorMobileScanPageContent() {
           </div>
         ) : null}
 
-        {flowPhase === "scan" && !parentIdentified ? (
+        {flowPhase === "scan" && (!parentIdentified || modernPalletWorkspace) ? (
           <>
             <section className={`mb-4 rounded-[22px] p-3 ${glassCard}`}>
               <div className="flex gap-2.5">
@@ -9736,22 +9874,33 @@ function OperatorMobileScanPageContent() {
               )}
             </section>
 
-            <button
-              type="button"
-              onClick={() => {
-                setDirectBox(true);
-                setActivePallet(null);
-                setActiveTracking(null);
-                setActiveSlipOrPackage(null);
-                setExpectedPkgLines([]);
-                setExpectedPkgTotals(null);
-                setExpectedPackagesRawRowCount(null);
-              }}
-              className="mb-4 w-full rounded-[16px] border py-3 text-[11px] font-bold uppercase tracking-wide transition hover:bg-white/5"
-              style={{ borderColor: "rgba(56,189,248,0.25)", color: ACCENT_BLUE, backgroundColor: "rgba(56,189,248,0.06)" }}
-            >
-              No Pallet / Direct Box Scan
-            </button>
+            {parentIdentified ? (
+              <button
+                type="button"
+                onClick={() => continueModernPalletToBoxInfo()}
+                className="operator-neda-mechanical-scan-btn mb-4 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-black uppercase tracking-wide transition active:translate-y-[1px] active:shadow-inner disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ScanLine className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
+                Continue to Box Info
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectBox(true);
+                  setActivePallet(null);
+                  setActiveTracking(null);
+                  setActiveSlipOrPackage(null);
+                  setExpectedPkgLines([]);
+                  setExpectedPkgTotals(null);
+                  setExpectedPackagesRawRowCount(null);
+                }}
+                className="mb-4 w-full rounded-[16px] border py-3 text-[11px] font-bold uppercase tracking-wide transition hover:bg-white/5"
+                style={{ borderColor: "rgba(56,189,248,0.25)", color: ACCENT_BLUE, backgroundColor: "rgba(56,189,248,0.06)" }}
+              >
+                No Pallet / Direct Box Scan
+              </button>
+            )}
           </>
         ) : null}
 

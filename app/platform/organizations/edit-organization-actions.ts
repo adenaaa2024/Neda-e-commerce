@@ -80,7 +80,7 @@ export async function getOrganizationForEditAction(
     return { ok: false, error: "Organization not found." };
   }
 
-  const row = data as Record<string, unknown>;
+  const row = data as unknown as Record<string, unknown>;
   const typeRaw = typeof row.type === "string" ? row.type.trim().toLowerCase() : "";
   const organization_type =
     typeRaw === "internal" ? "internal" : "tenant";
@@ -248,7 +248,7 @@ export async function listPlatformOrganizationsAction(): Promise<ListPlatformOrg
   }
 
   const rows: PlatformOrganizationListRow[] = (data ?? []).map((r) => {
-    const row = r as Record<string, unknown>;
+    const row = r as unknown as Record<string, unknown>;
     return {
       id: String(row.id ?? ""),
       name: typeof row.name === "string" ? row.name : "",

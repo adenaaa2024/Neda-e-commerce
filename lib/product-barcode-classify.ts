@@ -5,19 +5,19 @@
  *   ASIN   — exactly 10 chars starting with B0  (^B0[A-Z0-9]{8}$)
  *   FNSKU  — exactly 10 chars starting with X0  (^X0[A-Z0-9]{8}$)
  *   LPN    — starts with "LPN" followed by alphanumerics
- *   UPC/EAN — 12–13 digit numeric string
+ *   UPC/EAN/GTIN — 8, 12, 13, or 14 digit numeric string
  *
  * NOTE: For new code prefer the full `useBarcodeRouter` hook in hooks/useBarcodeRouter.ts
  * which also handles catalog upserts and the `requires_investigation` flag.
  * This function is kept for backward-compatibility with existing call sites.
  */
 
-export type ProductBarcodeKind = "fnsku" | "asin" | "lpn" | "upc_ean" | "unknown";
+export type ProductBarcodeKind = "fnsku" | "asin" | "lpn" | "upc_ean" | "sku_msku" | "unknown";
 
 const RE_ASIN  = /^B0[A-Z0-9]{8}$/;
 const RE_FNSKU = /^X0[A-Z0-9]{8}$/;
 const RE_LPN   = /^LPN[A-Z0-9]+$/;
-const RE_UPC   = /^\d{12,13}$/;
+const RE_UPC   = /^(?:\d{8}|\d{12}|\d{13}|\d{14})$/;
 
 export function classifyProductBarcode(raw: string): {
   kind: ProductBarcodeKind;
@@ -36,5 +36,5 @@ export function classifyProductBarcode(raw: string): {
   const digitsOnly = trimmed.replace(/\D/g, "");
   if (RE_UPC.test(digitsOnly)) return { kind: "upc_ean", normalized: digitsOnly };
 
-  return { kind: "unknown", normalized: trimmed };
+  return { kind: "sku_msku", normalized: trimmed };
 }

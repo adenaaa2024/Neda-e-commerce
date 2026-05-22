@@ -1,4 +1,5 @@
 import type { RawReportType } from "./raw-report-types";
+import { headersMatchPositionalLedgerStaging } from "./inventory-ledger-positional";
 
 /** Values written to `raw_report_uploads.report_type` by the header rule engine + GPT fallback. */
 export const CLASSIFIED_REPORT_TYPES = [
@@ -244,6 +245,12 @@ export const CANONICAL_FIELDS_PER_TYPE: Record<string, CanonicalField[]> = {
       aliases: ["ending-warehouse-balance", "ending warehouse balance"],
     },
     {
+      key: "sku",
+      label: "MSKU / Seller SKU",
+      required: false,
+      aliases: ["msku", "MSKU", "sku", "merchant-sku", "seller-sku", "seller sku"],
+    },
+    {
       key: "title",
       label: "Product Title / Name",
       required: false,
@@ -260,6 +267,96 @@ export const CANONICAL_FIELDS_PER_TYPE: Record<string, CanonicalField[]> = {
       label: "ASIN",
       required: false,
       aliases: ["asin", "ASIN"],
+    },
+    {
+      key: "event_type",
+      label: "Event Type",
+      required: false,
+      aliases: ["event-type", "event type", "Event Type", "event_type"],
+    },
+    {
+      key: "quantity",
+      label: "Quantity",
+      required: false,
+      aliases: ["quantity", "Quantity", "qty"],
+    },
+    {
+      key: "location",
+      label: "Fulfillment Center / Location",
+      required: false,
+      aliases: [
+        "fulfillment-center",
+        "fulfillment center",
+        "Fulfillment Center",
+        "fc",
+        "warehouse",
+        "location",
+      ],
+    },
+    {
+      key: "disposition",
+      label: "Disposition",
+      required: false,
+      aliases: ["disposition", "Disposition", "detailed-disposition", "detailed disposition"],
+    },
+    {
+      key: "reference_id",
+      label: "Reference ID",
+      required: false,
+      aliases: ["reference-id", "reference id", "Reference ID", "reference_id"],
+    },
+    {
+      key: "reason_code",
+      label: "Reason",
+      required: false,
+      aliases: ["reason", "Reason", "reason-code", "reason code", "reason_code"],
+    },
+    {
+      key: "country",
+      label: "Country",
+      required: false,
+      aliases: ["country", "Country", "country-code", "country code"],
+    },
+    {
+      key: "reconciled_quantity",
+      label: "Reconciled Quantity",
+      required: false,
+      aliases: [
+        "reconciled-quantity",
+        "reconciled quantity",
+        "Reconciled Quantity",
+        "reconciled_quantity",
+      ],
+    },
+    {
+      key: "unreconciled_quantity",
+      label: "Unreconciled Quantity",
+      required: false,
+      aliases: [
+        "unreconciled-quantity",
+        "unreconciled quantity",
+        "Unreconciled Quantity",
+        "unreconciled_quantity",
+      ],
+    },
+    {
+      key: "event_timestamp",
+      label: "Date and Time",
+      required: false,
+      aliases: [
+        "date-and-time",
+        "date and time",
+        "Date and Time",
+        "event-timestamp",
+        "event timestamp",
+        "timestamp",
+      ],
+    },
+    {
+      key: "store",
+      label: "Store",
+      required: false,
+      aliases: ["store", "Store", "marketplace", "Marketplace"],
     },
   ],
   REIMBURSEMENTS: [
@@ -445,7 +542,7 @@ export const CANONICAL_FIELDS_PER_TYPE: Record<string, CanonicalField[]> = {
     {
       key: "date_time",
       label: "Date / Time",
-      required: true,
+      required: false,
       aliases: ["date/time", "date-time", "datetime", "posted-date", "posted date"],
     },
     {
@@ -457,7 +554,7 @@ export const CANONICAL_FIELDS_PER_TYPE: Record<string, CanonicalField[]> = {
     {
       key: "transaction_type",
       label: "Type",
-      required: true,
+      required: false,
       aliases: ["type", "transaction-type", "transaction type"],
     },
     {
@@ -483,6 +580,160 @@ export const CANONICAL_FIELDS_PER_TYPE: Record<string, CanonicalField[]> = {
       label: "Total",
       required: false,
       aliases: ["total", "Total", "total-amount", "total amount"],
+    },
+    {
+      key: "quantity",
+      label: "Quantity",
+      required: false,
+      aliases: ["quantity", "Quantity"],
+    },
+    {
+      key: "marketplace",
+      label: "Marketplace",
+      required: false,
+      aliases: ["marketplace", "Marketplace"],
+    },
+    {
+      key: "account_type",
+      label: "Account Type",
+      required: false,
+      aliases: ["account-type", "account type", "Account Type"],
+    },
+    {
+      key: "fulfillment",
+      label: "Fulfillment",
+      required: false,
+      aliases: ["fulfillment", "Fulfillment"],
+    },
+    {
+      key: "order_city",
+      label: "Order City",
+      required: false,
+      aliases: ["order-city", "order city", "Order City"],
+    },
+    {
+      key: "order_state",
+      label: "Order State",
+      required: false,
+      aliases: ["order-state", "order state", "Order State"],
+    },
+    {
+      key: "order_postal",
+      label: "Order Postal",
+      required: false,
+      aliases: ["order-postal", "order postal", "Order Postal"],
+    },
+    {
+      key: "tax_collection_model",
+      label: "Tax Collection Model",
+      required: false,
+      aliases: ["tax-collection-model", "tax collection model", "Tax Collection Model"],
+    },
+    {
+      key: "product_sales",
+      label: "Product Sales",
+      required: false,
+      aliases: ["product-sales", "product sales", "Product Sales"],
+    },
+    {
+      key: "product_sales_tax",
+      label: "Product Sales Tax",
+      required: false,
+      aliases: ["product-sales-tax", "product sales tax", "Product Sales Tax"],
+    },
+    {
+      key: "shipping_credits",
+      label: "Shipping Credits",
+      required: false,
+      aliases: ["shipping-credits", "shipping credits", "Shipping Credits"],
+    },
+    {
+      key: "shipping_credits_tax",
+      label: "Shipping Credits Tax",
+      required: false,
+      aliases: ["shipping-credits-tax", "shipping credits tax", "Shipping Credits Tax"],
+    },
+    {
+      key: "gift_wrap_credits",
+      label: "Gift Wrap Credits",
+      required: false,
+      aliases: ["gift-wrap-credits", "gift wrap credits", "Gift Wrap Credits"],
+    },
+    {
+      key: "giftwrap_credits_tax",
+      label: "Giftwrap Credits Tax",
+      required: false,
+      aliases: ["giftwrap-credits-tax", "giftwrap credits tax", "Giftwrap Credits Tax"],
+    },
+    {
+      key: "regulatory_fee",
+      label: "Regulatory Fee",
+      required: false,
+      aliases: ["regulatory-fee", "regulatory fee", "Regulatory Fee"],
+    },
+    {
+      key: "tax_on_regulatory_fee",
+      label: "Tax On Regulatory Fee",
+      required: false,
+      aliases: ["tax-on-regulatory-fee", "tax on regulatory fee", "Tax On Regulatory Fee"],
+    },
+    {
+      key: "promotional_rebates",
+      label: "Promotional Rebates",
+      required: false,
+      aliases: ["promotional-rebates", "promotional rebates", "Promotional Rebates"],
+    },
+    {
+      key: "promotional_rebates_tax",
+      label: "Promotional Rebates Tax",
+      required: false,
+      aliases: ["promotional-rebates-tax", "promotional rebates tax", "Promotional Rebates Tax"],
+    },
+    {
+      key: "marketplace_withheld_tax",
+      label: "Marketplace Withheld Tax",
+      required: false,
+      aliases: ["marketplace-withheld-tax", "marketplace withheld tax", "Marketplace Withheld Tax"],
+    },
+    {
+      key: "selling_fees",
+      label: "Selling Fees",
+      required: false,
+      aliases: ["selling-fees", "selling fees", "Selling Fees"],
+    },
+    {
+      key: "fba_fees",
+      label: "FBA Fees",
+      required: false,
+      aliases: ["fba-fees", "fba fees", "FBA Fees"],
+    },
+    {
+      key: "other_transaction_fees",
+      label: "Other Transaction Fees",
+      required: false,
+      aliases: ["other-transaction-fees", "other transaction fees", "Other Transaction Fees"],
+    },
+    {
+      key: "other_amount",
+      label: "Other",
+      required: false,
+      aliases: ["other", "Other"],
+    },
+    {
+      key: "transaction_status",
+      label: "Transaction Status",
+      required: false,
+      aliases: ["transaction-status", "transaction status", "Transaction Status"],
+    },
+    {
+      key: "transaction_release_date",
+      label: "Transaction Release Date",
+      required: false,
+      aliases: [
+        "transaction-release-date",
+        "transaction release date",
+        "Transaction Release Date",
+      ],
     },
   ],
   PRODUCT_IDENTITY: [
@@ -788,6 +1039,34 @@ export const CANONICAL_FIELDS_PER_TYPE: Record<string, CanonicalField[]> = {
       aliases: ["fnsku", "FNSKU", "fulfillment-network-sku"] },
     { key: "asin", label: "ASIN", required: false, aliases: ["asin", "ASIN"] },
   ],
+  ALL_ORDERS: [
+    { key: "amazon_order_id", label: "Amazon Order Id", required: true,
+      aliases: ["amazon-order-id", "amazon order id", "Amazon Order Id"] },
+    { key: "merchant_order_id", label: "Merchant Order Id", required: false,
+      aliases: ["merchant-order-id", "merchant order id", "Merchant Order Id"] },
+    { key: "purchase_date", label: "Purchase Date", required: false,
+      aliases: ["purchase-date", "purchase date", "Purchase Date"] },
+    { key: "sku", label: "Merchant SKU", required: false,
+      aliases: ["sku", "SKU", "merchant-sku", "Merchant SKU"] },
+    { key: "product_name", label: "Title", required: false,
+      aliases: ["title", "Title", "product-name", "product name"] },
+    { key: "quantity", label: "Shipped Quantity", required: false,
+      aliases: ["shipped-quantity", "shipped quantity", "Shipped Quantity"] },
+    { key: "currency", label: "Currency", required: false,
+      aliases: ["currency", "Currency"] },
+    { key: "item_price", label: "Item Price", required: false,
+      aliases: ["item-price", "item price", "Item Price"] },
+    { key: "item_tax", label: "Item Tax", required: false,
+      aliases: ["item-tax", "item tax", "Item Tax"] },
+    { key: "shipping_price", label: "Shipping Price", required: false,
+      aliases: ["shipping-price", "shipping price", "Shipping Price"] },
+    { key: "ship_country", label: "Shipping Country Code", required: false,
+      aliases: ["shipping-country-code", "shipping country code", "Shipping Country Code"] },
+    { key: "fulfillment_channel", label: "Fulfillment Channel", required: false,
+      aliases: ["fulfillment-channel", "fulfillment channel", "Fulfillment Channel"] },
+    { key: "sales_channel", label: "Sales Channel", required: false,
+      aliases: ["sales-channel", "sales channel", "Sales Channel"] },
+  ],
   AMAZON_FULFILLED_INVENTORY: [
     { key: "seller_sku", label: "Seller SKU", required: true,
       aliases: ["seller-sku", "seller sku", "sku", "SKU"] },
@@ -845,7 +1124,8 @@ export function mappingHasRequiredGaps(
  *   1. FBA_RETURNS      — contains "license-plate-number" AND "detailed-disposition"
  *   2. REMOVAL_ORDER    — contains "removal-order-id" OR
  *                         ("requested-quantity" AND "disposed-quantity")
- *   3. INVENTORY_LEDGER — contains "fnsku" AND "ending-warehouse-balance"
+ *   3. INVENTORY_LEDGER — "fnsku" AND ("ending-warehouse-balance" OR event-level:
+ *                         "event-type" + "fulfillment-center" + "disposition")
  *   4. REIMBURSEMENTS   — contains "reimbursement-id" AND "quantity-reimbursed-total"
  *   5. SETTLEMENT       — contains "settlement-id" AND "transaction-status"
  *   6. SAFET_CLAIMS     — contains "safe-t-claim-id" AND "reimbursement-amount"
@@ -866,7 +1146,8 @@ export function mappingHasRequiredGaps(
  * Rules (first match wins):
  *   1. FBA_RETURNS      — "license plate number" AND "detailed disposition"
  *   2. REMOVAL_ORDER    — "removal order id" OR ("requested quantity" AND "disposed quantity")
- *   3. INVENTORY_LEDGER — "fnsku" AND "ending warehouse balance"
+ *   3. INVENTORY_LEDGER — "fnsku" AND ("ending warehouse balance" OR
+ *                         "event type"+"fulfillment center"+"disposition")
  *   4. REIMBURSEMENTS   — "reimbursement id" AND "quantity reimbursed total"
  *   5. SETTLEMENT       — "settlement id" AND "transaction status"
  *   6. SAFET_CLAIMS     — "safe t claim id" AND "reimbursement amount"
@@ -874,10 +1155,19 @@ export function mappingHasRequiredGaps(
  *                           "description" + "total" (no "transaction type" header)
  *   8. TRANSACTIONS     — "transaction type" AND "total product charges"
  */
-/** Same conditions as rule 7 — used to guard settlement flat-file detection. */
+/**
+ * Same conditions as rule 7 — used to guard settlement flat-file detection.
+ *
+ * IMPORTANT: A file that has BOTH the Reports Repository signature AND extra
+ * `Transaction Status` / `Transaction Release Date` / `account type` columns is
+ * the Amazon Transaction / Payment Detail report (after the 9-line preamble),
+ * which lands in `amazon_settlements`, NOT `amazon_reports_repository`. We
+ * therefore reject the Reports Repository fingerprint when those settlement-
+ * detail columns are present.
+ */
 export function headersLookLikeReportsRepository(headers: string[]): boolean {
   const ds = detectionSet(headers);
-  return (
+  const core =
     ds.has("date/time") &&
     ds.has("settlement id") &&
     ds.has("type") &&
@@ -885,8 +1175,139 @@ export function headersLookLikeReportsRepository(headers: string[]): boolean {
     ds.has("sku") &&
     ds.has("description") &&
     ds.has("total") &&
-    !ds.has("transaction type")
+    !ds.has("transaction type");
+  if (!core) return false;
+  // Fee Preview / standard transactions use "transaction type" — excluded above.
+  // When Amazon adds Transaction Status / Release Date to the wide Repository CSV,
+  // require a fee-column fingerprint so Rule 5a (SETTLEMENT) does not steal the file.
+  if (ds.has("transaction status") || ds.has("transaction release date")) {
+    return (
+      ds.has("product sales") ||
+      ds.has("fba fees") ||
+      ds.has("selling fees") ||
+      ds.has("shipping credits")
+    );
+  }
+  return true;
+}
+
+/**
+ * True when the headers look like the Amazon Transaction / Payment Detail
+ * report (Reports Repository preamble + extra settlement-detail columns).
+ *
+ * Used to route this file to SETTLEMENT (table `amazon_settlements`) instead
+ * of REPORTS_REPOSITORY.
+ */
+export function headersLookLikeAmazonTransactionDetailReport(headers: string[]): boolean {
+  // Wide Reports Repository exports (Jan 2025+) share "Transaction Status" columns
+  // but are not Payment Detail settlement files — route them via Rule 7 instead.
+  if (headersLookLikeReportsRepository(headers)) return false;
+  const ds = detectionSet(headers);
+  const hasCore =
+    ds.has("date/time") &&
+    ds.has("settlement id") &&
+    ds.has("type") &&
+    ds.has("order id");
+  if (!hasCore) return false;
+  return (
+    ds.has("transaction status") ||
+    ds.has("transaction release date") ||
+    (ds.has("account type") && ds.has("fulfillment"))
   );
+}
+
+/**
+ * True when the headers indicate a "Simple Transactions Summary" file:
+ * Date, Transaction Status, Transaction type, Order ID, Product Details,
+ * Total product charges, Total promotional rebates, Amazon fees, Other,
+ * Total (USD). Used to ensure the file routes to TRANSACTIONS (not SETTLEMENT
+ * or REPORTS_REPOSITORY) even though it has only a coarse subset of columns.
+ */
+export function headersLookLikeSimpleTransactionsSummary(headers: string[]): boolean {
+  const ds = detectionSet(headers);
+  const hasTotalUsd =
+    ds.has("total (usd)") || ds.has("total usd") || ds.has("total");
+  return (
+    (ds.has("transaction type") || ds.has("type")) &&
+    (ds.has("order id") || ds.has("order")) &&
+    (ds.has("total product charges") ||
+      ds.has("amazon fees") ||
+      ds.has("total promotional rebates")) &&
+    hasTotalUsd
+  );
+}
+
+/**
+ * Headerless Amazon Inventory Ledger probe. The export has no header row;
+ * col1 is an ISO date and col2 is an Amazon FNSKU (`X` followed by 9
+ * alphanumeric chars). When this fingerprint is present we synthesise the
+ * canonical headers in the importer (see UniversalImporter) before staging.
+ */
+export function looksLikeHeaderlessInventoryLedger(firstRowCells: string[]): boolean {
+  if (!Array.isArray(firstRowCells) || firstRowCells.length < 6) return false;
+  const c1 = (firstRowCells[0] ?? "").trim();
+  const c2 = (firstRowCells[1] ?? "").trim();
+  const isIsoDateLike = /^\d{4}-\d{2}-\d{2}/.test(c1) || /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(c1);
+  const isFnskuLike = /^[A-Z]\d[A-Z0-9]{8}$/.test(c2) || /^[A-Z0-9]{10}$/.test(c2);
+  return isIsoDateLike && isFnskuLike;
+}
+
+/**
+ * @deprecated Legacy semantic header names for headerless ledger probes / tests.
+ * Production staging uses `ledger_pos_01`…`ledger_pos_15` via
+ * `buildInventoryLedgerPositionalStagingHeaders` — do not use this array for
+ * mapping semantics (column order differs from the real Amazon 15-col file).
+ */
+export const HEADERLESS_INVENTORY_LEDGER_SYNTHETIC_HEADERS = [
+  "event_date",         //  col1
+  "fnsku",              //  col2
+  "asin",               //  col3
+  "sku",                //  col4
+  "product_name",       //  col5
+  "event_type",         //  col6
+  "col7",               //  col7
+  "quantity",           //  col8
+  "location",           //  col9
+  "disposition",        // col10
+  "col11",              // col11
+  "country",            // col12
+  "col13",              // col13
+  "col14",              // col14
+  "event_timestamp",    // col15
+];
+
+/**
+ * Canonical Product Identity header tokens (after `normForDetection`). The fast
+ * path matches these so the exact / near-exact CSV produced by the buyer-side
+ * upload tool — `UPC, Vendor, Seller SKU, Mfg #, FNSKU, ASIN, Product Name` —
+ * always wins over the transactional rules above. Each token is the result of
+ * lowercasing + collapsing whitespace + replacing `-/_` with spaces.
+ */
+const PRODUCT_IDENTITY_CANONICAL_TOKENS = [
+  "upc",
+  "vendor",
+  "seller sku",
+  "mfg #",
+  "fnsku",
+  "asin",
+  "product name",
+] as const;
+
+/**
+ * High-confidence exact Product Identity match.
+ *
+ * Returns `true` only when all seven canonical tokens are present. This is
+ * intentionally strict: inventory exports can contain SKU / FNSKU / ASIN /
+ * product-name-like columns, so Product Identity must require the exact buyer
+ * header signature including UPC, Vendor, and Mfg #.
+ *
+ * Used in `classifyCsvHeadersRuleBased` BEFORE the transactional rules so a
+ * Product Identity export never falls through to TRANSACTIONS, ALL_LISTINGS,
+ * or any other type that shares one anchor column.
+ */
+export function headersLookLikeProductIdentity(headers: string[]): boolean {
+  const ds = detectionSet(headers);
+  return PRODUCT_IDENTITY_CANONICAL_TOKENS.every((tok) => ds.has(tok));
 }
 
 export function classifyCsvHeadersRuleBased(headers: string[]): {
@@ -895,6 +1316,30 @@ export function classifyCsvHeadersRuleBased(headers: string[]): {
 } {
   // Space-based set for matching — handles any combination of hyphens/underscores/spaces
   const ds = detectionSet(headers);
+
+  // Rule 0 (fast-path): Product Identity CSV — exact / near-exact match.
+  //
+  // The buyer-side identity tool exports the canonical column set
+  //   UPC, Vendor, Seller SKU, Mfg #, FNSKU, ASIN, Product Name
+  //
+  // We match this BEFORE the transactional rules below because:
+  //   1. The Product Identity file shares "asin" and "seller sku" with both
+  //      ALL_LISTINGS / ACTIVE_LISTINGS exports and is missing the listing-
+  //      anchor columns (status / open date / browse node). A naive ordering
+  //      would route it into ALL_LISTINGS (which has no UPC/Vendor/Mfg # path)
+  //      and silently drop the identity columns.
+  //   2. Rule 8a below also catches this, but only after rules 1-8 fall
+  //      through. The fast-path prevents accidental false positives on rules
+  //      that allow weak fingerprints (e.g. SAFE-T's loose match on "claim").
+  //
+  // Triggers PRODUCT_IDENTITY only when all 7 canonical tokens are present.
+  if (headersLookLikeProductIdentity(headers)) {
+    return {
+      reportType: "PRODUCT_IDENTITY",
+      matchedRule:
+        "Product Identity CSV: exact headers {UPC, Vendor, Seller SKU, Mfg #, FNSKU, ASIN, Product Name}",
+    };
+  }
 
   // Rule 1: FBA Customer Returns
   if (ds.has("license plate number") && ds.has("detailed disposition")) {
@@ -924,9 +1369,33 @@ export function classifyCsvHeadersRuleBased(headers: string[]): {
     };
   }
 
-  // Rule 3: Inventory Ledger
+  // Rule 2c: Headerless Inventory Ledger — strict `ledger_pos_01`…`ledger_pos_15+` (no semantic CSV headers).
+  // Must run BEFORE classic "fnsku + ending warehouse balance" so classify-headers does not fall through to GPT/UNKNOWN.
+  if (headersMatchPositionalLedgerStaging(headers)) {
+    return {
+      reportType: "INVENTORY_LEDGER",
+      matchedRule: "positional staging keys ledger_pos_01..15+ (headerless Amazon export)",
+    };
+  }
+
+  // Rule 3: Inventory Ledger (classic snapshot export — ending balance column)
   if (ds.has("fnsku") && ds.has("ending warehouse balance")) {
     return { reportType: "INVENTORY_LEDGER", matchedRule: "fnsku+ending warehouse balance" };
+  }
+
+  // Rule 3b: Inventory Ledger — Amazon event-level export ("Last 30 days", etc.):
+  // real files often omit "Ending Warehouse Balance" but include Event Type + FC + Disposition.
+  if (
+    ds.has("fnsku") &&
+    ds.has("event type") &&
+    ds.has("fulfillment center") &&
+    ds.has("disposition")
+  ) {
+    return {
+      reportType: "INVENTORY_LEDGER",
+      matchedRule:
+        "fnsku+event type+fulfillment center+disposition (event-level Inventory Ledger)",
+    };
   }
 
   // Rule 4: Reimbursements
@@ -937,7 +1406,19 @@ export function classifyCsvHeadersRuleBased(headers: string[]): {
     };
   }
 
-  // Rule 5: Settlement report
+  // Rule 5a: Amazon Transaction / Payment Detail report (post 9-line preamble).
+  // Headers contain settlement id + type + Transaction Status + Transaction
+  // Release Date (or account type + fulfillment) — lands in amazon_settlements,
+  // NOT amazon_reports_repository.
+  if (headersLookLikeAmazonTransactionDetailReport(headers)) {
+    return {
+      reportType: "SETTLEMENT",
+      matchedRule:
+        "settlement id+transaction status/release date (Transaction / Payment Detail report → amazon_settlements, not amazon_reports_repository)",
+    };
+  }
+
+  // Rule 5b: Settlement report (legacy CSV).
   // Guard: Reports Repository CSVs include "Transaction Status" as an extra column but
   // are NOT settlement reports — check Rule 7 fingerprint before committing to SETTLEMENT.
   if (
@@ -946,6 +1427,18 @@ export function classifyCsvHeadersRuleBased(headers: string[]): {
     !headersLookLikeReportsRepository(headers)
   ) {
     return { reportType: "SETTLEMENT", matchedRule: "settlement id+transaction status" };
+  }
+
+  // Rule 5c: Simple Transactions Summary report. Has only a coarse subset of
+  // columns (Date, Transaction Status, Transaction type, Order ID, Product
+  // Details, Total product charges, Total promotional rebates, Amazon fees,
+  // Other, Total (USD)) and no SKU/FNSKU/ASIN. Routes to amazon_transactions.
+  if (headersLookLikeSimpleTransactionsSummary(headers)) {
+    return {
+      reportType: "TRANSACTIONS",
+      matchedRule:
+        "Simple Transactions Summary (Date+Transaction type+Order ID+Total (USD)+Total product charges) → amazon_transactions",
+    };
   }
 
   // Rule 6: SAFE-T Claims
@@ -976,24 +1469,23 @@ export function classifyCsvHeadersRuleBased(headers: string[]): {
     return { reportType: "TRANSACTIONS", matchedRule: "transaction type+total product charges" };
   }
 
-  // Rule 8a: Product Identity CSV (custom item identity import).
-  // Must run before listing rules because it also has seller sku + ASIN, but
-  // its vendor / mfg / UPC fingerprint routes directly to identity tables.
-  {
-    const headerList = [...ds];
-    const hasSellerSku = ds.has("seller sku") || ds.has("sku") || ds.has("msku");
-    const hasProductName = ds.has("product name") || ds.has("item name") || ds.has("title");
-    const hasIdentityFingerprint =
-      ds.has("upc") ||
-      ds.has("upc code") ||
-      ds.has("vendor") ||
-      headerList.some((h) => h === "mfg #" || h === "mfg#" || h.includes("manufacturer part") || h.startsWith("mfg "));
-    if (hasSellerSku && hasProductName && hasIdentityFingerprint) {
-      return {
-        reportType: "PRODUCT_IDENTITY",
-        matchedRule: "seller sku+product name+vendor/mfg/upc identity columns",
-      };
-    }
+  // Rule 8a intentionally delegates to the strict helper above. Product
+  // Identity must not be inferred from loose SKU / ASIN / product-name overlap
+  // because FBA Inventory and listing exports share those anchors.
+
+  // ── Rule SHIP-A: Amazon Fulfilled Shipments report ──────────────────────
+  // Anchor: amazon order id + shipped quantity + (shipment id OR shipment date)
+  // Routes to amazon_all_orders (typed Fulfilled Shipments mapper).
+  if (
+    ds.has("amazon order id") &&
+    (ds.has("shipped quantity") || ds.has("shipment item id")) &&
+    (ds.has("shipment id") || ds.has("shipment date") || ds.has("merchant order id"))
+  ) {
+    return {
+      reportType: "ALL_ORDERS",
+      matchedRule:
+        "amazon order id+shipped quantity+shipment id/date (Fulfilled Shipments → amazon_all_orders)",
+    };
   }
 
   // ── Rule INV-A: Manage FBA Inventory (AFN) ──────────────────────────────
@@ -1011,6 +1503,27 @@ export function classifyCsvHeadersRuleBased(headers: string[]): {
     return {
       reportType: "MANAGE_FBA_INVENTORY",
       matchedRule: "fnsku+afn fulfillable quantity+afn warehouse/inbound flow",
+    };
+  }
+
+  // ── Rule INV-A2: Restock Inventory ──────────────────────────────────────
+  // Anchor: Merchant SKU + Total Units + Available + (Recommended replenishment qty
+  // OR Recommended ship date OR Recommended action). Lands in
+  // amazon_manage_fba_inventory via the typed mapper.
+  if (
+    (ds.has("merchant sku") || ds.has("sku")) &&
+    ds.has("total units") &&
+    ds.has("available") &&
+    (
+      ds.has("recommended replenishment qty") ||
+      ds.has("recommended ship date") ||
+      ds.has("recommended action") ||
+      ds.has("unit storage size")
+    )
+  ) {
+    return {
+      reportType: "MANAGE_FBA_INVENTORY",
+      matchedRule: "Restock Inventory (Merchant SKU+Total Units+Available+Recommended *) → amazon_manage_fba_inventory",
     };
   }
 

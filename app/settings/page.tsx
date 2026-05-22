@@ -1,16 +1,18 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, BadgeCheck, BarChart3, Building2, CheckCircle2, CreditCard, Cpu, Crown,
-  Globe, HardDrive, ImageIcon, KeyRound, Loader2, Package, PackageX, Pencil, Plus, Printer,
+  FileSpreadsheet, Globe, HardDrive, ImageIcon, KeyRound, Loader2, Package, PackageX, Pencil, Plus, Printer,
   RefreshCw, RotateCcw, Save, ScanLine, Settings, ShieldAlert, ShieldCheck, Store, Tag, Trash2,
   Truck, TriangleAlert, UserCog, Users, Wifi, X, Zap,
 } from "lucide-react";
 import {
+  getCatalogModuleConfigForOrganization,
   getClaimAgentConfig,
   getFefoSettings,
+  saveCatalogModuleConfigForOrganization,
   saveClaimAgentConfig,
   saveInventoryFefoSettings,
 } from "./workspace-settings-actions";
@@ -22,7 +24,11 @@ import { BRAND_LOGO_IMG_CLASSNAME } from "../../lib/brand-logo-classes";
 import { uploadOrganizationLogoAction } from "./upload-organization-logo-action";
 import { AgentApiKeysSection } from "./AgentApiKeysSection";
 import { RoleTagCombobox } from "./RoleTagCombobox";
-import { upsertProviderApiKey, getProviderApiKey } from "./organization-api-keys-actions";
+import {
+  getProviderApiKey,
+  upsertGoogleSheetsServiceAccountForOrganization,
+  upsertProviderApiKey,
+} from "./organization-api-keys-actions";
 import {
   DEFAULT_CLAIM_AGENT_CONFIG,
   DEFAULT_FEFO,
@@ -57,21 +63,14 @@ import { isAdminRole, useUserRole } from "../../components/UserRoleContext";
 import { WorkspaceOrganizationPicker } from "../../components/WorkspaceOrganizationPicker";
 import { useRbacPermissions } from "../../hooks/useRbacPermissions";
 import { FALLBACK_ORGANIZATION_ID } from "../../lib/organization";
-import {
-  WORKSPACE_ORGANIZATION_CHANGED_EVENT,
-  WORKSPACE_SELECTED_ORGANIZATION_ID_KEY,
-  readWorkspaceSelectedOrganizationIdFromStorage,
-  resolveActiveTenantOrganizationId,
-} from "../../lib/workspace-organization-scope";
 import { isUuidString } from "../../lib/uuid";
 import { DatabaseTag } from "../../components/DatabaseTag";
 import type { AdapterProviderKey } from "../../lib/adapters";
 import {
-  listMarketplaces, listStores, listStoresForOrganization, insertStore, insertMarketplace,
+  listMarketplaces, listStores, insertStore, insertMarketplace,
   updateMarketplace, testConnection, deleteStore, updateStore,
   getMarketplaceCredentialsForEdit,
   testMarketplaceCredentials,
-  emergencyProbeStores,
   type RbacContext,
   type StorePublicRow,
 } from "./adapters/actions";
@@ -87,8 +86,9 @@ import {
   saveOrganizationClaimEvidenceDefaults,
 } from "./organization-claim-evidence-actions";
 import {
-  getOrganizationDefaultStoreId,
+  getOrganizationOperationalPreferences,
   saveOrganizationDefaultStoreId,
+  saveOrganizationDisplayCurrencyCode,
 } from "./organization-default-store-actions";
 
 // ─── Types & Constants ────────────────────────────────────────────────────────
@@ -101,6 +101,7 @@ type TabId =
   | "billing"
   // ── Infrastructure ──────────────────────────────────────────────────────────
   | "marketplaces"
+  | "catalog_imports"
   | "ai_quotas"
   | "hardware"
   // ── Business Modules ────────────────────────────────────────────────────────
@@ -188,6 +189,11 @@ const PLATFORM_TO_PROVIDER: Record<string, string | null> = {
   custom:  null,
 };
 
+/** ISO 4217 codes for catalog price display (PIM hub). */
+const DISPLAY_CURRENCY_OPTIONS = [
+  "USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "SEK", "NOK", "MXN", "INR", "CNY", "BRL", "ZAR", "AED", "SGD", "HKD", "NZD",
+] as const;
+
 const PLANS = ["Free Tier", "Pro Tier", "Enterprise"] as const;
 type SaasPlan = typeof PLANS[number];
 
@@ -248,6 +254,29 @@ type NavGroup = {
   items: { id: TabId; label: string; icon: React.ReactNode; proOnly?: boolean }[];
 };
 
+/** URL hash values (without #) that map to a Settings tab; `api` is an alias for AI & OCR. */
+const SETTINGS_HASH_TAB_IDS = new Set<TabId>([
+  "general",
+  "team",
+  "billing",
+  "marketplaces",
+  "catalog_imports",
+  "ai_quotas",
+  "hardware",
+  "returns_processing",
+  "inventory_fefo",
+  "claim_engine",
+  "reports_analytics",
+]);
+
+function settingsTabFromLocationHash(raw: string): TabId | null {
+  const h = raw.replace(/^#/, "").trim();
+  if (!h) return null;
+  if (h === "api") return "ai_quotas";
+  if (SETTINGS_HASH_TAB_IDS.has(h as TabId)) return h as TabId;
+  return null;
+}
+
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "SYSTEM & WORKSPACE",
@@ -261,6 +290,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "INFRASTRUCTURE",
     items: [
       { id: "marketplaces", label: "Marketplaces & Stores", icon: <Store     className="h-4 w-4" /> },
+      { id: "catalog_imports", label: "Catalog & Google Sheets", icon: <FileSpreadsheet className="h-4 w-4" /> },
       { id: "ai_quotas",    label: "AI & OCR Engine",       icon: <Cpu       className="h-4 w-4" /> },
       { id: "hardware",     label: "Hardware Scanners",     icon: <HardDrive className="h-4 w-4" /> },
     ],
@@ -376,7 +406,6 @@ export default function SettingsPage() {
     homeOrganizationId,
     workspaceOrganizations,
     setWorkspaceOrganizationId,
-    sessionCanWorkspaceSwitch,
   } = useUserRole();
   const perms = useRbacPermissions();
   const canEditTenantBranding = perms.canEditTenantBranding;
@@ -409,30 +438,31 @@ export default function SettingsPage() {
     perms.canSeePlatformAdmin,
   ]);
 
+  const tenantCtx = useMemo(
+    () => ({ actorProfileId: actorUserId, organizationId }),
+    [actorUserId, organizationId],
+  );
+
+  const settingsRbac = useMemo((): RbacContext => {
+    const cid =
+      organizationId?.trim() && isUuidString(organizationId.trim())
+        ? organizationId.trim()
+        : FALLBACK_ORGANIZATION_ID;
+    return {
+      organization_id: cid,
+      /** Settings route is admin-only; adapter RBAC hierarchy uses admin/editor/viewer. */
+      user_role: "admin",
+    };
+  }, [organizationId]);
+
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [mounted,   setMounted]   = useState(false);
 
   // ── General Preferences ────────────────────────────────────────────────────
   const [defaultStoreId,  setDefaultStoreId]  = useState<string>("");
+  const [displayCurrencyCode, setDisplayCurrencyCode] = useState<string>("USD");
   const [storesList,      setStoresList]      = useState<StorePublicRow[]>([]);
   const [storesListLoading, setStoresListLoading] = useState(false);
-
-  const [workspaceOrgTick, setWorkspaceOrgTick] = useState(0);
-
-  const [storesForOperationalDefault, setStoresForOperationalDefault] = useState<StorePublicRow[]>([]);
-  const [operationalStoresListLoading, setOperationalStoresListLoading] = useState(false);
-  const [operationalStoresError, setOperationalStoresError] = useState<string | null>(null);
-  /** TEMPORARY emergency probe payload — remove with the on-page debug box. */
-  const [storesEmergencyProbe, setStoresEmergencyProbe] = useState<{
-    rows: Array<{ name: unknown; organization_id: unknown }> | null;
-    searchOid: string | null;
-    error: string | null;
-    serviceRoleKeyConfigured: boolean;
-    supabaseUrlConfigured: boolean;
-    profilesAccessible: boolean;
-    profilesError: string | null;
-  } | null>(null);
-  const lastPolledWorkspaceOrgIdRef = useRef<string | null>(null);
 
   // ── White-label / Tenant Customization (core_settings JSONB) ───────────────
   const [companyName,         setCompanyName]         = useState<string>("");
@@ -490,6 +520,13 @@ export default function SettingsPage() {
   const [claimAgentLoading, setClaimAgentLoading] = useState(false);
   const [claimAgentSaving, setClaimAgentSaving] = useState(false);
 
+  const [catalogSheetId, setCatalogSheetId] = useState("");
+  const [googleSaJsonDraft, setGoogleSaJsonDraft] = useState("");
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogSheetSaving, setCatalogSheetSaving] = useState(false);
+  const [googleKeySaving, setGoogleKeySaving] = useState(false);
+  const [catalogImportsSaveError, setCatalogImportsSaveError] = useState<string | null>(null);
+
   const [claimEvidenceLocal, setClaimEvidenceLocal] = useState<Record<ClaimEvidenceKey, boolean>>(() =>
     mergeDefaultClaimEvidence(null),
   );
@@ -505,62 +542,6 @@ export default function SettingsPage() {
   const [logisticsSyncBusy, setLogisticsSyncBusy] = useState(false);
 
   const [toast, setToast] = useState<ToastState>(null);
-
-  const isSuperAdmin =
-    role === "super_admin" ||
-    (canonicalRoleKey ?? "").trim().toLowerCase() === "super_admin";
-
-  /**
-   * Active tenant for stores, default-store saves, branding hint, and adapter RBAC scope.
-   * Order: workspace switcher → profile → context fallback. If a super admin lands on the
-   * platform shell UUID, fall through to the profile org so data scope follows the actual tenant.
-   */
-  const effectiveOperationalOrgId = useMemo((): string | null => {
-    if (!mounted) return null;
-    const ls = readWorkspaceSelectedOrganizationIdFromStorage();
-    const resolved = resolveActiveTenantOrganizationId({
-      workspaceSwitcherOrganizationId: ls,
-      contextOrganizationId: organizationId,
-      profileOrganizationId: homeOrganizationId,
-    });
-    if (
-      isSuperAdmin
-      && (resolved ?? "").trim().toLowerCase() === FALLBACK_ORGANIZATION_ID.trim().toLowerCase()
-    ) {
-      const profileOid = (homeOrganizationId ?? "").trim();
-      if (profileOid && isUuidString(profileOid)) {
-        return profileOid.toLowerCase();
-      }
-    }
-    return resolved;
-  }, [
-    mounted,
-    workspaceOrgTick,
-    organizationId,
-    homeOrganizationId,
-    isSuperAdmin,
-  ]);
-
-  const tenantCtx = useMemo(
-    () => ({
-      actorProfileId: actorUserId,
-      organizationId: effectiveOperationalOrgId ?? organizationId ?? null,
-    }),
-    [actorUserId, organizationId, effectiveOperationalOrgId],
-  );
-
-  const settingsRbac = useMemo((): RbacContext => {
-    const scope =
-      effectiveOperationalOrgId?.trim() ||
-      organizationId?.trim() ||
-      "";
-    const cid = scope && isUuidString(scope) ? scope : FALLBACK_ORGANIZATION_ID;
-    return {
-      organization_id: cid,
-      /** Settings route is admin-only; adapter RBAC hierarchy uses admin/editor/viewer. */
-      user_role: "admin",
-    };
-  }, [effectiveOperationalOrgId, organizationId]);
 
   function closeAddConnectionModal() {
     setShowForm(false);
@@ -619,29 +600,46 @@ export default function SettingsPage() {
     });
   }, []);
 
-  // ── Default store: organization_settings.default_store_id is canonical; localStorage is fallback ─
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const applyHash = () => {
+      const raw = window.location.hash.replace(/^#/, "").trim();
+      const tab = settingsTabFromLocationHash(raw);
+      if (tab) setActiveTab(tab);
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || typeof window === "undefined") return;
+    const raw = window.location.hash.replace(/^#/, "").trim();
+    const tab = settingsTabFromLocationHash(raw);
+    if (tab) setActiveTab(tab);
+  }, [mounted]);
+
+  // ── Default store + display currency: organization_settings is canonical; localStorage is fallback for store ─
   useEffect(() => {
     if (!mounted) return;
     let cancelled = false;
-    void getOrganizationDefaultStoreId(tenantCtx).then((serverId) => {
+    void getOrganizationOperationalPreferences(tenantCtx).then((prefs) => {
       if (cancelled) return;
-      if (serverId) {
-        const norm = serverId.trim().toLowerCase();
-        setDefaultStoreId(norm);
-        setDefaultStoreIdInStorage(norm);
+      if (prefs.defaultStoreId) {
+        setDefaultStoreId(prefs.defaultStoreId);
+        setDefaultStoreIdInStorage(prefs.defaultStoreId);
       } else {
-        const fromDisk = getDefaultStoreIdFromStorage().trim().toLowerCase();
-        setDefaultStoreId(fromDisk);
+        setDefaultStoreId(getDefaultStoreIdFromStorage());
       }
+      setDisplayCurrencyCode(prefs.displayCurrencyCode);
     });
     return () => {
       cancelled = true;
     };
   }, [mounted, tenantCtx]);
 
-  // ── Tenant company branding: resolve org server-side from profile + active tenant hint
-  const brandingOrganizationHint =
-    effectiveOperationalOrgId ?? organizationId ?? homeOrganizationId;
+  // ── Tenant company branding: resolve org server-side from profile + hint (home org when scope not yet set)
+  const brandingOrganizationHint = organizationId ?? homeOrganizationId;
   useEffect(() => {
     if (!mounted || profileLoading) return;
     if (!actorUserId?.trim()) {
@@ -705,6 +703,27 @@ export default function SettingsPage() {
     }
     loadClaimAgent();
   }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted || profileLoading || !organizationId?.trim() || !isUuidString(organizationId.trim())) {
+      setCatalogSheetId("");
+      return;
+    }
+    let cancelled = false;
+    const oid = organizationId.trim();
+    setCatalogLoading(true);
+    void getCatalogModuleConfigForOrganization(oid)
+      .then((r) => {
+        if (cancelled || !r.ok) return;
+        setCatalogSheetId(typeof r.config.google_sheet_id === "string" ? r.config.google_sheet_id : "");
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, profileLoading, organizationId]);
 
   // ── Claim queue sync status (Logistics AI Agent) ──────────────────────────
   useEffect(() => {
@@ -773,6 +792,7 @@ export default function SettingsPage() {
           console.error("Store error:", res.ok === false ? res.error : "No data");
           return;
         }
+        console.log("Fetched stores:", res.data);
         setStoresList(res.data);
       })
       .catch((e) => {
@@ -781,130 +801,6 @@ export default function SettingsPage() {
       .finally(() => { if (!cancelled) setStoresListLoading(false); });
     return () => { cancelled = true; };
   }, [mounted, settingsRbac]);
-
-  useEffect(() => {
-    function onStorage(e: StorageEvent) {
-      if (e.key !== WORKSPACE_SELECTED_ORGANIZATION_ID_KEY) return;
-      setWorkspaceOrgTick((t) => t + 1);
-    }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  useEffect(() => {
-    function onWorkspaceOrgChanged() {
-      setWorkspaceOrgTick((t) => t + 1);
-      window.setTimeout(() => {
-        setWorkspaceOrgTick((t) => t + 1);
-      }, 100);
-    }
-    window.addEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged);
-    return () => window.removeEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged);
-  }, []);
-
-  /** Same-tab workspace changes do not fire `storage`; poll localStorage to stay in sync with the header switcher. */
-  useEffect(() => {
-    if (!mounted || !sessionCanWorkspaceSwitch) return;
-
-    function poll() {
-      const raw = readWorkspaceSelectedOrganizationIdFromStorage();
-      const norm = raw && isUuidString(raw) ? raw.trim().toLowerCase() : "";
-      if (lastPolledWorkspaceOrgIdRef.current === null) {
-        lastPolledWorkspaceOrgIdRef.current = norm;
-        return;
-      }
-      if (norm !== lastPolledWorkspaceOrgIdRef.current) {
-        lastPolledWorkspaceOrgIdRef.current = norm;
-        setWorkspaceOrgTick((t) => t + 1);
-      }
-    }
-
-    poll();
-    const id = window.setInterval(poll, 500);
-    return () => clearInterval(id);
-  }, [mounted, sessionCanWorkspaceSwitch]);
-
-  useEffect(() => {
-    if (!mounted) return;
-
-    let cancelled = false;
-    void emergencyProbeStores(effectiveOperationalOrgId ?? null).then((probe) => {
-      if (cancelled) return;
-      console.log("--- EMERGENCY PROBE (client) ---");
-      console.log("Total stores in DB (first 5):", probe.rows);
-      console.log("Current ID we are searching for:", probe.searchOid);
-      console.log(
-        "Service Role Configured:",
-        probe.serviceRoleKeyConfigured ? "YES" : "NO",
-      );
-      console.log(
-        "Profiles accessible:",
-        probe.profilesAccessible ? "YES" : "NO",
-      );
-      setStoresEmergencyProbe({
-        rows: probe.ok ? probe.rows ?? [] : null,
-        searchOid: probe.searchOid ?? null,
-        error: probe.ok ? null : probe.error ?? "Probe failed",
-        serviceRoleKeyConfigured: probe.serviceRoleKeyConfigured,
-        supabaseUrlConfigured: probe.supabaseUrlConfigured,
-        profilesAccessible: probe.profilesAccessible,
-        profilesError: probe.profilesError ?? null,
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [mounted, effectiveOperationalOrgId, workspaceOrgTick]);
-
-  useEffect(() => {
-    if (!mounted) return;
-
-    if (!effectiveOperationalOrgId) {
-      setStoresForOperationalDefault([]);
-      setOperationalStoresError(null);
-      setOperationalStoresListLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setOperationalStoresListLoading(true);
-    setOperationalStoresError(null);
-
-    void listStoresForOrganization(effectiveOperationalOrgId).then((res) => {
-      if (cancelled) return;
-      if (!res.ok) {
-        setStoresForOperationalDefault([]);
-        setOperationalStoresError(res.error ?? "Failed to load stores.");
-        console.error("[settings] Default Store list:", res.error ?? "unknown error");
-        return;
-      }
-      setOperationalStoresError(null);
-      setStoresForOperationalDefault(res.data ?? []);
-    }).finally(() => {
-      if (!cancelled) setOperationalStoresListLoading(false);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mounted, effectiveOperationalOrgId, workspaceOrgTick]);
-
-  useEffect(() => {
-    if (!mounted || operationalStoresListLoading) return;
-    if (storesForOperationalDefault.length !== 1) return;
-    const only = storesForOperationalDefault[0];
-    if (defaultStoreId.trim().toLowerCase() !== only.id) setDefaultStoreId(only.id);
-  }, [mounted, operationalStoresListLoading, storesForOperationalDefault, defaultStoreId]);
-
-  useEffect(() => {
-    if (!mounted || operationalStoresListLoading) return;
-    const list = storesForOperationalDefault;
-    if (list.length <= 1) return;
-    const d = defaultStoreId.trim().toLowerCase();
-    if (d && !list.some((s) => s.id === d)) {
-      setDefaultStoreId("");
-    }
-  }, [mounted, operationalStoresListLoading, storesForOperationalDefault, defaultStoreId]);
 
   function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok });
@@ -918,14 +814,17 @@ export default function SettingsPage() {
   // ── General save ───────────────────────────────────────────────────────────
   async function handleSaveGeneral(e: React.FormEvent) {
     e.preventDefault();
-    const idToSave = defaultStoreId.trim().toLowerCase() || null;
-    const res = await saveOrganizationDefaultStoreId(idToSave, tenantCtx);
+    const res = await saveOrganizationDefaultStoreId(defaultStoreId.trim() || null, tenantCtx);
     if (!res.ok) {
       showToast(res.error ?? "Failed to save default store.", false);
       return;
     }
-    if (idToSave) setDefaultStoreId(idToSave);
-    setDefaultStoreIdInStorage(idToSave ?? "");
+    const resCur = await saveOrganizationDisplayCurrencyCode(displayCurrencyCode, tenantCtx);
+    if (!resCur.ok) {
+      showToast(resCur.error ?? "Failed to save display currency.", false);
+      return;
+    }
+    setDefaultStoreIdInStorage(defaultStoreId);
     void refreshBranding();
     showToast("General preferences saved.", true);
   }
@@ -940,7 +839,7 @@ export default function SettingsPage() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const oid = (effectiveOperationalOrgId ?? organizationId ?? "").trim();
+      const oid = (organizationId ?? "").trim();
       if (oid) fd.append("organization_id", oid);
       const res = await uploadOrganizationLogoAction(fd);
       if (!res.ok) throw new Error(res.error ?? "Logo upload failed.");
@@ -1820,59 +1719,24 @@ export default function SettingsPage() {
                       <code className="rounded bg-muted px-1 font-mono text-[11px]">B00</code>) are
                       auto-matched to your first active Amazon store.
                     </p>
-                    {operationalStoresListLoading ? (
+                    {storesListLoading ? (
                       <div className="flex items-center gap-2 py-3">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         <span className="text-xs text-muted-foreground">Loading stores…</span>
                       </div>
-                    ) : operationalStoresError ? (
-                      <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-950 dark:border-rose-400/35 dark:bg-rose-950/40 dark:text-rose-100">
-                        {operationalStoresError}
-                      </div>
-                    ) : !effectiveOperationalOrgId ? (
+                    ) : storesList.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-                        Select a workspace organization in the header to load stores for this tenant.
-                      </div>
-                    ) : storesForOperationalDefault.length === 0 ? (
-                      <select
-                        disabled
-                        className={SELECT_CLS}
-                        value=""
-                        aria-label="Default store — no stores for this tenant"
-                      >
-                        <option value="">No stores found for this tenant.</option>
-                      </select>
-                    ) : storesForOperationalDefault.length === 1 ? (
-                      <div className="space-y-2">
-                        <div
-                          className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-sm font-medium text-foreground"
-                          aria-readonly
-                        >
-                          {storesForOperationalDefault[0].name}{" "}
-                          <span className="font-normal text-muted-foreground">
-                            ({PLATFORM_LABELS[storesForOperationalDefault[0].platform] ??
-                              storesForOperationalDefault[0].platform}
-                            {!storesForOperationalDefault[0].is_active ? " · inactive" : ""})
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Only one store exists for this organization — it is used as the default automatically.
-                        </p>
+                        No stores found. Add a store in the{" "}
+                        <strong>Marketplaces &amp; Stores</strong> tab first.
                       </div>
                     ) : (
                       <select
-                        value={(() => {
-                          const d = defaultStoreId.trim().toLowerCase();
-                          if (!d) return "";
-                          return storesForOperationalDefault.some((s) => s.id === d) ? d : "";
-                        })()}
-                        onChange={(e) =>
-                          setDefaultStoreId((e.target.value || "").trim().toLowerCase())
-                        }
+                        value={defaultStoreId}
+                        onChange={(e) => setDefaultStoreId(e.target.value)}
                         className={SELECT_CLS}
                       >
                         <option value="">— No default (unknown) —</option>
-                        {storesForOperationalDefault.map((s) => (
+                        {storesList.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name}{" "}
                             ({PLATFORM_LABELS[s.platform] ?? s.platform}
@@ -1881,21 +1745,38 @@ export default function SettingsPage() {
                         ))}
                       </select>
                     )}
-                    {defaultStoreId &&
-                    storesForOperationalDefault.some(
-                      (s) => s.id === defaultStoreId.trim().toLowerCase(),
-                    ) ? (
+                    {defaultStoreId && (
                       <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                         <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                         Standalone scans will fall back to{" "}
                         <strong>
-                          {storesForOperationalDefault.find(
-                            (s) => s.id === defaultStoreId.trim().toLowerCase(),
-                          )?.name ?? defaultStoreId}
+                          {storesList.find((s) => s.id === defaultStoreId)?.name ?? defaultStoreId}
                         </strong>{" "}
                         when no package or prefix is detected.
                       </p>
-                    ) : null}
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <label className={LABEL_CLS}>Catalog display currency</label>
+                    </div>
+                    <p className={HINT_CLS}>
+                      ISO 4217 code used in the product catalog when a price row has no currency (PIM grid, groups, product detail). Does not convert
+                      stored amounts.
+                    </p>
+                    <select
+                      value={displayCurrencyCode}
+                      onChange={(e) => setDisplayCurrencyCode(e.target.value)}
+                      className={SELECT_CLS}
+                    >
+                      {DISPLAY_CURRENCY_OPTIONS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -2157,6 +2038,145 @@ export default function SettingsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════ CATALOG & GOOGLE SHEETS ══════════════ */}
+          {activeTab === "catalog_imports" && (
+            <div className="relative space-y-4">
+              <DatabaseTag table="workspace_settings + organization_api_keys" />
+
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                <div>
+                  <h2 className="text-base font-bold">Catalog & Google Sheets</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    PIM and the ETL service read the spreadsheet ID from{" "}
+                    <code className="rounded bg-muted px-1 text-[11px]">module_configs.catalog.google_sheet_id</code>{" "}
+                    and the service account from{" "}
+                    <code className="rounded bg-muted px-1 text-[11px]">organization_api_keys</code>{" "}
+                    (<code className="rounded bg-muted px-1 text-[11px]">google_sheets_api</code>).
+                  </p>
+                </div>
+
+                {!organizationId?.trim() || !isUuidString(organizationId.trim()) ? (
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    Select a workspace organization in the header to configure catalog settings.
+                  </p>
+                ) : (
+                  <>
+                    {catalogImportsSaveError ? (
+                      <div
+                        className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                        role="alert"
+                      >
+                        {catalogImportsSaveError}
+                      </div>
+                    ) : null}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Google Spreadsheet ID
+                      </label>
+                      <input
+                        type="text"
+                        value={catalogSheetId}
+                        onChange={(e) => setCatalogSheetId(e.target.value)}
+                        placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                        disabled={catalogLoading || catalogSheetSaving}
+                        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm font-mono shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        From the spreadsheet URL:{" "}
+                        <span className="font-mono text-foreground/80">docs.google.com/spreadsheets/d/<strong>…</strong>/edit</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={catalogLoading || catalogSheetSaving}
+                      onClick={async () => {
+                        const oid = organizationId.trim();
+                        setCatalogImportsSaveError(null);
+                        setCatalogSheetSaving(true);
+                        try {
+                          const res = await saveCatalogModuleConfigForOrganization(oid, {
+                            google_sheet_id: catalogSheetId.trim(),
+                          });
+                          if (!res.ok) {
+                            const err = res.error ?? "Save failed.";
+                            setCatalogImportsSaveError(err);
+                            showToast(err, false);
+                            return;
+                          }
+                          setCatalogImportsSaveError(null);
+                          showToast("Spreadsheet ID saved.", true);
+                        } finally {
+                          setCatalogSheetSaving(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:opacity-50 dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-sky-200"
+                    >
+                      {catalogSheetSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Save spreadsheet ID
+                    </button>
+
+                    <div className="border-t border-border pt-4 space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Google service account JSON
+                      </label>
+                      <textarea
+                        value={googleSaJsonDraft}
+                        onChange={(e) => setGoogleSaJsonDraft(e.target.value)}
+                        rows={8}
+                        placeholder='Paste the full JSON key file (starts with { "type": "service_account", ... })'
+                        disabled={googleKeySaving}
+                        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                        spellCheck={false}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Stored server-side for Sheets API access. Replacing overwrites the previous key for this organization.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={googleKeySaving || !googleSaJsonDraft.trim()}
+                        onClick={async () => {
+                          const oid = organizationId.trim();
+                          setCatalogImportsSaveError(null);
+                          setGoogleKeySaving(true);
+                          try {
+                            const res = await upsertGoogleSheetsServiceAccountForOrganization(oid, googleSaJsonDraft);
+                            if (!res.ok) {
+                              const err = res.error ?? "Save failed.";
+                              setCatalogImportsSaveError(err);
+                              showToast(err, false);
+                              return;
+                            }
+                            setGoogleSaJsonDraft("");
+                            setCatalogImportsSaveError(null);
+                            showToast("Google service account saved.", true);
+                          } finally {
+                            setGoogleKeySaving(false);
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-100"
+                      >
+                        {googleKeySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                        Save service account JSON
+                      </button>
+                    </div>
+
+                    <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground">Managed product & Amazon file imports</p>
+                      <p className="mt-1">
+                        Multi-sheet Excel, CSV, and other managed imports use the staging pipeline (accurate progress, no
+                        shortcuts). Open{" "}
+                        <Link href="/dashboard/file-import" className="font-semibold text-primary underline-offset-2 hover:underline">
+                          Imports
+                        </Link>{" "}
+                        under Data Management — not this screen.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -3830,43 +3850,6 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
-
-      {/* TEMPORARY: Emergency probe of public.stores (first 5 rows) — remove after debugging. */}
-      <div className="mt-10 space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-[11px] dark:border-amber-400/35 dark:bg-amber-950/30">
-        <p className="font-mono text-amber-900 dark:text-amber-100">
-          EMERGENCY PROBE — searchOid:{" "}
-          <span className="break-all">{storesEmergencyProbe?.searchOid ?? "(null)"}</span>
-        </p>
-        {storesEmergencyProbe ? (
-          <ul className="space-y-0.5 font-mono text-amber-900 dark:text-amber-100">
-            <li>
-              Supabase URL configured:{" "}
-              <strong>{storesEmergencyProbe.supabaseUrlConfigured ? "YES" : "NO"}</strong>
-            </li>
-            <li>
-              Service Role Configured:{" "}
-              <strong>{storesEmergencyProbe.serviceRoleKeyConfigured ? "YES" : "NO"}</strong>
-            </li>
-            <li>
-              Profiles accessible:{" "}
-              <strong>{storesEmergencyProbe.profilesAccessible ? "YES" : "NO"}</strong>
-              {storesEmergencyProbe.profilesError ? (
-                <span className="ml-2 text-rose-700 dark:text-rose-300">
-                  ({storesEmergencyProbe.profilesError})
-                </span>
-              ) : null}
-            </li>
-          </ul>
-        ) : null}
-        {storesEmergencyProbe?.error ? (
-          <p className="font-mono text-rose-700 dark:text-rose-300">
-            stores error: {storesEmergencyProbe.error}
-          </p>
-        ) : null}
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-background/60 p-2 font-mono text-[11px] text-foreground">
-          {storesEmergencyProbe ? JSON.stringify(storesEmergencyProbe.rows, null, 2) : "(loading…)"}
-        </pre>
-      </div>
 
     </div>
   );

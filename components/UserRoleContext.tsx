@@ -3,7 +3,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from "react";
-import { supabase } from "@/src/lib/supabase";
+import { isSupabaseConfigured, supabase } from "@/src/lib/supabase";
 import {
   getOrganizationNames,
   getWorkspaceViewModeForOrganizationAction,
@@ -23,6 +23,7 @@ import {
   readWorkspaceSelectedOrganizationIdFromStorage,
 } from "../lib/workspace-organization-scope";
 import { isUuidString } from "../lib/uuid";
+import { readWorkspaceOrganizationIdFromSearch } from "../lib/workspace-url-context";
 import { useDebugMode } from "./DebugModeContext";
 
 // ─── 5-Tier Role Hierarchy ───────────────────────────────────────────────────
@@ -45,6 +46,18 @@ export const ROLE_HIERARCHY: UserRole[] = [
 ];
 
 const LS_VIEW_AS_PROFILE_ID = "workspace_view_as_profile_id";
+
+function formatAuthReachabilityError(raw: string): string {
+  const m = raw.trim() || "Unknown error";
+  const low = m.toLowerCase();
+  if (low.includes("failed to fetch") || low.includes("networkerror") || low.includes("load failed")) {
+    return (
+      "Could not reach Supabase Auth (network). Check NEXT_PUBLIC_SUPABASE_URL, internet/VPN/firewall, " +
+      "and that the Supabase project is running — then restart `next dev` so env is picked up."
+    );
+  }
+  return m;
+}
 
 function splitJoined<T>(raw: unknown): T | null {
   if (raw == null) return null;
@@ -265,11 +278,29 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
     setProfileLoading(true);
     setProfileError(null);
     try {
+      if (!isSupabaseConfigured()) {
+        if (gen !== loadProfileGenerationRef.current) return;
+        setProfileError(
+          "Supabase browser env is missing: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then restart the dev server.",
+        );
+        setActorUserId(null);
+        setSessionCanWorkspaceSwitch(false);
+        return;
+      }
+
       const {
         data: { user },
+        error: authError,
       } = await supabase.auth.getUser();
 
       if (gen !== loadProfileGenerationRef.current) return;
+
+      if (authError) {
+        setProfileError(formatAuthReachabilityError(authError.message));
+        setActorUserId(null);
+        setSessionCanWorkspaceSwitch(false);
+        return;
+      }
 
       const authUserId = user?.id ?? null;
       setActorUserId(authUserId);
@@ -445,6 +476,12 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
           window.localStorage.removeItem(LS_VIEW_AS_PROFILE_ID);
         }
       }
+    } catch (e) {
+      if (gen !== loadProfileGenerationRef.current) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      setProfileError(formatAuthReachabilityError(msg));
+      setActorUserId(null);
+      setSessionCanWorkspaceSwitch(false);
     } finally {
       if (gen === loadProfileGenerationRef.current) {
         setProfileLoading(false);
@@ -454,14 +491,46 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { void loadProfile(); }, [loadProfile]);
 
-  // Keep profile/role in sync with auth transitions (login/logout/token refresh).
+  // Keep profile/role in sync with **identity** transitions only.
+  //
+  // Why this is selective:
+  //   Supabase JS emits `TOKEN_REFRESHED` (and `INITIAL_SESSION` /
+  //   `USER_UPDATED`) on tab focus / visibility, often without changing the
+  //   user identity. Re-running `loadProfile()` on those events flips
+  //   `profileLoading` → true and re-sets every consumer-visible piece of
+  //   context, which triggered a cascade of useEffects across the app — the
+  //   visible symptom being the Imports page "re-rendering" and dropping its
+  //   active pipeline card every time the user switched tabs.
+  //
+  //   We only re-run loadProfile when the signed-in user identity actually
+  //   changes (SIGNED_IN with a new id, SIGNED_OUT, USER_UPDATED). All other
+  //   token-lifecycle events are still observed by the Supabase client —
+  //   we just do not propagate them as profile reloads here.
   useEffect(() => {
-    const { data: subscription } = supabase.auth.onAuthStateChange(() => {
+    let lastSeenAuthUserId = actorUserId;
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
+      const currentUid = session?.user?.id ?? null;
+      const isMeaningful =
+        event === "SIGNED_IN"
+        || event === "SIGNED_OUT"
+        || event === "USER_UPDATED"
+        || event === "PASSWORD_RECOVERY"
+        || (event === "INITIAL_SESSION" && currentUid !== lastSeenAuthUserId);
+
+      if (!isMeaningful && currentUid === lastSeenAuthUserId) {
+        // TOKEN_REFRESHED / focus-driven session check with the same user —
+        // nothing to do. Avoids the "page refreshes on tab switch" cascade.
+        return;
+      }
+      lastSeenAuthUserId = currentUid;
       void loadProfile();
     });
     return () => {
       subscription.subscription.unsubscribe();
     };
+    // actorUserId intentionally NOT in deps — the closure tracks the latest
+    // value via `lastSeenAuthUserId` so we don't tear down the subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadProfile]);
 
   // Reset debug role when debug mode is turned off
@@ -651,6 +720,23 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
       window.dispatchEvent(new CustomEvent(WORKSPACE_ORGANIZATION_CHANGED_EVENT, { detail: { id: t } }));
     }
   }, []);
+
+  /** Deep-link `?workspace_org=` / `?organization_id=` overrides stale localStorage workspace (PIM operable signoff). */
+  useEffect(() => {
+    if (profileLoading || !sessionCanWorkspaceSwitch) return;
+    if (typeof window === "undefined") return;
+    const fromUrl = readWorkspaceOrganizationIdFromSearch(window.location.search);
+    if (!fromUrl) return;
+    const current = (superAdminOrganizationOverride ?? homeOrganizationId ?? "").trim();
+    if (current === fromUrl) return;
+    setWorkspaceOrganizationId(fromUrl);
+  }, [
+    profileLoading,
+    sessionCanWorkspaceSwitch,
+    superAdminOrganizationOverride,
+    homeOrganizationId,
+    setWorkspaceOrganizationId,
+  ]);
 
   /**
    * Human-readable label for the effective `organizationId` (logistics / tenant scope).

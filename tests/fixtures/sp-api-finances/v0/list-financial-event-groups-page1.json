@@ -1,0 +1,15 @@
+{
+  "payload": {
+    "FinancialEventGroupList": [
+      {
+        "FinancialEventGroupId": "eg-111",
+        "ProcessingStatus": "Closed",
+        "FundTransferStatus": "Succeeded",
+        "OriginalTotal": { "CurrencyCode": "USD", "CurrencyAmount": 100.5 },
+        "FinancialEventGroupStart": "2026-01-01T00:00:00Z",
+        "FinancialEventGroupEnd": "2026-01-15T23:59:59Z"
+      }
+    ],
+    "NextToken": null
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "upload_metadata_reimbursements",
+  "report_type": "REIMBURSEMENTS",
+  "matched_rule": "reimbursement id+quantity reimbursed total",
+  "expect": {
+    "descriptor_id": "amazon.reimbursements.file.v1",
+    "descriptor_version": 1,
+    "classify_profile": "csv_headers",
+    "import_kind": "REIMBURSEMENTS",
+    "source_family": "marketplace_financial",
+    "provider": "amazon"
+  }
+}
