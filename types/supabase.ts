@@ -8,6 +8,7 @@ export type {
   PackagesRow,
   PalletsRow,
   ProfileRow,
+  ReturnItemsRow,
   ReturnsRow,
   ClaimSubmissionsRow,
   OrganizationSettingsRow,

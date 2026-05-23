@@ -1,0 +1,32 @@
+{
+  "audit": "product-id-linkage-closure-v167",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "mode": "read_only",
+  "owner": "Main/user",
+  "linked_supabase_project_ref": "kxsvedvpjldygtdbylsy",
+  "probe_method": "PostgREST OpenAPI + limit=0/1 SELECT probes (service role, no writes)",
+  "probe_script": "scripts/product-id-linkage-closure-v167-probe.ts",
+  "migration_reference": "supabase/migrations/20260717120000_scanner_product_linkage_columns.sql",
+  "migration_fully_applied": false,
+  "partial_linkage_on_return_items_slip_contents": true,
+  "expected_packages_sku_tracking_only": true,
+  "closure_verdict": "partial",
+  "artifacts": [
+    "manifest.json",
+    "schema-inventory.md",
+    "linkage-columns-by-table.md",
+    "scanner-return-items-verification.md",
+    "slip-contents-verification.md",
+    "expected-packages-policy.md",
+    "views-api-ui-verification.md",
+    "imports-and-bridge-verification.md",
+    "ddl-plan.md",
+    "closure-matrix.md",
+    "validation-results.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "probe-output.json",
+    "columns-live.json"
+  ]
+}

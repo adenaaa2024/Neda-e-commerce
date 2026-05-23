@@ -1,0 +1,38 @@
+{
+  "audit": "scanner-backend-contract-sync-v165",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "owner": "Main/user + Neda",
+  "goal": "Backend contract pack for Neda scanner UI integration",
+  "prerequisites_pass": ["scanner-neda-06", "scanner-neda-08", "scanner-neda-09"],
+  "database": {
+    "project_ref": "kxsvedvpjldygtdbylsy",
+    "classification": "workspace .env.local (original linked Supabase; not switched to staging)",
+    "probe_script": "scripts/scanner-neda-08-final-ui-signoff.ts",
+    "probe_pass": true
+  },
+  "contract_status": "PASS",
+  "primary_runtime_tables": ["return_items", "slip_contents", "packages", "products", "product_identifier_map"],
+  "forbidden_runtime_table": "package_items",
+  "artifacts": [
+    "backend-contract.md",
+    "action-map.md",
+    "db-read-write-map.md",
+    "ui-integration-map.md",
+    "forbidden-old-contracts.md",
+    "staging-test-plan-after-clone.md",
+    "neda-handoff.md",
+    "blockers.md"
+  ],
+  "entrypoints": {
+    "routes": [
+      "app/scanner/operator-mobile/page.tsx",
+      "app/scanner/operator-mobile/scan/page.tsx"
+    ],
+    "server_actions_module": "app/scanner/operator-mobile/_components/operator-store-actions.ts",
+    "item_actions_module": "app/scanner/operator-mobile/item-actions.ts"
+  },
+  "neda_primary_save": "insertOperatorPackageItemAction",
+  "neda_primary_hydrate": "listOperatorPackageItemsForPackageAction",
+  "fixture_package_id": "9528d923-3d27-4aed-a773-095b5028743d"
+}

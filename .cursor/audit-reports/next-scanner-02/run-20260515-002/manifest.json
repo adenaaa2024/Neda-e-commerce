@@ -1,0 +1,12 @@
+{
+  "audit": "next-scanner-02",
+  "run_id": "run-20260515-002",
+  "completed_at": "2026-05-15",
+  "preflight_rename_verify_run": "scanner-return-items-rename-verify-01/run-20260515-001",
+  "preflight_passed": true,
+  "migration_file": "supabase/migrations/20260717120000_scanner_product_linkage_columns.sql",
+  "resolver_module": "lib/scanner/resolve-product-for-scanner-item.ts",
+  "hook_module": "hooks/use-scanner-product-resolution.ts",
+  "expected_packages_extended_select": "lib/scanner/operator-tracking-expectations.ts#EP_DETAIL_WITH_SCANNER_PRODUCT_SELECT",
+  "return_items_extended_list_select": "app/returns/returns-constants.ts#RETURN_LIST_WITH_SCANNER_PRODUCT_SELECT"
+}

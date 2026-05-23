@@ -4,7 +4,24 @@
  * Staging `pallets` use `pallet_photo_urls` / `bol_photo_urls` / `shipping_label_urls`.
  */
 
+import { isPersistableStoredMediaReference } from "@/lib/media-reference";
+
 export type EntityPhotoEvidenceJson = { urls: string[] };
+
+/** Validates and dedupes public URLs, `/` paths, and storage-relative paths for operator evidence writes. */
+export function sanitizePublicMediaUrlStrings(urls: unknown, max = 3): string[] {
+  if (!Array.isArray(urls)) return [];
+  const out: string[] = [];
+  for (const x of urls) {
+    if (typeof x !== "string") continue;
+    const s = x.trim();
+    if (!isPersistableStoredMediaReference(s)) continue;
+    if (out.includes(s)) continue;
+    out.push(s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 export function normalizeEntityPhotoEvidenceUrls(raw: unknown): string[] {
   if (!raw || typeof raw !== "object") return [];

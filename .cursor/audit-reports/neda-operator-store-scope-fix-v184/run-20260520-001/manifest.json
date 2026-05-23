@@ -1,0 +1,71 @@
+{
+  "run_id": "run-20260520-001",
+  "task": "NEDA-OPERATOR-STORE-SCOPE-FIX-V184",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "auth_user_id": "c4c8d0c1-e734-4cc7-b2a0-4cda409d9dfc",
+  "home_org_id": "39f5e74f-0690-4ad0-9edd-3a7f6dd7385b",
+  "sam_org_id": "00000000-0000-0000-0000-000000000001",
+  "sam_store_id": "509ee1f6-622c-46a5-8110-7b889ba46c2c",
+  "sam_tracking": "2954989706",
+  "overall_pass": true,
+  "steps": [
+    {
+      "id": "env_staging_ref",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "api_sam_snapshot_lines",
+      "pass": true,
+      "detail": "lines=3 tracking=2954989706"
+    },
+    {
+      "id": "api_sam_ep_rows",
+      "pass": true,
+      "detail": "rows=3"
+    },
+    {
+      "id": "profile_home_org_no_active_stores",
+      "pass": true,
+      "detail": "home=RECOVRA active=0"
+    },
+    {
+      "id": "sam_org_has_sam_am",
+      "pass": true,
+      "detail": "stores=1"
+    },
+    {
+      "id": "browser_store_ready",
+      "pass": true,
+      "detail": "RECOVRA SAM DISTRIBUTION STORE Sam AM SHIPMENT ENTRY TRACKING NUMBER OR SLIP CODE IN PROGRESS Tracking number2954989706 "
+    },
+    {
+      "id": "browser_sam_distribution_label",
+      "pass": true,
+      "detail": "visible"
+    },
+    {
+      "id": "browser_sam_am_store",
+      "pass": true,
+      "detail": "visible"
+    },
+    {
+      "id": "browser_no_store_prompt_absent",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "browser_expected_or_inventory_ui",
+      "pass": true,
+      "detail": "ok"
+    }
+  ],
+  "browser": {
+    "store_ready": true,
+    "shows_sam_distribution": true,
+    "shows_sam_am": true,
+    "shows_no_store_prompt": false,
+    "expected_ui": true,
+    "body_excerpt": "RECOVRA SAM DISTRIBUTION STORE Sam AM SHIPMENT ENTRY TRACKING NUMBER OR SLIP CODE IN PROGRESS Tracking number2954989706 Order ID JMb8c0yXiX Receiving in progress — scanned below manifest total. Scan progress 0 / 3 Product name — Carrier EXLA Total expected qty 3 Total scanned (view) 0 LINE ITEMS· exact Tracking number PRODUCT NAME FNSKU EXPECTED SCANNED VARIANCE STATUS X003UPTOJV · 2026JUN02-B0BNR1D6BL NO PRODUCT LINK YET X003UPTOJV · 2026JUN02-B0BNR1D6BL X003UPTOJV 1 0 -1 EXPECTED X003XNLDVH · LIT-1883-P6060 NO PRODUCT LINK YET X003XNLDVH · LIT-1883-P6060 X003XNLDVH 1 0 -1 EXPECTED X003JZIS8F · LIT-TOR-VEN-05155 NO PRODUCT LINK YET X003JZIS8F · LIT-TOR-VEN-05155 X003JZIS8F 1 0 -1 EXPECTED IDENTIFY AS PALLET SINGLE BOX / ITEM Continue Shipment Home Scan Tasks 2 Alerts More"
+  }
+}

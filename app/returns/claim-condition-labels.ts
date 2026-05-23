@@ -1,4 +1,4 @@
-/** Human-readable labels for `returns.conditions` / claim source_payload (no React). */
+/** Human-readable labels for `return_items.conditions` / claim source_payload (no React). */
 export const CLAIM_DEFECT_LABELS: Record<string, string> = {
   damaged_box: "Damaged Box",
   damaged_customer: "Damaged Product",

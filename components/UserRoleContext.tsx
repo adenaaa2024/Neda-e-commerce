@@ -17,6 +17,11 @@ import {
   type ViewAsProfileRow,
 } from "../app/session/view-as-actions";
 import { normalizeRoleKeyForBranding } from "../lib/tenant-branding-permissions";
+import {
+  WORKSPACE_ORGANIZATION_CHANGED_EVENT,
+  WORKSPACE_SELECTED_ORGANIZATION_ID_KEY,
+  readWorkspaceSelectedOrganizationIdFromStorage,
+} from "../lib/workspace-organization-scope";
 import { isUuidString } from "../lib/uuid";
 import { readWorkspaceOrganizationIdFromSearch } from "../lib/workspace-url-context";
 import { useDebugMode } from "./DebugModeContext";
@@ -40,7 +45,6 @@ export const ROLE_HIERARCHY: UserRole[] = [
   "super_admin",
 ];
 
-const LS_WORKSPACE_ORGANIZATION = "workspace_selected_organization_id";
 const LS_VIEW_AS_PROFILE_ID = "workspace_view_as_profile_id";
 
 function formatAuthReachabilityError(raw: string): string {
@@ -143,9 +147,8 @@ export function isAdminRole(role: UserRole): boolean {
 }
 
 function readStoredWorkspaceCompanyId(): string | null {
-  if (typeof window === "undefined") return null;
-  const t = window.localStorage.getItem(LS_WORKSPACE_ORGANIZATION)?.trim();
-  return t && isUuidString(t) ? t : null;
+  const t = readWorkspaceSelectedOrganizationIdFromStorage();
+  return t || null;
 }
 
 function readStoredViewAsProfileId(): string | null {
@@ -542,6 +545,44 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
     return homeOrganizationId;
   }, [sessionCanWorkspaceSwitch, superAdminOrganizationOverride, homeOrganizationId]);
 
+  /** Other tabs / windows: workspace org picker writes localStorage — keep tenant scope in sync. */
+  useEffect(() => {
+    if (!sessionCanWorkspaceSwitch) return;
+    function onStorage(e: StorageEvent) {
+      if (e.key !== WORKSPACE_SELECTED_ORGANIZATION_ID_KEY) return;
+      const raw = e.newValue;
+      if (raw == null || raw === "") {
+        setSuperAdminOrganizationOverride(homeOrganizationId);
+        return;
+      }
+      const t = raw.trim();
+      if (isUuidString(t)) setSuperAdminOrganizationOverride(t);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [sessionCanWorkspaceSwitch, homeOrganizationId]);
+
+  /** Same-tab workspace changes (header switcher / operator proof scripts) do not fire `storage`. */
+  useEffect(() => {
+    if (!sessionCanWorkspaceSwitch) return;
+    function onWorkspaceOrgChanged(event: Event) {
+      const detail =
+        event instanceof CustomEvent && event.detail && typeof event.detail === "object"
+          ? (event.detail as { id?: unknown })
+          : null;
+      const id = typeof detail?.id === "string" ? detail.id.trim() : "";
+      if (id && isUuidString(id)) {
+        setSuperAdminOrganizationOverride(id);
+        return;
+      }
+      const stored = readStoredWorkspaceCompanyId();
+      setSuperAdminOrganizationOverride(stored && isUuidString(stored) ? stored : homeOrganizationId);
+    }
+    window.addEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged as EventListener);
+    return () =>
+      window.removeEventListener(WORKSPACE_ORGANIZATION_CHANGED_EVENT, onWorkspaceOrgChanged as EventListener);
+  }, [sessionCanWorkspaceSwitch, homeOrganizationId]);
+
   useEffect(() => {
     if (profileLoading) {
       return;
@@ -675,7 +716,8 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
     if (!isUuidString(t)) return;
     setSuperAdminOrganizationOverride(t);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(LS_WORKSPACE_ORGANIZATION, t);
+      window.localStorage.setItem(WORKSPACE_SELECTED_ORGANIZATION_ID_KEY, t);
+      window.dispatchEvent(new CustomEvent(WORKSPACE_ORGANIZATION_CHANGED_EVENT, { detail: { id: t } }));
     }
   }, []);
 

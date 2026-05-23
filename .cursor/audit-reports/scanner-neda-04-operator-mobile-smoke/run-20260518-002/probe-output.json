@@ -1,0 +1,60 @@
+{
+  "audit": "scanner-neda-04-operator-mobile-smoke",
+  "run_id": "run-20260518-002",
+  "probe_method": "PostgREST limit=0/1 SELECT only (service role, no writes)",
+  "project_ref": "kxsvedvpjldygtdbylsy",
+  "probes": [
+    {
+      "name": "package_items_table_absent_expected",
+      "ok": false,
+      "detail": "PGRST205: Could not find the table 'public.package_items' in the schema cache"
+    },
+    {
+      "name": "return_items_item_scan_select",
+      "ok": true,
+      "detail": "select ok (0+ rows)"
+    },
+    {
+      "name": "slip_contents_operator_fallback_chain",
+      "ok": true,
+      "detail": "attempt 6/6 ok"
+    },
+    {
+      "name": "packages_list_select",
+      "ok": true,
+      "detail": "select ok (0+ rows)"
+    },
+    {
+      "name": "EP_SELECT_identify_gate",
+      "ok": true,
+      "detail": "select ok (0+ rows)"
+    },
+    {
+      "name": "EP_DETAIL_SELECT_item_scan",
+      "ok": true,
+      "detail": "select ok (0+ rows)"
+    },
+    {
+      "name": "fixture_package_hydration",
+      "ok": true,
+      "detail": "pkg=9528d923… slips=2 returns=0 ep=0"
+    }
+  ],
+  "slip_select_fallback_index": 5,
+  "package_items_guard_removed_in_app": true,
+  "package_items_table_on_live_db": "absent_or_blocked",
+  "fixture": {
+    "package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+    "organization_id": "7397edff-7994-4731-8501-55d258d507d2",
+    "store_id": "9adfe198-7c6a-49a5-b0b4-d370a83de06f",
+    "tracking_number": "123",
+    "package_code": "1231",
+    "slip_lines": 2,
+    "slip_error": null,
+    "return_items": 0,
+    "return_items_error": null,
+    "expected_packages_hits": 0
+  },
+  "no_42703_on_operator_selects": true,
+  "operator_selects_ok": true
+}

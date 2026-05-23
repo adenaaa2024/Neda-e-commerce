@@ -1,0 +1,9 @@
+{
+  "audit_id": "scanner-neda-03-package-items-repair",
+  "run_id": "run-20260518-002",
+  "date": "2026-05-18",
+  "goal": "Repair item-scan persistence without creating package_items on live DB",
+  "status": "complete",
+  "blockers": 0,
+  "prior_run": "run-20260518-001"
+}

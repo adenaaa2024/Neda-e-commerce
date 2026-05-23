@@ -1,0 +1,203 @@
+{
+  "task": "NEDA-21-PRODUCT-RESOLUTION-CONTRACT-ENFORCE-ALL-UI-V192",
+  "run_id": "run-20260521-001",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "verdict": "PASS",
+  "add_save": "PASS",
+  "edit": "PASS",
+  "package_pallet": "PASS",
+  "backend_contract_compliance": "PASS",
+  "v191_main_audit_present": false,
+  "v192_lock_audit_present": false,
+  "steps": [
+    {
+      "id": "insert_operator_returns_linkage",
+      "pass": true,
+      "detail": "BOX item save"
+    },
+    {
+      "id": "insert_via_insert_return",
+      "pass": true,
+      "detail": "insertReturn chain"
+    },
+    {
+      "id": "operator_receive_server",
+      "pass": true,
+      "detail": "operatorReceiveItem server"
+    },
+    {
+      "id": "operator_receive_linkage_response",
+      "pass": true,
+      "detail": "operatorReceiveItem returns hydrated product_linkages[]"
+    },
+    {
+      "id": "page_ep_receive_linkage_wire",
+      "pass": true,
+      "detail": "EP receive applies server linkage to expectedPkgLines"
+    },
+    {
+      "id": "page_save_item_modal",
+      "pass": true,
+      "detail": "modal save"
+    },
+    {
+      "id": "no_page_return_items_write",
+      "pass": true,
+      "detail": "scan page no return_items writes"
+    },
+    {
+      "id": "preview_on_add_edit",
+      "pass": true,
+      "detail": "add preview"
+    },
+    {
+      "id": "modal_linkage_meta",
+      "pass": true,
+      "detail": "modal meta"
+    },
+    {
+      "id": "update_enrichment",
+      "pass": true,
+      "detail": "edit re-resolver"
+    },
+    {
+      "id": "fetch_linkage_detail",
+      "pass": true,
+      "detail": "detail hydration action"
+    },
+    {
+      "id": "drawer_edit_preview",
+      "pass": true,
+      "detail": "returns drawer"
+    },
+    {
+      "id": "list_package_items_action",
+      "pass": true,
+      "detail": "package child rows"
+    },
+    {
+      "id": "list_slip_linkage",
+      "pass": true,
+      "detail": "slip rows"
+    },
+    {
+      "id": "list_pallet_packages",
+      "pass": true,
+      "detail": "pallet package list"
+    },
+    {
+      "id": "ep_row_meta",
+      "pass": true,
+      "detail": "expected panel"
+    },
+    {
+      "id": "inventory_view_reads",
+      "pass": true,
+      "detail": "inventory status panel reads"
+    },
+    {
+      "id": "unmapped_labels",
+      "pass": true,
+      "detail": "unresolved copy"
+    },
+    {
+      "id": "forbidden_zero",
+      "pass": true,
+      "detail": "forbidden scan: pi=0 ret=0 prod_ins=0"
+    },
+    {
+      "id": "no_client_return_writes",
+      "pass": true,
+      "detail": "client return_items writes=0"
+    },
+    {
+      "id": "staging_ref",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "probe_target",
+      "pass": true,
+      "detail": "discovered pkg=PKG-MNI9DR05"
+    },
+    {
+      "id": "resolver_known",
+      "pass": true,
+      "detail": "FNSKU X00525Q5XZ"
+    },
+    {
+      "id": "resolver_unknown",
+      "pass": true,
+      "detail": "known=resolved fnsku=X00525Q5XZ unknown=unresolved rows=2 pkg=1871fd1e"
+    },
+    {
+      "id": "enrich_hydrate_chain",
+      "pass": true,
+      "detail": "post-update hydrate"
+    },
+    {
+      "id": "package_list_contract",
+      "pass": true,
+      "detail": "package rows contract build"
+    },
+    {
+      "id": "browser_signed_in",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "browser_store",
+      "pass": true,
+      "detail": "http://127.0.0.1:3001/scanner/operator-mobile/scan → http://127.0.0.1:3001/scanner/operator-mobile/scan"
+    },
+    {
+      "id": "browser_expected_panel",
+      "pass": true,
+      "detail": "Expected Items / line table"
+    },
+    {
+      "id": "browser_package_child_linkage",
+      "pass": true,
+      "detail": "X00525Q5XZ, X004DMS1TT, no_product_link_yet"
+    },
+    {
+      "id": "browser_inventory_signals",
+      "pass": true,
+      "detail": "variance/status copy"
+    },
+    {
+      "id": "browser_server_action_200",
+      "pass": true,
+      "detail": "POST scan page server action"
+    },
+    {
+      "id": "browser_staging_api",
+      "pass": true,
+      "detail": "non_staging_hosts=[] post_200=true env_ref=eiqfaapyumhixxoeltgu"
+    }
+  ],
+  "forbidden": {
+    "package_items": 0,
+    "returns_table": 0,
+    "products_insert": 0,
+    "return_items_client_write": 0,
+    "products_client_select": 0
+  },
+  "probe_target": {
+    "mode": "discovered",
+    "organization_id": "00000000-0000-0000-0000-000000000001",
+    "store_id": "509ee1f6-622c-46a5-8110-7b889ba46c2c",
+    "package_id": "1871fd1e-ca45-4e6f-aad1-c4ff83693704",
+    "package_code": "PKG-MNI9DR05",
+    "gate_tracking": "234324324"
+  },
+  "browser_summary": {
+    "signed_in": true,
+    "post_scan_200": true,
+    "labels": [
+      "X00525Q5XZ",
+      "X004DMS1TT",
+      "no_product_link_yet"
+    ]
+  }
+}

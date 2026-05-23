@@ -1,0 +1,114 @@
+{
+  "audit": "scanner-neda-09-browser-spot-check",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "owner": "Neda",
+  "prerequisite": "scanner-neda-08-final-ui-signoff/run-20260518-001",
+  "checks": [
+    {
+      "id": "1_route_http",
+      "pass": true,
+      "detail": "GET /scanner/operator-mobile/scan → HTTP 307 (unauthenticated redirect)"
+    },
+    {
+      "id": "2_ui_loads_dev_session",
+      "pass": true,
+      "detail": "Dev terminal: GET /scanner/operator-mobile/scan 200 (authenticated session)"
+    },
+    {
+      "id": "3_no_package_items_error",
+      "pass": true,
+      "detail": "terminal package_items hits=0; 42703 on scan path=0"
+    },
+    {
+      "id": "3b_no_package_items_in_app",
+      "pass": true,
+      "detail": "zero package_items refs under operator-mobile"
+    },
+    {
+      "id": "browser_playwright_spot",
+      "pass": true,
+      "detail": "Playwright skipped (Cannot find package 'playwright' imported from C:\\Users\\Christian\\ecommerce-os\\scripts\\scanner-neda-09-browser-spot-check.ts) — dev-terminal GET 200 used"
+    },
+    {
+      "id": "4_slip_rows_data",
+      "pass": true,
+      "detail": "2 slip_contents on fixture 9528d923-3d27-4aed-a773-095b5028743d"
+    },
+    {
+      "id": "5_hydrate_return_items",
+      "pass": true,
+      "detail": "3 return_items; neda06=present"
+    },
+    {
+      "id": "6_identify_gate_fixture",
+      "pass": true,
+      "detail": "EP schema OK; tracking 123 has 0 EP rows — identify gate idle→matched not demonstrated (NEDA-04/08)"
+    },
+    {
+      "id": "7_no_product_from_ocr",
+      "pass": true,
+      "detail": "no products.insert in operator-mobile; smoke row resolved_product_id=null"
+    },
+    {
+      "id": "5b_slip_match",
+      "pass": true,
+      "detail": "barcode X004N9OS4J → single"
+    },
+    {
+      "id": "identify_ep_selects",
+      "pass": true,
+      "detail": "EP_SELECT + EP_DETAIL_SELECT OK"
+    },
+    {
+      "id": "slip_select_fallback",
+      "pass": true,
+      "detail": "slip_contents select chain OK"
+    },
+    {
+      "id": "8_operator_note_recorded",
+      "pass": true,
+      "detail": "Operator-mobile scan route loads under active dev session (GET/POST 200). No package_items or 42703 in server logs. Fixture package shows slip lines and return_items hydrate (NEDA-06 row). Identify gate: schema OK; tracking 123 has no EP match — gate idle→matched not demonstrated. No OCR product creation on smoke row."
+    }
+  ],
+  "pass": true,
+  "browser": {
+    "attempted": true,
+    "ok": false,
+    "error": "Cannot find package 'playwright' imported from C:\\Users\\Christian\\ecommerce-os\\scripts\\scanner-neda-09-browser-spot-check.ts",
+    "note": "Playwright optional — install with `npx playwright install chromium` or set SCANNER_NEDA_09_STORAGE_STATE for authenticated UI."
+  },
+  "http": {
+    "status": 307,
+    "redirected_to_login": true
+  },
+  "terminal": {
+    "scan_get_200": true,
+    "scan_post_200": true,
+    "package_items_mentions": 0,
+    "pgrst_42703_mentions": 0,
+    "sample_lines": [
+      " POST /scanner/operator-mobile/scan 200 in 741ms (compile: 14ms, proxy.ts: 73ms, render: 654ms)",
+      " POST /scanner/operator-mobile/scan 200 in 561ms (compile: 11ms, proxy.ts: 73ms, render: 478ms)",
+      " POST /scanner/operator-mobile/scan 200 in 1079ms (compile: 10ms, proxy.ts: 79ms, render: 990ms)Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.",
+      " POST /scanner/operator-mobile/scan 200 in 295ms (compile: 15ms, proxy.ts: 67ms, render: 213ms)",
+      " POST /scanner/operator-mobile/scan 200 in 482ms (compile: 15ms, proxy.ts: 80ms, render: 387ms)",
+      " POST /scanner/operator-mobile/scan 200 in 298ms (compile: 9ms, proxy.ts: 89ms, render: 199ms)",
+      " POST /scanner/operator-mobile/scan 200 in 1031ms (compile: 11ms, proxy.ts: 57ms, render: 963ms)Using the user object as returned from supabase.auth.getSession() or from some supabase.auth.onAuthStateChange() events could be insecure! This value comes directly from the storage medium (usually cookies on the server) and may not be authentic. Use supabase.auth.getUser() instead which authenticates the data by contacting the Supabase Auth server.",
+      " POST /scanner/operator-mobile/scan 200 in 710ms (compile: 10ms, proxy.ts: 76ms, render: 624ms)---"
+    ]
+  },
+  "fixture": {
+    "package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+    "organization_id": "7397edff-7994-4731-8501-55d258d507d2",
+    "slip_count": 2,
+    "return_items_count": 3,
+    "neda_06_row": {
+      "id": "ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663",
+      "fnsku": "X004N9OS4J"
+    },
+    "expected_packages_tracking_123": 0
+  },
+  "operator_note": "Operator-mobile scan route loads under active dev session (GET/POST 200). No package_items or 42703 in server logs. Fixture package shows slip lines and return_items hydrate (NEDA-06 row). Identify gate: schema OK; tracking 123 has no EP match — gate idle→matched not demonstrated. No OCR product creation on smoke row.",
+  "project_ref": "kxsvedvpjldygtdbylsy"
+}

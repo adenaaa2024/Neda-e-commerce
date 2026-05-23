@@ -1,5 +1,10 @@
 "use client";
 
+/**
+ * Legacy desktop scanner page (`expected_packages` only, no org/store scope).
+ * Primary flow: `/scanner/operator-mobile/scan` — `v_inventory_item_status`, operator session store, strict shipment table.
+ */
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Package2, ScanLine, XCircle, AlertTriangle, RotateCcw } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "../../src/lib/supabase";

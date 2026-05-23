@@ -1,0 +1,160 @@
+{
+  "task": "V195-NEDA-HANDOFF-FILE-SYNC-AND-USAGE",
+  "run_id": "run-20260521-001",
+  "verdict": "PASS",
+  "pass": 29,
+  "fail": 0,
+  "steps": [
+    {
+      "id": "file_NEDA_FINAL_BACKEND_HANDOFF_V193_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "file__ai_memory_NEDA_HANDOFF_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "file__ai_memory_DATABASE_CONTRACT_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "file__ai_memory_PRODUCT_ID_MAPPING_STATUS_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "file__ai_memory_CURRENT_STATE_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "file__ai_memory_NEXT_ACTIONS_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "file_NEDA_BACKEND_PRODUCT_LINKAGE_HANDOFF_V178_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "file_NEDA_EXPECTED_PACKAGES_INVENTORY_VIEWS_HANDOFF_V179_md",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "handoff_lists_12_rules",
+      "pass": true,
+      "detail": "V193 rules doc"
+    },
+    {
+      "id": "rule1_backend_lookup",
+      "pass": true,
+      "detail": "preview + field split"
+    },
+    {
+      "id": "rule2_resolver_on_save",
+      "pass": true,
+      "detail": "server enrichment"
+    },
+    {
+      "id": "rule3_display_contract",
+      "pass": true,
+      "detail": "contract + meta"
+    },
+    {
+      "id": "rule4_product_detail_href",
+      "pass": true,
+      "detail": "detail route"
+    },
+    {
+      "id": "rule5_row_vs_product_click",
+      "pass": true,
+      "detail": "row + isolated link"
+    },
+    {
+      "id": "rule6_package_child_contract",
+      "pass": true,
+      "detail": "package drawer"
+    },
+    {
+      "id": "rule7_product_id_first",
+      "pass": true,
+      "detail": "EP merge"
+    },
+    {
+      "id": "rule8_no_browser_db_writes",
+      "pass": true,
+      "detail": "scan page"
+    },
+    {
+      "id": "rule9_no_package_items",
+      "pass": true,
+      "detail": "stale package_items=0"
+    },
+    {
+      "id": "rule10_no_returns_table",
+      "pass": true,
+      "detail": "returns_table=0"
+    },
+    {
+      "id": "rule11_no_browser_amazon",
+      "pass": true,
+      "detail": "wizard"
+    },
+    {
+      "id": "rule12_sp_api_dev_gated",
+      "pass": true,
+      "detail": "dev mock only"
+    },
+    {
+      "id": "forbidden_zero",
+      "pass": true,
+      "detail": "{\"package_items\":0,\"returns_table\":0,\"products_insert\":0,\"products_client_select\":0}"
+    },
+    {
+      "id": "staging_ref_active",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "not_original_dev_ref",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "topology_doc_staging",
+      "pass": true,
+      "detail": "eiqfaapyumhixxoeltgu"
+    },
+    {
+      "id": "topology_doc_original",
+      "pass": true,
+      "detail": "kxsvedvpjldygtdbylsy"
+    },
+    {
+      "id": "v194_polish_pass",
+      "pass": true,
+      "detail": "PASS fail=0"
+    },
+    {
+      "id": "memory_refs_v193",
+      "pass": true,
+      "detail": "index"
+    },
+    {
+      "id": "memory_refs_current_state",
+      "pass": true,
+      "detail": "index"
+    }
+  ],
+  "forbidden": {
+    "package_items": 0,
+    "returns_table": 0,
+    "products_insert": 0,
+    "products_client_select": 0
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "run_id": "run-20260521-001",
+  "task": "SCANNER-NEDA-17",
+  "overall": "PASS",
+  "expected_packages_ui": "PASS",
+  "v_inventory_item_status_ui": "PASS",
+  "blockers": [
+    "Set NEXT_PUBLIC_STORE_ID or SCANNER_NEDA_17_STORE_ID for inventory scan probe.",
+    "Apply scanner product linkage migration for full EP resolution columns on staging."
+  ],
+  "probe": {
+    "env": true,
+    "ep_selects": {
+      "EP_DETAIL": "ok",
+      "EP_DETAIL_WITH_PRODUCT": "column expected_packages.product_match_status does not exist",
+      "EP_TRACKING_WITH_PRODUCT": "column expected_packages.product_match_status does not exist"
+    },
+    "v_inventory_item_status": "ok"
+  },
+  "steps": [
+    {
+      "id": "forbidden_package_items",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "forbidden_returns_table",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "forbidden_products_insert",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "forbidden_browser_writes",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "handoff_v179_doc",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "id": "ep_read_contract_doc",
+      "pass": true,
+      "detail": "lib fallback: C:\\Users\\Christian\\ecommerce-os\\lib\\scanner\\expected-packages-read-contract.ts"
+    },
+    {
+      "id": "inv_read_contract_doc",
+      "pass": true,
+      "detail": "lib fallback: C:\\Users\\Christian\\ecommerce-os\\lib\\scanner\\v-inventory-status.ts"
+    },
+    {
+      "id": "ui_v_inventory_item_status_read",
+      "pass": true,
+      "detail": "identify gate primary read"
+    },
+    {
+      "id": "ui_identify_gate_variance",
+      "pass": true,
+      "detail": "shipment line table"
+    },
+    {
+      "id": "ui_identify_gate_linkage_meta",
+      "pass": true,
+      "detail": "gate lines"
+    },
+    {
+      "id": "ui_expected_pkg_variance",
+      "pass": true,
+      "detail": "expected tables"
+    },
+    {
+      "id": "ui_expected_product_linkage",
+      "pass": true,
+      "detail": "TrackingOperatorLine linkage"
+    },
+    {
+      "id": "ui_unmapped_label",
+      "pass": true,
+      "detail": "OperatorProductLinkageMeta"
+    },
+    {
+      "id": "ui_needs_review_label",
+      "pass": true,
+      "detail": "OperatorProductLinkageMeta"
+    },
+    {
+      "id": "ui_save_insert_operator",
+      "pass": true,
+      "detail": "approved save path"
+    },
+    {
+      "id": "ui_no_ep_client_write",
+      "pass": true,
+      "detail": "no EP writes from scan page"
+    },
+    {
+      "id": "lib_ep_contract",
+      "pass": true,
+      "detail": "C:\\Users\\Christian\\ecommerce-os\\lib\\scanner\\expected-packages-read-contract.ts"
+    },
+    {
+      "id": "lib_tracking_enrich",
+      "pass": true,
+      "detail": "snapshot enrich"
+    },
+    {
+      "id": "lib_v_inv",
+      "pass": true,
+      "detail": "C:\\Users\\Christian\\ecommerce-os\\lib\\scanner\\v-inventory-status.ts"
+    },
+    {
+      "id": "null_product_id_safe",
+      "pass": true,
+      "detail": "No product link yet"
+    },
+    {
+      "id": "ambiguous_merge",
+      "pass": true,
+      "detail": "Needs review"
+    },
+    {
+      "id": "variance_format",
+      "pass": true,
+      "detail": "+2 over"
+    },
+    {
+      "id": "db_ep_detail_select",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "db_ep_linkage_select",
+      "pass": false,
+      "detail": "column expected_packages.product_match_status does not exist"
+    },
+    {
+      "id": "db_v_inventory_item_status",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "db_inventory_scan_helper",
+      "pass": false,
+      "detail": "SKIP — no STORE_ID"
+    }
+  ]
+}

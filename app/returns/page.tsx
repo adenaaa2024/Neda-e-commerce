@@ -52,7 +52,7 @@ export default function ReturnsPage() {
   const [fetchErrors,  setFetchErrors]  = useState<string[]>([]);
   const [orgSettings,  setOrgSettings]  = useState<OrgSettings>(DEFAULT_ORG_SETTINGS);
   const [fefoSettings, setFefoSettings] = useState<InventoryModuleConfig>(DEFAULT_FEFO);
-  /** Exact DB total (non-deleted returns) — compares to `listReturns()` row cap. */
+  /** Exact DB total (non-deleted return_items) — compares to `listReturns()` row cap. */
   const [returnsTotalCount, setReturnsTotalCount] = useState<number | null>(null);
   /** In-session File objects keyed by returnId — enables live photo gallery in the drawer. */
   const [sessionPhotos, setSessionPhotos] = useState<Map<string, Record<string, File[]>>>(new Map());
@@ -301,7 +301,7 @@ export default function ReturnsPage() {
   function removePallet(id: string)      { setPallets((p) => p.filter((x) => x.id !== id)); }
   function bulkRemovePallets(ids: string[]) { const s = new Set(ids); setPallets((p) => p.filter((x) => !s.has(x.id))); }
 
-  /** Assign/move existing return to a package — sync items list + denormalized counts from live `returns` rows. */
+  /** Assign/move existing return item to a package — sync items list + denormalized counts from live `return_items` rows. */
   function syncReturnAfterPackageAssignment(updated: ReturnRecord, prevPackageId: string | null) {
     setReturns((prev) => {
       const merged = prev.map((x) => (x.id === updated.id ? updated : x));

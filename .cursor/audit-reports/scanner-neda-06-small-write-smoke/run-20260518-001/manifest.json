@@ -1,0 +1,36 @@
+{
+  "audit": "scanner-neda-06-small-write-smoke",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "owner": "Neda",
+  "goal": "One small write smoke after package_items → return_items repair",
+  "prerequisite": "scanner-neda-04-operator-mobile-smoke/run-20260518-002",
+  "approval_file": ".cursor/operator-approvals/scanner-neda-06-small-write-smoke-approval.md",
+  "linked_supabase_project_ref": "kxsvedvpjldygtdbylsy",
+  "constraints": [
+    "one package / one item insert only",
+    "no package_items table or migration",
+    "no product creation from OCR/title",
+    "no production prompts",
+    "no Amazon API",
+    "no AI/OpenAI"
+  ],
+  "e2e_result": "pass",
+  "inserted_return_item_id": "ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663",
+  "script": "scripts/scanner-neda-06-small-write-smoke.ts",
+  "artifacts": [
+    "manifest.json",
+    "validation-results.md",
+    "fixture-and-write.md",
+    "return-items-insert.md",
+    "hydrate-reload.md",
+    "slip-barcode-match.md",
+    "no-product-ocr.md",
+    "package-items-absent.md",
+    "operator-mobile-save-path.md",
+    "rollback-instructions.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "probe-output.json"
+  ]
+}

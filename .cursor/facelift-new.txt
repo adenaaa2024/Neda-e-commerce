@@ -1,0 +1,23 @@
+html.light .operator-neumo-continue:active {
+  box-shadow:
+    0 2px 0 #a1a1aa,
+    0 6px 16px rgba(0, 0, 0, 0.1),
+    inset 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+html.light .operator-neumo-blue {
+  border-color: rgba(90, 109, 130, 0.32);
+  background: linear-gradient(155deg, #5a6d82 0%, #4a5d72 48%, #3d4f63 100%);
+  box-shadow:
+    0 4px 0 #3d4f63,
+    0 8px 22px rgba(61, 79, 99, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -2px 8px rgba(0, 0, 0, 0.1);
+}
+
+html.light .operator-neumo-blue:active {
+  box-shadow:
+    0 1px 0 #3d4f63,
+    0 5px 14px rgba(61, 79, 99, 0.18),
+    inset 0 2px 5px rgba(0, 0, 0, 0.12);
+}

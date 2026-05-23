@@ -1,0 +1,44 @@
+{
+  "run_id": "run-20260520-001",
+  "task": "NEDA-19-BACKEND-CONNECTED-UI-NEXT-STEPS",
+  "created_at": "2026-05-20",
+  "owner": "Neda",
+  "mode": "Agent / UI implementation planning",
+  "overall": "READY",
+  "prerequisites": {
+    "neda_env_staging": "PASS (v180/v183)",
+    "neda_final_runtime_replay_v189": "PASS run-20260520-001",
+    "neda_18_item_scan_return_linkage": "PASS run-20260520-001",
+    "return_items_cohort_note": "3 active, 3 resolved, 0 unresolved (operator scope)"
+  },
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "sam_org_id": "00000000-0000-0000-0000-000000000001",
+  "sam_store_id": "509ee1f6-622c-46a5-8110-7b889ba46c2c",
+  "canonical_contracts": [
+    "lib/scanner/product-linkage-display-contract.ts",
+    "lib/scanner/expected-packages-read-contract.ts",
+    "lib/scanner/operator-tracking-expectations.ts",
+    "lib/scanner/v-inventory-status.ts"
+  ],
+  "handoff_docs": [
+    ".ai-memory/NEDA_HANDOFF.md",
+    "NEDA_BACKEND_PRODUCT_LINKAGE_HANDOFF_V178.md",
+    "NEDA_EXPECTED_PACKAGES_INVENTORY_VIEWS_HANDOFF_V179.md"
+  ],
+  "proof_runs_consumed": [
+    ".cursor/audit-reports/neda-final-runtime-replay-after-v189/run-20260520-001",
+    ".cursor/audit-reports/neda-18-item-scan-return-linkage-browser-proof/run-20260520-001"
+  ],
+  "artifact_files": [
+    "ui-task-plan.md",
+    "backend-contract-dependencies.md",
+    "safe-ui-only-tasks.md",
+    "blocked-tasks.md",
+    "next-implementation-prompts.md",
+    "manifest.json"
+  ],
+  "top_safe_tasks": ["UI-1", "UI-3", "UI-4", "UI-H1", "UI-H2"],
+  "top_contract_tasks": ["UI-C1", "UI-C2", "UI-C3"],
+  "primary_blockers": ["BLK-1", "BLK-2", "BLK-3"],
+  "next_prompt_id": "PROMPT-1"
+}

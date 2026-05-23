@@ -1,0 +1,27 @@
+{
+  "audit": "next-scanner-04",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "prerequisite_scanner_02c_run": "scanner-02c-confirm-staging-apply-verify/run-20260518-001",
+  "prerequisite_passed": false,
+  "e2e_result": "blocked",
+  "extended_selects_ok": false,
+  "manual_override_ok": false,
+  "audit_log_ok": false,
+  "migration_applied_on_linked_db": false,
+  "linked_supabase_project_ref": "kxsvedvpjldygtdbylsy",
+  "script": "scripts/next-scanner-04-staging-e2e.ts",
+  "artifacts": [
+    "preflight-schema-verification.md",
+    "extended-select-e2e.md",
+    "manual-override-e2e.md",
+    "audit-log-verification.md",
+    "ui-state-verification.md",
+    "scanner-save-compatibility.md",
+    "rls-security-check.md",
+    "validation-results.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "manifest.json"
+  ]
+}

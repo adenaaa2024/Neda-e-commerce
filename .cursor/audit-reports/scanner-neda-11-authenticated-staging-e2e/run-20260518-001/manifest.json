@@ -1,0 +1,30 @@
+{
+  "audit": "scanner-neda-11-authenticated-staging-e2e",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "goal": "Authenticated browser E2E of operator-mobile scanner on staging",
+  "prerequisite": "scanner-neda-10-mobile-wire-to-server-actions/run-20260518-001",
+  "staging_project_ref": "eiqfaapyumhixxoeltgu",
+  "fixture_package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+  "constraints": [
+    "no migrations",
+    "no package_items path",
+    "no production",
+    "preserve Neda UI layout"
+  ],
+  "e2e_result": "pass",
+  "script": "scripts/scanner-neda-11-authenticated-staging-e2e.ts",
+  "artifacts": [
+    "manifest.json",
+    "validation-results.md",
+    "sign-in-staging.md",
+    "operator-mobile-route-e2e.md",
+    "slip-and-hydrate-e2e.md",
+    "save-and-reload-e2e.md",
+    "forbidden-contract-scan.md",
+    "ui-layout-preservation.md",
+    "blockers.md",
+    "next-step-recommendation.md",
+    "probe-output.json"
+  ]
+}

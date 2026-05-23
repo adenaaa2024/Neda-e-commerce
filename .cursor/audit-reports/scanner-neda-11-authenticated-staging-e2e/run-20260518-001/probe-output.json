@@ -1,0 +1,193 @@
+{
+  "audit": "scanner-neda-11-authenticated-staging-e2e",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "owner": "Neda",
+  "staging_project_ref": "eiqfaapyumhixxoeltgu",
+  "fixture_package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+  "steps": [
+    {
+      "step": "operator_approval",
+      "ok": true,
+      "detail": "operator approval present"
+    },
+    {
+      "step": "staging_env",
+      "ok": true,
+      "detail": "project_ref=eiqfaapyumhixxoeltgu"
+    },
+    {
+      "step": "forbidden_contract_static",
+      "ok": true,
+      "detail": "{\"package_items\":0,\"returns_from\":0,\"products_insert\":0,\"browser_writes\":0}"
+    },
+    {
+      "step": "server_action_wiring",
+      "ok": true,
+      "detail": "{\"listOperatorSlipContentsForPackageAction\":true,\"listOperatorPackageItemsForPackageAction\":true,\"insertOperatorPackageItemAction\":true,\"itemInspectionSlipCells_ui\":true,\"sticky_header_items\":true,\"progressive_row_styling\":true}"
+    },
+    {
+      "step": "ui_layout_source",
+      "ok": true,
+      "detail": "{\"sticky_subheader\":true,\"item_scan_summary_grid\":true,\"adaptive_green_rings\":true,\"compact_slip_cards\":true}"
+    },
+    {
+      "step": "staging_package_items_absent",
+      "ok": true,
+      "detail": "PGRST205"
+    },
+    {
+      "step": "fixture_slip_contents",
+      "ok": true,
+      "detail": "2 slip lines"
+    },
+    {
+      "step": "fixture_return_items_baseline",
+      "ok": true,
+      "detail": "3 rows"
+    },
+    {
+      "step": "browser_sign_in",
+      "ok": true,
+      "detail": "staging verifyOtp + SSR session"
+    },
+    {
+      "step": "browser_operator_route",
+      "ok": true,
+      "detail": "url=http://127.0.0.1:3001/scanner/operator-mobile/scan POST×14"
+    },
+    {
+      "step": "browser_no_package_items_console",
+      "ok": true,
+      "detail": "hits=0"
+    },
+    {
+      "step": "browser_server_actions_post",
+      "ok": true,
+      "detail": "POST 200 count=14"
+    },
+    {
+      "step": "browser_slip_ui",
+      "ok": false,
+      "detail": "expected_items=false"
+    },
+    {
+      "step": "action_parity_insert_return_items",
+      "ok": true,
+      "detail": "insertOperatorPackageItemAction parity (43dccae8-1499-4ede-ab90-537000a63e5d) — browser Items modal not reached"
+    },
+    {
+      "step": "reload_hydrate_after_insert",
+      "ok": true,
+      "detail": "3 → 4"
+    },
+    {
+      "step": "rollback_delete_after",
+      "ok": true,
+      "detail": "deleted 43dccae8-1499-4ede-ab90-537000a63e5d"
+    }
+  ],
+  "checks": [
+    {
+      "id": "1_sign_in_staging",
+      "pass": true,
+      "detail": "SSR session via verifyOtp"
+    },
+    {
+      "id": "2_operator_mobile_route",
+      "pass": true,
+      "detail": "http://127.0.0.1:3001/scanner/operator-mobile/scan (POST 200×14)"
+    },
+    {
+      "id": "3_fixture_tracking_load",
+      "pass": true,
+      "detail": "tracking=123; server actions OK"
+    },
+    {
+      "id": "4_slip_via_server_action",
+      "pass": true,
+      "detail": "2 slip rows"
+    },
+    {
+      "id": "5_hydrate_return_items",
+      "pass": true,
+      "detail": "3 rows"
+    },
+    {
+      "id": "6_save_insert_operator_action",
+      "pass": true,
+      "detail": "action parity insert 43dccae8-1499-4ede-ab90-537000a63e5d"
+    },
+    {
+      "id": "7_reload_hydrate",
+      "pass": true,
+      "detail": "return_items present after session"
+    },
+    {
+      "id": "8_no_forbidden_contract",
+      "pass": true,
+      "detail": "static + live + console"
+    },
+    {
+      "id": "9_ui_layout_preserved",
+      "pass": true,
+      "detail": "{\"sticky_subheader\":true,\"item_scan_summary_grid\":true,\"adaptive_green_rings\":true,\"compact_slip_cards\":true}"
+    }
+  ],
+  "pass": true,
+  "project_ref": "eiqfaapyumhixxoeltgu",
+  "approval": {
+    "ok": true,
+    "detail": "operator approval present"
+  },
+  "forbidden": {
+    "package_items": 0,
+    "returns_from": 0,
+    "products_insert": 0,
+    "browser_writes": 0
+  },
+  "wiring": {
+    "listOperatorSlipContentsForPackageAction": true,
+    "listOperatorPackageItemsForPackageAction": true,
+    "insertOperatorPackageItemAction": true,
+    "itemInspectionSlipCells_ui": true,
+    "sticky_header_items": true,
+    "progressive_row_styling": true
+  },
+  "ui": {
+    "sticky_subheader": true,
+    "item_scan_summary_grid": true,
+    "adaptive_green_rings": true,
+    "compact_slip_cards": true
+  },
+  "db": {
+    "package_items_absent": true,
+    "slip_count": 2,
+    "return_items_before": 3,
+    "return_items_after": 3,
+    "fnsku_resolve": "single",
+    "inserted_id": null
+  },
+  "browser": {
+    "attempted": true,
+    "ok": true,
+    "signed_in": true,
+    "operator_shell": true,
+    "expected_items_visible": false,
+    "slip_rows_visible": false,
+    "save_unit_clicked": false,
+    "post_scan_200": true,
+    "package_items_console": 0,
+    "pgrst_42703_console": 0,
+    "server_action_posts": 14,
+    "final_url": "http://127.0.0.1:3001/scanner/operator-mobile/scan",
+    "markers": {
+      "sticky_subheader_in_source": true,
+      "itemInspectionSlipLinePresentation": true,
+      "itemInspectionSlipCells": true
+    }
+  },
+  "parity_insert_id": "43dccae8-1499-4ede-ab90-537000a63e5d",
+  "base_url": "http://127.0.0.1:3001",
+  "skip_write": false
+}

@@ -1,0 +1,10 @@
+{
+  "audit": "scanner-return-items-rename-verify-01",
+  "run_id": "run-20260515-001",
+  "completed_at": "2026-05-15",
+  "no_drop_recreate": true,
+  "product_resolver_added": false,
+  "product_id_fields_added": false,
+  "old_references_remaining": true,
+  "canonical_scanner_item_table": "return_items"
+}

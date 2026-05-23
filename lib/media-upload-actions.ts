@@ -7,6 +7,10 @@ import {
   type MediaUploadFolder,
   type StorageBucketName,
 } from "./media-upload-types";
+import {
+  isAlignedStorageRelativePath,
+  normalizeStorageRelativePathUnderOrg,
+} from "./storage-helpers";
 
 /** Default bucket for item/package/pallet evidence images — must exist in Supabase Storage. */
 const DEFAULT_BUCKET = "media";
@@ -22,12 +26,6 @@ export async function uploadMediaFileAction(
   if (!(file instanceof File) || file.size === 0) {
     return { ok: false, error: "No file provided." };
   }
-  const folderRaw = formData.get("folder");
-  const folder =
-    typeof folderRaw === "string" && folderRaw.length > 0
-      ? (folderRaw as MediaUploadFolder)
-      : "packages";
-
   const bucketRaw = formData.get("bucket");
   const bucket: StorageBucketName =
     typeof bucketRaw === "string" && (STORAGE_BUCKETS as readonly string[]).includes(bucketRaw)
@@ -42,10 +40,33 @@ export async function uploadMediaFileAction(
 
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  /** Prefix with tenant UUID so Storage RLS policies can scope objects by org. */
-  const path = organizationId
-    ? `${organizationId}/${folder}/${unique}.${ext}`
-    : `${folder}/${unique}.${ext}`;
+
+  const relativeRaw = formData.get("relative_path_under_org");
+  const relativeUnderOrg =
+    typeof relativeRaw === "string" && relativeRaw.trim().length > 0
+      ? normalizeStorageRelativePathUnderOrg(relativeRaw)
+      : "";
+
+  let path: string;
+  if (relativeUnderOrg) {
+    if (!organizationId) {
+      return { ok: false, error: "organization_id is required for aligned storage uploads." };
+    }
+    if (!isAlignedStorageRelativePath(relativeUnderOrg)) {
+      return { ok: false, error: "Invalid aligned storage path." };
+    }
+    path = `${organizationId}/${relativeUnderOrg}/${unique}.${ext}`;
+  } else {
+    const folderRaw = formData.get("folder");
+    const folder =
+      typeof folderRaw === "string" && folderRaw.length > 0
+        ? (folderRaw as MediaUploadFolder)
+        : "packages";
+    /** Prefix with tenant UUID so Storage RLS policies can scope objects by org. */
+    path = organizationId
+      ? `${organizationId}/${folder}/${unique}.${ext}`
+      : `${folder}/${unique}.${ext}`;
+  }
 
   const buf = Buffer.from(await file.arrayBuffer());
   const { error } = await supabaseServer.storage

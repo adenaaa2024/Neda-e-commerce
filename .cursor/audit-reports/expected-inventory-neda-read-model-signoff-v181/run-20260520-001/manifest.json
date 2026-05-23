@@ -1,0 +1,218 @@
+{
+  "run_id": "run-20260520-001",
+  "task": "EXPECTED-INVENTORY-NEDA-READ-MODEL-FINAL-SIGNOFF-V181",
+  "sam_org_id": "00000000-0000-0000-0000-000000000001",
+  "sam_store_id": "509ee1f6-622c-46a5-8110-7b889ba46c2c",
+  "overall": "PASS",
+  "expected_packages_smoke": "PASS",
+  "inventory_views_smoke": "PASS",
+  "build": "PASS",
+  "staging_probe": "staging service role",
+  "steps": [
+    {
+      "id": "read_fetchExpectedPackagesNedaRead",
+      "pass": true,
+      "detail": "alias present"
+    },
+    {
+      "id": "read_fetchInventoryItemStatusForNeda",
+      "pass": true,
+      "detail": "alias present"
+    },
+    {
+      "id": "read_expected_packages_linkage_api",
+      "pass": true,
+      "detail": "route not used (optional)"
+    },
+    {
+      "id": "read_v_inventory_status_migration",
+      "pass": true,
+      "detail": "view defined in repo"
+    },
+    {
+      "id": "read_v_scanned_items_counted",
+      "pass": true,
+      "detail": "not referenced — scan counts via return_items helpers"
+    },
+    {
+      "id": "read_contract_lib",
+      "pass": true,
+      "detail": "expected-packages-read-contract.ts"
+    },
+    {
+      "id": "stale_package_items",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_returns_table",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_packages_package_number_select",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "stale_pallets_photo_url_select",
+      "pass": true,
+      "detail": "refs=0"
+    },
+    {
+      "id": "package_drawer_single_status_chip",
+      "pass": true,
+      "detail": "status chip JSX blocks=1"
+    },
+    {
+      "id": "package_picker_status_badge",
+      "pass": true,
+      "detail": "picker badges=2"
+    },
+    {
+      "id": "package_drawer_line_linkage",
+      "pass": true,
+      "detail": "OperatorProductLinkageMeta on line rows"
+    },
+    {
+      "id": "ep_alias_fetchExpectedPackagesNedaRead",
+      "pass": true,
+      "detail": "tracking read path"
+    },
+    {
+      "id": "ep_ui_expected_qty_scan_var",
+      "pass": true,
+      "detail": "Exp/Scan columns"
+    },
+    {
+      "id": "ep_ui_variance",
+      "pass": true,
+      "detail": "variance label"
+    },
+    {
+      "id": "ep_ui_product_linkage_block",
+      "pass": true,
+      "detail": "ProductLinkageDisplayBlock alias"
+    },
+    {
+      "id": "ep_ui_order_tracking_context",
+      "pass": true,
+      "detail": "order + tracking wiring"
+    },
+    {
+      "id": "ep_contract_variance_math",
+      "pass": true,
+      "detail": "+2"
+    },
+    {
+      "id": "ep_stale_refs_zero",
+      "pass": true,
+      "detail": "{\"package_items\":0,\"returns_table\":0,\"packages_package_number_select\":0,\"pallets_photo_url_select\":0}"
+    },
+    {
+      "id": "ep_staging_db",
+      "pass": true,
+      "detail": "staging service role"
+    },
+    {
+      "id": "ep_db_ep_detail_select",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "ep_db_ep_linkage_select",
+      "pass": false,
+      "detail": "column expected_packages.product_match_status does not exist"
+    },
+    {
+      "id": "ep_db_fetch_by_tracking",
+      "pass": true,
+      "detail": "tracking=2954989706 rows=3"
+    },
+    {
+      "id": "ep_db_load_snapshot",
+      "pass": true,
+      "detail": "lines=3 raw=3"
+    },
+    {
+      "id": "ep_db_linkage_contract",
+      "pass": true,
+      "detail": "X003UPTOJV · 2026JUN02-B0BNR1D6BL"
+    },
+    {
+      "id": "ep_db_filter_order_id",
+      "pass": true,
+      "detail": "rows=5"
+    },
+    {
+      "id": "inv_alias_fetchInventoryItemStatusForNeda",
+      "pass": true,
+      "detail": "inventory read path"
+    },
+    {
+      "id": "inv_ui_inventory_rows",
+      "pass": true,
+      "detail": "inventory item status table"
+    },
+    {
+      "id": "inv_ui_expected_scanned_status_cols",
+      "pass": true,
+      "detail": "expected/scanned/status"
+    },
+    {
+      "id": "inv_ui_product_linkage_block",
+      "pass": true,
+      "detail": "linkage on rows"
+    },
+    {
+      "id": "inv_ui_unmapped_label",
+      "pass": true,
+      "detail": "No product link yet"
+    },
+    {
+      "id": "inv_unresolved_shows_unmapped",
+      "pass": true,
+      "detail": "No product link yet"
+    },
+    {
+      "id": "inv_stale_refs_zero",
+      "pass": true,
+      "detail": "{\"package_items\":0,\"returns_table\":0,\"packages_package_number_select\":0,\"pallets_photo_url_select\":0}"
+    },
+    {
+      "id": "inv_staging_db",
+      "pass": true,
+      "detail": "staging service role"
+    },
+    {
+      "id": "inv_db_v_inventory_item_status",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "id": "inv_db_v_inventory_status_optional",
+      "pass": true,
+      "detail": "ok (package-level chips)"
+    },
+    {
+      "id": "inv_db_fetchVInventoryStatusForScanCode",
+      "pass": true,
+      "detail": "rows=3 field=tracking_number"
+    },
+    {
+      "id": "inv_db_fetchVInventoryItemStatusLinesExact",
+      "pass": true,
+      "detail": "rows=3"
+    },
+    {
+      "id": "npm_run_build",
+      "pass": true,
+      "detail": "exit 0"
+    },
+    {
+      "id": "env_next_public_not_staging",
+      "pass": true,
+      "detail": "NEXT_PUBLIC_* points at original project — DB probes used STAGING_* only"
+    }
+  ]
+}

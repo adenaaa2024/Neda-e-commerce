@@ -1,0 +1,1 @@
+https://eiqfaapyumhixxoeltgu.supabase.co/auth/v1/verify?token=0488cda9e88b3e2191d1308914d196e12351ee91ee007ec7de7a9985&type=magiclink&redirect_to=http://127.0.0.1:3000/scanner/operator-mobile/scan

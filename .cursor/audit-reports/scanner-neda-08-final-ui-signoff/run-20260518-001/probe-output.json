@@ -1,0 +1,114 @@
+{
+  "audit": "scanner-neda-08-final-ui-signoff",
+  "run_id": "run-20260518-001",
+  "date": "2026-05-18",
+  "owner": "Neda",
+  "prerequisite": "scanner-neda-06-small-write-smoke/run-20260518-001",
+  "probe_method": "read-only PostgREST + static operator-mobile scan",
+  "project_ref": "kxsvedvpjldygtdbylsy",
+  "steps": [
+    {
+      "step": "route_files_present",
+      "ok": true,
+      "detail": "hub + scan + nav"
+    },
+    {
+      "step": "no_package_items_in_operator_mobile",
+      "ok": true,
+      "detail": "zero package_items references under app/scanner/operator-mobile"
+    },
+    {
+      "step": "return_items_hydrate_and_save_wired",
+      "ok": true,
+      "detail": "list=true insert=true refs=20"
+    },
+    {
+      "step": "manual_override_product_linkage",
+      "ok": true,
+      "detail": "manualOverrideReturnItemProductResolution present"
+    },
+    {
+      "step": "no_products_insert_operator_mobile",
+      "ok": true,
+      "detail": "no products.insert in operator-mobile tree"
+    },
+    {
+      "step": "neda_ui_markers",
+      "ok": true,
+      "detail": "ScannerBottomNav, identifyGatePhase, flowPhase, ItemUnitRecordModal, OperatorSessionStoreProvider, insertOperatorPackageItemAction, listOperatorPackageItemsForPackageAction"
+    },
+    {
+      "step": "package_items_table_absent_live",
+      "ok": true,
+      "detail": "PGRST205/absent (expected)"
+    },
+    {
+      "step": "return_items_linkage_select",
+      "ok": true,
+      "detail": "select ok"
+    },
+    {
+      "step": "slip_contents_display_select",
+      "ok": true,
+      "detail": "fallback attempt 4"
+    },
+    {
+      "step": "identify_gate_EP_SELECT",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "step": "identify_gate_EP_DETAIL_SELECT",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "step": "slip_rows_on_fixture",
+      "ok": true,
+      "detail": "2 rows on 9528d923-3d27-4aed-a773-095b5028743d"
+    },
+    {
+      "step": "reload_hydrate_return_items",
+      "ok": true,
+      "detail": "3 rows; neda06_row=found"
+    },
+    {
+      "step": "neda06_row_slip_barcode_match",
+      "ok": true,
+      "detail": "single barcode=X004N9OS4J"
+    },
+    {
+      "step": "neda06_row_no_auto_product",
+      "ok": true,
+      "detail": "resolved_product_id=null"
+    }
+  ],
+  "static_scan": {
+    "package_items_refs": [],
+    "return_items_refs": 20,
+    "insert_operator_save": true,
+    "list_hydrate": true,
+    "manual_override_linkage": true,
+    "products_insert_in_operator": false,
+    "ui_markers": {
+      "ScannerBottomNav": true,
+      "identifyGatePhase": true,
+      "flowPhase": true,
+      "ItemUnitRecordModal": true,
+      "OperatorSessionStoreProvider": true,
+      "insertOperatorPackageItemAction": true,
+      "listOperatorPackageItemsForPackageAction": true
+    }
+  },
+  "neda_06_smoke_row": {
+    "id": "ccffe8b3-87ea-4b7b-bfd5-4cf9cc16d663",
+    "found": true,
+    "fnsku": "X004N9OS4J",
+    "slip_match": "single"
+  },
+  "fixture_package_id": "9528d923-3d27-4aed-a773-095b5028743d",
+  "slip_line_count": 2,
+  "return_item_count": 3,
+  "neda_06_save_path_reference": "insertOperatorPackageItemAction → insertReturn → return_items",
+  "pass": true
+}

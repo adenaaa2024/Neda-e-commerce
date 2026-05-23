@@ -1,0 +1,1699 @@
+{
+  "products": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 42,
+    "linkage_matrix": {
+      "product_id": "absent",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "absent",
+      "resolved_catalog_product_id": "absent",
+      "identifier_resolution_status": "absent",
+      "identifier_resolution_confidence": "absent",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "present",
+      "fnsku": "present",
+      "sku": "present",
+      "upc": "absent",
+      "upc_code": "present",
+      "seller_sku": "absent",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "product_name",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "main_image_url",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "metadata",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "item_weight",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "item_dimensions_json",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "expiration_supported",
+        "type": "boolean",
+        "format": "boolean"
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "source_catalog_product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "first_seen_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "last_seen_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "store_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "item_weight_unit",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "package_weight",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "package_weight_unit",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "package_dimensions_json",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "product_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "parent_asin",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "condition",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "mfg_part_number",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "hazmat_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fba_enabled",
+        "type": "boolean",
+        "format": "boolean"
+      },
+      {
+        "name": "mfn_enabled",
+        "type": "boolean",
+        "format": "boolean"
+      },
+      {
+        "name": "last_catalog_sync_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "amazon_raw",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "vendor_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "category_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "sku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "brand",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "vendor_name",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "upc_code",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "asin",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fnsku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "barcode",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "image_url",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "deleted_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "last_price_updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "merged_into_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "merge_status",
+        "type": "string",
+        "format": "text"
+      }
+    ]
+  },
+  "product_identifier_map": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 31,
+    "linkage_matrix": {
+      "product_id": "present",
+      "catalog_product_id": "present",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "absent",
+      "resolved_catalog_product_id": "absent",
+      "identifier_resolution_status": "absent",
+      "identifier_resolution_confidence": "absent",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "present",
+      "fnsku": "present",
+      "sku": "absent",
+      "upc": "absent",
+      "upc_code": "present",
+      "seller_sku": "present",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "catalog_product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "store_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "seller_sku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "asin",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fnsku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "external_listing_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "is_primary",
+        "type": "boolean",
+        "format": "boolean"
+      },
+      {
+        "name": "source_upload_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "source_report_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "first_seen_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "last_seen_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "msku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fulfillment_channel",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "disposition",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "inventory_source",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "resolution_notes",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "source_file_sha256",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "source_physical_row_number",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "match_source",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "confidence_score",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "resolution_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "linked_from_report_family",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "linked_from_target_table",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "upc_code",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "deleted_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      }
+    ]
+  },
+  "return_items": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 37,
+    "linkage_matrix": {
+      "product_id": "present",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "present",
+      "resolved_catalog_product_id": "present",
+      "identifier_resolution_status": "present",
+      "identifier_resolution_confidence": "present",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "present",
+      "fnsku": "present",
+      "sku": "present",
+      "upc": "absent",
+      "upc_code": "absent",
+      "seller_sku": "absent",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "present"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "order_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "lpn",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "store_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "pallet_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "package_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "raw_return_data",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "unit_sale_price",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "amazon_fees_lost",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "return_shipping_fee",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "currency",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "condition_note",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "rma_number",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "marketplace",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "item_name",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "conditions",
+        "type": "array",
+        "format": "text[]"
+      },
+      {
+        "name": "notes",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "photo_evidence",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "expiration_date",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "batch_number",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "asin",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fnsku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "sku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "product_identifier",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "created_by",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "updated_by",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "estimated_value",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "deleted_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "resolved_product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "resolved_catalog_product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "identifier_resolution_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "identifier_resolution_confidence",
+        "type": "number",
+        "format": "numeric"
+      }
+    ]
+  },
+  "slip_contents": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 21,
+    "linkage_matrix": {
+      "product_id": "absent",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "present",
+      "resolved_catalog_product_id": "present",
+      "identifier_resolution_status": "present",
+      "identifier_resolution_confidence": "present",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "absent",
+      "fnsku": "present",
+      "sku": "absent",
+      "upc": "present",
+      "upc_code": "absent",
+      "seller_sku": "absent",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "package_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "package_code",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "rma_number",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "upc",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fnsku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "condition",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "slip_code",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "store_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "created_by",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "conflicting_order_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "order_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "resolved_product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "resolved_catalog_product_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "identifier_resolution_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "identifier_resolution_confidence",
+        "type": "number",
+        "format": "numeric"
+      }
+    ]
+  },
+  "expected_packages": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 38,
+    "linkage_matrix": {
+      "product_id": "absent",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "absent",
+      "resolved_catalog_product_id": "absent",
+      "identifier_resolution_status": "absent",
+      "identifier_resolution_confidence": "absent",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "absent",
+      "fnsku": "present",
+      "sku": "present",
+      "upc": "absent",
+      "upc_code": "absent",
+      "seller_sku": "absent",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "upload_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "order_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "sku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "tracking_number",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "requested_quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "shipped_quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "disposed_quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "cancelled_quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "order_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "disposition",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "order_date",
+        "type": "string",
+        "format": "date"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "actual_scanned_count",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "discrepancy_found",
+        "type": "boolean",
+        "format": "boolean"
+      },
+      {
+        "name": "carrier",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "shipment_date",
+        "type": "string",
+        "format": "date"
+      },
+      {
+        "name": "fnsku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "source_staging_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "store_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "order_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "id_slip_contents",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "build_source",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "build_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "source_detail_row_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "source_shipment_row_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "detail_shipped_quantity_total",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "expected_scan_quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "shipment_row_quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "detail_grouping_key",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "rebuild_run_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "in_process_quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "removal_fee",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "currency",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "entity_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "allocation_box_code",
+        "type": "string",
+        "format": "text"
+      }
+    ]
+  },
+  "packages": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 29,
+    "linkage_matrix": {
+      "product_id": "absent",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "absent",
+      "resolved_catalog_product_id": "absent",
+      "identifier_resolution_status": "absent",
+      "identifier_resolution_confidence": "absent",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "absent",
+      "fnsku": "absent",
+      "sku": "absent",
+      "upc": "absent",
+      "upc_code": "absent",
+      "seller_sku": "absent",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "pallet_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "tracking_number",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "store_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "package_code",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "expected_item_count",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "actual_item_count",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "carrier_name",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "rma_number",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "manifest_url",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "discrepancy_note",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "order_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "created_by",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "updated_by",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "inside_photo_urls",
+        "type": "array",
+        "format": "text[]"
+      },
+      {
+        "name": "outside_photo_urls",
+        "type": "array",
+        "format": "text[]"
+      },
+      {
+        "name": "slip_photo_urls",
+        "type": "array",
+        "format": "text[]"
+      },
+      {
+        "name": "deleted_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "manifest_data",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "warehouse_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "flow_state",
+        "type": "string",
+        "format": "character varying"
+      },
+      {
+        "name": "fulfillment_model",
+        "type": "string",
+        "format": "character varying"
+      },
+      {
+        "name": "sales_channel",
+        "type": "string",
+        "format": "character varying"
+      },
+      {
+        "name": "id_slip_contents",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "notes",
+        "type": "string",
+        "format": "text"
+      }
+    ]
+  },
+  "claim_reference_edges": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 26,
+    "linkage_matrix": {
+      "product_id": "absent",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "absent",
+      "resolved_catalog_product_id": "absent",
+      "identifier_resolution_status": "absent",
+      "identifier_resolution_confidence": "absent",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "absent",
+      "fnsku": "absent",
+      "sku": "absent",
+      "upc": "absent",
+      "upc_code": "absent",
+      "seller_sku": "absent",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "generation_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "draft_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "edge_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "from_node_kind",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "from_source_table",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "from_source_row_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "to_node_kind",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "to_source_table",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "to_source_row_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "reference_kind",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "reference_value",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "confidence_score",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "ambiguity_group_key",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "ambiguity_rank",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "edge_reason",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "evidence_event_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "supersedes_edge_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "invalidated_by_edge_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "source_citations",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "operator_review_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "operator_reviewed_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "operator_reviewed_by",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "operator_review_note",
+        "type": "string",
+        "format": "text"
+      }
+    ]
+  },
+  "raw_report_uploads": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 22,
+    "linkage_matrix": {
+      "product_id": "absent",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "absent",
+      "resolved_catalog_product_id": "absent",
+      "identifier_resolution_status": "absent",
+      "identifier_resolution_confidence": "absent",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "absent",
+      "fnsku": "absent",
+      "sku": "absent",
+      "upc": "absent",
+      "upc_code": "absent",
+      "seller_sku": "absent",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "file_name",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "report_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "column_mapping",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "metadata",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "created_by",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "import_pipeline_started_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "import_pipeline_completed_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "import_pipeline_failed_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "engine_report_family",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "engine_phase_model",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "engine_stage_target",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "engine_sync_target",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "engine_generic_target",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "engine_supports_generic",
+        "type": "boolean",
+        "format": "boolean"
+      },
+      {
+        "name": "engine_supports_worklist",
+        "type": "boolean",
+        "format": "boolean"
+      },
+      {
+        "name": "engine_progress_strategy",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "engine_identity_strategy",
+        "type": "string",
+        "format": "text"
+      }
+    ]
+  },
+  "catalog_products": {
+    "open_api_ok": true,
+    "open_api_error": null,
+    "column_count": 29,
+    "linkage_matrix": {
+      "product_id": "present",
+      "catalog_product_id": "absent",
+      "expected_product_id": "absent",
+      "scanned_product_id": "absent",
+      "resolved_product_id": "absent",
+      "resolved_catalog_product_id": "absent",
+      "identifier_resolution_status": "absent",
+      "identifier_resolution_confidence": "absent",
+      "identifier_resolution_source": "absent",
+      "identifier_resolution_meta": "absent",
+      "product_match_status": "absent",
+      "product_review_required": "absent",
+      "product_resolved_at": "absent",
+      "product_resolved_by": "absent",
+      "expected_item_id": "absent",
+      "asin": "present",
+      "fnsku": "present",
+      "sku": "absent",
+      "upc": "absent",
+      "upc_code": "absent",
+      "seller_sku": "present",
+      "parsed_asin": "absent",
+      "parsed_fnsku": "absent",
+      "parsed_sku": "absent",
+      "parsed_upc": "absent",
+      "product_identifier": "absent"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "organization_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "store_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "source_report_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "seller_sku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "asin",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fnsku",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "item_name",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "item_description",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "fulfillment_channel",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "listing_status",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "price",
+        "type": "number",
+        "format": "numeric"
+      },
+      {
+        "name": "quantity",
+        "type": "integer",
+        "format": "integer"
+      },
+      {
+        "name": "open_date",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "raw_payload",
+        "type": "unknown",
+        "format": "jsonb"
+      },
+      {
+        "name": "first_seen_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "last_seen_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "created_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "updated_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "item_condition",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "listing_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "product_id",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "product_id_type",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "merchant_shipping_group",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "source_upload_id",
+        "type": "string",
+        "format": "uuid"
+      },
+      {
+        "name": "source_stage",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "canonical_scope",
+        "type": "string",
+        "format": "text"
+      },
+      {
+        "name": "last_listing_sync_at",
+        "type": "string",
+        "format": "timestamp with time zone"
+      },
+      {
+        "name": "linked_product_id",
+        "type": "string",
+        "format": "uuid"
+      }
+    ]
+  },
+  "listing_raw_rows": {
+    "open_api_ok": false,
+    "open_api_error": "No OpenAPI definition for listing_raw_rows",
+    "column_count": 0,
+    "linkage_matrix": {},
+    "columns": []
+  }
+}

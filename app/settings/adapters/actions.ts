@@ -3,6 +3,7 @@
 import { supabaseServer } from "../../../lib/supabase-server";
 import { MarketplaceFactory } from "../../../lib/adapters/factory";
 import type { AdapterProviderKey } from "../../../lib/adapters";
+import { isUuidString } from "../../../lib/uuid";
 
 function maskSecret(value: string): string {
   const t = value?.trim() ?? "";
@@ -489,6 +490,141 @@ export async function listStores(
       error instanceof Error ? error.message : "Failed to load stores.";
     console.error("[listStores] Store error:", message);
     return { ok: false, error: message };
+  }
+}
+
+/**
+ * Active stores for one tenant — Settings → Default Store.
+ * Table: `public.stores`, filter: `organization_id` (uuid).
+ *
+ * `supabaseServer` is constructed with **`SUPABASE_SERVICE_ROLE_KEY`** (`persistSession: false`),
+ * so PostgREST runs as `service_role` and RLS is bypassed.
+ */
+export async function listStoresForOrganization(
+  organizationId: string | null | undefined,
+): Promise<{ ok: boolean; data?: StorePublicRow[]; error?: string }> {
+  const oid = (organizationId ?? "").trim();
+  if (!oid || !isUuidString(oid)) {
+    return {
+      ok: false,
+      error:
+        "No organization is selected. Choose a workspace organization in the header to load stores.",
+    };
+  }
+
+  try {
+    const { data, error } = await supabaseServer
+      .from("stores")
+      .select("*")
+      .eq("organization_id", oid);
+
+    if (error) {
+      console.error("[listStoresForOrganization] error:", error.message, error);
+      return { ok: false, error: error.message };
+    }
+
+    const rows = (data as Record<string, unknown>[] | null) ?? [];
+    const normalized: StorePublicRow[] = rows.map((r) => ({
+      id: String(r.id ?? "").trim().toLowerCase(),
+      name: String(r.name ?? ""),
+      platform: String(r.platform ?? ""),
+      is_active: Boolean(r.is_active !== false),
+      is_default: typeof r.is_default === "boolean" ? r.is_default : null,
+      marketplace_id: (r.marketplace_id as string | null) ?? null,
+      organization_id: String(r.organization_id ?? "").trim().toLowerCase(),
+      created_at: String(r.created_at ?? ""),
+    }));
+
+    return { ok: true, data: normalized };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to load stores for organization.";
+    console.error("[listStoresForOrganization] error:", message);
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * TEMPORARY EMERGENCY PROBE — remove once the Default Store list is verified end-to-end.
+ * Returns the first 5 rows from `public.stores` (service_role), the OID we are searching for,
+ * and a self-test of `public.profiles` to prove server-side connectivity / role independently.
+ */
+export async function emergencyProbeStores(
+  effectiveOperationalOrgId: string | null,
+): Promise<{
+  ok: boolean;
+  rows?: Array<{ name: unknown; organization_id: unknown }>;
+  searchOid?: string | null;
+  error?: string;
+  serviceRoleKeyConfigured: boolean;
+  supabaseUrlConfigured: boolean;
+  profilesAccessible: boolean;
+  profilesError?: string;
+}> {
+  const serviceRoleKeyConfigured = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const supabaseUrlConfigured = supabaseUrl.trim().length > 0;
+  console.log("DEBUG: Is Service Role Key present?", serviceRoleKeyConfigured);
+  console.log("DEBUG: Supabase URL:", supabaseUrl);
+
+  let profilesAccessible = false;
+  let profilesError: string | undefined;
+  try {
+    const { data: profileTest, error: profilesErr } = await supabaseServer
+      .from("profiles")
+      .select("id")
+      .limit(1);
+    if (profilesErr) {
+      profilesError = profilesErr.message;
+      console.log("DEBUG: profiles probe error:", profilesErr.message);
+    } else {
+      profilesAccessible = Array.isArray(profileTest);
+      console.log("DEBUG: profiles probe rows:", profileTest);
+    }
+  } catch (e) {
+    profilesError = e instanceof Error ? e.message : String(e);
+    console.log("DEBUG: profiles probe exception:", profilesError);
+  }
+
+  try {
+    const { data: allStores, error: allErr } = await supabaseServer
+      .from("stores")
+      .select("name, organization_id")
+      .limit(5);
+    console.log("--- EMERGENCY PROBE ---");
+    console.log("Total stores in DB (first 5):", allStores);
+    console.log("Current ID we are searching for:", effectiveOperationalOrgId);
+    if (allErr) {
+      return {
+        ok: false,
+        error: allErr.message,
+        searchOid: effectiveOperationalOrgId,
+        serviceRoleKeyConfigured,
+        supabaseUrlConfigured,
+        profilesAccessible,
+        profilesError,
+      };
+    }
+    return {
+      ok: true,
+      rows: (allStores as Array<{ name: unknown; organization_id: unknown }> | null) ?? [],
+      searchOid: effectiveOperationalOrgId,
+      serviceRoleKeyConfigured,
+      supabaseUrlConfigured,
+      profilesAccessible,
+      profilesError,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      error: message,
+      searchOid: effectiveOperationalOrgId,
+      serviceRoleKeyConfigured,
+      supabaseUrlConfigured,
+      profilesAccessible,
+      profilesError,
+    };
   }
 }
 

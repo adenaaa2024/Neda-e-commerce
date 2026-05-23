@@ -1,0 +1,88 @@
+{
+  "run_id": "run-20260520-001",
+  "staging_ref": "eiqfaapyumhixxoeltgu",
+  "overall": "PASS",
+  "envProof": {
+    "NEXT_PUBLIC_SUPABASE_URL": "STAGING_REF",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "MATCHES_STAGING_COPY",
+    "SUPABASE_SERVICE_ROLE_KEY": "MATCHES_STAGING_COPY",
+    "DIRECT_POSTGRES_URL": "STAGING_REF",
+    "STAGING_SUPABASE_URL": "STAGING_REF",
+    "STAGING_ANON_KEY": "OTHER",
+    "STAGING_SERVICE_ROLE_KEY": "OTHER",
+    "STAGING_DIRECT_POSTGRES_URL": "STAGING_REF",
+    "ORIGINAL_SUPABASE_URL": "OTHER"
+  },
+  "steps": [
+    {
+      "id": "env_active_url_staging",
+      "pass": true,
+      "detail": "STAGING_REF"
+    },
+    {
+      "id": "env_active_anon_staging",
+      "pass": true,
+      "detail": "MATCHES_STAGING_COPY"
+    },
+    {
+      "id": "env_active_service_role_staging",
+      "pass": true,
+      "detail": "MATCHES_STAGING_COPY"
+    },
+    {
+      "id": "env_direct_postgres_staging",
+      "pass": true,
+      "detail": "STAGING_REF"
+    },
+    {
+      "id": "env_quartet_matches_staging_vars",
+      "pass": true,
+      "detail": "active quartet = STAGING_*"
+    },
+    {
+      "id": "env_original_preserved",
+      "pass": true,
+      "detail": "OTHER"
+    },
+    {
+      "id": "env_production_blank",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "id": "neda_env_staging_alignment_v180",
+      "pass": true,
+      "detail": "exit 0"
+    },
+    {
+      "id": "npm_run_build",
+      "pass": true,
+      "detail": "exit 0"
+    },
+    {
+      "id": "tsc_no_emit",
+      "pass": true,
+      "detail": "exit 0"
+    },
+    {
+      "id": "smoke_expected_packages_v179",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "id": "smoke_inventory_views_v180",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "id": "runtime_read_staging_sam_store",
+      "pass": true,
+      "detail": "rows=1"
+    },
+    {
+      "id": "dev_scan_route_reachable",
+      "pass": true,
+      "detail": ":3001 HTTP 200"
+    }
+  ]
+}
