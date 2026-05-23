@@ -1645,6 +1645,50 @@ function pickInventoryViewHints(rows: VInventoryStatusRow[]): {
   return { productName, carrier, slipCode };
 }
 
+function firstNonEmptyString(values: unknown[]): string | null {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function firstRecordString(records: Array<Record<string, unknown> | null | undefined>, keys: string[]): string | null {
+  for (const record of records) {
+    if (!record) continue;
+    for (const key of keys) {
+      const text = String(record[key] ?? "").trim();
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+function recordFromResolveResult(result: OperatorResolveResult | null): Record<string, unknown> | null {
+  if (!result || result.kind === "unknown") return null;
+  return result.row as Record<string, unknown>;
+}
+
+function countLookupExpectedPackages(
+  shipmentLines: VInventoryStatusRow[],
+  detailRows: Record<string, unknown>[],
+  fallbackRowCount?: number | null,
+): number | null {
+  const ids = new Set<string>();
+  for (const line of shipmentLines) {
+    const id = String(line.expected_package_id ?? "").trim();
+    if (id) ids.add(id);
+  }
+  for (const row of detailRows) {
+    const id = firstRecordString([row], ["id", "expected_package_id", "expected_packages_id"]);
+    if (id) ids.add(id);
+  }
+  if (ids.size > 0) return ids.size;
+  if (detailRows.length > 0) return detailRows.length;
+  if (shipmentLines.length > 0) return shipmentLines.length;
+  return typeof fallbackRowCount === "number" && fallbackRowCount > 0 ? fallbackRowCount : null;
+}
+
 function expectedRowValueForTier(row: Record<string, unknown>, tier: ItemResolveTier): string {
   switch (tier) {
     case "fnsku":
@@ -3373,7 +3417,7 @@ function OperatorMobileScanPageContent() {
     const trackingOnlySession =
       !stableKey &&
       (currentPalletTrackingId ?? "").trim().length > 0 &&
-      (flowPhase === "package_scan" || flowPhase === "items");
+      (flowPhase === "scan" || flowPhase === "package_scan" || flowPhase === "items");
 
     const draftPalletShipmentStep =
       !stableKey &&
@@ -3417,7 +3461,9 @@ function OperatorMobileScanPageContent() {
 
     const priorKey = palletHydrateStableKeyRef.current;
     const switchedPalletOrOrg = priorKey !== stableKey;
-    if (switchedPalletOrOrg) {
+    const preserveDraftLookupState =
+      flowPhase === "scan" && (currentPalletTrackingId ?? "").trim().length > 0;
+    if (switchedPalletOrOrg && !preserveDraftLookupState) {
       setPalletCarrier("");
       setPalletCarrierOtherSelected(false);
       setPalletNotes("");
@@ -3547,7 +3593,7 @@ function OperatorMobileScanPageContent() {
         if (switchedPalletOrOrg) {
           parentPalletCarrierDefaultRef.current = raw;
         }
-      } else if (switchedPalletOrOrg) {
+      } else if (switchedPalletOrOrg && !preserveDraftLookupState) {
         parentPalletCarrierDefaultRef.current = "";
       }
       const rowOrder = String(row.order_id ?? "").trim();
@@ -3556,7 +3602,7 @@ function OperatorMobileScanPageContent() {
       // for one tick — `palletMixedOrderIdsUiRef` may read true and incorrectly preserve the old input.
       const lockOrderInput =
         palletMixedOrderIdsUiRef.current && !switchedPalletOrOrg;
-      setPalletOrderId((prev) => (lockOrderInput ? prev : rowOrder));
+      setPalletOrderId((prev) => (lockOrderInput ? prev : rowOrder || (preserveDraftLookupState ? prev : "")));
       lastOrderIdAutoFilledFromRaRef.current = null;
       setActivePallet((p) => {
         if (!p?.id || !isUuidString(p.id) || p.id !== fetchingFor) return p;
@@ -6255,6 +6301,92 @@ function OperatorMobileScanPageContent() {
     [orgId, sessionStoreId],
   );
 
+  const hydrateMatchedShipmentPalletDraft = useCallback(
+    (effectiveTracking: string, lastResolve: OperatorResolveResult | null) => {
+      const barcodeRow = recordFromResolveResult(lastResolve);
+      const detailRows = identifyGateRows;
+      const lineRows = identifyGateShipmentLines as unknown as Record<string, unknown>[];
+      const lookupRows = [...lineRows, ...detailRows, barcodeRow].filter(Boolean) as Record<string, unknown>[];
+
+      const trackingCandidate = firstNonEmptyString([
+        effectiveTracking,
+        identifyGateCanonicalTracking,
+        firstRecordString(lookupRows, ["tracking_number", "shipment_tracking_number"]),
+        identifyGateEnteredCode,
+      ]);
+      if (trackingCandidate) setCurrentPalletTrackingId(trackingCandidate);
+
+      const carrierRaw = firstNonEmptyString([
+        identifyGateViewHints?.carrier,
+        firstRecordString(lookupRows, [
+          "carrier_name",
+          "carrier",
+          "carrier_code",
+          "scac",
+          "scac_code",
+        ]),
+      ]);
+      if (carrierRaw && !palletCarrierRef.current.trim()) {
+        const normalized = normalizeCarrierLabel(carrierRaw);
+        const applied = normalized && normalized !== OTHER_CARRIER_NAME ? normalized : carrierRaw;
+        if (normalized && normalized !== OTHER_CARRIER_NAME) {
+          setPalletCarrierOtherSelected(false);
+          setPalletCarrier(normalized);
+        } else {
+          setPalletCarrierOtherSelected(true);
+          setPalletCarrier(carrierRaw);
+        }
+        parentPalletCarrierDefaultRef.current = applied;
+        persistOperatorSessionCarrier(applied);
+        mergeCarrierIntoActivePalletState(applied);
+      }
+
+      const orderCandidate = firstRecordString(lookupRows, [
+        "order_id",
+        "amazon_order_id",
+        "amazonOrderId",
+        "purchase_order_id",
+      ]);
+      if (orderCandidate && !palletOrderIdRef.current.trim()) {
+        setPalletOrderId(orderCandidate);
+        setPalletResolvedOrderId(orderCandidate);
+        lastOrderIdAutoFilledFromRaRef.current = null;
+      }
+
+      const activityIso = firstRecordString(lookupRows, [
+        "shipment_date",
+        "received_date",
+        "receive_date",
+        "created_at",
+        "updated_at",
+      ]);
+      if (activityIso) {
+        setPalletCreatedAtIso((prev) => prev ?? activityIso);
+      }
+
+      const expectedPackageCount = countLookupExpectedPackages(
+        identifyGateShipmentLines,
+        detailRows,
+        identifyGateInventoryAgg?.rowCount ?? null,
+      );
+      if (expectedPackageCount != null && expectedPackageCount > 0 && identifyGateEntity !== "pallet") {
+        setPhysicalBoxCount(expectedPackageCount);
+        setBoxScanTargetDenominator(expectedPackageCount);
+      }
+    },
+    [
+      identifyGateCanonicalTracking,
+      identifyGateEnteredCode,
+      identifyGateEntity,
+      identifyGateInventoryAgg?.rowCount,
+      identifyGateRows,
+      identifyGateShipmentLines,
+      identifyGateViewHints?.carrier,
+      mergeCarrierIntoActivePalletState,
+      persistOperatorSessionCarrier,
+    ],
+  );
+
   const handleIdentifyMatchedStartWorkflow = useCallback(async () => {
     if (identifyGatePhase !== "matched" || !identifyGateEntity) return;
     if (identifyGateInventoryVisual === "completed") return;
@@ -6263,11 +6395,11 @@ function OperatorMobileScanPageContent() {
 
     const orderIdFromGate = (): string | null => {
       for (const r of identifyGateShipmentLines) {
-        const o = r.order_id?.trim();
+        const o = firstRecordString([r as unknown as Record<string, unknown>], ["order_id", "amazon_order_id"]);
         if (o) return o;
       }
       for (const r of identifyGateRows) {
-        const o = String((r as { order_id?: unknown }).order_id ?? "").trim();
+        const o = firstRecordString([r], ["order_id", "amazon_order_id", "amazonOrderId"]);
         if (o) return o;
       }
       return null;
@@ -6364,7 +6496,7 @@ function OperatorMobileScanPageContent() {
         }
         setFlowPhase("package_scan");
       } else {
-        setModernPalletWorkspace(true);
+        setModernPalletWorkspace(false);
         if (identifyGateEntity === "single_box") {
           setActiveSlipOrPackage(null);
           setDirectBox(false);
@@ -6410,6 +6542,7 @@ function OperatorMobileScanPageContent() {
             setFlowPhase("scan");
           }
         }
+        hydrateMatchedShipmentPalletDraft(effectiveTracking, lastResolve);
       }
 
       playOperatorSuccessBeep();
@@ -6438,6 +6571,7 @@ function OperatorMobileScanPageContent() {
     orgId,
     applyResult,
     ensureReceivingPalletForTracking,
+    hydrateMatchedShipmentPalletDraft,
     scheduleFocusScanner,
     resetIdentifyGateForm,
   ]);
@@ -9298,7 +9432,7 @@ function OperatorMobileScanPageContent() {
 
         {flowPhase === "scan" && parentIdentified && !modernPalletWorkspace ? (
           <div className="operator-pallet-step-screen">
-            {activePallet?.id ? (
+            {parentIdentified ? (
               <section
                 className={`operator-pallet-docs-card operator-shipment-intake-card relative z-30 mb-1.5 space-y-2 rounded-2xl p-2 ${glassCard}`}
               >
