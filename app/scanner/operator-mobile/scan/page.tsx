@@ -2408,7 +2408,6 @@ function OperatorMobileScanPageContent() {
     kioskStoreLocked,
     activeStoreLabel,
   } = useOperatorSessionStore();
-  const scannerRef = useRef<HTMLInputElement>(null);
   const gateManualInputRef = useRef<HTMLInputElement>(null);
   const palletManualInputRef = useRef<HTMLInputElement>(null);
   const boxManualInputRef = useRef<HTMLInputElement>(null);
@@ -2432,6 +2431,9 @@ function OperatorMobileScanPageContent() {
   const [scanLine, setScanLine] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualEntryMode, setManualEntryMode] = useState(false);
+  const isManualEntryMode = manualEntryMode;
+  const manualEntryModeRef = useRef(false);
+  const [lastScannedCode, setLastScannedCode] = useState("");
   const [scanBarcodeHelpOpen, setScanBarcodeHelpOpen] = useState(false);
 
   const [activePallet, setActivePallet] = useState<OperatorActivePallet | null>(null);
@@ -2961,15 +2963,12 @@ function OperatorMobileScanPageContent() {
     !packageScanLaserSuppressed &&
     !(flowPhase === "items" && isIdentified && !hasReceivableBoxForItems(itemScanPackageId, activeBoxSession));
 
-  /** Zebra scan mode uses the document key buffer below; keep the legacy wedge input inert to avoid Android IME. */
-  const scannerDisabled = true;
-
   const focusScannerAggressive = useCallback(() => {
-    scannerRef.current?.blur();
+    // Scanner input is captured at document level; never focus a text input in scan mode.
   }, []);
 
   const scheduleFocusScanner = useCallback(() => {
-    scannerRef.current?.blur();
+    // Scanner input is captured at document level; never focus a text input in scan mode.
   }, []);
 
   const showScanActionToast = useCallback((variant: ScanActionToastVariant, message: string) => {
@@ -6101,6 +6100,7 @@ function OperatorMobileScanPageContent() {
   );
 
   const exitManualEntryMode = useCallback(() => {
+    manualEntryModeRef.current = false;
     setManualEntryMode(false);
     setManualOpen(false);
     const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
@@ -6108,9 +6108,12 @@ function OperatorMobileScanPageContent() {
   }, []);
 
   const startManualEntryMode = useCallback((inputRef: RefObject<HTMLInputElement | null>) => {
+    manualEntryModeRef.current = true;
     setManualEntryMode(true);
     setManualOpen(true);
-    window.requestAnimationFrame(() => {
+    setScanLine("");
+    const focusManualInput = () => {
+      if (!manualEntryModeRef.current) return;
       const el = inputRef.current;
       if (!el) return;
       try {
@@ -6119,12 +6122,16 @@ function OperatorMobileScanPageContent() {
       } catch {
         el.focus();
       }
-    });
+    };
+    window.requestAnimationFrame(focusManualInput);
+    window.setTimeout(focusManualInput, 0);
   }, []);
 
   const submitScannedCode = useCallback(
     async (raw: string, options?: { clearPackageBuffer?: boolean }) => {
       const code = raw.trim();
+      if (!code) return;
+      setLastScannedCode(code);
       if (!isIdentified && flowPhase === "scan" && awaitingPostCompleteExtraScan) {
         const tn = postCompleteTrackingRef.current?.trim();
         setAwaitingPostCompleteExtraScan(false);
@@ -6201,7 +6208,7 @@ function OperatorMobileScanPageContent() {
     };
 
     const onDocumentKeyDown = (e: KeyboardEvent) => {
-      if (manualOpen || manualEntryMode || modalOpenRef.current || !laserEnabled) return;
+      if (manualOpen || manualEntryMode || manualEntryModeRef.current || modalOpenRef.current || !laserEnabled) return;
       if (busy && flowPhase !== "items") return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
 
@@ -7700,7 +7707,6 @@ function OperatorMobileScanPageContent() {
       }
       setIntakeToast("Loaded saved box — review photos and slip lines, then save.");
       palletPackageSearchInputRef.current?.blur();
-      scannerRef.current?.blur();
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           operatorMobileMainScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -8156,9 +8162,6 @@ function OperatorMobileScanPageContent() {
   const blockUntilStoreResolved =
     liveDb && !operatorStoresLoading && !sessionStoreId && !allowSessionIncompleteUi;
 
-  /** Step 3: laser wedge + hidden buffer follow carton state, not `scanLine` (items / gate use `scanLine`). */
-  const packageScanBoxBufferOpen = packageScanUsesHiddenCartonBuffer;
-
   if (!orgId?.trim()) {
     return <ScanPageLoading message="Missing organization context." />;
   }
@@ -8178,41 +8181,6 @@ function OperatorMobileScanPageContent() {
       }${!isIdentified ? " operator-shipment-entry-gate-page" : ""}`}
       style={{ backgroundColor: BG, color: TEXT_PRIMARY }}
     >
-      <input
-        ref={scannerRef}
-        id={`${formId}-laser`}
-        type="text"
-        readOnly
-        inputMode="none"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        disabled={scannerDisabled}
-        value={packageScanBoxBufferOpen ? (currentPackageTrackingId ?? "") : scanLine}
-        onChange={(e) => {
-          const v = e.target.value;
-          if (packageScanBoxBufferOpen) {
-            setCurrentPackageTrackingId(v === "" ? null : v);
-          } else {
-            setScanLine(v);
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void onSubmitScan();
-          }
-        }}
-        onBlur={() => {
-          window.setTimeout(() => {
-            scannerRef.current?.blur();
-          }, 100);
-        }}
-        className="sr-only"
-        aria-hidden
-        tabIndex={-1}
-      />
-
       <div
         className={
           itemsChromeStickyLayout
@@ -8845,46 +8813,50 @@ function OperatorMobileScanPageContent() {
                   </button>
                 </div>
                 <div className="relative">
-                  <input
-                    ref={gateManualInputRef}
-                    id={`${formId}-gate-manual`}
-                    value={scanLine}
-                    onChange={(e) => setScanLine(e.target.value)}
-                    onFocus={(e) => {
-                      if (!manualEntryMode) {
-                        e.currentTarget.blur();
-                        return;
+                  {isManualEntryMode ? (
+                    <input
+                      ref={gateManualInputRef}
+                      id={`${formId}-gate-manual`}
+                      value={scanLine}
+                      onChange={(e) => setScanLine(e.target.value)}
+                      onFocus={() => setManualOpen(true)}
+                      onBlur={() => {
+                        window.setTimeout(() => {
+                          manualEntryModeRef.current = false;
+                          setManualOpen(false);
+                          setManualEntryMode(false);
+                        }, 120);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void onSubmitScan();
+                        }
+                      }}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      inputMode="text"
+                      disabled={identifyGateOcrReading}
+                      aria-busy={identifyGateOcrReading}
+                      aria-label={
+                        identifyGateOcrReading ? "Analyzing image" : "Type tracking or slip code"
                       }
-                      setManualOpen(true);
-                    }}
-                    onBlur={() => {
-                      window.setTimeout(() => {
-                        setManualOpen(false);
-                        setManualEntryMode(false);
-                      }, 120);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void onSubmitScan();
+                      placeholder={
+                        identifyGateOcrReading ? "⏳ Analyzing image..." : "Type tracking or slip code..."
                       }
-                    }}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    readOnly={!manualEntryMode}
-                    inputMode={manualEntryMode ? "text" : "none"}
-                    disabled={identifyGateOcrReading}
-                    aria-busy={identifyGateOcrReading}
-                    aria-label={
-                      identifyGateOcrReading ? "Analyzing image" : "Scan, type or upload photo for tracking or slip code"
-                    }
-                    placeholder={
-                      identifyGateOcrReading ? "⏳ Analyzing image..." : "Scan, type or upload photo..."
-                    }
-                    className="operator-shipment-entry-gate__input scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[4.75rem] font-mono text-[14px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px] sm:placeholder:text-[14px]"
-                    style={{ color: TEXT_PRIMARY }}
-                  />
+                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[4.75rem] font-mono text-[14px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px] sm:placeholder:text-[14px]"
+                      style={{ color: TEXT_PRIMARY }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[3rem] w-full items-center rounded-xl border py-2 pl-3.5 pr-[4.75rem] text-left font-mono text-[14px] outline-none transition sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px]"
+                      style={{ color: lastScannedCode ? TEXT_PRIMARY : MUTED_LABEL }}
+                    >
+                      {lastScannedCode || "Ready to scan"}
+                    </button>
+                  )}
                   <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-0.5">
                     <div className="relative" ref={identifyGateOcrMenuRef}>
                       <button
@@ -9910,50 +9882,56 @@ function OperatorMobileScanPageContent() {
                   </button>
                 </div>
                 <div className="relative">
-                  <input
-                    ref={palletManualInputRef}
-                    id={`${formId}-scan-manual`}
-                    value={scanLine}
-                    onChange={(e) => setScanLine(e.target.value)}
-                    onFocus={(e) => {
-                      if (!manualEntryMode) {
-                        e.currentTarget.blur();
-                        return;
-                      }
-                      setManualOpen(true);
-                    }}
-                    onBlur={() => {
-                      window.setTimeout(() => {
-                        setManualOpen(false);
-                        setManualEntryMode(false);
-                      }, 120);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void onSubmitScan();
-                      }
-                    }}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    readOnly={!manualEntryMode}
-                    inputMode={manualEntryMode ? "text" : "none"}
-                    placeholder="Barcode"
-                    className="scanner-input-glass h-9 w-full rounded-lg border py-0 pl-3 pr-[4.25rem] font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
-                    style={{ color: TEXT_PRIMARY }}
-                  />
-                  <button
-                    type="button"
-                    disabled={busy || !scanLine.trim()}
-                    onClick={() => void onSubmitScan()}
-                    className="absolute right-1 top-1/2 flex h-7 min-w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-md text-[10px] font-bold text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
-                    style={{
-                      color: "#99f6e4",
-                    }}
-                  >
-                    {busy ? "…" : "Apply"}
-                  </button>
+                  {isManualEntryMode ? (
+                    <>
+                      <input
+                        ref={palletManualInputRef}
+                        id={`${formId}-scan-manual`}
+                        value={scanLine}
+                        onChange={(e) => setScanLine(e.target.value)}
+                        onFocus={() => setManualOpen(true)}
+                        onBlur={() => {
+                          window.setTimeout(() => {
+                            manualEntryModeRef.current = false;
+                            setManualOpen(false);
+                            setManualEntryMode(false);
+                          }, 120);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void onSubmitScan();
+                          }
+                        }}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        inputMode="text"
+                        placeholder="Barcode"
+                        className="scanner-input-glass h-9 w-full rounded-lg border py-0 pl-3 pr-[4.25rem] font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
+                        style={{ color: TEXT_PRIMARY }}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy || !scanLine.trim()}
+                        onClick={() => void onSubmitScan()}
+                        className="absolute right-1 top-1/2 flex h-7 min-w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-md text-[10px] font-bold text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
+                        style={{
+                          color: "#99f6e4",
+                        }}
+                      >
+                        {busy ? "…" : "Apply"}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="scanner-input-glass flex h-9 w-full items-center rounded-lg border py-0 pl-3 pr-3 text-left font-mono text-[13px] outline-none transition"
+                      style={{ color: lastScannedCode ? TEXT_PRIMARY : MUTED_LABEL }}
+                    >
+                      {lastScannedCode || "Ready to scan"}
+                    </button>
+                  )}
                 </div>
               </div>
             </section>
@@ -10325,52 +10303,58 @@ function OperatorMobileScanPageContent() {
                       </button>
                     </div>
                     <div className="flex gap-2">
-                      <input
-                        ref={boxManualInputRef}
-                        id={`${formId}-box-intake-manual`}
-                        value={currentPackageTrackingId ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setCurrentPackageTrackingId(v === "" ? null : v);
-                        }}
-                        onFocus={(e) => {
-                          if (!manualEntryMode) {
-                            e.currentTarget.blur();
-                            return;
-                          }
-                          setManualOpen(true);
-                        }}
-                        onBlur={() => {
-                          window.setTimeout(() => {
-                            setManualOpen(false);
-                            setManualEntryMode(false);
-                          }, 120);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            void onSubmitScan();
-                          }
-                        }}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        readOnly={!manualEntryMode}
-                        inputMode={manualEntryMode ? "text" : "none"}
-                        placeholder="Scan or type package barcode, then Apply"
-                        disabled={Boolean(activeBoxSession)}
-                        className="scanner-input-glass min-h-[2.75rem] min-w-0 flex-1 rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
-                        style={{ color: TEXT_PRIMARY }}
-                      />
-                      <button
-                        type="button"
-                        disabled={busy || !(currentPackageTrackingId ?? "").trim() || Boolean(activeBoxSession)}
-                        onClick={() => void onSubmitScan()}
-                        className="operator-box-info-apply-btn flex h-[2.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg border-2 px-3 text-[12px] font-bold transition disabled:opacity-40"
-                      >
-                        <ScanLine className="h-4 w-4" strokeWidth={2} />
-                        Apply
-                      </button>
+                      {isManualEntryMode ? (
+                        <>
+                          <input
+                            ref={boxManualInputRef}
+                            id={`${formId}-box-intake-manual`}
+                            value={currentPackageTrackingId ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setCurrentPackageTrackingId(v === "" ? null : v);
+                            }}
+                            onFocus={() => setManualOpen(true)}
+                            onBlur={() => {
+                              window.setTimeout(() => {
+                                manualEntryModeRef.current = false;
+                                setManualOpen(false);
+                                setManualEntryMode(false);
+                              }, 120);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void onSubmitScan();
+                              }
+                            }}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            inputMode="text"
+                            placeholder="Type package barcode, then Apply"
+                            disabled={Boolean(activeBoxSession)}
+                            className="scanner-input-glass min-h-[2.75rem] min-w-0 flex-1 rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
+                            style={{ color: TEXT_PRIMARY }}
+                          />
+                          <button
+                            type="button"
+                            disabled={busy || !(currentPackageTrackingId ?? "").trim() || Boolean(activeBoxSession)}
+                            onClick={() => void onSubmitScan()}
+                            className="operator-box-info-apply-btn flex h-[2.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg border-2 px-3 text-[12px] font-bold transition disabled:opacity-40"
+                          >
+                            <ScanLine className="h-4 w-4" strokeWidth={2} />
+                            Apply
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="scanner-input-glass flex min-h-[2.75rem] min-w-0 flex-1 items-center rounded-lg border px-3 text-left font-mono text-[13px] outline-none transition"
+                          style={{ color: (currentPackageTrackingId ?? lastScannedCode).trim() ? TEXT_PRIMARY : MUTED_LABEL }}
+                        >
+                          {(currentPackageTrackingId ?? "").trim() || lastScannedCode || "Ready to scan"}
+                        </button>
+                      )}
                     </div>
                   </div>
                   ) : null}
@@ -10406,18 +10390,13 @@ function OperatorMobileScanPageContent() {
                       >
                         PACKAGE CODE <span className="operator-shipment-req-mark font-normal normal-case">(required)</span>
                       </label>
-                      <input
+                      <div
                         id={`${formId}-box-package-code-display`}
-                        readOnly
-                        aria-readonly="true"
-                        tabIndex={-1}
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={(currentPackageTrackingId ?? "").trim()}
-                        placeholder="—"
-                        className="scanner-input-glass h-10 w-full cursor-default rounded-lg border px-3 font-mono text-[13px] outline-none"
+                        className="scanner-input-glass flex h-10 w-full cursor-default items-center rounded-lg border px-3 font-mono text-[13px] outline-none"
                         style={{ color: TEXT_PRIMARY }}
-                      />
+                      >
+                        {(currentPackageTrackingId ?? "").trim() || "—"}
+                      </div>
                     </div>
                     <div className="relative z-30 min-w-0">
                       <label
