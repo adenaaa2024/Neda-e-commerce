@@ -1764,6 +1764,7 @@ function ScanFrameWithLaser(props: {
   bracketGlow?: boolean;
   /** Brief green success pulse on the frame (e.g. item scan saved). */
   successFlash?: boolean;
+  onClick?: () => void;
 }) {
   const {
     children,
@@ -1775,6 +1776,7 @@ function ScanFrameWithLaser(props: {
     subtleSweep = false,
     bracketGlow = false,
     successFlash = false,
+    onClick,
   } = props;
   const cw = subtleSweep ? 2 : 3;
   const isLg = cornerSize === "lg";
@@ -1785,7 +1787,17 @@ function ScanFrameWithLaser(props: {
   const bracketWrapStyle: CSSProperties | undefined = bracketGlow ? { filter: "var(--scanner-bracket-glow)" } : undefined;
   return (
     <div
-      className={`relative flex flex-col items-center justify-center overflow-hidden rounded-[22px] border shadow-inner ${dashedBorder ? "border-dashed" : ""}`}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (!onClick) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={`relative flex flex-col items-center justify-center overflow-hidden rounded-[22px] border shadow-inner ${dashedBorder ? "border-dashed" : ""} ${onClick ? "cursor-pointer" : ""}`}
       style={{ ...frameStyle, minHeight }}
     >
       <div className="pointer-events-none absolute inset-0" style={bracketWrapStyle}>
@@ -2408,6 +2420,7 @@ function OperatorMobileScanPageContent() {
     kioskStoreLocked,
     activeStoreLabel,
   } = useOperatorSessionStore();
+  const scannerRef = useRef<HTMLInputElement>(null);
   const gateManualInputRef = useRef<HTMLInputElement>(null);
   const palletManualInputRef = useRef<HTMLInputElement>(null);
   const boxManualInputRef = useRef<HTMLInputElement>(null);
@@ -2429,6 +2442,7 @@ function OperatorMobileScanPageContent() {
   const [flowPhase, setFlowPhase] = useState<FlowPhase>("scan");
   const flowPhasePrevRef = useRef<FlowPhase>("scan");
   const [scanLine, setScanLine] = useState("");
+  const [scanCaptureLine, setScanCaptureLine] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualEntryMode, setManualEntryMode] = useState(false);
   const isManualEntryMode = manualEntryMode;
@@ -2964,12 +2978,26 @@ function OperatorMobileScanPageContent() {
     !(flowPhase === "items" && isIdentified && !hasReceivableBoxForItems(itemScanPackageId, activeBoxSession));
 
   const focusScannerAggressive = useCallback(() => {
-    // Scanner input is captured at document level; never focus a text input in scan mode.
-  }, []);
+    if (manualEntryModeRef.current || manualOpen || !laserEnabled) return;
+    if (busy && flowPhase !== "items") return;
+    const el = scannerRef.current;
+    if (!el) return;
+    const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    if (active && active !== document.body && active !== el) {
+      const tag = active.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable) return;
+    }
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      el.focus();
+    }
+  }, [manualOpen, laserEnabled, busy, flowPhase]);
 
   const scheduleFocusScanner = useCallback(() => {
-    // Scanner input is captured at document level; never focus a text input in scan mode.
-  }, []);
+    if (manualEntryModeRef.current || manualOpen || !laserEnabled) return;
+    window.setTimeout(() => focusScannerAggressive(), 0);
+  }, [manualOpen, laserEnabled, focusScannerAggressive]);
 
   const showScanActionToast = useCallback((variant: ScanActionToastVariant, message: string) => {
     const text = message.trim();
@@ -6105,13 +6133,15 @@ function OperatorMobileScanPageContent() {
     setManualOpen(false);
     const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
     active?.blur();
-  }, []);
+    window.setTimeout(() => focusScannerAggressive(), 0);
+  }, [focusScannerAggressive]);
 
   const startManualEntryMode = useCallback((inputRef: RefObject<HTMLInputElement | null>) => {
     manualEntryModeRef.current = true;
     setManualEntryMode(true);
     setManualOpen(true);
     setScanLine("");
+    scannerRef.current?.blur();
     const focusManualInput = () => {
       if (!manualEntryModeRef.current) return;
       const el = inputRef.current;
@@ -6187,6 +6217,7 @@ function OperatorMobileScanPageContent() {
       }
       if (manualEntryMode) exitManualEntryMode();
       await submitScannedCode(code, { clearPackageBuffer: packageScanBoxBufferOpen });
+      scheduleFocusScanner();
     },
     [
       scanLine,
@@ -6195,7 +6226,22 @@ function OperatorMobileScanPageContent() {
       manualEntryMode,
       exitManualEntryMode,
       submitScannedCode,
+      scheduleFocusScanner,
     ],
+  );
+
+  const submitScanCaptureInput = useCallback(
+    async (raw: string) => {
+      const code = raw.trim();
+      setScanCaptureLine("");
+      if (!code) {
+        scheduleFocusScanner();
+        return;
+      }
+      await submitScannedCode(code);
+      scheduleFocusScanner();
+    },
+    [scheduleFocusScanner, submitScannedCode],
   );
 
   useEffect(() => {
@@ -8181,6 +8227,37 @@ function OperatorMobileScanPageContent() {
       }${!isIdentified ? " operator-shipment-entry-gate-page" : ""}`}
       style={{ backgroundColor: BG, color: TEXT_PRIMARY }}
     >
+      {/* Zebra Keyboard Wedge requires a focused input, so scan mode keeps this dedicated capture input focused while suppressing the Android soft keyboard with inputMode="none". */}
+      <input
+        ref={scannerRef}
+        id={`${formId}-scan-capture`}
+        type="text"
+        value={scanCaptureLine}
+        onChange={(e) => setScanCaptureLine(e.target.value)}
+        onFocus={() => {
+          if (manualEntryModeRef.current) scannerRef.current?.blur();
+        }}
+        onBlur={() => {
+          window.setTimeout(() => {
+            if (manualEntryModeRef.current || manualOpen || !laserEnabled) return;
+            focusScannerAggressive();
+          }, 80);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void submitScanCaptureInput(e.currentTarget.value);
+          }
+        }}
+        inputMode="none"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="done"
+        aria-label="Hardware scanner capture"
+        className="pointer-events-none absolute h-px w-px opacity-0 caret-transparent"
+        tabIndex={-1}
+      />
       <div
         className={
           itemsChromeStickyLayout
@@ -8769,6 +8846,7 @@ function OperatorMobileScanPageContent() {
                     backgroundColor: "#11161C",
                     boxShadow: "inset 0 1px 10px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05)",
                   }}
+                  onClick={focusScannerAggressive}
                 >
                   <ScanLine className="operator-shipment-entry-gate__scan-icon h-10 w-10" strokeWidth={2.25} aria-hidden />
                 </ScanFrameWithLaser>
@@ -8851,6 +8929,7 @@ function OperatorMobileScanPageContent() {
                   ) : (
                     <button
                       type="button"
+                      onClick={focusScannerAggressive}
                       className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[3rem] w-full items-center rounded-xl border py-2 pl-3.5 pr-[4.75rem] text-left font-mono text-[14px] outline-none transition sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px]"
                       style={{ color: lastScannedCode ? TEXT_PRIMARY : MUTED_LABEL }}
                     >
@@ -9863,6 +9942,7 @@ function OperatorMobileScanPageContent() {
                     backgroundColor: BG,
                     boxShadow: "inset 0 1px 8px rgba(0,0,0,0.28)",
                   }}
+                  onClick={focusScannerAggressive}
                 >
                   <Barcode className="h-8 w-8 opacity-45" strokeWidth={1.25} style={{ color: MUTED_LABEL }} />
                 </ScanFrameWithLaser>
@@ -9926,6 +10006,7 @@ function OperatorMobileScanPageContent() {
                   ) : (
                     <button
                       type="button"
+                      onClick={focusScannerAggressive}
                       className="scanner-input-glass flex h-9 w-full items-center rounded-lg border py-0 pl-3 pr-3 text-left font-mono text-[13px] outline-none transition"
                       style={{ color: lastScannedCode ? TEXT_PRIMARY : MUTED_LABEL }}
                     >
@@ -10349,6 +10430,7 @@ function OperatorMobileScanPageContent() {
                       ) : (
                         <button
                           type="button"
+                          onClick={focusScannerAggressive}
                           className="scanner-input-glass flex min-h-[2.75rem] min-w-0 flex-1 items-center rounded-lg border px-3 text-left font-mono text-[13px] outline-none transition"
                           style={{ color: (currentPackageTrackingId ?? lastScannedCode).trim() ? TEXT_PRIMARY : MUTED_LABEL }}
                         >
