@@ -658,7 +658,7 @@ export type WizardState = {
   /** Optional Amazon order ID — stored on `returns.order_id` and `claim_submissions.source_payload.amazon_order_id`. */
   amazon_order_id: string;
   /** Product catalog lookup — when `unknown`, Step 1 allows Next without a resolved ASIN/UPC (manual item name). */
-  catalog_resolution: "idle" | "loading" | "local" | "amazon" | "review" | "unknown";
+  catalog_resolution: "idle" | "loading" | "local" | "amazon" | "amazon_evidence" | "review" | "unknown";
 };
 
 export const EMPTY_WIZARD: WizardState = {
@@ -2144,6 +2144,11 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
             {editCatalogStatus === "backend_enriched" && editCatalogPreview && (
               <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Backend enriched — {editCatalogPreview.name}
+              </div>
+            )}
+            {editCatalogStatus === "backend_evidence" && editCatalogPreview && (
+              <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 dark:border-violet-700/50 dark:bg-violet-950/30 dark:text-violet-300">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />Amazon catalog evidence — {editCatalogPreview.name}
               </div>
             )}
             {editCatalogStatus === "ambiguous" && (
@@ -4346,6 +4351,8 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             ? "local"
             : res.status === "backend_enriched"
               ? "amazon"
+              : res.status === "backend_evidence"
+                ? "amazon_evidence"
               : res.status === "ambiguous"
                 ? "review"
                 : "unknown",
@@ -4583,6 +4590,12 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
           <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
             Backend enriched — {catalogPreview.name}
+          </div>
+        )}
+        {state.catalog_resolution === "amazon_evidence" && catalogPreview && (
+          <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 dark:border-violet-700/50 dark:bg-violet-950/30 dark:text-violet-300">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            Amazon catalog evidence — {catalogPreview.name}
           </div>
         )}
         {state.catalog_resolution === "review" && (

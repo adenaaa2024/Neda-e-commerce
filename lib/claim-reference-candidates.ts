@@ -620,6 +620,32 @@ async function fetchReturnsOperational(
   };
 }
 
+async function fetchShipmentOperational(
+  client: SupabaseClient,
+  orgId: string,
+  shipmentId: string,
+): Promise<{ row: Record<string, unknown> | null; ctx: OperationalContext | null }> {
+  const { data, error } = await client
+    .from("amazon_removal_shipments")
+    .select("id, order_id, sku, fnsku, upload_id")
+    .eq("organization_id", orgId)
+    .eq("id", shipmentId)
+    .maybeSingle();
+  if (error || !data) return { row: null, ctx: null };
+  const r = data as Record<string, unknown>;
+  const orderId = nv(r.order_id);
+  return {
+    row: r,
+    ctx: {
+      order_id: orderId,
+      sku: nv(r.sku),
+      fnsku: nv(r.fnsku),
+      upload_id: nv(r.upload_id),
+      removal_order_id: orderId,
+    },
+  };
+}
+
 async function fetchFrrByOrderId(
   client: SupabaseClient,
   orgId: string,
@@ -787,6 +813,10 @@ export async function loadAndBuildReferenceCandidatesForDraft(
     operationalRowFound = ctx != null;
   } else if (draft.source_table === "amazon_returns") {
     const { ctx } = await fetchReturnsOperational(client, draft.organization_id, draft.source_row_id);
+    operational = ctx;
+    operationalRowFound = ctx != null;
+  } else if (draft.source_table === "amazon_removal_shipments") {
+    const { ctx } = await fetchShipmentOperational(client, draft.organization_id, draft.source_row_id);
     operational = ctx;
     operationalRowFound = ctx != null;
   }

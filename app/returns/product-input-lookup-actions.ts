@@ -28,6 +28,7 @@ const SOURCE_TABLE = "product_input_lookup_v193";
 export type ProductInputLookupStatus =
   | "local_resolved"
   | "backend_enriched"
+  | "backend_evidence"
   | "ambiguous"
   | "unresolved";
 
@@ -251,6 +252,74 @@ async function buildLookupContract(input: {
   });
 }
 
+async function tryBackendCatalogEvidence(input: {
+  organizationId: string;
+  storeId: string;
+  identifiers: ReturnType<typeof classifiedIdentifiers>;
+}): Promise<
+  | { ok: false; attempted: boolean; enabled: boolean; reason: string }
+  | {
+      ok: true;
+      fields: ProductInputLookupFields;
+      reason: string;
+    }
+> {
+  const spApiEnabled = envFlag("AMAZON_SP_API_ENABLED");
+  const evidenceOnlyEnabled = envFlag("PRODUCT_ENRICHMENT_EVIDENCE_ONLY_ENABLED");
+  const stagingUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
+  const stagingOk = supabaseUrlMatchesStagingRef(stagingUrl, STAGING_REF);
+
+  if (!spApiEnabled || !evidenceOnlyEnabled || !stagingOk) {
+    return {
+      ok: false,
+      attempted: false,
+      enabled: false,
+      reason: !stagingOk
+        ? "blocked_non_staging"
+        : !spApiEnabled
+          ? "amazon_sp_api_disabled"
+          : "product_enrichment_evidence_only_disabled",
+    };
+  }
+
+  if (!input.identifiers.asin) {
+    return {
+      ok: false,
+      attempted: true,
+      enabled: true,
+      reason: "backend_evidence_requires_asin",
+    };
+  }
+
+  const ctx = await resolveAmazonCatalogContext(input.organizationId, input.storeId);
+  if (!ctx.ok) return { ok: false, attempted: true, enabled: true, reason: ctx.error };
+  const token = await getAmazonCatalogAccessToken({ credentials: ctx.credentials });
+  if (!token.ok) return { ok: false, attempted: true, enabled: true, reason: token.error };
+  const cat = await fetchAmazonCatalogItemJson({
+    catalogHost: ctx.catalogHost,
+    accessToken: token.accessToken,
+    marketplaceIds: ctx.marketplaceIds,
+    asin: input.identifiers.asin,
+  });
+  if (!cat.ok) return { ok: false, attempted: true, enabled: true, reason: cat.error };
+
+  const extracted = extractCatalogMainImageAndText(cat.body);
+  const name = extracted.product_name ?? input.identifiers.asin;
+  return {
+    ok: true,
+    fields: {
+      item_name: name,
+      asin: input.identifiers.asin,
+      fnsku: input.identifiers.fnsku,
+      sku: input.identifiers.sku,
+      upc: input.identifiers.upc,
+      product_identifier: input.identifiers.asin,
+      image_url: extracted.main_image_url,
+    },
+    reason: "amazon_sp_api_catalog_items_evidence_only",
+  };
+}
+
 async function tryBackendEnrichment(input: {
   organizationId: string;
   storeId: string;
@@ -446,6 +515,88 @@ export async function lookupProductInputForReturnItem(input: {
         product_linkage: linkage,
         enrichment: { attempted: false, enabled: false, reason: null },
         ambiguous_candidates,
+        audit_id,
+      };
+    }
+
+    const evidenceOnlyEnabled = envFlag("PRODUCT_ENRICHMENT_EVIDENCE_ONLY_ENABLED");
+
+    if (evidenceOnlyEnabled) {
+      const evidence = await tryBackendCatalogEvidence({ organizationId, storeId, identifiers });
+      if (evidence.ok) {
+        const linkage = await buildLookupContract({
+          organizationId,
+          sourceRowId: identifiers.normalized,
+          identifiers,
+          resolved_product_id: null,
+          identifier_resolution_status: "unresolved",
+          identifier_resolution_confidence: resolution.identifier_resolution_confidence,
+          product: null,
+        });
+        const audit_id = await auditLookup({
+          organizationId,
+          actorProfileId: input.actorProfileId,
+          action: "product_input_lookup_v193_backend_evidence",
+          detail: {
+            normalized: identifiers.normalized,
+            kind: identifiers.kind,
+            source: evidence.reason,
+            item_name: evidence.fields.item_name,
+          },
+        });
+        const evidenceFields = { ...evidence.fields };
+        evidenceFields.item_name =
+          canonicalItemNameFromLookup(evidenceFields, linkage) ?? evidenceFields.item_name;
+        return {
+          ok: true,
+          status: "backend_evidence",
+          normalized_input: identifiers.normalized,
+          classified_kind: identifiers.kind,
+          fields: evidenceFields,
+          product_linkage: linkage,
+          enrichment: { attempted: true, enabled: true, reason: evidence.reason },
+          audit_id,
+        };
+      }
+
+      const linkage = await buildLookupContract({
+        organizationId,
+        sourceRowId: identifiers.normalized,
+        identifiers,
+        resolved_product_id: null,
+        identifier_resolution_status: "unresolved",
+        identifier_resolution_confidence: resolution.identifier_resolution_confidence,
+        product: null,
+      });
+      const audit_id = await auditLookup({
+        organizationId,
+        actorProfileId: input.actorProfileId,
+        action: "product_input_lookup_v193_unresolved",
+        detail: {
+          normalized: identifiers.normalized,
+          kind: identifiers.kind,
+          enrichment_attempted: evidence.attempted,
+          enrichment_enabled: evidence.enabled,
+          reason: evidence.reason,
+          mode: "evidence_only",
+        },
+      });
+      return {
+        ok: true,
+        status: "unresolved",
+        normalized_input: identifiers.normalized,
+        classified_kind: identifiers.kind,
+        fields: {
+          item_name: null,
+          asin: identifiers.asin,
+          fnsku: identifiers.fnsku,
+          sku: identifiers.sku,
+          upc: identifiers.upc,
+          product_identifier: identifiers.upc ?? identifiers.product_identifier,
+          image_url: null,
+        },
+        product_linkage: linkage,
+        enrichment: { attempted: evidence.attempted, enabled: evidence.enabled, reason: evidence.reason },
         audit_id,
       };
     }

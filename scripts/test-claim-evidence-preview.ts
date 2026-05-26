@@ -86,6 +86,7 @@ function testTridExtract(): void {
   const edges = buildPreviewEdgesForDraft(
     draft,
     { id: draft.source_row_id, order_id: "ORDER-1", sku: "SKU-1", fnsku: null },
+    null,
     undefined,
     [],
     [
