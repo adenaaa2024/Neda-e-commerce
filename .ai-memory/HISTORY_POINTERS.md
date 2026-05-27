@@ -2,7 +2,22 @@
 
 Do not paste full history into `.ai-memory`.
 
-**Restore order:** V182 canonical → … → V202 identifier manual review batch → **V205/V206 inventory package_code views (latest)**.
+**Restore order:** V182 canonical → … → V205/V206 inventory package_code views → **V207 operator scan product link fix (latest)**.
+
+---
+
+## Latest operator history — V207 scan product link fix
+
+```
+.cursor/audit-reports/history-v207/20260527T191800Z/v207-operator-scan-product-link-fix-append.md
+```
+
+| Field | Value |
+|-------|-------|
+| Run | `20260527T191800Z` |
+| Status | **PASS** — scan line product hydration fixed; staging read probe + guard/typecheck PASS |
+
+**Artifacts:** `operator-scan-product-link-fix-neda/20260527T191800Z/`
 
 ---
 

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mockExpectedPackageDetailRows } from "@/lib/scanner/operator-tracking-expectations";
+import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 
 /** Readable message from Supabase/PostgREST throws (plain objects or Error). */
 export function formatSupabaseActionError(e: unknown, fallback: string): string {
@@ -37,6 +38,11 @@ export type VInventoryStatusRow = {
   /** Present on the view when exposed; omitted from search filters to avoid legacy column errors. */
   status: string | null;
   product_name: string | null;
+  product_id: string | null;
+  resolved_product_id: string | null;
+  resolved_catalog_product_id: string | null;
+  identifier_resolution_status: string | null;
+  identifier_resolution_confidence: number | null;
   carrier: string | null;
   total_expected: number;
   total_scanned: number;
@@ -91,6 +97,20 @@ function rowFromRecord(r: Record<string, unknown>): VInventoryStatusRow {
     order_id: r.order_id != null ? String(r.order_id) : null,
     status: r.status != null ? String(r.status) : null,
     product_name: r.product_name != null ? String(r.product_name) : null,
+    product_id: r.product_id != null ? String(r.product_id) : null,
+    resolved_product_id: r.resolved_product_id != null ? String(r.resolved_product_id) : null,
+    resolved_catalog_product_id:
+      r.resolved_catalog_product_id != null ? String(r.resolved_catalog_product_id) : null,
+    identifier_resolution_status:
+      r.identifier_resolution_status != null
+        ? String(r.identifier_resolution_status)
+        : r.product_linkage_status != null
+          ? String(r.product_linkage_status)
+          : null,
+    identifier_resolution_confidence:
+      r.identifier_resolution_confidence != null && Number.isFinite(Number(r.identifier_resolution_confidence))
+        ? Number(r.identifier_resolution_confidence)
+        : null,
     carrier: r.carrier != null ? String(r.carrier) : null,
     total_expected: coerceInt(r.total_expected),
     total_scanned: coerceInt(r.total_scanned),
@@ -147,16 +167,9 @@ export function mapInventoryViewStatusToVisual(status: string | null | undefined
   return null;
 }
 
-function firstNonEmptyStatus(rows: VInventoryStatusRow[]): string | null {
-  for (const r of rows) {
-    const s = String(r.status ?? "").trim();
-    if (s) return s;
-  }
-  return null;
-}
-
 /**
- * Prefer the view's `status` when present; otherwise derive from aggregated totals.
+ * Derive gate visuals from totals so stale view labels cannot mark an unscanned
+ * expected shipment as in progress.
  * Zero rows → manual_new (off manifest).
  */
 export function resolveInventoryGateVisualStatus(
@@ -164,8 +177,6 @@ export function resolveInventoryGateVisualStatus(
   agg: { rowCount: number; totalExpected: number; totalScanned: number },
 ): InventoryGateVisualStatus {
   if (rows.length === 0) return "manual_new";
-  const mapped = mapInventoryViewStatusToVisual(firstNonEmptyStatus(rows));
-  if (mapped) return mapped;
   return deriveInventoryGateVisualStatus(agg);
 }
 
@@ -182,8 +193,8 @@ export function deriveInventoryGateVisualStatus(agg: {
   const ts = Math.max(0, coerceInt(agg.totalScanned));
   if (agg.rowCount === 0) return "manual_new";
   if (te <= 0) return "unexpected";
-  if (ts > te) return "over_scanned";
-  if (ts === te) return "completed";
+  if (ts === 0) return "new";
+  if (ts >= te) return "completed";
   return "in_progress";
 }
 
@@ -231,6 +242,14 @@ function epRowToInventoryStatusRow(r: Record<string, unknown>): VInventoryStatus
     order_id: (r as { order_id?: string | null }).order_id != null ? String((r as { order_id?: string | null }).order_id) : null,
     status: null,
     product_name: null,
+    product_id: null,
+    resolved_product_id: (r as { resolved_product_id?: string | null }).resolved_product_id ?? null,
+    resolved_catalog_product_id:
+      (r as { resolved_catalog_product_id?: string | null }).resolved_catalog_product_id ?? null,
+    identifier_resolution_status:
+      (r as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? null,
+    identifier_resolution_confidence:
+      (r as { identifier_resolution_confidence?: number | null }).identifier_resolution_confidence ?? null,
     carrier: null,
     total_expected: coerceInt((r as { expected_scan_quantity?: number }).expected_scan_quantity),
     total_scanned: coerceInt((r as { actual_scanned_count?: number }).actual_scanned_count),
@@ -248,7 +267,7 @@ export function mockVInventoryItemStatusLinesForExact(
   const base = mockExpectedPackageDetailRows();
   const hit =
     field === "tracking_number"
-      ? base.filter((r) => String(r.tracking_number ?? "").trim() === trimmed)
+      ? base.filter((r) => normalizeTrackingKey(String(r.tracking_number ?? "")) === normalizeTrackingKey(trimmed))
       : field === "id_slip_contents"
         ? base.filter((r) => {
             const v = String(
@@ -341,6 +360,49 @@ export async function fetchVInventoryItemStatusLinesExact(
     if (raw && typeof raw === "object") out.push(rowFromRecord(raw as Record<string, unknown>));
   }
   return { rows: out, raw: data };
+}
+
+/**
+ * Tracking lookup variant that compares normalized tracking keys in application code.
+ * This keeps Shipment Entry totals scoped to the submitted tracking number even when
+ * stored tracking values differ by case or whitespace.
+ */
+export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string,
+  trackingNumber: string,
+): Promise<{ rows: VInventoryStatusRow[]; raw: unknown[] }> {
+  const key = normalizeTrackingKey(trackingNumber);
+  const orgId = organizationId.trim();
+  const sid = storeId.trim();
+  if (!key || !orgId || !sid) return { rows: [], raw: [] };
+
+  const rows: VInventoryStatusRow[] = [];
+  const rawRows: unknown[] = [];
+  const PAGE = 500;
+  for (let off = 0; off < 10000; off += PAGE) {
+    const { data, error } = await supabase
+      .from(V_INVENTORY_ITEM_STATUS)
+      .select("*")
+      .eq("organization_id", orgId)
+      .eq("store_id", sid)
+      .not("tracking_number", "is", null)
+      .range(off, off + PAGE - 1);
+
+    if (error) throw error;
+    const page = Array.isArray(data) ? data : [];
+    for (const raw of page) {
+      if (!raw || typeof raw !== "object") continue;
+      const record = raw as Record<string, unknown>;
+      if (normalizeTrackingKey(String(record.tracking_number ?? "")) !== key) continue;
+      rawRows.push(raw);
+      rows.push(rowFromRecord(record));
+    }
+    if (!page.length || page.length < PAGE) break;
+  }
+
+  return { rows, raw: rawRows };
 }
 
 /** @deprecated Use {@link fetchVInventoryItemStatusLinesExact} */

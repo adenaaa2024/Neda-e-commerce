@@ -29,17 +29,29 @@ const NEEDS_REVIEW_STYLE = {
   color: "#fef3c7",
 } as const;
 
+function unresolvedReasonTitle(linkage: ProductLinkageDisplayContract): string {
+  const status = String(linkage.identifier_resolution_status ?? "").trim().toLowerCase();
+  if (status === "ambiguous") return "Ambiguous product match - needs operator review";
+  const fallback = linkage.fallback_display_name.trim();
+  if (!fallback || fallback === "Line item") return "Missing identifier - no SKU, FNSKU, UPC, or ASIN was available";
+  if (/amazon|asin|catalog/i.test(fallback)) return "Needs Amazon evidence - catalog identifier needs operator verification";
+  return "No match - identifiers did not resolve to a catalog product";
+}
+
 function LinkageChip({
+  chipKey,
   label,
   title,
   style,
 }: {
+  chipKey: string;
   label: string;
   title?: string;
   style: { borderColor: string; backgroundColor: string; color: string };
 }) {
   return (
     <span
+      data-linkage-chip={chipKey}
       className="rounded border px-1 py-0.5 text-[8px] font-bold uppercase leading-none tracking-wide"
       style={style}
       title={title}
@@ -85,21 +97,24 @@ export function OperatorProductLinkageMeta({
     <div className="mt-1 flex flex-wrap items-center gap-1">
       {ambiguous ? (
         <LinkageChip
+          chipKey="ambiguous"
           label={PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL}
-          title="Multiple catalog matches — needs operator review"
+          title={unresolvedReasonTitle(linkage)}
           style={NEEDS_REVIEW_STYLE}
         />
       ) : null}
       {showUnmapped ? (
         <LinkageChip
+          chipKey="unmapped"
           label={PRODUCT_LINKAGE_UNMAPPED_LABEL}
-          title="No catalog product linked for this line"
+          title={unresolvedReasonTitle(linkage)}
           style={UNMAPPED_STYLE}
         />
       ) : null}
       {badges.map((b) => (
         <LinkageChip
           key={b.key}
+          chipKey={b.key}
           label={b.label}
           style={{
             borderColor: b.borderColor,

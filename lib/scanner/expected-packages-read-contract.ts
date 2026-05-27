@@ -29,6 +29,14 @@ function epCatalogNameFromRow(row: Record<string, unknown>): string | null {
   return trimOrNull(prod?.product_name);
 }
 
+function expectedPackageProductId(row: Record<string, unknown>): string | null {
+  return (
+    trimOrNull(row.resolved_product_id) ??
+    trimOrNull(row.product_id) ??
+    trimOrNull(row.resolved_catalog_product_id)
+  );
+}
+
 /** Signed scan delta: scanned − expected (negative = short, positive = over). */
 export function scanQuantityVariance(expected: number, scanned: number): number {
   const exp = Math.max(0, Math.floor(Number(expected) || 0));
@@ -49,7 +57,7 @@ export function buildExpectedPackageProductLinkage(
   productNameById: ReadonlyMap<string, string>,
 ): ProductLinkageDisplayContract {
   const source: ProductLinkageSourceRow = {
-    resolved_product_id: row.resolved_product_id as string | null | undefined,
+    resolved_product_id: expectedPackageProductId(row),
     identifier_resolution_status: row.identifier_resolution_status as string | null | undefined,
     identifier_resolution_confidence: row.identifier_resolution_confidence as number | null | undefined,
     sku: row.sku as string | null | undefined,
@@ -68,6 +76,11 @@ export function buildInventoryViewProductLinkage(
   if (epRow) return buildExpectedPackageProductLinkage(epRow, productNameById);
   return buildProductLinkageDisplayContract(
     {
+      resolved_product_id: invRow.resolved_product_id,
+      product_id: invRow.product_id,
+      resolved_catalog_product_id: invRow.resolved_catalog_product_id,
+      identifier_resolution_status: invRow.identifier_resolution_status,
+      identifier_resolution_confidence: invRow.identifier_resolution_confidence,
       description: invRow.product_name,
       fnsku: invRow.fnsku,
       sku: invRow.sku,
@@ -107,7 +120,7 @@ export function mergeExpectedPackageRowsProductLinkage(
       const n = Number(conf);
       if (Number.isFinite(n)) confidence = confidence == null ? n : Math.max(confidence, n);
     }
-    const rid = trimOrNull(r.resolved_product_id);
+    const rid = expectedPackageProductId(r);
     if (rid) resolvedIds.add(rid);
     const fb = buildProductLinkageFallbackName({
       sku: r.sku as string | null | undefined,
@@ -136,7 +149,7 @@ export async function fetchResolvedProductNamesForExpectedRows(
   supabase: ProductsLookupClient,
   rows: Record<string, unknown>[],
 ): Promise<Map<string, string>> {
-  const ids = rows.map((r) => trimOrNull(r.resolved_product_id)).filter(Boolean) as string[];
+  const ids = rows.map((r) => expectedPackageProductId(r)).filter(Boolean) as string[];
   return fetchProductNamesByResolvedIds(supabase, ids);
 }
 

@@ -1,8 +1,8 @@
-# Current state — V196 closeout + V202 proof + V205/V206 package_code views (authoritative)
+# Current state — V207 scan product link fix + V205/V206 package_code views (authoritative)
 
-**Last updated:** 2026-05-22 (`main-v206-package-code-inventory-views` browser proof **PASS** `20260522T180000Z`)  
-**V196 history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
-`.cursor/audit-reports/history-v196/20260522T230000Z/ERP_PIM_FULL_HISTORY_V196_APPEND_ONLY_LOOKUP_EXPECTED_VENDOR_PACKAGING_ROADMAP.md`  
+**Last updated:** 2026-05-27 (`operator-scan-product-link-fix-neda` code/probe **PASS** `20260527T191800Z`)  
+**Latest history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
+`.cursor/audit-reports/history-v207/20260527T191800Z/v207-operator-scan-product-link-fix-append.md`  
 **Latest browser proof:** `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` (**PASS** 11/11)  
 **Neda handoff:** [`NEDA_FINAL_BACKEND_HANDOFF_V193.md`](../NEDA_FINAL_BACKEND_HANDOFF_V193.md)
 
@@ -30,6 +30,7 @@
 | V205 staging inventory `package_code` views | **APPLIED_VERIFIED** on `eiqfaapyumhixxoeltgu` — server smoke **PASS** |
 | V206 original inventory `package_code` views | **APPLIED_VERIFIED** on `kxsvedvpjldygtdbylsy` — `original-parity-ddl.sql` |
 | V206 staging UI browser proof (package #) | **PASS** — Returns → Packages → Package # search; audit screenshot |
+| V207 operator scan product link fix | **PASS** — `/scanner/operator-mobile/scan` hydrates product names/links from resolved EP/inventory product IDs; tracking `2320305295` staging probe resolved |
 
 ## Inventory read-model — `package_code` (V205/V206)
 

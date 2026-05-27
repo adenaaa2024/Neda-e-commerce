@@ -41,6 +41,7 @@ import {
   Save,
   ScanLine,
   Search,
+  Sparkles,
   ThumbsUp,
   Truck,
   Warehouse,
@@ -74,9 +75,10 @@ import {
 } from "@/lib/scanner/shipment-entry-lookup";
 import {
   aggregateInventoryStatus,
+  deriveInventoryGateVisualStatus,
+  fetchVInventoryItemStatusLinesForTrackingNormalized,
   fetchVInventoryItemStatusLinesExact,
   formatInventoryProgressLabel,
-  mapInventoryViewStatusToVisual,
   mockVInventoryItemStatusLinesForExact,
   resolveInventoryGateVisualStatus,
   safeInventoryProgressPercent,
@@ -195,6 +197,29 @@ import { MasterUploader } from "@/components/MasterUploader";
 import { ScannerBottomNav, SCANNER_OPERATOR_HOME_PATH } from "../_components/ScannerBottomNav";
 import { resolveOperatorAuditFieldsClient } from "@/lib/scanner/operator-audit-fields";
 import { useOperatorSessionStore } from "../_components/OperatorSessionStoreProvider";
+
+type DetectedBarcode = { rawValue?: string; format?: string };
+type BarcodeDetectorInstance = {
+  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
+};
+type BarcodeDetectorCtor = {
+  new (opts?: { formats?: string[] }): BarcodeDetectorInstance;
+  getSupportedFormats?: () => Promise<string[]>;
+};
+
+const PHOTO_BARCODE_FORMATS = [
+  "code_128",
+  "code_39",
+  "code_93",
+  "ean_13",
+  "ean_8",
+  "upc_a",
+  "upc_e",
+  "itf",
+  "qr_code",
+  "data_matrix",
+  "pdf417",
+];
 
 /** Active pallet in the scan UI; `carrier_name` is the session carrier across pallet ↔ box steps. */
 type OperatorActivePallet = {
@@ -620,8 +645,29 @@ function playOperatorSuccessBeep() {
   }
 }
 
-function shipmentLineStatusVisual(status: string | null): InventoryGateVisualStatus {
-  return mapInventoryViewStatusToVisual(status) ?? "manual_new";
+function shipmentLineStatusVisual(row: Pick<VInventoryStatusRow, "total_expected" | "total_scanned" | "status">): InventoryGateVisualStatus {
+  return deriveInventoryGateVisualStatus({
+    rowCount: 1,
+    totalExpected: row.total_expected,
+    totalScanned: row.total_scanned,
+  });
+}
+
+function shipmentLineStatusLabel(row: Pick<VInventoryStatusRow, "total_expected" | "total_scanned" | "status">): string {
+  switch (shipmentLineStatusVisual(row)) {
+    case "unexpected":
+      return "Unexpected";
+    case "over_scanned":
+      return "Over scanned";
+    case "completed":
+      return "Completed";
+    case "in_progress":
+      return "In progress";
+    case "new":
+      return "New";
+    default:
+      return String(row.status ?? "").trim() || "—";
+  }
 }
 
 /**
@@ -883,7 +929,7 @@ function identifyGateStatusBadgeLabel(
 ): string {
   switch (visual) {
     case "new":
-      return "New";
+      return manifestKnown ? "Expected" : "New";
     case "manual_new":
       return manifestKnown ? "On manifest" : "Off manifest";
     case "unexpected":
@@ -1323,65 +1369,6 @@ async function fetchBlobFromObjectUrl(url: string): Promise<Blob | null> {
   }
 }
 
-function stripIdentifyGateOcrEdges(s: string): string {
-  let t = s.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-  const stripOnce = (x: string) =>
-    x
-      .replace(/^[\s:*|#.,;\-–—"'«»()[\]{}<>+=\\/]+/, "")
-      .replace(/[\s:*|#.,;\-–—"'«»()[\]{}<>+=\\/]+$/, "");
-  let prev = "";
-  while (prev !== t) {
-    prev = t;
-    t = stripOnce(t).trim();
-  }
-  return t;
-}
-
-/**
- * Amazon packing slips: slip / inventory id (e.g. under barcode), FNSKU-style (X00…),
- * ASIN (B0…), and warehouse-style (ZZQ…) tokens. Picks highest-priority longest match, else best OCR line.
- */
-const IDENTIFY_GATE_OCR_CODE_PATTERNS: { re: RegExp; tier: number }[] = [
-  { re: /\b(SD9Q[A-Z0-9]{4,})\b/gi, tier: 100 },
-  { re: /\b(X00[A-Z0-9]{6,})\b/gi, tier: 96 },
-  { re: /\b(B0[A-Z0-9]{8})\b/gi, tier: 90 },
-  { re: /\b(ZZQ[A-Z0-9]{4,})\b/gi, tier: 84 },
-];
-
-function collectIdentifyGateOcrPatternHits(text: string): { text: string; tier: number; alnumLen: number }[] {
-  const hits: { text: string; tier: number; alnumLen: number }[] = [];
-  const seen = new Set<string>();
-  const sources = [text, text.replace(/\s+/g, " ")];
-  for (const src of sources) {
-    for (const { re, tier } of IDENTIFY_GATE_OCR_CODE_PATTERNS) {
-      const r = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
-      let m: RegExpExecArray | null;
-      while ((m = r.exec(src)) !== null) {
-        const cap = (m[1] ?? m[0] ?? "").trim();
-        if (!cap) continue;
-        const key = cap.toUpperCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const alnumLen = cap.replace(/[^A-Za-z0-9]/g, "").length;
-        hits.push({ text: cap, tier, alnumLen });
-      }
-    }
-  }
-  return hits;
-}
-
-/**
- * Strict: only FNSKU / slip / ASIN-style tokens (X00, B0, ZZQ, SD9Q). Ignores other slip prose.
- * Returns "" if no pattern matched.
- */
-function extractStrictIdentifyGateSlipCode(raw: string): string {
-  const trimmedRaw = raw.trim();
-  const patternHits = collectIdentifyGateOcrPatternHits(trimmedRaw);
-  if (!patternHits.length) return "";
-  patternHits.sort((a, b) => b.tier - a.tier || b.alnumLen - a.alnumLen || b.text.length - a.text.length);
-  return patternHits[0]!.text;
-}
-
 const IDENTIFY_GATE_IMAGE_EXT_RE = /\.(jpe?g|png)$/i;
 
 function isAllowedIdentifyGateImageFile(file: File): boolean {
@@ -1391,55 +1378,774 @@ function isAllowedIdentifyGateImageFile(file: File): boolean {
   return n.length > 0 && IDENTIFY_GATE_IMAGE_EXT_RE.test(n);
 }
 
-/** Downscale large photos, compress to JPEG, grayscale + contrast — keeps Tesseract responsive on HD uploads. */
-async function preprocessIdentifyGatePhotoForOcr(file: File | Blob): Promise<Blob | File> {
-  if (typeof createImageBitmap !== "function")
-    return file instanceof File ? file : new File([file], "capture.jpg", { type: "image/jpeg" });
-  const asFile = file instanceof File ? file : new File([file], "capture.jpg", { type: "image/jpeg" });
+type PhotoBarcodeDecodeResult =
+  | { status: "detected"; value: string }
+  | { status: "ocr_candidates"; candidates: string[] }
+  | { status: "not_found" };
+
+type PhotoBarcodeDecodeAttempt =
+  | "BarcodeDetector"
+  | "ZXing:imageElement"
+  | "ZXing:imageUrl"
+  | "ZXing:canvasVariant"
+  | "canvasVariant";
+
+type PhotoBarcodeCandidate = {
+  value: string;
+  decoder: "BarcodeDetector" | "ZXing";
+  format?: string;
+  variant: string;
+  score: number;
+};
+
+type PhotoBarcodeCropName = "full" | "top35" | "bottom35" | "centerBand";
+
+type PhotoBarcodeVariant = {
+  name: string;
+  crop: PhotoBarcodeCropName;
+  rotationDeg: number;
+  grayscaleContrast: boolean;
+  maxWidth: number;
+};
+
+type ZxingDecodeResult = {
+  getText(): string;
+  getBarcodeFormat?: () => unknown;
+};
+
+type ZxingPhotoBarcodeReader = {
+  reader: {
+    decodeFromImageElement(image: HTMLImageElement): Promise<ZxingDecodeResult>;
+    decodeFromImageUrl?: (url: string) => Promise<ZxingDecodeResult>;
+  };
+  formatName(format: unknown): string | undefined;
+};
+
+type PhotoBarcodeDecodeErrorLog = {
+  attempt: PhotoBarcodeDecodeAttempt | "imageLoad";
+  name: string;
+  message: string;
+};
+
+function getNativeBarcodeDetectorCtor(): BarcodeDetectorCtor | null {
+  if (typeof window === "undefined") return null;
+  const candidate = (window as Window & { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
+  return typeof candidate === "function" ? candidate : null;
+}
+
+async function createNativeBarcodeDetector(ctor: BarcodeDetectorCtor): Promise<BarcodeDetectorInstance> {
+  if (typeof ctor.getSupportedFormats === "function") {
+    try {
+      const supported = await ctor.getSupportedFormats();
+      const supportedSet = new Set(supported);
+      const formats = PHOTO_BARCODE_FORMATS.filter((format) => supportedSet.has(format));
+      if (formats.length > 0) return new ctor({ formats });
+    } catch {
+      // Some browser implementations expose the method but reject; fall through to constructor retry.
+    }
+  }
+
   try {
-    const bmp = await createImageBitmap(file);
-    const w = bmp.width;
-    const h = bmp.height;
-    const maxEdge = 1680;
-    const maxPixels = 2_450_000;
-    let scale = Math.min(1, maxEdge / Math.max(w, h, 1));
-    let cw = Math.max(1, Math.round(w * scale));
-    let ch = Math.max(1, Math.round(h * scale));
-    if (cw * ch > maxPixels) {
-      const s2 = Math.sqrt(maxPixels / (cw * ch));
-      cw = Math.max(1, Math.round(cw * s2));
-      ch = Math.max(1, Math.round(ch * s2));
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = cw;
-    canvas.height = ch;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) {
-      bmp.close?.();
-      return asFile;
-    }
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(bmp, 0, 0, cw, ch);
-    bmp.close?.();
-    const imgData = ctx.getImageData(0, 0, cw, ch);
-    const d = imgData.data;
-    const contrast = 1.42;
-    for (let i = 0; i < d.length; i += 4) {
-      const gray = 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!;
-      let v = (gray - 128) * contrast + 128;
-      v = Math.max(0, Math.min(255, v));
-      d[i] = v;
-      d[i + 1] = v;
-      d[i + 2] = v;
-    }
-    ctx.putImageData(imgData, 0, 0);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.86),
-    );
-    return blob ?? asFile;
+    return new ctor({ formats: PHOTO_BARCODE_FORMATS });
   } catch {
-    return asFile;
+    return new ctor();
+  }
+}
+
+function isPhotoBarcodeDecodeDebugEnabled(): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  return false;
+}
+
+function logPhotoBarcodeDecodeDebug(message: string, details?: Record<string, unknown>): void {
+  if (!isPhotoBarcodeDecodeDebugEnabled()) return;
+  console.debug("[operator-photo-barcode]", message, details ?? {});
+}
+
+function summarizePhotoBarcodeDecodeError(
+  attempt: PhotoBarcodeDecodeErrorLog["attempt"],
+  err: unknown,
+): PhotoBarcodeDecodeErrorLog {
+  if (err instanceof Error) {
+    return { attempt, name: err.name || "Error", message: err.message || String(err) };
+  }
+  return { attempt, name: typeof err, message: String(err) };
+}
+
+function logPhotoBarcodeDecodeError(attempt: PhotoBarcodeDecodeErrorLog["attempt"], err: unknown): PhotoBarcodeDecodeErrorLog {
+  const summary = summarizePhotoBarcodeDecodeError(attempt, err);
+  logPhotoBarcodeDecodeDebug("decode error", summary);
+  if (isPhotoBarcodeDecodeDebugEnabled()) {
+    console.debug("[operator-photo-barcode] raw decode error", { attempt, error: err });
+  }
+  return summary;
+}
+
+function photoBarcodeValueLooksLikeUrl(value: string): boolean {
+  const v = value.trim();
+  return /^(https?:\/\/|www\.)/i.test(v) || /^[a-z][a-z0-9+.-]*:\/\//i.test(v);
+}
+
+function photoBarcodeValueLooksTrackingLike(value: string): boolean {
+  const compact = value.replace(/[\s-]/g, "").toUpperCase();
+  const digitCount = (compact.match(/\d/g) ?? []).length;
+  if (isRejectedPhotoCodeCandidate(compact)) return false;
+  if (/^TBA\d{10,20}$/.test(compact)) return true;
+  if (/^1Z[0-9A-Z]{10,30}$/.test(compact)) return true;
+  if (/^VRET[0-9A-Z]{6,30}$/.test(compact)) return true;
+  if (/^9\d{10,33}$/.test(compact)) return true;
+  if (/^\d{8,34}$/.test(compact)) return true;
+  return compact.length >= 10 && compact.length <= 40 && digitCount >= 8 && digitCount / compact.length >= 0.65;
+}
+
+function normalizePhotoCodeCandidate(value: string): string {
+  return value.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+}
+
+function isRejectedPhotoCodeCandidate(value: string): boolean {
+  const compact = normalizePhotoCodeCandidate(value);
+  if (!compact) return true;
+  if (/^(DAX7|MDW5|ONT1|CVG9|TYS1|SNE1|AKC1)$/.test(compact)) return true;
+  if (/^[A-Z]{3}\d$/.test(compact)) return true;
+  if (/^CYCLE\d{1,2}$/.test(compact)) return true;
+  if (/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?$/.test(value.trim())) return true;
+  if (/^\d+(?:\.\d+)?\s*(?:LB|LBS|POUND|POUNDS)\b/i.test(value.trim())) return true;
+  if (/^\d{5}$/.test(compact)) return true;
+  return false;
+}
+
+function normalizePhotoBarcodeFormat(format?: string): string {
+  return String(format ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function scorePhotoBarcodeCandidate(value: string, format?: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return -999;
+  const normalizedFormat = normalizePhotoBarcodeFormat(format);
+  let score = 0;
+  if (photoBarcodeValueLooksTrackingLike(trimmed)) score += 90;
+  if (/code_?128|code_?39/.test(normalizedFormat)) score += 35;
+  if (/pdf_?417|itf|ean|upc|code_?93/.test(normalizedFormat)) score += 12;
+  if (/qr/.test(normalizedFormat)) score -= 35;
+  if (photoBarcodeValueLooksLikeUrl(trimmed)) score -= 100;
+  if (trimmed.length >= 8 && trimmed.length <= 48) score += 8;
+  return score;
+}
+
+function makePhotoBarcodeCandidate(args: {
+  value: string;
+  decoder: PhotoBarcodeCandidate["decoder"];
+  format?: string;
+  variant: string;
+}): PhotoBarcodeCandidate | null {
+  const value = args.value.trim();
+  if (!value) return null;
+  return {
+    value,
+    decoder: args.decoder,
+    format: args.format,
+    variant: args.variant,
+    score: scorePhotoBarcodeCandidate(value, args.format),
+  };
+}
+
+function chooseBestPhotoBarcodeCandidate(candidates: PhotoBarcodeCandidate[]): PhotoBarcodeCandidate | null {
+  let best: PhotoBarcodeCandidate | null = null;
+  for (const candidate of candidates) {
+    if (!best || candidate.score > best.score) best = candidate;
+  }
+  return best;
+}
+
+function isConfidentShipmentPhotoBarcodeCandidate(candidate: PhotoBarcodeCandidate): boolean {
+  return candidate.score >= 55 && !photoBarcodeValueLooksLikeUrl(candidate.value);
+}
+
+function normalizePhotoOcrShipmentNumber(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function isValidPhotoOcrShipmentNumber(value: string): boolean {
+  return /^\d{7,15}$/.test(value) && !isRejectedPhotoCodeCandidate(value);
+}
+
+function extractPhotoOcrShipmentNumbers(raw: string): string[] {
+  const text = raw.replace(/\r/g, "\n");
+  const sameLinePattern =
+    /\b(?:SHIPMENT\s*(?:#|NUMBER|NO\.?|ID)?|WAYBILL|PRO\s*#?|BOL\s*#?)\s*[:#-]?\s*([0-9][0-9\s.,-]{5,25}[0-9])\b/gi;
+  const results: string[] = [];
+  for (const match of text.matchAll(sameLinePattern)) {
+    const value = normalizePhotoOcrShipmentNumber(match[1] ?? "");
+    if (isValidPhotoOcrShipmentNumber(value)) results.push(value);
+  }
+
+  const labelOnlyPattern = /\b(?:SHIPMENT\s*(?:#|NUMBER\b|NO\.?\b|ID\b)?|WAYBILL|PRO\s*#?|BOL\s*#?)\b/i;
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (!labelOnlyPattern.test(line)) continue;
+    const next = lines[i + 1] ?? "";
+    const nearby = `${line} ${next}`;
+    const number = nearby.match(/\b[0-9][0-9\s.,-]{5,25}[0-9]\b/);
+    if (!number) continue;
+    const value = normalizePhotoOcrShipmentNumber(number[0]);
+    if (isValidPhotoOcrShipmentNumber(value)) results.push(value);
+  }
+
+  return uniquePhotoOcrCandidates(results);
+}
+
+function extractPhotoOcrPackageTrackingCodes(raw: string): string[] {
+  const text = raw.replace(/\r/g, "\n").toUpperCase();
+  const candidates: string[] = [];
+
+  for (const match of text.matchAll(/\bTBA\s*[- ]?\s*([\d\s-]{10,30})\b/g)) {
+    candidates.push(`TBA${String(match[1] ?? "").replace(/\D/g, "")}`);
+  }
+
+  const explicitPatterns = [
+    /\b1Z[0-9A-Z\s-]{10,30}\b/g,
+    /\bVRET[0-9A-Z\s-]{6,30}\b/g,
+  ];
+  for (const pattern of explicitPatterns) {
+    for (const match of text.matchAll(pattern)) {
+      candidates.push(normalizePhotoCodeCandidate(match[0] ?? ""));
+    }
+  }
+
+  const labeledPattern =
+    /\b(?:TRACKING\s*NUMBER|TRACKING\s*#|TRACKING|PACKAGE\s*ID|PACKAGE\s*#|PACKAGE|PKG\s*ID|PKG\s*#|BARCODE)\s*[:#-]?\s*([A-Z0-9][A-Z0-9\s-]{8,39})\b/g;
+  for (const match of text.matchAll(labeledPattern)) {
+    const value = normalizePhotoCodeCandidate(match[1] ?? "");
+    if (isPhotoOcrPackageTrackingCandidate(value)) candidates.push(value);
+  }
+
+  return uniquePhotoOcrCandidates(candidates.filter(isPhotoOcrPackageTrackingCandidate));
+}
+
+function isPhotoOcrPackageTrackingCandidate(value: string): boolean {
+  const compact = normalizePhotoCodeCandidate(value);
+  if (isRejectedPhotoCodeCandidate(compact)) return false;
+  if (/^TBA\d{10,20}$/.test(compact)) return true;
+  if (/^1Z[0-9A-Z]{10,30}$/.test(compact)) return true;
+  if (/^VRET[0-9A-Z]{6,30}$/.test(compact)) return true;
+  if (/^9\d{10,33}$/.test(compact)) return true;
+  const digitCount = (compact.match(/\d/g) ?? []).length;
+  return compact.length >= 12 && compact.length <= 40 && /[A-Z]/.test(compact) && digitCount >= 6;
+}
+
+function uniquePhotoOcrCandidates(candidates: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const candidate of candidates) {
+    const normalized = normalizePhotoCodeCandidate(candidate);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function extractPhotoOcrCodeCandidates(text: string): string[] {
+  return uniquePhotoOcrCandidates([
+    ...extractPhotoOcrPackageTrackingCodes(text),
+    ...extractPhotoOcrShipmentNumbers(text),
+  ]).slice(0, 3);
+}
+
+async function withPhotoBarcodeAttemptTimeout<T>(label: string, promise: Promise<T>, timeoutMs = 1800): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function waitForPhotoBarcodeImageLoad(img: HTMLImageElement): Promise<void> {
+  if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Image failed to load before barcode decode."));
+  });
+}
+
+async function detectBarcodeWithNativeDetector(
+  img: HTMLImageElement,
+  variant = "original",
+): Promise<PhotoBarcodeCandidate[]> {
+  const ctor = getNativeBarcodeDetectorCtor();
+  if (!ctor) {
+    logPhotoBarcodeDecodeDebug("decoder unavailable", { decoder: "BarcodeDetector" });
+    return [];
+  }
+
+  try {
+    const detector = await createNativeBarcodeDetector(ctor);
+    logPhotoBarcodeDecodeDebug("decoder attempted", { decoder: "BarcodeDetector", variant });
+    const detected = await withPhotoBarcodeAttemptTimeout("BarcodeDetector", detector.detect(img), 2200);
+    const candidates = detected
+      .map((barcode) =>
+        makePhotoBarcodeCandidate({
+          value: barcode.rawValue ?? "",
+          decoder: "BarcodeDetector",
+          format: barcode.format,
+          variant,
+        }),
+      )
+      .filter((candidate): candidate is PhotoBarcodeCandidate => Boolean(candidate));
+    logPhotoBarcodeDecodeDebug("decoder result", {
+      decoder: "BarcodeDetector",
+      variant,
+      detectedCount: detected.length,
+      candidates: candidates.map((candidate) => ({
+        value: candidate.value,
+        format: candidate.format,
+        score: candidate.score,
+      })),
+    });
+    return candidates;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("BarcodeDetector", err);
+    return [];
+  }
+}
+
+async function createZxingPhotoBarcodeReader(): Promise<ZxingPhotoBarcodeReader> {
+  const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
+    import("@zxing/browser"),
+    import("@zxing/library"),
+  ]);
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
+    BarcodeFormat.DATA_MATRIX,
+    BarcodeFormat.PDF_417,
+  ]);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  hints.set(DecodeHintType.ENABLE_CODE_39_EXTENDED_MODE, true);
+  const formatNames = new Map<unknown, string>([
+    [BarcodeFormat.CODE_128, "code_128"],
+    [BarcodeFormat.CODE_39, "code_39"],
+    [BarcodeFormat.CODE_93, "code_93"],
+    [BarcodeFormat.EAN_13, "ean_13"],
+    [BarcodeFormat.EAN_8, "ean_8"],
+    [BarcodeFormat.UPC_A, "upc_a"],
+    [BarcodeFormat.UPC_E, "upc_e"],
+    [BarcodeFormat.ITF, "itf"],
+    [BarcodeFormat.QR_CODE, "qr_code"],
+    [BarcodeFormat.DATA_MATRIX, "data_matrix"],
+    [BarcodeFormat.PDF_417, "pdf417"],
+  ]);
+  return {
+    reader: new BrowserMultiFormatReader(hints),
+    formatName: (format: unknown) => formatNames.get(format) ?? (typeof format === "string" ? format : undefined),
+  };
+}
+
+async function detectBarcodeWithZxingImageElement(
+  zxing: ZxingPhotoBarcodeReader,
+  img: HTMLImageElement,
+  variant = "original",
+): Promise<PhotoBarcodeCandidate | null> {
+  try {
+    logPhotoBarcodeDecodeDebug("decoder attempted", { decoder: "ZXing:imageElement", variant });
+    const result = await withPhotoBarcodeAttemptTimeout(
+      `ZXing:imageElement ${variant}`,
+      zxing.reader.decodeFromImageElement(img),
+    );
+    const value = result.getText().trim();
+    const format = zxing.formatName(result.getBarcodeFormat?.());
+    const candidate = makePhotoBarcodeCandidate({ value, decoder: "ZXing", format, variant });
+    logPhotoBarcodeDecodeDebug("decoder result", {
+      decoder: "ZXing:imageElement",
+      variant,
+      detectedCount: value ? 1 : 0,
+      format,
+      score: candidate?.score,
+    });
+    return candidate;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("ZXing:imageElement", err);
+    return null;
+  }
+}
+
+async function detectBarcodeWithZxingImageUrl(
+  zxing: ZxingPhotoBarcodeReader,
+  objectUrl: string,
+  variant = "original",
+): Promise<PhotoBarcodeCandidate | null> {
+  try {
+    if (typeof zxing.reader.decodeFromImageUrl !== "function") {
+      logPhotoBarcodeDecodeDebug("decoder unavailable", { decoder: "ZXing:imageUrl" });
+      return null;
+    }
+    logPhotoBarcodeDecodeDebug("decoder attempted", { decoder: "ZXing:imageUrl", variant });
+    const result = await withPhotoBarcodeAttemptTimeout(
+      `ZXing:imageUrl ${variant}`,
+      zxing.reader.decodeFromImageUrl(objectUrl),
+    );
+    const value = result.getText().trim();
+    const format = zxing.formatName(result.getBarcodeFormat?.());
+    const candidate = makePhotoBarcodeCandidate({ value, decoder: "ZXing", format, variant });
+    logPhotoBarcodeDecodeDebug("decoder result", {
+      decoder: "ZXing:imageUrl",
+      variant,
+      detectedCount: value ? 1 : 0,
+      format,
+      score: candidate?.score,
+    });
+    return candidate;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("ZXing:imageUrl", err);
+    return null;
+  }
+}
+
+function buildPhotoBarcodeVariants(): PhotoBarcodeVariant[] {
+  const crops: PhotoBarcodeCropName[] = ["full", "top35", "bottom35", "centerBand"];
+  const variants: PhotoBarcodeVariant[] = [
+    {
+      name: "full:rot0:resized:max1800",
+      crop: "full",
+      rotationDeg: 0,
+      grayscaleContrast: false,
+      maxWidth: 1800,
+    },
+  ];
+
+  for (const crop of crops) {
+    variants.push({
+      name: `${crop}:rot0:contrast:max1800`,
+      crop,
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    });
+  }
+
+  for (const rotationDeg of [90, 180, 270]) {
+    variants.push({
+      name: `full:rot${rotationDeg}:contrast:max1800`,
+      crop: "full",
+      rotationDeg,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    });
+  }
+
+  for (const crop of crops) {
+    for (const rotationDeg of [-10, -5, 5, 10]) {
+      variants.push({
+        name: `${crop}:rot${rotationDeg}:contrast:max1800`,
+        crop,
+        rotationDeg,
+        grayscaleContrast: true,
+        maxWidth: 1800,
+      });
+    }
+  }
+
+  return variants;
+}
+
+function photoBarcodeCropRect(
+  img: HTMLImageElement,
+  crop: PhotoBarcodeCropName,
+): { sx: number; sy: number; sw: number; sh: number } {
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (crop === "top35") return { sx: 0, sy: 0, sw: w, sh: Math.max(1, Math.round(h * 0.35)) };
+  if (crop === "bottom35") {
+    const sh = Math.max(1, Math.round(h * 0.35));
+    return { sx: 0, sy: Math.max(0, h - sh), sw: w, sh };
+  }
+  if (crop === "centerBand") {
+    const sh = Math.max(1, Math.round(h * 0.5));
+    return { sx: 0, sy: Math.max(0, Math.round((h - sh) / 2)), sw: w, sh };
+  }
+  return { sx: 0, sy: 0, sw: w, sh: h };
+}
+
+function applyPhotoBarcodeGrayscaleContrast(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    const boosted = Math.max(0, Math.min(255, (gray - 128) * 1.55 + 128));
+    data[i] = boosted;
+    data[i + 1] = boosted;
+    data[i + 2] = boosted;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function renderPhotoBarcodeVariantCanvas(img: HTMLImageElement, variant: PhotoBarcodeVariant): HTMLCanvasElement | null {
+  const crop = photoBarcodeCropRect(img, variant.crop);
+  const scale = Math.min(1, variant.maxWidth / Math.max(1, crop.sw));
+  const srcW = Math.max(1, Math.round(crop.sw * scale));
+  const srcH = Math.max(1, Math.round(crop.sh * scale));
+  const radians = (variant.rotationDeg * Math.PI) / 180;
+  const absCos = Math.abs(Math.cos(radians));
+  const absSin = Math.abs(Math.sin(radians));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(srcW * absCos + srcH * absSin));
+  canvas.height = Math.max(1, Math.ceil(srcW * absSin + srcH * absCos));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(radians);
+  ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, -srcW / 2, -srcH / 2, srcW, srcH);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (variant.grayscaleContrast) applyPhotoBarcodeGrayscaleContrast(canvas);
+  return canvas;
+}
+
+function canvasToPhotoBarcodeBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
+  });
+}
+
+async function decodePhotoBarcodeCanvasVariant(
+  zxing: ZxingPhotoBarcodeReader,
+  img: HTMLImageElement,
+  variant: PhotoBarcodeVariant,
+): Promise<PhotoBarcodeCandidate | null> {
+  logPhotoBarcodeDecodeDebug("variant attempted", {
+    variant: variant.name,
+    crop: variant.crop,
+    rotationDeg: variant.rotationDeg,
+    grayscaleContrast: variant.grayscaleContrast,
+    decoder: "ZXing",
+  });
+  const canvas = renderPhotoBarcodeVariantCanvas(img, variant);
+  if (!canvas || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return null;
+  const blob = await canvasToPhotoBarcodeBlob(canvas);
+  if (!blob) return null;
+  const objectUrl = URL.createObjectURL(blob);
+  const variantImg = new Image();
+  try {
+    variantImg.src = objectUrl;
+    await withPhotoBarcodeAttemptTimeout(`imageLoad ${variant.name}`, waitForPhotoBarcodeImageLoad(variantImg), 1200);
+    logPhotoBarcodeDecodeDebug("variant image loaded", {
+      variant: variant.name,
+      width: variantImg.naturalWidth,
+      height: variantImg.naturalHeight,
+    });
+    return await detectBarcodeWithZxingImageElement(zxing, variantImg, variant.name);
+  } catch (err) {
+    logPhotoBarcodeDecodeError("canvasVariant", err);
+    return null;
+  } finally {
+    variantImg.onload = null;
+    variantImg.onerror = null;
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function recognizePhotoBarcodeOcrText(blob: Blob, variantName: string): Promise<string> {
+  try {
+    const { recognize } = await import("tesseract.js");
+    logPhotoBarcodeDecodeDebug("ocr attempted", { decoder: "Tesseract", variant: variantName });
+    const result = await withPhotoBarcodeAttemptTimeout(
+      `Tesseract ${variantName}`,
+      recognize(blob, "eng"),
+      6500,
+    );
+    const text = String(result.data?.text ?? "");
+    logPhotoBarcodeDecodeDebug("ocr result", {
+      decoder: "Tesseract",
+      variant: variantName,
+      textLength: text.length,
+      candidates: extractPhotoOcrCodeCandidates(text),
+    });
+    return text;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("canvasVariant", err);
+    return "";
+  }
+}
+
+async function detectPhotoOcrCandidatesFromImage(img: HTMLImageElement): Promise<string[]> {
+  const variants: PhotoBarcodeVariant[] = [
+    {
+      name: "ocr:full:rot0:contrast:max1800",
+      crop: "full",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+    {
+      name: "ocr:top35:rot0:contrast:max1800",
+      crop: "top35",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+    {
+      name: "ocr:bottom35:rot0:contrast:max1800",
+      crop: "bottom35",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+    {
+      name: "ocr:centerBand:rot0:contrast:max1800",
+      crop: "centerBand",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+  ];
+
+  for (const variant of variants) {
+    logPhotoBarcodeDecodeDebug("ocr variant attempted", {
+      variant: variant.name,
+      crop: variant.crop,
+      rotationDeg: variant.rotationDeg,
+    });
+    const canvas = renderPhotoBarcodeVariantCanvas(img, variant);
+    if (!canvas) continue;
+    const blob = await canvasToPhotoBarcodeBlob(canvas);
+    if (!blob) continue;
+    const text = await recognizePhotoBarcodeOcrText(blob, variant.name);
+    const candidates = extractPhotoOcrCodeCandidates(text);
+    if (candidates.length > 0) return candidates;
+  }
+
+  return [];
+}
+
+async function detectBarcodeFromImageFile(file: File): Promise<PhotoBarcodeDecodeResult> {
+  if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return { status: "not_found" };
+
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
+  const candidates: PhotoBarcodeCandidate[] = [];
+  const variants = buildPhotoBarcodeVariants();
+
+  logPhotoBarcodeDecodeDebug("file selected", {
+    fileName: file.name,
+    fileType: file.type,
+    fileSize: file.size,
+    variantsPlanned: variants.map((variant) => variant.name),
+  });
+
+  try {
+    img.src = objectUrl;
+    try {
+      await waitForPhotoBarcodeImageLoad(img);
+      logPhotoBarcodeDecodeDebug("image loaded", {
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+      });
+    } catch (err) {
+      logPhotoBarcodeDecodeError("imageLoad", err);
+      return { status: "not_found" };
+    }
+
+    const nativeCandidates = await detectBarcodeWithNativeDetector(img, "original");
+    candidates.push(...nativeCandidates);
+    const bestNative = chooseBestPhotoBarcodeCandidate(nativeCandidates);
+    if (bestNative && isConfidentShipmentPhotoBarcodeCandidate(bestNative)) {
+      logPhotoBarcodeDecodeDebug("selected barcode", bestNative);
+      return { status: "detected", value: bestNative.value };
+    }
+
+    let zxing: ZxingPhotoBarcodeReader;
+    try {
+      zxing = await createZxingPhotoBarcodeReader();
+    } catch (err) {
+      logPhotoBarcodeDecodeError("ZXing:imageElement", err);
+      const fallback = chooseBestPhotoBarcodeCandidate(candidates);
+      if (!fallback || photoBarcodeValueLooksLikeUrl(fallback.value)) {
+        const ocrCandidates = await detectPhotoOcrCandidatesFromImage(img);
+        if (ocrCandidates.length > 0) return { status: "ocr_candidates", candidates: ocrCandidates };
+      }
+      return fallback && isConfidentShipmentPhotoBarcodeCandidate(fallback)
+        ? { status: "detected", value: fallback.value }
+        : { status: "not_found" };
+    }
+
+    const zxingElementCandidate = await detectBarcodeWithZxingImageElement(zxing, img, "original");
+    if (zxingElementCandidate) {
+      candidates.push(zxingElementCandidate);
+      if (isConfidentShipmentPhotoBarcodeCandidate(zxingElementCandidate)) {
+        logPhotoBarcodeDecodeDebug("selected barcode", zxingElementCandidate);
+        return { status: "detected", value: zxingElementCandidate.value };
+      }
+    }
+
+    const zxingUrlCandidate = await detectBarcodeWithZxingImageUrl(zxing, objectUrl, "original:url");
+    if (zxingUrlCandidate) {
+      candidates.push(zxingUrlCandidate);
+      if (isConfidentShipmentPhotoBarcodeCandidate(zxingUrlCandidate)) {
+        logPhotoBarcodeDecodeDebug("selected barcode", zxingUrlCandidate);
+        return { status: "detected", value: zxingUrlCandidate.value };
+      }
+    }
+
+    for (const variant of variants) {
+      const candidate = await decodePhotoBarcodeCanvasVariant(zxing, img, variant);
+      if (!candidate) continue;
+      candidates.push(candidate);
+      if (isConfidentShipmentPhotoBarcodeCandidate(candidate)) {
+        logPhotoBarcodeDecodeDebug("selected barcode", candidate);
+        return { status: "detected", value: candidate.value };
+      }
+    }
+
+    const fallback = chooseBestPhotoBarcodeCandidate(candidates);
+    if (fallback && photoBarcodeValueLooksLikeUrl(fallback.value)) {
+      const ocrCandidates = await detectPhotoOcrCandidatesFromImage(img);
+      if (ocrCandidates.length > 0) return { status: "ocr_candidates", candidates: ocrCandidates };
+    }
+
+    if (fallback && isConfidentShipmentPhotoBarcodeCandidate(fallback)) {
+      logPhotoBarcodeDecodeDebug("selected fallback barcode", fallback);
+      return { status: "detected", value: fallback.value };
+    }
+
+    const ocrCandidates = await detectPhotoOcrCandidatesFromImage(img);
+    if (ocrCandidates.length > 0) {
+      logPhotoBarcodeDecodeDebug("selected ocr candidates", { candidates: ocrCandidates });
+      return { status: "ocr_candidates", candidates: ocrCandidates };
+    }
+
+    logPhotoBarcodeDecodeDebug("all decoders failed", {
+      attemptedVariants: variants.map((variant) => variant.name),
+    });
+    return { status: "not_found" };
+  } finally {
+    img.onload = null;
+    img.onerror = null;
+    URL.revokeObjectURL(objectUrl);
   }
 }
 
@@ -1467,21 +2173,6 @@ function identifyGateMatchFieldUiLabel(field: ShipmentEntryItemViewMatchField): 
     default:
       return "Code";
   }
-}
-
-function isIdentifyGateOcrAcceptable(confidence: number, cleaned: string): boolean {
-  const alnum = cleaned.replace(/[^A-Za-z0-9]/g, "");
-  if (alnum.length < 3 || cleaned.length < 3) return false;
-  const asinLike = /^B0[A-Z0-9]{8}$/i.test(cleaned);
-  const slipIdLike = /^SD9Q[A-Z0-9]{4,}$/i.test(cleaned);
-  const fnskuLike = /^X00[A-Z0-9]{6,}$/i.test(cleaned);
-  const zzqLike = /^ZZQ[A-Z0-9]{4,}$/i.test(cleaned);
-  if (asinLike && confidence >= 12) return true;
-  if ((slipIdLike || fnskuLike || zzqLike) && confidence >= 14) return true;
-  if (confidence < 16) return false;
-  if (confidence < 32 && alnum.length < 10) return false;
-  if (confidence < 45 && alnum.length < 6) return false;
-  return true;
 }
 
 type InspectionCondition = "good" | "damaged" | "expired" | "open_box" | "missing_parts";
@@ -1688,6 +2379,18 @@ function countLookupExpectedPackages(
   if (detailRows.length > 0) return detailRows.length;
   if (shipmentLines.length > 0) return shipmentLines.length;
   return typeof fallbackRowCount === "number" && fallbackRowCount > 0 ? fallbackRowCount : null;
+}
+
+function trackingScopedInventoryRows(rows: VInventoryStatusRow[], trackingNumber: string): VInventoryStatusRow[] {
+  const key = normalizeTrackingKey(trackingNumber);
+  if (!key) return [];
+  return rows.filter((row) => normalizeTrackingKey(row.tracking_number) === key);
+}
+
+function trackingScopedExpectedRows(rows: Record<string, unknown>[], trackingNumber: string): Record<string, unknown>[] {
+  const key = normalizeTrackingKey(trackingNumber);
+  if (!key) return [];
+  return rows.filter((row) => normalizeTrackingKey(String(row.tracking_number ?? "")) === key);
 }
 
 function expectedRowValueForTier(row: Record<string, unknown>, tier: ItemResolveTier): string {
@@ -2954,6 +3657,8 @@ function OperatorMobileScanPageContent() {
     message: string;
   } | null>(null);
   const [identifyGatePhotoOcrToast, setIdentifyGatePhotoOcrToast] = useState<string | null>(null);
+  const [identifyGatePhotoOcrCandidates, setIdentifyGatePhotoOcrCandidates] = useState<string[]>([]);
+  const [identifyGateSelectedPhotoOcrCandidate, setIdentifyGateSelectedPhotoOcrCandidate] = useState<string | null>(null);
   const [identifyGateOcrReading, setIdentifyGateOcrReading] = useState(false);
   const [identifyGateOcrProgressPct, setIdentifyGateOcrProgressPct] = useState(0);
   const [identifyGateOcrMenuOpen, setIdentifyGateOcrMenuOpen] = useState(false);
@@ -3004,6 +3709,49 @@ function OperatorMobileScanPageContent() {
     if (!text) return;
     setScanActionToast({ variant, message: text });
   }, []);
+
+  const clearPreviousLookupResult = useCallback(
+    (options?: {
+      phase?: IdentifyGatePhase;
+      enteredCode?: string;
+      clearResolvedContext?: boolean;
+      clearScanLine?: boolean;
+    }) => {
+      setIdentifyGateError(null);
+      setIdentifyGateEnteredCode(options?.enteredCode ?? "");
+      setIdentifyGateRows([]);
+      setIdentifyGateCanonicalTracking(null);
+      setIdentifyGateMatchField(null);
+      setIdentifyGateEntity(null);
+      setIdentifyGatePhysicalBoxStr("");
+      setIdentifyGateInventoryAgg(null);
+      setIdentifyGateInventoryVisual(null);
+      setIdentifyGateViewHints(null);
+      setIdentifyGateShipmentLines([]);
+      setIdentifyGateExpectationLines([]);
+      setIdentifyGatePhotoOcrToast(null);
+      setIdentifyGatePhotoOcrCandidates([]);
+      setIdentifyGateSelectedPhotoOcrCandidate(null);
+      setIdentifyGateOcrMenuOpen(false);
+      setIdentifyGateOcrDropHighlight(false);
+      setIdentifyGateGlowFlash(false);
+      setAwaitingPostCompleteExtraScan(false);
+      setCompletedShipmentModal(null);
+      setGateTrackingHelpOpen(false);
+      completedShipmentDialogShownForKeyRef.current = null;
+      postCompleteTrackingRef.current = null;
+      if (options?.clearScanLine) setScanLine("");
+      if (options?.clearResolvedContext) {
+        setActivePallet(null);
+        setActiveTracking(null);
+        setCurrentPalletTrackingId(null);
+        setActiveSlipOrPackage(null);
+        setDirectBox(false);
+      }
+      setIdentifyGatePhase(options?.phase ?? "idle");
+    },
+    [],
+  );
 
   const closeItemUnitModal = useCallback(
     (cancelled: boolean) => {
@@ -3067,8 +3815,20 @@ function OperatorMobileScanPageContent() {
   const identifyGateResolvedNameMap = useMemo(() => {
     const m = new Map<string, string>();
     for (const raw of identifyGateRows) {
-      const rid = String((raw as { resolved_product_id?: string | null }).resolved_product_id ?? "").trim();
+      const r = raw as {
+        resolved_product_id?: string | null;
+        product_id?: string | null;
+        resolved_catalog_product_id?: string | null;
+      };
+      const rid = String(r.resolved_product_id ?? r.product_id ?? r.resolved_catalog_product_id ?? "").trim();
       const nm = epPackageRowCatalogSubtitle(raw)?.trim();
+      if (rid && nm) m.set(rid, nm);
+    }
+    for (const line of identifyGateShipmentLines) {
+      const rid = String(
+        line.resolved_product_id ?? line.product_id ?? line.resolved_catalog_product_id ?? "",
+      ).trim();
+      const nm = line.product_name?.trim() ?? "";
       if (rid && nm) m.set(rid, nm);
     }
     for (const line of identifyGateExpectationLines) {
@@ -3077,30 +3837,18 @@ function OperatorMobileScanPageContent() {
       if (rid && nm) m.set(rid, nm);
     }
     return m;
-  }, [identifyGateRows, identifyGateExpectationLines]);
+  }, [identifyGateRows, identifyGateShipmentLines, identifyGateExpectationLines]);
 
   const runIdentificationGateSearch = useCallback(
     async (rawCode: string) => {
       const trimmed = rawCode.trim();
       if (!trimmed) return;
-      setIdentifyGateError(null);
       setModernPalletWorkspace(false);
-      setIdentifyGateEntity(null);
-      setIdentifyGatePhysicalBoxStr("");
-      setIdentifyGateEnteredCode(trimmed);
-      setIdentifyGateRows([]);
-      setIdentifyGateCanonicalTracking(null);
-      setIdentifyGateMatchField(null);
-      setIdentifyGateShipmentLines([]);
-      setIdentifyGateExpectationLines([]);
-      setIdentifyGateInventoryAgg(null);
-      setIdentifyGateInventoryVisual(null);
-      setIdentifyGateViewHints(null);
-      completedShipmentDialogShownForKeyRef.current = null;
-      setCompletedShipmentModal(null);
-      setAwaitingPostCompleteExtraScan(false);
-      setGateTrackingHelpOpen(false);
-      setIdentifyGatePhase("searching");
+      clearPreviousLookupResult({
+        phase: "searching",
+        enteredCode: trimmed,
+        clearResolvedContext: true,
+      });
       setBusy(true);
       try {
         if (!isSupabaseConfigured()) {
@@ -3185,8 +3933,12 @@ function OperatorMobileScanPageContent() {
           };
         }
 
-        const invRows = gateLookup.inventory_rows;
+        let invRows = gateLookup.inventory_rows;
         const gateMatchField = gateLookup.inventory_matched_field;
+        const submittedTrackingForScope = trimmed;
+        if (gateMatchField === "tracking_number") {
+          invRows = trackingScopedInventoryRows(invRows, submittedTrackingForScope);
+        }
         setIdentifyGateMatchField(gateMatchField);
         if (invRows.length) {
           setIdentifyGateEntity(identifyGateEntityForManifestMatch(gateMatchField, gateLookup.match_status));
@@ -3194,9 +3946,6 @@ function OperatorMobileScanPageContent() {
 
         const agg = aggregateInventoryStatus(invRows);
         const vis = resolveInventoryGateVisualStatus(invRows, agg);
-        setIdentifyGateInventoryAgg(agg);
-        setIdentifyGateInventoryVisual(vis);
-        setIdentifyGateViewHints(pickInventoryViewHints(invRows));
 
         if (
           vis === "manual_new" &&
@@ -3268,17 +4017,23 @@ function OperatorMobileScanPageContent() {
           });
         }
         const safe = Array.isArray(detailRows) ? detailRows : [];
-        setIdentifyGateRows(safe);
         const canon =
           gateLookup.canonical_tracking ??
           invRows.map((r) => String(r.tracking_number ?? "").trim()).find(Boolean) ??
           (String(safe[0]?.tracking_number ?? "").trim() || trimmed);
+        const scopedSafe = gateMatchField === "tracking_number" ? trackingScopedExpectedRows(safe, submittedTrackingForScope) : safe;
+        setIdentifyGateRows(scopedSafe);
         setIdentifyGateCanonicalTracking(canon);
 
         let expectationLines: TrackingOperatorLine[] = [];
         if (sessionStoreId && canon) {
           try {
-            const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, canon);
+            const snap = await loadTrackingExpectationSnapshot(
+              supabase,
+              orgId,
+              sessionStoreId,
+              gateMatchField === "tracking_number" ? submittedTrackingForScope : canon,
+            );
             expectationLines = snap.lines;
           } catch (err) {
             console.warn("loadTrackingExpectationSnapshot failed", err);
@@ -3287,7 +4042,19 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateExpectationLines(expectationLines);
 
         let shipmentLines: VInventoryStatusRow[] = invRows.length ? invRows : [];
-        if (!shipmentLines.length && sessionStoreId && gateMatchField) {
+        if (sessionStoreId && gateMatchField === "tracking_number") {
+          try {
+            const { rows } = await fetchVInventoryItemStatusLinesForTrackingNormalized(
+              supabase,
+              orgId,
+              sessionStoreId,
+              submittedTrackingForScope,
+            );
+            shipmentLines = rows.length ? trackingScopedInventoryRows(rows, submittedTrackingForScope) : shipmentLines;
+          } catch (err) {
+            console.warn("fetchVInventoryItemStatusLinesForTrackingNormalized failed", err);
+          }
+        } else if (!shipmentLines.length && sessionStoreId && gateMatchField) {
           const narrowFields: InventoryViewMatchField[] = [
             "fnsku",
             "sku",
@@ -3313,6 +4080,18 @@ function OperatorMobileScanPageContent() {
             }
           }
         }
+        if (gateMatchField === "tracking_number") {
+          shipmentLines = trackingScopedInventoryRows(shipmentLines, submittedTrackingForScope);
+        }
+        const scopedAggregateRows = gateMatchField === "tracking_number" ? shipmentLines : invRows;
+        const scopedAgg = aggregateInventoryStatus(scopedAggregateRows);
+        const scopedVis =
+          gateMatchField === "tracking_number"
+            ? deriveInventoryGateVisualStatus(scopedAgg)
+            : resolveInventoryGateVisualStatus(scopedAggregateRows, scopedAgg);
+        setIdentifyGateInventoryAgg(scopedAgg);
+        setIdentifyGateInventoryVisual(scopedVis);
+        setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
         setIdentifyGateShipmentLines(shipmentLines);
         setIdentifyGatePhase("matched");
         playOperatorSuccessBeep();
@@ -3332,7 +4111,7 @@ function OperatorMobileScanPageContent() {
         scheduleFocusScanner();
       }
     },
-    [orgId, sessionStoreId, kioskStoreLocked, operatorStores.length, scheduleFocusScanner],
+    [orgId, sessionStoreId, kioskStoreLocked, operatorStores.length, scheduleFocusScanner, clearPreviousLookupResult],
   );
 
   useEffect(() => {
@@ -5914,24 +6693,9 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const resetIdentifyGateForm = useCallback(() => {
-    setIdentifyGatePhase("idle");
-    setIdentifyGateError(null);
-    setIdentifyGateEnteredCode("");
-      setIdentifyGateRows([]);
-      setIdentifyGateCanonicalTracking(null);
-      setIdentifyGateShipmentLines([]);
-      setIdentifyGateExpectationLines([]);
-    setIdentifyGateMatchField(null);
-    setIdentifyGateEntity(null);
-    setIdentifyGatePhysicalBoxStr("");
-    setIdentifyGateInventoryAgg(null);
-    setIdentifyGateInventoryVisual(null);
-    setIdentifyGateViewHints(null);
-    setAwaitingPostCompleteExtraScan(false);
-    setCompletedShipmentModal(null);
-    setGateTrackingHelpOpen(false);
+    clearPreviousLookupResult();
     setScanLine("");
-  }, []);
+  }, [clearPreviousLookupResult]);
 
   const resumeWorkflowFromExistingPalletRow = useCallback(
     async (row: OperatorPalletTrackingRow, enteredCode: string) => {
@@ -6040,93 +6804,6 @@ function OperatorMobileScanPageContent() {
     [orgId, sessionStoreId],
   );
 
-  const runIdentifyGatePhotoOcr = useCallback(async (file: File) => {
-    if (identifyGateOcrBusyRef.current) return;
-    if (!isAllowedIdentifyGateImageFile(file)) {
-      setIdentifyGatePhotoOcrToast("Please use a JPG or PNG image.");
-      return;
-    }
-    identifyGateOcrBusyRef.current = true;
-    setIdentifyGateOcrReading(true);
-    setIdentifyGateOcrProgressPct(0);
-    try {
-      const { createWorker, PSM } = await import("tesseract.js");
-      const worker = await createWorker("eng", undefined, {
-        logger: (m: { progress?: number }) => {
-          if (typeof m.progress === "number" && Number.isFinite(m.progress)) {
-            const pct = Math.round(Math.min(100, Math.max(0, m.progress * 100)));
-            setIdentifyGateOcrProgressPct(pct);
-          }
-        },
-      });
-      try {
-        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-        setIdentifyGateOcrProgressPct((p) => Math.max(p, 2));
-        const ocrSource = await preprocessIdentifyGatePhotoForOcr(file);
-        setIdentifyGateOcrProgressPct((p) => Math.max(p, 6));
-        const { data } = await worker.recognize(ocrSource);
-        setIdentifyGateOcrProgressPct(100);
-        const raw = String(data.text ?? "");
-        const picked = extractStrictIdentifyGateSlipCode(raw);
-        const cleaned = stripIdentifyGateOcrEdges(picked);
-        if (!cleaned.trim()) {
-          setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
-          return;
-        }
-        const conf = typeof data.confidence === "number" ? data.confidence : 0;
-        if (!isIdentifyGateOcrAcceptable(conf, cleaned)) {
-          setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
-          return;
-        }
-        setScanLine(cleaned);
-      } finally {
-        await worker.terminate();
-      }
-    } catch (err) {
-      console.warn("Identify gate photo OCR failed", err);
-      setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
-    } finally {
-      identifyGateOcrBusyRef.current = false;
-      setIdentifyGateOcrReading(false);
-      setIdentifyGateOcrProgressPct(0);
-    }
-  }, []);
-
-  const onIdentifyGateOcrFileInputChange = useCallback(
-    async (e: ChangeEvent<HTMLInputElement>) => {
-      const input = e.currentTarget;
-      const file = input.files?.[0];
-      input.value = "";
-      if (file) await runIdentifyGatePhotoOcr(file);
-    },
-    [runIdentifyGatePhotoOcr],
-  );
-
-  const onIdentifyGateScanZoneDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
-    setIdentifyGateOcrDropHighlight(true);
-  }, []);
-
-  const onIdentifyGateScanZoneDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const rel = e.relatedTarget as Node | null;
-    if (rel && e.currentTarget.contains(rel)) return;
-    setIdentifyGateOcrDropHighlight(false);
-  }, []);
-
-  const onIdentifyGateScanZoneDrop = useCallback(
-    async (e: DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIdentifyGateOcrDropHighlight(false);
-      const f = e.dataTransfer.files?.[0];
-      if (f) await runIdentifyGatePhotoOcr(f);
-    },
-    [runIdentifyGatePhotoOcr],
-  );
-
   const exitManualEntryMode = useCallback(() => {
     manualEntryModeRef.current = false;
     setManualEntryMode(false);
@@ -6140,6 +6817,13 @@ function OperatorMobileScanPageContent() {
     manualEntryModeRef.current = true;
     setManualEntryMode(true);
     setManualOpen(true);
+    if (!isIdentified && flowPhase === "scan") {
+      clearPreviousLookupResult({ clearResolvedContext: true });
+    } else {
+      setIdentifyGatePhotoOcrToast(null);
+      setIdentifyGatePhotoOcrCandidates([]);
+      setIdentifyGateSelectedPhotoOcrCandidate(null);
+    }
     setScanLine("");
     scannerRef.current?.blur();
     const focusManualInput = () => {
@@ -6155,7 +6839,21 @@ function OperatorMobileScanPageContent() {
     };
     window.requestAnimationFrame(focusManualInput);
     window.setTimeout(focusManualInput, 0);
-  }, []);
+  }, [clearPreviousLookupResult, flowPhase, isIdentified]);
+
+  const handleManualScanLineChange = useCallback(
+    (nextValue: string) => {
+      if (!isIdentified && flowPhase === "scan") {
+        clearPreviousLookupResult({ clearResolvedContext: true });
+      } else {
+        setIdentifyGatePhotoOcrToast(null);
+        setIdentifyGatePhotoOcrCandidates([]);
+        setIdentifyGateSelectedPhotoOcrCandidate(null);
+      }
+      setScanLine(nextValue);
+    },
+    [clearPreviousLookupResult, flowPhase, isIdentified],
+  );
 
   const submitScannedCode = useCallback(
     async (raw: string, options?: { clearPackageBuffer?: boolean }) => {
@@ -6171,6 +6869,13 @@ function OperatorMobileScanPageContent() {
         resetIdentifyGateForm();
         await runResolve(code);
         return;
+      }
+      if (!isIdentified && flowPhase === "scan") {
+        clearPreviousLookupResult({ phase: "searching", enteredCode: code, clearResolvedContext: true });
+      } else {
+        setIdentifyGatePhotoOcrToast(null);
+        setIdentifyGatePhotoOcrCandidates([]);
+        setIdentifyGateSelectedPhotoOcrCandidate(null);
       }
       if (flowPhase === "package_scan") {
         try {
@@ -6202,6 +6907,7 @@ function OperatorMobileScanPageContent() {
       runIdentificationGateSearch,
       runResolve,
       resetIdentifyGateForm,
+      clearPreviousLookupResult,
     ],
   );
 
@@ -6242,6 +6948,139 @@ function OperatorMobileScanPageContent() {
       scheduleFocusScanner();
     },
     [scheduleFocusScanner, submitScannedCode],
+  );
+
+  const resetIdentifyGatePhotoFileInputs = useCallback(() => {
+    if (identifyGateCameraCaptureRef.current) identifyGateCameraCaptureRef.current.value = "";
+    if (identifyGateCameraUploadRef.current) identifyGateCameraUploadRef.current.value = "";
+  }, []);
+
+  const focusHiddenScannerAfterPhotoScan = useCallback(() => {
+    window.setTimeout(() => {
+      if (manualEntryModeRef.current) return;
+      const el = scannerRef.current;
+      if (!el) return;
+      try {
+        el.focus({ preventScroll: true });
+      } catch {
+        el.focus();
+      }
+    }, 0);
+  }, []);
+
+  const clearIdentifyGatePhotoOcrCandidates = useCallback(() => {
+    setIdentifyGatePhotoOcrToast(null);
+    setIdentifyGatePhotoOcrCandidates([]);
+    setIdentifyGateSelectedPhotoOcrCandidate(null);
+    focusHiddenScannerAfterPhotoScan();
+  }, [focusHiddenScannerAfterPhotoScan]);
+
+  const applyIdentifyGatePhotoOcrCandidate = useCallback(async () => {
+    const candidate = (identifyGateSelectedPhotoOcrCandidate ?? identifyGatePhotoOcrCandidates[0] ?? "").trim();
+    if (!candidate) return;
+    setIdentifyGatePhotoOcrCandidates([]);
+    setIdentifyGateSelectedPhotoOcrCandidate(null);
+    await submitScannedCode(candidate);
+    scheduleFocusScanner();
+  }, [
+    identifyGatePhotoOcrCandidates,
+    identifyGateSelectedPhotoOcrCandidate,
+    scheduleFocusScanner,
+    submitScannedCode,
+  ]);
+
+  const retryIdentifyGatePhotoOcr = useCallback(() => {
+    clearPreviousLookupResult({ clearResolvedContext: true });
+    setIdentifyGateOcrMenuOpen(true);
+    focusHiddenScannerAfterPhotoScan();
+  }, [clearPreviousLookupResult, focusHiddenScannerAfterPhotoScan]);
+
+  const startManualEntryFromPhotoOcrCandidate = useCallback(() => {
+    clearPreviousLookupResult({ clearResolvedContext: true });
+    startManualEntryMode(gateManualInputRef);
+  }, [clearPreviousLookupResult, startManualEntryMode]);
+
+  const decodeAndSubmitIdentifyGatePhotoBarcode = useCallback(
+    async (file: File) => {
+      if (identifyGateOcrBusyRef.current) return;
+      clearPreviousLookupResult({ clearResolvedContext: true });
+      if (!isAllowedIdentifyGateImageFile(file)) {
+        setIdentifyGatePhotoOcrToast("Please use a JPG or PNG image.");
+        resetIdentifyGatePhotoFileInputs();
+        focusHiddenScannerAfterPhotoScan();
+        return;
+      }
+
+      identifyGateOcrBusyRef.current = true;
+      manualEntryModeRef.current = false;
+      setManualEntryMode(false);
+      setManualOpen(false);
+      setIdentifyGateOcrReading(true);
+      setIdentifyGateOcrProgressPct(0);
+
+      try {
+        const result = await detectBarcodeFromImageFile(file);
+        setIdentifyGateOcrProgressPct(100);
+
+        if (result.status === "detected") {
+          await submitScannedCode(result.value);
+          return;
+        }
+
+        if (result.status === "ocr_candidates") {
+          setIdentifyGatePhotoOcrToast(null);
+          setIdentifyGatePhotoOcrCandidates(result.candidates);
+          setIdentifyGateSelectedPhotoOcrCandidate(result.candidates[0] ?? null);
+          return;
+        }
+
+        setIdentifyGatePhotoOcrToast(
+          "No package, tracking, or shipment code found. Capture the label/code area or use Manual Entry.",
+        );
+      } finally {
+        identifyGateOcrBusyRef.current = false;
+        setIdentifyGateOcrReading(false);
+        setIdentifyGateOcrProgressPct(0);
+        resetIdentifyGatePhotoFileInputs();
+        focusHiddenScannerAfterPhotoScan();
+      }
+    },
+    [clearPreviousLookupResult, focusHiddenScannerAfterPhotoScan, resetIdentifyGatePhotoFileInputs, submitScannedCode],
+  );
+
+  const onIdentifyGateOcrFileInputChange = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const input = e.currentTarget;
+      const file = input.files?.[0];
+      input.value = "";
+      if (file) await decodeAndSubmitIdentifyGatePhotoBarcode(file);
+    },
+    [decodeAndSubmitIdentifyGatePhotoBarcode],
+  );
+
+  const onIdentifyGateScanZoneDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    setIdentifyGateOcrDropHighlight(true);
+  }, []);
+
+  const onIdentifyGateScanZoneDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const rel = e.relatedTarget as Node | null;
+    if (rel && e.currentTarget.contains(rel)) return;
+    setIdentifyGateOcrDropHighlight(false);
+  }, []);
+
+  const onIdentifyGateScanZoneDrop = useCallback(
+    async (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIdentifyGateOcrDropHighlight(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) await decodeAndSubmitIdentifyGatePhotoBarcode(file);
+    },
+    [decodeAndSubmitIdentifyGatePhotoBarcode],
   );
 
   useEffect(() => {
@@ -8881,22 +9720,13 @@ function OperatorMobileScanPageContent() {
                   aria-hidden
                   onChange={onIdentifyGateOcrFileInputChange}
                 />
-                <div className="mb-1 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => startManualEntryMode(gateManualInputRef)}
-                    className="text-[10px] font-bold uppercase tracking-widest text-sky-200 underline decoration-sky-300/45 underline-offset-2"
-                  >
-                    Manual Entry
-                  </button>
-                </div>
                 <div className="relative">
                   {isManualEntryMode ? (
                     <input
                       ref={gateManualInputRef}
                       id={`${formId}-gate-manual`}
                       value={scanLine}
-                      onChange={(e) => setScanLine(e.target.value)}
+                      onChange={(e) => handleManualScanLineChange(e.target.value)}
                       onFocus={() => setManualOpen(true)}
                       onBlur={() => {
                         window.setTimeout(() => {
@@ -8920,23 +9750,27 @@ function OperatorMobileScanPageContent() {
                       aria-label={
                         identifyGateOcrReading ? "Analyzing image" : "Type tracking or slip code"
                       }
-                      placeholder={
-                        identifyGateOcrReading ? "⏳ Analyzing image..." : "Type tracking or slip code..."
-                      }
-                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[4.75rem] font-mono text-[14px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px] sm:placeholder:text-[14px]"
+                      placeholder="Type barcode manually"
+                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[5.5rem] font-mono text-[14px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.75rem] sm:text-[15px] sm:placeholder:text-[14px]"
                       style={{ color: TEXT_PRIMARY }}
                     />
                   ) : (
                     <button
                       type="button"
-                      onClick={focusScannerAggressive}
-                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[3rem] w-full items-center rounded-xl border py-2 pl-3.5 pr-[4.75rem] text-left font-mono text-[14px] outline-none transition sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px]"
-                      style={{ color: lastScannedCode ? TEXT_PRIMARY : MUTED_LABEL }}
+                      onClick={() => startManualEntryMode(gateManualInputRef)}
+                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[3rem] w-full items-center rounded-xl border py-2 pl-3.5 pr-[5.5rem] text-left font-mono text-[14px] outline-none transition sm:min-h-[3.25rem] sm:pr-[5.75rem] sm:text-[15px]"
+                      style={{ color: MUTED_LABEL }}
                     >
-                      {lastScannedCode || "Ready to scan"}
+                      <span className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between min-[380px]:gap-3">
+                        <span className="min-w-0 truncate">Ready to scan</span>
+                        <span className="operator-shipment-entry-gate__tap-to-type inline-flex shrink-0 items-center justify-end gap-1 text-[9px] font-bold uppercase tracking-wider min-[380px]:text-[10px]">
+                          <Pencil className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                          Tap to type
+                        </span>
+                      </span>
                     </button>
                   )}
-                  <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-0.5">
+                  <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-1">
                     <div className="relative" ref={identifyGateOcrMenuRef}>
                       <button
                         type="button"
@@ -8951,40 +9785,57 @@ function OperatorMobileScanPageContent() {
                         <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
                       </button>
                       {identifyGateOcrMenuOpen ? (
-                        <div
-                          className="scanner-ocr-action-sheet absolute right-0 top-full z-[50] mt-2 w-[min(calc(100vw-2rem),19rem)] overflow-hidden rounded-2xl py-2"
-                          role="menu"
-                        >
+                        <>
                           <button
                             type="button"
-                            role="menuitem"
-                            className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold transition sm:min-h-[3.5rem] sm:text-[16px]"
-                            onClick={() => {
-                              setIdentifyGateOcrMenuOpen(false);
-                              identifyGateCameraCaptureRef.current?.click();
-                            }}
+                            className="fixed inset-0 z-[149] cursor-default bg-black/35"
+                            aria-label="Close photo menu"
+                            onClick={() => setIdentifyGateOcrMenuOpen(false)}
+                          />
+                          <div
+                            className="scanner-ocr-action-sheet fixed bottom-20 left-1/2 z-[150] w-[calc(100vw-1.5rem)] max-w-[406px] -translate-x-1/2 overflow-hidden rounded-2xl py-2"
+                            role="menu"
                           >
-                            <span className="text-xl leading-none" aria-hidden>
-                              📸
-                            </span>
-                            Take a Photo
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex min-h-[3.25rem] w-full items-center gap-3 border-t px-4 py-3.5 text-left text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                            style={{ borderColor: "var(--scanner-border)" }}
-                            onClick={() => {
-                              setIdentifyGateOcrMenuOpen(false);
-                              identifyGateCameraUploadRef.current?.click();
-                            }}
-                          >
-                            <span className="text-xl leading-none" aria-hidden>
-                              📁
-                            </span>
-                            Upload from Gallery
-                          </button>
-                        </div>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold transition sm:min-h-[3.5rem] sm:text-[16px]"
+                              onClick={() => {
+                                setIdentifyGateOcrMenuOpen(false);
+                                identifyGateCameraCaptureRef.current?.click();
+                              }}
+                            >
+                              <span className="text-xl leading-none" aria-hidden>
+                                📸
+                              </span>
+                              Take Photo
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex min-h-[3.25rem] w-full items-center gap-3 border-t px-4 py-3.5 text-left text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
+                              style={{ borderColor: "var(--scanner-border)" }}
+                              onClick={() => {
+                                setIdentifyGateOcrMenuOpen(false);
+                                identifyGateCameraUploadRef.current?.click();
+                              }}
+                            >
+                              <span className="text-xl leading-none" aria-hidden>
+                                📁
+                              </span>
+                              Upload Photo
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex min-h-[3.25rem] w-full items-center justify-center border-t px-4 py-3.5 text-center text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
+                              style={{ borderColor: "var(--scanner-border)" }}
+                              onClick={() => setIdentifyGateOcrMenuOpen(false)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </>
                       ) : null}
                     </div>
                     <button
@@ -9015,6 +9866,94 @@ function OperatorMobileScanPageContent() {
                   ) : null}
                 </div>
               </div>
+              {identifyGatePhotoOcrCandidates.length > 0 ? (
+                <div
+                  className="mt-3 rounded-2xl border border-[#b08a3c]/35 bg-[#fffaf0] px-3 py-3 text-[#16181b] shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_14px_32px_rgba(22,24,27,0.12)] dark:border-[#d6b76e]/45 dark:bg-[#0b0d10]/95 dark:text-[#faf6ed] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_14px_36px_rgba(0,0,0,0.34)]"
+                  role="group"
+                  aria-label="AI detected possible photo code"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#8a681f]/35 bg-[#8a681f]/10 text-[#6f5424] dark:border-[#d6b76e]/45 dark:bg-[#d6b76e]/12 dark:text-[#f1d58a]"
+                        aria-hidden
+                      >
+                        <Sparkles className="h-3.5 w-3.5" strokeWidth={2.25} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-black leading-tight text-[#16181b] dark:text-[#faf6ed]">Possible code found</p>
+                        <p className="mt-0.5 text-[10px] font-semibold leading-tight text-[#4d5560] dark:text-[#faf6ed]/65">
+                          Package, tracking, or shipment code found from photo. Please confirm before using it.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className="rounded-full border border-[#8a681f]/35 bg-[#8a681f]/10 px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-wide text-[#524018] dark:border-[#d6b76e]/35 dark:bg-[#d6b76e]/10 dark:text-[#f1d58a]">
+                        AI Detected
+                      </span>
+                      <button
+                        type="button"
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-[#4d5560] transition hover:bg-[#8a681f]/10 hover:text-[#16181b] dark:text-[#faf6ed]/70 dark:hover:bg-white/10 dark:hover:text-[#faf6ed]"
+                        aria-label="Dismiss AI detected code"
+                        onClick={clearIdentifyGatePhotoOcrCandidates}
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-1.5">
+                    {identifyGatePhotoOcrCandidates.slice(0, 3).map((candidate) => {
+                      const selected = candidate === identifyGateSelectedPhotoOcrCandidate;
+                      return (
+                        <button
+                          key={candidate}
+                          type="button"
+                          className={`flex min-w-0 items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-left text-[#2f2410] transition active:scale-[0.99] dark:text-[#fef3c7] ${
+                            selected
+                              ? "border-[#8a681f]/60 bg-[#8a681f]/10 dark:border-[#d6b76e]/70 dark:bg-[#d6b76e]/15"
+                              : "border-[#8a681f]/25 bg-white/45 dark:border-[#d6b76e]/25 dark:bg-black/25"
+                          }`}
+                          aria-pressed={selected}
+                          onClick={() => setIdentifyGateSelectedPhotoOcrCandidate(candidate)}
+                        >
+                          <span className="min-w-0 break-all font-mono text-[18px] font-black leading-tight tracking-wide">
+                            {candidate}
+                          </span>
+                          <span className="shrink-0 rounded-full border border-[#8a681f]/30 bg-[#8a681f]/10 px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-wide text-[#524018] dark:border-[#d6b76e]/35 dark:bg-[#d6b76e]/10 dark:text-[#f1d58a]">
+                            AI Detected
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className="min-h-10 rounded-xl bg-[#1f242b] px-3 py-2 text-[12px] font-black uppercase tracking-wide text-[#fffaf0] shadow-[0_8px_18px_rgba(22,24,27,0.18)] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#d6b76e] dark:text-[#050607] dark:shadow-[0_10px_24px_rgba(214,183,110,0.18)]"
+                      disabled={!identifyGateSelectedPhotoOcrCandidate && identifyGatePhotoOcrCandidates.length === 0}
+                      onClick={() => void applyIdentifyGatePhotoOcrCandidate()}
+                    >
+                      Use this code
+                    </button>
+                    <button
+                      type="button"
+                      className="min-h-10 rounded-xl border border-[#8a681f]/35 bg-[#f8f6f1] px-3 py-2 text-[12px] font-bold uppercase tracking-wide text-[#524018] transition active:scale-[0.98] dark:border-[#d6b76e]/35 dark:bg-[#151a20] dark:text-[#f1d58a]"
+                      onClick={retryIdentifyGatePhotoOcr}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-2 w-full rounded-lg px-2 py-1.5 text-center text-[11px] font-bold text-[#6f5424] underline decoration-[#8a681f]/35 underline-offset-2 transition hover:text-[#524018] dark:text-[#f1d58a]/85 dark:decoration-[#f1d58a]/35 dark:hover:text-[#faf6ed]"
+                    onClick={startManualEntryFromPhotoOcrCandidate}
+                  >
+                    Manual Entry
+                  </button>
+                </div>
+              ) : null}
               {identifyGatePhase === "searching" ? (
                 <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold" style={{ color: "#B9C2CC" }}>
                   <Loader2 className="operator-shipment-entry-gate__searching-spinner h-5 w-5 animate-spin" strokeWidth={2} />
@@ -9100,10 +10039,14 @@ function OperatorMobileScanPageContent() {
                   ) : null}
 
                   <p className="mb-1 max-w-[calc(100%-5.5rem)] text-[13px] font-medium leading-snug text-white/90">
-                    {identifyGateInventoryVisual === "manual_new" && identifyGatePhase === "new"
+                    {identifyGateInventoryVisual !== "manual_new" &&
+                    identifyGateInventoryAgg?.totalScanned === 0 &&
+                    identifyGateInventoryAgg.totalExpected > 0
+                      ? "Expected shipment — no units scanned yet."
+                      : identifyGateInventoryVisual === "manual_new" && identifyGatePhase === "new"
                       ? "No manifest lines for this code — create a record or pick entity type."
                       : identifyGateInventoryVisual === "new"
-                        ? "New on manifest — confirm entity and continue."
+                        ? "Expected shipment — no units scanned yet."
                         : identifyGateInventoryVisual === "unexpected"
                           ? "Not on the expected list (0 expected)."
                           : identifyGateInventoryVisual === "in_progress"
@@ -9243,7 +10186,7 @@ function OperatorMobileScanPageContent() {
                                   <ProductLinkagePrimaryLink
                                     linkage={line.product_linkage}
                                     detailFrom="scan"
-                                    className="text-sm font-bold leading-tight text-sky-300 underline decoration-sky-400/50 underline-offset-2 hover:text-sky-200"
+                                    className="operator-shipment-entry-gate__product-link text-sm font-bold leading-tight underline underline-offset-2"
                                     onClick={(e) => e.stopPropagation()}
                                   />
                                   <OperatorProductLinkageMeta
@@ -9252,8 +10195,7 @@ function OperatorMobileScanPageContent() {
                                     detailFrom="scan"
                                   />
                                   <span className="font-mono text-[10px] tabular-nums text-slate-500">
-                                    Exp {line.expectedQty} · Scan {line.scannedQty} · Var{" "}
-                                    {formatScanVarianceLabel(line.expectedQty, line.scannedQty)}
+                                    Exp {line.expectedQty} · Scan {line.scannedQty}
                                   </span>
                                 </li>
                               ))
@@ -9281,7 +10223,7 @@ function OperatorMobileScanPageContent() {
                                     <ProductLinkagePrimaryLink
                                       linkage={linkage}
                                       detailFrom="scan"
-                                      className="text-sm font-bold leading-tight text-sky-300 underline decoration-sky-400/50 underline-offset-2 hover:text-sky-200"
+                                      className="operator-shipment-entry-gate__product-link text-sm font-bold leading-tight underline underline-offset-2"
                                       onClick={(e) => e.stopPropagation()}
                                     />
                                     <OperatorProductLinkageMeta
@@ -9305,63 +10247,96 @@ function OperatorMobileScanPageContent() {
                           {identifyGateMatchField ? identifyGateMatchFieldUiLabel(identifyGateMatchField) : "tracking"}
                         </span>
                       </p>
-                      <div className="operator-shipment-entry-gate__line-items overflow-x-auto rounded-xl ring-1 ring-white/10">
-                        <table className="w-full min-w-[520px] border-collapse text-left text-[11px]">
-                          <thead>
-                            <tr className="border-b border-white/10 bg-black/25 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                              <th className="px-2 py-2">Product name</th>
-                              <th className="px-2 py-2 font-mono">FNSKU</th>
-                              <th className="px-2 py-2 text-right tabular-nums">Expected</th>
-                              <th className="px-2 py-2 text-right tabular-nums">Scanned</th>
-                              <th className="px-2 py-2 text-right tabular-nums">Variance</th>
-                              <th className="px-2 py-2">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {identifyGateShipmentLines.map((row, idx) => {
-                              const vis = shipmentLineStatusVisual(row.status);
-                              const th = IDENTIFICATION_GATE_THEME[vis];
-                              const epRow = identifyGateEpById.get(row.expected_package_id);
-                              const lineLinkage = buildInventoryViewProductLinkage(
-                                row,
-                                epRow,
-                                identifyGateResolvedNameMap,
-                              );
-                              const variance = formatScanVarianceLabel(row.total_expected, row.total_scanned);
-                              return (
-                                <tr key={`${row.expected_package_id}-${idx}`} className="border-b border-white/5">
-                                  <td className="max-w-[200px] px-2 py-2 font-semibold leading-snug text-white">
+                      <div className="operator-shipment-entry-gate__line-items rounded-xl ring-1 ring-white/10">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 border-b border-white/10 bg-black/25 px-2 py-1.5 text-[9px] font-black uppercase tracking-wide text-slate-500">
+                          <span>Product</span>
+                          <span className="text-right tabular-nums">Expected</span>
+                          <span className="text-right tabular-nums">Scanned</span>
+                        </div>
+                        <div className="grid gap-2 p-2">
+                          {identifyGateShipmentLines.map((row, idx) => {
+                            const vis = shipmentLineStatusVisual(row);
+                            const th = IDENTIFICATION_GATE_THEME[vis];
+                            const epRow = identifyGateEpById.get(row.expected_package_id);
+                            const lineLinkage = buildInventoryViewProductLinkage(
+                              row,
+                              epRow,
+                              identifyGateResolvedNameMap,
+                            );
+                            const fnsku = row.fnsku?.trim() ?? "";
+                            const asin = row.asin?.trim() ?? "";
+                            const sku = row.sku?.trim() ?? "";
+                            const primaryIdentifier = fnsku || asin || sku;
+                            const primaryIdentifierLabel = fnsku ? "FNSKU" : asin ? "ASIN" : sku ? "SKU" : "Identifier";
+                            const secondaryIdentifier = fnsku ? asin || sku : "";
+                            const secondaryIdentifierLabel = fnsku && asin ? "ASIN" : fnsku && sku ? "SKU" : "";
+
+                            return (
+                              <div
+                                key={`${row.expected_package_id}-${idx}`}
+                                className="operator-shipment-entry-gate__line-item-card rounded-xl border p-2"
+                              >
+                                <div className="flex min-w-0 items-start justify-between gap-2">
+                                  <div
+                                    className="min-w-0 flex-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                  >
                                     <ProductLinkagePrimaryLink
                                       linkage={lineLinkage}
                                       detailFrom="scan"
-                                      className="text-sm font-bold leading-tight text-sky-300 underline decoration-sky-400/50 underline-offset-2 hover:text-sky-200"
+                                      className="operator-shipment-entry-gate__product-link line-clamp-2 break-words text-xs font-semibold leading-tight underline underline-offset-2"
                                       onClick={(e) => e.stopPropagation()}
                                     />
-                                    <OperatorProductLinkageMeta linkage={lineLinkage} linkResolvedProductId={false} detailFrom="scan" />
-                                  </td>
-                                  <td className="px-2 py-2 font-mono text-[11px] text-white/90">
-                                    {row.fnsku?.trim() || row.asin?.trim() || "—"}
-                                  </td>
-                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white">{row.total_expected}</td>
-                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white">{row.total_scanned}</td>
-                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white/90">{variance}</td>
-                                  <td className="px-2 py-2">
-                                    <span
-                                      className="inline-block rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1"
-                                      style={{
-                                        borderColor: th.border,
-                                        backgroundColor: th.chipBg,
-                                        color: th.headline,
-                                      }}
-                                    >
-                                      {String(row.status ?? "—").trim() || "—"}
+                                    <div className="mt-1 max-w-full overflow-hidden text-[10px] font-medium leading-tight text-slate-400">
+                                      <span className="font-semibold text-slate-500">{primaryIdentifierLabel}</span>{" "}
+                                      <span className="break-words font-mono">{primaryIdentifier || "—"}</span>
+                                      {secondaryIdentifier ? (
+                                        <>
+                                          <span className="mx-1 text-slate-600">|</span>
+                                          <span className="font-semibold text-slate-500">{secondaryIdentifierLabel}</span>{" "}
+                                          <span className="break-words font-mono">{secondaryIdentifier}</span>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                    <div className="[&_*]:text-[8px] [&_*]:leading-none">
+                                      <OperatorProductLinkageMeta
+                                        linkage={lineLinkage}
+                                        linkResolvedProductId={false}
+                                        detailFrom="scan"
+                                      />
+                                    </div>
+                                  </div>
+                                  <span
+                                    data-line-status={vis}
+                                    className="operator-shipment-entry-gate__line-item-status-badge shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide ring-1"
+                                    style={{
+                                      borderColor: th.border,
+                                      backgroundColor: th.chipBg,
+                                      color: th.headline,
+                                    }}
+                                  >
+                                    {shipmentLineStatusLabel(row)}
+                                  </span>
+                                </div>
+                                <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                  <div className="rounded-lg bg-white/[0.03] px-2 py-1">
+                                    Expected{" "}
+                                    <span className="float-right font-mono text-xs font-bold tabular-nums text-white">
+                                      {row.total_expected}
                                     </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                                  </div>
+                                  <div className="rounded-lg bg-white/[0.03] px-2 py-1">
+                                    Scanned{" "}
+                                    <span className="float-right font-mono text-xs font-bold tabular-nums text-white">
+                                      {row.total_scanned}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -9949,18 +10924,6 @@ function OperatorMobileScanPageContent() {
               </div>
 
               <div className="mt-2">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <label htmlFor={`${formId}-scan-manual`} className="block text-[9px] font-semibold uppercase tracking-widest text-slate-500">
-                    Manual entry
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => startManualEntryMode(palletManualInputRef)}
-                    className="text-[10px] font-bold uppercase tracking-widest text-sky-200 underline decoration-sky-300/45 underline-offset-2"
-                  >
-                    Manual Entry
-                  </button>
-                </div>
                 <div className="relative">
                   {isManualEntryMode ? (
                     <>
@@ -9968,7 +10931,7 @@ function OperatorMobileScanPageContent() {
                         ref={palletManualInputRef}
                         id={`${formId}-scan-manual`}
                         value={scanLine}
-                        onChange={(e) => setScanLine(e.target.value)}
+                        onChange={(e) => handleManualScanLineChange(e.target.value)}
                         onFocus={() => setManualOpen(true)}
                         onBlur={() => {
                           window.setTimeout(() => {
@@ -9987,7 +10950,7 @@ function OperatorMobileScanPageContent() {
                         autoCorrect="off"
                         spellCheck={false}
                         inputMode="text"
-                        placeholder="Barcode"
+                        placeholder="Type barcode manually"
                         className="scanner-input-glass h-9 w-full rounded-lg border py-0 pl-3 pr-[4.25rem] font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
                         style={{ color: TEXT_PRIMARY }}
                       />
@@ -10006,11 +10969,15 @@ function OperatorMobileScanPageContent() {
                   ) : (
                     <button
                       type="button"
-                      onClick={focusScannerAggressive}
-                      className="scanner-input-glass flex h-9 w-full items-center rounded-lg border py-0 pl-3 pr-3 text-left font-mono text-[13px] outline-none transition"
-                      style={{ color: lastScannedCode ? TEXT_PRIMARY : MUTED_LABEL }}
+                      onClick={() => startManualEntryMode(palletManualInputRef)}
+                      className="scanner-input-glass flex h-9 w-full items-center justify-between gap-3 rounded-lg border py-0 pl-3 pr-3 text-left font-mono text-[13px] outline-none transition"
+                      style={{ color: MUTED_LABEL }}
                     >
-                      {lastScannedCode || "Ready to scan"}
+                      <span>Ready to scan</span>
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-sky-200/85">
+                        <Pencil className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                        Tap to type
+                      </span>
                     </button>
                   )}
                 </div>
@@ -10375,13 +11342,6 @@ function OperatorMobileScanPageContent() {
                       >
                         PACKAGE CODE <span className="font-normal normal-case opacity-70">(scan / type — Apply to lock)</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => startManualEntryMode(boxManualInputRef)}
-                        className="text-[10px] font-bold uppercase tracking-widest text-sky-200 underline decoration-sky-300/45 underline-offset-2"
-                      >
-                        Manual Entry
-                      </button>
                     </div>
                     <div className="flex gap-2">
                       {isManualEntryMode ? (
@@ -10412,7 +11372,7 @@ function OperatorMobileScanPageContent() {
                             autoCorrect="off"
                             spellCheck={false}
                             inputMode="text"
-                            placeholder="Type package barcode, then Apply"
+                            placeholder="Type barcode manually"
                             disabled={Boolean(activeBoxSession)}
                             className="scanner-input-glass min-h-[2.75rem] min-w-0 flex-1 rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
                             style={{ color: TEXT_PRIMARY }}
@@ -10430,11 +11390,15 @@ function OperatorMobileScanPageContent() {
                       ) : (
                         <button
                           type="button"
-                          onClick={focusScannerAggressive}
-                          className="scanner-input-glass flex min-h-[2.75rem] min-w-0 flex-1 items-center rounded-lg border px-3 text-left font-mono text-[13px] outline-none transition"
-                          style={{ color: (currentPackageTrackingId ?? lastScannedCode).trim() ? TEXT_PRIMARY : MUTED_LABEL }}
+                          onClick={() => startManualEntryMode(boxManualInputRef)}
+                          className="scanner-input-glass flex min-h-[2.75rem] min-w-0 flex-1 items-center justify-between gap-3 rounded-lg border px-3 text-left font-mono text-[13px] outline-none transition"
+                          style={{ color: MUTED_LABEL }}
                         >
-                          {(currentPackageTrackingId ?? "").trim() || lastScannedCode || "Ready to scan"}
+                          <span>Ready to scan</span>
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-sky-200/85">
+                            <Pencil className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                            Tap to type
+                          </span>
                         </button>
                       )}
                     </div>

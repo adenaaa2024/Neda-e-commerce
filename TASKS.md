@@ -19,6 +19,7 @@ Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md).
 - [x] MAIN V205 staging inventory `package_code` views **APPLIED_VERIFIED** (`20260522T173000Z`)
 - [x] MAIN V206 original inventory `package_code` views **APPLIED_VERIFIED** (`20260522T180000Z`)
 - [x] MAIN V206 browser proof package # search **PASS** (`20260522T180000Z`)
+- [x] V207 operator scan product link fix **PASS** (`20260527T191800Z`)
 
 ## Done — V202 API dry-run
 

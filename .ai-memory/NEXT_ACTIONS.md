@@ -24,6 +24,7 @@ See [TASKS.md](../TASKS.md).
 - [x] V202 Amazon API evidence dry-run **READY_FOR_EXECUTE_REVIEW** (`20260522T200000Z`)
 - [x] V202 Amazon API evidence execute **FAIL** — 3 real SP-API calls; catalog 404 US MP; 0 inserts (`20260522T210000Z`)
 - [x] V202 identifier manual review batch **PASS** — 43 queued; 38 quarantine/fix source; 5 API 404 manual (`20260522T220000Z`)
+- [x] V207 operator scan product link fix **PASS** — tracking `2320305295` resolved on staging; scan line hydration now uses EP/inventory product IDs (`20260527T191800Z`)
 
 ---
 

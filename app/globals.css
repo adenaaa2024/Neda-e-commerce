@@ -499,6 +499,12 @@ html.light .operator-mobile-app-shell .scanner-ocr-reading-overlay {
   box-shadow: 0 8px 28px rgba(22, 24, 27, 0.08);
 }
 
+html.light .operator-mobile-app-shell .operator-shipment-entry-gate .scanner-ocr-reading-overlay {
+  background-color: #f8f6f1;
+  border: 1px solid rgba(138, 104, 31, 0.28);
+  box-shadow: 0 8px 24px rgba(22, 24, 27, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
 /* Shipment Entry gate — initial scan screen only (scoped via .operator-shipment-entry-gate) */
 .operator-shipment-entry-gate-page {
   background: linear-gradient(180deg, #11161c 0%, #050607 36%, #050607 100%) !important;
@@ -847,6 +853,22 @@ html.light .operator-shipment-entry-gate__searching-spinner,
 html.light .operator-shipment-entry-gate__ocr-spinner {
   color: #8a681f !important;
   filter: none !important;
+}
+
+html.light .operator-shipment-entry-gate__ocr-reading {
+  color: #16181b !important;
+  text-shadow: none !important;
+}
+
+html:not(.dark) .operator-shipment-entry-gate__ocr-reading {
+  color: #16181b !important;
+  text-shadow: none !important;
+}
+
+html.light .operator-shipment-entry-gate__ocr-spinner {
+  color: #8a681f !important;
+  filter: drop-shadow(0 1px 4px rgba(138, 104, 31, 0.28)) !important;
+  opacity: 1 !important;
 }
 
 html.light .operator-shipment-entry-gate__scan-icon {
