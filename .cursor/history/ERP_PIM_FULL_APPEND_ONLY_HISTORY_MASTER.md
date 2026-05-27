@@ -216,9 +216,17 @@ Guard: `npm run check:product-resolution-contract-v192`
 | PC05 pilot (191) | **PASS** staging + original (`20260526T180000Z`) |
 | PC05D Wave1 (50) | **PASS** staging execute + activate; **PASS** original parity PC05E (`20260526T200000Z`) |
 | PC05D Wave2 (200) | **PASS** review + activate staging; **PASS** original parity PC05F (`20260526T212000Z` verify) |
-| `dimensions_current` totals | **441** staging · **441** original (= 191 + 50 + 200 governed cohort) |
+| `dimensions_current` totals | **441** staging · **441** original (= 191 + 50 + 200); **not 641** |
+| Full parity verify | **PASS** `pc05-packaging-full-parity-verify/20260526T214000Z` — **441/441** matched; drift **0** |
 | Next packaging step | Scale backlog **17,555** manual-review queue; no Wave3 charter in plan |
 | PC05D scale plan | 17,805 pool; Waves 1–2 done (250); manual queue 17,555 |
+| Spreadsheet intake (dims sheet) | **4,479** rows · **175** parseable L×W×H · **90** merge-safe · **85** dup-ASIN variants · **4,304** missing dims · **0** ASIN dim conflicts |
+| Product linkage | **Not 100%** across operational tables — coverage audit required/ongoing |
+| Unit system | Storage unit tagged; logical compare **in/lb**; no mass conversion |
+| Removal API intake | Detail → `amazon_removals` / `GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA`; Shipment → `amazon_removal_shipments` / `GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA`; intake = **`expected_packages`** only; rebuild = `rebuild_expected_packages_from_removals` |
+| Removal join | 7-tuple NULL-safe; **forbidden** SKU-only / FNSKU-only; tracking/carrier/date after line match only |
+| Removal products | **No** product create on fetch/rebuild; promotion only with Amazon evidence |
+| Packaging checkpoint | **571** `dimensions_current` staging/original (operator post-Wave3); last verify artifact **441/441** — re-verify when Wave3 locked |
 | Constraints | no `products` UPDATE; no Amazon API; no AI/OpenAI |
 
 ---
@@ -251,9 +259,9 @@ Guard: `npm run check:product-resolution-contract-v192`
 
 **Schema parity OK both refs:** PC04 packaging (4 tables + refresh + RLS), V193/V195 inventory columns, V205/V206 package_code, V189 deleted filter.
 
-**Packaging data parity:** Pilot **191** + Wave1 **50** + Wave2 **200** — **CONFIRMED** staging + original. Staging/original `dimensions_current` **441** each (191+50+200). Wave2 verify **200/200** matched; conflicts **0**; unsafe **0**.
+**Packaging data parity:** Pilot **191** + Wave1 **50** + Wave2 **200** — **CONFIRMED** staging + original. Authoritative total **441** per ref (**641** is incorrect). **PC05-PACKAGING-FULL-PARITY-VERIFY** `20260526T214000Z`: matched **441/441**, drift **0**. Wave2 cohort verify **200/200**; execute 200 profiles + 200 versions; smoke **PASS**.
 
-Evidence: `pc05c-packaging-original-data-parity-execute/20260526T180000Z/` · `pc05d-wave2-review-census-staging/20260526T203000Z/` · `pc05d-wave2-activate-staging/20260526T204000Z/` · `pc05f-wave2-original-parity-plan/20260526T210000Z/` · `pc05f-wave2-original-parity-execute/20260526T211000Z/` · `pc05f-wave2-original-verify/20260526T212000Z/` · `pc05d-packaging-backfill-scale-staging-plan/20260526T181000Z/`
+Evidence: `pc05-packaging-full-parity-verify/20260526T214000Z/` · `pc05c-packaging-original-data-parity-execute/20260526T180000Z/` · `pc05f-wave2-original-parity-execute/20260526T211000Z/` · `pc05f-wave2-original-verify/20260526T212000Z/` · `pc05d-packaging-backfill-scale-staging-plan/20260526T181000Z/`
 
 ---
 
@@ -306,7 +314,7 @@ Evidence: `pc05c-packaging-original-data-parity-execute/20260526T180000Z/` · `p
 | Claim execute | 0.4% ready; Wave B cleanup first |
 | Migration commit gap | V193/V205/PC04 operator DDL not in repo migrations |
 | PC05D scale execute | 17,805 candidates; 0 safe_exact; approval **false** |
-| Packaging scale original parity | per-wave only after each PC05D staging wave |
+| Packaging scale original parity | Waves 1–2 + pilot **CONFIRMED**; full verify **441/441**; backlog 17,555 manual queue |
 | return_items rename migration | blocked on staging |
 | Vercel Preview HTTP | 401 without bypass — DB wiring PASS |
 
@@ -314,11 +322,12 @@ Evidence: `pc05c-packaging-original-data-parity-execute/20260526T180000Z/` · `p
 
 ## 16. Next actions
 
-1. **PC06A** — COMMIT OPERATOR-ONLY DDL TO SUPABASE MIGRATIONS  
-2. **PC05D-SCALE-MANUAL-QUEUE** — operator triage for remaining **17,555** packaging candidates (no bulk original copy)  
-3. **PC07-EXEC** — EXPECTED-PACKAGES-DIRTY-SOURCE-FIX-EXECUTE (approval-gated)  
-4. **PC07** — ORIGINAL SPINE DML PARITY PLAN (non-packaging waves)  
-5. **PC02C** — operator 404 CSV follow-through  
+1. **REMOVAL-QUANTITY-ALLOCATION-VALIDATION** — read-only vs rebuild contract  
+2. **SP-API-REMOVAL-REPORTS-FETCH-WORKER** — Reports API order + shipment workers (approval-gated)  
+3. **REMOVAL-PRODUCT-RESOLVER-WIRE** — expected_packages linkage without auto-create  
+4. **REBUILD-EXPECTED-PACKAGES-FROM-REMOVALS-EXECUTE** — after sync + validation PASS  
+5. **PC05-PACKAGING-FULL-PARITY-VERIFY** — confirm **571** if Wave3 parity claimed  
+6. **PRODUCT-LINKAGE-TABLE-COVERAGE-AUDIT** — linkage not 100%  
 
 Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `TASKS.md`, `HISTORY_POINTERS.md`
 
@@ -328,6 +337,9 @@ Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `TASKS.md`, `HISTORY_POI
 
 | Run ID | Action | Notes |
 |--------|--------|-------|
+| `20260528T180000Z` | **REMOVAL API / RESOLUTION CHECKPOINT** | expected_packages rebuild contract; no product create on fetch; 571 packaging checkpoint |
+| `20260528T120000Z` | **SPREADSHEET / LINKAGE CHECKPOINT** | 4,479-row intake; 441 packaging parity unchanged; linkage not 100% |
+| `20260527T220000Z` | **PACKAGING WAVE2 FINAL** | Full parity verify PASS 441/441 drift 0; authoritative total **441** not 641 |
 | `20260527T200000Z` | **PACKAGING WAVE 2 CLOSEOUT** | W2 review/activate staging + PC05F original verify PASS; 441/441 dimensions_current |
 | `20260527T160000Z` | **MASTER HANDOFF** | Pilot 191 + Wave1 50 PASS both refs; Wave2 200 staging needs_review |
 | `20260527T140000Z` | **PC05 PACKAGING SYNC** | PC05C original 191 PASS; PC05D scale plan 17,805 |
@@ -230079,46 +230091,4 @@ V96 UPDATE — USER RAN USER_STORE_ASSIGNMENTS MIGRATION SUCCESSFULLY
 
 User reported:
 - Preflight SQL ran successfully.
-- Migration was executed.
-- No errors occurred.
-- Checks appeared valid:
-  - one query returned true
-  - roles included super_admin and tenant/tenant user style rows
-  - other preflight checks appeared OK
-
-Migration now assumed applied:
-supabase/migrations/20260812120000_user_store_assignments.sql
-
-Current state:
-- public.user_store_assignments should now exist in the live database.
-- RLS should be enabled.
-- org/store trigger should exist.
-- updated_at trigger should exist.
-- PostgREST schema should have reloaded.
-- No seed rows were intentionally added.
-
-IMPORTANT:
-Do not proceed to workflow writes yet.
-Next step must be post-migration verification.
-
-================================================================================
-GLOBAL MODULE / FEATURE / ENTITLEMENT REQUIREMENT — RECONFIRMED
-================================================================================
-
-User clarified again:
-Every thing in the application should be modeled as a module, feature, capability, object, or entitlement so it can be:
-- sold separately
-- enabled/disabled separately
-- bundled with other modules
-- limited by tenant
-- limited by store
-- limited by user/role
-- metered by usage
-- gated before any downstream workflow runs
-
-Examples:
-- AI for Returns can be sold/enabled without AI for Claims.
-- AI Agents can be sold separately from normal AI assistant.
-- Claim Inbox can be sold without Claim Marketplace Submit.
-- Claim can be file-import-only, API-based, warehouse-based, returns-based, or full workflow.
-- Returns + Claims can be bun
+- Migration w

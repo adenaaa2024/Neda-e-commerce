@@ -66,16 +66,21 @@ function readApprovalFlags(approvalPath: string): { run: boolean; execute: boole
   const text = fs.readFileSync(path.join(process.cwd(), approvalPath), "utf8");
   const runM = text.match(/APPROVED_TO_RUN_STAGING\s*=\s*(\S+)/);
   const execM =
+    text.match(/APPROVED_PRODUCT_PACKAGING_WAVE3_EXECUTE\s*=\s*(\S+)/) ??
     text.match(/APPROVED_PRODUCT_PACKAGING_BACKFILL_PC05D_SCALE_EXECUTE\s*=\s*(\S+)/) ??
     text.match(/APPROVED_PRODUCT_PACKAGING_BACKFILL_SCALE_EXECUTE\s*=\s*(\S+)/) ??
     text.match(/APPROVED_PRODUCT_PACKAGING_BACKFILL_EXECUTE\s*=\s*(\S+)/);
   const runVal = runM?.[1] ?? "";
   const execVal = execM?.[1] ?? "";
+  const execFlag =
+    text.match(/APPROVED_PRODUCT_PACKAGING_WAVE3_EXECUTE\s*=\s*(\S+)/)?.[0]?.split("=")[0]?.trim() ??
+    "APPROVED_PRODUCT_PACKAGING_BACKFILL_EXECUTE";
   return {
     run: runVal === "true",
     execute: execVal === "true",
     raw: {
       APPROVED_TO_RUN_STAGING: runVal,
+      [execFlag]: execVal,
       APPROVED_PRODUCT_PACKAGING_BACKFILL_EXECUTE: execVal,
     },
   };

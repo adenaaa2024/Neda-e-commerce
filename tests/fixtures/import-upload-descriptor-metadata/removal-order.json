@@ -1,0 +1,13 @@
+{
+  "id": "upload_metadata_removal_order",
+  "report_type": "REMOVAL_ORDER",
+  "matched_rule": "removal order id OR requested quantity + disposed quantity",
+  "expect": {
+    "descriptor_id": "amazon.removal_order.file.v1",
+    "descriptor_version": 1,
+    "classify_profile": "csv_headers",
+    "import_kind": "REMOVAL_ORDER",
+    "source_family": "marketplace_removal",
+    "provider": "amazon"
+  }
+}

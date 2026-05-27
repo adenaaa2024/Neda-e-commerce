@@ -1,0 +1,13 @@
+{
+  "id": "upload_metadata_removal_shipment",
+  "report_type": "REMOVAL_SHIPMENT",
+  "matched_rule": "removal shipment tracking OR carrier",
+  "expect": {
+    "descriptor_id": "amazon.removal_shipment.file.v1",
+    "descriptor_version": 1,
+    "classify_profile": "csv_headers",
+    "import_kind": "REMOVAL_SHIPMENT",
+    "source_family": "marketplace_removal",
+    "provider": "amazon"
+  }
+}

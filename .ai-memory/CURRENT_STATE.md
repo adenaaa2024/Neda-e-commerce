@@ -1,47 +1,49 @@
-# Current state — canonical system memory
-
-**Last updated:** 2026-05-27 (`packaging-wave2-closeout` `20260527T200000Z`)  
-**Branch:** `feature/product-canonicalization-v2`  
-**History:** `.cursor/history/ERP_PIM_FULL_APPEND_ONLY_HISTORY_MASTER.md` (sections 1–17)
-
-## Master handoff — packaging waves
-
-| Cohort | Staging | Original |
-|--------|---------|----------|
-| **Pilot 191** | **PASS** | **PASS** |
-| **Wave 1 (50)** | **PASS** | **PASS** |
-| **Wave 2 (200)** | **PASS** review + activate | **PASS** PC05F verify |
-
-**`dimensions_current`:** **441** staging · **441** original (191 + 50 + 200).
-
-**Next packaging:** **17,555** manual-review queue from PC05D scale plan (no Wave3 charter yet).
-
-## Environment
-
-| Surface | Ref |
-|---------|-----|
-| Staging / local / Preview / Neda | `eiqfaapyumhixxoeltgu` |
-| Original (Vercel Production app) | `kxsvedvpjldygtdbylsy` |
-| Future production | **NOT_CREATED_YET** / **BLOCKED** |
-
-## Other gates (unchanged)
-
-| Gate | Status |
-|------|--------|
-| PC01 / expected_packages | 1,583/1,626; 43 unresolved |
-| PC04 schema | **IN PARITY** both refs |
-| PC02 SP-API | approval **false** |
-| PC06 parity ledger | **PASS** |
-| V192 product resolution contract | **LOCKED** |
-| V205/V206 package_code views | **APPLIED** |
-
-## Session start
-
-1. This file  
-2. [PACKAGING_DIMENSIONS_STATE.md](PACKAGING_DIMENSIONS_STATE.md) · [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md)  
-3. [ROADMAP.md](ROADMAP.md) · [KNOWN_RISKS.md](KNOWN_RISKS.md)  
-4. [FORBIDDEN_ACTIONS.md](FORBIDDEN_ACTIONS.md)
-
-## Evidence
-
-`pc05f-wave2-original-verify/20260526T212000Z/` · `pc05d-wave2-activate-staging/20260526T204000Z/` · `pc05d-wave2-review-census-staging/20260526T203000Z/` · `pc05e-wave1-original-parity-execute/20260526T200000Z/` · `pc05c-packaging-original-data-parity-execute/20260526T180000Z/`
+# Current state — canonical system memory
+
+**Last updated:** 2026-05-28 (`removal-api-product-resolution-checkpoint` `20260528T180000Z`)  
+**Branch:** `feature/product-canonicalization-v2`  
+**History:** `.cursor/history/ERP_PIM_FULL_APPEND_ONLY_HISTORY_MASTER.md` (sections 1–17)
+
+## Removal API / expected_packages (checkpoint)
+
+| Topic | State |
+|-------|--------|
+| Detail truth | `amazon_removals` ← `GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA` |
+| Shipment truth | `amazon_removal_shipments` ← `GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA` |
+| Intake | **`expected_packages`** only (no `accepted_packages`) |
+| Rebuild | `rebuild_expected_packages_from_removals` |
+| Join | 7-tuple NULL-safe; **no** SKU-only / FNSKU-only |
+| Products | **No** create on fetch/rebuild; promotion only with Amazon evidence |
+
+Detail: [REMOVAL_API_INTAKE.md](REMOVAL_API_INTAKE.md)
+
+## Packaging parity
+
+| Metric | Value |
+|--------|------:|
+| `dimensions_current` (checkpoint) | **571** staging · **571** original (operator; post-Wave3 cohort) |
+| Last full parity verify on disk | **441/441** PASS (`pc05-packaging-full-parity-verify/20260526T214000Z`) |
+
+Re-run **PC05-PACKAGING-FULL-PARITY-VERIFY** to confirm **571** alignment when Wave3 parity is claimed PASS.
+
+## Spreadsheet intake (unchanged)
+
+4,479 rows · 175 parseable L×W×H · 90 merge-safe · 85 dup-ASIN review · 4,304 missing dims · 0 ASIN dim conflicts.
+
+## Product linkage
+
+Not **100%** across tables — **PRODUCT-LINKAGE-TABLE-COVERAGE-AUDIT** ongoing.
+
+## Environment
+
+| Surface | Ref |
+|---------|-----|
+| Staging | `eiqfaapyumhixxoeltgu` |
+| Original | `kxsvedvpjldygtdbylsy` |
+| Future production | **NOT_CREATED_YET** / **BLOCKED** |
+
+## Session start
+
+1. This file · [REMOVAL_API_INTAKE.md](REMOVAL_API_INTAKE.md)  
+2. [PRODUCT_CANONICALIZATION.md](PRODUCT_CANONICALIZATION.md) · [PACKAGING_DIMENSIONS_STATE.md](PACKAGING_DIMENSIONS_STATE.md)  
+3. [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) · [NEXT_ACTIONS.md](NEXT_ACTIONS.md)

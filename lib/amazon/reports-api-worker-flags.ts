@@ -23,10 +23,22 @@ export function isAmazonReportsApiSettlementEnabled(): boolean {
   return isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_SETTLEMENT");
 }
 
+/** Sub-flag: GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA — requires master flag. */
+export function isAmazonReportsApiRemovalOrderEnabled(): boolean {
+  return isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_REMOVAL_ORDER");
+}
+
+/** Sub-flag: GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA — requires master flag. */
+export function isAmazonReportsApiRemovalShipmentEnabled(): boolean {
+  return isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_REMOVAL_SHIPMENT");
+}
+
 export type ReportsApiDisabledReason =
   | "worker_disabled"
   | "reimbursements_disabled"
-  | "settlement_disabled";
+  | "settlement_disabled"
+  | "removal_order_disabled"
+  | "removal_shipment_disabled";
 
 export function reportsApiDisabledReasonForReimbursements(): ReportsApiDisabledReason | null {
   if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
@@ -37,5 +49,17 @@ export function reportsApiDisabledReasonForReimbursements(): ReportsApiDisabledR
 export function reportsApiDisabledReasonForSettlement(): ReportsApiDisabledReason | null {
   if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
   if (!isAmazonReportsApiSettlementEnabled()) return "settlement_disabled";
+  return null;
+}
+
+export function reportsApiDisabledReasonForRemovalOrder(): ReportsApiDisabledReason | null {
+  if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
+  if (!isAmazonReportsApiRemovalOrderEnabled()) return "removal_order_disabled";
+  return null;
+}
+
+export function reportsApiDisabledReasonForRemovalShipment(): ReportsApiDisabledReason | null {
+  if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
+  if (!isAmazonReportsApiRemovalShipmentEnabled()) return "removal_shipment_disabled";
   return null;
 }

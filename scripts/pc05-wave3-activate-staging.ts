@@ -1,0 +1,499 @@
+/**
+ * PC05-WAVE3-ACTIVATE — Activate eligible Wave 3 versions on staging (approval-gated).
+ *
+ *   npx tsx scripts/pc05-wave3-activate-staging.ts --apply
+ *   npx tsx scripts/pc05-wave3-activate-staging.ts --apply --execute-run-id=20260527T120000Z --review-run-id=20260526T193646Z
+ */
+import { execSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import pg from "pg";
+
+import {
+  getStagingProjectRef,
+  loadEnvLocalIntoProcess,
+  refFromSupabaseUrl,
+} from "../lib/staging-project-ref";
+
+const STAGING_REF = "eiqfaapyumhixxoeltgu";
+const REQUIRED_BRANCH = "feature/product-canonicalization-v2";
+const EXPECTED_ELIGIBLE = 50;
+const EXPECTED_CURRENT_BEFORE = 441;
+const EXPECTED_CURRENT_AFTER = 491;
+const APPROVAL_PATH = ".cursor/operator-approvals/product-packaging-wave3-staging-activate-approval.md";
+const EXECUTE_BASE = ".cursor/audit-reports/pc05-wave3-packaging-staging-execute";
+const REVIEW_BASE = ".cursor/audit-reports/pc05-wave3-review-census-staging";
+const OUT_BASE = ".cursor/audit-reports/pc05-wave3-activate-staging";
+
+function runIdArg(): string {
+  const a = process.argv.find((x) => x.startsWith("--run-id="));
+  if (a) return a.split("=")[1]!.trim();
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+}
+
+function executeRunIdArg(): string | null {
+  const a = process.argv.find((x) => x.startsWith("--execute-run-id="));
+  return a ? a.split("=")[1]!.trim() : null;
+}
+
+function reviewRunIdArg(): string | null {
+  const a = process.argv.find((x) => x.startsWith("--review-run-id="));
+  return a ? a.split("=")[1]!.trim() : null;
+}
+
+function latestExecuteRunId(): string | null {
+  const base = path.join(process.cwd(), EXECUTE_BASE);
+  if (!fs.existsSync(base)) return null;
+  return fs
+    .readdirSync(base)
+    .filter((d) => {
+      const m = path.join(base, d, "manifest.json");
+      if (!fs.existsSync(m)) return false;
+      try {
+        const j = JSON.parse(fs.readFileSync(m, "utf8")) as { ok?: boolean; inserted_versions?: number };
+        return j.ok && (j.inserted_versions ?? 0) === EXPECTED_ELIGIBLE;
+      } catch {
+        return false;
+      }
+    })
+    .sort()
+    .reverse()[0] ?? null;
+}
+
+function latestReviewRunId(executeRunId: string): string | null {
+  const base = path.join(process.cwd(), REVIEW_BASE);
+  if (!fs.existsSync(base)) return null;
+  return (
+    fs
+      .readdirSync(base)
+      .filter((d) => {
+        const m = path.join(base, d, "manifest.json");
+        if (!fs.existsSync(m)) return false;
+        try {
+          const j = JSON.parse(fs.readFileSync(m, "utf8")) as {
+            ok?: boolean;
+            execute_run_id?: string;
+            activate_eligible_count?: number;
+            holdout_count?: number;
+          };
+          return (
+            j.ok &&
+            j.execute_run_id === executeRunId &&
+            (j.activate_eligible_count ?? 0) === EXPECTED_ELIGIBLE &&
+            (j.holdout_count ?? 0) === 0
+          );
+        } catch {
+          return false;
+        }
+      })
+      .sort()
+      .reverse()[0] ?? null
+  );
+}
+
+function readApprovalFlags(): { run: boolean; activate: boolean; raw: Record<string, string> } {
+  const text = fs.readFileSync(path.join(process.cwd(), APPROVAL_PATH), "utf8");
+  const runM = text.match(/APPROVED_TO_RUN_STAGING\s*=\s*(\S+)/);
+  const actM = text.match(/APPROVED_PRODUCT_PACKAGING_WAVE3_ACTIVATE\s*=\s*(\S+)/);
+  const runVal = runM?.[1] ?? "";
+  const actVal = actM?.[1] ?? "";
+  return {
+    run: runVal === "true",
+    activate: actVal === "true",
+    raw: {
+      APPROVED_TO_RUN_STAGING: runVal,
+      APPROVED_PRODUCT_PACKAGING_WAVE3_ACTIVATE: actVal,
+    },
+  };
+}
+
+async function tableCounts(client: pg.Client): Promise<Record<string, number>> {
+  const r = await client.query(
+    `SELECT
+       (SELECT count(*)::int FROM public.product_packaging_profiles) AS profiles,
+       (SELECT count(*)::int FROM public.product_packaging_profile_versions WHERE profile_status = 'needs_review') AS needs_review,
+       (SELECT count(*)::int FROM public.product_packaging_profile_versions WHERE profile_status = 'active') AS active_versions,
+       (SELECT count(*)::int FROM public.product_packaging_dimensions_current) AS dimensions_current`,
+  );
+  return r.rows[0] as Record<string, number>;
+}
+
+async function main(): Promise<void> {
+  const runId = runIdArg();
+  const apply = process.argv.includes("--apply");
+  const executeRunId = executeRunIdArg() ?? latestExecuteRunId();
+  if (!executeRunId) {
+    console.error(JSON.stringify({ ok: false, error: "No Wave 3 execute run found" }));
+    process.exit(1);
+  }
+  const reviewRunId = reviewRunIdArg() ?? latestReviewRunId(executeRunId);
+  if (!reviewRunId) {
+    console.error(JSON.stringify({ ok: false, error: "No Wave 3 review run found for execute" }));
+    process.exit(1);
+  }
+
+  const batchTag = `PC05D_WAVE3_${executeRunId}`;
+  const executeDir = path.join(process.cwd(), EXECUTE_BASE, executeRunId);
+  const reviewDir = path.join(process.cwd(), REVIEW_BASE, reviewRunId);
+  const outDir = path.join(process.cwd(), OUT_BASE, runId);
+  fs.mkdirSync(outDir, { recursive: true });
+
+  loadEnvLocalIntoProcess();
+  const branch = execSync("git branch --show-current", { encoding: "utf8" }).trim();
+  const approval = readApprovalFlags();
+  const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim() || "";
+  const originalUrl = process.env.ORIGINAL_DIRECT_POSTGRES_URL?.trim() || "";
+  const ref = refFromSupabaseUrl(dbUrl) || getStagingProjectRef({ loadEnv: false });
+
+  const eligiblePath = path.join(reviewDir, "activate-eligible-ids.txt");
+  const holdoutPath = path.join(reviewDir, "holdout-ids.txt");
+  const insertSummaryPath = path.join(executeDir, "insert-summary.json");
+  const executeManifestPath = path.join(executeDir, "manifest.json");
+  const reviewManifestPath = path.join(reviewDir, "manifest.json");
+
+  const blockers: string[] = [];
+  if (branch !== REQUIRED_BRANCH) blockers.push(`Branch must be ${REQUIRED_BRANCH}`);
+  if (ref !== STAGING_REF) blockers.push(`Target must be staging ${STAGING_REF}`);
+  if (originalUrl && dbUrl === originalUrl) blockers.push("Must not use ORIGINAL URL");
+  if (!approval.run || !approval.activate) blockers.push("Approval flags not both true");
+  if (!fs.existsSync(eligiblePath)) blockers.push(`Missing ${eligiblePath}`);
+  if (!fs.existsSync(insertSummaryPath)) blockers.push(`Missing ${insertSummaryPath}`);
+
+  if (fs.existsSync(executeManifestPath)) {
+    try {
+      const em = JSON.parse(fs.readFileSync(executeManifestPath, "utf8")) as { ok?: boolean; inserted_versions?: number };
+      if (!em.ok || (em.inserted_versions ?? 0) !== EXPECTED_ELIGIBLE) {
+        blockers.push("Wave3 execute manifest not PASS 50");
+      }
+    } catch {
+      blockers.push("Invalid execute manifest");
+    }
+  } else {
+    blockers.push(`Missing execute manifest: ${executeRunId}`);
+  }
+
+  if (fs.existsSync(reviewManifestPath)) {
+    try {
+      const rm = JSON.parse(fs.readFileSync(reviewManifestPath, "utf8")) as {
+        ok?: boolean;
+        activate_eligible_count?: number;
+        holdout_count?: number;
+      };
+      if (!rm.ok || (rm.activate_eligible_count ?? 0) !== EXPECTED_ELIGIBLE) {
+        blockers.push("Wave3 review manifest not PASS 50 eligible");
+      }
+      if ((rm.holdout_count ?? 0) > 0) blockers.push("Review has holdouts — resolve before activate");
+    } catch {
+      blockers.push("Invalid review manifest");
+    }
+  } else {
+    blockers.push(`Missing review manifest: ${reviewRunId}`);
+  }
+
+  const eligibleVersionIds = fs
+    .readFileSync(eligiblePath, "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (eligibleVersionIds.length !== EXPECTED_ELIGIBLE) {
+    blockers.push(`Expected ${EXPECTED_ELIGIBLE} eligible version ids, got ${eligibleVersionIds.length}`);
+  }
+
+  const holdoutLines = fs.existsSync(holdoutPath)
+    ? fs
+        .readFileSync(holdoutPath, "utf8")
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+    : [];
+  const holdoutVersionIds = holdoutLines.map((l) => l.split("\t")[0]!.trim()).filter(Boolean);
+
+  const insertSummary = JSON.parse(fs.readFileSync(insertSummaryPath, "utf8")) as {
+    insertedIds: { candidate_id: string; profile_id: string; version_id: string }[];
+  };
+  const allWaveVersionIds = new Set(insertSummary.insertedIds.map((r) => r.version_id));
+  for (const vid of eligibleVersionIds) {
+    if (!allWaveVersionIds.has(vid)) blockers.push(`Eligible version not in wave3 execute: ${vid}`);
+  }
+
+  fs.writeFileSync(path.join(outDir, "eligible-ids-used.txt"), eligibleVersionIds.join("\n") + "\n");
+  fs.writeFileSync(path.join(outDir, "holdout-ids-kept.txt"), holdoutLines.join("\n") + (holdoutLines.length ? "\n" : ""));
+
+  fs.writeFileSync(
+    path.join(outDir, "approval-proof.md"),
+    [
+      "# Approval proof — PC05 Wave 3 activate",
+      "",
+      `Approval: \`${APPROVAL_PATH}\``,
+      `Execute run: \`${executeRunId}\``,
+      `Review run: \`${reviewRunId}\``,
+      `Batch tag: \`${batchTag}\``,
+      "",
+      "```text",
+      `APPROVED_TO_RUN_STAGING=${approval.raw.APPROVED_TO_RUN_STAGING}`,
+      `APPROVED_PRODUCT_PACKAGING_WAVE3_ACTIVATE=${approval.raw.APPROVED_PRODUCT_PACKAGING_WAVE3_ACTIVATE}`,
+      "```",
+      "",
+      `Result: **${approval.run && approval.activate ? "APPROVED" : "BLOCKED"}**`,
+      `Eligible versions: **${eligibleVersionIds.length}**`,
+      `Holdout versions: **${holdoutVersionIds.length}**`,
+    ].join("\n"),
+  );
+
+  let activated = 0;
+  let alreadyActive = 0;
+  let snapshotPass = 0;
+  let idempotentComplete = false;
+  const activationChecks: Record<string, unknown>[] = [];
+  let preImage: Record<string, unknown> = {};
+  let postImage: Record<string, unknown> = {};
+  const preTargets: { version_id: string; profile_id: string; prior_status: string }[] = [];
+
+  if (blockers.length === 0 && dbUrl) {
+    const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+    await client.connect();
+
+    const countsBefore = await tableCounts(client);
+    preImage = { table_counts: countsBefore, eligible_version_ids: eligibleVersionIds };
+
+    const pendingTargets: { version_id: string; profile_id: string; prior_status: string }[] = [];
+
+    for (const versionId of eligibleVersionIds) {
+      const row = await client.query(
+        `SELECT v.id::text AS version_id, v.profile_id::text AS profile_id, v.profile_status,
+                p.display_label
+         FROM public.product_packaging_profile_versions v
+         INNER JOIN public.product_packaging_profiles p ON p.id = v.profile_id
+         WHERE v.id = $1::uuid`,
+        [versionId],
+      );
+      if ((row.rowCount ?? 0) === 0) {
+        blockers.push(`Version not found: ${versionId}`);
+        continue;
+      }
+      const r = row.rows[0] as { version_id: string; profile_id: string; profile_status: string; display_label: string };
+      if (r.display_label !== batchTag) {
+        blockers.push(`Version ${versionId} not in batch ${batchTag}`);
+        continue;
+      }
+      if (r.profile_status === "needs_review") {
+        pendingTargets.push({
+          version_id: r.version_id,
+          profile_id: r.profile_id,
+          prior_status: r.profile_status,
+        });
+        continue;
+      }
+      if (r.profile_status === "active") {
+        const cur = await client.query(
+          `SELECT current_version_id::text, profile_status
+           FROM public.product_packaging_dimensions_current WHERE profile_id = $1::uuid`,
+          [r.profile_id],
+        );
+        const snap = cur.rows[0] as { current_version_id: string; profile_status: string } | undefined;
+        const snapOk =
+          !!snap &&
+          String(snap.current_version_id) === r.version_id &&
+          snap.profile_status === "active";
+        if (snapOk) {
+          alreadyActive++;
+          snapshotPass++;
+          activationChecks.push({ version_id: r.version_id, profile_id: r.profile_id, snapshot_ok: true, already_active: true });
+        } else {
+          blockers.push(`Version ${versionId} active but dimensions_current snapshot missing/mismatch`);
+        }
+        continue;
+      }
+      blockers.push(`Version ${versionId} status ${r.profile_status}, expected needs_review or active`);
+    }
+
+    preTargets.push(...pendingTargets);
+
+    if (
+      pendingTargets.length === 0 &&
+      alreadyActive === EXPECTED_ELIGIBLE &&
+      countsBefore.dimensions_current === EXPECTED_CURRENT_AFTER
+    ) {
+      idempotentComplete = true;
+    } else if (
+      pendingTargets.length > 0 &&
+      countsBefore.dimensions_current !== EXPECTED_CURRENT_BEFORE &&
+      countsBefore.dimensions_current !== EXPECTED_CURRENT_AFTER
+    ) {
+      blockers.push(
+        `dimensions_current before ${countsBefore.dimensions_current}, expected ${EXPECTED_CURRENT_BEFORE} or partial ${EXPECTED_CURRENT_AFTER}`,
+      );
+    } else if (pendingTargets.length > 0 && countsBefore.dimensions_current !== EXPECTED_CURRENT_BEFORE) {
+      blockers.push(
+        `dimensions_current before ${countsBefore.dimensions_current}, expected ${EXPECTED_CURRENT_BEFORE}`,
+      );
+    }
+
+    if (apply && pendingTargets.length > 0 && blockers.length === 0) {
+      for (const t of pendingTargets) {
+        await client.query(
+          `UPDATE public.product_packaging_profile_versions
+           SET profile_status = 'active', effective_from = COALESCE(effective_from, now())
+           WHERE id = $1::uuid AND profile_status = 'needs_review'`,
+          [t.version_id],
+        );
+
+        const cur = await client.query(
+          `SELECT current_version_id::text, profile_status
+           FROM public.product_packaging_dimensions_current WHERE profile_id = $1::uuid`,
+          [t.profile_id],
+        );
+        const snap = cur.rows[0] as { current_version_id: string; profile_status: string } | undefined;
+        const ok =
+          !!snap &&
+          String(snap.current_version_id) === t.version_id &&
+          snap.profile_status === "active";
+        if (ok) {
+          activated++;
+          snapshotPass++;
+        }
+        activationChecks.push({
+          version_id: t.version_id,
+          profile_id: t.profile_id,
+          snapshot_ok: ok,
+        });
+      }
+    }
+
+    const countsAfter = await tableCounts(client);
+    postImage = { table_counts: countsAfter, activation_checks_sample: activationChecks.slice(0, 5) };
+
+    if (holdoutVersionIds.length > 0) {
+      const hold = await client.query(
+        `SELECT id::text, profile_status FROM public.product_packaging_profile_versions WHERE id = ANY($1::uuid[])`,
+        [holdoutVersionIds],
+      );
+      for (const row of hold.rows as { id: string; profile_status: string }[]) {
+        if (row.profile_status !== "needs_review") {
+          blockers.push(`Holdout ${row.id} changed to ${row.profile_status}`);
+        }
+      }
+    }
+
+    await client.end();
+  }
+
+  fs.writeFileSync(
+    path.join(outDir, "activation-preimage.json"),
+    JSON.stringify({ ...preImage, pre_targets_count: preTargets.length }, null, 2),
+  );
+
+  fs.writeFileSync(
+    path.join(outDir, "activation-result.md"),
+    [
+      "# Activation result — PC05 Wave 3",
+      "",
+      `Run: \`${runId}\``,
+      `Apply: **${apply ? "YES" : "NO"}**`,
+      idempotentComplete ? "Idempotent: **YES** (all eligible rows already active with snapshots)" : "",
+      "",
+      "| Metric | Value |",
+      "|--------|------:|",
+      `| Targets (eligible) | ${eligibleVersionIds.length} |`,
+      `| Newly activated + snapshot OK | ${activated} |`,
+      `| Already active (prior run) | ${alreadyActive} |`,
+      `| Total snapshot OK | ${snapshotPass} |`,
+      `| Holdout kept | ${holdoutVersionIds.length} |`,
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(outDir, "post-activation-counts.md"),
+    [
+      "# Post-activation counts",
+      "",
+      "| Metric | Before | After |",
+      "|--------|-------:|------:|",
+      `| dimensions_current | ${(preImage.table_counts as Record<string, number>)?.dimensions_current ?? "?"} | ${(postImage.table_counts as Record<string, number>)?.dimensions_current ?? "?"} |`,
+      `| active versions | ${(preImage.table_counts as Record<string, number>)?.active_versions ?? "?"} | ${(postImage.table_counts as Record<string, number>)?.active_versions ?? "?"} |`,
+      `| needs_review versions | ${(preImage.table_counts as Record<string, number>)?.needs_review ?? "?"} | ${(postImage.table_counts as Record<string, number>)?.needs_review ?? "?"} |`,
+      `| profiles | ${(preImage.table_counts as Record<string, number>)?.profiles ?? "?"} | ${(postImage.table_counts as Record<string, number>)?.profiles ?? "?"} |`,
+      "",
+      `Expected dimensions_current: **${EXPECTED_CURRENT_BEFORE} → ${EXPECTED_CURRENT_AFTER}** (+${EXPECTED_ELIGIBLE})`,
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(outDir, "rollback.sql"),
+    [
+      "-- PC05 Wave 3 activate rollback — revert to needs_review",
+      `-- Activate run: ${runId}`,
+      `-- Batch: ${batchTag}`,
+      "",
+      "BEGIN;",
+      ...preTargets.map(
+        (t) =>
+          `UPDATE public.product_packaging_profile_versions SET profile_status = 'needs_review' WHERE id = '${t.version_id}'::uuid;`,
+      ),
+      "COMMIT;",
+      "",
+      "-- May need manual cleanup of dimensions_current for reverted profiles if trigger does not remove rows.",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(path.join(outDir, "blockers.md"), blockers.length ? blockers.map((b) => `- ${b}`).join("\n") : "None.");
+
+  const ok =
+    apply &&
+    blockers.length === 0 &&
+    snapshotPass === EXPECTED_ELIGIBLE &&
+    (postImage.table_counts as Record<string, number>)?.dimensions_current === EXPECTED_CURRENT_AFTER &&
+    (idempotentComplete || activated === EXPECTED_ELIGIBLE || activated + alreadyActive === EXPECTED_ELIGIBLE);
+
+  fs.writeFileSync(
+    path.join(outDir, "manifest.json"),
+    JSON.stringify(
+      {
+        prompt: "PC05-WAVE3-ACTIVATE — PACKAGING STAGING WAVE 3 ACTIVATE",
+        run_id: runId,
+        execute_run_id: executeRunId,
+        review_run_id: reviewRunId,
+        branch,
+        staging_ref: STAGING_REF,
+        approval_valid: approval.run && approval.activate,
+        activated_count: activated,
+        already_active_count: alreadyActive,
+        idempotent_complete: idempotentComplete,
+        holdout_count: holdoutVersionIds.length,
+        dimensions_current_before: (preImage.table_counts as Record<string, number>)?.dimensions_current,
+        dimensions_current_after: (postImage.table_counts as Record<string, number>)?.dimensions_current,
+        ok,
+      },
+      null,
+      2,
+    ),
+  );
+
+  console.log(
+    JSON.stringify(
+      {
+        ok,
+        outDir,
+        approval_valid: approval.run && approval.activate,
+        activated,
+        already_active: alreadyActive,
+        idempotent_complete: idempotentComplete,
+        holdout: holdoutVersionIds.length,
+        dimensions_current_before: (preImage.table_counts as Record<string, number>)?.dimensions_current,
+        dimensions_current_after: (postImage.table_counts as Record<string, number>)?.dimensions_current,
+        rollback: path.join(outDir, "rollback.sql"),
+        blockers,
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(ok ? 0 : blockers.length && !apply ? 0 : 1);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
