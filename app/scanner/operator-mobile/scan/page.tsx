@@ -123,10 +123,12 @@ import {
   findOperatorPalletByIdAction,
   findOperatorPalletByTrackingNumberAction,
   findOperatorSavedPackageByCodeOrTrackingAction,
+  fetchInventoryItemStatusLinesForGateAction,
   insertOperatorIntakeBoxPackageAction,
   listOperatorPackagesForPalletAction,
   listOperatorSlipContentsForPackageAction,
   listOperatorPackageItemsForPackageAction,
+  lookupShipmentEntryScanCodeAction,
   insertOperatorPackageItemAction,
   previewOperatorItemBarcodeLinkageAction,
   updateOperatorIntakeBoxPackageAction,
@@ -3278,6 +3280,8 @@ function OperatorMobileScanPageContent() {
   const [editAllMode, setEditAllMode] = useState(false);
   const [correctionPerms, setCorrectionPerms] = useState({ moveBox: false, voidBox: false });
   const [moveBoxModalOpen, setMoveBoxModalOpen] = useState(false);
+  /** Target pallet for Move Box — filled by page scan capture while {@link moveBoxModalOpen}. */
+  const [moveBoxTargetDraft, setMoveBoxTargetDraft] = useState("");
   const [voidBoxModalOpen, setVoidBoxModalOpen] = useState(false);
   const [correctionBusy, setCorrectionBusy] = useState(false);
   const [moveBoxModalError, setMoveBoxModalError] = useState<string | null>(null);
@@ -4037,7 +4041,15 @@ function OperatorMobileScanPageContent() {
 
         let gateLookup: Awaited<ReturnType<typeof lookupShipmentEntryScanCode>>;
         try {
-          gateLookup = await lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed);
+          if (isSupabaseConfigured()) {
+            const gateRes = await lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed);
+            if (!gateRes.ok) {
+              throw new Error(gateRes.error);
+            }
+            gateLookup = gateRes.lookup;
+          } else {
+            gateLookup = await lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed);
+          }
         } catch (err) {
           console.warn("lookupShipmentEntryScanCode failed; inventory slice skipped.", err);
           const emptyAgg = aggregateInventoryStatus([]);
@@ -4144,12 +4156,23 @@ function OperatorMobileScanPageContent() {
         let shipmentLines: VInventoryStatusRow[] = invRows.length ? invRows : [];
         if (sessionStoreId && gateMatchField === "tracking_number") {
           try {
-            const { rows } = await fetchVInventoryItemStatusLinesForTrackingNormalized(
-              supabase,
-              orgId,
-              sessionStoreId,
-              submittedTrackingForScope,
-            );
+            let rows: VInventoryStatusRow[] = [];
+            if (isSupabaseConfigured()) {
+              const lineRes = await fetchInventoryItemStatusLinesForGateAction(orgId, sessionStoreId, {
+                mode: "tracking",
+                trackingNumber: submittedTrackingForScope,
+              });
+              if (lineRes.ok) rows = lineRes.rows;
+              else console.warn("fetchInventoryItemStatusLinesForGateAction failed", lineRes.error);
+            } else {
+              const fetched = await fetchVInventoryItemStatusLinesForTrackingNormalized(
+                supabase,
+                orgId,
+                sessionStoreId,
+                submittedTrackingForScope,
+              );
+              rows = fetched.rows;
+            }
             shipmentLines = rows.length ? trackingScopedInventoryRows(rows, submittedTrackingForScope) : shipmentLines;
           } catch (err) {
             console.warn("fetchVInventoryItemStatusLinesForTrackingNormalized failed", err);
@@ -4167,13 +4190,25 @@ function OperatorMobileScanPageContent() {
                 ? trimmed
                 : canon || trimmed;
             try {
-              const { rows } = await fetchVInventoryItemStatusLinesExact(
-                supabase,
-                orgId,
-                sessionStoreId,
-                gateMatchField as InventoryViewMatchField,
-                lineValue,
-              );
+              let rows: VInventoryStatusRow[] = [];
+              if (isSupabaseConfigured()) {
+                const lineRes = await fetchInventoryItemStatusLinesForGateAction(orgId, sessionStoreId, {
+                  mode: "exact",
+                  field: gateMatchField as InventoryViewMatchField,
+                  value: lineValue,
+                });
+                if (lineRes.ok) rows = lineRes.rows;
+                else console.warn("fetchInventoryItemStatusLinesForGateAction failed", lineRes.error);
+              } else {
+                const fetched = await fetchVInventoryItemStatusLinesExact(
+                  supabase,
+                  orgId,
+                  sessionStoreId,
+                  gateMatchField as InventoryViewMatchField,
+                  lineValue,
+                );
+                rows = fetched.rows;
+              }
               shipmentLines = rows;
             } catch (err) {
               console.warn("fetchVInventoryItemStatusLinesExact failed", err);
@@ -7622,10 +7657,29 @@ function OperatorMobileScanPageContent() {
     [clearPreviousLookupResult, flowPhase, isIdentified],
   );
 
+  const openMoveBoxModal = useCallback(() => {
+    setMoveBoxModalError(null);
+    setMoveBoxTargetDraft("");
+    setMoveBoxModalOpen(true);
+    window.queueMicrotask(() => scheduleFocusScanner());
+  }, [scheduleFocusScanner]);
+
+  const closeMoveBoxModal = useCallback(() => {
+    setMoveBoxModalOpen(false);
+    setMoveBoxModalError(null);
+    setMoveBoxTargetDraft("");
+    scheduleFocusScanner();
+  }, [scheduleFocusScanner]);
+
   const submitScannedCode = useCallback(
     async (raw: string, options?: { clearPackageBuffer?: boolean }) => {
       const code = raw.trim();
       if (!code) return;
+      if (moveBoxModalOpen) {
+        setMoveBoxTargetDraft(code);
+        scheduleFocusScanner();
+        return;
+      }
       setLastScannedCode(code);
       if (!isIdentified && flowPhase === "scan" && awaitingPostCompleteExtraScan) {
         const tn = postCompleteTrackingRef.current?.trim();
@@ -9631,6 +9685,7 @@ function OperatorMobileScanPageContent() {
           return;
         }
         setMoveBoxModalOpen(false);
+        setMoveBoxTargetDraft("");
         setEditAllMode(false);
         setPalletDocHydrationNonce((n) => n + 1);
         if (res.palletId && activePallet?.id !== res.palletId) {
@@ -9660,6 +9715,75 @@ function OperatorMobileScanPageContent() {
     ],
   );
 
+  const resetToInitialShipmentEntry = useCallback(() => {
+    closeActiveBoxPackageSession();
+    clearOperatorPhotoArrays(["shipping", "bol", "outside", "inside", "slip"]);
+    setPalletPhotoUrls([]);
+    palletPhotoUrlsRef.current = [];
+    evidenceBaselineRef.current.pallet = [];
+    evidenceBaselineRef.current.shipping = [];
+    evidenceBaselineRef.current.bol = [];
+    pendingEvidenceStorageDeletesRef.current.clear();
+    hydrateActivePalletIdRef.current = null;
+    hydrateBoxPackageIdRef.current = null;
+
+    setEditAllMode(false);
+    setPackageCodeCardOpen(false);
+    setModernPalletWorkspace(false);
+    setActiveSlipOrPackage(null);
+    setActivePallet(null);
+    setActiveTracking(null);
+    setCurrentPalletTrackingId(null);
+    setCurrentPackageTrackingId(null);
+    setDirectBox(false);
+    setPhysicalBoxCount(null);
+    setBoxScanTargetDenominator(null);
+    setScannedBoxesSavedCount(0);
+    setPalletCarrier("");
+    setPalletCarrierOtherSelected(false);
+    setPalletOrderId("");
+    setPalletDbOrderId("");
+    setPalletResolvedOrderId("");
+    setPalletNotes("");
+    setPalletDbHasShipmentDetails(false);
+    setPalletCreatedByLabel(null);
+    setPalletCreatedByProfileId(null);
+    setPalletCreatedAtIso(null);
+    lastOrderIdAutoFilledFromRaRef.current = null;
+    parentPalletCarrierDefaultRef.current = "";
+
+    resetItemInspectionForm();
+    setItemScanPackageId(null);
+    setItemScanPackageLabel(null);
+    setReceivingSlipExpectedItemQtyTotal(null);
+    setItemReceiveDemoScannedUnits(0);
+    setItemReceivePackageActualCount(null);
+    setItemReceiveCountSyncNonce(0);
+    setExpectedPkgDetailRows([]);
+    setCandidatePicker(null);
+    setItemBarcodeMiss(null);
+    modalOpenRef.current = false;
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemHydratedRows([]);
+    setPackageItemsHydrating(false);
+    setPackageItemsHydrationNonce(0);
+
+    setScanLine("");
+    setSlipBarcodeExtract(null);
+    setFlowPhase("scan");
+    setIsIdentified(false);
+    completedShipmentDialogShownForKeyRef.current = null;
+    setCompletedShipmentModal(null);
+    clearPreviousLookupResult({ clearResolvedContext: true, phase: "idle" });
+    scheduleFocusScanner();
+  }, [
+    closeActiveBoxPackageSession,
+    clearOperatorPhotoArrays,
+    resetItemInspectionForm,
+    clearPreviousLookupResult,
+    scheduleFocusScanner,
+  ]);
+
   const handleVoidBoxConfirm = useCallback(async () => {
     const pkgId = correctionSavedPackageId;
     const oid = (orgId ?? "").trim();
@@ -9677,15 +9801,49 @@ function OperatorMobileScanPageContent() {
         return;
       }
       setVoidBoxModalOpen(false);
+      const wasDirectBox =
+        res.wasDirectBox ||
+        !res.palletId ||
+        (directBox && !activePallet?.id?.trim());
+
+      if (wasDirectBox) {
+        resetToInitialShipmentEntry();
+        setIntakeToast("Direct box voided.");
+        return;
+      }
+
       setEditAllMode(false);
+      if (itemScanPackageId === pkgId) {
+        resetItemInspectionForm();
+        setItemScanPackageId(null);
+        setItemScanPackageLabel(null);
+        setReceivingSlipExpectedItemQtyTotal(null);
+      }
       closeActiveBoxPackageSession();
+      setFlowPhase("package_scan");
       setPalletDocHydrationNonce((n) => n + 1);
-      setSyncErrorToast("Box voided.");
+      setIntakeToast("Box voided.");
       scheduleFocusScanner();
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById("operator-saved-boxes-hub")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } finally {
       setCorrectionBusy(false);
     }
-  }, [correctionSavedPackageId, orgId, sessionStoreId, closeActiveBoxPackageSession, scheduleFocusScanner]);
+  }, [
+    correctionSavedPackageId,
+    orgId,
+    sessionStoreId,
+    directBox,
+    activePallet?.id,
+    itemScanPackageId,
+    resetToInitialShipmentEntry,
+    closeActiveBoxPackageSession,
+    resetItemInspectionForm,
+    scheduleFocusScanner,
+  ]);
 
   const editParent = () => {
     closeActiveBoxPackageSession();
@@ -9910,20 +10068,6 @@ function OperatorMobileScanPageContent() {
         ? null
         : contextTrailBoxBarcode;
 
-  useEffect(() => {
-    if (flowPhase !== "scan" || !parentIdentified || !boxCountEditable) return;
-    const t = window.setTimeout(() => {
-      const el = physicalBoxCountInputRef.current;
-      if (!el) return;
-      try {
-        el.focus({ preventScroll: true });
-      } catch {
-        el.focus();
-      }
-    }, 180);
-    return () => window.clearTimeout(t);
-  }, [flowPhase, parentIdentified, boxCountEditable]);
-
   const onItemPhotoFile = (which: "front" | "barcode" | "damage", file: File | undefined) => {
     if (!file?.type.startsWith("image/")) return;
     const url = URL.createObjectURL(file);
@@ -10043,7 +10187,6 @@ function OperatorMobileScanPageContent() {
       const el = document.getElementById("operator-saved-boxes-filter");
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
-        window.setTimeout(() => palletPackageSearchInputRef.current?.focus(), 380);
       } else {
         operatorMobileMainScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -10408,10 +10551,7 @@ function OperatorMobileScanPageContent() {
                 showMoveBox={showCorrectionMoveBox}
                 showVoidBox={showCorrectionVoidBox}
                 onReset={handleCorrectionResetEntry}
-                onMoveBox={() => {
-                  setMoveBoxModalError(null);
-                  setMoveBoxModalOpen(true);
-                }}
+                onMoveBox={openMoveBoxModal}
                 onVoidBox={() => {
                   setVoidBoxModalError(null);
                   setVoidBoxModalOpen(true);
@@ -10533,10 +10673,7 @@ function OperatorMobileScanPageContent() {
                     showMoveBox={showCorrectionMoveBox}
                     showVoidBox={showCorrectionVoidBox}
                     onReset={handleCorrectionResetEntry}
-                    onMoveBox={() => {
-                      setMoveBoxModalError(null);
-                      setMoveBoxModalOpen(true);
-                    }}
+                    onMoveBox={openMoveBoxModal}
                     onVoidBox={() => {
                       setVoidBoxModalError(null);
                       setVoidBoxModalOpen(true);
@@ -13830,11 +13967,11 @@ function OperatorMobileScanPageContent() {
         packageLabel={correctionPackageLabel}
         busy={correctionBusy}
         error={moveBoxModalError}
+        target={moveBoxTargetDraft}
+        onTargetChange={setMoveBoxTargetDraft}
+        onRequestScanFocus={scheduleFocusScanner}
         onClose={() => {
-          if (!correctionBusy) {
-            setMoveBoxModalOpen(false);
-            setMoveBoxModalError(null);
-          }
+          if (!correctionBusy) closeMoveBoxModal();
         }}
         onConfirm={(target) => void handleMoveBoxConfirm(target)}
       />
