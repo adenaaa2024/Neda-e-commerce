@@ -1,5 +1,7 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { insertReturn } from "@/app/returns/actions";
 import type { ReturnInsertPayload } from "@/app/returns/returns-action-types";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -9,6 +11,7 @@ import { RETURN_ITEMS_TABLE, RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns
 import { hydrateReturnItemProductLinkage } from "@/lib/scanner/hydrate-return-item-product-linkage";
 import type { ProductLinkageDisplayContract } from "@/lib/scanner/product-linkage-display-contract";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
+import { parseReceiveSplitRpcRow } from "@/lib/scanner/receive-expected-with-split";
 
 export type OperatorReceiveItemInput = {
   organization_id?: string;
@@ -20,6 +23,11 @@ export type OperatorReceiveItemInput = {
   expected_package_id?: string | null;
   /** Fallback keys when id lookup fails (same store + org). */
   disposition?: string | null;
+  tracking_number?: string | null;
+  entity_type?: "box" | "pallet" | string | null;
+  id_slip_contents?: string | null;
+  pallet_id?: string | null;
+  idempotency_key?: string | null;
   marketplace?: string;
   item_name: string;
   sku?: string;
@@ -29,7 +37,7 @@ export type OperatorReceiveItemInput = {
   notes?: string | null;
   expiration_date?: string | null;
   batch_number?: string | null;
-  /** Units to record this save (default 1). Each unit inserts one `return_items` row and bumps EP once. */
+  /** Units to record this save (default 1). Each unit inserts one `return_items` row. */
   quantity?: number;
   photo_evidence?: ReturnInsertPayload["photo_evidence"];
   order_id?: string | null;
@@ -45,14 +53,12 @@ export type OperatorReceiveItemResult = {
   error?: string;
   insertedIds?: string[];
   expected_package_id?: string;
-  /** Hydrated catalog linkage per inserted `return_items` row (server-built; no client catalog queries). */
+  allocated_expected_package_id?: string | null;
+  remainder_qty?: number;
+  overage_qty?: number;
   product_linkages?: OperatorReceiveItemLinkageRow[];
 };
 
-/**
- * Resolves the canonical `expected_packages.id` for receive + counter bump.
- * Prefers UUID hint when it exists in (org, store); otherwise matches sku/fnsku/disposition/order/tracking.
- */
 async function resolveExpectedPackageRowId(
   orgId: string,
   storeId: string,
@@ -62,6 +68,7 @@ async function resolveExpectedPackageRowId(
     fnsku: string;
     disposition: string;
     order_id: string | null;
+    tracking_number: string | null;
   },
 ): Promise<{ id: string | null; error?: string }> {
   const sku = keys.sku.trim();
@@ -83,45 +90,51 @@ async function resolveExpectedPackageRowId(
     if (data && (data as { id?: string }).id) return { id: String((data as { id: string }).id) };
   }
 
-  let q = supabaseServer
-    .from("expected_packages")
-    .select("id")
-    .eq("organization_id", orgId)
-    .eq("store_id", sid)
-    .eq("sku", sku);
+  const buildQuery = (unassignedOnly: boolean) => {
+    let q = supabaseServer
+      .from("expected_packages")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("store_id", sid)
+      .eq("sku", sku)
+      .in("build_source", ["detail_shipment", "detail_remainder", "legacy"])
+      .gt("expected_scan_quantity", 0);
 
-  const fn = keys.fnsku.trim();
-  if (fn) {
-    q = q.eq("fnsku", fn);
+    const fn = keys.fnsku.trim();
+    if (fn) q = q.eq("fnsku", fn);
+
+    const disp = keys.disposition.trim();
+    if (disp) q = q.eq("disposition", disp);
+
+    const oid = keys.order_id?.trim();
+    if (oid) q = q.eq("order_id", oid);
+
+    const trk = keys.tracking_number?.trim();
+    if (trk) q = q.eq("tracking_number", trk);
+
+    if (unassignedOnly) q = q.is("id_slip_contents", null);
+
+    return q;
+  };
+
+  for (const unassignedOnly of [true, false]) {
+    const { data: rows, error: listErr } = await buildQuery(unassignedOnly).limit(12);
+    if (listErr) return { id: null, error: listErr.message };
+    if (rows?.length === 1) return { id: String((rows[0] as { id: string }).id) };
+    if (rows && rows.length > 1) {
+      return {
+        id: null,
+        error: "Multiple expected_packages rows match — use the candidate picker to disambiguate.",
+      };
+    }
   }
 
-  const disp = keys.disposition.trim();
-  if (disp) {
-    q = q.eq("disposition", disp);
-  }
-
-  const oid = keys.order_id?.trim();
-  if (oid) {
-    q = q.eq("order_id", oid);
-  }
-
-  const { data: rows, error: listErr } = await q.limit(12);
-  if (listErr) return { id: null, error: listErr.message };
-  if (!rows?.length) {
-    return { id: null, error: "Expected package row not found for this SKU/FNSKU in the current store." };
-  }
-  if (rows.length > 1) {
-    return {
-      id: null,
-      error: "Multiple expected_packages rows match — use the candidate picker to disambiguate.",
-    };
-  }
-  return { id: String((rows[0] as { id: string }).id) };
+  return { id: null, error: "Expected package row not found for this SKU/FNSKU in the current store." };
 }
 
 /**
- * Inserts one `return_items` row per unit and increments `expected_packages.actual_scanned_count` by the same amount.
- * Rolls back inserted `return_items` rows if the EP update fails.
+ * Inserts one return_items row per physical unit, then allocates one EP unit per row
+ * via allocate_expected_items_for_return_item_ids (no quantity-only split).
  */
 export async function operatorReceiveItem(
   payload: OperatorReceiveItemInput,
@@ -136,11 +149,17 @@ export async function operatorReceiveItem(
     fnsku: payload.fnsku ?? "",
     disposition: payload.disposition ?? "",
     order_id: payload.order_id ?? null,
+    tracking_number: payload.tracking_number ?? null,
   });
   const epId = resolved.id;
   if (!epId || !isUuidString(epId)) {
     return { ok: false, error: resolved.error ?? "Could not resolve expected_packages id." };
   }
+
+  const storeFk = payload.store_id.trim();
+  const packageFk = uuidOrNull(payload.package_id?.trim() ?? null);
+  const palletFk = uuidOrNull(payload.pallet_id?.trim() ?? null);
+  const idempotencyKey = uuidOrNull(payload.idempotency_key?.trim() ?? null) ?? randomUUID();
 
   const basePayload: ReturnInsertPayload = {
     marketplace: (payload.marketplace ?? "amazon").trim() || "amazon",
@@ -152,8 +171,9 @@ export async function operatorReceiveItem(
     notes: payload.notes?.trim() || undefined,
     expiration_date: payload.expiration_date?.trim() || undefined,
     batch_number: payload.batch_number?.trim() || undefined,
-    package_id: payload.package_id?.trim() || undefined,
-    store_id: payload.store_id.trim(),
+    package_id: packageFk ?? undefined,
+    pallet_id: palletFk ?? undefined,
+    store_id: storeFk,
     order_id: payload.order_id?.trim() || undefined,
     photo_evidence: payload.photo_evidence ?? null,
     organization_id: orgId,
@@ -174,37 +194,37 @@ export async function operatorReceiveItem(
       insertedIds.push(res.data.id);
     }
 
-    const storeFk = payload.store_id.trim();
-    const { data: epRow, error: loadEpErr } = await supabaseServer
-      .from("expected_packages")
-      .select("actual_scanned_count")
-      .eq("id", epId)
-      .eq("organization_id", orgId)
-      .eq("store_id", storeFk)
-      .maybeSingle();
+    const { data: splitData, error: splitErr } = await supabaseServer.rpc(
+      "allocate_expected_items_for_return_item_ids",
+      {
+        p_organization_id: orgId,
+        p_store_id: storeFk,
+        p_parent_ep_id: epId,
+        p_return_item_ids: insertedIds,
+        p_entity_type: payload.entity_type?.trim() || "box",
+        p_id_slip_contents: payload.id_slip_contents?.trim() || null,
+        p_package_id: packageFk,
+        p_pallet_id: palletFk,
+        p_idempotency_key: idempotencyKey,
+      },
+    );
 
-    if (loadEpErr) {
+    if (splitErr) {
       for (const id of insertedIds) {
         await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);
       }
-      return { ok: false, error: loadEpErr.message };
+      return { ok: false, error: splitErr.message };
     }
 
-    const prev = Number((epRow as { actual_scanned_count?: number } | null)?.actual_scanned_count ?? 0);
-    const next = prev + qty;
+    const splitRow = parseReceiveSplitRpcRow(
+      ((splitData as Record<string, unknown>[] | null)?.[0] ?? {}) as Record<string, unknown>,
+    );
 
-    const { error: upErr } = await supabaseServer
-      .from("expected_packages")
-      .update({ actual_scanned_count: next })
-      .eq("id", epId)
-      .eq("organization_id", orgId)
-      .eq("store_id", storeFk);
-
-    if (upErr) {
+    if (!splitRow.ok && splitRow.message !== "overage_only") {
       for (const id of insertedIds) {
         await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);
       }
-      return { ok: false, error: upErr.message };
+      return { ok: false, error: splitRow.message || "Receive split failed." };
     }
 
     const product_linkages: OperatorReceiveItemLinkageRow[] = [];
@@ -215,7 +235,15 @@ export async function operatorReceiveItem(
       }
     }
 
-    return { ok: true, insertedIds, expected_package_id: epId, product_linkages };
+    return {
+      ok: true,
+      insertedIds,
+      expected_package_id: splitRow.parent_ep_id ?? epId,
+      allocated_expected_package_id: splitRow.allocated_ep_id,
+      remainder_qty: splitRow.remainder_qty,
+      overage_qty: splitRow.overage_qty,
+      product_linkages,
+    };
   } catch (e) {
     for (const id of insertedIds) {
       await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);
