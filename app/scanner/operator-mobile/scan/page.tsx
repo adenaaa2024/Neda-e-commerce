@@ -404,15 +404,7 @@ function parseBoxSlipManifestData(raw: unknown): { slipCode: string; rma: string
   return { slipCode, rma, lines };
 }
 
-/** Flip to `false` before production deploy. Enables photo resume debug logs + on-screen panel. */
-const SHOW_OPERATOR_PHOTO_DEBUG = true;
-
-type OperatorPhotoDebugClearField = "slip" | "shipping" | "bol" | "outside" | "inside";
-
-function operatorPhotoDebugLog(label: string, payload: Record<string, unknown>) {
-  if (!SHOW_OPERATOR_PHOTO_DEBUG) return;
-  console.log(`[operator-debug] ${label}`, payload);
-}
+type OperatorPhotoClearField = "slip" | "shipping" | "bol" | "outside" | "inside";
 
 function parseDirectBoxShipmentDocumentation(raw: unknown): {
   shippingLabelUrls: string[];
@@ -3629,33 +3621,8 @@ function OperatorMobileScanPageContent() {
   const palletPackageSearchInputRef = useRef<HTMLInputElement>(null);
   const hydrateBoxPackageIdRef = useRef<string | null>(null);
 
-  const operatorPhotoDebugSnapshotRef = useRef<() => Record<string, unknown>>(() => ({}));
-  operatorPhotoDebugSnapshotRef.current = () => ({
-    identifyGatePhase,
-    busy,
-    flowPhase,
-    directBox,
-    activeBoxSessionPackageId: activeBoxSessionPackageIdRef.current,
-    hydrateBoxPackageIdRef: hydrateBoxPackageIdRef.current,
-    slipLen: slipBoxPhotoUrls.length,
-    shippingLabelLen: shippingLabelPhotoUrls.length,
-    outsideLen: outsideBoxPhotoUrls.length,
-    insideLen: insideBoxPhotoUrls.length,
-    bolLen: bolPhotoUrls.length,
-  });
-
-  const logOperatorPhotoStateClear = useCallback((field: OperatorPhotoDebugClearField, reason: string) => {
-    operatorPhotoDebugLog("photo-state-clear", {
-      field,
-      reason,
-      ...operatorPhotoDebugSnapshotRef.current(),
-    });
-  }, []);
-
-  const clearOperatorPhotoArrays = useCallback(
-    (fields: OperatorPhotoDebugClearField[], reason: string) => {
+  const clearOperatorPhotoArrays = useCallback((fields: OperatorPhotoClearField[]) => {
       for (const field of fields) {
-        logOperatorPhotoStateClear(field, reason);
         switch (field) {
           case "slip":
             setSlipBoxPhotoUrls([]);
@@ -3686,32 +3653,7 @@ function OperatorMobileScanPageContent() {
             break;
         }
       }
-    },
-    [logOperatorPhotoStateClear],
-  );
-
-  useEffect(() => {
-    if (!SHOW_OPERATOR_PHOTO_DEBUG) return;
-    operatorPhotoDebugLog("photo-state-changed", {
-      slipLen: slipBoxPhotoUrls.length,
-      shippingLabelLen: shippingLabelPhotoUrls.length,
-      outsideLen: outsideBoxPhotoUrls.length,
-      insideLen: insideBoxPhotoUrls.length,
-      bolLen: bolPhotoUrls.length,
-      ...operatorPhotoDebugSnapshotRef.current(),
-    });
-  }, [
-    slipBoxPhotoUrls,
-    shippingLabelPhotoUrls,
-    outsideBoxPhotoUrls,
-    insideBoxPhotoUrls,
-    bolPhotoUrls,
-    identifyGatePhase,
-    busy,
-    flowPhase,
-    directBox,
-    activeBoxSession?.packageId,
-  ]);
+  }, []);
 
   /** Same readiness as the package-list fetch: Step 3, org context, persisted UUID pallet (draft ids skip). */
   const operatorSavedBoxSearchAvailable =
@@ -4434,7 +4376,7 @@ function OperatorMobileScanPageContent() {
       setPalletResolvedOrderId("");
       lastOrderIdAutoFilledFromRaRef.current = null;
       setCurrentPalletTrackingId(null);
-      clearOperatorPhotoArrays(["shipping", "bol"], "palletHydrateEffect:noStableKey");
+      clearOperatorPhotoArrays(["shipping", "bol"]);
       setPalletPhotoUrls([]);
       palletPhotoUrlsRef.current = [];
       evidenceBaselineRef.current.pallet = [];
@@ -5687,10 +5629,7 @@ function OperatorMobileScanPageContent() {
       if (packageRestorePending) {
         return;
       }
-      clearOperatorPhotoArrays(
-        ["outside", "inside", "slip"],
-        "boxHydrateEffect:noActiveBoxSession",
-      );
+      clearOperatorPhotoArrays(["outside", "inside", "slip"]);
       pendingEvidenceStorageDeletesRef.current.clear();
       setBoxSlipInvalidFormatBlocksSave(false);
       setBoxSlipCode("");
@@ -6427,10 +6366,7 @@ function OperatorMobileScanPageContent() {
       setBoxIntakeError(null);
       setDuplicatePackingSlip(null);
       setBoxSlipInvalidFormatBlocksSave(false);
-      clearOperatorPhotoArrays(
-        ["outside", "inside", "slip"],
-        "saveBoxAndContinue:afterSave",
-      );
+      clearOperatorPhotoArrays(["outside", "inside", "slip"]);
       setBoxSlipCode("");
       setBoxSlipRma("");
       clearPalletOrderIdIfAutoFilledFromRa();
@@ -7305,20 +7241,6 @@ function OperatorMobileScanPageContent() {
 
   const resumeWorkflowFromExistingDirectBoxPackage = useCallback(
     async (row: Record<string, unknown>, enteredCode: string) => {
-      const entryPackageId = String(row.id ?? "").trim();
-      const entryPackageCode = String(row.package_code ?? row.slip_id ?? row.package_number ?? "").trim();
-      operatorPhotoDebugLog("direct-box-resume-entry", {
-        packageId: entryPackageId,
-        packageCode: entryPackageCode,
-        trackingNumber: String(row.tracking_number ?? row.shipment_tracking_number ?? "").trim(),
-        palletId: String(row.pallet_id ?? "").trim() || null,
-        slipPhotoUrlsRaw: row.slip_photo_urls ?? null,
-        outsidePhotoUrlsRaw: row.outside_photo_urls ?? null,
-        insidePhotoUrlsRaw: row.inside_photo_urls ?? null,
-        manifestData: row.manifest_data ?? null,
-        enteredCode: enteredCode.trim(),
-      });
-
       resetIdentifyGateForm();
       setModernPalletWorkspace(false);
       setDirectBox(true);
@@ -7379,17 +7301,6 @@ function OperatorMobileScanPageContent() {
       const shipUrls = normalizePalletDocumentationImageUrls(docs.shippingLabelUrls, supabase);
       const bolUrls = normalizePalletDocumentationImageUrls(docs.bolUrls, supabase);
 
-      operatorPhotoDebugLog("direct-box-resume-parsed", {
-        slipLen: slip.length,
-        outsideLen: outside.length,
-        insideLen: inside.length,
-        shippingLabelLen: shipUrls.length,
-        bolLen: bolUrls.length,
-        slip,
-        shippingLabel: shipUrls,
-        manifestDocsRaw: docs,
-      });
-
       setShippingLabelPhotoUrls(shipUrls);
       setBolPhotoUrls(bolUrls);
       shippingLabelPhotoUrlsRef.current = [...shipUrls];
@@ -7418,18 +7329,6 @@ function OperatorMobileScanPageContent() {
       if (rmaRow) setBoxSlipRma(rmaRow);
       const orderRow = String((row as { order_id?: unknown }).order_id ?? docs.orderId ?? "").trim();
       if (orderRow) setPalletOrderId(orderRow);
-
-      operatorPhotoDebugLog("direct-box-resume-state-set", {
-        activeBoxSessionPackageId: pkgId || null,
-        directBoxShouldBe: true,
-        flowPhaseShouldBe: "package_scan",
-        slipLen: slip.length,
-        shippingLabelLen: shipUrls.length,
-        outsideLen: outside.length,
-        insideLen: inside.length,
-        bolLen: bolUrls.length,
-        hydrateBoxPackageIdRef: hydrateBoxPackageIdRef.current,
-      });
 
       setFlowPhase("package_scan");
       setIsIdentified(true);
@@ -7467,28 +7366,6 @@ function OperatorMobileScanPageContent() {
         }
 
         const pkg = lookup.package;
-        let manifestParsed: unknown = pkg?.manifest_data ?? null;
-        if (typeof manifestParsed === "string") {
-          try {
-            manifestParsed = JSON.parse(manifestParsed) as unknown;
-          } catch {
-            manifestParsed = null;
-          }
-        }
-        const docs = parseDirectBoxShipmentDocumentation(manifestParsed);
-        const slipRaw = parsePalletPhotoUrlArray(pkg?.slip_photo_urls);
-        const shipRaw = docs.shippingLabelUrls;
-
-        operatorPhotoDebugLog("direct-package-db-fallback-result", {
-          searchedCode: candidate,
-          foundPackageId: pkg?.id ?? null,
-          packageCode: pkg?.package_code ?? null,
-          trackingNumber: pkg?.tracking_number ?? null,
-          palletId: pkg?.pallet_id ?? null,
-          slipLen: slipRaw.length,
-          shippingLabelLen: shipRaw.length,
-        });
-
         if (!pkg?.id || !isUuidString(pkg.id)) continue;
 
         const row = pkg as unknown as Record<string, unknown>;
@@ -7545,13 +7422,6 @@ function OperatorMobileScanPageContent() {
         .filter(Boolean);
       const uniqueTracking = [...new Set(trackingCandidates)];
 
-      operatorPhotoDebugLog("resume-start", {
-        searchedCode: trimmed,
-        uniqueTracking,
-        gateMatchStatus: gateLookup?.match_status ?? null,
-        gateBarcodeKind: gateLookup?.barcode?.kind ?? null,
-      });
-
       const dbFallbackFirst = await tryDirectPackageDbFallbackResume(trimmed, uniqueTracking);
       if (dbFallbackFirst !== false) return dbFallbackFirst;
 
@@ -7598,15 +7468,6 @@ function OperatorMobileScanPageContent() {
       let pkgResolve: OperatorResolveResult | null = null;
       if (barcode?.kind === "package" || barcode?.kind === "slip") {
         pkgResolve = barcode;
-        const gatePkgRow = barcode.row;
-        operatorPhotoDebugLog("package-resolve-result", {
-          candidate: "gate-barcode",
-          kind: barcode.kind,
-          packageId: String(gatePkgRow.id ?? "").trim() || null,
-          packageCode: String(gatePkgRow.package_code ?? "").trim() || null,
-          trackingNumber: String(gatePkgRow.tracking_number ?? "").trim() || null,
-          palletId: String(gatePkgRow.pallet_id ?? "").trim() || null,
-        });
       } else {
         // Fallback: resolve any already-saved `packages` row for this code / tracking.
         // Covers a previously-received direct (single) box reopened by its tracking number,
@@ -7618,18 +7479,6 @@ function OperatorMobileScanPageContent() {
           const resolved = await resolveOperatorBarcode(supabase, orgId, candidate, {
             only: "package",
             storeId: sessionStoreId,
-          });
-          const resolvedRow =
-            resolved.kind === "package" || resolved.kind === "slip" ? resolved.row : null;
-          operatorPhotoDebugLog("package-resolve-result", {
-            candidate,
-            kind: resolved.kind,
-            packageId: resolvedRow ? String(resolvedRow.id ?? "").trim() || null : null,
-            packageCode: resolvedRow ? String(resolvedRow.package_code ?? "").trim() || null : null,
-            trackingNumber: resolvedRow
-              ? String(resolvedRow.tracking_number ?? "").trim() || null
-              : null,
-            palletId: resolvedRow ? String(resolvedRow.pallet_id ?? "").trim() || null : null,
           });
           if (resolved.kind === "package" || resolved.kind === "slip") {
             pkgResolve = resolved;
@@ -7673,21 +7522,10 @@ function OperatorMobileScanPageContent() {
           }
         } else {
           setIntakeToast("Direct box found — loading details...");
-          operatorPhotoDebugLog("direct-box-resume-invoked", {
-            packageId: String(pkgRow.id ?? "").trim(),
-            packageCode: String(pkgRow.package_code ?? "").trim(),
-            hasSlipPhotoUrls: Boolean(pkgRow.slip_photo_urls),
-            hasManifestData: Boolean(pkgRow.manifest_data),
-          });
           await resumeWorkflowFromExistingDirectBoxPackage(pkgRow, trimmed);
           return "resumed";
         }
       }
-
-      operatorPhotoDebugLog("resume-end-no-package", {
-        searchedCode: trimmed,
-        pkgResolveKind: pkgResolve?.kind ?? null,
-      });
 
       return false;
     },
@@ -9442,6 +9280,12 @@ function OperatorMobileScanPageContent() {
     flowPhase === "package_scan" && parentIdentified && !activeBoxSession;
   const showBoxIntakeShipmentDocumentation =
     flowPhase === "package_scan" && directBox;
+  const directBoxShipmentLabelUploaded = shippingLabelPhotoUrls.some(
+    (u) => String(u ?? "").trim().length > 0,
+  );
+  const directBoxShipmentDocsSubtitle = directBoxShipmentLabelUploaded
+    ? "Shipment documents saved"
+    : "Required for direct box intake";
   /** BOX intake reference fields: Order / RMA / notes — locked for saved UUID boxes until Edit All; editable for drafts. */
   const boxIntakeReferenceEditable =
     !activeBoxSession
@@ -9723,10 +9567,7 @@ function OperatorMobileScanPageContent() {
     setDuplicatePackingSlip(null);
     setBoxSlipInvalidFormatBlocksSave(false);
     hydrateBoxPackageIdRef.current = null;
-    clearOperatorPhotoArrays(
-      ["outside", "inside", "slip"],
-      "abandonActiveBoxSession",
-    );
+    clearOperatorPhotoArrays(["outside", "inside", "slip"]);
     setBoxSlipCode("");
     setBoxSlipRma("");
     clearPalletOrderIdIfAutoFilledFromRa();
@@ -12682,48 +12523,30 @@ function OperatorMobileScanPageContent() {
                             : "space-y-3"
                       }
                     >
-                  {SHOW_OPERATOR_PHOTO_DEBUG ? (
-                    <div
-                      className="relative z-[30] mb-2 rounded-lg border border-amber-500/60 bg-amber-950/90 p-2 font-mono text-[10px] leading-snug text-amber-100"
-                      data-testid="operator-photo-debug-panel"
-                    >
-                      <p className="mb-1 font-bold uppercase tracking-wide text-amber-300">
-                        Photo debug (dev)
-                      </p>
-                      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-                        <dt>directBox</dt>
-                        <dd>{String(directBox)}</dd>
-                        <dt>activeBoxSession.packageId</dt>
-                        <dd>{activeBoxSession?.packageId ?? "—"}</dd>
-                        <dt>flowPhase</dt>
-                        <dd>{flowPhase}</dd>
-                        <dt>slipBoxPhotoUrls.length</dt>
-                        <dd>{slipBoxPhotoUrls.length}</dd>
-                        <dt>shippingLabelPhotoUrls.length</dt>
-                        <dd>{shippingLabelPhotoUrls.length}</dd>
-                        <dt>outsideBoxPhotoUrls.length</dt>
-                        <dd>{outsideBoxPhotoUrls.length}</dd>
-                        <dt>insideBoxPhotoUrls.length</dt>
-                        <dd>{insideBoxPhotoUrls.length}</dd>
-                        <dt>bolPhotoUrls.length</dt>
-                        <dd>{bolPhotoUrls.length}</dd>
-                        <dt>hydrateBoxPackageIdRef</dt>
-                        <dd>{hydrateBoxPackageIdRef.current ?? "—"}</dd>
-                        <dt>identifyGatePhase</dt>
-                        <dd>{identifyGatePhase}</dd>
-                        <dt>busy</dt>
-                        <dd>{String(busy)}</dd>
-                      </dl>
-                    </div>
-                  ) : null}
                   {showBoxIntakeShipmentDocumentation ? (
-                  <section className={`operator-shipment-intake-card operator-shipment-section--docs relative z-20 mb-1 space-y-3 rounded-xl p-2 ${glassCard}`}>
+                  <section
+                    className={[
+                      `operator-shipment-intake-card operator-shipment-section--docs relative z-20 mb-1 space-y-3 rounded-xl p-2 ${glassCard}`,
+                      directBoxShipmentLabelUploaded ? "operator-shipment-docs-row--complete" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
                     <div className="flex items-center gap-1.5">
                       <ClipboardList className="operator-shipment-section-icon h-3.5 w-3.5" strokeWidth={2} />
                       <div className="min-w-0">
                         <p className="operator-shipment-section-title">Shipment Documentation</p>
-                        <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-widest" style={{ color: MUTED_LABEL }}>
-                          Required for direct box intake
+                        <p
+                          className={[
+                            "mt-0.5 text-[10px] font-medium normal-case tracking-normal",
+                            directBoxShipmentLabelUploaded
+                              ? "text-emerald-700 dark:text-emerald-300/90"
+                              : "text-slate-500 dark:text-slate-400",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          {directBoxShipmentDocsSubtitle}
                         </p>
                       </div>
                     </div>
@@ -12748,10 +12571,16 @@ function OperatorMobileScanPageContent() {
                             shippingLabelPhotoUrls.length === 0 && !boxScanDocumentationLocked && !savedBoxIntakeViewLocked
                           }
                           label={
-                            <>
-                              SHIPMENT PHOTO / SHIPPING LABEL{" "}
-                              <span className="operator-shipment-req-mark font-normal normal-case">(required)</span>
-                            </>
+                            directBoxShipmentLabelUploaded ? (
+                              "SHIPMENT PHOTO / SHIPPING LABEL"
+                            ) : (
+                              <>
+                                SHIPMENT PHOTO / SHIPPING LABEL{" "}
+                                <span className="operator-shipment-req-mark font-normal normal-case">
+                                  (required)
+                                </span>
+                              </>
+                            )
                           }
                           hint={null}
                           value={shippingLabelPhotoUrls}
