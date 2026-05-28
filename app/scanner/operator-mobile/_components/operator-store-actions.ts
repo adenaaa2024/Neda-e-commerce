@@ -1068,6 +1068,7 @@ export type UpdateOperatorIntakeBoxPackageInput = {
     inside_photo_urls?: string[];
     slip_photo_urls?: string[];
     package_code?: string | null;
+    carrier_name?: string | null;
     /** Parent shipment / pallet tracking — optional, not a unique key. */
     tracking_number?: string | null;
     /** Marketplace / removal order id for this package (`packages.order_id`). */
@@ -1187,6 +1188,7 @@ export async function updateOperatorIntakeBoxPackageAction(
     pkgPatch.slip_photo_urls = sanitizePublicMediaUrlStrings(pu.slip_photo_urls, 3);
   }
   if (pu.package_code !== undefined) pkgPatch.package_code = pu.package_code;
+  if (pu.carrier_name !== undefined) pkgPatch.carrier_name = pu.carrier_name;
   if (pu.tracking_number !== undefined) pkgPatch.tracking_number = pu.tracking_number;
   if (pu.order_id !== undefined) {
     pkgPatch.order_id = normalizeMarketplaceOrderId(pu.order_id);
