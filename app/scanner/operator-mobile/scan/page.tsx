@@ -399,6 +399,29 @@ function parseBoxSlipManifestData(raw: unknown): { slipCode: string; rma: string
   return { slipCode, rma, lines };
 }
 
+function parseDirectBoxShipmentDocumentation(raw: unknown): {
+  shippingLabelUrls: string[];
+  bolUrls: string[];
+  carrierName: string;
+  orderId: string;
+} {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { shippingLabelUrls: [], bolUrls: [], carrierName: "", orderId: "" };
+  }
+  const md = raw as Record<string, unknown>;
+  const doc = md.direct_box_shipment_documentation;
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    return { shippingLabelUrls: [], bolUrls: [], carrierName: "", orderId: "" };
+  }
+  const d = doc as Record<string, unknown>;
+  return {
+    shippingLabelUrls: parsePalletPhotoUrlArray(d.shipping_label_photo_urls),
+    bolUrls: parsePalletPhotoUrlArray(d.bol_photo_urls),
+    carrierName: String(d.carrier_name ?? d.carrier ?? "").trim(),
+    orderId: String(d.order_id ?? "").trim(),
+  };
+}
+
 function slipContentsNotesToMissingFlag(notes: unknown): boolean {
   if (notes == null) return false;
   if (typeof notes === "string" && notes.trim().startsWith("{")) {
@@ -5582,6 +5605,39 @@ function OperatorMobileScanPageContent() {
       const sidRow = String(row.id_slip_contents ?? row.slip_code ?? row.slip_id ?? "").trim();
       const rmaRow = String(row.rma_number ?? "").trim();
       const fromManifest = parseBoxSlipManifestData(row.manifest_data);
+      const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(row.manifest_data);
+      const hydrateDirectBoxDocs = directBox || !(activePallet?.id?.trim());
+      if (hydrateDirectBoxDocs) {
+        if (fromDirectBoxDocs.shippingLabelUrls.length > 0) {
+          setShippingLabelPhotoUrls(fromDirectBoxDocs.shippingLabelUrls);
+          shippingLabelPhotoUrlsRef.current = [...fromDirectBoxDocs.shippingLabelUrls];
+          evidenceBaselineRef.current.shipping = [...fromDirectBoxDocs.shippingLabelUrls];
+        }
+        if (fromDirectBoxDocs.bolUrls.length > 0) {
+          setBolPhotoUrls(fromDirectBoxDocs.bolUrls);
+          bolPhotoUrlsRef.current = [...fromDirectBoxDocs.bolUrls];
+          evidenceBaselineRef.current.bol = [...fromDirectBoxDocs.bolUrls];
+        }
+        if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
+          const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
+          const applied =
+            normalized && normalized !== OTHER_CARRIER_NAME
+              ? normalized
+              : fromDirectBoxDocs.carrierName;
+          if (normalized && normalized !== OTHER_CARRIER_NAME) {
+            setPalletCarrier(normalized);
+            setPalletCarrierOtherSelected(false);
+          } else {
+            setPalletCarrier(fromDirectBoxDocs.carrierName);
+            setPalletCarrierOtherSelected(true);
+          }
+          persistOperatorSessionCarrier(applied);
+          mergeCarrierIntoActivePalletState(applied);
+        }
+        if (!palletOrderIdRef.current.trim() && fromDirectBoxDocs.orderId) {
+          setPalletOrderId(fromDirectBoxDocs.orderId);
+        }
+      }
 
       const oidForSlip = (orgId ?? "").trim();
       let lines = fromManifest.lines;
@@ -5811,6 +5867,39 @@ function OperatorMobileScanPageContent() {
             }
           }
           const fromManifest = parseBoxSlipManifestData(manifestParsed);
+          const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(manifestParsed);
+          const hydrateDirectBoxDocs = directBox || !(activePallet?.id?.trim());
+          if (hydrateDirectBoxDocs) {
+            if (fromDirectBoxDocs.shippingLabelUrls.length > 0) {
+              setShippingLabelPhotoUrls(fromDirectBoxDocs.shippingLabelUrls);
+              shippingLabelPhotoUrlsRef.current = [...fromDirectBoxDocs.shippingLabelUrls];
+              evidenceBaselineRef.current.shipping = [...fromDirectBoxDocs.shippingLabelUrls];
+            }
+            if (fromDirectBoxDocs.bolUrls.length > 0) {
+              setBolPhotoUrls(fromDirectBoxDocs.bolUrls);
+              bolPhotoUrlsRef.current = [...fromDirectBoxDocs.bolUrls];
+              evidenceBaselineRef.current.bol = [...fromDirectBoxDocs.bolUrls];
+            }
+            if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
+              const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
+              const applied =
+                normalized && normalized !== OTHER_CARRIER_NAME
+                  ? normalized
+                  : fromDirectBoxDocs.carrierName;
+              if (normalized && normalized !== OTHER_CARRIER_NAME) {
+                setPalletCarrier(normalized);
+                setPalletCarrierOtherSelected(false);
+              } else {
+                setPalletCarrier(fromDirectBoxDocs.carrierName);
+                setPalletCarrierOtherSelected(true);
+              }
+              persistOperatorSessionCarrier(applied);
+              mergeCarrierIntoActivePalletState(applied);
+            }
+            if (!palletOrderIdRef.current.trim() && fromDirectBoxDocs.orderId) {
+              setPalletOrderId(fromDirectBoxDocs.orderId);
+            }
+          }
           let lines = fromManifest.lines;
           let rma = rmaRow || fromManifest.rma;
           let slipCodeFromContents: string | null = null;
