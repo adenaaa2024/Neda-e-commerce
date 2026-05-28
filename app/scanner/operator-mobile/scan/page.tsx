@@ -127,6 +127,9 @@ import {
   updateOperatorIntakeBoxPackageAction,
   saveOperatorSlipVisionAction,
   checkOperatorSlipCodeDuplicateAction,
+  getOperatorMobileCorrectionPermissionsAction,
+  moveOperatorIntakeBoxToPalletAction,
+  voidOperatorIntakeBoxPackageAction,
   type DuplicatePackingSlipInfo,
   type OperatorPackageItemRow,
   type OperatorPackageListRow,
@@ -149,6 +152,9 @@ import {
 import { buildOperatorBarcodeResolverFields } from "@/lib/scanner/operator-barcode-preview-input";
 import { OperatorCrossStoreScopeBanner } from "@/app/scanner/operator-mobile/_components/OperatorCrossStoreScopeBanner";
 import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobile/_components/OperatorDuplicatePackingSlipBanner";
+import { OperatorCorrectionActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorCorrectionActionsPanel";
+import { OperatorMoveBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorMoveBoxModal";
+import { OperatorVoidBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorVoidBoxModal";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
@@ -3213,6 +3219,12 @@ function OperatorMobileScanPageContent() {
    * and package intake when a saved UUID box is open. Persisted pallet / saved box rows default to read-only.
    */
   const [editAllMode, setEditAllMode] = useState(false);
+  const [correctionPerms, setCorrectionPerms] = useState({ moveBox: false, voidBox: false });
+  const [moveBoxModalOpen, setMoveBoxModalOpen] = useState(false);
+  const [voidBoxModalOpen, setVoidBoxModalOpen] = useState(false);
+  const [correctionBusy, setCorrectionBusy] = useState(false);
+  const [moveBoxModalError, setMoveBoxModalError] = useState<string | null>(null);
+  const [voidBoxModalError, setVoidBoxModalError] = useState<string | null>(null);
   /** Hydrated slip columns indicate pallet already had shipment data in DB. */
   const [palletDbHasShipmentDetails, setPalletDbHasShipmentDetails] = useState(false);
   /** Shown under Active Pallet — resolved from `pallets.created_by` → `profiles.full_name`. */
@@ -4216,6 +4228,23 @@ function OperatorMobileScanPageContent() {
     setEditAllMode(false);
     setPalletMixedOrderIdsWarning(false);
   }, [activePallet?.id]);
+
+  useEffect(() => {
+    const oid = (orgId ?? "").trim();
+    if (!oid || !isUuidString(oid)) {
+      setCorrectionPerms({ moveBox: false, voidBox: false });
+      return;
+    }
+    let cancelled = false;
+    void getOperatorMobileCorrectionPermissionsAction(oid).then((res) => {
+      if (cancelled) return;
+      if (res.ok) setCorrectionPerms(res.permissions);
+      else setCorrectionPerms({ moveBox: false, voidBox: false });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
 
   /** Hydrate carrier / order_id / shipment-slip / pallet / BOL photo URLs from the active pallet row. */
   useEffect(() => {
@@ -8330,6 +8359,52 @@ function OperatorMobileScanPageContent() {
   const showShipmentEntryEditAllInHeader =
     showShipmentEntryEditAll && !operatorSavedBoxesHubVisible;
 
+  const correctionSavedPackageId = useMemo(() => {
+    const fromBox = (activeBoxSession?.packageId ?? "").trim();
+    if (flowPhase === "package_scan" && isUuidString(fromBox)) return fromBox;
+    const fromItems = (itemScanPackageId ?? "").trim();
+    if (flowPhase === "items" && isUuidString(fromItems)) return fromItems;
+    return null;
+  }, [flowPhase, activeBoxSession?.packageId, itemScanPackageId]);
+
+  const correctionPackageLabel = useMemo(() => {
+    if (!correctionSavedPackageId) return "";
+    const row = palletPackagePickerList.find((p) => p.id === correctionSavedPackageId);
+    return (
+      (row?.package_code ?? "").trim() ||
+      (activeBoxSession?.barcode ?? "").trim() ||
+      (itemScanPackageLabel ?? "").trim() ||
+      correctionSavedPackageId
+    );
+  }, [
+    correctionSavedPackageId,
+    palletPackagePickerList,
+    activeBoxSession?.barcode,
+    itemScanPackageLabel,
+  ]);
+
+  const showCorrectionResetEntry = useMemo(() => {
+    if (!editAllMode) return false;
+    if (flowPhase === "package_scan") {
+      if (activeBoxSession && !isUuidString((activeBoxSession.packageId ?? "").trim())) return true;
+      if (packageCodeCardOpen && !activeBoxSession) return true;
+    }
+    if (flowPhase === "scan" && parentIdentified && isInitialDraftShipmentUx) return true;
+    return false;
+  }, [
+    editAllMode,
+    flowPhase,
+    activeBoxSession,
+    packageCodeCardOpen,
+    parentIdentified,
+    isInitialDraftShipmentUx,
+  ]);
+
+  const showCorrectionMoveBox =
+    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.moveBox;
+  const showCorrectionVoidBox =
+    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.voidBox;
+
   const handleConfirmStartBoxScan = useCallback(async () => {
     if (!parentIdentified) {
       setSyncErrorToast("Identify the pallet barcode first.");
@@ -8731,6 +8806,111 @@ function OperatorMobileScanPageContent() {
     setBoxNotes("");
     scheduleFocusScanner();
   }, [scheduleFocusScanner, clearBoxSlipVisionLinesState, orgId, clearPalletOrderIdIfAutoFilledFromRa]);
+
+  const handleCorrectionResetEntry = useCallback(() => {
+    if (flowPhase === "package_scan") {
+      if (activeBoxSession) {
+        closeActiveBoxPackageSession();
+        setEditAllMode(false);
+        scheduleFocusScanner();
+        return;
+      }
+      if (packageCodeCardOpen) {
+        setPackageCodeCardOpen(false);
+        setEditAllMode(false);
+        scheduleFocusScanner();
+        return;
+      }
+    }
+    if (flowPhase === "scan" && parentIdentified) {
+      void abandonUnsavedPalletShipmentEdits();
+      setEditAllMode(false);
+      scheduleFocusScanner();
+    }
+  }, [
+    flowPhase,
+    activeBoxSession,
+    packageCodeCardOpen,
+    parentIdentified,
+    closeActiveBoxPackageSession,
+    abandonUnsavedPalletShipmentEdits,
+    scheduleFocusScanner,
+  ]);
+
+  const handleMoveBoxConfirm = useCallback(
+    async (targetPalletTrackingOrNumber: string) => {
+      const pkgId = correctionSavedPackageId;
+      const oid = (orgId ?? "").trim();
+      if (!pkgId || !oid) return;
+      setCorrectionBusy(true);
+      setMoveBoxModalError(null);
+      try {
+        const res = await moveOperatorIntakeBoxToPalletAction({
+          packageId: pkgId,
+          targetPalletTrackingOrNumber,
+          requestedOrganizationId: oid,
+          storeId: sessionStoreId ?? null,
+        });
+        if (!res.ok) {
+          setMoveBoxModalError(res.message);
+          return;
+        }
+        setMoveBoxModalOpen(false);
+        setEditAllMode(false);
+        setPalletDocHydrationNonce((n) => n + 1);
+        if (res.palletId && activePallet?.id !== res.palletId) {
+          setActivePallet((p) =>
+            p
+              ? { ...p, id: res.palletId, pallet_number: res.palletNumber }
+              : { id: res.palletId, pallet_number: res.palletNumber },
+          );
+          if (res.trackingNumber) {
+            setCurrentPalletTrackingId(res.trackingNumber);
+          }
+        }
+        closeActiveBoxPackageSession();
+        setSyncErrorToast(`Box moved to pallet ${res.palletNumber}.`);
+        scheduleFocusScanner();
+      } finally {
+        setCorrectionBusy(false);
+      }
+    },
+    [
+      correctionSavedPackageId,
+      orgId,
+      sessionStoreId,
+      activePallet?.id,
+      closeActiveBoxPackageSession,
+      scheduleFocusScanner,
+    ],
+  );
+
+  const handleVoidBoxConfirm = useCallback(async () => {
+    const pkgId = correctionSavedPackageId;
+    const oid = (orgId ?? "").trim();
+    if (!pkgId || !oid) return;
+    setCorrectionBusy(true);
+    setVoidBoxModalError(null);
+    try {
+      const res = await voidOperatorIntakeBoxPackageAction({
+        packageId: pkgId,
+        requestedOrganizationId: oid,
+        storeId: sessionStoreId ?? null,
+      });
+      if (!res.ok) {
+        setVoidBoxModalError(res.message);
+        return;
+      }
+      setVoidBoxModalOpen(false);
+      setEditAllMode(false);
+      closeActiveBoxPackageSession();
+      setPalletDocHydrationNonce((n) => n + 1);
+      setSyncErrorToast("Box voided.");
+      scheduleFocusScanner();
+    } finally {
+      setCorrectionBusy(false);
+    }
+  }, [correctionSavedPackageId, orgId, sessionStoreId, closeActiveBoxPackageSession, scheduleFocusScanner]);
 
   const editParent = () => {
     closeActiveBoxPackageSession();
@@ -9431,6 +9611,24 @@ function OperatorMobileScanPageContent() {
                 ) : null}
               </div>
             </div>
+            {editAllMode &&
+            flowPhase === "package_scan" &&
+            (showCorrectionResetEntry || showCorrectionMoveBox || showCorrectionVoidBox) ? (
+              <OperatorCorrectionActionsPanel
+                showReset={showCorrectionResetEntry}
+                showMoveBox={showCorrectionMoveBox}
+                showVoidBox={showCorrectionVoidBox}
+                onReset={handleCorrectionResetEntry}
+                onMoveBox={() => {
+                  setMoveBoxModalError(null);
+                  setMoveBoxModalOpen(true);
+                }}
+                onVoidBox={() => {
+                  setVoidBoxModalError(null);
+                  setVoidBoxModalOpen(true);
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -9537,6 +9735,24 @@ function OperatorMobileScanPageContent() {
                       </button>
                     </div>
                   </div>
+                ) : null}
+                {editAllMode &&
+                flowPhase === "scan" &&
+                (showCorrectionResetEntry || showCorrectionMoveBox || showCorrectionVoidBox) ? (
+                  <OperatorCorrectionActionsPanel
+                    showReset={showCorrectionResetEntry}
+                    showMoveBox={showCorrectionMoveBox}
+                    showVoidBox={showCorrectionVoidBox}
+                    onReset={handleCorrectionResetEntry}
+                    onMoveBox={() => {
+                      setMoveBoxModalError(null);
+                      setMoveBoxModalOpen(true);
+                    }}
+                    onVoidBox={() => {
+                      setVoidBoxModalError(null);
+                      setVoidBoxModalOpen(true);
+                    }}
+                  />
                 ) : null}
               </div>
             ) : null}
@@ -12794,6 +13010,33 @@ function OperatorMobileScanPageContent() {
           </p>
         </div>
       ) : null}
+
+      <OperatorMoveBoxModal
+        open={moveBoxModalOpen}
+        packageLabel={correctionPackageLabel}
+        busy={correctionBusy}
+        error={moveBoxModalError}
+        onClose={() => {
+          if (!correctionBusy) {
+            setMoveBoxModalOpen(false);
+            setMoveBoxModalError(null);
+          }
+        }}
+        onConfirm={(target) => void handleMoveBoxConfirm(target)}
+      />
+      <OperatorVoidBoxModal
+        open={voidBoxModalOpen}
+        packageLabel={correctionPackageLabel}
+        busy={correctionBusy}
+        error={voidBoxModalError}
+        onClose={() => {
+          if (!correctionBusy) {
+            setVoidBoxModalOpen(false);
+            setVoidBoxModalError(null);
+          }
+        }}
+        onConfirm={() => void handleVoidBoxConfirm()}
+      />
 
       {completedShipmentModal ? (
         <div

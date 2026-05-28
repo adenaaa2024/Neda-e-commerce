@@ -12,8 +12,17 @@ import {
 import type { OperatorStoreOption } from "@/lib/scanner/operator-session";
 import {
   findPalletByTrackingNormalized,
+  findPalletByTrackingOrNumber,
   type OperatorPalletTrackingRow,
 } from "@/lib/scanner/operator-pallet-tracking";
+import {
+  assertOperatorMobilePermission,
+  userHasOperatorMobilePermission,
+} from "@/lib/operator-mobile-permission-guard";
+import {
+  OPERATOR_MOBILE_MOVE_BOX,
+  OPERATOR_MOBILE_VOID_BOX,
+} from "@/lib/operator-mobile-permissions";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
 import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib/server-audit-actor";
@@ -28,6 +37,7 @@ import {
 import { formatDuplicatePackingSlipMessage } from "@/lib/scanner/operator-slip-duplicate";
 import { formatSupabaseActionError } from "@/lib/supabase-action-error";
 import { enrichSlipContentsProductLinksAfterReplace } from "@/lib/scanner/enrich-slip-contents-product-links";
+import { assertUserCanAccessOrganization } from "@/app/dashboard/products/pim-actions";
 import { insertReturn } from "@/app/returns/actions";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import {
@@ -1965,9 +1975,6 @@ export async function previewOperatorItemBarcodeLinkageAction(
   }
 
   const fields = buildOperatorBarcodeResolverFields(barcode);
-  const mkClient = String(input.matchKind ?? "").trim();
-  const matchKind: InsertOperatorPackageItemInput["matchKind"] =
-    mkClient === "fnsku" || mkClient === "upc" || mkClient === "unexpected" ? mkClient : fields.matchKind;
 
   try {
     const res = await resolveProductForScannerItem(supabaseServer, {
@@ -1976,6 +1983,7 @@ export async function previewOperatorItemBarcodeLinkageAction(
       fnsku: fields.fnsku,
       asin: fields.asin,
       sku: fields.sku,
+      msku: fields.sku,
       upc: fields.upc,
       source_table: RETURN_ITEMS_TABLE,
     });
@@ -2022,9 +2030,6 @@ export async function insertOperatorPackageItemAction(
   if (!barcode) {
     return { ok: false, message: "Barcode is required." };
   }
-  const mk = String(input.matchKind ?? "").trim();
-  const matchKind: InsertOperatorPackageItemInput["matchKind"] =
-    mk === "fnsku" || mk === "upc" || mk === "unexpected" ? mk : "unexpected";
 
   const qtyRaw = Number(input.quantity ?? 1);
   const quantity = Number.isFinite(qtyRaw) ? Math.max(1, Math.min(500, Math.floor(qtyRaw))) : 1;
@@ -2127,6 +2132,8 @@ export async function insertOperatorPackageItemAction(
 
   const operatorNotes = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
 
+  const scanIds = buildOperatorBarcodeResolverFields(barcode);
+
   const ins = await insertReturn({
     organization_id: organizationId,
     store_id: storeIdResolved,
@@ -2138,8 +2145,10 @@ export async function insertOperatorPackageItemAction(
     expiration_date: exp ?? undefined,
     batch_number: lot ?? undefined,
     photo_evidence,
-    fnsku: matchKind === "fnsku" ? barcode.slice(0, 500) : undefined,
-    sku: matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : undefined,
+    fnsku: scanIds.fnsku?.slice(0, 500),
+    sku: scanIds.sku?.slice(0, 500),
+    asin: scanIds.asin?.slice(0, 500),
+    product_identifier: scanIds.upc?.slice(0, 500),
   });
 
   if (!ins.ok || !ins.data?.id) {
@@ -2161,8 +2170,10 @@ export async function insertOperatorPackageItemAction(
         expiration_date: exp ?? undefined,
         batch_number: lot ?? undefined,
         photo_evidence,
-        fnsku: matchKind === "fnsku" ? barcode.slice(0, 500) : undefined,
-        sku: matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : undefined,
+        fnsku: scanIds.fnsku?.slice(0, 500),
+        sku: scanIds.sku?.slice(0, 500),
+        asin: scanIds.asin?.slice(0, 500),
+        product_identifier: scanIds.upc?.slice(0, 500),
       });
       if (!extra.ok) {
         return { ok: false, message: extra.error ?? "Failed to save item scan." };
@@ -2175,12 +2186,235 @@ export async function insertOperatorPackageItemAction(
     linkage ??
     buildProductLinkageDisplayContract(
       {
-        fnsku: matchKind === "fnsku" ? barcode.slice(0, 500) : null,
-        sku: matchKind === "upc" || matchKind === "unexpected" ? barcode.slice(0, 500) : null,
+        fnsku: scanIds.fnsku ?? null,
+        sku: scanIds.sku ?? null,
+        product_identifier: scanIds.upc ?? null,
         item_name: itemName,
       },
       new Map(),
     );
 
   return { ok: true, id: primaryId, product_linkage };
+}
+
+export type OperatorMobileCorrectionPermissions = {
+  moveBox: boolean;
+  voidBox: boolean;
+};
+
+/**
+ * Client snapshot for Edit All correction actions (move/void visibility).
+ */
+export async function getOperatorMobileCorrectionPermissionsAction(
+  requestedOrganizationId: string,
+): Promise<
+  | { ok: true; permissions: OperatorMobileCorrectionPermissions }
+  | { ok: false; message: string }
+> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const org = await assertUserCanAccessOrganization(organizationId);
+  if (!org.ok) {
+    return { ok: false, message: org.error };
+  }
+  const [moveBox, voidBox] = await Promise.all([
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_MOVE_BOX),
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_VOID_BOX),
+  ]);
+  return { ok: true, permissions: { moveBox, voidBox } };
+}
+
+export type MoveOperatorIntakeBoxToPalletInput = {
+  packageId: string;
+  targetPalletTrackingOrNumber: string;
+  requestedOrganizationId: string;
+  storeId?: string | null;
+};
+
+export type MoveOperatorIntakeBoxToPalletResult =
+  | {
+      ok: true;
+      packageId: string;
+      palletId: string;
+      palletNumber: string;
+      trackingNumber: string | null;
+    }
+  | { ok: false; message: string };
+
+/**
+ * Moves a saved package to another pallet (same org/store). Preserves return_items and slip_contents.
+ */
+export async function moveOperatorIntakeBoxToPalletAction(
+  input: MoveOperatorIntakeBoxToPalletInput,
+): Promise<MoveOperatorIntakeBoxToPalletResult> {
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_MOVE_BOX);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const packageId = String(input.packageId ?? "").trim();
+  if (!isUuidString(packageId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const targetRaw = String(input.targetPalletTrackingOrNumber ?? "").trim();
+  if (!targetRaw) {
+    return { ok: false, message: "Enter a target pallet tracking number or pallet number." };
+  }
+
+  const storeScope = String(input.storeId ?? "").trim();
+
+  const { data: pkgRow, error: pkgErr } = await supabaseServer
+    .from("packages")
+    .select("id, organization_id, store_id, pallet_id, package_code")
+    .eq("id", packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgErr) return { ok: false, message: pkgErr.message };
+  if (!pkgRow) {
+    return { ok: false, message: "Package not found for this organization." };
+  }
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (
+    storeScope &&
+    isUuidString(storeScope) &&
+    pkgStore &&
+    isUuidString(pkgStore) &&
+    pkgStore !== storeScope
+  ) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  let targetPallet: OperatorPalletTrackingRow | null = null;
+  try {
+    targetPallet = await findPalletByTrackingOrNumber(
+      supabaseServer,
+      organizationId,
+      targetRaw,
+      storeScope || pkgStore || null,
+    );
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Pallet lookup failed." };
+  }
+  if (!targetPallet) {
+    return { ok: false, message: "Target pallet not found for this organization and store." };
+  }
+
+  const currentPalletId = String((pkgRow as { pallet_id?: string | null }).pallet_id ?? "").trim();
+  if (currentPalletId === targetPallet.id) {
+    return {
+      ok: true,
+      packageId,
+      palletId: targetPallet.id,
+      palletNumber: targetPallet.pallet_number,
+      trackingNumber: targetPallet.tracking_number,
+    };
+  }
+
+  const actor = await resolveAuditActorForSession();
+  const patch: Record<string, unknown> = {
+    pallet_id: targetPallet.id,
+    updated_at: new Date().toISOString(),
+  };
+  if (actor.userId) patch.updated_by = actor.userId;
+
+  const { error: upErr } = await supabaseServer.from("packages").update(patch).eq("id", packageId);
+  if (upErr) return { ok: false, message: upErr.message };
+
+  return {
+    ok: true,
+    packageId,
+    palletId: targetPallet.id,
+    palletNumber: targetPallet.pallet_number,
+    trackingNumber: targetPallet.tracking_number,
+  };
+}
+
+export type VoidOperatorIntakeBoxPackageInput = {
+  packageId: string;
+  requestedOrganizationId: string;
+  storeId?: string | null;
+};
+
+export type VoidOperatorIntakeBoxPackageResult =
+  | { ok: true; packageId: string }
+  | { ok: false; message: string };
+
+const VOID_BLOCKED_ITEMS_MESSAGE =
+  "This box has saved items. Move it instead of deleting.";
+
+/**
+ * Soft-voids a package (`deleted_at`). Allowed when no active `return_items` reference the package.
+ * Slip-only packages (slip_contents, no return_items) may be voided.
+ */
+export async function voidOperatorIntakeBoxPackageAction(
+  input: VoidOperatorIntakeBoxPackageInput,
+): Promise<VoidOperatorIntakeBoxPackageResult> {
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_VOID_BOX);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const packageId = String(input.packageId ?? "").trim();
+  if (!isUuidString(packageId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+
+  const storeScope = String(input.storeId ?? "").trim();
+
+  const { data: pkgRow, error: pkgErr } = await supabaseServer
+    .from("packages")
+    .select("id, organization_id, store_id")
+    .eq("id", packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgErr) return { ok: false, message: pkgErr.message };
+  if (!pkgRow) {
+    return { ok: false, message: "Package not found for this organization." };
+  }
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (
+    storeScope &&
+    isUuidString(storeScope) &&
+    pkgStore &&
+    isUuidString(pkgStore) &&
+    pkgStore !== storeScope
+  ) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  const { count, error: countErr } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .select("id", { count: "exact", head: true })
+    .eq("package_id", packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null);
+  if (countErr) return { ok: false, message: countErr.message };
+  if ((count ?? 0) > 0) {
+    return { ok: false, message: VOID_BLOCKED_ITEMS_MESSAGE };
+  }
+
+  const actor = await resolveAuditActorForSession();
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    deleted_at: now,
+    updated_at: now,
+  };
+  if (actor.userId) patch.updated_by = actor.userId;
+
+  const { error: upErr } = await supabaseServer.from("packages").update(patch).eq("id", packageId);
+  if (upErr) return { ok: false, message: upErr.message };
+
+  return { ok: true, packageId };
 }
