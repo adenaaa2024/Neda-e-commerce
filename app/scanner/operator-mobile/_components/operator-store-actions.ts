@@ -11,6 +11,7 @@ import {
 } from "@/lib/scanner/item-unit-discrepancy-tags";
 import type { OperatorStoreOption } from "@/lib/scanner/operator-session";
 import {
+  findPalletByIdForOperator,
   findPalletByTrackingNormalized,
   findPalletByTrackingOrNumber,
   type OperatorPalletTrackingRow,
@@ -676,6 +677,214 @@ async function palletDupResultFromExisting(
     error: formatUnauthorizedTrackingInStoreMessage(storeLabel),
     duplicateWrongStore: true,
   };
+}
+
+export async function findOperatorPalletByIdAction(
+  requestedOrganizationId: string,
+  palletId: string,
+  activeStoreId?: string | null,
+): Promise<
+  | { ok: true; pallet: OperatorPalletTrackingRow | null; wrongStore?: boolean; wrongStoreMessage?: string }
+  | { ok: false; error: string }
+> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, error: "Not signed in." };
+  }
+
+  const pid = String(palletId ?? "").trim();
+  if (!pid || !isUuidString(pid)) {
+    return { ok: true, pallet: null };
+  }
+
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, error: "Could not resolve organization." };
+  }
+
+  try {
+    const pallet = await findPalletByIdForOperator(supabaseServer, organizationId, pid);
+    const active = String(activeStoreId ?? "").trim();
+    if (pallet && active && isUuidString(active)) {
+      const ps = String(pallet.store_id ?? "").trim();
+      if (ps && isUuidString(ps) && ps !== active) {
+        const storeLabel =
+          (await fetchStoreDisplayNameForOrganization(supabaseServer, organizationId, ps)) ?? "";
+        return {
+          ok: true,
+          pallet: null,
+          wrongStore: true,
+          wrongStoreMessage: formatUnauthorizedTrackingInStoreMessage(storeLabel),
+        };
+      }
+    }
+    return { ok: true, pallet };
+  } catch (e) {
+    const msg = formatSupabaseActionError(e, "Lookup failed.");
+    console.error("[findOperatorPalletByIdAction]", msg, e);
+    return { ok: false, error: msg };
+  }
+}
+
+const OPERATOR_SAVED_PACKAGE_RESUME_SELECT =
+  "id, package_code, tracking_number, pallet_id, slip_photo_urls, outside_photo_urls, inside_photo_urls, manifest_data, carrier_name, order_id, rma_number, notes, id_slip_contents, store_id";
+
+export type OperatorSavedPackageResumeRow = {
+  id: string;
+  package_code: string | null;
+  tracking_number: string | null;
+  pallet_id: string | null;
+  slip_photo_urls: unknown;
+  outside_photo_urls: unknown;
+  inside_photo_urls: unknown;
+  manifest_data: unknown;
+  carrier_name: string | null;
+  order_id: string | null;
+  rma_number: string | null;
+  notes: string | null;
+  id_slip_contents: string | null;
+  store_id: string | null;
+};
+
+function savedPackageMatchesStoreScope(
+  packageStoreId: string | null | undefined,
+  storeScope: string | null | undefined,
+): boolean {
+  const scope = String(storeScope ?? "").trim();
+  const pkgStore = String(packageStoreId ?? "").trim();
+  if (!scope || !isUuidString(scope)) return true;
+  if (!pkgStore || !isUuidString(pkgStore)) return true;
+  return pkgStore === scope;
+}
+
+function pickScopedSavedPackageRow(
+  rows: OperatorSavedPackageResumeRow[],
+  storeScope: string | null | undefined,
+): {
+  row: OperatorSavedPackageResumeRow | null;
+  wrongStore?: boolean;
+  wrongStoreMessage?: string;
+} {
+  if (!rows.length) return { row: null };
+  const inScope = rows.find((r) => savedPackageMatchesStoreScope(r.store_id, storeScope));
+  if (inScope) return { row: inScope };
+  const scope = String(storeScope ?? "").trim();
+  if (!scope || !isUuidString(scope)) return { row: rows[0] ?? null };
+  const foreign = rows[0];
+  const pkgStore = String(foreign?.store_id ?? "").trim();
+  if (pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { row: null, wrongStore: true };
+  }
+  return { row: rows[0] ?? null };
+}
+
+async function listSavedPackagesByColumnIlike(
+  organizationId: string,
+  column: "package_code" | "tracking_number",
+  code: string,
+  limit = 5,
+): Promise<OperatorSavedPackageResumeRow[]> {
+  const { data, error } = await supabaseServer
+    .from("packages")
+    .select(OPERATOR_SAVED_PACKAGE_RESUME_SELECT)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .ilike(column, code)
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as OperatorSavedPackageResumeRow[];
+}
+
+async function findSavedPackageByTrackingNormalized(
+  organizationId: string,
+  raw: string,
+): Promise<OperatorSavedPackageResumeRow | null> {
+  const key = normalizeTrackingKey(raw);
+  if (!key) return null;
+  const PAGE = 200;
+  for (let off = 0; off < 6000; off += PAGE) {
+    const { data, error } = await supabaseServer
+      .from("packages")
+      .select(OPERATOR_SAVED_PACKAGE_RESUME_SELECT)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .not("tracking_number", "is", null)
+      .order("updated_at", { ascending: false })
+      .range(off, off + PAGE - 1);
+    if (error) throw error;
+    const hit = (data ?? []).find(
+      (row) =>
+        normalizeTrackingKey(String((row as OperatorSavedPackageResumeRow).tracking_number ?? "")) === key,
+    );
+    if (hit) return hit as OperatorSavedPackageResumeRow;
+    if (!data?.length || data.length < PAGE) break;
+  }
+  return null;
+}
+
+/**
+ * Service-role lookup for an already-saved `packages` row by carton code or tracking (operator resume).
+ * Used before creating a fresh direct-box session with `packageId: null`.
+ */
+export async function findOperatorSavedPackageByCodeOrTrackingAction(
+  requestedOrganizationId: string,
+  code: string,
+  activeStoreId?: string | null,
+): Promise<
+  | { ok: true; package: OperatorSavedPackageResumeRow | null; wrongStore?: boolean; wrongStoreMessage?: string }
+  | { ok: false; error: string }
+> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, error: "Not signed in." };
+  }
+
+  const raw = String(code ?? "").trim();
+  if (!raw) {
+    return { ok: true, package: null };
+  }
+
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, error: "Could not resolve organization." };
+  }
+
+  const storeScope = String(activeStoreId ?? "").trim();
+
+  try {
+    let candidates: OperatorSavedPackageResumeRow[] = [];
+    const byCode = await listSavedPackagesByColumnIlike(organizationId, "package_code", raw);
+    if (byCode.length) candidates = byCode;
+    if (!candidates.length) {
+      const byTn = await listSavedPackagesByColumnIlike(organizationId, "tracking_number", raw);
+      if (byTn.length) candidates = byTn;
+    }
+    if (!candidates.length) {
+      const byNorm = await findSavedPackageByTrackingNormalized(organizationId, raw);
+      if (byNorm) candidates = [byNorm];
+    }
+
+    const picked = pickScopedSavedPackageRow(candidates, storeScope || null);
+    if (picked.wrongStore) {
+      const foreignStore = String(candidates[0]?.store_id ?? "").trim();
+      const storeLabel =
+        foreignStore && isUuidString(foreignStore)
+          ? (await fetchStoreDisplayNameForOrganization(supabaseServer, organizationId, foreignStore)) ?? ""
+          : "";
+      return {
+        ok: true,
+        package: null,
+        wrongStore: true,
+        wrongStoreMessage: formatUnauthorizedPackageInStoreMessage(storeLabel),
+      };
+    }
+    return { ok: true, package: picked.row };
+  } catch (e) {
+    const msg = formatSupabaseActionError(e, "Package lookup failed.");
+    console.error("[findOperatorSavedPackageByCodeOrTrackingAction]", msg, e);
+    return { ok: false, error: msg };
+  }
 }
 
 export async function findOperatorPalletByTrackingNumberAction(
