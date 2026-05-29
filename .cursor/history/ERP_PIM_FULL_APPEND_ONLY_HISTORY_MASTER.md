@@ -77,10 +77,14 @@ Guard: `npm run check:product-resolution-contract-v192`
 
 | Object | Contract |
 |--------|----------|
-| `return_items` | Canonical line table (replaces legacy `returns` for app code) |
+| `return_items` | **Item-level** — one physical scan per row; count = `COUNT(return_items)`; **no** `quantity_entered`/`scanned_quantity` on normal scans |
 | `packages` / `pallets` | Parent hierarchy; `package_code`, `slip_code` |
-| `expected_packages` | Expected read layer for Neda inventory |
+| `expected_packages` | **Group-level** expected allocation — `expected_scan_quantity`, `receive_allocated`/remainder, slip/package/pallet scope |
 | `slip_contents` | Slip-line UPC/GTIN source (governed promotion only) |
+
+**Receive relationship:** `return_items.expected_item_id` → allocated `expected_packages` row (`receive_allocated`); EP groups multiple RI via pointer + count. Insert 1 RI per scan; allocate 1 EP unit per `return_item_id`; delete/move releases or transfers **one** unit.
+
+**Forbidden regression:** quantity-only scanner allocation; quantity fields on `return_items` for normal item scans; adding `expected_product_id`/`product_match_status` on RI without separate justification.
 
 **Views (applied staging + original where noted):**
 
@@ -223,10 +227,18 @@ Guard: `npm run check:product-resolution-contract-v192`
 | Spreadsheet intake (dims sheet) | **4,479** rows · **175** parseable L×W×H · **90** merge-safe · **85** dup-ASIN variants · **4,304** missing dims · **0** ASIN dim conflicts |
 | Product linkage | **Not 100%** across operational tables — coverage audit required/ongoing |
 | Unit system | Storage unit tagged; logical compare **in/lb**; no mass conversion |
-| Removal API intake | Detail → `amazon_removals` / `GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA`; Shipment → `amazon_removal_shipments` / `GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA`; intake = **`expected_packages`** only; rebuild = `rebuild_expected_packages_from_removals` |
-| Removal join | 7-tuple NULL-safe; **forbidden** SKU-only / FNSKU-only; tracking/carrier/date after line match only |
-| Removal products | **No** product create on fetch/rebuild; promotion only with Amazon evidence |
-| Packaging checkpoint | **571** `dimensions_current` staging/original (operator post-Wave3); last verify artifact **441/441** — re-verify when Wave3 locked |
+| Removal API intake | Detail → `amazon_removals`; Shipment → `amazon_removal_shipments`; intake = **`expected_packages`**; rebuild = `rebuild_expected_packages_from_removals` |
+| Removal carrier fix | **PASS** `removal-carrier-normalization-view-safe-fix/20260528T024122Z` — comma-dirty **654→0** (arms **356→0**, EP **298→0**) |
+| Removal grouped EP rebuild | **PASS** `removal-expected-allocation-fix-execute/20260528T020733Z` — 5,697 + 478 derived EP |
+| Removal tracking norm | **PASS** `removal-tracking-normalization-fix-execute/20260528T015947Z` |
+| Main EP resolver | **PASS** `main-product-linkage-expected-packages-resolver-execute/20260528T181500Z` — **6,099 / 6,175** resolved; **76** unresolved; FNSKU `X004JWH5NB` smoke |
+| Spreadsheet packaging activate | **PASS** `spreadsheet-packaging-activate-staging/20260528T050000Z` — **80** rows activated (`491→571`) |
+| Spreadsheet original parity | **PASS** `spreadsheet-packaging-original-parity-verify/20260528T080000Z` — **80/80** matched; **571** both refs |
+| Item-level receive repair | **PASS** `expected-receive-split-item-row-repair-execute/20260528T180714Z` — tests A/B/C; quantity-only blocked |
+| Item-level git sync | **PASS** `commit-push-item-level-repair-and-phase1/20260528T191934Z` — commit `51bc597` pushed |
+| Scanner / Neda | Staging RPCs + repair **PASS**; branch must stay committed/pushed for Neda pull |
+| Original parity phase1 | **NOT production ready** — **24** schema + **9** data gaps identified; schema wave **EXECUTED** on original (`20260530T180000Z`); **data wave next** |
+| Packaging checkpoint | **571** `dimensions_current` staging/original (441 governed + **80** spreadsheet); verify **441/441** governed unchanged |
 | Constraints | no `products` UPDATE; no Amazon API; no AI/OpenAI |
 
 ---
@@ -240,6 +252,8 @@ Guard: `npm run check:product-resolution-contract-v192`
 | `v_inventory_status` | Package aggregate only |
 | `fetchExpectedPackagesNedaRead` | product_comparison model |
 | `fetchInventoryItemStatusForNeda` | Hydrated linkage; `{ packageCode }` filter |
+
+**Removal view note:** `v_inventory_item_status` is aggregated scan/compare grain — not raw `expected_packages` row count (see `view-row-explain-expected-vs-inventory-status/20260528T150000Z`).
 
 **Parity:** V193 staging + V195 original product columns; V205 staging + V206 original package_code.
 
@@ -322,14 +336,13 @@ Evidence: `pc05-packaging-full-parity-verify/20260526T214000Z/` · `pc05c-packag
 
 ## 16. Next actions
 
-1. **REMOVAL-QUANTITY-ALLOCATION-VALIDATION** — read-only vs rebuild contract  
-2. **SP-API-REMOVAL-REPORTS-FETCH-WORKER** — Reports API order + shipment workers (approval-gated)  
-3. **REMOVAL-PRODUCT-RESOLVER-WIRE** — expected_packages linkage without auto-create  
-4. **REBUILD-EXPECTED-PACKAGES-FROM-REMOVALS-EXECUTE** — after sync + validation PASS  
-5. **PC05-PACKAGING-FULL-PARITY-VERIFY** — confirm **571** if Wave3 parity claimed  
-6. **PRODUCT-LINKAGE-TABLE-COVERAGE-AUDIT** — linkage not 100%  
+1. **BUILD-FIX-TESSERACT-SCAN-PAGE** — `npm run build` fails on `tesseract.js` / `scan/page.tsx`; fix before deploy  
+2. **ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE** — fresh SP-API fetch on original, not staging copy (`original-parity-phase1-wave-data-approval.md`)  
+3. **CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY** — staging; migration drafted, dry-run PASS; ~13,966 upper bound pre-dedupe  
+4. **GH-AUTH-PR-CREATE** — open PR `feature/product-canonicalization-v2` → `main` for commit `51bc597`  
+5. **TRID-FOUNDATION-MIGRATION-APPLY** — after `claim_lines` prerequisite landed  
 
-Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `TASKS.md`, `HISTORY_POINTERS.md`
+Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `SCANNER_STATE.md`, `REMOVAL_API_STATE.md`, `STAGING_ORIGINAL_PARITY.md`, `CLAIMS_TRID_STATE.md`, `HISTORY_POINTERS.md`
 
 ---
 
@@ -337,7 +350,13 @@ Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `TASKS.md`, `HISTORY_POI
 
 | Run ID | Action | Notes |
 |--------|--------|-------|
-| `20260528T180000Z` | **REMOVAL API / RESOLUTION CHECKPOINT** | expected_packages rebuild contract; no product create on fetch; 571 packaging checkpoint |
+| `20260601T120000Z` | **PHASE1 DELIVERY STATUS UPDATE** | 51bc597 pushed; build tesseract blocker; original schema 4/4 PASS; data wave pending; claims/TRID dryruns PASS not applied; Neda smoke PASS; PR needed |
+| `20260531T140000Z` | **PHASE1 SCANNER REMOVAL CHECKPOINT** | 80 spreadsheet dims; removal fetch/sync/rebuild/norm/resolver 6099/6175; item-level repair+commit; original schema wave done; claims/TRID plans PASS |
+| `20260529T220000Z` | **ITEM-LEVEL RECEIVE MODEL** | RI item-level vs EP group-level; repair pending; no qty-on-RI regression |
+| `20260529T180000Z` | **REMOVAL EXPECTED + SCANNER LINKAGE** | Tracking/carrier/grouped EP PASS; FNSKU smoke; original parity pending |
+| `20260529T120000Z` | **REMOVAL API / LINKAGE CHECKPOINT** | Fetch PASS; allocation fix 6002→5468; view grain; Neda scan fix |
+| `20260528T220000Z` | **REMOVAL VALIDATION UPDATE** | Qty allocation PASS 1629 lines; fetch/resolver plan locked |
+| `20260528T180000Z` | **REMOVAL API / RESOLUTION CHECKPOINT** | expected_packages rebuild contract; no product create on fetch |
 | `20260528T120000Z` | **SPREADSHEET / LINKAGE CHECKPOINT** | 4,479-row intake; 441 packaging parity unchanged; linkage not 100% |
 | `20260527T220000Z` | **PACKAGING WAVE2 FINAL** | Full parity verify PASS 441/441 drift 0; authoritative total **441** not 641 |
 | `20260527T200000Z` | **PACKAGING WAVE 2 CLOSEOUT** | W2 review/activate staging + PC05F original verify PASS; 441/441 dimensions_current |
@@ -229983,112 +230002,100 @@ This must be checked before:
 - scheduling sync jobs
 - generating reports
 - using OCR
-- creating claims/tasks/cases from a feature
+- creating claims/tasks/cases from a fea
+---
 
-Recommended commercial model:
-Hybrid:
-1. Base platform subscription
-2. Module add-ons
-3. Per-seat or per-role limits
-4. Per-store limits
-5. Usage-based meters:
-   - API calls
-   - imported rows/files
-   - AI tokens/credits
-   - AI agent runs
-   - OCR pages/images
-   - claim submissions
-   - workflow tasks
-   - storage
-6. Credit packs for AI/API where useful
+# APPEND SLICE: PHASE1 DELIVERY STATUS UPDATE (20260601T120000Z)
 
-Possible sellable modules:
-- Core PIM/Product Graph
-- Imports/ETL
-- Amazon connector
-- Walmart connector
-- Shopify connector
-- Returns module
-- Warehouse scanner module
-- Pallet/package module
-- Claim Inbox
-- Claim Workflow
-- Claim Marketplace Submit
-- Reimbursements
-- Inventory Forecasting
-- Purchase Recommendation
-- Sales Intelligence
-- Accounting/Costing
-- HR/Performance
-- AI Assistant Basic
-- AI Agent Automation
-- OCR/Slip Reader
-- Advanced Security/Audit
-- API Access
-- White-label / multi-tenant management
+**Prompt:** HISTORY + MEMORY — PHASE1 DELIVERY STATUS UPDATE  
+**Owner:** Main/user  
+**Branch:** `feature/product-canonicalization-v2`  
+**Mode:** Agent, docs only — no DB/API/migration mutations  
 
-Implementation implication:
-- RBAC answers “who can do what?”
-- Entitlements answer “has this tenant/store bought/activated this capability?”
-- Feature flags answer “is this rolled out/enabled technically?”
-All three are different and must not be mixed.
+## Commit pushed
 
-Future tables likely needed:
-- platform_modules
-- platform_features
-- tenant_entitlements
-- store_entitlements or store_feature_overrides
-- feature_usage_events
-- usage_meter_definitions
-- subscription_plan_features
-- ai_credit_ledger
-- module_dependency_graph
+| Field | Value |
+|-------|-------|
+| SHA | `51bc597ba1ed1d49761b5650b73f36704f72b1aa` |
+| Message | `phase1: item-level scanner receive allocation repair` |
+| Remote | `origin/feature/product-canonicalization-v2` |
+| Evidence | `commit-push-item-level-repair-and-phase1/20260528T191934Z/` |
 
-Need future helper:
-assertEntitlement({
-  organizationId,
-  storeId?,
-  featureKey,
-  moduleKey?,
-  usageAmount?
-})
+## Build blocker
 
-And combined gate:
-assertClaimPermission + assertEntitlement + store access
+| Issue | Detail |
+|-------|--------|
+| `npm run build` | **FAIL** — `tesseract.js` missing in `app/scanner/operator-mobile/scan/page.tsx` |
+| Deploy gate | Fix required before Vercel/deploy merge |
+| Next | **BUILD-FIX-TESSERACT-SCAN-PAGE** |
 
-================================================================================
-V95 CURRENT NEXT STEP
-================================================================================
+## Original schema wave — PASS
 
-Immediate next:
-Do NOT run migration blindly yet.
+| Item | Status |
+|------|--------|
+| Target | `kxsvedvpjldygtdbylsy` |
+| Migrations applied | **4 / 4** |
+| Functions parity | **PASS** |
+| Views parity | **PASS** |
+| Evidence | `original-parity-phase1-wave-schema-execute/20260530T180000Z/` |
 
-Recommended next:
-NEXT-CLAIM-31 — user_store_assignments Migration Readiness Verify + Execution Checklist
+## Original data wave — NOT EXECUTED
 
-Mode:
-Agent or Plan
-Recommended: Agent, but no DB execution.
-Scope:
-- inspect migration file
-- verify SQL assumptions against repo migrations/types only
-- create execution checklist
-- create rollback/check queries
-- produce exact Supabase SQL/migration steps for when user approves
+Fresh SP-API fetch on original recommended; do not bulk-clone staging EP/PIM/upload rows. Approval: `original-parity-phase1-wave-data-approval.md`.
 
-Then after migration is reviewed:
-- user can run migration
-- then next step: assertClaimPermission implementation
+## Staging data
 
-Parallel future planning:
-NEXT-PLATFORM-ENTITLEMENTS-01 — Modular Product / Feature Entitlement Architecture Plan
-This should be done soon before more modules/actions are added.
+`expected_packages` **6,175**; resolved **6,099**; unresolved **76**.
 
+## Claims — dry-run PASS, not applied
 
-================================================================================
-V96 UPDATE — USER RAN USER_STORE_ASSIGNMENTS MIGRATION SUCCESSFULLY
-================================================================================
+Migration `20260831120000_claim_lines_foundation.sql` drafted; dry-run PASS; ~**13,966** upper bound pre-dedupe.
 
-User reported:
-- Preflight SQL ran successfully.
-- Migration w
+## TRID — dry-run PASS, not applied
+
+Migration `20260832120000_trid_foundation.sql` drafted; `claim_lines` prerequisite missing.
+
+## Neda
+
+Item-level smoke **PASS** after sync; PR not opened — needs **GH-AUTH-PR-CREATE**.
+
+## Priority
+
+1. BUILD-FIX-TESSERACT-SCAN-PAGE  
+2. ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE  
+3. CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY  
+4. GH-AUTH-PR-CREATE
+
+---
+
+# 20260528T220000Z — ORIGINAL DATA WAVE RESOLVER FINISH VERIFY
+
+**Prompt:** ORIGINAL-PARITY-WAVE-DATA-RESOLVER-FINISH-VERIFY  
+**Evidence:** `.cursor/audit-reports/original-parity-wave-data-resolver-finish-verify/20260528T220000Z/`  
+**Data execute:** `.cursor/audit-reports/original-parity-phase1-wave-data-execute/20260528T201200Z/`
+
+## Result
+
+| Check | Value |
+|-------|-------|
+| resolver_complete | **yes** |
+| original derived EP | **11,790** |
+| original resolved | **9,377** |
+| original unresolved | **2,413** |
+| ambiguous | **0** |
+| rebuild_valid | **yes** (non-overflow mismatch **0**) |
+| resume_needed | **no** |
+
+## Staging vs original (live)
+
+| Metric | Staging | Original |
+|--------|--------:|---------:|
+| derived EP | 6,175 | 11,790 |
+| resolved | 6,099 | 9,377 |
+| unresolved | 76 | 2,413 |
+
+No staging writes. No products/PIM inserts.
+
+## Next
+
+**ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE** — governed map replays on original (optional gap close) -> Wave C scanner verify.

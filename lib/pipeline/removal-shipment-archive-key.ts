@@ -9,6 +9,8 @@ import {
   normalizeRemovalOrderUuidForBusinessKey,
   pgTextUniqueField,
 } from "./amazon-removals-business-key";
+import { normalizeRemovalCarrierOperational } from "./removal-carrier-normalize";
+import { normalizeRemovalTrackingOperational } from "./removal-tracking-normalize";
 
 /** Deterministic JSON key for "same logical shipment line" across different uploads. */
 export function removalShipmentArchiveBusinessKey(row: Record<string, unknown>): string | null {
@@ -16,7 +18,16 @@ export function removalShipmentArchiveBusinessKey(row: Record<string, unknown>):
   const store = normalizeRemovalOrderUuidForBusinessKey(row.store_id);
   if (!org || !store) return null;
   const order_id = pgTextUniqueField(row.order_id);
-  const tracking_number = pgTextUniqueField(row.tracking_number);
+  const trackingNorm = normalizeRemovalTrackingOperational(row.tracking_number);
+  const tracking_number =
+    trackingNorm.status === "multi_conflict"
+      ? null
+      : pgTextUniqueField(trackingNorm.operational);
+  const carrierNorm = normalizeRemovalCarrierOperational(row.carrier);
+  const carrier =
+    carrierNorm.status === "multi_conflict"
+      ? null
+      : pgTextUniqueField(carrierNorm.operational);
   if (!order_id && !tracking_number) return null;
 
   const tuple = {
@@ -33,7 +44,7 @@ export function removalShipmentArchiveBusinessKey(row: Record<string, unknown>):
     cancelled_quantity: normalizeRemovalOrderQtyForBusinessKey(row.cancelled_quantity),
     order_date: normalizeRemovalOrderDateForBusinessKey(row.order_date),
     order_type: pgTextUniqueField(row.order_type),
-    carrier: pgTextUniqueField(row.carrier),
+    carrier,
     shipment_date: normalizeRemovalOrderDateForBusinessKey(row.shipment_date),
   };
   return JSON.stringify(tuple);

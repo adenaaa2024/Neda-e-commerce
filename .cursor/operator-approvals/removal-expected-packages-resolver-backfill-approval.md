@@ -5,7 +5,10 @@ Environment: staging
 Approved by:
 Approved at UTC:
 
-APPROVED_TO_RUN_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL_STAGING=false
+```text
+APPROVED_TO_RUN_STAGING=true
+APPROVED_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL=true
+```
 
 ## Scope
 
@@ -20,25 +23,24 @@ APPROVED_TO_RUN_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL_STAGING=false
 - [ ] No `products.insert` / product auto-create
 - [ ] No `product_identifier_map.insert`
 - [ ] No title-only promotion
-- [ ] No `package_items` DDL or data
-- [ ] No Amazon API / AI
+- [ ] No Amazon API / AI during backfill
 - [ ] No changes to `expected_scan_quantity`, `build_source`, or shipment join keys
 
 ## Preconditions
 
 | Item | Confirmed (Y/N) |
 |------|-----------------|
-| Wire plan reviewed: `.cursor/audit-reports/removal-product-resolver-wire-plan/` | |
-| Dry-run preimage written | |
-| Batch size / statement timeout plan accepted | |
+| Removal rebuild verify PASS (`rebuild_valid=yes`) | |
+| Allocation mismatch blockers cleared | |
+| Dry-run after fix reviewed | |
 
-## Signoff
+## Sign-off
 
 ```
-Environment: STAGING ONLY
-Status: NOT APPROVED
-Approved by:
-UTC date:
-Max rows per execute batch (default 500):
+APPROVED_TO_RUN_STAGING=true
+APPROVED_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL=true
+Approved by: Maysam Ebrahimi
+UTC date: 05272026
+Max rows per execute batch (default 500): 500
 Notes:
 ```

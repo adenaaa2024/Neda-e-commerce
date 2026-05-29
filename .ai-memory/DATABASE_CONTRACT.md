@@ -1,38 +1,57 @@
 # Database contract — canonical index
 
-**Staging:** `eiqfaapyumhixxoeltgu` · **Original:** `kxsvedvpjldygtdbylsy` · **Future production:** NOT_CREATED_YET  
-**Branch:** `feature/product-canonicalization-v2`  
-**Last updated:** 2026-05-28 (`removal-api-product-resolution-checkpoint` `20260528T180000Z`)
+**Staging:** `eiqfaapyumhixxoeltgu`  
+**Original:** `kxsvedvpjldygtdbylsy`  
+**Last updated:** 2026-06-01 (`phase1-delivery-status-update` `20260601T120000Z`)
 
 | Topic | File |
 |-------|------|
-| Removal intake | [REMOVAL_API_INTAKE.md](REMOVAL_API_INTAKE.md) |
-| Product spine | [PRODUCT_CANONICALIZATION.md](PRODUCT_CANONICALIZATION.md) |
-| Packaging | [PACKAGING_DIMENSIONS_STATE.md](PACKAGING_DIMENSIONS_STATE.md) |
-| Parity | [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) |
+| Scanner / receive model | [SCANNER_STATE.md](SCANNER_STATE.md) |
+| Removal / EP rebuild | [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md) |
+| Original parity | [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) |
+| Claims / TRID | [CLAIMS_TRID_STATE.md](CLAIMS_TRID_STATE.md) |
 
-## expected_packages (removal-derived)
+## Receive architecture (non-negotiable)
 
-| Rule | Contract |
-|------|----------|
-| Intake table | **`expected_packages`** — no `accepted_packages` |
-| Rebuild | `rebuild_expected_packages_from_removals(org, store?)` |
-| Grain | One row per detail×shipment match + optional remainder row |
-| Join | `org + store + order_id + order_type + order_date + sku + fnsku + disposition` (NULL-safe) |
-| Forbidden join | SKU-only, FNSKU-only |
-| Sources | `source_detail_row_id` → `amazon_removals.id`; `source_shipment_row_id` → `amazon_removal_shipments.id` or NULL |
+### `return_items` — item-level
 
-## Product creation (removal path)
+| Rule | Detail |
+|------|--------|
+| Grain | **One physical scanned item per row** |
+| Count | **`COUNT(return_items)`** — not a quantity column on the row |
+| Forbidden | `quantity_entered`, `scanned_quantity`, quantity-only receive allocation |
+| Receive FK | **`expected_item_id`** → `expected_packages.id` (`receive_allocated`) |
+| Product | **`resolved_product_id`** via resolver on insert/update |
 
-| Allowed | Forbidden |
-|---------|-----------|
-| Resolver persist when deterministic (separate wire) | Product create during removal fetch/rebuild |
-| Governed promotion with Amazon evidence | Title-only / product-name-only create |
+### `expected_packages` — group-level
 
-## Packaging `dimensions_current`
+| Concept | Location |
+|---------|----------|
+| Expected qty | `expected_scan_quantity` |
+| Partial receive | `build_source = receive_allocated` + remainder on root |
+| Removal-derived | `detail_shipment`, `detail_remainder`, `legacy` |
+| Staging resolver | **6,099 / 6,175** resolved; **76** unresolved |
 
-Operator checkpoint: **571** staging + original (post-Wave3). Last verify artifact: **441/441** (`20260526T214000Z`).
+### Receive operations
+
+- Insert **1** `return_items` per scan; allocate **1** unit per `return_item_id`  
+- RPCs present on staging + original (schema wave **4/4** applied)  
+- **Quantity-only allocation blocked**
+
+**Committed repair:** `51bc597` — item-level scanner receive allocation repair
+
+## Schema apply status
+
+| Migration | Staging | Original | Repo |
+|-----------|---------|----------|------|
+| Item-level receive split | applied | schema wave **4/4** | committed |
+| `claim_lines` foundation | **NOT applied** | **NOT applied** | drafted |
+| TRID foundation | **NOT applied** | **NOT applied** | drafted; needs `claim_lines` |
+
+## Build blocker
+
+`npm run build` fails — `tesseract.js` missing in `scan/page.tsx`. Fix before deploy.
 
 ## Evidence
 
-`supabase/migrations/20260631_expected_packages_derived_rebuild.sql` · `scripts/sp-api-removal-shipment-detail-api-plan.ts`
+`commit-push-item-level-repair-and-phase1/20260528T191934Z/` · `original-parity-phase1-wave-schema-execute/20260530T180000Z/`

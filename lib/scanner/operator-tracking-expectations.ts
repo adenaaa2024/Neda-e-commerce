@@ -5,6 +5,7 @@ import type {
   ProductsLookupClient,
 } from "@/lib/scanner/product-linkage-display-contract";
 import {
+  deriveExpectedPackageEffectiveProductId,
   fetchResolvedProductNamesForExpectedRows,
   mergeExpectedPackageRowsProductLinkage,
   primaryLabelForExpectedPackageLinkage,
@@ -78,11 +79,8 @@ function sfKey(sku: string, fnsku: string): string {
 }
 
 function productIdFromExpectedRow(raw: Record<string, unknown>): string | null {
-  const expected = String(raw.expected_product_id ?? "").trim();
-  if (isUuidString(expected)) return expected;
-  const resolved = String(raw.resolved_product_id ?? "").trim();
-  if (isUuidString(resolved)) return resolved;
-  return null;
+  const id = deriveExpectedPackageEffectiveProductId(raw);
+  return id && isUuidString(id) ? id : null;
 }
 
 export type ReturnItemsScannedCountMaps = {

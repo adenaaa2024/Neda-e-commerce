@@ -997,6 +997,9 @@ export async function insertReturn(
     if (normalizedProductIdentifier) insertRow.product_identifier = normalizedProductIdentifier;
     if (effectiveAmazonOrderId) insertRow.order_id = String(effectiveAmazonOrderId);
 
+    const expectedItemFk = uuidFkOrNull(payload.expected_item_id ?? null, "expected_item_id");
+    if (expectedItemFk) insertRow.expected_item_id = expectedItemFk;
+
     const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
       organizationId: orgId,
       storeId: resolvedStoreId,

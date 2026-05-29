@@ -13,6 +13,8 @@
     "dev:reset-import-data:execute": "tsx scripts/dev-reset-import-data.ts --execute",
     "validate:import-checklist": "tsx scripts/validate-import-checklist.ts",
     "verify:outbound-filing-payload": "tsx scripts/verify-claim-filing-outbound-payload.ts",
+    "verify:removal-tracking-normalize": "tsx scripts/verify-removal-tracking-normalize.ts",
+    "verify:removal-carrier-normalize": "tsx scripts/verify-removal-carrier-normalize.ts",
     "test:amazon-report-detectors": "tsx scripts/test-amazon-report-detector-fixtures.ts",
     "test:import-descriptors-v1": "tsx scripts/test-import-descriptor-v1.ts",
     "test:import-descriptor-metadata": "tsx scripts/test-import-descriptor-metadata.ts",

@@ -268,6 +268,18 @@ async function countBare1883(client: pg.Client): Promise<number> {
   return (r.rows[0] as { c: number }).c;
 }
 
+async function fetchAllBare1883(client: pg.Client): Promise<LiveProduct[]> {
+  const r = await client.query(
+    `SELECT id::text, NULLIF(TRIM(sku),'') AS sku, NULLIF(TRIM(asin),'') AS asin, vendor_name
+     FROM public.products
+     WHERE organization_id = $1::uuid AND store_id = $2::uuid
+       AND deleted_at IS NULL AND btrim(coalesce(vendor_name, '')) = '1883'
+     ORDER BY sku NULLS LAST, id`,
+    [SAM_ORG_ID, SAM_STORE_ID],
+  );
+  return r.rows as LiveProduct[];
+}
+
 async function main(): Promise<void> {
   const runId = runIdArg();
   const planRunId = planRunIdArg();
@@ -315,6 +327,8 @@ async function main(): Promise<void> {
   let parityRows: ParityRow[] = [];
   let stagingBare = 0;
   let originalBare = 0;
+  let stagingBareAll: LiveProduct[] = [];
+  let originalBareAll: LiveProduct[] = [];
 
   if (blockers.length === 0) {
     const stagingClient = new pg.Client({ connectionString: stagingUrl, ssl: { rejectUnauthorized: false } });
@@ -332,6 +346,10 @@ async function main(): Promise<void> {
     ]);
     stagingBare = await countBare1883(stagingClient);
     originalBare = await countBare1883(originalClient);
+    [stagingBareAll, originalBareAll] = await Promise.all([
+      fetchAllBare1883(stagingClient),
+      fetchAllBare1883(originalClient),
+    ]);
     await stagingClient.end();
     await originalClient.end();
 
@@ -376,6 +394,38 @@ async function main(): Promise<void> {
   const unsafeRows = parityRows.filter((r) => r.classification === "unsafe");
   const alreadyClean = parityRows.filter((r) => r.classification === "already_clean_on_original");
 
+  const planIdSet = new Set(planRows.map((r) => r.product_id));
+  const stagingOutOfPlan = stagingBareAll.filter((p) => !planIdSet.has(p.id));
+  const originalOutOfPlan = originalBareAll.filter((p) => !planIdSet.has(p.id));
+  const manualCount =
+    conflictRows.length + unsafeRows.length + originalOutOfPlan.length + stagingOutOfPlan.length;
+
+  const cohortSegmentation = {
+    plan_cohort_size: planRows.length,
+    plan_cohort_staging_cleaned: counts.already_clean_on_original + counts.missing_or_different_on_original,
+    original_in_plan_deterministic_update: originalUpdatePlan.length,
+    original_in_plan_already_clean: counts.already_clean_on_original,
+    original_in_plan_conflict: counts.conflict_manual_review,
+    original_in_plan_unsafe: counts.unsafe,
+    original_out_of_plan_bare_1883: originalOutOfPlan.length,
+    staging_out_of_plan_bare_1883: stagingOutOfPlan.length,
+    staging_bare_1883_total: stagingBare,
+    original_bare_1883_total: originalBare,
+  };
+
+  fs.writeFileSync(
+    path.join(outDir, "cohort-segmentation.json"),
+    JSON.stringify(cohortSegmentation, null, 2),
+  );
+  fs.writeFileSync(
+    path.join(outDir, "original-out-of-plan-bare-1883.json"),
+    JSON.stringify({ count: originalOutOfPlan.length, rows: originalOutOfPlan }, null, 2),
+  );
+  fs.writeFileSync(
+    path.join(outDir, "staging-out-of-plan-bare-1883.json"),
+    JSON.stringify({ count: stagingOutOfPlan.length, rows: stagingOutOfPlan }, null, 2),
+  );
+
   fs.writeFileSync(path.join(outDir, "parity-diff.json"), JSON.stringify({ run_id: runId, counts, rows: parityRows }, null, 2));
   fs.writeFileSync(
     path.join(outDir, "original-update-plan.json"),
@@ -409,10 +459,18 @@ async function main(): Promise<void> {
       "",
       "## Bare \`1883\` vendor_name (store scope)",
       "",
-      `| Project | Count |`,
-      `|---------|------:|`,
-      `| Staging (\`${STAGING_REF}\`) | ${stagingBare} |`,
-      `| Original (\`${ORIGINAL_REF}\`) | ${originalBare} |`,
+      `| Project | Total bare | In 454 plan | Out of plan (manual) |`,
+      `|---------|----------:|------------:|---------------------:|`,
+      `| Staging (\`${STAGING_REF}\`) | ${stagingBare} | ${stagingBare - stagingOutOfPlan.length} | **${stagingOutOfPlan.length}** |`,
+      `| Original (\`${ORIGINAL_REF}\`) | ${originalBare} | ${originalBare - originalOutOfPlan.length} | **${originalOutOfPlan.length}** |`,
+      "",
+      "## Cohort segments",
+      "",
+      "1. **454-row spreadsheet plan cohort** — deterministic original updates: **" +
+        `${originalUpdatePlan.length}** (guard \`vendor_name = '1883'\`)`,
+      "2. **Original out-of-plan** — bare `1883` not in plan: **" + `${originalOutOfPlan.length}** (manual / separate prompt)`,
+      "3. **Staging leftover out-of-plan** — bare `1883` not in plan after 454 execute: **" +
+        `${stagingOutOfPlan.length}** (manual)`,
       "",
       "## Original update plan",
       "",
@@ -462,6 +520,21 @@ async function main(): Promise<void> {
   );
 
   fs.writeFileSync(
+    path.join(outDir, "approval-file.md"),
+    [
+      "# Approval file",
+      "",
+      `Path: \`${APPROVAL_REL}\``,
+      "",
+      "- `APPROVED_TO_RUN_ORIGINAL=false`",
+      "- `APPROVED_VENDOR_1883_CLEANUP_ORIGINAL_PARITY=false`",
+      "",
+      `Deterministic original updates when approved: **${originalUpdatePlan.length}**`,
+      `Out-of-plan manual (original + staging leftover): **${originalOutOfPlan.length + stagingOutOfPlan.length}**`,
+    ].join("\n") + "\n",
+  );
+
+  fs.writeFileSync(
     path.join(outDir, "manifest.json"),
     JSON.stringify(
       {
@@ -476,10 +549,12 @@ async function main(): Promise<void> {
         classification_counts: counts,
         original_update_count: originalUpdatePlan.length,
         conflict_count: conflictRows.length,
+        manual_count: manualCount,
         unsafe_count: unsafeRows.length,
         already_clean_count: alreadyClean.length,
-        staging_bare_1883_after_execute: stagingBare,
-        original_bare_1883_in_cohort_scope: originalBare,
+        original_out_of_plan_count: originalOutOfPlan.length,
+        staging_out_of_plan_count: stagingOutOfPlan.length,
+        cohort_segmentation: cohortSegmentation,
         approval_file: APPROVAL_REL,
         exact_next_prompt: nextPrompt,
         forbidden: { original_writes: true },
@@ -496,7 +571,9 @@ async function main(): Promise<void> {
         outDir,
         original_update_count: originalUpdatePlan.length,
         conflict_count: conflictRows.length,
-        unsafe_count: unsafeRows.length,
+        manual_count: manualCount,
+        original_out_of_plan: originalOutOfPlan.length,
+        staging_out_of_plan: stagingOutOfPlan.length,
         already_clean_count: alreadyClean.length,
         blockers,
         next_prompt: nextPrompt,

@@ -19,6 +19,16 @@ function trimOrNull(v: unknown): string | null {
   return s || null;
 }
 
+/** COALESCE persisted resolver, optional legacy FK, optional expected_product_id column. */
+export function deriveExpectedPackageEffectiveProductId(row: Record<string, unknown>): string | null {
+  return (
+    trimOrNull(row.resolved_product_id) ??
+    trimOrNull(row.expected_product_id) ??
+    trimOrNull(row.product_id) ??
+    null
+  );
+}
+
 function normStatus(v: unknown): string | null {
   const s = trimOrNull(v);
   return s ? s.toLowerCase() : null;
@@ -48,15 +58,56 @@ export function buildExpectedPackageProductLinkage(
   row: Record<string, unknown>,
   productNameById: ReadonlyMap<string, string>,
 ): ProductLinkageDisplayContract {
+  const effectiveId = deriveExpectedPackageEffectiveProductId(row);
   const source: ProductLinkageSourceRow = {
-    resolved_product_id: row.resolved_product_id as string | null | undefined,
+    resolved_product_id: effectiveId,
     identifier_resolution_status: row.identifier_resolution_status as string | null | undefined,
     identifier_resolution_confidence: row.identifier_resolution_confidence as number | null | undefined,
     sku: row.sku as string | null | undefined,
     fnsku: row.fnsku as string | null | undefined,
     description: epCatalogNameFromRow(row) ?? undefined,
   };
-  return buildProductLinkageDisplayContract(source, productNameById);
+  const linkage = buildProductLinkageDisplayContract(source, productNameById);
+  if (!linkage.product_name?.trim() && effectiveId && productNameById.get(effectiveId)) {
+    return { ...linkage, product_name: productNameById.get(effectiveId)! };
+  }
+  return linkage;
+}
+
+function mergeInventoryViewIntoLinkage(
+  linkage: ProductLinkageDisplayContract,
+  invRow: VInventoryStatusRow,
+  productNameById: ReadonlyMap<string, string>,
+): ProductLinkageDisplayContract {
+  const invResolved = trimOrNull(invRow.resolved_product_id);
+  const invName = trimOrNull(invRow.product_name);
+  const invStatus = normStatus(invRow.product_linkage_status);
+  const effectiveId = trimOrNull(linkage.resolved_product_id) ?? invResolved;
+  const nameMap = new Map(productNameById);
+  if (effectiveId && invName) nameMap.set(effectiveId, invName);
+  const merged = buildProductLinkageDisplayContract(
+    {
+      resolved_product_id: effectiveId,
+      identifier_resolution_status:
+        linkage.identifier_resolution_status === "resolved" || invStatus === "resolved"
+          ? "resolved"
+          : linkage.identifier_resolution_status ?? invStatus,
+      identifier_resolution_confidence:
+        linkage.identifier_resolution_confidence ?? invRow.identifier_resolution_confidence,
+      sku: invRow.sku ?? undefined,
+      fnsku: invRow.fnsku ?? undefined,
+      description: invName ?? undefined,
+    },
+    nameMap,
+  );
+  if (merged.product_name?.trim() && effectiveId) {
+    return {
+      ...merged,
+      resolved_product_id: effectiveId,
+      identifier_resolution_status: merged.identifier_resolution_status ?? "resolved",
+    };
+  }
+  return merged;
 }
 
 /** Inventory view row + optional matching `expected_packages` detail for linkage. */
@@ -65,14 +116,30 @@ export function buildInventoryViewProductLinkage(
   epRow: Record<string, unknown> | null | undefined,
   productNameById: ReadonlyMap<string, string>,
 ): ProductLinkageDisplayContract {
-  if (epRow) return buildExpectedPackageProductLinkage(epRow, productNameById);
+  const invResolved = trimOrNull(invRow.resolved_product_id);
+  const invName = trimOrNull(invRow.product_name);
+  const invStatus = normStatus(invRow.product_linkage_status);
+  const nameMap = new Map(productNameById);
+  if (invResolved && invName) nameMap.set(invResolved, invName);
+
+  if (epRow) {
+    const linkage = buildExpectedPackageProductLinkage(epRow, nameMap);
+    return mergeInventoryViewIntoLinkage(linkage, invRow, nameMap);
+  }
+
+  const effectiveId = invResolved;
+  const status =
+    invStatus ?? (effectiveId && invName ? "resolved" : effectiveId ? "unresolved" : "unresolved");
   return buildProductLinkageDisplayContract(
     {
-      description: invRow.product_name,
+      resolved_product_id: effectiveId,
+      identifier_resolution_status: status,
+      identifier_resolution_confidence: invRow.identifier_resolution_confidence,
+      description: invName ?? undefined,
       fnsku: invRow.fnsku,
       sku: invRow.sku,
     },
-    productNameById,
+    nameMap,
   );
 }
 
@@ -107,7 +174,7 @@ export function mergeExpectedPackageRowsProductLinkage(
       const n = Number(conf);
       if (Number.isFinite(n)) confidence = confidence == null ? n : Math.max(confidence, n);
     }
-    const rid = trimOrNull(r.resolved_product_id);
+    const rid = trimOrNull(r.resolved_product_id) ?? deriveExpectedPackageEffectiveProductId(r);
     if (rid) resolvedIds.add(rid);
     const fb = buildProductLinkageFallbackName({
       sku: r.sku as string | null | undefined,
@@ -136,7 +203,9 @@ export async function fetchResolvedProductNamesForExpectedRows(
   supabase: ProductsLookupClient,
   rows: Record<string, unknown>[],
 ): Promise<Map<string, string>> {
-  const ids = rows.map((r) => trimOrNull(r.resolved_product_id)).filter(Boolean) as string[];
+  const ids = rows
+    .map((r) => deriveExpectedPackageEffectiveProductId(r))
+    .filter(Boolean) as string[];
   return fetchProductNamesByResolvedIds(supabase, ids);
 }
 

@@ -3022,6 +3022,17 @@ function OperatorMobileScanPageContent() {
     return m;
   }, [identifyGateRows]);
 
+  const identifyGateEpBySkuFnsku = useMemo(() => {
+    const m = new Map<string, Record<string, unknown>>();
+    for (const raw of identifyGateRows) {
+      const sku = String((raw as { sku?: string }).sku ?? "").trim().toLowerCase();
+      const fnsku = String((raw as { fnsku?: string }).fnsku ?? "").trim().toLowerCase();
+      const orderId = String((raw as { order_id?: string }).order_id ?? "").trim().toLowerCase();
+      if (sku || fnsku) m.set(`${sku}\u0000${fnsku}\u0000${orderId}`, raw);
+    }
+    return m;
+  }, [identifyGateRows]);
+
   const identifyGateResolvedNameMap = useMemo(() => {
     const m = new Map<string, string>();
     for (const raw of identifyGateRows) {
@@ -3034,8 +3045,13 @@ function OperatorMobileScanPageContent() {
       const nm = line.product_linkage?.product_name?.trim() ?? "";
       if (rid && nm) m.set(rid, nm);
     }
+    for (const row of identifyGateShipmentLines) {
+      const rid = row.resolved_product_id?.trim() ?? "";
+      const nm = row.product_name?.trim() ?? "";
+      if (rid && nm) m.set(rid, nm);
+    }
     return m;
-  }, [identifyGateRows, identifyGateExpectationLines]);
+  }, [identifyGateRows, identifyGateExpectationLines, identifyGateShipmentLines]);
 
   const runIdentificationGateSearch = useCallback(
     async (rawCode: string) => {
@@ -9074,7 +9090,11 @@ function OperatorMobileScanPageContent() {
                             {identifyGateShipmentLines.map((row, idx) => {
                               const vis = shipmentLineStatusVisual(row.status);
                               const th = IDENTIFICATION_GATE_THEME[vis];
-                              const epRow = identifyGateEpById.get(row.expected_package_id);
+                              const epRow =
+                                identifyGateEpById.get(row.expected_package_id) ??
+                                identifyGateEpBySkuFnsku.get(
+                                  `${(row.sku ?? "").trim().toLowerCase()}\u0000${(row.fnsku ?? "").trim().toLowerCase()}\u0000${(row.order_id ?? "").trim().toLowerCase()}`,
+                                );
                               const lineLinkage = buildInventoryViewProductLinkage(
                                 row,
                                 epRow,

@@ -31,8 +31,25 @@ import {
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const ORIGINAL_REF = "kxsvedvpjldygtdbylsy";
 const REQUIRED_BRANCH = "feature/product-canonicalization-v2";
-const APPROVAL_PATH = ".cursor/operator-approvals/sp-api-removal-shipment-fetch-approval.md";
-const OUT_BASE = ".cursor/audit-reports/sp-api-removal-reports-fetch-execute";
+const DEFAULT_APPROVAL_PATH = ".cursor/operator-approvals/sp-api-removal-shipment-fetch-approval.md";
+const DEFAULT_OUT_BASE = ".cursor/audit-reports/sp-api-removal-reports-fetch-execute";
+const BACKFILL_9M_APPROVAL_PATH =
+  ".cursor/operator-approvals/removal-9-month-backfill-fetch-approval.md";
+const BACKFILL_9M_OUT_BASE = ".cursor/audit-reports/removal-9-month-backfill-fetch-chunk1";
+
+function useBackfill9MonthApproval(): boolean {
+  return process.argv.includes("--backfill-9month");
+}
+
+function approvalPath(): string {
+  return useBackfill9MonthApproval() ? BACKFILL_9M_APPROVAL_PATH : DEFAULT_APPROVAL_PATH;
+}
+
+function outBase(): string {
+  const a = process.argv.find((x) => x.startsWith("--out-base="));
+  if (a) return a.split("=")[1]!.trim();
+  return useBackfill9MonthApproval() ? BACKFILL_9M_OUT_BASE : DEFAULT_OUT_BASE;
+}
 
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 const STORE_ID = "509ee1f6-622c-46a5-8110-7b889ba46c2c";
@@ -74,8 +91,19 @@ function argValue(prefix: string): string | null {
 }
 
 function readApproval(): { valid: boolean; raw: Record<string, string> } {
-  const text = fs.readFileSync(path.join(process.cwd(), APPROVAL_PATH), "utf8");
+  const pathRel = approvalPath();
+  const text = fs.readFileSync(path.join(process.cwd(), pathRel), "utf8");
   const staging = /APPROVED_TO_RUN_STAGING\s*=\s*true/i.test(text);
+  if (useBackfill9MonthApproval()) {
+    const backfill = /APPROVED_REMOVAL_9_MONTH_BACKFILL_FETCH\s*=\s*true/i.test(text);
+    return {
+      valid: staging && backfill,
+      raw: {
+        APPROVED_TO_RUN_STAGING: staging ? "true" : "false",
+        APPROVED_REMOVAL_9_MONTH_BACKFILL_FETCH: backfill ? "true" : "false",
+      },
+    };
+  }
   const fetch = /APPROVED_SP_API_REMOVAL_SHIPMENT_FETCH\s*=\s*true/i.test(text);
   return {
     valid: staging && fetch,
@@ -274,7 +302,7 @@ function mdSection(title: string, outcome: FetchOutcome, window: { start: string
 async function main(): Promise<void> {
   loadEnvLocalIntoProcess();
   const runId = runIdArg();
-  const outDir = path.join(process.cwd(), OUT_BASE, runId);
+  const outDir = path.join(process.cwd(), outBase(), runId);
   fs.mkdirSync(outDir, { recursive: true });
 
   const blockers: string[] = [];
@@ -290,7 +318,7 @@ async function main(): Promise<void> {
 
   const approval = readApproval();
   if (!approval.valid) {
-    blockers.push(`${APPROVAL_PATH}: approval flags not true — STOP.`);
+    blockers.push(`${approvalPath()}: approval flags not true — STOP.`);
   }
 
   const supabaseUrl =
@@ -317,7 +345,7 @@ async function main(): Promise<void> {
     [
       "# Approval proof",
       "",
-      `| File | \`${APPROVAL_PATH}\` |`,
+      `| File | \`${approvalPath()}\` |`,
       `| Staging ref | \`${STAGING_REF}\` |`,
       `| Branch | \`${branch}\` |`,
       "",
@@ -528,11 +556,14 @@ async function main(): Promise<void> {
     execBlockers.length ? execBlockers.map((b) => `- ${b}`).join("\n") + "\n" : "- None\n",
   );
 
-  const nextPrompt =
-    "REMOVAL-SHIPMENT-NORMALIZED-IMPORT-STAGING-EXECUTE — run Phase 2–4 on synthetic REMOVAL_ORDER + REMOVAL_SHIPMENT uploads (separate approval), then rebuild_expected_packages_from_removals";
+  const nextPrompt = useBackfill9MonthApproval()
+    ? "REMOVAL-9-MONTH-BACKFILL-DOMAIN-SYNC-CHUNK1 — domain sync + rebuild for chunk 2025-08-27..2025-08-31 uploads only (separate approval); then REMOVAL-9-MONTH-BACKFILL-FETCH-CHUNK2"
+    : "REMOVAL-SHIPMENT-NORMALIZED-IMPORT-STAGING-EXECUTE — run Phase 2–4 on synthetic REMOVAL_ORDER + REMOVAL_SHIPMENT uploads (separate approval), then rebuild_expected_packages_from_removals";
 
   const manifest = {
-    prompt: "SP-API-REMOVAL-REPORTS-FETCH-EXECUTE",
+    prompt: useBackfill9MonthApproval()
+      ? "REMOVAL-9-MONTH-BACKFILL-FETCH-CHUNK1"
+      : "SP-API-REMOVAL-REPORTS-FETCH-EXECUTE",
     run_id: runId,
     branch,
     staging_ref: STAGING_REF,

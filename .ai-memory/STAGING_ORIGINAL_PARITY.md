@@ -1,30 +1,62 @@
 # Staging / original parity
 
-**Last updated:** 2026-05-28 (`removal-api-product-resolution-checkpoint` `20260528T180000Z`)
+**Last updated:** 2026-05-28 (`original-parity-wave-data-resolver-finish-verify` `20260528T220000Z`)
 
 ## Refs
 
 | Role | Ref |
 |------|-----|
-| **Staging** | `eiqfaapyumhixxoeltgu` |
-| **Original** | `kxsvedvpjldygtdbylsy` |
-| **Future production** | `NOT_CREATED_YET` |
+| Staging | `eiqfaapyumhixxoeltgu` |
+| Original / current | `kxsvedvpjldygtdbylsy` |
+| Future production | `NOT_CREATED_YET` — **BLOCKED** |
 
-## Packaging `dimensions_current`
+## Production readiness
+
+| Surface | Ready |
+|---------|-------|
+| Original / current | **PARTIAL** — data wave + resolver complete; **2,413** missing_product_needs_evidence; Wave B map replays optional |
+| Staging phase1 scanner/removal | **YES** for governed staging proofs |
+
+## Schema wave (original) — PASS
+
+**Evidence:** `original-parity-phase1-wave-schema-execute/20260530T180000Z/`
+
+| Check | Result |
+|-------|--------|
+| Migrations applied | **4 / 4** on `kxsvedvpjldygtdbylsy` |
+| Functions present | **PASS** |
+| Views parity | **PASS** |
+| Grouped rebuild | **PASS** |
+| Smoke | **PASS** |
+
+## Data wave (original) — EXECUTED
+
+| Item | Status |
+|------|--------|
+| Execute | **PASS** — `original-parity-phase1-wave-data-execute/20260528T201200Z/` |
+| Resolver finish verify | **PASS** — `original-parity-wave-data-resolver-finish-verify/20260528T220000Z/` |
+| Strategy | Fresh SP-API fetch → domain sync → rebuild → resolver (no staging clone) |
+| `rebuild_valid` | **yes** (non-overflow mismatch **0**) |
+| Staging copy | **FORBIDDEN** — not used |
+
+## Staging vs original counts (live)
 
 | Metric | Staging | Original |
 |--------|--------:|---------:|
-| Operator checkpoint | **571** | **571** |
-| Last full parity verify (disk) | 441 matched | 441 matched |
+| derived `expected_packages` | **6,175** | **11,790** |
+| EP resolved | **6,099** | **9,377** |
+| EP unresolved (derived, no product_id) | **76** | **2,413** |
+| status=ambiguous (derived) | **0** | **0** |
+| `dimensions_current` | 571 | 571 |
 
-Re-run full parity verify when Wave3 cohort is claimed complete.
+Original has more domain rows (9-month fetch); staging has higher **%** resolved on a smaller cohort (~98.8% vs ~79.5%).
 
-## Removal / expected_packages
+## Build / deploy gate
 
-Removal-derived rows use **`expected_packages`** on both refs when rebuild executes — per-org/store idempotent rebuild; no UUID copy from staging to original.
+`npm run build` fails on `tesseract.js` / `scan/page.tsx` — fix before deploy merge.
 
-## Product linkage
+## Exact next prompt
 
-**Not 100%** — coverage audit ongoing.
+**ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE** — governed map replays on original to close `missing_product_needs_evidence` gap (optional before Wave C scanner verify)
 
-Detail: [REMOVAL_API_INTAKE.md](REMOVAL_API_INTAKE.md) · [PACKAGING_DIMENSIONS_STATE.md](PACKAGING_DIMENSIONS_STATE.md)
+Detail: [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md) · [SCANNER_STATE.md](SCANNER_STATE.md)

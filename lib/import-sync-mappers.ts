@@ -1,3 +1,5 @@
+import { normalizeRemovalCarrierOperational } from "./pipeline/removal-carrier-normalize";
+import { normalizeRemovalTrackingOperational } from "./pipeline/removal-tracking-normalize";
 import { isUuidString } from "./uuid";
 
 /**
@@ -1331,6 +1333,9 @@ export function mapRowToAmazonRemovalShipment(
   if (!shipDateRaw) shipDateRaw = pickT(row, SHIPMENT_DATE_ALIASES, consumed);
   const shipment_date = parseIsoDate(shipDateRaw);
 
+  const trackingNorm = normalizeRemovalTrackingOperational(tracking_raw);
+  const carrierNorm = normalizeRemovalCarrierOperational(carrier_raw);
+
   return {
     organization_id: orgId,
     store_id: storeId,
@@ -1351,8 +1356,9 @@ export function mapRowToAmazonRemovalShipment(
     disposed_quantity,
     requested_quantity,
     status,
-    tracking_number: tracking_raw || null,
-    carrier: carrier_raw || null,
+    tracking_number:
+      trackingNorm.status === "multi_conflict" ? null : trackingNorm.operational,
+    carrier: carrierNorm.status === "multi_conflict" ? null : carrierNorm.operational,
     shipment_date,
     raw_data: buildRawData(row, consumed),
   };
@@ -1387,8 +1393,16 @@ export function mapRowToAmazonRemoval(
     disposed_quantity:  parseQty(pickT(row, DISPOSED_QTY_ALIASES, consumed)),
     requested_quantity: parseQty(pickT(row, QTY_ALIASES, consumed)),
     status:             pickT(row, ORDER_STATUS_ALIASES, consumed) || null,
-    tracking_number:    pickT(row, TRACK_ALIASES, consumed) || null,
-    carrier:            pickT(row, CARRIER_ALIASES, consumed) || null,
+    tracking_number:    (() => {
+      const raw = pickT(row, TRACK_ALIASES, consumed);
+      const n = normalizeRemovalTrackingOperational(raw);
+      return n.status === "multi_conflict" ? null : n.operational;
+    })(),
+    carrier:            (() => {
+      const raw = pickT(row, CARRIER_ALIASES, consumed);
+      const n = normalizeRemovalCarrierOperational(raw);
+      return n.status === "multi_conflict" ? null : n.operational;
+    })(),
     shipment_date:      pickT(row, SHIPMENT_DATE_ALIASES, consumed) || null,
     raw_data:           buildRawData(row, consumed),
   };

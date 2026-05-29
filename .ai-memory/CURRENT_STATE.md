@@ -1,49 +1,34 @@
 # Current state — canonical system memory
 
-**Last updated:** 2026-05-28 (`removal-api-product-resolution-checkpoint` `20260528T180000Z`)  
-**Branch:** `feature/product-canonicalization-v2`  
-**History:** `.cursor/history/ERP_PIM_FULL_APPEND_ONLY_HISTORY_MASTER.md` (sections 1–17)
+**Last updated:** 2026-05-28 (`original-parity-wave-data-resolver-finish-verify` `20260528T220000Z`)  
+**Branch:** `feature/product-canonicalization-v2`
 
-## Removal API / expected_packages (checkpoint)
+## Phase1 delivery status
 
-| Topic | State |
+| Track | Status |
 |-------|--------|
-| Detail truth | `amazon_removals` ← `GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA` |
-| Shipment truth | `amazon_removal_shipments` ← `GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA` |
-| Intake | **`expected_packages`** only (no `accepted_packages`) |
-| Rebuild | `rebuild_expected_packages_from_removals` |
-| Join | 7-tuple NULL-safe; **no** SKU-only / FNSKU-only |
-| Products | **No** create on fetch/rebuild; promotion only with Amazon evidence |
+| Git / commit | **`51bc597`** pushed — `phase1: item-level scanner receive allocation repair` |
+| Build | **BLOCKED** — `npm run build` fails on `tesseract.js` / `scan/page.tsx` |
+| Staging EP | **6,175** total; **6,099** resolved; **76** unresolved |
+| Original schema wave | **PASS** — **4/4** migrations on `kxsvedvpjldygtdbylsy`; functions/views parity **PASS** |
+| Original data wave | **EXECUTED + resolver PASS** — **11,790** derived EP; **9,377** resolved; **2,413** unresolved; verify `original-parity-wave-data-resolver-finish-verify/20260528T220000Z/` |
+| Claims | `claim_lines` migration **drafted**; dry-run **PASS**; **not applied**; ~**13,966** upper bound pre-dedupe |
+| TRID | migration **drafted**; dry-run **PASS_WITH_BLOCKERS**; **not applied**; `claim_lines` prerequisite **missing** |
+| Neda | Item-level smoke **PASS** after sync; branch needs **PR/merge** handling |
 
-Detail: [REMOVAL_API_INTAKE.md](REMOVAL_API_INTAKE.md)
+## Item-level receive model (locked)
 
-## Packaging parity
+| Layer | Grain |
+|-------|--------|
+| **`return_items`** | **Item-level** — 1 row = 1 physical scan; count = `COUNT(return_items)` |
+| **`expected_packages`** | **Group-level** — `expected_scan_quantity`, `receive_allocated`/remainder, slip/package/pallet scope |
 
-| Metric | Value |
-|--------|------:|
-| `dimensions_current` (checkpoint) | **571** staging · **571** original (operator; post-Wave3 cohort) |
-| Last full parity verify on disk | **441/441** PASS (`pc05-packaging-full-parity-verify/20260526T214000Z`) |
+Receive: insert 1 RI row → allocate 1 EP unit via `expected_item_id`. **No** quantity-only scanner allocation.
 
-Re-run **PC05-PACKAGING-FULL-PARITY-VERIFY** to confirm **571** alignment when Wave3 parity is claimed PASS.
-
-## Spreadsheet intake (unchanged)
-
-4,479 rows · 175 parseable L×W×H · 90 merge-safe · 85 dup-ASIN review · 4,304 missing dims · 0 ASIN dim conflicts.
-
-## Product linkage
-
-Not **100%** across tables — **PRODUCT-LINKAGE-TABLE-COVERAGE-AUDIT** ongoing.
-
-## Environment
-
-| Surface | Ref |
-|---------|-----|
-| Staging | `eiqfaapyumhixxoeltgu` |
-| Original | `kxsvedvpjldygtdbylsy` |
-| Future production | **NOT_CREATED_YET** / **BLOCKED** |
+Detail: [SCANNER_STATE.md](SCANNER_STATE.md) · [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md)
 
 ## Session start
 
-1. This file · [REMOVAL_API_INTAKE.md](REMOVAL_API_INTAKE.md)  
-2. [PRODUCT_CANONICALIZATION.md](PRODUCT_CANONICALIZATION.md) · [PACKAGING_DIMENSIONS_STATE.md](PACKAGING_DIMENSIONS_STATE.md)  
-3. [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) · [NEXT_ACTIONS.md](NEXT_ACTIONS.md)
+1. [NEXT_ACTIONS.md](NEXT_ACTIONS.md) — build fix → original data → claim_lines → PR  
+2. [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) · [CLAIMS_TRID_STATE.md](CLAIMS_TRID_STATE.md)  
+3. [DATABASE_CONTRACT.md](DATABASE_CONTRACT.md)

@@ -23,6 +23,8 @@ import { getStagingProjectRef, loadEnvLocalIntoProcess, refFromSupabaseUrl } fro
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const OUT_DRY_RUN = ".cursor/audit-reports/removal-expected-packages-resolver-backfill-dry-run";
 const OUT_EXECUTE = ".cursor/audit-reports/removal-expected-packages-resolver-backfill-execute";
+const OUT_AFTER_REBUILD = ".cursor/audit-reports/removal-resolver-execute-after-rebuild";
+const REBUILD_VERIFY_BASE = ".cursor/audit-reports/removal-rebuild-verify-and-resolver-dryrun";
 const APPROVAL_PATH =
   ".cursor/operator-approvals/removal-expected-packages-resolver-backfill-approval.md";
 const DERIVED_SOURCES = ["detail_shipment", "detail_remainder"] as const;
@@ -65,6 +67,20 @@ function hasFlag(name: string): boolean {
   return process.argv.includes(name);
 }
 
+function outBaseArg(execute: boolean): string {
+  const a = process.argv.find((x) => x.startsWith("--out-base="));
+  if (a) return a.split("=")[1]!.trim();
+  if (hasFlag("--after-rebuild")) return OUT_AFTER_REBUILD;
+  return execute ? OUT_EXECUTE : OUT_DRY_RUN;
+}
+
+function rebuildVerifyRef(): string | null {
+  const a = process.argv.find((x) => x.startsWith("--rebuild-verify-run-id="));
+  if (!a) return null;
+  const id = a.split("=")[1]!.trim();
+  return `${REBUILD_VERIFY_BASE}/${id}`;
+}
+
 function n(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
@@ -80,8 +96,10 @@ function num(v: unknown): number | null {
 function readApprovalFlag(): boolean {
   const p = path.join(process.cwd(), APPROVAL_PATH);
   if (!fs.existsSync(p)) return false;
-  return /APPROVED_TO_RUN_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL_STAGING\s*=\s*true/i.test(
-    fs.readFileSync(p, "utf8"),
+  const text = fs.readFileSync(p, "utf8");
+  return (
+    /APPROVED_TO_RUN_STAGING\s*=\s*true/i.test(text) &&
+    /APPROVED_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL\s*=\s*true/i.test(text)
   );
 }
 
@@ -314,7 +332,9 @@ async function main(): Promise<void> {
   loadEnvLocalIntoProcess();
   const runId = runIdArg();
   const execute = hasFlag("--execute");
-  const outBase = execute ? OUT_EXECUTE : OUT_DRY_RUN;
+  const afterRebuild = hasFlag("--after-rebuild") || outBaseArg(execute) === OUT_AFTER_REBUILD;
+  const outBase = outBaseArg(execute);
+  const rebuildVerify = rebuildVerifyRef();
   const outDir = path.join(process.cwd(), outBase, runId);
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -330,7 +350,7 @@ async function main(): Promise<void> {
 
   if (execute && !readApprovalFlag()) {
     throw new Error(
-      `Execute blocked: set APPROVED_TO_RUN_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL_STAGING=true in ${APPROVAL_PATH}`,
+      `Execute blocked: set APPROVED_TO_RUN_STAGING=true and APPROVED_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL=true in ${APPROVAL_PATH}`,
     );
   }
 
@@ -417,6 +437,27 @@ async function main(): Promise<void> {
       old_identifier_resolution_confidence: p.before.identifier_resolution_confidence,
     }));
   fs.writeFileSync(path.join(outDir, "rollback-preimage-rows.json"), JSON.stringify(preimageRows, null, 2));
+  const rollbackSql = preimageRows.map((r) => {
+    const rp = r.old_resolved_product_id === null ? "NULL" : `'${r.old_resolved_product_id}'::uuid`;
+    const rc =
+      r.old_resolved_catalog_product_id === null
+        ? "NULL"
+        : `'${r.old_resolved_catalog_product_id}'::uuid`;
+    const st =
+      r.old_identifier_resolution_status === null
+        ? "NULL"
+        : `'${r.old_identifier_resolution_status}'`;
+    const conf =
+      r.old_identifier_resolution_confidence === null
+        ? "NULL"
+        : String(r.old_identifier_resolution_confidence);
+    return `UPDATE public.expected_packages SET resolved_product_id=${rp}, resolved_catalog_product_id=${rc}, identifier_resolution_status=${st}, identifier_resolution_confidence=${conf}, updated_at=now() WHERE id='${r.id}'::uuid;`;
+  });
+  fs.writeFileSync(
+    path.join(outDir, "rollback.sql"),
+    ["-- REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL rollback", ...rollbackSql].join("\n"),
+    "utf8",
+  );
 
   let applied = 0;
   if (execute) {
@@ -427,16 +468,26 @@ async function main(): Promise<void> {
   await pgClient.end();
 
   const nextPrompt = execute
-    ? "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-VERIFY — post-execute counts + PC03D evidence queue for missing_product_needs_evidence rows"
-    : "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-EXECUTE — set approval true and rerun with --execute after dry-run review";
+    ? afterRebuild
+      ? "PC03D-EVIDENCE-QUEUE-FROM-REMOVAL-RESOLVER — refresh Amazon evidence queue for post-rebuild missing_product_needs_evidence rows"
+      : "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-VERIFY — post-execute counts + PC03D evidence queue for missing_product_needs_evidence rows"
+    : afterRebuild
+      ? "REMOVAL-RESOLVER-EXECUTE-AFTER-REBUILD — set approval true and rerun with --execute --after-rebuild"
+      : "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-EXECUTE — set approval true and rerun with --execute after dry-run review";
 
   const manifest = {
     prompt: execute
-      ? "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-EXECUTE"
-      : "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-DRY-RUN",
+      ? afterRebuild
+        ? "REMOVAL-RESOLVER-EXECUTE-AFTER-REBUILD"
+        : "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-EXECUTE"
+      : afterRebuild
+        ? "REMOVAL-RESOLVER-DRY-RUN-AFTER-REBUILD"
+        : "REMOVAL-EXPECTED-PACKAGES-RESOLVER-BACKFILL-DRY-RUN",
     run_id: runId,
     staging_ref: STAGING_REF,
     mode: execute ? "execute" : "dry_run",
+    after_rebuild: afterRebuild,
+    rebuild_verify_ref: rebuildVerify,
     product_creation_blocked: true,
     no_db_writes_in_dry_run: !execute,
     ...summary,

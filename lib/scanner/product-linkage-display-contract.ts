@@ -91,6 +91,19 @@ export function productLinkageShowsUnmappedLabel(linkage: ProductLinkageDisplayC
 export const PRODUCT_LINKAGE_UNMAPPED_LABEL = "No product link yet";
 export const PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL = "Needs review";
 
+/** Operator-facing unresolved reason when catalog name is absent. */
+export function productLinkageUnresolvedReasonLabel(
+  identifierResolutionStatus: string | null | undefined,
+): string {
+  const s = String(identifierResolutionStatus ?? "").trim().toLowerCase();
+  if (s === "ambiguous") return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
+  if (s === "quarantined_dirty_source") return "Needs source identifier fix";
+  if (s.includes("amazon") || s === "catalog_lookup_failed") return "Needs Amazon evidence";
+  if (s === "missing_identifier" || s === "missing_identifiers") return "Missing identifier";
+  if (s === "unresolved" || !s) return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+}
+
 export function productLinkageNoCatalogProduct(linkage: ProductLinkageDisplayContract): boolean {
   return !linkage.product_name?.trim();
 }
@@ -103,10 +116,15 @@ export function productLinkagePrimaryLabel(linkage: ProductLinkageDisplayContrac
 /** Operator row title per Neda display contract (resolved title vs fixed unmapped / review copy). */
 export function productLinkageOperatorPrimaryDisplayLabel(linkage: ProductLinkageDisplayContract): string {
   if (productLinkageIsAmbiguous(linkage)) return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
+  const catalogName = linkage.product_name?.trim();
+  const resolvedId = linkage.resolved_product_id?.trim();
+  if (resolvedId && catalogName) return catalogName;
   const st = linkage.identifier_resolution_status;
-  if (st === "unresolved") return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  if (st === "unresolved" || st === "quarantined_dirty_source" || !st) {
+    return productLinkageUnresolvedReasonLabel(st);
+  }
   if (st === "resolved") return productLinkagePrimaryLabel(linkage);
-  if (productLinkageShowsUnmappedLabel(linkage)) return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  if (productLinkageShowsUnmappedLabel(linkage)) return productLinkageUnresolvedReasonLabel(st);
   return productLinkagePrimaryLabel(linkage);
 }
 

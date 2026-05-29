@@ -37,6 +37,11 @@ export type VInventoryStatusRow = {
   /** Present on the view when exposed; omitted from search filters to avoid legacy column errors. */
   status: string | null;
   product_name: string | null;
+  /** Map/read-layer or persisted resolver output when view exposes it. */
+  resolved_product_id: string | null;
+  /** View column `product_linkage_status` or resolver status when present. */
+  product_linkage_status: string | null;
+  identifier_resolution_confidence: number | null;
   carrier: string | null;
   total_expected: number;
   total_scanned: number;
@@ -74,6 +79,12 @@ function resolveExpectedPackageLineId(r: Record<string, unknown>): string {
 }
 
 function rowFromRecord(r: Record<string, unknown>): VInventoryStatusRow {
+  const confRaw = r.identifier_resolution_confidence;
+  let conf: number | null = null;
+  if (confRaw != null && confRaw !== "") {
+    const n = Number(confRaw);
+    if (Number.isFinite(n)) conf = n;
+  }
   return {
     expected_package_id: resolveExpectedPackageLineId(r),
     organization_id: String(r.organization_id ?? ""),
@@ -91,6 +102,17 @@ function rowFromRecord(r: Record<string, unknown>): VInventoryStatusRow {
     order_id: r.order_id != null ? String(r.order_id) : null,
     status: r.status != null ? String(r.status) : null,
     product_name: r.product_name != null ? String(r.product_name) : null,
+    resolved_product_id:
+      r.resolved_product_id != null && String(r.resolved_product_id).trim()
+        ? String(r.resolved_product_id).trim()
+        : null,
+    product_linkage_status:
+      r.product_linkage_status != null
+        ? String(r.product_linkage_status)
+        : r.identifier_resolution_status != null
+          ? String(r.identifier_resolution_status)
+          : null,
+    identifier_resolution_confidence: conf,
     carrier: r.carrier != null ? String(r.carrier) : null,
     total_expected: coerceInt(r.total_expected),
     total_scanned: coerceInt(r.total_scanned),
@@ -231,6 +253,9 @@ function epRowToInventoryStatusRow(r: Record<string, unknown>): VInventoryStatus
     order_id: (r as { order_id?: string | null }).order_id != null ? String((r as { order_id?: string | null }).order_id) : null,
     status: null,
     product_name: null,
+    resolved_product_id: null,
+    product_linkage_status: null,
+    identifier_resolution_confidence: null,
     carrier: null,
     total_expected: coerceInt((r as { expected_scan_quantity?: number }).expected_scan_quantity),
     total_scanned: coerceInt((r as { actual_scanned_count?: number }).actual_scanned_count),

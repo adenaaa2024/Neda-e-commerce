@@ -146,6 +146,8 @@ export type ReturnInsertPayload = {
   order_id?: string | null;
   customer_id?: string | null;
   claim_evidence_selected_urls?: string[] | null;
+  /** FK to expected_packages row this unit was received against (scanner split). */
+  expected_item_id?: string | null;
   organization_id?: string; created_by?: string;
   actor_profile_id?: string | null;
 };
