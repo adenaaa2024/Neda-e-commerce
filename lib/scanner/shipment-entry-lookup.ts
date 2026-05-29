@@ -11,6 +11,7 @@ import {
   type OperatorResolveResult,
 } from "@/lib/scanner/operator-resolve-barcode";
 import { trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
+import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
 import {
   aggregateInventoryStatus,
   fetchVInventoryItemStatusLinesForTrackingNormalized,
@@ -624,6 +625,19 @@ export async function lookupShipmentEntryScanCode(
     ];
     inventory_matched_field =
       barcode.kind === "slip" ? "id_slip_contents" : ("tracking_number" as InventoryViewMatchField);
+  }
+
+  try {
+    inventory_rows = await scrubInventoryRowsExcludingVoidedPackages(
+      supabase,
+      orgId,
+      sid,
+      inventory_rows,
+      inventory_matched_field,
+      normalized_code,
+    );
+  } catch {
+    /* keep pre-scrub rows on failure */
   }
 
   const agg = aggregateInventoryStatus(inventory_rows);

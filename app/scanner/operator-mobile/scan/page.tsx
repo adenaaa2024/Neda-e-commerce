@@ -522,6 +522,49 @@ function resolveOperatorPackagePickerRowStatus(p: OperatorPackageListRow): Opera
   return "partial";
 }
 
+/** Box intake is saved (photos present) and item receiving is not finalized — resume Item Scan, not BOX intake. */
+function operatorPackageShouldResumeItemScan(p: OperatorPackageListRow): boolean {
+  const notes = String(p.notes ?? "").toLowerCase();
+  if (notes.includes("discrepancy")) return false;
+  const hasPhotos =
+    countOperatorPackagePhotoSlotsFilled(p.slip_photo_urls) >= 1 &&
+    countOperatorPackagePhotoSlotsFilled(p.outside_photo_urls) >= 1 &&
+    countOperatorPackagePhotoSlotsFilled(p.inside_photo_urls) >= 1;
+  if (!hasPhotos) return false;
+  const exp =
+    typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
+      ? Math.floor(p.expected_item_count)
+      : null;
+  const act =
+    typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
+      ? Math.floor(p.actual_item_count)
+      : null;
+  if (exp != null && exp > 0 && act != null && act === exp) return false;
+  return true;
+}
+
+function operatorPackageListRowFromRecord(row: Record<string, unknown>): OperatorPackageListRow {
+  const pkgId = String(row.id ?? "").trim();
+  return {
+    id: pkgId,
+    package_code: String(row.package_code ?? row.slip_id ?? row.package_number ?? "").trim() || null,
+    tracking_number: String(row.tracking_number ?? row.shipment_tracking_number ?? "").trim() || null,
+    id_slip_contents: String(row.id_slip_contents ?? row.slip_code ?? "").trim() || null,
+    notes: row.notes != null ? String(row.notes) : null,
+    outside_photo_urls: row.outside_photo_urls,
+    inside_photo_urls: row.inside_photo_urls,
+    slip_photo_urls: row.slip_photo_urls,
+    expected_item_count:
+      typeof row.expected_item_count === "number" && Number.isFinite(row.expected_item_count)
+        ? Math.floor(row.expected_item_count)
+        : null,
+    actual_item_count:
+      typeof row.actual_item_count === "number" && Number.isFinite(row.actual_item_count)
+        ? Math.floor(row.actual_item_count)
+        : null,
+  };
+}
+
 function formatOperatorPackagePickerItemLine(p: OperatorPackageListRow): string {
   const exp =
     typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
@@ -3797,6 +3840,9 @@ function OperatorMobileScanPageContent() {
       enteredCode: string,
       gateLookup: ShipmentEntryLookupResult | null,
     ) => Promise<"resumed" | "wrong_store" | "error" | false>
+  >(async () => false);
+  const maybeResumeItemScanAfterPackageRowRef = useRef<
+    (row: Record<string, unknown>) => Promise<boolean>
   >(async () => false);
 
   const packageScanLaserSuppressed =
@@ -7221,9 +7267,13 @@ function OperatorMobileScanPageContent() {
       }
       const hasShip = palletHasPersistedShipmentDetails(row);
       let nextPhase: typeof flowPhase = hasShip ? "package_scan" : "scan";
+      let resumedItemScan = false;
       if (opts?.packageRow) {
         hydrateSavedPackageRowIntoBoxIntake(opts.packageRow, { directBox: false });
-        nextPhase = "package_scan";
+        resumedItemScan = Boolean(
+          await maybeResumeItemScanAfterPackageRowRef.current?.(opts.packageRow),
+        );
+        if (!resumedItemScan) nextPhase = "package_scan";
       } else {
         const oidResume = orgId.trim();
         if (oidResume && isUuidString(row.id) && isSupabaseConfigured()) {
@@ -7233,15 +7283,14 @@ function OperatorMobileScanPageContent() {
             sessionStoreId ?? null,
           );
           if (pkgRes.ok && pkgRes.packages.length > 0) {
-            hydrateSavedPackageRowIntoBoxIntake(
-              pkgRes.packages[0] as unknown as Record<string, unknown>,
-              { directBox: false },
-            );
-            if (hasShip) nextPhase = "package_scan";
+            const pkg0 = pkgRes.packages[0] as unknown as Record<string, unknown>;
+            hydrateSavedPackageRowIntoBoxIntake(pkg0, { directBox: false });
+            resumedItemScan = Boolean(await maybeResumeItemScanAfterPackageRowRef.current?.(pkg0));
+            if (!resumedItemScan && hasShip) nextPhase = "package_scan";
           }
         }
       }
-      setFlowPhase(nextPhase);
+      if (!resumedItemScan) setFlowPhase(nextPhase);
       if (hasShip && orgId.trim()) {
         try {
           window.sessionStorage.setItem(
@@ -7275,7 +7324,7 @@ function OperatorMobileScanPageContent() {
   );
 
   const resumeWorkflowFromExistingDirectBoxPackage = useCallback(
-    async (row: Record<string, unknown>, enteredCode: string) => {
+    async (row: Record<string, unknown>, enteredCode: string): Promise<void> => {
       resetIdentifyGateForm();
       setModernPalletWorkspace(false);
       setDirectBox(true);
@@ -9524,6 +9573,11 @@ function OperatorMobileScanPageContent() {
         return;
       }
       setBoxIntakeError(null);
+      if (operatorPackageShouldResumeItemScan(p)) {
+        void maybeResumeItemScanAfterPackageRowRef.current?.(p as unknown as Record<string, unknown>);
+        palletPackageSearchInputRef.current?.blur();
+        return;
+      }
       const o = parsePalletPhotoUrlArray(p.outside_photo_urls);
       const ins = parsePalletPhotoUrlArray(p.inside_photo_urls);
       const s = parsePalletPhotoUrlArray(p.slip_photo_urls);
@@ -9634,6 +9688,117 @@ function OperatorMobileScanPageContent() {
     orgId,
     clearPalletOrderIdIfAutoFilledFromRa,
     clearOperatorPhotoArrays,
+  ]);
+
+  const resumeItemScanForPackage = useCallback(
+    (p: OperatorPackageListRow) => {
+      const pkgId = String(p.id ?? "").trim();
+      const code = String(p.package_code ?? "").trim();
+      if (!pkgId || !isUuidString(pkgId)) return false;
+      closeActiveBoxPackageSession();
+      setItemScanPackageId(pkgId);
+      setItemScanPackageLabel(code || null);
+      const exp =
+        typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
+          ? Math.floor(p.expected_item_count)
+          : null;
+      setReceivingSlipExpectedItemQtyTotal(exp != null && exp > 0 ? exp : null);
+      resetItemInspectionForm();
+      setItemBarcodeMiss(null);
+      setItemReceiveError(null);
+      setCandidatePicker(null);
+      setSlipLineCandidatePicker(null);
+      setUnexpectedPackageItemModal(null);
+      setItemOverscanWarning(null);
+      setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+      setPackageItemsHydrationNonce((n) => n + 1);
+      setItemReceiveCountSyncNonce((n) => n + 1);
+      setFlowPhase("items");
+      setIsIdentified(true);
+      scheduleFocusScanner();
+      return true;
+    },
+    [closeActiveBoxPackageSession, resetItemInspectionForm, scheduleFocusScanner],
+  );
+
+  const maybeResumeItemScanAfterPackageRow = useCallback(
+    async (row: Record<string, unknown>): Promise<boolean> => {
+      const pkgId = String(row.id ?? "").trim();
+      if (!pkgId || !isUuidString(pkgId)) return false;
+      let pickerRow = operatorPackageListRowFromRecord(row);
+      const needsCounts =
+        pickerRow.expected_item_count == null &&
+        pickerRow.actual_item_count == null &&
+        isSupabaseConfigured();
+      if (needsCounts) {
+        try {
+          const { data } = await supabase
+            .from("packages")
+            .select(
+              "expected_item_count, actual_item_count, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls",
+            )
+            .eq("id", pkgId)
+            .maybeSingle();
+          if (data && typeof data === "object") {
+            pickerRow = {
+              ...pickerRow,
+              ...operatorPackageListRowFromRecord(data as Record<string, unknown>),
+              id: pkgId,
+            };
+          }
+        } catch {
+          /* counts optional for resume heuristic */
+        }
+      }
+      if (!operatorPackageShouldResumeItemScan(pickerRow)) return false;
+      resumeItemScanForPackage(pickerRow);
+      setIntakeToast("Resuming item scan where you left off.");
+      return true;
+    },
+    [resumeItemScanForPackage],
+  );
+
+  useEffect(() => {
+    maybeResumeItemScanAfterPackageRowRef.current = maybeResumeItemScanAfterPackageRow;
+  }, [maybeResumeItemScanAfterPackageRow]);
+
+  /** Leave Item Scan in progress — scanned units already persisted; no discrepancy note. */
+  const confirmItemsPhaseSaveAndExit = useCallback(() => {
+    resetItemInspectionForm();
+    setItemScanPackageId(null);
+    setItemScanPackageLabel(null);
+    setReceivingSlipExpectedItemQtyTotal(null);
+    setItemReceiveDemoScannedUnits(0);
+    setItemReceiveCountSyncNonce(0);
+    setExpectedPkgDetailRows([]);
+    setItemScanExpectationSnapshotLines([]);
+    setItemBarcodeMiss(null);
+    setItemReceiveError(null);
+    setCandidatePicker(null);
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemHydratedRows([]);
+    setPackageItemsHydrating(false);
+    setPackageItemsHydrationNonce(0);
+    setSlipLineCandidatePicker(null);
+    setUnexpectedPackageItemModal(null);
+    setItemOverscanWarning(null);
+    setItemsBoxFinalizeModalOpen(false);
+    modalOpenRef.current = false;
+    closeActiveBoxPackageSession();
+    setScanLine("");
+    setSlipBarcodeExtract(null);
+    setFlowPhase("scan");
+    setIsIdentified(false);
+    completedShipmentDialogShownForKeyRef.current = null;
+    setCompletedShipmentModal(null);
+    clearPreviousLookupResult({ clearResolvedContext: true, phase: "idle" });
+    setIntakeToast("Progress saved. You can continue later.");
+    scheduleFocusScanner();
+  }, [
+    resetItemInspectionForm,
+    closeActiveBoxPackageSession,
+    clearPreviousLookupResult,
+    scheduleFocusScanner,
   ]);
 
   const handleCorrectionResetEntry = useCallback(() => {
@@ -10367,8 +10532,8 @@ function OperatorMobileScanPageContent() {
                   return;
                 }
                 if (flowPhase === "items") {
-                  if (activePallet?.id?.trim()) setDirectBox(false);
-                  setFlowPhase("package_scan");
+                  confirmItemsPhaseSaveAndExit();
+                  return;
                 } else if (flowPhase === "package_scan") {
                   if (activePallet?.id?.trim()) setDirectBox(false);
                   setFlowPhase("scan");
@@ -10377,7 +10542,13 @@ function OperatorMobileScanPageContent() {
               }}
               className="absolute left-3 top-2 z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/8 sm:left-4"
               style={{ color: TEXT_PRIMARY }}
-              aria-label={flowPhase === "package_scan" && activeBoxSession ? "Exit box session" : "Go back"}
+              aria-label={
+                flowPhase === "items"
+                  ? "Save progress and return to shipment search"
+                  : flowPhase === "package_scan" && activeBoxSession
+                    ? "Exit box session"
+                    : "Go back"
+              }
             >
               <ArrowLeft className="h-5 w-5" strokeWidth={2} />
             </button>
@@ -14431,10 +14602,19 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" && hasItemReceivableBox ? (
         <div
-          className="operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[4.75rem] left-1/2 z-[100] flex w-full max-w-[430px] -translate-x-1/2 justify-center border-t px-3 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-2 sm:px-4"
+          className="operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[4.75rem] left-1/2 z-[100] flex w-full max-w-[430px] -translate-x-1/2 flex-col items-stretch gap-2 border-t px-3 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-2 sm:px-4"
           role="region"
           aria-label="Item inspection actions"
         >
+          <button
+            type="button"
+            disabled={busy || itemsFinalizeBusy}
+            onClick={() => confirmItemsPhaseSaveAndExit()}
+            className="operator-shipment-btn-success flex h-10 w-full items-center justify-center gap-2 rounded-2xl px-4 text-[13px] font-bold leading-tight transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <PackageOpen className="h-4 w-4 shrink-0 opacity-95" strokeWidth={2.25} aria-hidden />
+            <span className="truncate">Save &amp; Exit</span>
+          </button>
           <button
             type="button"
             disabled={busy || itemsFinalizeBusy}
@@ -14442,7 +14622,7 @@ function OperatorMobileScanPageContent() {
               modalOpenRef.current = true;
               setItemsBoxFinalizeModalOpen(true);
             }}
-            className={`operator-item-scan-btn-finalize inline-flex h-11 w-auto max-w-[min(100%,20rem)] shrink-0 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`operator-item-scan-btn-finalize inline-flex h-11 w-full max-w-none shrink-0 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
               isItemsQtyDiscrepancy ? "operator-item-scan-btn-finalize--discrepancy" : "operator-item-scan-btn-finalize--ok"
             }`}
           >

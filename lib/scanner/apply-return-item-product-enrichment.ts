@@ -16,6 +16,7 @@ export async function applyReturnItemProductEnrichmentAfterInsert(
     asin?: string | null;
     fnsku?: string | null;
     sku?: string | null;
+    upc?: string | null;
     /** `expected_packages.id` for resolver context (not written to `return_items`). */
     expectedPackageId?: string | null;
     /** @deprecated Use `expectedPackageId`. */
@@ -35,6 +36,7 @@ export async function applyReturnItemProductEnrichmentAfterInsert(
       asin: params.asin,
       fnsku: params.fnsku,
       sku: params.sku,
+      upc: params.upc,
       source_table: RETURN_ITEMS_TABLE,
       source_row_id: rid,
     });
@@ -66,6 +68,7 @@ export async function applyReturnItemProductEnrichmentAfterUpdate(
     asin?: string | null;
     fnsku?: string | null;
     sku?: string | null;
+    upc?: string | null;
     actorProfileId?: string | null;
   },
 ): Promise<void> {
@@ -76,6 +79,7 @@ export async function applyReturnItemProductEnrichmentAfterUpdate(
     asin: params.asin,
     fnsku: params.fnsku,
     sku: params.sku,
+    upc: params.upc,
     actorProfileId: params.actorProfileId,
   });
 }

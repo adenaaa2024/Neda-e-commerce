@@ -24,7 +24,15 @@ import {
   OPERATOR_MOBILE_MOVE_BOX,
   OPERATOR_MOBILE_VOID_BOX,
 } from "@/lib/operator-mobile-permissions";
+import { softDeleteShipmentEntryBaselineReturnItems } from "@/lib/scanner/operator-active-scanned-counts";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
+import { lookupShipmentEntryScanCode, type ShipmentEntryLookupResult } from "@/lib/scanner/shipment-entry-lookup";
+import {
+  fetchVInventoryItemStatusLinesExact,
+  fetchVInventoryItemStatusLinesForTrackingNormalized,
+  type InventoryViewMatchField,
+  type VInventoryStatusRow,
+} from "@/lib/scanner/v-inventory-status";
 import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
 import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib/server-audit-actor";
 import { sanitizePublicMediaUrlStrings } from "@/lib/entity-photo-evidence";
@@ -2554,7 +2562,7 @@ export type VoidOperatorIntakeBoxPackageInput = {
 };
 
 export type VoidOperatorIntakeBoxPackageResult =
-  | { ok: true; packageId: string }
+  | { ok: true; packageId: string; palletId: string | null; wasDirectBox: boolean }
   | { ok: false; message: string };
 
 const VOID_BLOCKED_ITEMS_MESSAGE =
@@ -2583,7 +2591,7 @@ export async function voidOperatorIntakeBoxPackageAction(
 
   const { data: pkgRow, error: pkgErr } = await supabaseServer
     .from("packages")
-    .select("id, organization_id, store_id")
+    .select("id, organization_id, store_id, pallet_id, package_code, tracking_number")
     .eq("id", packageId)
     .eq("organization_id", organizationId)
     .is("deleted_at", null)
@@ -2625,5 +2633,115 @@ export async function voidOperatorIntakeBoxPackageAction(
   const { error: upErr } = await supabaseServer.from("packages").update(patch).eq("id", packageId);
   if (upErr) return { ok: false, message: upErr.message };
 
-  return { ok: true, packageId };
+  // Repair inconsistent rows: soft-delete any return_items still linked to this voided package.
+  const { error: riVoidErr } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .update(patch)
+    .eq("package_id", packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null);
+  if (riVoidErr) return { ok: false, message: riVoidErr.message };
+
+  const palletIdRaw = String((pkgRow as { pallet_id?: string | null }).pallet_id ?? "").trim();
+  const palletId = isUuidString(palletIdRaw) ? palletIdRaw : null;
+  const wasDirectBox = !palletId;
+
+  if (wasDirectBox) {
+    const baselineCodes = [
+      String((pkgRow as { package_code?: string | null }).package_code ?? "").trim(),
+      String((pkgRow as { tracking_number?: string | null }).tracking_number ?? "").trim(),
+    ].filter(Boolean);
+    try {
+      await softDeleteShipmentEntryBaselineReturnItems(
+        supabaseServer,
+        organizationId,
+        storeScope || pkgStore || null,
+        baselineCodes,
+        now,
+      );
+    } catch (baselineErr) {
+      const msg =
+        baselineErr instanceof Error
+          ? baselineErr.message
+          : "Package voided but baseline return items could not be cleared.";
+      return { ok: false, message: msg };
+    }
+  }
+
+  return { ok: true, packageId, palletId, wasDirectBox };
+}
+
+/** Service-role Shipment Entry gate lookup — excludes voided package scans reliably. */
+export async function lookupShipmentEntryScanCodeAction(
+  requestedOrganizationId: string,
+  storeId: string,
+  code: string,
+): Promise<{ ok: true; lookup: ShipmentEntryLookupResult } | { ok: false; error: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, error: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, error: "Could not resolve organization." };
+  }
+  const sid = String(storeId ?? "").trim();
+  if (!isUuidString(sid)) {
+    return { ok: false, error: "Store is required." };
+  }
+  try {
+    const lookup = await lookupShipmentEntryScanCode(supabaseServer, organizationId, sid, code);
+    return { ok: true, lookup };
+  } catch (e) {
+    const msg = formatSupabaseActionError(e, "Lookup failed.");
+    console.error("[lookupShipmentEntryScanCodeAction]", msg, e);
+    return { ok: false, error: msg };
+  }
+}
+
+export type FetchInventoryItemStatusLinesForGateInput =
+  | { mode: "tracking"; trackingNumber: string }
+  | { mode: "exact"; field: InventoryViewMatchField; value: string };
+
+/** Service-role inventory line fetch for identify gate — voided package scans excluded. */
+export async function fetchInventoryItemStatusLinesForGateAction(
+  requestedOrganizationId: string,
+  storeId: string,
+  input: FetchInventoryItemStatusLinesForGateInput,
+): Promise<{ ok: true; rows: VInventoryStatusRow[] } | { ok: false; error: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, error: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, error: "Could not resolve organization." };
+  }
+  const sid = String(storeId ?? "").trim();
+  if (!isUuidString(sid)) {
+    return { ok: false, error: "Store is required." };
+  }
+  try {
+    if (input.mode === "tracking") {
+      const { rows } = await fetchVInventoryItemStatusLinesForTrackingNormalized(
+        supabaseServer,
+        organizationId,
+        sid,
+        input.trackingNumber,
+      );
+      return { ok: true, rows };
+    }
+    const { rows } = await fetchVInventoryItemStatusLinesExact(
+      supabaseServer,
+      organizationId,
+      sid,
+      input.field,
+      input.value,
+    );
+    return { ok: true, rows };
+  } catch (e) {
+    const msg = formatSupabaseActionError(e, "Inventory line fetch failed.");
+    console.error("[fetchInventoryItemStatusLinesForGateAction]", msg, e);
+    return { ok: false, error: msg };
+  }
 }

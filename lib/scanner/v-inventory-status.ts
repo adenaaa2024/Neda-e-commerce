@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
 import { mockExpectedPackageDetailRows } from "@/lib/scanner/operator-tracking-expectations";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 
@@ -359,7 +360,15 @@ export async function fetchVInventoryItemStatusLinesExact(
   for (const raw of arr) {
     if (raw && typeof raw === "object") out.push(rowFromRecord(raw as Record<string, unknown>));
   }
-  return { rows: out, raw: data };
+  const rows = await scrubInventoryRowsExcludingVoidedPackages(
+    supabase,
+    orgId,
+    sid,
+    out,
+    field,
+    v,
+  );
+  return { rows, raw: data };
 }
 
 /**
@@ -402,7 +411,15 @@ export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
     if (!page.length || page.length < PAGE) break;
   }
 
-  return { rows, raw: rawRows };
+  const scrubbed = await scrubInventoryRowsExcludingVoidedPackages(
+    supabase,
+    orgId,
+    sid,
+    rows,
+    "tracking_number",
+    trackingNumber,
+  );
+  return { rows: scrubbed, raw: rawRows };
 }
 
 /** @deprecated Use {@link fetchVInventoryItemStatusLinesExact} */
@@ -473,7 +490,14 @@ export async function fetchVInventoryStatusForScanCode(
       try {
         const hit = await fetchInventoryViewExact(supabase, view, orgId, sid, field, code);
         if (hit.rows.length) {
-          rows = hit.rows;
+          rows = await scrubInventoryRowsExcludingVoidedPackages(
+            supabase,
+            orgId,
+            sid,
+            hit.rows,
+            field,
+            code,
+          );
           raw = hit.raw;
           matchedField = field;
           return { rows, raw, matchedField };

@@ -1,6 +1,6 @@
 # Current state — V207 scan product link fix + V205/V206 package_code views (authoritative)
 
-**Last updated:** 2026-05-27 (`operator-scan-product-link-fix-neda` code/probe **PASS** `20260527T191800Z`)  
+**Last updated:** 2026-05-27 (`neda-identifier-resolution-sku-fnsku-upc-asin` smoke **PASS** `20260527T014241Z`; FNSKU `X004JWH5NB` → product_id on staging)  
 **Latest history:** [HISTORY_POINTERS.md](HISTORY_POINTERS.md) →  
 `.cursor/audit-reports/history-v207/20260527T191800Z/v207-operator-scan-product-link-fix-append.md`  
 **Latest browser proof:** `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` (**PASS** 11/11)  
@@ -31,6 +31,7 @@
 | V206 original inventory `package_code` views | **APPLIED_VERIFIED** on `kxsvedvpjldygtdbylsy` — `original-parity-ddl.sql` |
 | V206 staging UI browser proof (package #) | **PASS** — Returns → Packages → Package # search; audit screenshot |
 | V207 operator scan product link fix | **PASS** — `/scanner/operator-mobile/scan` hydrates product names/links from resolved EP/inventory product IDs; tracking `2320305295` staging probe resolved |
+| Neda identifier resolution (FNSKU/SKU/UPC/ASIN) | **PASS** — unified `resolveProductForScannerItem` priority; `insertOperatorPackageItemAction` persists all classified ids; smoke `neda-identifier-resolution-sku-fnsku-upc-asin/20260527T014241Z` |
 
 ## Inventory read-model — `package_code` (V205/V206)
 
