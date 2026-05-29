@@ -55,12 +55,16 @@ function firstCatalogId(rows: Record<string, unknown>[]): string | null {
   return null;
 }
 
+type MapColumn = "fnsku" | "seller_sku" | "msku" | "upc_code" | "asin";
+
 /**
  * Resolution order (live DB — linkage on `return_items` / `slip_contents`, not `expected_packages`):
- * 1) product_identifier_map (FNSKU, then ASIN+SKU)
- * 2) UPC via map — multiple hits → ambiguous; single hit → resolved with review_required
- * 3) direct products row (org + store + sku) when unique
- * 4) catalog_products only when carried on a map row (catalog_product_id)
+ * 1) product_identifier_map — exact FNSKU
+ * 2) product_identifier_map — exact SKU (seller_sku / msku)
+ * 3) product_identifier_map — exact UPC
+ * 4) product_identifier_map — exact ASIN
+ * 5) direct `products` row (org + store) — fnsku, sku, upc_code/barcode, asin when unique
+ * Multiple distinct product_ids at a tier → ambiguous (needs review, no auto-link).
  */
 export async function resolveProductForScannerItem(
   supabase: SupabaseClient,
@@ -105,147 +109,135 @@ export async function resolveProductForScannerItem(
     return q;
   };
 
-  if (fnsku) {
+  const fromMap = async (
+    column: MapColumn,
+    value: string,
+    matchedVia: string,
+    confidence: number,
+    reviewRequired = false,
+  ): Promise<ResolveProductForScannerItemResult | null> => {
     let q = supabase
       .from("product_identifier_map")
       .select(mapSelect)
       .eq("organization_id", org)
-      .eq("fnsku", fnsku);
+      .eq(column, value);
     q = applyStoreScope(q);
     const { data: rows, error } = await q.limit(40);
-    if (error) meta.map_fnsku_error = error.message;
-    else {
-      const safe = (rows ?? []) as Record<string, unknown>[];
-      const ids = distinctProductIdsFromMapRows(safe as { product_id?: string | null }[]);
-      if (ids.length === 1) {
-        return {
-          resolved_product_id: ids[0]!,
-          resolved_catalog_product_id: firstCatalogId(safe),
-          status: "resolved",
-          confidence: 0.95,
-          matched_via: "product_identifier_map.fnsku",
-          review_required: false,
-          meta: { ...meta, map_hit: "fnsku" },
-        };
-      }
-      if (ids.length > 1) {
-        return {
-          resolved_product_id: null,
-          resolved_catalog_product_id: null,
-          status: "ambiguous",
-          confidence: 0.4,
-          matched_via: "product_identifier_map.fnsku",
-          review_required: true,
-          meta: { ...meta, candidate_product_ids: ids },
-        };
-      }
+    if (error) {
+      meta[`map_${column}_error`] = error.message;
+      return null;
     }
-  }
+    const safe = (rows ?? []) as Record<string, unknown>[];
+    const ids = distinctProductIdsFromMapRows(safe as { product_id?: string | null }[]);
+    if (ids.length === 1) {
+      return {
+        resolved_product_id: ids[0]!,
+        resolved_catalog_product_id: firstCatalogId(safe),
+        status: "resolved",
+        confidence,
+        matched_via: matchedVia,
+        review_required: reviewRequired,
+        meta: { ...meta, map_hit: column },
+      };
+    }
+    if (ids.length > 1) {
+      return {
+        resolved_product_id: null,
+        resolved_catalog_product_id: null,
+        status: "ambiguous",
+        confidence: 0.4,
+        matched_via: matchedVia,
+        review_required: true,
+        meta: { ...meta, candidate_product_ids: ids },
+      };
+    }
+    return null;
+  };
 
-  if (asin && sku) {
+  const fromProducts = async (
+    column: "fnsku" | "sku" | "asin" | "upc_code" | "barcode",
+    value: string,
+    matchedVia: string,
+    confidence: number,
+    extraAsin?: string | null,
+  ): Promise<ResolveProductForScannerItemResult | null> => {
+    if (!store || !isUuidString(store)) return null;
     let q = supabase
-      .from("product_identifier_map")
-      .select(mapSelect)
-      .eq("organization_id", org)
-      .eq("asin", asin)
-      .eq("seller_sku", sku);
-    q = applyStoreScope(q);
-    const { data: rows, error } = await q.limit(40);
-    if (error) meta.map_asin_sku_error = error.message;
-    else {
-      const safe = (rows ?? []) as Record<string, unknown>[];
-      const ids = distinctProductIdsFromMapRows(safe as { product_id?: string | null }[]);
-      if (ids.length === 1) {
-        return {
-          resolved_product_id: ids[0]!,
-          resolved_catalog_product_id: firstCatalogId(safe),
-          status: "resolved",
-          confidence: 0.9,
-          matched_via: "product_identifier_map.asin_seller_sku",
-          review_required: false,
-          meta: { ...meta, map_hit: "asin_seller_sku" },
-        };
-      }
-      if (ids.length > 1) {
-        return {
-          resolved_product_id: null,
-          resolved_catalog_product_id: null,
-          status: "ambiguous",
-          confidence: 0.35,
-          matched_via: "product_identifier_map.asin_seller_sku",
-          review_required: true,
-          meta: { ...meta, candidate_product_ids: ids },
-        };
-      }
-    }
-  }
-
-  if (upc) {
-    let q = supabase.from("product_identifier_map").select(mapSelect).eq("organization_id", org).eq("upc_code", upc);
-    q = applyStoreScope(q);
-    const { data: rows, error } = await q.limit(40);
-    if (error) meta.map_upc_error = error.message;
-    else {
-      const safe = (rows ?? []) as Record<string, unknown>[];
-      const ids = distinctProductIdsFromMapRows(safe as { product_id?: string | null }[]);
-      if (ids.length > 1) {
-        return {
-          resolved_product_id: null,
-          resolved_catalog_product_id: null,
-          status: "ambiguous",
-          confidence: 0.2,
-          matched_via: "product_identifier_map.upc",
-          review_required: true,
-          meta: { ...meta, candidate_product_ids: ids },
-        };
-      }
-      if (ids.length === 1) {
-        return {
-          resolved_product_id: ids[0]!,
-          resolved_catalog_product_id: firstCatalogId(safe),
-          status: "resolved",
-          confidence: 0.55,
-          matched_via: "product_identifier_map.upc_unique",
-          review_required: true,
-          meta: { ...meta, map_hit: "upc", note: "upc_single_hit_requires_review" },
-        };
-      }
-    }
-  }
-
-  if (sku && store && isUuidString(store)) {
-    const { data: pr, error: pErr } = await supabase
       .from("products")
       .select("id")
       .eq("organization_id", org)
       .eq("store_id", store)
-      .eq("sku", sku)
-      .limit(3);
-    if (!pErr && pr && pr.length === 1) {
-      const id = String((pr[0] as { id: string }).id).trim();
-      if (isUuidString(id)) {
-        return {
-          resolved_product_id: id,
-          resolved_catalog_product_id: null,
-          status: "resolved",
-          confidence: 0.85,
-          matched_via: "products.sku",
-          review_required: false,
-          meta: { ...meta, direct: "sku" },
-        };
-      }
+      .eq(column, value)
+      .limit(10);
+    const asinFilter = trimOrNull(extraAsin);
+    if (asinFilter) q = q.eq("asin", asinFilter);
+    const { data: pr, error: pErr } = await q;
+    if (pErr) {
+      meta[`products_${column}_error`] = pErr.message;
+      return null;
     }
-    if (!pErr && pr && pr.length > 1) {
+    const ids = [
+      ...new Set(
+        (pr ?? [])
+          .map((r) => String((r as { id?: string }).id ?? "").trim())
+          .filter((id) => isUuidString(id)),
+      ),
+    ];
+    if (ids.length === 1) {
+      return {
+        resolved_product_id: ids[0]!,
+        resolved_catalog_product_id: null,
+        status: "resolved",
+        confidence,
+        matched_via: matchedVia,
+        review_required: false,
+        meta: { ...meta, direct: column },
+      };
+    }
+    if (ids.length > 1) {
       return {
         resolved_product_id: null,
         resolved_catalog_product_id: null,
         status: "ambiguous",
         confidence: 0.25,
-        matched_via: "products.sku",
+        matched_via: matchedVia,
         review_required: true,
-        meta: { ...meta, note: "multiple_products_same_sku_store" },
+        meta: { ...meta, note: `multiple_products_same_${column}` },
       };
     }
+    return null;
+  };
+
+  if (fnsku) {
+    const hit =
+      (await fromMap("fnsku", fnsku, "product_identifier_map.fnsku", 0.95)) ??
+      (await fromProducts("fnsku", fnsku, "products.fnsku", 0.9));
+    if (hit) return hit;
+  }
+
+  if (sku) {
+    const skuMap =
+      (await fromMap("seller_sku", sku, "product_identifier_map.seller_sku", 0.9)) ??
+      (await fromMap("msku", sku, "product_identifier_map.msku", 0.88));
+    if (skuMap) return skuMap;
+    const directSku = await fromProducts("sku", sku, "products.sku", 0.85, asin && sku ? asin : null);
+    if (directSku) return directSku;
+  }
+
+  if (upc) {
+    const upcMap = await fromMap("upc_code", upc, "product_identifier_map.upc", 0.85);
+    if (upcMap) return upcMap;
+    const upcDirect =
+      (await fromProducts("upc_code", upc, "products.upc_code", 0.8)) ??
+      (await fromProducts("barcode", upc, "products.barcode", 0.8));
+    if (upcDirect) return upcDirect;
+  }
+
+  if (asin) {
+    const asinMap = await fromMap("asin", asin, "product_identifier_map.asin", 0.8);
+    if (asinMap) return asinMap;
+    const asinDirect = await fromProducts("asin", asin, "products.asin", 0.75);
+    if (asinDirect) return asinDirect;
   }
 
   if (trimOrNull(input.ocr_product_name) || trimOrNull(input.raw_text)) {

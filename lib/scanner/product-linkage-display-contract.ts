@@ -17,6 +17,8 @@ export type ProductLinkageDisplayContract = {
 
 export type ProductLinkageSourceRow = {
   resolved_product_id?: string | null;
+  product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
   identifier_resolution_status?: string | null;
   identifier_resolution_confidence?: number | null;
   description?: string | null;
@@ -61,12 +63,17 @@ export function buildProductLinkageDisplayContract(
   row: ProductLinkageSourceRow,
   productNameById: ReadonlyMap<string, string>,
 ): ProductLinkageDisplayContract {
-  const resolvedId = trimOrNull(row.resolved_product_id);
+  const resolvedId =
+    trimOrNull(row.resolved_product_id) ??
+    trimOrNull(row.product_id) ??
+    trimOrNull(row.resolved_catalog_product_id);
   const catalogName = resolvedId ? productNameById.get(resolvedId) ?? null : null;
+  const status = normStatus(row.identifier_resolution_status);
   return {
     product_name: catalogName,
     resolved_product_id: resolvedId,
-    identifier_resolution_status: normStatus(row.identifier_resolution_status),
+    identifier_resolution_status:
+      resolvedId && status !== "ambiguous" && status !== "mismatch" ? "resolved" : status,
     identifier_resolution_confidence: normConfidence(row.identifier_resolution_confidence),
     fallback_display_name: buildProductLinkageFallbackName(row),
   };
@@ -91,6 +98,19 @@ export function productLinkageShowsUnmappedLabel(linkage: ProductLinkageDisplayC
 export const PRODUCT_LINKAGE_UNMAPPED_LABEL = "No product link yet";
 export const PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL = "Needs review";
 
+/** Operator-facing unresolved reason when catalog name is absent. */
+export function productLinkageUnresolvedReasonLabel(
+  identifierResolutionStatus: string | null | undefined,
+): string {
+  const s = String(identifierResolutionStatus ?? "").trim().toLowerCase();
+  if (s === "ambiguous") return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
+  if (s === "quarantined_dirty_source") return "Needs source identifier fix";
+  if (s.includes("amazon") || s === "catalog_lookup_failed") return "Needs Amazon evidence";
+  if (s === "missing_identifier" || s === "missing_identifiers") return "Missing identifier";
+  if (s === "unresolved" || !s) return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+}
+
 export function productLinkageNoCatalogProduct(linkage: ProductLinkageDisplayContract): boolean {
   return !linkage.product_name?.trim();
 }
@@ -103,10 +123,15 @@ export function productLinkagePrimaryLabel(linkage: ProductLinkageDisplayContrac
 /** Operator row title per Neda display contract (resolved title vs fixed unmapped / review copy). */
 export function productLinkageOperatorPrimaryDisplayLabel(linkage: ProductLinkageDisplayContract): string {
   if (productLinkageIsAmbiguous(linkage)) return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
+  const catalogName = linkage.product_name?.trim();
+  const resolvedId = linkage.resolved_product_id?.trim();
+  if (resolvedId && catalogName) return catalogName;
   const st = linkage.identifier_resolution_status;
-  if (st === "unresolved") return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  if (st === "unresolved" || st === "quarantined_dirty_source" || !st) {
+    return productLinkageUnresolvedReasonLabel(st);
+  }
   if (st === "resolved") return productLinkagePrimaryLabel(linkage);
-  if (productLinkageShowsUnmappedLabel(linkage)) return PRODUCT_LINKAGE_UNMAPPED_LABEL;
+  if (productLinkageShowsUnmappedLabel(linkage)) return productLinkageUnresolvedReasonLabel(st);
   return productLinkagePrimaryLabel(linkage);
 }
 
@@ -138,7 +163,7 @@ export async function fetchProductNamesByResolvedIds(
   const chunkSize = 80;
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
-    const primary = await supabase.from("products").select("id, product_name, name").in("id", chunk);
+    const primary = await supabase.from("products").select("id, product_name").in("id", chunk);
     let res = primary;
     if (primary.error) {
       res = await supabase.from("products").select("id, name").in("id", chunk);

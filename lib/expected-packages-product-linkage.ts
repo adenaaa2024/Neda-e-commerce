@@ -124,29 +124,27 @@ export async function resolveExpectedPackageProductLinkage(
   const persistedStatus = n(row.identifier_resolution_status);
 
   if (persistedId && persistedStatus === "resolved") {
+    const { data: prod } = await supabase
+      .from("products")
+      .select("id, product_name, name")
+      .eq("id", persistedId)
+      .maybeSingle();
+    if (prod) {
+      return {
+        contract: mapRowToProductLinkageDisplayContract({
+          source_table: "expected_packages",
+          source_row_id: String(row.id),
+          row: { ...row, asin },
+          product: prod as { product_name?: string | null; name?: string | null },
+        }),
+        source: "persisted_column",
+      };
+    }
     const contract = mapRowToProductLinkageDisplayContract({
       source_table: "expected_packages",
       source_row_id: String(row.id),
       row: { ...row, asin },
     });
-    if (row.product_id) {
-      const { data: prod } = await supabase
-        .from("products")
-        .select("id, product_name, name")
-        .eq("id", persistedId)
-        .maybeSingle();
-      if (prod) {
-        return {
-          contract: mapRowToProductLinkageDisplayContract({
-            source_table: "expected_packages",
-            source_row_id: String(row.id),
-            row: { ...row, asin },
-            product: prod as { product_name?: string | null; name?: string | null },
-          }),
-          source: "persisted_column",
-        };
-      }
-    }
     return { contract, source: "persisted_column" };
   }
 

@@ -1,6 +1,7 @@
-# Product ID mapping status — V195 closeout
+# Product ID mapping status — PC Phase 01 closeout
 
 **Staging:** `eiqfaapyumhixxoeltgu`  
+**Branch:** `feature/product-canonicalization-v2`  
 **Authoritative handoff:** [`../NEDA_FINAL_BACKEND_HANDOFF_V193.md`](../NEDA_FINAL_BACKEND_HANDOFF_V193.md)
 
 ## Canonical rule
@@ -77,23 +78,47 @@ V194 polish: product links carry source `back` context, stop row-click propagati
 
 V196: ambiguous lookup collapses duplicate map rows sharing one `product_id`; lookup returns UPC and canonical `item_name`; `AmbiguousProductPicker` for review. Browser proof superseded by V200/V202 **PASS**.
 
-## Expected packages / slip contents
+## Expected packages / slip contents / return_items (PC Phase 01)
+
+| Source | PC01 baseline | Post-PC03B |
+|---|---|---|
+| `expected_packages` | 1,577 / 1,626 resolved; **49** unresolved | **1,583 / 1,626**; **43** unresolved |
+| `return_items` | **5 / 12** read-layer; **7** unresolved | unchanged |
+| `slip_contents` | **0 / 11** persisted; **11** unresolved | unchanged |
+| AFI unresolved | **4,751** | separate catalog program |
+
+### PC02 triage of 49 unresolved (baseline)
+
+| Sub-wave | Rows | Action |
+|----------|-----:|--------|
+| wave_a_dirty_source | 38 | quarantine / fix identifiers |
+| wave_b_source_disagreement | 6 | **closed** PC03B (+6 map rows) |
+| wave_c_api_catalog_404 | 5 | manual PIM link |
+
+### Prior executes (carried)
 
 | Source | Status |
 |---|---|
-| `expected_packages` | `1,626` rows; `1,546` read-layer resolved; `80` unresolved |
-| E1 V192 map-only execute | `134` map rows inserted; no products created; no `expected_packages` updates |
-| E1 ambiguity exclusions | `10` rows |
-| E2 V194 execute | `19` products + `19` map rows inserted; no `expected_packages` updates; no API call |
-| V200 E1B blocker materialize | **PASS** — `10` products + `10` maps; scoped import FK remaps |
-| E1B cohort | **CLOSED** — `28/28` read-layer resolved (`20260522T160000Z-e1b` skip pass) |
-| expected_packages coverage | **1,574 / 1,626** read-layer; **52** unresolved |
-| API/manual evidence | `46` identifier-only rows + `6` ambiguous rows remain |
-| `slip_contents` | Small UPC/GTIN candidate source; no broad auto-promotion |
+| E1 V192 map-only | 134 map rows |
+| E2 V194 | 19 products + 19 maps |
+| V200 E1B | 10 products + 10 maps; E1B cohort closed |
+| PC03B | 6 map rows; no products; no expected_packages updates |
 
-V192 E1 inserted only `product_identifier_map` rows from the approved plan. Products count and `expected_packages` count stayed unchanged.
+### PC02 SP-API evidence
 
-V194 E2 inserted governed products/maps from trusted imported source names only. Amazon API was not called because the API approval flag was misspelled as `ture`.
+- Plan cohort: **5 rows / 3 distinct ASINs**
+- Env + credentials: **ready**
+- Operator approval: **false** — no governed HTTP until `APPROVED_SP_API_EVIDENCE_DRY_RUN=true`
+- PC02A/B (`20260523T030000Z` / `20260523T040000Z`): evidence-only HTTP; **0** product/map inserts; 404 cohort triaged
+- PC02C (`20260523T050000Z`): 5-row manual review queue for ASIN correction
+- Rule: **no Amazon API until evidence-only approval**; pass-1 no product creation
+
+### PC04 packaging
+
+- **Plan gate:** `product-packaging-schema-pc04-approval.md` default **false** at plan stage
+- **Schema applied:** PC04A staging + PC04B original (tables + RLS); smoke **PASS**
+- **Backfill (staging only):** PC05C — **191** active profiles; original schema has no backfill data
+- Composite key: `packaging_level` + `fulfillment_context` (+ org/store/product)
 
 ## Product catalog AFI
 
@@ -116,11 +141,12 @@ The guarded Tier 3 SKU/no-ASIN-conflict batch executed on staging in `product-ca
 - No direct browser Supabase writes for linkage/catalog fields.
 - No auto-create products from OCR/title/free text.
 - No fuzzy matching.
-- No Amazon API or AI/OpenAI for product resolution.
+- No Amazon API or AI/OpenAI for product resolution without PC02 evidence-only approval.
 - No browser Amazon lookup or fake SP-API product data in item add/edit lookup.
 - No production DB mutation.
+- No work on `main` directly — use `feature/product-canonicalization-v2`.
 - No raw detail/package/pallet product display without `ProductLinkageDisplayContract`.
 
 ## Evidence
 
-`NEDA_FINAL_BACKEND_HANDOFF_V193.md` · `history-v196/20260522T230000Z/` · `history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v196-vendor-category-cleanup-1883-plan/20260521T214500Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `v199-expected-identifier-ambiguous-review-pack/20260522T130000Z/` · `expected-packages-remaining-52-review-v201/20260522T170000Z/` · `expected-packages-e1b-blocker-materialize-execute-v200/20260522T160000Z/` · `product-linkage-browser-proof-signoff-v202/20260522T195000Z/`
+`NEDA_FINAL_BACKEND_HANDOFF_V193.md` · `history-pc-phase-01/20260526T120000Z/` · `history-memory-pc-phase-01-closeout/20260526T120000Z/` · `pc01-product-canonicalization-baseline/20260522T230000Z/` · `pc06-db-parity-ledger-original-sync-plan/20260526T040000Z/` · `pc05c-product-packaging-backfill-scale-staging/20260523T220100Z/` · `pc03b-expected-packages-source-disagreement-map-execute/20260523T020000Z/`

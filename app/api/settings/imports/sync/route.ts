@@ -3015,7 +3015,9 @@ async function writeRemovalOrderPartitionedBatches(
     chunk = enforceRemovalOrderChunkBusinessKeyInvariant(chunk, "insert");
     chunk = guardFinalRemovalOrderInsertArray(chunk);
     if (chunk.length === 0) continue;
-    const { error } = await supabaseServer.from("amazon_removals").insert(chunk);
+    const { error } = await supabaseServer
+      .from("amazon_removals")
+      .upsert(chunk, { onConflict: conflictKey, ignoreDuplicates: false });
     if (error) {
       throw new Error(`[REMOVAL_ORDER] insert into amazon_removals failed: ${error.message} (chunk size: ${chunk.length})`);
     }

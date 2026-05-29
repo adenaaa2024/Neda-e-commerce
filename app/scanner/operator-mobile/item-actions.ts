@@ -8,6 +8,11 @@ import { isUuidString, uuidOrNull } from "@/lib/uuid";
 import { RETURN_ITEMS_TABLE, RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns/returns-constants";
 import { hydrateReturnItemProductLinkage } from "@/lib/scanner/hydrate-return-item-product-linkage";
 import type { ProductLinkageDisplayContract } from "@/lib/scanner/product-linkage-display-contract";
+import {
+  allocateExpectedItemsForReturnItemIds,
+  buildReceiveScopeKey,
+  fetchPackageReceiveContext,
+} from "@/lib/scanner/receive-expected-with-split";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
 export type OperatorReceiveItemInput = {
@@ -29,7 +34,7 @@ export type OperatorReceiveItemInput = {
   notes?: string | null;
   expiration_date?: string | null;
   batch_number?: string | null;
-  /** Units to record this save (default 1). Each unit inserts one `return_items` row and bumps EP once. */
+  /** Item-level receive: must be 1 physical unit per save (no quantity-only counter path). */
   quantity?: number;
   photo_evidence?: ReturnInsertPayload["photo_evidence"];
   order_id?: string | null;
@@ -48,6 +53,40 @@ export type OperatorReceiveItemResult = {
   /** Hydrated catalog linkage per inserted `return_items` row (server-built; no client catalog queries). */
   product_linkages?: OperatorReceiveItemLinkageRow[];
 };
+
+function isMissingColumnError(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    m.includes("42703") ||
+    (m.includes("column") &&
+      (m.includes("does not exist") || m.includes("undefined column") || m.includes("schema cache")))
+  );
+}
+
+async function patchReturnItemExpectedLinkage(
+  returnItemId: string,
+  patch: Record<string, unknown>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let attempt = { ...patch };
+  const optionalKeys = Object.keys(attempt);
+  for (let i = 0; i < optionalKeys.length + 1; i++) {
+    const { error } = await supabaseServer.from(RETURN_ITEMS_TABLE).update(attempt).eq("id", returnItemId);
+    if (!error) return { ok: true };
+    if (!isMissingColumnError(error.message)) return { ok: false, error: error.message };
+    const colMatch = /column\s+["']?([a-zA-Z0-9_]+)["']?\s+does not exist/i.exec(error.message);
+    if (colMatch?.[1] && colMatch[1] in attempt) {
+      const { [colMatch[1]]: _drop, ...rest } = attempt;
+      attempt = rest;
+    } else {
+      const next = Object.keys(attempt);
+      if (!next.length) return { ok: true };
+      const { [next[next.length - 1]!]: _drop, ...rest } = attempt;
+      attempt = rest;
+    }
+    if (!Object.keys(attempt).length) return { ok: true };
+  }
+  return { ok: false, error: "Could not patch expected linkage columns." };
+}
 
 /**
  * Resolves the canonical `expected_packages.id` for receive + counter bump.
@@ -120,27 +159,32 @@ async function resolveExpectedPackageRowId(
 }
 
 /**
- * Inserts one `return_items` row per unit and increments `expected_packages.actual_scanned_count` by the same amount.
- * Rolls back inserted `return_items` rows if the EP update fails.
+ * Item-level receive: inserts one `return_items` row and allocates one expected unit via
+ * `allocate_expected_items_for_return_item_ids`. Does not bump `actual_scanned_count`.
  */
 export async function operatorReceiveItem(
   payload: OperatorReceiveItemInput,
 ): Promise<OperatorReceiveItemResult> {
   const qtyRaw = Number(payload.quantity ?? 1);
-  const qty = Number.isFinite(qtyRaw) ? Math.max(1, Math.min(50, Math.floor(qtyRaw))) : 1;
+  const qty = Number.isFinite(qtyRaw) ? Math.floor(qtyRaw) : 1;
+  if (qty !== 1) {
+    return {
+      ok: false,
+      error:
+        "Item-level receive requires quantity=1 per scan. Scan each physical unit separately (no bulk quantity receive).",
+    };
+  }
 
   const orgId = await resolveWriteOrganizationId(payload.actor_profile_id ?? null, payload.organization_id);
 
-  const resolved = await resolveExpectedPackageRowId(orgId, payload.store_id, payload.expected_package_id ?? null, {
-    sku: payload.sku ?? "",
-    fnsku: payload.fnsku ?? "",
-    disposition: payload.disposition ?? "",
-    order_id: payload.order_id ?? null,
+  const packageIdFk = payload.package_id?.trim() || null;
+  const pkgCtx = await fetchPackageReceiveContext(supabaseServer, packageIdFk);
+  const receiveScopeKey = buildReceiveScopeKey({
+    organizationId: orgId,
+    storeId: payload.store_id.trim(),
+    packageId: packageIdFk,
+    slipCode: pkgCtx.slipCode,
   });
-  const epId = resolved.id;
-  if (!epId || !isUuidString(epId)) {
-    return { ok: false, error: resolved.error ?? "Could not resolve expected_packages id." };
-  }
 
   const basePayload: ReturnInsertPayload = {
     marketplace: (payload.marketplace ?? "amazon").trim() || "amazon",
@@ -152,7 +196,7 @@ export async function operatorReceiveItem(
     notes: payload.notes?.trim() || undefined,
     expiration_date: payload.expiration_date?.trim() || undefined,
     batch_number: payload.batch_number?.trim() || undefined,
-    package_id: payload.package_id?.trim() || undefined,
+    package_id: packageIdFk ?? undefined,
     store_id: payload.store_id.trim(),
     order_id: payload.order_id?.trim() || undefined,
     photo_evidence: payload.photo_evidence ?? null,
@@ -160,66 +204,42 @@ export async function operatorReceiveItem(
     actor_profile_id: payload.actor_profile_id ?? null,
   };
 
-  const insertedIds: string[] = [];
+  const res = await insertReturn(basePayload);
+  if (!res.ok || !res.data?.id) {
+    return { ok: false, error: res.error ?? "Failed to insert return item." };
+  }
+
+  const returnItemId = res.data.id;
 
   try {
-    for (let i = 0; i < qty; i++) {
-      const res = await insertReturn(basePayload);
-      if (!res.ok || !res.data?.id) {
-        for (const id of insertedIds) {
-          await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);
-        }
-        return { ok: false, error: res.error ?? "Failed to insert return item." };
-      }
-      insertedIds.push(res.data.id);
+    const alloc = await allocateExpectedItemsForReturnItemIds(supabaseServer, {
+      returnItemIds: [returnItemId],
+      expectedPackageHintId: payload.expected_package_id ?? null,
+      receiveScopeKey,
+    });
+
+    if (!alloc.ok) {
+      await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", returnItemId);
+      return { ok: false, error: alloc.error };
     }
 
-    const storeFk = payload.store_id.trim();
-    const { data: epRow, error: loadEpErr } = await supabaseServer
-      .from("expected_packages")
-      .select("actual_scanned_count")
-      .eq("id", epId)
-      .eq("organization_id", orgId)
-      .eq("store_id", storeFk)
-      .maybeSingle();
-
-    if (loadEpErr) {
-      for (const id of insertedIds) {
-        await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);
-      }
-      return { ok: false, error: loadEpErr.message };
-    }
-
-    const prev = Number((epRow as { actual_scanned_count?: number } | null)?.actual_scanned_count ?? 0);
-    const next = prev + qty;
-
-    const { error: upErr } = await supabaseServer
-      .from("expected_packages")
-      .update({ actual_scanned_count: next })
-      .eq("id", epId)
-      .eq("organization_id", orgId)
-      .eq("store_id", storeFk);
-
-    if (upErr) {
-      for (const id of insertedIds) {
-        await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);
-      }
-      return { ok: false, error: upErr.message };
-    }
+    const allocatedEpId = alloc.rows[0]?.allocated_expected_package_id ?? null;
+    const parentEpId = alloc.rows[0]?.parent_expected_package_id ?? payload.expected_package_id ?? null;
 
     const product_linkages: OperatorReceiveItemLinkageRow[] = [];
-    for (const returnItemId of insertedIds) {
-      const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, returnItemId, orgId);
-      if (linkage) {
-        product_linkages.push({ return_item_id: returnItemId, product_linkage: linkage });
-      }
+    const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, returnItemId, orgId);
+    if (linkage) {
+      product_linkages.push({ return_item_id: returnItemId, product_linkage: linkage });
     }
 
-    return { ok: true, insertedIds, expected_package_id: epId, product_linkages };
+    return {
+      ok: true,
+      insertedIds: [returnItemId],
+      expected_package_id: parentEpId ?? allocatedEpId ?? undefined,
+      product_linkages,
+    };
   } catch (e) {
-    for (const id of insertedIds) {
-      await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", id);
-    }
+    await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", returnItemId);
     return { ok: false, error: e instanceof Error ? e.message : "Receive failed." };
   }
 }

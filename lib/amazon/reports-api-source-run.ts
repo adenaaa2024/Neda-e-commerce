@@ -8,6 +8,10 @@ import { mergeUploadMetadata, type RawReportUploadMetadata } from "../raw-report
 import { SP_API_REPORT_TYPE_SETTLEMENT_V2 } from "./reports-api-settlement-plan";
 
 export const SP_API_REPORT_TYPE_REIMBURSEMENTS = "GET_FBA_REIMBURSEMENTS_DATA" as const;
+export const SP_API_REPORT_TYPE_REMOVAL_ORDER =
+  "GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA" as const;
+export const SP_API_REPORT_TYPE_REMOVAL_SHIPMENT =
+  "GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA" as const;
 
 export const SOURCE_RUN_PROVIDER = "amazon_sp_api" as const;
 export const SOURCE_RUN_OPERATION = "reports.create_and_download" as const;
@@ -124,6 +128,34 @@ export function buildSettlementIdempotencyKey(parts: {
     ...parts,
     reportType: SP_API_REPORT_TYPE_SETTLEMENT_V2,
     operation: "reports.create_and_download.settlement_v2",
+  });
+}
+
+export function buildRemovalOrderIdempotencyKey(parts: {
+  organizationId: string;
+  storeId: string;
+  windowStart: string;
+  windowEnd: string;
+  marketplaceIds: string[];
+}): string {
+  return buildReportsApiIdempotencyKey({
+    ...parts,
+    reportType: SP_API_REPORT_TYPE_REMOVAL_ORDER,
+    operation: SOURCE_RUN_OPERATION,
+  });
+}
+
+export function buildRemovalShipmentIdempotencyKey(parts: {
+  organizationId: string;
+  storeId: string;
+  windowStart: string;
+  windowEnd: string;
+  marketplaceIds: string[];
+}): string {
+  return buildReportsApiIdempotencyKey({
+    ...parts,
+    reportType: SP_API_REPORT_TYPE_REMOVAL_SHIPMENT,
+    operation: SOURCE_RUN_OPERATION,
   });
 }
 

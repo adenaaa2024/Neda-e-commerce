@@ -185,6 +185,7 @@ function numConf(v: unknown, fallback: number): number {
 }
 
 type RemovalRow = { id: string; order_id: string | null; sku: string | null; fnsku: string | null };
+type ReturnsRow = { id: string; order_id: string | null; sku: string | null };
 
 async function fetchRemoval(
   client: SupabaseClient,
@@ -202,6 +203,24 @@ async function fetchRemoval(
   const rid = nv(r.id);
   if (!rid) return null;
   return { id: rid, order_id: nv(r.order_id), sku: nv(r.sku), fnsku: nv(r.fnsku) };
+}
+
+async function fetchReturns(
+  client: SupabaseClient,
+  orgId: string,
+  id: string,
+): Promise<ReturnsRow | null> {
+  const { data, error } = await client
+    .from("amazon_returns")
+    .select("id, order_id, sku")
+    .eq("organization_id", orgId)
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return null;
+  const r = data as unknown as Record<string, unknown>;
+  const rid = nv(r.id);
+  if (!rid) return null;
+  return { id: rid, order_id: nv(r.order_id), sku: nv(r.sku) };
 }
 
 async function fetchExpected(
@@ -337,6 +356,7 @@ function filterFrrBySku(rows: Record<string, unknown>[], skuHint: string | null)
 export function buildPreviewEdgesForDraft(
   draft: ClaimEvidenceDraftRow,
   removal: RemovalRow | null,
+  returnsRow: ReturnsRow | null,
   expected: { count: number; sample_id: string | null } | undefined,
   allocations: Record<string, unknown>[],
   frrRows: Record<string, unknown>[],
@@ -427,8 +447,8 @@ export function buildPreviewEdgesForDraft(
     }
   }
 
-  const orderId = removal?.order_id ?? null;
-  const skuHint = draft.sku ?? removal?.sku ?? null;
+  const orderId = removal?.order_id ?? returnsRow?.order_id ?? null;
+  const skuHint = draft.sku ?? removal?.sku ?? returnsRow?.sku ?? null;
 
   if (orderId) {
     const filtered = filterFrrBySku(frrRows, skuHint)
@@ -1017,6 +1037,7 @@ export async function buildClaimEvidencePreview(
 ): Promise<ClaimEvidencePreview> {
   const orgId = draft.organization_id;
   let removal: RemovalRow | null = null;
+  let returnsRow: ReturnsRow | null = null;
   let expected: { count: number; sample_id: string | null } | undefined;
   let allocations: Record<string, unknown>[] = [];
 
@@ -1026,13 +1047,20 @@ export async function buildClaimEvidencePreview(
       expected = await fetchExpected(client, orgId, removal.id);
       allocations = await fetchAllocations(client, orgId, removal.id);
     }
+  } else if (draft.source_table === "amazon_returns") {
+    returnsRow = await fetchReturns(client, orgId, draft.source_row_id);
   }
 
-  const orderId = removal?.order_id ?? null;
+  const orderId = removal?.order_id ?? returnsRow?.order_id ?? null;
   const frrRows = orderId ? await fetchFrrByOrderId(client, orgId, orderId) : [];
   const financeEvents = orderId ? await fetchFinancesEvents(client, orgId, orderId) : [];
   const returnItems = orderId
-    ? await fetchReturnItemsByOrder(client, orgId, orderId, draft.sku ?? removal?.sku ?? null)
+    ? await fetchReturnItemsByOrder(
+        client,
+        orgId,
+        orderId,
+        draft.sku ?? removal?.sku ?? returnsRow?.sku ?? null,
+      )
     : [];
   const packageIds = [...new Set(returnItems.map((r) => nv(r.package_id)).filter(Boolean) as string[])];
   const slipsByPkg = packageIds.length
@@ -1042,6 +1070,7 @@ export async function buildClaimEvidencePreview(
   const allEdges = buildPreviewEdgesForDraft(
     draft,
     removal,
+    returnsRow,
     expected,
     allocations,
     frrRows,

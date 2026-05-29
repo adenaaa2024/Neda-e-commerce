@@ -13,6 +13,7 @@ import { isUuidString } from "../uuid";
 import type { SourceRunV1 } from "./reports-api-source-run";
 import { mergeSourceRunIntoMetadata } from "./reports-api-source-run";
 import { md5HexFromSha256Prefix } from "./reports-api-document-utils";
+import type { ReportsApiUploadReportType } from "./reports-api-worker-profile";
 
 export {
   decompressReportDocument,
@@ -26,7 +27,7 @@ export const RAW_REPORTS_BUCKET = "raw-reports";
 export async function findUploadBySourceRunIdempotencyKey(
   organizationId: string,
   idempotencyKey: string,
-  uploadReportType: "REIMBURSEMENTS" | "SETTLEMENT" = "REIMBURSEMENTS",
+  uploadReportType: ReportsApiUploadReportType = "REIMBURSEMENTS",
 ): Promise<{ uploadId: string; sourceRun: SourceRunV1 | null; contentSha256: string | null } | null> {
   const { data, error } = await supabaseServer
     .from("raw_report_uploads")
@@ -57,7 +58,7 @@ export async function createReportsApiPlaceholderUpload(params: {
   storeId: string;
   sourceRun: SourceRunV1;
   fileName: string;
-  uploadReportType: "REIMBURSEMENTS" | "SETTLEMENT";
+  uploadReportType: ReportsApiUploadReportType;
   importDescriptorId: string;
   actorUserId?: string | null;
 }): Promise<{ ok: true; uploadId: string; storagePrefix: string } | { ok: false; error: string }> {

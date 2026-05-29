@@ -1,44 +1,59 @@
-# Next actions — V196 closeout (carried forward to V202 proof)
+# Next actions — canonical
 
-See [TASKS.md](../TASKS.md).
-
----
-
-## Done — V196/V197 (this closeout)
-
-- [x] V196 item_name/UPC/ambiguous lookup fix **PASS** (code)
-- [x] V196 expected API/manual plan **PASS** (V199 + V201 + API dry-run packs)
-- [x] V196 vendor 1883 plan **PASS** (read-only)
-- [x] V196 packaging model plan **PASS** (`packaging_level` + `fulfillment_context`)
-- [x] V197 product linkage table census **PASS**
-- [x] V198 E1B execute **BLOCKED** (documented; closed V200)
-- [x] History V196 + memory sync `20260522T230000Z` **PASS**
-
-## Done — subsequent (after V196)
-
-- [x] V200 E1B materialize + E1B cohort closed
-- [x] V202 / V200 browser proof **PASS** (11/11)
-- [x] V195 original parity, V194/V193/V192 (carried)
-- [x] MAIN V205/V206 inventory `package_code` on views + staging UI browser proof **PASS**
-
-- [x] V202 Amazon API evidence dry-run **READY_FOR_EXECUTE_REVIEW** (`20260522T200000Z`)
-- [x] V202 Amazon API evidence execute **FAIL** — 3 real SP-API calls; catalog 404 US MP; 0 inserts (`20260522T210000Z`)
-- [x] V202 identifier manual review batch **PASS** — 43 queued; 38 quarantine/fix source; 5 API 404 manual (`20260522T220000Z`)
+**Branch:** `feature/product-canonicalization-v2`  
+**Staging:** `eiqfaapyumhixxoeltgu`  
+**Last updated:** 2026-05-28 (`original-parity-wave-data-resolver-finish-verify` `20260528T220000Z`)
 
 ---
 
-## P1 — Next phase (claims / API / TRID / catalog)
+## P0 — Build / deploy gate
 
-1. **EXPECTED-PACKAGES-SOURCE-DISAGREEMENT-RECONCILE-PLAN-V202** — 6 rows  
-2. **EXPECTED-PACKAGES-DIRTY-TEST-QUARANTINE-V202** — optional; 38 rows need source identifier fix (UNKNOW / ASIN in FNSKU)  
-3. **Claims** — governed cleanup / regeneration  
-4. **API / TRID** — hardening after execute review  
-5. **API 404 ASINs** — operator_verify_asin_or_manual_pim (5 rows in batch queue)  
-6. **V196B vendor 1883** — allowlist + display name (governed)  
-7. **PRODUCT-PACKAGING-DDL-STAGING-PLAN-V201** — approval-gated  
+1. **BUILD-FIX-TESSERACT-SCAN-PAGE** — `npm run build` fails on missing `tesseract.js` in `app/scanner/operator-mobile/scan/page.tsx`; fix before deploy/merge  
 
 ---
 
-## Production (blocked)
+## P1 — Original parity (post data wave)
 
-Future production Supabase project **NOT_CREATED_YET**. Do not point Vercel Production at staging.
+2. **ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE** — governed map replays on original (E1/E2/E1B/PC03B) to reduce **2,413** `missing_product_needs_evidence`  
+3. **ORIGINAL-PARITY-PHASE1-WAVE-C-EXECUTE** — scanner contract verification on original  
+
+---
+
+## Done — original data wave
+
+- [x] **ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE** — `20260528T201200Z/` — fetch, sync, rebuild, resolver  
+- [x] **ORIGINAL-PARITY-WAVE-DATA-RESOLVER-FINISH-VERIFY** — `20260528T220000Z/` — resolver complete **yes**; live **9,377 / 11,790** resolved  
+
+---
+
+## P2 — Claims / TRID schema apply
+
+3. **CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY** — staging; migration drafted; dry-run **PASS**; ~**13,966** upper bound pre-dedupe  
+4. **TRID-FOUNDATION-MIGRATION-APPLY** — after `claim_lines` prerequisite landed (`trid-foundation-migration-approval.md`)
+
+---
+
+## P2 — Branch delivery
+
+5. **GH-AUTH-PR-CREATE** — open PR `feature/product-canonicalization-v2` → `main` for commit `51bc597`  
+   - Compare: `https://github.com/mebrahimipargoo/ecommerce-os/compare/main...feature/product-canonicalization-v2`
+
+---
+
+## Done — phase1 delivery
+
+- [x] Commit `51bc597` pushed — item-level scanner receive allocation repair  
+- [x] Original schema wave **4/4** migrations PASS on original  
+- [x] Staging EP **6,099 / 6,175** resolved  
+- [x] Neda item-level smoke **PASS** after sync  
+- [x] Claim lines schema dry-run **PASS**  
+- [x] TRID foundation migration dry-run **PASS_WITH_BLOCKERS** (claim_lines prerequisite)  
+
+---
+
+## Blocked
+
+- Deploy — until **BUILD-FIX-TESSERACT-SCAN-PAGE**  
+- TRID apply — until **claim_lines** schema applied  
+- Future production — **NOT_CREATED_YET**  
+- Original production-ready — **NO** until Wave B/C + build fix; data wave resolver **complete**  

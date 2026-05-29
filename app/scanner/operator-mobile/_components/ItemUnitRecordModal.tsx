@@ -88,6 +88,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const [localError, setLocalError] = useState<string | null>(null);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [uploadingOptionalPhoto, setUploadingOptionalPhoto] = useState(false);
+  const [manualBarcodeEntry, setManualBarcodeEntry] = useState(false);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
   const optionalPhotoInputRef = useRef<HTMLInputElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +111,11 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     setOperatorNotes("");
     setLocalError(null);
     setLinkageResolving(false);
+    setManualBarcodeEntry(false);
+  }, [open, initialBarcode, productLinkage]);
+
+  const startManualBarcodeEntry = useCallback(() => {
+    setManualBarcodeEntry(true);
     const focusBarcode = () => {
       const el = barcodeInputRef.current;
       if (!el) return;
@@ -120,14 +126,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
         /* read-only inputs may reject select */
       }
     };
-    focusBarcode();
-    const t0 = window.setTimeout(focusBarcode, 0);
-    const t1 = window.setTimeout(focusBarcode, 50);
-    return () => {
-      window.clearTimeout(t0);
-      window.clearTimeout(t1);
-    };
-  }, [open, initialBarcode, productLinkage]);
+    window.requestAnimationFrame(focusBarcode);
+  }, []);
 
   useEffect(() => {
     if (!open || !resolveBarcodeLinkage) return;
@@ -262,6 +262,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       setLocalError("Enter or confirm the product barcode.");
       return;
     }
+    setManualBarcodeEntry(false);
+    barcodeInputRef.current?.blur();
     const tags = normalizeItemUnitDiscrepancySelection(selectedTags);
     if (tags.length === 0) {
       setLocalError("Select at least one condition.");
@@ -376,14 +378,28 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               void handleSave();
             }}
           >
-            <label className="operator-item-unit-record-modal__muted text-[11px] font-bold uppercase tracking-wide">
-              Product barcode (UPC / FNSKU)
-            </label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="operator-item-unit-record-modal__muted text-[11px] font-bold uppercase tracking-wide">
+                Product barcode (UPC / FNSKU)
+              </label>
+              <button
+                type="button"
+                onClick={startManualBarcodeEntry}
+                className="text-[10px] font-bold uppercase tracking-widest text-cyan-200 underline decoration-cyan-300/45 underline-offset-2"
+              >
+                Manual Entry
+              </button>
+            </div>
             <input
               ref={barcodeInputRef}
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
+              onFocus={(e) => {
+                if (!manualBarcodeEntry) e.currentTarget.blur();
+              }}
               onBlur={() => {
+                if (!manualBarcodeEntry) return;
+                window.setTimeout(() => setManualBarcodeEntry(false), 120);
                 const bc = barcode.trim();
                 if (bc.length >= 3) focusExpiryAfterBarcodeCommit();
                 if (!bc || !resolveBarcodeLinkage) return;
@@ -423,8 +439,9 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               className="mt-2 h-[52px] w-full rounded-xl border-2 px-3 font-mono text-[15px] text-white outline-none transition duration-150 focus:border-cyan-300 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.45),0_0_20px_rgba(45,212,191,0.3)] focus:ring-2 focus:ring-cyan-400/70"
               style={{ borderColor: "rgba(45,212,191,0.45)", backgroundColor: "#090E1A" }}
               placeholder="Scan or type ASIN / FNSKU / UPC / SKU…"
+              readOnly={!manualBarcodeEntry}
+              inputMode={manualBarcodeEntry ? "text" : "none"}
               autoComplete="off"
-              autoFocus
               enterKeyHint="done"
             />
           </form>

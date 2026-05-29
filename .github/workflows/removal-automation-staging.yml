@@ -1,0 +1,91 @@
+# Removal daily automation — staging only (eiqfaapyumhixxoeltgu).
+# Default: DRY-RUN (no Amazon API, no DB writes).
+#
+# To run apply:
+#   1. APPROVED_TO_IMPLEMENT_REMOVAL_AUTOMATION_CRON=true in approval file
+#   2. GitHub secret REMOVAL_AUTOMATION_APPLY_ENABLED=true
+#   3. workflow_dispatch with apply=true (scheduled cron stays dry-run until operator enables)
+
+name: Removal daily automation (staging)
+
+on:
+  schedule:
+    # 06:00 America/Los_Angeles (PDT ≈ UTC-7) → 13:00 UTC
+    - cron: "0 13 * * *"
+    # 14:00 America/Los_Angeles → 21:00 UTC
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Run with --apply (Amazon API + DB writes). Requires REMOVAL_AUTOMATION_APPLY_ENABLED secret."
+        type: boolean
+        default: false
+      run_id:
+        description: "Optional UTC run id"
+        type: string
+        required: false
+      rolling_days:
+        description: "Rolling fetch window days (default 7)"
+        type: string
+        required: false
+
+concurrency:
+  group: removal-automation-staging
+  cancel-in-progress: false
+
+jobs:
+  removal-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run orchestrator
+        env:
+          REMOVAL_AUTOMATION_TARGET_REF: eiqfaapyumhixxoeltgu
+          REMOVAL_AUTOMATION_ROLLING_DAYS: "7"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_DIRECT_POSTGRES_URL: ${{ secrets.STAGING_DIRECT_POSTGRES_URL }}
+          ENABLE_AMAZON_REPORTS_API_WORKER: "true"
+          ENABLE_AMAZON_REPORTS_API_REMOVAL_ORDER: "true"
+          ENABLE_AMAZON_REPORTS_API_REMOVAL_SHIPMENT: "true"
+          ENABLE_IMPORT_DESCRIPTOR_METADATA: "true"
+          REMOVAL_AUTOMATION_ALERT_WEBHOOK: ${{ secrets.REMOVAL_AUTOMATION_ALERT_WEBHOOK }}
+          REMOVAL_AUTOMATION_CONFIRM_APPLY: ${{ secrets.REMOVAL_AUTOMATION_APPLY_ENABLED }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.apply }}" = "true" ]; then
+            if [ "${{ secrets.REMOVAL_AUTOMATION_APPLY_ENABLED }}" != "true" ]; then
+              echo "BLOCKED: set GitHub secret REMOVAL_AUTOMATION_APPLY_ENABLED=true for apply runs"
+              exit 1
+            fi
+            ARGS+=(--apply)
+          fi
+          if [ -n "${{ inputs.run_id }}" ]; then
+            ARGS+=(--run-id=${{ inputs.run_id }})
+          fi
+          if [ -n "${{ inputs.rolling_days }}" ]; then
+            ARGS+=(--rolling-days=${{ inputs.rolling_days }})
+          fi
+          npx tsx scripts/removal-automation-orchestrator.ts "${ARGS[@]}"
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: removal-automation-run-${{ github.run_id }}
+          path: |
+            .cursor/audit-reports/removal-automation-run/**/*
+          if-no-files-found: ignore

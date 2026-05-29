@@ -464,6 +464,53 @@ _INT_REMOVAL_COLS = {
     "in_process_quantity",
 }
 
+
+def _pg_text_unique_field(val: Any) -> str | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    return s if s else None
+
+
+def _strip_removal_tracking_token(raw: str) -> str:
+    s = str(raw).strip()
+    if not s:
+        return ""
+    for _ in range(3):
+        m = re.match(r'^[\[\(\{<"\'`]+(.+)[\]\)\}>"\'`]+$', s)
+        if m and m.group(1).strip():
+            s = m.group(1).strip()
+        else:
+            break
+    return s.strip()
+
+
+def _split_removal_tracking_list(raw: str) -> list[str]:
+    s = _strip_removal_tracking_token(raw)
+    if not s:
+        return []
+    parts = re.split(r"[,;]+", s)
+    return [t for t in (_strip_removal_tracking_token(p) for p in parts) if t]
+
+
+def _normalize_removal_tracking_operational(raw: Any) -> dict[str, Any]:
+    """Mirror lib/pipeline/removal-tracking-normalize.ts — operational column only."""
+    if raw is None:
+        return {"operational": None, "status": "empty", "distinct_tokens": []}
+    tokens = _split_removal_tracking_list(str(raw))
+    if not tokens:
+        return {"operational": None, "status": "empty", "distinct_tokens": []}
+    distinct: list[str] = []
+    for t in tokens:
+        if t not in distinct:
+            distinct.append(t)
+    if len(distinct) > 1:
+        return {"operational": None, "status": "multi_conflict", "distinct_tokens": distinct}
+    operational = distinct[0]
+    status = "deduped_repeated" if len(tokens) > 1 else "single"
+    return {"operational": operational, "status": status, "distinct_tokens": distinct}
+
+
 def _resolve_import_store_id_from_upload(db: Any, organization_id: str, upload_id: str | None) -> str | None:
     if not upload_id:
         return None
@@ -521,9 +568,16 @@ def _extract_removal_row(
         if fn:
             result["sku"] = str(fn).strip()
 
-    for nullable in ("sku", "fnsku", "disposition", "tracking_number"):
+    for nullable in ("sku", "fnsku", "disposition"):
         t = _pg_text_unique_field(result.get(nullable))
         result[nullable] = t
+
+    tn_raw = result.get("tracking_number")
+    tn_norm = _normalize_removal_tracking_operational(tn_raw)
+    if tn_norm["status"] == "multi_conflict":
+        result["tracking_number"] = None
+    else:
+        result["tracking_number"] = _pg_text_unique_field(tn_norm.get("operational"))
 
     return result
 
@@ -578,7 +632,8 @@ def _removal_row_for_write(row: dict[str, Any]) -> dict[str, Any]:
 
 def _merge_shipment_into_null_slot(existing: dict[str, Any], shipment: dict[str, Any]) -> dict[str, Any]:
     out = dict(existing)
-    tn = _pg_text_unique_field(shipment.get("tracking_number"))
+    tn_norm = _normalize_removal_tracking_operational(shipment.get("tracking_number"))
+    tn = _pg_text_unique_field(tn_norm.get("operational")) if tn_norm["status"] != "multi_conflict" else None
     if tn:
         out["tracking_number"] = tn
     inc_c = shipment.get("carrier")
@@ -6134,3 +6189,20 @@ async def get_real_products(organization_id: str):
     rows = list(res.data or [])
     rows = _enrich_products_with_vendor_names(db, rows)
     return {"status": "success", "products": rows}
+
+
+# --- Claim evidence PDF (ReportLab) — gated by CLAIM_PDF_API_ENABLED (default off) ---
+try:
+    from claim_pdf_routes import register_claim_pdf_routes
+
+    register_claim_pdf_routes(app)
+except ImportError as _claim_pdf_err:
+    log.warning("claim_pdf_routes not loaded: %s", _claim_pdf_err)
+
+# --- Amazon claim filing agent (feature/neda-claim-agent; staging-gated) ---
+try:
+    from claim_agent_routes import register_claim_agent_routes
+
+    register_claim_agent_routes(app)
+except ImportError as _claim_agent_err:
+    log.warning("claim_agent_routes not loaded: %s", _claim_agent_err)

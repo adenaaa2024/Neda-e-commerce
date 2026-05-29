@@ -356,6 +356,9 @@ export async function runReportsApiPullWorker(
             attempt: {
               count: sourceRun.attempt.count + 1,
               last_error_code: "report_fatal",
+              last_error_detail: sanitizeAmazonReportsErrorDetail(
+                `processingStatus=${report.processingStatus}`,
+              ),
               next_retry_at: null,
             },
           });
