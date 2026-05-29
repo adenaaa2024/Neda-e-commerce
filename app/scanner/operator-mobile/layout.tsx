@@ -1,26 +1,9 @@
-import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Oswald } from "next/font/google";
 import { OperatorSessionStoreProvider } from "./_components/OperatorSessionStoreProvider";
 import { OperatorProductBrandingStrip } from "./_components/OperatorProductBrandingStrip";
 import { OperatorPwaInstallHint } from "./_components/OperatorPwaInstallHint";
 import { OperatorUtilityRow } from "./_components/OperatorUtilityRow";
-
-/** Operator-scoped PWA manifest — linked only on /scanner/operator-mobile/* routes. */
-export const metadata: Metadata = {
-  manifest: "/manifest.json",
-  applicationName: "Menorix",
-  appleWebApp: {
-    capable: true,
-    title: "Menorix",
-    statusBarStyle: "black-translucent",
-  },
-};
-
-export const viewport: Viewport = {
-  themeColor: "#050607",
-  viewportFit: "cover",
-};
 
 const operatorDisplay = Oswald({
   variable: "--font-operator-display",

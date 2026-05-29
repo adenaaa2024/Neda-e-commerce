@@ -77,8 +77,8 @@ export function OperatorPwaInstallHint() {
           ) : null}
           <p className="text-[11px] leading-snug" style={{ color: "var(--op-text-secondary, #b9c2cc)" }}>
             {onScanRoute
-              ? "Install: browser menu → Add to Home Screen / Install app."
-              : "Install Menorix on your home screen for app-like scanning."}
+              ? "Tip: open Scanner from the warehouse menu anytime inside Menorix."
+              : "Quick link to the warehouse scanner — Menorix is installable from your browser menu."}
           </p>
         </div>
         <button
