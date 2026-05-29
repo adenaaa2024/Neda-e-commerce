@@ -23,7 +23,7 @@ export function buildOperatorBarcodeResolverFields(barcode: string): {
     return { matchKind: "unexpected", asin: classified.normalized };
   }
   if (classified.kind === "upc_ean") {
-    return { matchKind: "upc", upc: classified.normalized, sku: classified.normalized };
+    return { matchKind: "upc", upc: classified.normalized };
   }
   if (classified.kind === "lpn") {
     return { matchKind: "unexpected", sku: classified.normalized };
