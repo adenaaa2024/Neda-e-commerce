@@ -46,6 +46,7 @@ import {
 import { formatDuplicatePackingSlipMessage } from "@/lib/scanner/operator-slip-duplicate";
 import { formatSupabaseActionError } from "@/lib/supabase-action-error";
 import { enrichSlipContentsProductLinksAfterReplace } from "@/lib/scanner/enrich-slip-contents-product-links";
+import { slipVisionLineIdentifierFields } from "@/lib/scanner/slip-vision-line-identifiers";
 import { assertUserCanAccessOrganization } from "@/app/dashboard/products/pim-actions";
 import { insertReturn } from "@/app/returns/actions";
 import { promoteScannerReturnItemToClaimStructures } from "@/lib/scanner-operator-claim-promote";
@@ -375,6 +376,15 @@ function isMissingSlipContentsOrderIdSchemaError(message: string): boolean {
     m.includes("order_id") &&
     !m.includes("conflicting_order_id") &&
     (m.includes("schema cache") || m.includes("could not find") || m.includes("column"))
+  );
+}
+
+function isMissingSlipContentsParsedIdentifierSchemaError(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    m.includes("slip_contents") &&
+    (m.includes("parsed_asin") || m.includes("parsed_fnsku") || m.includes("parsed_upc")) &&
+    (m.includes("schema cache") || m.includes("could not find") || m.includes("column") || m.includes("42703"))
   );
 }
 
@@ -1188,6 +1198,8 @@ export async function insertOperatorUnknownPackageAction(
 export type UpdateOperatorIntakeBoxPackageSlipLine = {
   upc: string | null;
   fnsku: string | null;
+  /** B0… ASIN from vision when distinct from FNSKU. */
+  printed_asin?: string | null;
   description: string | null;
   expected_qty: number;
   condition: string | null;
@@ -1528,25 +1540,35 @@ export async function updateOperatorIntakeBoxPackageAction(
         input.slipContents.mode === "replace"
           ? String(input.slipContents.slipCode ?? "").trim() || null
           : null;
-      const rows = lines.map((line, i) => ({
-        organization_id: organizationId,
-        package_id: packageId,
-        store_id: slipStoreId,
-        slip_code: slipLineCode,
-        rma_number: rmaPersist,
-        upc: line.upc?.trim() || null,
-        fnsku: line.fnsku?.trim() || null,
-        description: line.description?.trim() || null,
-        quantity: line.expected_qty,
-        condition: line.condition?.trim() || null,
-        notes: line.missing ? JSON.stringify({ missing: true }) : null,
-        sort_index: i,
-        ...(slipContentsOrderIdForInsert ? { order_id: slipContentsOrderIdForInsert } : {}),
-        ...(slipConflictingOrderIdForInsert
-          ? { conflicting_order_id: slipConflictingOrderIdForInsert }
-          : {}),
-        ...(uid ? { created_by: uid } : {}),
-      }));
+      const rows = lines.map((line, i) => {
+        const parsed = slipVisionLineIdentifierFields({
+          upc: line.upc,
+          fnsku: line.fnsku,
+          printed_asin: line.printed_asin,
+        });
+        return {
+          organization_id: organizationId,
+          package_id: packageId,
+          store_id: slipStoreId,
+          slip_code: slipLineCode,
+          rma_number: rmaPersist,
+          upc: line.upc?.trim() || null,
+          fnsku: parsed.parsed_fnsku,
+          description: line.description?.trim() || null,
+          quantity: line.expected_qty,
+          condition: line.condition?.trim() || null,
+          notes: line.missing ? JSON.stringify({ missing: true }) : null,
+          sort_index: i,
+          parsed_asin: parsed.parsed_asin,
+          parsed_fnsku: parsed.parsed_fnsku,
+          parsed_upc: parsed.parsed_upc,
+          ...(slipContentsOrderIdForInsert ? { order_id: slipContentsOrderIdForInsert } : {}),
+          ...(slipConflictingOrderIdForInsert
+            ? { conflicting_order_id: slipConflictingOrderIdForInsert }
+            : {}),
+          ...(uid ? { created_by: uid } : {}),
+        };
+      });
       type SlipInsertRow = Record<string, unknown>;
       let insertRows: SlipInsertRow[] = rows as SlipInsertRow[];
       let insE: { message: string } | null = null;
@@ -1567,6 +1589,12 @@ export async function updateOperatorIntakeBoxPackageAction(
           insertRows = insertRows.map(({ notes: _n, ...rest }) => rest);
           continue;
         }
+        if (isMissingSlipContentsParsedIdentifierSchemaError(msg)) {
+          insertRows = insertRows.map(
+            ({ parsed_asin: _a, parsed_fnsku: _f, parsed_upc: _u, ...rest }) => rest,
+          );
+          continue;
+        }
         break;
       }
       if (insE) {
@@ -1581,6 +1609,7 @@ export async function updateOperatorIntakeBoxPackageAction(
           sort_index: i,
           upc: line.upc,
           fnsku: line.fnsku,
+          printed_asin: line.printed_asin,
           description: line.description,
         })),
       });
@@ -2141,6 +2170,95 @@ export type PreviewOperatorItemBarcodeLinkageInput = {
   scannedBarcode: string;
   matchKind?: "fnsku" | "upc" | "unexpected";
 };
+
+export type PreviewOperatorSlipLineIdentifiersLinkageInput = {
+  requestedOrganizationId: string;
+  storeId: string;
+  lines: Array<{
+    upc?: string | null;
+    fnsku?: string | null;
+    printed_asin?: string | null;
+  }>;
+};
+
+/**
+ * Dry-run resolver for BOX slip vision lines (identifiers only — no slip_contents write).
+ */
+export async function previewOperatorSlipLinesIdentifiersLinkageAction(
+  input: PreviewOperatorSlipLineIdentifiersLinkageInput,
+): Promise<
+  { ok: true; linkages: ProductLinkageDisplayContract[] } | { ok: false; message: string }
+> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Store is required." };
+  }
+
+  const linesIn = Array.isArray(input.lines) ? input.lines : [];
+  try {
+    const linkages: ProductLinkageDisplayContract[] = [];
+    const resolvedIds: string[] = [];
+
+    for (const line of linesIn) {
+      const ids = slipVisionLineIdentifierFields(line);
+      const hasIdentifier = Boolean(ids.resolverFnsku || ids.resolverAsin || ids.resolverUpc);
+      if (!hasIdentifier) {
+        linkages.push(
+          buildProductLinkageDisplayContract(
+            { fnsku: ids.parsed_fnsku, upc: ids.parsed_upc },
+            new Map(),
+          ),
+        );
+        continue;
+      }
+
+      const res = await resolveProductForScannerItem(supabaseServer, {
+        organization_id: organizationId,
+        store_id: storeId,
+        fnsku: ids.resolverFnsku,
+        asin: ids.resolverAsin,
+        upc: ids.resolverUpc,
+        source_table: "slip_contents",
+      });
+      if (res.resolved_product_id) resolvedIds.push(res.resolved_product_id);
+      linkages.push(
+        buildProductLinkageFromResolveResult(
+          { fnsku: ids.parsed_fnsku, upc: ids.parsed_upc, item_name: null },
+          res,
+          new Map(),
+        ),
+      );
+    }
+
+    if (resolvedIds.length > 0) {
+      const productNameById = await fetchProductNamesByResolvedIds(
+        supabaseServer as unknown as ProductsLookupClient,
+        resolvedIds,
+      );
+      for (let i = 0; i < linkages.length; i++) {
+        const lid = linkages[i]?.resolved_product_id;
+        if (lid && productNameById.has(lid)) {
+          linkages[i] = {
+            ...linkages[i]!,
+            product_name: productNameById.get(lid) ?? linkages[i]!.product_name,
+          };
+        }
+      }
+    }
+
+    return { ok: true, linkages };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Slip line resolver preview failed." };
+  }
+}
 
 export type OperatorProductDetailRow = {
   id: string;

@@ -1,12 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUuidString } from "@/lib/uuid";
 import { resolveProductForScannerItem } from "./resolve-product-for-scanner-item";
+import { slipVisionLineIdentifierFields } from "./slip-vision-line-identifiers";
 import { updateRowWithScannerLinkagePatch } from "./scanner-linkage-patch";
 
 export type SlipLineForEnrichment = {
   sort_index: number;
   upc: string | null;
   fnsku: string | null;
+  /** B0… ASIN from vision — resolver tier separate from FNSKU. */
+  asin?: string | null;
+  printed_asin?: string | null;
   description: string | null;
 };
 
@@ -45,12 +49,18 @@ export async function enrichSlipContentsProductLinksAfterReplace(
       const id = bySort.get(line.sort_index);
       if (!id) continue;
 
+      const ids = slipVisionLineIdentifierFields({
+        upc: line.upc,
+        fnsku: line.fnsku,
+        printed_asin: line.asin ?? line.printed_asin,
+      });
+
       const res = await resolveProductForScannerItem(supabase, {
         organization_id: params.organizationId,
         store_id: params.storeId,
-        fnsku: line.fnsku,
-        upc: line.upc,
-        ocr_product_name: line.description,
+        fnsku: ids.resolverFnsku,
+        asin: ids.resolverAsin,
+        upc: ids.resolverUpc,
         source_table: "slip_contents",
         source_row_id: id,
       });

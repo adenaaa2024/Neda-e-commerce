@@ -132,6 +132,7 @@ import {
   lookupShipmentEntryScanCodeAction,
   insertOperatorPackageItemAction,
   previewOperatorItemBarcodeLinkageAction,
+  previewOperatorSlipLinesIdentifiersLinkageAction,
   updateOperatorIntakeBoxPackageAction,
   saveOperatorSlipVisionAction,
   checkOperatorSlipCodeDuplicateAction,
@@ -384,8 +385,10 @@ function parseBoxSlipManifestData(raw: unknown): { slipCode: string; rma: string
         : typeof r.upc === "string" && r.upc.trim()
           ? r.upc.trim()
           : null;
-    const fnsku = typeof r.fnsku === "string" ? r.fnsku.trim() : "";
-    const printed = typeof r.printed_asin === "string" ? r.printed_asin.trim() : "";
+    const fnskuRaw = typeof r.fnsku === "string" ? r.fnsku.trim() : "";
+    const printedRaw = typeof r.printed_asin === "string" ? r.printed_asin.trim() : "";
+    const fnskuIsAsin = /^B0[0-9A-Z]{8}$/i.test(fnskuRaw);
+    const printedIsAsin = /^B0[0-9A-Z]{8}$/i.test(printedRaw);
     const desc = typeof r.description === "string" ? r.description.trim() : "";
     const cond = typeof r.condition === "string" ? r.condition.trim() : "";
     const q = Number(r.qty ?? r.expected_qty ?? r.quantity ?? 0);
@@ -398,8 +401,9 @@ function parseBoxSlipManifestData(raw: unknown): { slipCode: string; rma: string
         .toLowerCase() === "missing";
     lines.push({
       upc,
-      fnsku: fnsku || printed || null,
-      printed_asin: printed || fnsku || null,
+      fnsku: fnskuRaw && !fnskuIsAsin ? fnskuRaw : null,
+      printed_asin:
+        printedRaw || (fnskuIsAsin ? fnskuRaw : null) || null,
       description: desc || null,
       expected_qty: Number.isFinite(q) && q >= 0 ? Math.floor(q) : 0,
       condition: cond || null,
@@ -460,7 +464,12 @@ function mapSlipContentRowToVisionLine(row: Record<string, unknown>): BoxSlipVis
   return {
     upc: typeof row.upc === "string" && row.upc.trim() ? row.upc.trim() : null,
     fnsku: typeof row.fnsku === "string" && row.fnsku.trim() ? row.fnsku.trim() : null,
-    printed_asin: typeof row.fnsku === "string" && row.fnsku.trim() ? row.fnsku.trim() : null,
+    printed_asin:
+      typeof row.parsed_asin === "string" && row.parsed_asin.trim()
+        ? row.parsed_asin.trim()
+        : typeof row.printed_asin === "string" && row.printed_asin.trim()
+          ? row.printed_asin.trim()
+          : null,
     description: typeof row.description === "string" && row.description.trim() ? row.description.trim() : null,
     expected_qty: Number.isFinite(q) && q >= 0 ? Math.floor(q) : 0,
     condition: typeof row.condition === "string" && row.condition.trim() ? row.condition.trim() : null,
@@ -3680,6 +3689,9 @@ function OperatorMobileScanPageContent() {
   const [boxSlipConflictingOrderId, setBoxSlipConflictingOrderId] = useState("");
 
   const [boxSlipVisionLines, setBoxSlipVisionLines] = useState<BoxSlipVisionLine[]>([]);
+  const [boxSlipVisionLineLinkages, setBoxSlipVisionLineLinkages] = useState<
+    ProductLinkageDisplayContract[]
+  >([]);
   const boxSlipVisionLinesPersistRef = useRef<BoxSlipVisionLine[]>([]);
   const commitBoxSlipVisionLinesFromSource = useCallback((lines: BoxSlipVisionLine[]) => {
     const snap = clonePersistBoxSlipVisionLines(lines);
@@ -3689,10 +3701,36 @@ function OperatorMobileScanPageContent() {
   const clearBoxSlipVisionLinesState = useCallback(() => {
     boxSlipVisionLinesPersistRef.current = [];
     setBoxSlipVisionLines([]);
+    setBoxSlipVisionLineLinkages([]);
     setBoxSlipOrderId("");
     setBoxSlipConflictingOrderId("");
   }, []);
   const [boxSlipVisionBusy, setBoxSlipVisionBusy] = useState(false);
+
+  useEffect(() => {
+    if (!orgId || !sessionStoreId || !isSupabaseConfigured() || boxSlipVisionLines.length === 0) {
+      setBoxSlipVisionLineLinkages([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await previewOperatorSlipLinesIdentifiersLinkageAction({
+        requestedOrganizationId: orgId,
+        storeId: sessionStoreId,
+        lines: boxSlipVisionLines.map((line) => ({
+          upc: line.upc,
+          fnsku: line.fnsku,
+          printed_asin: line.printed_asin,
+        })),
+      });
+      if (cancelled) return;
+      setBoxSlipVisionLineLinkages(res.ok ? res.linkages : []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [boxSlipVisionLines, orgId, sessionStoreId]);
+
   /** Set when /api/scanner/extract-box-slip returns INVALID_SLIP_FORMAT — blocks Save until slip is replaced or removed. */
   const [boxSlipInvalidFormatBlocksSave, setBoxSlipInvalidFormatBlocksSave] = useState(false);
   const [boxSaveBusy, setBoxSaveBusy] = useState(false);
@@ -5662,6 +5700,7 @@ function OperatorMobileScanPageContent() {
             const linesPayload = items.map((line) => ({
               upc: line.upc?.trim() || null,
               fnsku: line.fnsku?.trim() || null,
+              printed_asin: line.printed_asin?.trim() || null,
               description: line.description?.trim() || null,
               expected_qty: line.expected_qty ?? 0,
               condition: line.condition?.trim() || null,
@@ -6500,6 +6539,7 @@ function OperatorMobileScanPageContent() {
             lines: slipLinesForPersist.map((line) => ({
               upc: line.upc,
               fnsku: line.fnsku,
+              printed_asin: line.printed_asin ?? null,
               description: line.description,
               expected_qty: line.expected_qty,
               condition: line.condition,
@@ -8810,6 +8850,7 @@ function OperatorMobileScanPageContent() {
         const description = v.description?.trim() ? v.description.trim() : null;
         const upc = v.upc?.trim() ? v.upc.trim() : null;
         const fnsku = v.fnsku?.trim() ? v.fnsku.trim() : null;
+        const previewLinkage = boxSlipVisionLineLinkages[i];
         return {
           id: null,
           upc,
@@ -8822,10 +8863,12 @@ function OperatorMobileScanPageContent() {
           slip_code: null,
           order_id: null,
           conflicting_order_id: null,
-          product_linkage: buildProductLinkageDisplayContract(
-            { description, fnsku, upc },
-            EMPTY_PRODUCT_NAME_LOOKUP,
-          ),
+          product_linkage:
+            previewLinkage ??
+            buildProductLinkageDisplayContract(
+              { description, fnsku, upc },
+              EMPTY_PRODUCT_NAME_LOOKUP,
+            ),
         };
       });
     }
@@ -8861,7 +8904,7 @@ function OperatorMobileScanPageContent() {
       });
     }
     return [];
-  }, [itemInspectionSlipLines, boxSlipVisionLines, expectedPkgDetailRows, epReceiveLinkageByEpId]);
+  }, [itemInspectionSlipLines, boxSlipVisionLines, boxSlipVisionLineLinkages, expectedPkgDetailRows, epReceiveLinkageByEpId]);
 
   const itemInspectionSlipCells = useMemo(() => {
     const epRows = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
@@ -13539,6 +13582,7 @@ function OperatorMobileScanPageContent() {
                               <col className="operator-shipment-detected-col-fnsku" />
                               <col className="operator-shipment-detected-col-upc" />
                               <col className="operator-shipment-detected-col-desc" />
+                              <col className="operator-shipment-detected-col-desc" />
                               <col className="operator-shipment-detected-col-qty" />
                             </colgroup>
                             <thead className="operator-shipment-detected-thead sticky top-0 z-[1]">
@@ -13548,6 +13592,9 @@ function OperatorMobileScanPageContent() {
                                 </th>
                                 <th className="operator-shipment-detected-th operator-shipment-detected-th-upc font-bold">
                                   UPC
+                                </th>
+                                <th className="operator-shipment-detected-th operator-shipment-detected-th-desc font-bold">
+                                  Product
                                 </th>
                                 <th className="operator-shipment-detected-th operator-shipment-detected-th-desc font-bold">
                                   Description
@@ -13562,6 +13609,12 @@ function OperatorMobileScanPageContent() {
                                 const fnskuTrim = (row.fnsku ?? "").trim();
                                 const upcTrim = (row.upc ?? "").trim();
                                 const descTrim = (row.description ?? "").trim();
+                                const linkage =
+                                  boxSlipVisionLineLinkages[i] ??
+                                  buildProductLinkageDisplayContract(
+                                    { description: row.description, fnsku: row.fnsku, upc: row.upc },
+                                    EMPTY_PRODUCT_NAME_LOOKUP,
+                                  );
                                 return (
                                   <tr
                                     key={`slip-line-${i}`}
@@ -13578,7 +13631,19 @@ function OperatorMobileScanPageContent() {
                                       </span>
                                     </td>
                                     <td className="operator-shipment-detected-td operator-shipment-detected-td-desc align-top">
-                                      <span className="operator-shipment-detected-cell-desc font-medium leading-snug">
+                                      <ProductLinkagePrimaryLink
+                                        linkage={linkage}
+                                        detailFrom="scan"
+                                        className="operator-shipment-detected-cell-desc font-medium leading-snug text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+                                      />
+                                      <OperatorProductLinkageMeta
+                                        linkage={linkage}
+                                        linkResolvedProductId={false}
+                                        detailFrom="scan"
+                                      />
+                                    </td>
+                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-desc align-top">
+                                      <span className="operator-shipment-detected-cell-desc font-medium leading-snug text-zinc-400">
                                         {descTrim || "—"}
                                       </span>
                                     </td>
