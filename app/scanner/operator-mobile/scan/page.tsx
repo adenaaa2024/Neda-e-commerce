@@ -124,6 +124,7 @@ import {
   findOperatorPalletByTrackingNumberAction,
   findOperatorSavedPackageByCodeOrTrackingAction,
   fetchInventoryItemStatusLinesForGateAction,
+  fetchGateProductNamesByIdsAction,
   insertOperatorIntakeBoxPackageAction,
   listOperatorPackagesForPalletAction,
   listOperatorSlipContentsForPackageAction,
@@ -148,12 +149,14 @@ import { OperatorProductLinkageMeta } from "@/app/scanner/operator-mobile/_compo
 import { ProductLinkagePrimaryLink } from "@/app/scanner/operator-mobile/_components/ProductLinkagePrimaryLink";
 import {
   buildProductLinkageDisplayContract,
+  productLinkageOperatorPrimaryDisplayLabel,
   productLinkagePrimaryLabel,
   type ProductLinkageDisplayContract,
 } from "@/lib/scanner/product-linkage-display-contract";
 import {
   buildExpectedPackageProductLinkage,
   buildInventoryViewProductLinkage,
+  deriveExpectedPackageEffectiveProductId,
   formatScanVarianceLabel,
 } from "@/lib/scanner/expected-packages-read-contract";
 import { buildOperatorBarcodeResolverFields } from "@/lib/scanner/operator-barcode-preview-input";
@@ -2447,6 +2450,36 @@ function pickInventoryViewHints(rows: VInventoryStatusRow[]): {
   return { productName, carrier, slipCode };
 }
 
+function collectGateResolvedProductIds(
+  epRows: Record<string, unknown>[],
+  shipmentLines: VInventoryStatusRow[],
+): string[] {
+  const ids = new Set<string>();
+  for (const raw of epRows) {
+    const id = deriveExpectedPackageEffectiveProductId(raw);
+    if (id && isUuidString(id)) ids.add(id);
+  }
+  for (const line of shipmentLines) {
+    for (const key of [line.resolved_product_id, line.product_id, line.resolved_catalog_product_id]) {
+      const id = String(key ?? "").trim();
+      if (isUuidString(id)) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+function gateEpRowForInventoryLine(
+  row: VInventoryStatusRow,
+  byId: Map<string, Record<string, unknown>>,
+  bySkuFnsku: Map<string, Record<string, unknown>>,
+): Record<string, unknown> | undefined {
+  const byPk = byId.get(row.expected_package_id);
+  if (byPk) return byPk;
+  return bySkuFnsku.get(
+    `${(row.sku ?? "").trim().toLowerCase()}\u0000${(row.fnsku ?? "").trim().toLowerCase()}\u0000${(row.order_id ?? "").trim().toLowerCase()}`,
+  );
+}
+
 function firstNonEmptyString(values: unknown[]): string | null {
   for (const value of values) {
     const text = String(value ?? "").trim();
@@ -3303,6 +3336,10 @@ function OperatorMobileScanPageContent() {
   } | null>(null);
   /** Line-level rows from `v_inventory_item_status` for the matched canonical tracking (strict org/store/tracking query). */
   const [identifyGateShipmentLines, setIdentifyGateShipmentLines] = useState<VInventoryStatusRow[]>([]);
+  /** One batch `products` lookup for gate rows with `resolved_product_id` but no view catalog name. */
+  const [identifyGateBatchProductNames, setIdentifyGateBatchProductNames] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   /** EP manifest + variance from `loadTrackingExpectationSnapshot` (product_id-first merge). */
   const [identifyGateExpectationLines, setIdentifyGateExpectationLines] = useState<TrackingOperatorLine[]>([]);
   /** User confirmed adding an off-manifest item after full completion — next scan uses `runResolve` with tracking context. */
@@ -3901,6 +3938,7 @@ function OperatorMobileScanPageContent() {
       setIdentifyGateInventoryVisual(null);
       setIdentifyGateViewHints(null);
       setIdentifyGateShipmentLines([]);
+      setIdentifyGateBatchProductNames(new Map());
       setIdentifyGateExpectationLines([]);
       setIdentifyGatePhotoOcrToast(null);
       setIdentifyGatePhotoOcrCandidates([]);
@@ -3957,12 +3995,6 @@ function OperatorMobileScanPageContent() {
     [identifyGateRows],
   );
 
-  const identifyGateProductDisplay = useMemo(() => {
-    const fromView = identifyGateViewHints?.productName?.trim();
-    if (fromView) return fromView;
-    return identifyGateSummary.productName;
-  }, [identifyGateViewHints?.productName, identifyGateSummary.productName]);
-
   const identifyGateOrderIdsLabel = useMemo(() => {
     const ids = new Set<string>();
     for (const r of identifyGateShipmentLines) {
@@ -3999,6 +4031,9 @@ function OperatorMobileScanPageContent() {
 
   const identifyGateResolvedNameMap = useMemo(() => {
     const m = new Map<string, string>();
+    for (const [id, nm] of identifyGateBatchProductNames) {
+      if (id && nm.trim()) m.set(id, nm.trim());
+    }
     for (const raw of identifyGateRows) {
       const r = raw as {
         resolved_product_id?: string | null;
@@ -4027,7 +4062,31 @@ function OperatorMobileScanPageContent() {
       if (rid && nm) m.set(rid, nm);
     }
     return m;
-  }, [identifyGateRows, identifyGateExpectationLines, identifyGateShipmentLines]);
+  }, [identifyGateBatchProductNames, identifyGateRows, identifyGateExpectationLines, identifyGateShipmentLines]);
+
+  const identifyGateProductDisplay = useMemo(() => {
+    const fromView = identifyGateViewHints?.productName?.trim();
+    if (fromView) return fromView;
+    if (identifyGateShipmentLines.length > 0) {
+      const labels = new Set<string>();
+      for (const row of identifyGateShipmentLines) {
+        const epRow = gateEpRowForInventoryLine(row, identifyGateEpById, identifyGateEpBySkuFnsku);
+        const linkage = buildInventoryViewProductLinkage(row, epRow, identifyGateResolvedNameMap);
+        labels.add(productLinkageOperatorPrimaryDisplayLabel(linkage));
+      }
+      if (labels.size === 1) return [...labels][0]!;
+      if (labels.size > 1) return `${labels.size} products`;
+    }
+    const summary = identifyGateSummary.productName.trim();
+    return summary && summary !== "—" ? summary : "No product link yet";
+  }, [
+    identifyGateViewHints?.productName,
+    identifyGateSummary.productName,
+    identifyGateShipmentLines,
+    identifyGateEpById,
+    identifyGateEpBySkuFnsku,
+    identifyGateResolvedNameMap,
+  ]);
 
   const runIdentificationGateSearch = useCallback(
     async (rawCode: string) => {
@@ -4216,7 +4275,7 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateExpectationLines(expectationLines);
 
         let shipmentLines: VInventoryStatusRow[] = invRows.length ? invRows : [];
-        if (sessionStoreId && gateMatchField === "tracking_number") {
+        if (sessionStoreId && gateMatchField === "tracking_number" && !invRows.length) {
           try {
             let rows: VInventoryStatusRow[] = [];
             if (isSupabaseConfigured()) {
@@ -4308,6 +4367,22 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateInventoryAgg(scopedAgg);
         setIdentifyGateInventoryVisual(scopedVis);
         setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
+        if (isSupabaseConfigured() && sessionStoreId) {
+          const productIds = collectGateResolvedProductIds(scopedSafe, shipmentLines);
+          if (productIds.length) {
+            const nameRes = await fetchGateProductNamesByIdsAction(orgId, productIds);
+            if (nameRes.ok) {
+              setIdentifyGateBatchProductNames(new Map(Object.entries(nameRes.names)));
+            } else {
+              console.warn("fetchGateProductNamesByIdsAction failed", nameRes.error);
+              setIdentifyGateBatchProductNames(new Map());
+            }
+          } else {
+            setIdentifyGateBatchProductNames(new Map());
+          }
+        } else {
+          setIdentifyGateBatchProductNames(new Map());
+        }
         setIdentifyGateShipmentLines(shipmentLines);
         setIdentifyGatePhase("matched");
         playOperatorSuccessBeep();

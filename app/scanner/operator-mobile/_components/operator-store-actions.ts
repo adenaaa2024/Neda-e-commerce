@@ -2887,6 +2887,34 @@ export type FetchInventoryItemStatusLinesForGateInput =
   | { mode: "tracking"; trackingNumber: string }
   | { mode: "exact"; field: InventoryViewMatchField; value: string };
 
+/** Batch catalog names for identify-gate rows (one products query, no OCR auto-link). */
+export async function fetchGateProductNamesByIdsAction(
+  requestedOrganizationId: string,
+  productIds: string[],
+): Promise<{ ok: true; names: Record<string, string> } | { ok: false; error: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, error: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, error: "Could not resolve organization." };
+  }
+  const ids = [...new Set(productIds.map((id) => String(id ?? "").trim()).filter(isUuidString))];
+  if (!ids.length) return { ok: true, names: {} };
+  try {
+    const nameMap = await fetchProductNamesByResolvedIds(
+      supabaseServer as unknown as ProductsLookupClient,
+      ids,
+    );
+    return { ok: true, names: Object.fromEntries(nameMap) };
+  } catch (e) {
+    const msg = formatSupabaseActionError(e, "Product name fetch failed.");
+    console.error("[fetchGateProductNamesByIdsAction]", msg, e);
+    return { ok: false, error: msg };
+  }
+}
+
 /** Service-role inventory line fetch for identify gate — voided package scans excluded. */
 export async function fetchInventoryItemStatusLinesForGateAction(
   requestedOrganizationId: string,

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
 import { mockExpectedPackageDetailRows } from "@/lib/scanner/operator-tracking-expectations";
-import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
+import { normalizeTrackingKey, slipIdLookupCandidates, trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 
 /** Readable message from Supabase/PostgREST throws (plain objects or Error). */
 export function formatSupabaseActionError(e: unknown, fallback: string): string {
@@ -20,6 +20,10 @@ export function formatSupabaseActionError(e: unknown, fallback: string): string 
 
 const V_INVENTORY_STATUS = "v_inventory_status" as const;
 const V_INVENTORY_ITEM_STATUS = "v_inventory_item_status" as const;
+
+/** Narrow select — avoids heavy view payloads on mobile gate reads. */
+const INVENTORY_VIEW_GATE_SELECT =
+  "expected_package_id, organization_id, store_id, tracking_number, id_slip_contents, sku, fnsku, asin, order_id, status, product_name, product_id, resolved_product_id, resolved_catalog_product_id, product_linkage_status, identifier_resolution_status, identifier_resolution_confidence, carrier, total_expected, total_scanned";
 
 /** Which column matched the operator scan (exact equality). Slip “ASIN” column values are stored as `fnsku`. */
 export type InventoryViewMatchField = "fnsku" | "sku" | "tracking_number" | "id_slip_contents";
@@ -388,10 +392,23 @@ export async function fetchVInventoryItemStatusLinesExact(
   return { rows, raw: data };
 }
 
+function inventoryRowDedupeKey(row: VInventoryStatusRow, index: number): string {
+  const id = row.expected_package_id.trim();
+  if (id) return id;
+  return [
+    row.tracking_number ?? "",
+    row.sku ?? "",
+    row.fnsku ?? "",
+    row.asin ?? "",
+    String(row.total_expected),
+    String(row.total_scanned),
+    String(index),
+  ].join("\u0000");
+}
+
 /**
- * Tracking lookup variant that compares normalized tracking keys in application code.
- * This keeps Shipment Entry totals scoped to the submitted tracking number even when
- * stored tracking values differ by case or whitespace.
+ * Tracking lookup: exact equality on candidate strings first (indexed path), then a
+ * bounded legacy scan only when stored tracking differs by case/whitespace from scan input.
  */
 export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
   supabase: SupabaseClient,
@@ -399,18 +416,52 @@ export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
   storeId: string,
   trackingNumber: string,
 ): Promise<{ rows: VInventoryStatusRow[]; raw: unknown[] }> {
-  const key = normalizeTrackingKey(trackingNumber);
   const orgId = organizationId.trim();
   const sid = storeId.trim();
+  const trimmed = String(trackingNumber ?? "").trim();
+  const key = normalizeTrackingKey(trimmed);
   if (!key || !orgId || !sid) return { rows: [], raw: [] };
 
-  const rows: VInventoryStatusRow[] = [];
+  const merged: VInventoryStatusRow[] = [];
   const rawRows: unknown[] = [];
-  const PAGE = 500;
-  for (let off = 0; off < 10000; off += PAGE) {
+  const seen = new Set<string>();
+
+  for (const candidate of slipIdLookupCandidates(trimmed, key)) {
+    const hit = await fetchVInventoryItemStatusLinesExact(supabase, orgId, sid, "tracking_number", candidate);
+    for (let i = 0; i < hit.rows.length; i++) {
+      const row = hit.rows[i]!;
+      if (!trackingKeysEqual(row.tracking_number, trimmed)) continue;
+      const dedupe = inventoryRowDedupeKey(row, i);
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      merged.push(row);
+      if (Array.isArray(hit.raw)) {
+        const rawArr = hit.raw as unknown[];
+        if (rawArr[i]) rawRows.push(rawArr[i]);
+      }
+    }
+    if (merged.length) break;
+  }
+
+  if (merged.length) {
+    const scrubbed = await scrubInventoryRowsExcludingVoidedPackages(
+      supabase,
+      orgId,
+      sid,
+      merged,
+      "tracking_number",
+      trimmed,
+    );
+    return { rows: scrubbed, raw: rawRows };
+  }
+
+  const rows: VInventoryStatusRow[] = [];
+  const PAGE = 250;
+  const MAX_ROWS = 1500;
+  for (let off = 0; off < MAX_ROWS; off += PAGE) {
     const { data, error } = await supabase
       .from(V_INVENTORY_ITEM_STATUS)
-      .select("*")
+      .select(INVENTORY_VIEW_GATE_SELECT)
       .eq("organization_id", orgId)
       .eq("store_id", sid)
       .not("tracking_number", "is", null)
@@ -422,8 +473,12 @@ export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
       if (!raw || typeof raw !== "object") continue;
       const record = raw as Record<string, unknown>;
       if (normalizeTrackingKey(String(record.tracking_number ?? "")) !== key) continue;
+      const row = rowFromRecord(record);
+      const dedupe = inventoryRowDedupeKey(row, rows.length);
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
       rawRows.push(raw);
-      rows.push(rowFromRecord(record));
+      rows.push(row);
     }
     if (!page.length || page.length < PAGE) break;
   }
@@ -434,7 +489,7 @@ export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
     sid,
     rows,
     "tracking_number",
-    trackingNumber,
+    trimmed,
   );
   return { rows: scrubbed, raw: rawRows };
 }
@@ -459,7 +514,7 @@ async function fetchInventoryViewExact(
 ): Promise<{ rows: VInventoryStatusRow[]; raw: unknown }> {
   const res = await supabase
     .from(viewName)
-    .select("*")
+    .select(INVENTORY_VIEW_GATE_SELECT)
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
     .eq(field, code);
