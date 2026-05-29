@@ -6198,3 +6198,11 @@ try:
     register_claim_pdf_routes(app)
 except ImportError as _claim_pdf_err:
     log.warning("claim_pdf_routes not loaded: %s", _claim_pdf_err)
+
+# --- Amazon claim filing agent (feature/neda-claim-agent; staging-gated) ---
+try:
+    from claim_agent_routes import register_claim_agent_routes
+
+    register_claim_agent_routes(app)
+except ImportError as _claim_agent_err:
+    log.warning("claim_agent_routes not loaded: %s", _claim_agent_err)
