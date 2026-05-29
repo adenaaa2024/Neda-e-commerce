@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { jobApiBlocked, jobApiError, parseUuidField, runtime, maxDuration } from "@/lib/jobs/api-helpers";
+import { jobApiBlocked, jobApiError, parseUuidField } from "@/lib/jobs/api-helpers";
 import { retryJob } from "@/lib/jobs/orchestrator";
 import { supabaseServer } from "@/lib/supabase-server";
 
-export { runtime, maxDuration };
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type Body = {
   job_id?: string;

@@ -3,9 +3,6 @@ import { NextResponse } from "next/server";
 import { isJobType } from "@/lib/jobs/repository";
 import { isUuidString } from "@/lib/uuid";
 
-export const runtime = "nodejs";
-export const maxDuration = 60;
-
 export function jobApiError(message: string, status = 400, code?: string): Response {
   return NextResponse.json({ ok: false, error: message, ...(code ? { code } : {}) }, { status });
 }

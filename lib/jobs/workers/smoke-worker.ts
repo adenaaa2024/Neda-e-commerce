@@ -1,4 +1,4 @@
-import type { JobTickInput, JobTickResult } from "./types";
+import type { JobTickInput, JobTickResult } from "../types";
 
 const SMOKE_TICKS = 3;
 

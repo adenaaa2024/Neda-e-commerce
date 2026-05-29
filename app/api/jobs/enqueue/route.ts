@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 
-import { jobApiBlocked, jobApiError, parseIdempotencyKey, parseJobType, parseUuidField, runtime, maxDuration } from "@/lib/jobs/api-helpers";
+import {
+  jobApiBlocked,
+  jobApiError,
+  parseIdempotencyKey,
+  parseJobType,
+  parseUuidField,
+} from "@/lib/jobs/api-helpers";
 import { enqueueJob } from "@/lib/jobs/orchestrator";
 import type { EnqueueStepInput, JobType } from "@/lib/jobs/types";
 import { supabaseServer } from "@/lib/supabase-server";
 
-export { runtime, maxDuration };
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type Body = {
   organization_id?: string;
