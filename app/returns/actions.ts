@@ -35,6 +35,7 @@ import {
   resolveScannerProductIdentifiers,
 } from "../../lib/scanner-product-resolve";
 import { syncSlipContentsResolverForPackage } from "../../lib/slip-contents-resolver-write";
+import { promoteScannerReturnItemToClaimStructures } from "../../lib/scanner-operator-claim-promote";
 import {
   mapPackageWriteRow,
   mapPalletWriteRow,
@@ -1072,6 +1073,16 @@ export async function insertReturn(
       newValue: JSON.stringify({ conditions: payload.conditions, status }),
       actor: payload.created_by ?? DEFAULT_ACTOR,
     });
+
+    try {
+      await promoteScannerReturnItemToClaimStructures(rec.id, {
+        organizationId: orgId,
+        actorProfileId: null,
+      });
+    } catch (promoteErr) {
+      console.warn("[insertReturn] scanner claim promote failed:", promoteErr);
+    }
+
     return { ok: true, data: rec };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to save return." };
@@ -1240,6 +1251,19 @@ export async function updateReturn(
     }
 
     void logReturnAudit({ organizationId: DEFAULT_ORG, returnId, action: "updated", actor: actor ?? DEFAULT_ACTOR });
+
+    const conditionsTouched = updates.conditions !== undefined || updates.photo_evidence !== undefined;
+    if (conditionsTouched) {
+      try {
+        await promoteScannerReturnItemToClaimStructures(rec.id, {
+          organizationId: rec.organization_id,
+          actorProfileId: actorProfileId ?? null,
+        });
+      } catch (promoteErr) {
+        console.warn("[updateReturn] scanner claim promote failed:", promoteErr);
+      }
+    }
+
     return { ok: true, data: rec };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to update return." };

@@ -48,6 +48,7 @@ import { formatSupabaseActionError } from "@/lib/supabase-action-error";
 import { enrichSlipContentsProductLinksAfterReplace } from "@/lib/scanner/enrich-slip-contents-product-links";
 import { assertUserCanAccessOrganization } from "@/app/dashboard/products/pim-actions";
 import { insertReturn } from "@/app/returns/actions";
+import { promoteScannerReturnItemToClaimStructures } from "@/lib/scanner-operator-claim-promote";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import {
   mergeReturnPhotoEvidence,
@@ -71,6 +72,13 @@ import {
   buildProductLinkageFromResolveResult,
   hydrateReturnItemProductLinkage,
 } from "@/lib/scanner/hydrate-return-item-product-linkage";
+import { applyReturnItemProductEnrichmentAfterInsert } from "@/lib/scanner/apply-return-item-product-enrichment";
+import {
+  allocateExpectedItemsForReturnItemIds,
+  buildReceiveScopeKey,
+  fetchPackageReceiveContext,
+} from "@/lib/scanner/receive-expected-with-split";
+import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
 export type OperatorStoreScopeSnapshot = {
   stores: OperatorStoreOption[];
@@ -1936,7 +1944,20 @@ export async function listOperatorPackageItemsForPackageAction(
     };
   });
 
-  const productIds = stubs.map((s) => s.resolved_product_id).filter((id): id is string => Boolean(id));
+  const slipLinkageById = new Map<string, ProductLinkageDisplayContract>();
+  if (slipRes.ok) {
+    for (const slip of slipRes.rows) {
+      const sid = slip.id?.trim();
+      if (sid && isUuidString(sid)) slipLinkageById.set(sid, slip.product_linkage);
+    }
+  }
+
+  const productIds = stubs
+    .flatMap((s) => {
+      const slipLink = s.slip_content_id ? slipLinkageById.get(s.slip_content_id) : undefined;
+      return [s.resolved_product_id, slipLink?.resolved_product_id ?? null];
+    })
+    .filter((id): id is string => Boolean(id));
   const productNameById = await fetchProductNamesByResolvedIds(
     supabaseServer as unknown as ProductsLookupClient,
     productIds,
@@ -1944,17 +1965,27 @@ export async function listOperatorPackageItemsForPackageAction(
 
   const rows: OperatorPackageItemRow[] = stubs.map((stub) => {
     const {
-      resolved_product_id,
-      identifier_resolution_status,
-      identifier_resolution_confidence,
+      resolved_product_id: riResolvedId,
+      identifier_resolution_status: riStatus,
+      identifier_resolution_confidence: riConfidence,
       item_name,
       fnsku,
       sku,
       product_identifier,
+      slip_content_id,
       ...rest
     } = stub;
+    const slipLink = slip_content_id ? slipLinkageById.get(slip_content_id) : undefined;
+    const resolved_product_id = riResolvedId ?? slipLink?.resolved_product_id ?? null;
+    const identifier_resolution_status = riResolvedId
+      ? riStatus
+      : (slipLink?.identifier_resolution_status ?? riStatus);
+    const identifier_resolution_confidence = riResolvedId
+      ? riConfidence
+      : (slipLink?.identifier_resolution_confidence ?? riConfidence);
     return {
       ...rest,
+      slip_content_id,
       product_linkage: buildProductLinkageDisplayContract(
         {
           resolved_product_id,
@@ -1964,6 +1995,7 @@ export async function listOperatorPackageItemsForPackageAction(
           fnsku,
           sku,
           product_identifier,
+          description: slipLink?.fallback_display_name ?? null,
         },
         productNameById,
       ),
@@ -2013,6 +2045,94 @@ function normalizeOptionalDate(raw: string | null | undefined): string | null {
   if (!s) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   return s;
+}
+
+type SlipLinkageInheritRow = {
+  resolved_product_id: string | null;
+  resolved_catalog_product_id: string | null;
+  identifier_resolution_status: string | null;
+  identifier_resolution_confidence: number | null;
+};
+
+async function tryPromoteScannerClaimForReturnItem(
+  returnItemId: string,
+  organizationId: string,
+  actorProfileId: string | null,
+): Promise<void> {
+  try {
+    const res = await promoteScannerReturnItemToClaimStructures(returnItemId, {
+      organizationId,
+      actorProfileId,
+    });
+    if (
+      !res.promoted &&
+      res.skipped_reason &&
+      res.skipped_reason !== "not_claimable" &&
+      !res.skipped_reason.startsWith("invalid_")
+    ) {
+      console.warn("[scanner claim promote]", returnItemId, res.skipped_reason);
+    }
+  } catch (err) {
+    console.warn("[scanner claim promote] failed:", returnItemId, err);
+  }
+}
+
+async function finalizeOperatorPackageItemLinkage(
+  returnItemId: string,
+  params: {
+    organizationId: string;
+    storeId: string;
+    packageId: string | null;
+    looseItem: boolean;
+    slipLinkage: SlipLinkageInheritRow | null;
+    scanIds: { asin?: string | null; fnsku?: string | null; sku?: string | null; upc?: string | null };
+  },
+): Promise<void> {
+  const rid = String(returnItemId ?? "").trim();
+  if (!isUuidString(rid)) return;
+
+  await applyReturnItemProductEnrichmentAfterInsert(supabaseServer, {
+    returnItemId: rid,
+    organizationId: params.organizationId,
+    storeId: params.storeId,
+    asin: params.scanIds.asin,
+    fnsku: params.scanIds.fnsku,
+    sku: params.scanIds.sku,
+    upc: params.scanIds.upc,
+  });
+
+  const slipPid = params.slipLinkage?.resolved_product_id?.trim();
+  if (slipPid && isUuidString(slipPid)) {
+    const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, rid, params.organizationId);
+    const currentPid = linkage?.resolved_product_id?.trim();
+    if (!currentPid) {
+      const slipStatus = String(params.slipLinkage?.identifier_resolution_status ?? "").trim().toLowerCase();
+      await updateRowWithScannerLinkagePatch(supabaseServer, RETURN_ITEMS_TABLE, rid, {
+        resolved_product_id: slipPid,
+        resolved_catalog_product_id: params.slipLinkage?.resolved_catalog_product_id ?? null,
+        identifier_resolution_status: slipStatus === "ambiguous" ? "ambiguous" : "resolved",
+        identifier_resolution_confidence: params.slipLinkage?.identifier_resolution_confidence ?? null,
+        identifier_resolution_source: "slip_contents_inherit",
+      });
+    }
+  }
+
+  if (!params.looseItem && params.packageId && isUuidString(params.packageId)) {
+    const pkgCtx = await fetchPackageReceiveContext(supabaseServer, params.packageId);
+    const receiveScopeKey = buildReceiveScopeKey({
+      organizationId: params.organizationId,
+      storeId: params.storeId,
+      packageId: params.packageId,
+      slipCode: pkgCtx.slipCode,
+    });
+    const alloc = await allocateExpectedItemsForReturnItemIds(supabaseServer, {
+      returnItemIds: [rid],
+      receiveScopeKey,
+    });
+    if (!alloc.ok) {
+      console.warn("[insertOperatorPackageItemAction] expected allocation skipped:", alloc.error);
+    }
+  }
 }
 
 export type PreviewOperatorItemBarcodeLinkageInput = {
@@ -2288,25 +2408,60 @@ export async function insertOperatorPackageItemAction(
 
   const slipHint = String(input.slipContentId ?? "").trim();
   let slipDescription: string | null = null;
+  let slipLinkageInherit: SlipLinkageInheritRow | null = null;
   if (slipHint && isUuidString(slipHint)) {
     if (looseItem) {
       return { ok: false, message: "Slip line cannot be used for a loose item scan." };
     }
-    const { data: slipRow, error: slipErr } = await supabaseServer
-      .from("slip_contents")
-      .select("id, package_id, description")
-      .eq("id", slipHint)
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (slipErr) return { ok: false, message: slipErr.message };
-    const spkg = String((slipRow as { package_id?: string | null } | null)?.package_id ?? "").trim();
+    const slipSelectAttempts = [
+      `id, package_id, description, fnsku, upc, ${RETURN_SCANNER_LINKAGE_SELECT}`,
+      "id, package_id, description, fnsku, upc",
+      "id, package_id, description",
+    ];
+    let slipRow: Record<string, unknown> | null = null;
+    let slipErr: { message: string } | null = null;
+    for (const sel of slipSelectAttempts) {
+      const r = await supabaseServer
+        .from("slip_contents")
+        .select(sel)
+        .eq("id", slipHint)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      slipErr = r.error;
+      if (!r.error && r.data && typeof r.data === "object") {
+        slipRow = r.data as Record<string, unknown>;
+        break;
+      }
+      if (r.error && !r.error.message.toLowerCase().includes("column")) break;
+    }
+    if (slipErr && !slipRow) return { ok: false, message: slipErr.message };
+    const spkg = String(slipRow?.package_id ?? "").trim();
     if (!slipRow || !pkgId || spkg !== pkgId) {
       return { ok: false, message: "Slip line does not belong to this package." };
     }
     slipDescription =
-      typeof (slipRow as { description?: string | null }).description === "string"
-        ? (slipRow as { description: string }).description.trim()
+      typeof slipRow.description === "string" ? slipRow.description.trim() : null;
+    const slipResolved =
+      typeof slipRow.resolved_product_id === "string" && isUuidString(slipRow.resolved_product_id.trim())
+        ? slipRow.resolved_product_id.trim()
         : null;
+    const slipCatalog =
+      typeof slipRow.resolved_catalog_product_id === "string" &&
+      isUuidString(slipRow.resolved_catalog_product_id.trim())
+        ? slipRow.resolved_catalog_product_id.trim()
+        : null;
+    slipLinkageInherit = {
+      resolved_product_id: slipResolved,
+      resolved_catalog_product_id: slipCatalog,
+      identifier_resolution_status:
+        typeof slipRow.identifier_resolution_status === "string"
+          ? slipRow.identifier_resolution_status
+          : null,
+      identifier_resolution_confidence: (() => {
+        const n = Number(slipRow?.identifier_resolution_confidence);
+        return Number.isFinite(n) ? n : null;
+      })(),
+    };
   } else if (slipHint) {
     return { ok: false, message: "Invalid slip line id." };
   }
@@ -2374,6 +2529,21 @@ export async function insertOperatorPackageItemAction(
 
   const primaryId = ins.data.id;
 
+  await finalizeOperatorPackageItemLinkage(primaryId, {
+    organizationId,
+    storeId: storeIdResolved,
+    packageId: looseItem ? null : pkgId,
+    looseItem,
+    slipLinkage: slipLinkageInherit,
+    scanIds: {
+      asin: scanIds.asin ?? null,
+      fnsku: scanIds.fnsku ?? null,
+      sku: scanIds.sku ?? null,
+      upc: scanIds.upc ?? null,
+    },
+  });
+  await tryPromoteScannerClaimForReturnItem(primaryId, organizationId, sessionUserId);
+
   if (quantity > 1) {
     for (let i = 1; i < quantity; i++) {
       const extra = await insertReturn({
@@ -2392,9 +2562,23 @@ export async function insertOperatorPackageItemAction(
         asin: scanIds.asin?.slice(0, 500),
         product_identifier: scanIds.upc?.slice(0, 500),
       });
-      if (!extra.ok) {
+      if (!extra.ok || !extra.data?.id) {
         return { ok: false, message: extra.error ?? "Failed to save item scan." };
       }
+      await finalizeOperatorPackageItemLinkage(extra.data.id, {
+        organizationId,
+        storeId: storeIdResolved,
+        packageId: looseItem ? null : pkgId,
+        looseItem,
+        slipLinkage: slipLinkageInherit,
+        scanIds: {
+          asin: scanIds.asin ?? null,
+          fnsku: scanIds.fnsku ?? null,
+          sku: scanIds.sku ?? null,
+          upc: scanIds.upc ?? null,
+        },
+      });
+      await tryPromoteScannerClaimForReturnItem(extra.data.id, organizationId, sessionUserId);
     }
   }
 
