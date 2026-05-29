@@ -8,7 +8,7 @@
 | Target branch | `main` |
 | Feature HEAD (at approval) | `48c036d` |
 | Main HEAD (at template creation) | `0e294a2` |
-| Production domain | `app.monorix.com` |
+| Production domain | `menorix.com` (apex; `www.menorix.com` redirects to apex) |
 | Production Supabase ref | `kxsvedvpjldygtdbylsy` |
 | Preview/staging Supabase ref | `eiqfaapyumhixxoeltgu` |
 
@@ -30,7 +30,7 @@ Confirmed in **Vercel Dashboard** (values not recorded here):
 - [x] Vercel project name: *(confirmed in dashboard; not recorded in file)*
 - [x] **Production Branch** = `main` (confirm actual value): **main**
 - [x] Merging/pushing to `main` **auto-deploys Production**: behavior **understood** by operator
-- [x] Production custom domain includes `app.monorix.com`: **YES**
+- [x] Production custom domain includes `menorix.com`: **YES** (not `app.monorix.com` — prior typo in this file)
 - [ ] Deploy freeze or ignored-build-step available if merge must not deploy: *(not attested)*
 
 ### Production environment — active quartet (values NOT recorded here)
@@ -88,7 +88,7 @@ Approved by: Maysam Ebrahimi
 UTC date: 2026-05-29T17:52:16Z
 Vercel project: (confirmed in dashboard; not recorded in file)
 Production branch confirmed: main
-Production domain: app.monorix.com
+Production domain: menorix.com
 Production Supabase ref confirmed: kxsvedvpjldygtdbylsy
 Preview/staging Supabase ref confirmed: eiqfaapyumhixxoeltgu
 Auto-deploy on main merge confirmed: understood (operator attestation)
