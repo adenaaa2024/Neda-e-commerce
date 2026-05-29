@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "sync:pwa-icons": "tsx scripts/sync-menorix-brand-pwa-icons.ts",
+    "prebuild": "tsx scripts/sync-menorix-brand-pwa-icons.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
