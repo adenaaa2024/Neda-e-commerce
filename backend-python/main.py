@@ -6189,3 +6189,12 @@ async def get_real_products(organization_id: str):
     rows = list(res.data or [])
     rows = _enrich_products_with_vendor_names(db, rows)
     return {"status": "success", "products": rows}
+
+
+# --- Claim evidence PDF (ReportLab) — gated by CLAIM_PDF_API_ENABLED (default off) ---
+try:
+    from claim_pdf_routes import register_claim_pdf_routes
+
+    register_claim_pdf_routes(app)
+except ImportError as _claim_pdf_err:
+    log.warning("claim_pdf_routes not loaded: %s", _claim_pdf_err)

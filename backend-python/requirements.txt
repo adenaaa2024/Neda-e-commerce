@@ -5,3 +5,4 @@ python-dotenv
 pandas
 openpyxl
 python-multipart
+reportlab>=4.0.0
