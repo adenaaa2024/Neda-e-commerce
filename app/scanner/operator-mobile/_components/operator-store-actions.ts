@@ -49,6 +49,7 @@ import { enrichSlipContentsProductLinksAfterReplace } from "@/lib/scanner/enrich
 import { assertUserCanAccessOrganization } from "@/app/dashboard/products/pim-actions";
 import { insertReturn } from "@/app/returns/actions";
 import { promoteScannerReturnItemToClaimStructures } from "@/lib/scanner-operator-claim-promote";
+import { isExpectedScannerClaimPromoteSkipReason } from "@/lib/scanner-claim-promote-guard";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import {
   mergeReturnPhotoEvidence,
@@ -2067,8 +2068,7 @@ async function tryPromoteScannerClaimForReturnItem(
     if (
       !res.promoted &&
       res.skipped_reason &&
-      res.skipped_reason !== "not_claimable" &&
-      !res.skipped_reason.startsWith("invalid_")
+      !isExpectedScannerClaimPromoteSkipReason(res.skipped_reason)
     ) {
       console.warn("[scanner claim promote]", returnItemId, res.skipped_reason);
     }

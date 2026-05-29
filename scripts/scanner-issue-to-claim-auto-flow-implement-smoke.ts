@@ -117,6 +117,9 @@ async function main(): Promise<void> {
   await pgClient.connect();
   const sb = createClient(publicUrl, serviceKey, { auth: { persistSession: false } });
 
+  process.env.CLAIM_SCANNER_AUTO_PROMOTE_ENABLED = "1";
+  process.env.NEXT_PUBLIC_SUPABASE_URL = publicUrl;
+
   const countsBefore = {
     claim_lines: await tableCount(pgClient, "claim_lines"),
     claim_cases: await tableCount(pgClient, "claim_cases"),

@@ -14,6 +14,7 @@ import {
   type ReturnPhotoEvidenceRow,
 } from "@/lib/return-photo-evidence";
 import { supabaseServer } from "@/lib/supabase-server";
+import { evaluateScannerClaimPromoteGuard } from "@/lib/scanner-claim-promote-guard";
 import { isUuidString } from "@/lib/uuid";
 
 /** Canonical values accepted by claim_cases / claim_lines / claim_evidence CHECK constraints. */
@@ -298,6 +299,11 @@ export async function promoteScannerReturnItemToClaimStructures(
     client?: SupabaseClient;
   },
 ): Promise<PromoteScannerClaimResult> {
+  const guard = evaluateScannerClaimPromoteGuard();
+  if (!guard.allowed) {
+    return { promoted: false, skipped_reason: guard.skipped_reason ?? "promote_disabled" };
+  }
+
   const rid = String(returnItemId ?? "").trim();
   if (!isUuidString(rid)) {
     return { promoted: false, skipped_reason: "invalid_return_item_id" };

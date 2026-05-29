@@ -136,6 +136,7 @@ async function main(): Promise<void> {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = anonKey;
   process.env.SUPABASE_URL = stagingUrl;
   process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey;
+  process.env.CLAIM_SCANNER_AUTO_PROMOTE_ENABLED = "1";
 
   const jar = await establishCookieJar();
   installCookieMock(jar);
