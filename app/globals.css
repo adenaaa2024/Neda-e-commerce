@@ -563,6 +563,16 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
   color: var(--op-accent-gold) !important;
 }
 
+/* Operator mobile scanner header — compact density only.
+   Title stays in its own row/column (never moved into the back-arrow row). */
+.operator-mobile-app-shell .operator-shipment-entry-header .operator-shipment-entry-title-row > .mx-auto {
+  padding-top: 0.125rem;
+}
+
+.operator-mobile-app-shell .operator-shipment-entry-header .operator-shipment-entry-title-row h1.operator-heading {
+  margin-bottom: 0;
+}
+
 .operator-shipment-entry-gate__title {
   display: inline-block;
   color: #faf6ed !important;
@@ -574,7 +584,7 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
   display: block;
   width: 70%;
   height: 1px;
-  margin-top: 7px;
+  margin-top: 5px;
   border-radius: 1px;
   background: linear-gradient(
     90deg,
@@ -586,6 +596,11 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
 
 .operator-shipment-entry-gate__tracking-label {
   color: #b9c2cc !important;
+}
+
+.operator-mobile-app-shell .operator-shipment-entry-gate-scan-card .operator-shipment-entry-gate__tracking-label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
 }
 
 .operator-shipment-entry-gate__barcode-plate {
@@ -5105,6 +5120,27 @@ html.dark .operator-status-pill--progress {
 }
 
 /* Bottom nav */
+.operator-mobile-app-shell nav[aria-label="Scanner navigation"] {
+  padding-top: 0.125rem !important;
+  padding-bottom: max(0.2rem, env(safe-area-inset-bottom)) !important;
+}
+
+.operator-mobile-app-shell nav[aria-label="Scanner navigation"] > div > a,
+.operator-mobile-app-shell nav[aria-label="Scanner navigation"] > div > span {
+  gap: 0.125rem;
+  padding-top: 0.125rem;
+  padding-bottom: 0;
+}
+
+.operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap + span {
+  font-size: 11px;
+}
+
+.operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap + span + span {
+  height: 0.125rem;
+  width: 0.125rem;
+}
+
 .operator-nav-icon-wrap {
   position: relative;
   display: flex;
@@ -5123,6 +5159,16 @@ html.dark .operator-status-pill--progress {
     border-color 0.15s ease,
     box-shadow 0.15s ease,
     color 0.15s ease;
+}
+
+.operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap {
+  height: 1.875rem;
+  width: 2rem;
+}
+
+.operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap .lucide {
+  height: 1.375rem;
+  width: 1.375rem;
 }
 
 .operator-nav-icon-wrap--active {

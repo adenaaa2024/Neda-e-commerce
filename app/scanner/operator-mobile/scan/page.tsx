@@ -10616,7 +10616,7 @@ function OperatorMobileScanPageContent() {
         }}
       >
         {showIdentitySummaryStrip ? (
-          <div className="operator-shipment-entry-identity-strip border-b px-3 py-1 sm:px-4">
+          <div className="operator-shipment-entry-identity-strip border-b px-3 py-0.5 sm:px-4">
             <p
               className="text-center text-[10px] font-semibold leading-snug tracking-wide tabular-nums sm:text-[11px]"
               style={{
@@ -10655,7 +10655,7 @@ function OperatorMobileScanPageContent() {
         ) : null}
         {isIdentified ? (
           <div
-            className="operator-shipment-entry-title-row relative min-h-[3.25rem] px-3 pb-1 pt-1 sm:min-h-[3.5rem] sm:px-4"
+            className="operator-shipment-entry-title-row relative min-h-[2.75rem] px-3 pb-0.5 pt-0.5 sm:min-h-[3rem] sm:px-4"
             data-receiving-phase={flowPhase}
           >
             <button
@@ -10729,12 +10729,12 @@ function OperatorMobileScanPageContent() {
             </div>
             <div className="mx-auto flex w-full max-w-lg flex-col items-center px-11 text-center sm:px-16">
               <h1
-                className="operator-heading text-[1.28rem] font-bold leading-tight tracking-tight sm:text-[1.38rem]"
+                className="operator-heading text-[1.12rem] font-bold leading-tight tracking-tight sm:text-[1.22rem]"
                 style={{ color: TEXT_PRIMARY }}
               >
                 {headerTitle}
               </h1>
-              <div className="operator-shipment-entry-stepper-shell operator-box-info-stepper-shell operator-pallet-stepper-shell relative z-[1] isolate mx-auto mt-1 w-full max-w-[19rem] rounded-2xl px-3 py-2.5 sm:max-w-sm">
+              <div className="operator-shipment-entry-stepper-shell operator-box-info-stepper-shell operator-pallet-stepper-shell relative z-[1] isolate mx-auto mt-0.5 w-full max-w-[19rem] rounded-2xl px-3 py-2 sm:max-w-sm">
                 <ReceivingMasterStepper
                   flowPhase={flowPhase}
                   parentIdentified={parentIdentified}
@@ -10742,7 +10742,7 @@ function OperatorMobileScanPageContent() {
                 />
               </div>
               {showWarehouseTrail && !hideHeaderWarehouseTrail ? (
-                <div className="mt-1.5 flex w-full justify-center">
+                <div className="mt-1 flex w-full justify-center">
                   <WarehouseBreadcrumb
                     className="w-full flex-wrap justify-center"
                     storeLabel={activeStoreLabel}
@@ -10756,7 +10756,7 @@ function OperatorMobileScanPageContent() {
             </div>
           </div>
         ) : (
-          <div className="operator-shipment-entry-title-row grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-x-1 px-3 pb-2 pt-2 sm:gap-x-2 sm:px-4">
+          <div className="operator-shipment-entry-title-row grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-x-1 px-3 pb-1 pt-1 sm:gap-x-2 sm:px-4">
             <button
               type="button"
               onClick={() => {
@@ -10774,7 +10774,7 @@ function OperatorMobileScanPageContent() {
               <ArrowLeft className="h-5 w-5" strokeWidth={2} />
             </button>
             <div className="min-w-0 px-1 text-center">
-              <div className="h-10 min-h-[2.5rem] sm:h-11" aria-hidden />
+              <div className="h-8 min-h-[2rem] sm:h-9" aria-hidden />
             </div>
             <div className="flex min-h-10 items-start justify-end pt-0.5">
               <span className="inline-block h-10 w-10 shrink-0" aria-hidden />
@@ -11156,16 +11156,16 @@ function OperatorMobileScanPageContent() {
               </p>
             ) : null}
 
-            <div className="mb-3 px-0.5">
+            <div className="operator-shipment-entry-gate__title-wrap mb-1.5 px-0.5">
               <h1
-                className="operator-shipment-entry-gate__title operator-heading text-[1.28rem] font-bold leading-tight tracking-tight sm:text-[1.42rem]"
+                className="operator-shipment-entry-gate__title operator-heading text-[1.12rem] font-bold leading-tight tracking-tight sm:text-[1.22rem]"
               >
                 {headerTitle}
               </h1>
             </div>
 
-            <section className={`operator-shipment-entry-gate-scan-card relative z-10 mb-4 rounded-[22px] p-4 sm:p-5 ${glassCard}`}>
-              <div className="flex items-center justify-between gap-3">
+            <section className={`operator-shipment-entry-gate-scan-card relative z-10 mb-3 rounded-[22px] p-3 sm:p-4 ${glassCard}`}>
+              <div className="flex items-center justify-between gap-2.5">
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
                   <div className="operator-shipment-entry-gate__barcode-plate scanner-neon-icon-ring flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
                     <Barcode className="h-6 w-6" strokeWidth={2.35} aria-hidden />
@@ -11199,7 +11199,7 @@ function OperatorMobileScanPageContent() {
                 </div>
               </div>
               <div
-                className={`relative mt-4 rounded-[20px] transition-[box-shadow] ${
+                className={`relative mt-3 rounded-[20px] transition-[box-shadow] ${
                   identifyGateOcrDropHighlight ? "operator-shipment-entry-gate__scan-zone--highlight ring-2 ring-[rgba(214,183,110,0.45)]" : ""
                 }`}
                 style={{
@@ -11239,7 +11239,7 @@ function OperatorMobileScanPageContent() {
                   </div>
                 ) : null}
               </div>
-              <div className="mt-4">
+              <div className="mt-3">
                 <input
                   ref={identifyGateCameraCaptureRef}
                   type="file"
