@@ -39,6 +39,14 @@ function epCatalogNameFromRow(row: Record<string, unknown>): string | null {
   return trimOrNull(prod?.product_name);
 }
 
+function expectedPackageProductId(row: Record<string, unknown>): string | null {
+  return (
+    trimOrNull(row.resolved_product_id) ??
+    trimOrNull(row.product_id) ??
+    trimOrNull(row.resolved_catalog_product_id)
+  );
+}
+
 /** Signed scan delta: scanned − expected (negative = short, positive = over). */
 export function scanQuantityVariance(expected: number, scanned: number): number {
   const exp = Math.max(0, Math.floor(Number(expected) || 0));

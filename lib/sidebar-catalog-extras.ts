@@ -350,6 +350,31 @@ const CORE: PermissionDefinition[] = [
     "Edit access (roles, groups, user overrides)",
     "Full access management",
   ),
+  // ----- operator mobile corrections (flat keys; no nav leaf) -----
+  p({
+    key: "operations.operator_mobile.move_box",
+    name: "Move boxes between pallets",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "move_box",
+    description: "Move a saved intake box to another pallet (mobile scanner)",
+  }),
+  p({
+    key: "operations.operator_mobile.void_box",
+    name: "Void boxes",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "void_box",
+    description: "Soft-void an empty intake box (no saved return items)",
+  }),
+  p({
+    key: "operations.operator_mobile.reset_entry",
+    name: "Reset mobile receiving draft",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "reset_entry",
+    description: "Clear local draft state on mobile receiving (no database delete)",
+  }),
   // ----- tech debug -----
   p({
     key: "tech_debug.access",

@@ -80,7 +80,10 @@ function sfKey(sku: string, fnsku: string): string {
 
 function productIdFromExpectedRow(raw: Record<string, unknown>): string | null {
   const id = deriveExpectedPackageEffectiveProductId(raw);
-  return id && isUuidString(id) ? id : null;
+  if (id && isUuidString(id)) return id;
+  const catalog = String(raw.resolved_catalog_product_id ?? "").trim();
+  if (isUuidString(catalog)) return catalog;
+  return null;
 }
 
 export type ReturnItemsScannedCountMaps = {
@@ -137,8 +140,8 @@ const EP_SELECT =
  */
 export const EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT =
   EP_SELECT +
-  ", identifier_resolution_status, product_match_status, product_review_required, " +
-  "expected_product_id, resolved_product_id, resolved_catalog_product_id";
+  ", identifier_resolution_status, identifier_resolution_confidence, product_match_status, product_review_required, " +
+  "expected_product_id, product_id, resolved_product_id, resolved_catalog_product_id";
 
 /** Full rows for operator item scan (includes PK + warehouse scan counters when present). */
 export const EP_DETAIL_SELECT =
@@ -150,8 +153,8 @@ export const EP_DETAIL_SELECT =
  */
 export const EP_DETAIL_WITH_SCANNER_PRODUCT_SELECT =
   EP_DETAIL_SELECT +
-  ", identifier_resolution_status, product_match_status, product_review_required, " +
-  "expected_product_id, resolved_product_id, resolved_catalog_product_id";
+  ", identifier_resolution_status, identifier_resolution_confidence, product_match_status, product_review_required, " +
+  "expected_product_id, product_id, resolved_product_id, resolved_catalog_product_id";
 
 /**
  * Attach optional nested `products` from catalog lookup (expected_packages has no product_name).
@@ -167,29 +170,25 @@ async function enrichExpectedPackageDetailRowsWithCatalogLabels(
   const safeIn = Array.isArray(base) ? base : [];
   if (!safeIn.length) return [];
 
-  const skus = [...new Set(safeIn.map((r) => String(r?.sku ?? "").trim()).filter(Boolean))];
-  if (!skus.length) {
+  const ids = [...new Set(safeIn.map((r) => productIdFromExpectedRow(r)).filter(Boolean))] as string[];
+  if (!ids.length) {
     return safeIn.map((r) => (r && typeof r === "object" ? { ...r, products: null } : {}));
   }
 
-  const nameBySku = new Map<string, string>();
+  const nameById = new Map<string, string>();
   const chunkSize = 80;
-  for (let i = 0; i < skus.length; i += chunkSize) {
-    const chunk = skus.slice(i, i + chunkSize);
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
     const primary = await supabase
       .from("products")
-      .select("sku, product_name, name")
-      .eq("organization_id", organizationId)
-      .eq("store_id", storeId)
-      .in("sku", chunk);
+      .select("id, product_name")
+      .in("id", chunk);
 
     const res = primary.error
       ? await supabase
           .from("products")
-          .select("sku, name")
-          .eq("organization_id", organizationId)
-          .eq("store_id", storeId)
-          .in("sku", chunk)
+          .select("id, name")
+          .in("id", chunk)
       : primary;
 
     if (res.error) break;
@@ -198,16 +197,16 @@ async function enrichExpectedPackageDetailRowsWithCatalogLabels(
     const safeP = Array.isArray(pdata) ? pdata : [];
     for (const p of safeP) {
       const row = p as Record<string, unknown>;
-      const sku = String(row.sku ?? "").trim();
+      const id = String(row.id ?? "").trim();
       const nm = String(row.product_name ?? row.name ?? "").trim();
-      if (sku && nm) nameBySku.set(sku.toLowerCase(), nm);
+      if (id && nm) nameById.set(id, nm);
     }
   }
 
   return safeIn.map((r) => {
     if (!r || typeof r !== "object") return {};
-    const sku = String(r.sku ?? "").trim();
-    const nm = sku ? nameBySku.get(sku.toLowerCase()) : undefined;
+    const id = productIdFromExpectedRow(r);
+    const nm = id ? nameById.get(id) : undefined;
     return {
       ...r,
       products: nm ? { product_name: nm } : null,
@@ -254,9 +253,6 @@ async function fetchExpectedPackagesForTrackingWithSelect(
   const matchesExact = (row: { tracking_number?: string | null }) =>
     key ? trackingRowMatchesScanned(row, key) === "exact" : false;
 
-  const matchesFlexible = (row: { tracking_number?: string | null }) =>
-    key ? trackingRowMatchesScanned(row, key) !== "none" : false;
-
   const BASE_LIMIT = 800;
 
   let qb = supabase
@@ -283,10 +279,7 @@ async function fetchExpectedPackagesForTrackingWithSelect(
 
   const rows0 = asSafeRowArray(data);
 
-  let filtered = rows0.filter((r) => matchesExact(r as { tracking_number?: string | null }));
-  if (!filtered.length) {
-    filtered = rows0.filter((r) => matchesFlexible(r as { tracking_number?: string | null }));
-  }
+  const filtered = rows0.filter((r) => matchesExact(r as { tracking_number?: string | null }));
   if (filtered.length) return filtered;
 
   const PAGE = 450;
@@ -302,8 +295,7 @@ async function fetchExpectedPackagesForTrackingWithSelect(
 
     if (pageErr) throw pageErr;
     const pageRows = asSafeRowArray(page);
-    let hits = pageRows.filter((r) => matchesExact(r as { tracking_number?: string | null }));
-    if (!hits.length) hits = pageRows.filter((r) => matchesFlexible(r as { tracking_number?: string | null }));
+    const hits = pageRows.filter((r) => matchesExact(r as { tracking_number?: string | null }));
     if (hits.length) return hits;
     if (!page?.length || page.length < PAGE) break;
   }
@@ -465,7 +457,13 @@ export async function fetchExpectedPackageDetailRowsForParent(
 
   const tn = ctx.trackingNumber?.trim();
   if (tn) {
-    data = await fetchExpectedPackagesForTracking(supabase, organizationId, storeId, tn, EP_DETAIL_SELECT);
+    data = await fetchExpectedPackagesForTracking(
+      supabase,
+      organizationId,
+      storeId,
+      tn,
+      EP_DETAIL_WITH_SCANNER_PRODUCT_SELECT,
+    );
   } else {
     const palletId = ctx.palletId?.trim();
     if (!palletId) {
@@ -480,7 +478,7 @@ export async function fetchExpectedPackageDetailRowsForParent(
       organizationId,
       storeId,
       trackings,
-      EP_DETAIL_SELECT,
+      EP_DETAIL_WITH_SCANNER_PRODUCT_SELECT,
     );
   }
 

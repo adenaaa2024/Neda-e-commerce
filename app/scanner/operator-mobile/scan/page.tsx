@@ -14,8 +14,10 @@ import {
   type CSSProperties,
   type FormEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -40,6 +42,7 @@ import {
   Save,
   ScanLine,
   Search,
+  Sparkles,
   ThumbsUp,
   Truck,
   Warehouse,
@@ -70,12 +73,14 @@ import {
   isShipmentEntryOffManifest,
   lookupShipmentEntryScanCode,
   mockLookupShipmentEntryScanCode,
+  type ShipmentEntryLookupResult,
 } from "@/lib/scanner/shipment-entry-lookup";
 import {
   aggregateInventoryStatus,
+  deriveInventoryGateVisualStatus,
+  fetchVInventoryItemStatusLinesForTrackingNormalized,
   fetchVInventoryItemStatusLinesExact,
   formatInventoryProgressLabel,
-  mapInventoryViewStatusToVisual,
   mockVInventoryItemStatusLinesForExact,
   resolveInventoryGateVisualStatus,
   safeInventoryProgressPercent,
@@ -98,6 +103,7 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isPersistableStoredMediaReference,
+  normalizePalletDocumentationImageUrls,
 } from "@/lib/media-reference";
 import { deleteOperatorEvidenceStorageByPublicUrlsAction } from "@/lib/scanner/operator-evidence-storage-delete";
 import { isUuidString } from "@/lib/uuid";
@@ -114,16 +120,23 @@ import {
   commitOperatorPalletShipmentStepAction,
   createOperatorPalletAction,
   fetchOperatorPalletHydrationAction,
+  findOperatorPalletByIdAction,
   findOperatorPalletByTrackingNumberAction,
+  findOperatorSavedPackageByCodeOrTrackingAction,
+  fetchInventoryItemStatusLinesForGateAction,
   insertOperatorIntakeBoxPackageAction,
   listOperatorPackagesForPalletAction,
   listOperatorSlipContentsForPackageAction,
   listOperatorPackageItemsForPackageAction,
+  lookupShipmentEntryScanCodeAction,
   insertOperatorPackageItemAction,
   previewOperatorItemBarcodeLinkageAction,
   updateOperatorIntakeBoxPackageAction,
   saveOperatorSlipVisionAction,
   checkOperatorSlipCodeDuplicateAction,
+  getOperatorMobileCorrectionPermissionsAction,
+  moveOperatorIntakeBoxToPalletAction,
+  voidOperatorIntakeBoxPackageAction,
   type DuplicatePackingSlipInfo,
   type OperatorPackageItemRow,
   type OperatorPackageListRow,
@@ -146,6 +159,9 @@ import {
 import { buildOperatorBarcodeResolverFields } from "@/lib/scanner/operator-barcode-preview-input";
 import { OperatorCrossStoreScopeBanner } from "@/app/scanner/operator-mobile/_components/OperatorCrossStoreScopeBanner";
 import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobile/_components/OperatorDuplicatePackingSlipBanner";
+import { OperatorCorrectionActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorCorrectionActionsPanel";
+import { OperatorMoveBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorMoveBoxModal";
+import { OperatorVoidBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorVoidBoxModal";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
@@ -195,6 +211,29 @@ import { ScannerBottomNav, SCANNER_OPERATOR_HOME_PATH } from "../_components/Sca
 import { resolveOperatorAuditFieldsClient } from "@/lib/scanner/operator-audit-fields";
 import { useOperatorSessionStore } from "../_components/OperatorSessionStoreProvider";
 
+type DetectedBarcode = { rawValue?: string; format?: string };
+type BarcodeDetectorInstance = {
+  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
+};
+type BarcodeDetectorCtor = {
+  new (opts?: { formats?: string[] }): BarcodeDetectorInstance;
+  getSupportedFormats?: () => Promise<string[]>;
+};
+
+const PHOTO_BARCODE_FORMATS = [
+  "code_128",
+  "code_39",
+  "code_93",
+  "ean_13",
+  "ean_8",
+  "upc_a",
+  "upc_e",
+  "itf",
+  "qr_code",
+  "data_matrix",
+  "pdf417",
+];
+
 /** Active pallet in the scan UI; `carrier_name` is the session carrier across pallet ↔ box steps. */
 type OperatorActivePallet = {
   id: string;
@@ -239,6 +278,7 @@ const viewAllLinkClass = "operator-view-all-link text-[11px] font-bold";
 /** Required markers in form labels — bright yellow on dark scanner UI. */
 const REQ_MARK_CLASS = "font-normal normal-case text-yellow-300";
 const REQ_STAR_CLASS = "font-bold text-yellow-300";
+const ENABLE_LEGACY_MOBILE_WORKSPACE = false;
 /** Tooltip when pallet shipment order id disagrees with saved packages or slip Order ID. */
 const PALLET_ORDER_CONFLICT_TOOLTIP =
   "Different boxes reference different Order IDs, or they disagree with this pallet.";
@@ -366,6 +406,31 @@ function parseBoxSlipManifestData(raw: unknown): { slipCode: string; rma: string
   return { slipCode, rma, lines };
 }
 
+type OperatorPhotoClearField = "slip" | "shipping" | "bol" | "outside" | "inside";
+
+function parseDirectBoxShipmentDocumentation(raw: unknown): {
+  shippingLabelUrls: string[];
+  bolUrls: string[];
+  carrierName: string;
+  orderId: string;
+} {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { shippingLabelUrls: [], bolUrls: [], carrierName: "", orderId: "" };
+  }
+  const md = raw as Record<string, unknown>;
+  const doc = md.direct_box_shipment_documentation;
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    return { shippingLabelUrls: [], bolUrls: [], carrierName: "", orderId: "" };
+  }
+  const d = doc as Record<string, unknown>;
+  return {
+    shippingLabelUrls: parsePalletPhotoUrlArray(d.shipping_label_photo_urls),
+    bolUrls: parsePalletPhotoUrlArray(d.bol_photo_urls),
+    carrierName: String(d.carrier_name ?? d.carrier ?? "").trim(),
+    orderId: String(d.order_id ?? "").trim(),
+  };
+}
+
 function slipContentsNotesToMissingFlag(notes: unknown): boolean {
   if (notes == null) return false;
   if (typeof notes === "string" && notes.trim().startsWith("{")) {
@@ -457,6 +522,49 @@ function resolveOperatorPackagePickerRowStatus(p: OperatorPackageListRow): Opera
   return "partial";
 }
 
+/** Box intake is saved (photos present) and item receiving is not finalized — resume Item Scan, not BOX intake. */
+function operatorPackageShouldResumeItemScan(p: OperatorPackageListRow): boolean {
+  const notes = String(p.notes ?? "").toLowerCase();
+  if (notes.includes("discrepancy")) return false;
+  const hasPhotos =
+    countOperatorPackagePhotoSlotsFilled(p.slip_photo_urls) >= 1 &&
+    countOperatorPackagePhotoSlotsFilled(p.outside_photo_urls) >= 1 &&
+    countOperatorPackagePhotoSlotsFilled(p.inside_photo_urls) >= 1;
+  if (!hasPhotos) return false;
+  const exp =
+    typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
+      ? Math.floor(p.expected_item_count)
+      : null;
+  const act =
+    typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
+      ? Math.floor(p.actual_item_count)
+      : null;
+  if (exp != null && exp > 0 && act != null && act === exp) return false;
+  return true;
+}
+
+function operatorPackageListRowFromRecord(row: Record<string, unknown>): OperatorPackageListRow {
+  const pkgId = String(row.id ?? "").trim();
+  return {
+    id: pkgId,
+    package_code: String(row.package_code ?? row.slip_id ?? row.package_number ?? "").trim() || null,
+    tracking_number: String(row.tracking_number ?? row.shipment_tracking_number ?? "").trim() || null,
+    id_slip_contents: String(row.id_slip_contents ?? row.slip_code ?? "").trim() || null,
+    notes: row.notes != null ? String(row.notes) : null,
+    outside_photo_urls: row.outside_photo_urls,
+    inside_photo_urls: row.inside_photo_urls,
+    slip_photo_urls: row.slip_photo_urls,
+    expected_item_count:
+      typeof row.expected_item_count === "number" && Number.isFinite(row.expected_item_count)
+        ? Math.floor(row.expected_item_count)
+        : null,
+    actual_item_count:
+      typeof row.actual_item_count === "number" && Number.isFinite(row.actual_item_count)
+        ? Math.floor(row.actual_item_count)
+        : null,
+  };
+}
+
 function formatOperatorPackagePickerItemLine(p: OperatorPackageListRow): string {
   const exp =
     typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
@@ -512,16 +620,14 @@ function hydrateOperatorPalletDocumentationPhotoUrls(
   },
   sb: SupabaseClient,
 ): { shippingLabel: string[]; pallet: string[]; bol: string[] } {
-  void sb;
   const shippingRaw = parsePalletPhotoUrlArray(row.shipping_label_urls);
   const palletRaw = parsePalletPhotoUrlArray(row.pallet_photo_urls);
   const bolRaw = parsePalletPhotoUrlArray(row.bol_photo_urls);
 
   return {
-    // Map DB arrays directly so counters (`value.length`) always mirror stored column length.
-    shippingLabel: shippingRaw,
-    pallet: palletRaw,
-    bol: bolRaw,
+    shippingLabel: normalizePalletDocumentationImageUrls(shippingRaw, sb),
+    pallet: normalizePalletDocumentationImageUrls(palletRaw, sb),
+    bol: normalizePalletDocumentationImageUrls(bolRaw, sb),
   };
 }
 
@@ -619,8 +725,29 @@ function playOperatorSuccessBeep() {
   }
 }
 
-function shipmentLineStatusVisual(status: string | null): InventoryGateVisualStatus {
-  return mapInventoryViewStatusToVisual(status) ?? "manual_new";
+function shipmentLineStatusVisual(row: Pick<VInventoryStatusRow, "total_expected" | "total_scanned" | "status">): InventoryGateVisualStatus {
+  return deriveInventoryGateVisualStatus({
+    rowCount: 1,
+    totalExpected: row.total_expected,
+    totalScanned: row.total_scanned,
+  });
+}
+
+function shipmentLineStatusLabel(row: Pick<VInventoryStatusRow, "total_expected" | "total_scanned" | "status">): string {
+  switch (shipmentLineStatusVisual(row)) {
+    case "unexpected":
+      return "Unexpected";
+    case "over_scanned":
+      return "Over scanned";
+    case "completed":
+      return "Completed";
+    case "in_progress":
+      return "In progress";
+    case "new":
+      return "New";
+    default:
+      return String(row.status ?? "").trim() || "—";
+  }
 }
 
 /**
@@ -665,9 +792,23 @@ function CarrierCombobox(props: {
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const syncPanelPosition = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPanelPos({
+      top: rect.bottom + 6,
+      left: rect.left,
+      width: rect.width,
+    });
+  }, []);
 
   // Close panel if interaction becomes disabled while open.
   useEffect(() => {
@@ -704,11 +845,20 @@ function CarrierCombobox(props: {
   useEffect(() => {
     if (!open) {
       setQuery("");
+      setPanelPos(null);
       return;
     }
+    syncPanelPosition();
     const id = window.setTimeout(() => searchRef.current?.focus(), 60);
-    return () => window.clearTimeout(id);
-  }, [open]);
+    const onReflow = () => syncPanelPosition();
+    window.addEventListener("resize", onReflow);
+    window.addEventListener("scroll", onReflow, true);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener("resize", onReflow);
+      window.removeEventListener("scroll", onReflow, true);
+    };
+  }, [open, syncPanelPosition]);
 
   const trimmedQuery = query.trim().toLowerCase();
   const filteredKnown = useMemo(() => {
@@ -756,26 +906,30 @@ function CarrierCombobox(props: {
         />
       </button>
 
-      {open ? (
-        <>
-          {/* Backdrop swallows clicks outside the panel on touch devices where
-              the document-level listener can race the new render. */}
-          <div
-            className="fixed inset-0 z-[140] cursor-default"
-            aria-hidden
-            onClick={() => setOpen(false)}
-          />
-          <div
-            ref={panelRef}
-            role="listbox"
-            aria-label="Carrier"
-            className="absolute left-0 right-0 top-[calc(100%+6px)] z-[141] overflow-hidden rounded-xl border shadow-[0_16px_40px_rgba(0,0,0,0.45)]"
-            style={{
-              borderColor: "var(--scanner-border, #243241)",
-              backgroundColor: "var(--scanner-card, #0e1620)",
-              color: "var(--scanner-text, #f1f5f9)",
-            }}
-          >
+      {open && panelPos && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              {/* Fixed layer so the list stays above box documentation cards (stacking contexts). */}
+              <div
+                className="fixed inset-0 z-[198] cursor-default"
+                aria-hidden
+                onClick={() => setOpen(false)}
+              />
+              <div
+                ref={panelRef}
+                role="listbox"
+                aria-label="Carrier"
+                className="fixed z-[199] overflow-hidden rounded-xl border shadow-[0_16px_40px_rgba(0,0,0,0.45)]"
+                style={{
+                  top: panelPos.top,
+                  left: panelPos.left,
+                  width: panelPos.width,
+                  maxHeight: `min(16rem, calc(100vh - ${panelPos.top}px - 1rem))`,
+                  borderColor: "var(--scanner-border, #243241)",
+                  backgroundColor: "var(--scanner-card, #0e1620)",
+                  color: "var(--scanner-text, #f1f5f9)",
+                }}
+              >
             <div
               className="flex items-center gap-1.5 border-b px-2.5 py-2"
               style={{ borderColor: "var(--scanner-border, #243241)" }}
@@ -869,8 +1023,10 @@ function CarrierCombobox(props: {
               </li>
             </ul>
           </div>
-        </>
-      ) : null}
+            </>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -882,7 +1038,7 @@ function identifyGateStatusBadgeLabel(
 ): string {
   switch (visual) {
     case "new":
-      return "New";
+      return manifestKnown ? "Expected" : "New";
     case "manual_new":
       return manifestKnown ? "On manifest" : "Off manifest";
     case "unexpected":
@@ -1322,65 +1478,6 @@ async function fetchBlobFromObjectUrl(url: string): Promise<Blob | null> {
   }
 }
 
-function stripIdentifyGateOcrEdges(s: string): string {
-  let t = s.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-  const stripOnce = (x: string) =>
-    x
-      .replace(/^[\s:*|#.,;\-–—"'«»()[\]{}<>+=\\/]+/, "")
-      .replace(/[\s:*|#.,;\-–—"'«»()[\]{}<>+=\\/]+$/, "");
-  let prev = "";
-  while (prev !== t) {
-    prev = t;
-    t = stripOnce(t).trim();
-  }
-  return t;
-}
-
-/**
- * Amazon packing slips: slip / inventory id (e.g. under barcode), FNSKU-style (X00…),
- * ASIN (B0…), and warehouse-style (ZZQ…) tokens. Picks highest-priority longest match, else best OCR line.
- */
-const IDENTIFY_GATE_OCR_CODE_PATTERNS: { re: RegExp; tier: number }[] = [
-  { re: /\b(SD9Q[A-Z0-9]{4,})\b/gi, tier: 100 },
-  { re: /\b(X00[A-Z0-9]{6,})\b/gi, tier: 96 },
-  { re: /\b(B0[A-Z0-9]{8})\b/gi, tier: 90 },
-  { re: /\b(ZZQ[A-Z0-9]{4,})\b/gi, tier: 84 },
-];
-
-function collectIdentifyGateOcrPatternHits(text: string): { text: string; tier: number; alnumLen: number }[] {
-  const hits: { text: string; tier: number; alnumLen: number }[] = [];
-  const seen = new Set<string>();
-  const sources = [text, text.replace(/\s+/g, " ")];
-  for (const src of sources) {
-    for (const { re, tier } of IDENTIFY_GATE_OCR_CODE_PATTERNS) {
-      const r = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
-      let m: RegExpExecArray | null;
-      while ((m = r.exec(src)) !== null) {
-        const cap = (m[1] ?? m[0] ?? "").trim();
-        if (!cap) continue;
-        const key = cap.toUpperCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const alnumLen = cap.replace(/[^A-Za-z0-9]/g, "").length;
-        hits.push({ text: cap, tier, alnumLen });
-      }
-    }
-  }
-  return hits;
-}
-
-/**
- * Strict: only FNSKU / slip / ASIN-style tokens (X00, B0, ZZQ, SD9Q). Ignores other slip prose.
- * Returns "" if no pattern matched.
- */
-function extractStrictIdentifyGateSlipCode(raw: string): string {
-  const trimmedRaw = raw.trim();
-  const patternHits = collectIdentifyGateOcrPatternHits(trimmedRaw);
-  if (!patternHits.length) return "";
-  patternHits.sort((a, b) => b.tier - a.tier || b.alnumLen - a.alnumLen || b.text.length - a.text.length);
-  return patternHits[0]!.text;
-}
-
 const IDENTIFY_GATE_IMAGE_EXT_RE = /\.(jpe?g|png)$/i;
 
 function isAllowedIdentifyGateImageFile(file: File): boolean {
@@ -1390,55 +1487,774 @@ function isAllowedIdentifyGateImageFile(file: File): boolean {
   return n.length > 0 && IDENTIFY_GATE_IMAGE_EXT_RE.test(n);
 }
 
-/** Downscale large photos, compress to JPEG, grayscale + contrast — keeps Tesseract responsive on HD uploads. */
-async function preprocessIdentifyGatePhotoForOcr(file: File | Blob): Promise<Blob | File> {
-  if (typeof createImageBitmap !== "function")
-    return file instanceof File ? file : new File([file], "capture.jpg", { type: "image/jpeg" });
-  const asFile = file instanceof File ? file : new File([file], "capture.jpg", { type: "image/jpeg" });
+type PhotoBarcodeDecodeResult =
+  | { status: "detected"; value: string }
+  | { status: "ocr_candidates"; candidates: string[] }
+  | { status: "not_found" };
+
+type PhotoBarcodeDecodeAttempt =
+  | "BarcodeDetector"
+  | "ZXing:imageElement"
+  | "ZXing:imageUrl"
+  | "ZXing:canvasVariant"
+  | "canvasVariant";
+
+type PhotoBarcodeCandidate = {
+  value: string;
+  decoder: "BarcodeDetector" | "ZXing";
+  format?: string;
+  variant: string;
+  score: number;
+};
+
+type PhotoBarcodeCropName = "full" | "top35" | "bottom35" | "centerBand";
+
+type PhotoBarcodeVariant = {
+  name: string;
+  crop: PhotoBarcodeCropName;
+  rotationDeg: number;
+  grayscaleContrast: boolean;
+  maxWidth: number;
+};
+
+type ZxingDecodeResult = {
+  getText(): string;
+  getBarcodeFormat?: () => unknown;
+};
+
+type ZxingPhotoBarcodeReader = {
+  reader: {
+    decodeFromImageElement(image: HTMLImageElement): Promise<ZxingDecodeResult>;
+    decodeFromImageUrl?: (url: string) => Promise<ZxingDecodeResult>;
+  };
+  formatName(format: unknown): string | undefined;
+};
+
+type PhotoBarcodeDecodeErrorLog = {
+  attempt: PhotoBarcodeDecodeAttempt | "imageLoad";
+  name: string;
+  message: string;
+};
+
+function getNativeBarcodeDetectorCtor(): BarcodeDetectorCtor | null {
+  if (typeof window === "undefined") return null;
+  const candidate = (window as Window & { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
+  return typeof candidate === "function" ? candidate : null;
+}
+
+async function createNativeBarcodeDetector(ctor: BarcodeDetectorCtor): Promise<BarcodeDetectorInstance> {
+  if (typeof ctor.getSupportedFormats === "function") {
+    try {
+      const supported = await ctor.getSupportedFormats();
+      const supportedSet = new Set(supported);
+      const formats = PHOTO_BARCODE_FORMATS.filter((format) => supportedSet.has(format));
+      if (formats.length > 0) return new ctor({ formats });
+    } catch {
+      // Some browser implementations expose the method but reject; fall through to constructor retry.
+    }
+  }
+
   try {
-    const bmp = await createImageBitmap(file);
-    const w = bmp.width;
-    const h = bmp.height;
-    const maxEdge = 1680;
-    const maxPixels = 2_450_000;
-    let scale = Math.min(1, maxEdge / Math.max(w, h, 1));
-    let cw = Math.max(1, Math.round(w * scale));
-    let ch = Math.max(1, Math.round(h * scale));
-    if (cw * ch > maxPixels) {
-      const s2 = Math.sqrt(maxPixels / (cw * ch));
-      cw = Math.max(1, Math.round(cw * s2));
-      ch = Math.max(1, Math.round(ch * s2));
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = cw;
-    canvas.height = ch;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) {
-      bmp.close?.();
-      return asFile;
-    }
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(bmp, 0, 0, cw, ch);
-    bmp.close?.();
-    const imgData = ctx.getImageData(0, 0, cw, ch);
-    const d = imgData.data;
-    const contrast = 1.42;
-    for (let i = 0; i < d.length; i += 4) {
-      const gray = 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!;
-      let v = (gray - 128) * contrast + 128;
-      v = Math.max(0, Math.min(255, v));
-      d[i] = v;
-      d[i + 1] = v;
-      d[i + 2] = v;
-    }
-    ctx.putImageData(imgData, 0, 0);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.86),
-    );
-    return blob ?? asFile;
+    return new ctor({ formats: PHOTO_BARCODE_FORMATS });
   } catch {
-    return asFile;
+    return new ctor();
+  }
+}
+
+function isPhotoBarcodeDecodeDebugEnabled(): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  return false;
+}
+
+function logPhotoBarcodeDecodeDebug(message: string, details?: Record<string, unknown>): void {
+  if (!isPhotoBarcodeDecodeDebugEnabled()) return;
+  console.debug("[operator-photo-barcode]", message, details ?? {});
+}
+
+function summarizePhotoBarcodeDecodeError(
+  attempt: PhotoBarcodeDecodeErrorLog["attempt"],
+  err: unknown,
+): PhotoBarcodeDecodeErrorLog {
+  if (err instanceof Error) {
+    return { attempt, name: err.name || "Error", message: err.message || String(err) };
+  }
+  return { attempt, name: typeof err, message: String(err) };
+}
+
+function logPhotoBarcodeDecodeError(attempt: PhotoBarcodeDecodeErrorLog["attempt"], err: unknown): PhotoBarcodeDecodeErrorLog {
+  const summary = summarizePhotoBarcodeDecodeError(attempt, err);
+  logPhotoBarcodeDecodeDebug("decode error", summary);
+  if (isPhotoBarcodeDecodeDebugEnabled()) {
+    console.debug("[operator-photo-barcode] raw decode error", { attempt, error: err });
+  }
+  return summary;
+}
+
+function photoBarcodeValueLooksLikeUrl(value: string): boolean {
+  const v = value.trim();
+  return /^(https?:\/\/|www\.)/i.test(v) || /^[a-z][a-z0-9+.-]*:\/\//i.test(v);
+}
+
+function photoBarcodeValueLooksTrackingLike(value: string): boolean {
+  const compact = value.replace(/[\s-]/g, "").toUpperCase();
+  const digitCount = (compact.match(/\d/g) ?? []).length;
+  if (isRejectedPhotoCodeCandidate(compact)) return false;
+  if (/^TBA\d{10,20}$/.test(compact)) return true;
+  if (/^1Z[0-9A-Z]{10,30}$/.test(compact)) return true;
+  if (/^VRET[0-9A-Z]{6,30}$/.test(compact)) return true;
+  if (/^9\d{10,33}$/.test(compact)) return true;
+  if (/^\d{8,34}$/.test(compact)) return true;
+  return compact.length >= 10 && compact.length <= 40 && digitCount >= 8 && digitCount / compact.length >= 0.65;
+}
+
+function normalizePhotoCodeCandidate(value: string): string {
+  return value.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+}
+
+function isRejectedPhotoCodeCandidate(value: string): boolean {
+  const compact = normalizePhotoCodeCandidate(value);
+  if (!compact) return true;
+  if (/^(DAX7|MDW5|ONT1|CVG9|TYS1|SNE1|AKC1)$/.test(compact)) return true;
+  if (/^[A-Z]{3}\d$/.test(compact)) return true;
+  if (/^CYCLE\d{1,2}$/.test(compact)) return true;
+  if (/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?$/.test(value.trim())) return true;
+  if (/^\d+(?:\.\d+)?\s*(?:LB|LBS|POUND|POUNDS)\b/i.test(value.trim())) return true;
+  if (/^\d{5}$/.test(compact)) return true;
+  return false;
+}
+
+function normalizePhotoBarcodeFormat(format?: string): string {
+  return String(format ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function scorePhotoBarcodeCandidate(value: string, format?: string): number {
+  const trimmed = value.trim();
+  if (!trimmed) return -999;
+  const normalizedFormat = normalizePhotoBarcodeFormat(format);
+  let score = 0;
+  if (photoBarcodeValueLooksTrackingLike(trimmed)) score += 90;
+  if (/code_?128|code_?39/.test(normalizedFormat)) score += 35;
+  if (/pdf_?417|itf|ean|upc|code_?93/.test(normalizedFormat)) score += 12;
+  if (/qr/.test(normalizedFormat)) score -= 35;
+  if (photoBarcodeValueLooksLikeUrl(trimmed)) score -= 100;
+  if (trimmed.length >= 8 && trimmed.length <= 48) score += 8;
+  return score;
+}
+
+function makePhotoBarcodeCandidate(args: {
+  value: string;
+  decoder: PhotoBarcodeCandidate["decoder"];
+  format?: string;
+  variant: string;
+}): PhotoBarcodeCandidate | null {
+  const value = args.value.trim();
+  if (!value) return null;
+  return {
+    value,
+    decoder: args.decoder,
+    format: args.format,
+    variant: args.variant,
+    score: scorePhotoBarcodeCandidate(value, args.format),
+  };
+}
+
+function chooseBestPhotoBarcodeCandidate(candidates: PhotoBarcodeCandidate[]): PhotoBarcodeCandidate | null {
+  let best: PhotoBarcodeCandidate | null = null;
+  for (const candidate of candidates) {
+    if (!best || candidate.score > best.score) best = candidate;
+  }
+  return best;
+}
+
+function isConfidentShipmentPhotoBarcodeCandidate(candidate: PhotoBarcodeCandidate): boolean {
+  return candidate.score >= 55 && !photoBarcodeValueLooksLikeUrl(candidate.value);
+}
+
+function normalizePhotoOcrShipmentNumber(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function isValidPhotoOcrShipmentNumber(value: string): boolean {
+  return /^\d{7,15}$/.test(value) && !isRejectedPhotoCodeCandidate(value);
+}
+
+function extractPhotoOcrShipmentNumbers(raw: string): string[] {
+  const text = raw.replace(/\r/g, "\n");
+  const sameLinePattern =
+    /\b(?:SHIPMENT\s*(?:#|NUMBER|NO\.?|ID)?|WAYBILL|PRO\s*#?|BOL\s*#?)\s*[:#-]?\s*([0-9][0-9\s.,-]{5,25}[0-9])\b/gi;
+  const results: string[] = [];
+  for (const match of text.matchAll(sameLinePattern)) {
+    const value = normalizePhotoOcrShipmentNumber(match[1] ?? "");
+    if (isValidPhotoOcrShipmentNumber(value)) results.push(value);
+  }
+
+  const labelOnlyPattern = /\b(?:SHIPMENT\s*(?:#|NUMBER\b|NO\.?\b|ID\b)?|WAYBILL|PRO\s*#?|BOL\s*#?)\b/i;
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (!labelOnlyPattern.test(line)) continue;
+    const next = lines[i + 1] ?? "";
+    const nearby = `${line} ${next}`;
+    const number = nearby.match(/\b[0-9][0-9\s.,-]{5,25}[0-9]\b/);
+    if (!number) continue;
+    const value = normalizePhotoOcrShipmentNumber(number[0]);
+    if (isValidPhotoOcrShipmentNumber(value)) results.push(value);
+  }
+
+  return uniquePhotoOcrCandidates(results);
+}
+
+function extractPhotoOcrPackageTrackingCodes(raw: string): string[] {
+  const text = raw.replace(/\r/g, "\n").toUpperCase();
+  const candidates: string[] = [];
+
+  for (const match of text.matchAll(/\bTBA\s*[- ]?\s*([\d\s-]{10,30})\b/g)) {
+    candidates.push(`TBA${String(match[1] ?? "").replace(/\D/g, "")}`);
+  }
+
+  const explicitPatterns = [
+    /\b1Z[0-9A-Z\s-]{10,30}\b/g,
+    /\bVRET[0-9A-Z\s-]{6,30}\b/g,
+  ];
+  for (const pattern of explicitPatterns) {
+    for (const match of text.matchAll(pattern)) {
+      candidates.push(normalizePhotoCodeCandidate(match[0] ?? ""));
+    }
+  }
+
+  const labeledPattern =
+    /\b(?:TRACKING\s*NUMBER|TRACKING\s*#|TRACKING|PACKAGE\s*ID|PACKAGE\s*#|PACKAGE|PKG\s*ID|PKG\s*#|BARCODE)\s*[:#-]?\s*([A-Z0-9][A-Z0-9\s-]{8,39})\b/g;
+  for (const match of text.matchAll(labeledPattern)) {
+    const value = normalizePhotoCodeCandidate(match[1] ?? "");
+    if (isPhotoOcrPackageTrackingCandidate(value)) candidates.push(value);
+  }
+
+  return uniquePhotoOcrCandidates(candidates.filter(isPhotoOcrPackageTrackingCandidate));
+}
+
+function isPhotoOcrPackageTrackingCandidate(value: string): boolean {
+  const compact = normalizePhotoCodeCandidate(value);
+  if (isRejectedPhotoCodeCandidate(compact)) return false;
+  if (/^TBA\d{10,20}$/.test(compact)) return true;
+  if (/^1Z[0-9A-Z]{10,30}$/.test(compact)) return true;
+  if (/^VRET[0-9A-Z]{6,30}$/.test(compact)) return true;
+  if (/^9\d{10,33}$/.test(compact)) return true;
+  const digitCount = (compact.match(/\d/g) ?? []).length;
+  return compact.length >= 12 && compact.length <= 40 && /[A-Z]/.test(compact) && digitCount >= 6;
+}
+
+function uniquePhotoOcrCandidates(candidates: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const candidate of candidates) {
+    const normalized = normalizePhotoCodeCandidate(candidate);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function extractPhotoOcrCodeCandidates(text: string): string[] {
+  return uniquePhotoOcrCandidates([
+    ...extractPhotoOcrPackageTrackingCodes(text),
+    ...extractPhotoOcrShipmentNumbers(text),
+  ]).slice(0, 3);
+}
+
+async function withPhotoBarcodeAttemptTimeout<T>(label: string, promise: Promise<T>, timeoutMs = 1800): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function waitForPhotoBarcodeImageLoad(img: HTMLImageElement): Promise<void> {
+  if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Image failed to load before barcode decode."));
+  });
+}
+
+async function detectBarcodeWithNativeDetector(
+  img: HTMLImageElement,
+  variant = "original",
+): Promise<PhotoBarcodeCandidate[]> {
+  const ctor = getNativeBarcodeDetectorCtor();
+  if (!ctor) {
+    logPhotoBarcodeDecodeDebug("decoder unavailable", { decoder: "BarcodeDetector" });
+    return [];
+  }
+
+  try {
+    const detector = await createNativeBarcodeDetector(ctor);
+    logPhotoBarcodeDecodeDebug("decoder attempted", { decoder: "BarcodeDetector", variant });
+    const detected = await withPhotoBarcodeAttemptTimeout("BarcodeDetector", detector.detect(img), 2200);
+    const candidates = detected
+      .map((barcode) =>
+        makePhotoBarcodeCandidate({
+          value: barcode.rawValue ?? "",
+          decoder: "BarcodeDetector",
+          format: barcode.format,
+          variant,
+        }),
+      )
+      .filter((candidate): candidate is PhotoBarcodeCandidate => Boolean(candidate));
+    logPhotoBarcodeDecodeDebug("decoder result", {
+      decoder: "BarcodeDetector",
+      variant,
+      detectedCount: detected.length,
+      candidates: candidates.map((candidate) => ({
+        value: candidate.value,
+        format: candidate.format,
+        score: candidate.score,
+      })),
+    });
+    return candidates;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("BarcodeDetector", err);
+    return [];
+  }
+}
+
+async function createZxingPhotoBarcodeReader(): Promise<ZxingPhotoBarcodeReader> {
+  const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
+    import("@zxing/browser"),
+    import("@zxing/library"),
+  ]);
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
+    BarcodeFormat.DATA_MATRIX,
+    BarcodeFormat.PDF_417,
+  ]);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  hints.set(DecodeHintType.ENABLE_CODE_39_EXTENDED_MODE, true);
+  const formatNames = new Map<unknown, string>([
+    [BarcodeFormat.CODE_128, "code_128"],
+    [BarcodeFormat.CODE_39, "code_39"],
+    [BarcodeFormat.CODE_93, "code_93"],
+    [BarcodeFormat.EAN_13, "ean_13"],
+    [BarcodeFormat.EAN_8, "ean_8"],
+    [BarcodeFormat.UPC_A, "upc_a"],
+    [BarcodeFormat.UPC_E, "upc_e"],
+    [BarcodeFormat.ITF, "itf"],
+    [BarcodeFormat.QR_CODE, "qr_code"],
+    [BarcodeFormat.DATA_MATRIX, "data_matrix"],
+    [BarcodeFormat.PDF_417, "pdf417"],
+  ]);
+  return {
+    reader: new BrowserMultiFormatReader(hints),
+    formatName: (format: unknown) => formatNames.get(format) ?? (typeof format === "string" ? format : undefined),
+  };
+}
+
+async function detectBarcodeWithZxingImageElement(
+  zxing: ZxingPhotoBarcodeReader,
+  img: HTMLImageElement,
+  variant = "original",
+): Promise<PhotoBarcodeCandidate | null> {
+  try {
+    logPhotoBarcodeDecodeDebug("decoder attempted", { decoder: "ZXing:imageElement", variant });
+    const result = await withPhotoBarcodeAttemptTimeout(
+      `ZXing:imageElement ${variant}`,
+      zxing.reader.decodeFromImageElement(img),
+    );
+    const value = result.getText().trim();
+    const format = zxing.formatName(result.getBarcodeFormat?.());
+    const candidate = makePhotoBarcodeCandidate({ value, decoder: "ZXing", format, variant });
+    logPhotoBarcodeDecodeDebug("decoder result", {
+      decoder: "ZXing:imageElement",
+      variant,
+      detectedCount: value ? 1 : 0,
+      format,
+      score: candidate?.score,
+    });
+    return candidate;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("ZXing:imageElement", err);
+    return null;
+  }
+}
+
+async function detectBarcodeWithZxingImageUrl(
+  zxing: ZxingPhotoBarcodeReader,
+  objectUrl: string,
+  variant = "original",
+): Promise<PhotoBarcodeCandidate | null> {
+  try {
+    if (typeof zxing.reader.decodeFromImageUrl !== "function") {
+      logPhotoBarcodeDecodeDebug("decoder unavailable", { decoder: "ZXing:imageUrl" });
+      return null;
+    }
+    logPhotoBarcodeDecodeDebug("decoder attempted", { decoder: "ZXing:imageUrl", variant });
+    const result = await withPhotoBarcodeAttemptTimeout(
+      `ZXing:imageUrl ${variant}`,
+      zxing.reader.decodeFromImageUrl(objectUrl),
+    );
+    const value = result.getText().trim();
+    const format = zxing.formatName(result.getBarcodeFormat?.());
+    const candidate = makePhotoBarcodeCandidate({ value, decoder: "ZXing", format, variant });
+    logPhotoBarcodeDecodeDebug("decoder result", {
+      decoder: "ZXing:imageUrl",
+      variant,
+      detectedCount: value ? 1 : 0,
+      format,
+      score: candidate?.score,
+    });
+    return candidate;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("ZXing:imageUrl", err);
+    return null;
+  }
+}
+
+function buildPhotoBarcodeVariants(): PhotoBarcodeVariant[] {
+  const crops: PhotoBarcodeCropName[] = ["full", "top35", "bottom35", "centerBand"];
+  const variants: PhotoBarcodeVariant[] = [
+    {
+      name: "full:rot0:resized:max1800",
+      crop: "full",
+      rotationDeg: 0,
+      grayscaleContrast: false,
+      maxWidth: 1800,
+    },
+  ];
+
+  for (const crop of crops) {
+    variants.push({
+      name: `${crop}:rot0:contrast:max1800`,
+      crop,
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    });
+  }
+
+  for (const rotationDeg of [90, 180, 270]) {
+    variants.push({
+      name: `full:rot${rotationDeg}:contrast:max1800`,
+      crop: "full",
+      rotationDeg,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    });
+  }
+
+  for (const crop of crops) {
+    for (const rotationDeg of [-10, -5, 5, 10]) {
+      variants.push({
+        name: `${crop}:rot${rotationDeg}:contrast:max1800`,
+        crop,
+        rotationDeg,
+        grayscaleContrast: true,
+        maxWidth: 1800,
+      });
+    }
+  }
+
+  return variants;
+}
+
+function photoBarcodeCropRect(
+  img: HTMLImageElement,
+  crop: PhotoBarcodeCropName,
+): { sx: number; sy: number; sw: number; sh: number } {
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (crop === "top35") return { sx: 0, sy: 0, sw: w, sh: Math.max(1, Math.round(h * 0.35)) };
+  if (crop === "bottom35") {
+    const sh = Math.max(1, Math.round(h * 0.35));
+    return { sx: 0, sy: Math.max(0, h - sh), sw: w, sh };
+  }
+  if (crop === "centerBand") {
+    const sh = Math.max(1, Math.round(h * 0.5));
+    return { sx: 0, sy: Math.max(0, Math.round((h - sh) / 2)), sw: w, sh };
+  }
+  return { sx: 0, sy: 0, sw: w, sh: h };
+}
+
+function applyPhotoBarcodeGrayscaleContrast(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    const boosted = Math.max(0, Math.min(255, (gray - 128) * 1.55 + 128));
+    data[i] = boosted;
+    data[i + 1] = boosted;
+    data[i + 2] = boosted;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+function renderPhotoBarcodeVariantCanvas(img: HTMLImageElement, variant: PhotoBarcodeVariant): HTMLCanvasElement | null {
+  const crop = photoBarcodeCropRect(img, variant.crop);
+  const scale = Math.min(1, variant.maxWidth / Math.max(1, crop.sw));
+  const srcW = Math.max(1, Math.round(crop.sw * scale));
+  const srcH = Math.max(1, Math.round(crop.sh * scale));
+  const radians = (variant.rotationDeg * Math.PI) / 180;
+  const absCos = Math.abs(Math.cos(radians));
+  const absSin = Math.abs(Math.sin(radians));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(srcW * absCos + srcH * absSin));
+  canvas.height = Math.max(1, Math.ceil(srcW * absSin + srcH * absCos));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(radians);
+  ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, -srcW / 2, -srcH / 2, srcW, srcH);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (variant.grayscaleContrast) applyPhotoBarcodeGrayscaleContrast(canvas);
+  return canvas;
+}
+
+function canvasToPhotoBarcodeBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
+  });
+}
+
+async function decodePhotoBarcodeCanvasVariant(
+  zxing: ZxingPhotoBarcodeReader,
+  img: HTMLImageElement,
+  variant: PhotoBarcodeVariant,
+): Promise<PhotoBarcodeCandidate | null> {
+  logPhotoBarcodeDecodeDebug("variant attempted", {
+    variant: variant.name,
+    crop: variant.crop,
+    rotationDeg: variant.rotationDeg,
+    grayscaleContrast: variant.grayscaleContrast,
+    decoder: "ZXing",
+  });
+  const canvas = renderPhotoBarcodeVariantCanvas(img, variant);
+  if (!canvas || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return null;
+  const blob = await canvasToPhotoBarcodeBlob(canvas);
+  if (!blob) return null;
+  const objectUrl = URL.createObjectURL(blob);
+  const variantImg = new Image();
+  try {
+    variantImg.src = objectUrl;
+    await withPhotoBarcodeAttemptTimeout(`imageLoad ${variant.name}`, waitForPhotoBarcodeImageLoad(variantImg), 1200);
+    logPhotoBarcodeDecodeDebug("variant image loaded", {
+      variant: variant.name,
+      width: variantImg.naturalWidth,
+      height: variantImg.naturalHeight,
+    });
+    return await detectBarcodeWithZxingImageElement(zxing, variantImg, variant.name);
+  } catch (err) {
+    logPhotoBarcodeDecodeError("canvasVariant", err);
+    return null;
+  } finally {
+    variantImg.onload = null;
+    variantImg.onerror = null;
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function recognizePhotoBarcodeOcrText(blob: Blob, variantName: string): Promise<string> {
+  try {
+    const { recognize } = await import("tesseract.js");
+    logPhotoBarcodeDecodeDebug("ocr attempted", { decoder: "Tesseract", variant: variantName });
+    const result = await withPhotoBarcodeAttemptTimeout(
+      `Tesseract ${variantName}`,
+      recognize(blob, "eng"),
+      6500,
+    );
+    const text = String(result.data?.text ?? "");
+    logPhotoBarcodeDecodeDebug("ocr result", {
+      decoder: "Tesseract",
+      variant: variantName,
+      textLength: text.length,
+      candidates: extractPhotoOcrCodeCandidates(text),
+    });
+    return text;
+  } catch (err) {
+    logPhotoBarcodeDecodeError("canvasVariant", err);
+    return "";
+  }
+}
+
+async function detectPhotoOcrCandidatesFromImage(img: HTMLImageElement): Promise<string[]> {
+  const variants: PhotoBarcodeVariant[] = [
+    {
+      name: "ocr:full:rot0:contrast:max1800",
+      crop: "full",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+    {
+      name: "ocr:top35:rot0:contrast:max1800",
+      crop: "top35",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+    {
+      name: "ocr:bottom35:rot0:contrast:max1800",
+      crop: "bottom35",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+    {
+      name: "ocr:centerBand:rot0:contrast:max1800",
+      crop: "centerBand",
+      rotationDeg: 0,
+      grayscaleContrast: true,
+      maxWidth: 1800,
+    },
+  ];
+
+  for (const variant of variants) {
+    logPhotoBarcodeDecodeDebug("ocr variant attempted", {
+      variant: variant.name,
+      crop: variant.crop,
+      rotationDeg: variant.rotationDeg,
+    });
+    const canvas = renderPhotoBarcodeVariantCanvas(img, variant);
+    if (!canvas) continue;
+    const blob = await canvasToPhotoBarcodeBlob(canvas);
+    if (!blob) continue;
+    const text = await recognizePhotoBarcodeOcrText(blob, variant.name);
+    const candidates = extractPhotoOcrCodeCandidates(text);
+    if (candidates.length > 0) return candidates;
+  }
+
+  return [];
+}
+
+async function detectBarcodeFromImageFile(file: File): Promise<PhotoBarcodeDecodeResult> {
+  if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return { status: "not_found" };
+
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
+  const candidates: PhotoBarcodeCandidate[] = [];
+  const variants = buildPhotoBarcodeVariants();
+
+  logPhotoBarcodeDecodeDebug("file selected", {
+    fileName: file.name,
+    fileType: file.type,
+    fileSize: file.size,
+    variantsPlanned: variants.map((variant) => variant.name),
+  });
+
+  try {
+    img.src = objectUrl;
+    try {
+      await waitForPhotoBarcodeImageLoad(img);
+      logPhotoBarcodeDecodeDebug("image loaded", {
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+      });
+    } catch (err) {
+      logPhotoBarcodeDecodeError("imageLoad", err);
+      return { status: "not_found" };
+    }
+
+    const nativeCandidates = await detectBarcodeWithNativeDetector(img, "original");
+    candidates.push(...nativeCandidates);
+    const bestNative = chooseBestPhotoBarcodeCandidate(nativeCandidates);
+    if (bestNative && isConfidentShipmentPhotoBarcodeCandidate(bestNative)) {
+      logPhotoBarcodeDecodeDebug("selected barcode", bestNative);
+      return { status: "detected", value: bestNative.value };
+    }
+
+    let zxing: ZxingPhotoBarcodeReader;
+    try {
+      zxing = await createZxingPhotoBarcodeReader();
+    } catch (err) {
+      logPhotoBarcodeDecodeError("ZXing:imageElement", err);
+      const fallback = chooseBestPhotoBarcodeCandidate(candidates);
+      if (!fallback || photoBarcodeValueLooksLikeUrl(fallback.value)) {
+        const ocrCandidates = await detectPhotoOcrCandidatesFromImage(img);
+        if (ocrCandidates.length > 0) return { status: "ocr_candidates", candidates: ocrCandidates };
+      }
+      return fallback && isConfidentShipmentPhotoBarcodeCandidate(fallback)
+        ? { status: "detected", value: fallback.value }
+        : { status: "not_found" };
+    }
+
+    const zxingElementCandidate = await detectBarcodeWithZxingImageElement(zxing, img, "original");
+    if (zxingElementCandidate) {
+      candidates.push(zxingElementCandidate);
+      if (isConfidentShipmentPhotoBarcodeCandidate(zxingElementCandidate)) {
+        logPhotoBarcodeDecodeDebug("selected barcode", zxingElementCandidate);
+        return { status: "detected", value: zxingElementCandidate.value };
+      }
+    }
+
+    const zxingUrlCandidate = await detectBarcodeWithZxingImageUrl(zxing, objectUrl, "original:url");
+    if (zxingUrlCandidate) {
+      candidates.push(zxingUrlCandidate);
+      if (isConfidentShipmentPhotoBarcodeCandidate(zxingUrlCandidate)) {
+        logPhotoBarcodeDecodeDebug("selected barcode", zxingUrlCandidate);
+        return { status: "detected", value: zxingUrlCandidate.value };
+      }
+    }
+
+    for (const variant of variants) {
+      const candidate = await decodePhotoBarcodeCanvasVariant(zxing, img, variant);
+      if (!candidate) continue;
+      candidates.push(candidate);
+      if (isConfidentShipmentPhotoBarcodeCandidate(candidate)) {
+        logPhotoBarcodeDecodeDebug("selected barcode", candidate);
+        return { status: "detected", value: candidate.value };
+      }
+    }
+
+    const fallback = chooseBestPhotoBarcodeCandidate(candidates);
+    if (fallback && photoBarcodeValueLooksLikeUrl(fallback.value)) {
+      const ocrCandidates = await detectPhotoOcrCandidatesFromImage(img);
+      if (ocrCandidates.length > 0) return { status: "ocr_candidates", candidates: ocrCandidates };
+    }
+
+    if (fallback && isConfidentShipmentPhotoBarcodeCandidate(fallback)) {
+      logPhotoBarcodeDecodeDebug("selected fallback barcode", fallback);
+      return { status: "detected", value: fallback.value };
+    }
+
+    const ocrCandidates = await detectPhotoOcrCandidatesFromImage(img);
+    if (ocrCandidates.length > 0) {
+      logPhotoBarcodeDecodeDebug("selected ocr candidates", { candidates: ocrCandidates });
+      return { status: "ocr_candidates", candidates: ocrCandidates };
+    }
+
+    logPhotoBarcodeDecodeDebug("all decoders failed", {
+      attemptedVariants: variants.map((variant) => variant.name),
+    });
+    return { status: "not_found" };
+  } finally {
+    img.onload = null;
+    img.onerror = null;
+    URL.revokeObjectURL(objectUrl);
   }
 }
 
@@ -1466,21 +2282,6 @@ function identifyGateMatchFieldUiLabel(field: ShipmentEntryItemViewMatchField): 
     default:
       return "Code";
   }
-}
-
-function isIdentifyGateOcrAcceptable(confidence: number, cleaned: string): boolean {
-  const alnum = cleaned.replace(/[^A-Za-z0-9]/g, "");
-  if (alnum.length < 3 || cleaned.length < 3) return false;
-  const asinLike = /^B0[A-Z0-9]{8}$/i.test(cleaned);
-  const slipIdLike = /^SD9Q[A-Z0-9]{4,}$/i.test(cleaned);
-  const fnskuLike = /^X00[A-Z0-9]{6,}$/i.test(cleaned);
-  const zzqLike = /^ZZQ[A-Z0-9]{4,}$/i.test(cleaned);
-  if (asinLike && confidence >= 12) return true;
-  if ((slipIdLike || fnskuLike || zzqLike) && confidence >= 14) return true;
-  if (confidence < 16) return false;
-  if (confidence < 32 && alnum.length < 10) return false;
-  if (confidence < 45 && alnum.length < 6) return false;
-  return true;
 }
 
 type InspectionCondition = "good" | "damaged" | "expired" | "open_box" | "missing_parts";
@@ -1587,6 +2388,7 @@ function identifyGateEntityForManifestMatch(
   matchStatus: string,
 ): IdentifyGateEntity {
   if (matchStatus === "found_pallet") return "pallet";
+  if (matchField === "tracking_number" || matchField === "pallet_code") return "pallet";
   if (matchField === "package_code" || matchField === "slip_code" || matchField === "id_slip_contents") {
     return "package";
   }
@@ -1643,6 +2445,62 @@ function pickInventoryViewHints(rows: VInventoryStatusRow[]): {
     if (productName && carrier && slipCode) break;
   }
   return { productName, carrier, slipCode };
+}
+
+function firstNonEmptyString(values: unknown[]): string | null {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function firstRecordString(records: Array<Record<string, unknown> | null | undefined>, keys: string[]): string | null {
+  for (const record of records) {
+    if (!record) continue;
+    for (const key of keys) {
+      const text = String(record[key] ?? "").trim();
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+function recordFromResolveResult(result: OperatorResolveResult | null): Record<string, unknown> | null {
+  if (!result || result.kind === "unknown") return null;
+  return result.row as Record<string, unknown>;
+}
+
+function countLookupExpectedPackages(
+  shipmentLines: VInventoryStatusRow[],
+  detailRows: Record<string, unknown>[],
+  fallbackRowCount?: number | null,
+): number | null {
+  const ids = new Set<string>();
+  for (const line of shipmentLines) {
+    const id = String(line.expected_package_id ?? "").trim();
+    if (id) ids.add(id);
+  }
+  for (const row of detailRows) {
+    const id = firstRecordString([row], ["id", "expected_package_id", "expected_packages_id"]);
+    if (id) ids.add(id);
+  }
+  if (ids.size > 0) return ids.size;
+  if (detailRows.length > 0) return detailRows.length;
+  if (shipmentLines.length > 0) return shipmentLines.length;
+  return typeof fallbackRowCount === "number" && fallbackRowCount > 0 ? fallbackRowCount : null;
+}
+
+function trackingScopedInventoryRows(rows: VInventoryStatusRow[], trackingNumber: string): VInventoryStatusRow[] {
+  const key = normalizeTrackingKey(trackingNumber);
+  if (!key) return [];
+  return rows.filter((row) => normalizeTrackingKey(row.tracking_number) === key);
+}
+
+function trackingScopedExpectedRows(rows: Record<string, unknown>[], trackingNumber: string): Record<string, unknown>[] {
+  const key = normalizeTrackingKey(trackingNumber);
+  if (!key) return [];
+  return rows.filter((row) => normalizeTrackingKey(String(row.tracking_number ?? "")) === key);
 }
 
 function expectedRowValueForTier(row: Record<string, unknown>, tier: ItemResolveTier): string {
@@ -1719,6 +2577,7 @@ function ScanFrameWithLaser(props: {
   bracketGlow?: boolean;
   /** Brief green success pulse on the frame (e.g. item scan saved). */
   successFlash?: boolean;
+  onClick?: () => void;
 }) {
   const {
     children,
@@ -1730,6 +2589,7 @@ function ScanFrameWithLaser(props: {
     subtleSweep = false,
     bracketGlow = false,
     successFlash = false,
+    onClick,
   } = props;
   const cw = subtleSweep ? 2 : 3;
   const isLg = cornerSize === "lg";
@@ -1740,7 +2600,17 @@ function ScanFrameWithLaser(props: {
   const bracketWrapStyle: CSSProperties | undefined = bracketGlow ? { filter: "var(--scanner-bracket-glow)" } : undefined;
   return (
     <div
-      className={`relative flex flex-col items-center justify-center overflow-hidden rounded-[22px] border shadow-inner ${dashedBorder ? "border-dashed" : ""}`}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (!onClick) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={`relative flex flex-col items-center justify-center overflow-hidden rounded-[22px] border shadow-inner ${dashedBorder ? "border-dashed" : ""} ${onClick ? "cursor-pointer" : ""}`}
       style={{ ...frameStyle, minHeight }}
     >
       <div className="pointer-events-none absolute inset-0" style={bracketWrapStyle}>
@@ -2364,6 +3234,11 @@ function OperatorMobileScanPageContent() {
     activeStoreLabel,
   } = useOperatorSessionStore();
   const scannerRef = useRef<HTMLInputElement>(null);
+  const gateManualInputRef = useRef<HTMLInputElement>(null);
+  const palletManualInputRef = useRef<HTMLInputElement>(null);
+  const boxManualInputRef = useRef<HTMLInputElement>(null);
+  const scanBufferRef = useRef("");
+  const scanBufferClearTimerRef = useRef<number | null>(null);
   /** Item phase: wedge input stays on the hidden laser buffer; unit capture uses {@link ItemUnitRecordModal}. */
   const physicalBoxCountInputRef = useRef<HTMLInputElement>(null);
   /** Chrome height for fixed Item-phase Active Context bar (`padding-top` under `top: 0`). */
@@ -2380,7 +3255,12 @@ function OperatorMobileScanPageContent() {
   const [flowPhase, setFlowPhase] = useState<FlowPhase>("scan");
   const flowPhasePrevRef = useRef<FlowPhase>("scan");
   const [scanLine, setScanLine] = useState("");
+  const [scanCaptureLine, setScanCaptureLine] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
+  const [manualEntryMode, setManualEntryMode] = useState(false);
+  const isManualEntryMode = manualEntryMode;
+  const manualEntryModeRef = useRef(false);
+  const [lastScannedCode, setLastScannedCode] = useState("");
   const [scanBarcodeHelpOpen, setScanBarcodeHelpOpen] = useState(false);
 
   const [activePallet, setActivePallet] = useState<OperatorActivePallet | null>(null);
@@ -2441,6 +3321,14 @@ function OperatorMobileScanPageContent() {
    * and package intake when a saved UUID box is open. Persisted pallet / saved box rows default to read-only.
    */
   const [editAllMode, setEditAllMode] = useState(false);
+  const [correctionPerms, setCorrectionPerms] = useState({ moveBox: false, voidBox: false });
+  const [moveBoxModalOpen, setMoveBoxModalOpen] = useState(false);
+  /** Target pallet for Move Box — filled by page scan capture while {@link moveBoxModalOpen}. */
+  const [moveBoxTargetDraft, setMoveBoxTargetDraft] = useState("");
+  const [voidBoxModalOpen, setVoidBoxModalOpen] = useState(false);
+  const [correctionBusy, setCorrectionBusy] = useState(false);
+  const [moveBoxModalError, setMoveBoxModalError] = useState<string | null>(null);
+  const [voidBoxModalError, setVoidBoxModalError] = useState<string | null>(null);
   /** Hydrated slip columns indicate pallet already had shipment data in DB. */
   const [palletDbHasShipmentDetails, setPalletDbHasShipmentDetails] = useState(false);
   /** Shown under Active Pallet — resolved from `pallets.created_by` → `profiles.full_name`. */
@@ -2630,6 +3518,14 @@ function OperatorMobileScanPageContent() {
     if (auto != null && v.trim() !== auto) lastOrderIdAutoFilledFromRaRef.current = null;
   }, []);
 
+  const applySlipOrderIdIfEmpty = useCallback((raw: string | null | undefined): boolean => {
+    const next = String(raw ?? "").trim();
+    if (!next || palletOrderIdRef.current.trim()) return false;
+    setPalletOrderId(next);
+    lastOrderIdAutoFilledFromRaRef.current = null;
+    return true;
+  }, []);
+
   useEffect(() => {
     palletPhotoUrlsRef.current = palletPhotoUrls;
   }, [palletPhotoUrls]);
@@ -2772,6 +3668,40 @@ function OperatorMobileScanPageContent() {
   const palletPackageSearchInputRef = useRef<HTMLInputElement>(null);
   const hydrateBoxPackageIdRef = useRef<string | null>(null);
 
+  const clearOperatorPhotoArrays = useCallback((fields: OperatorPhotoClearField[]) => {
+      for (const field of fields) {
+        switch (field) {
+          case "slip":
+            setSlipBoxPhotoUrls([]);
+            slipBoxPhotoUrlsRef.current = [];
+            evidenceBaselineRef.current.slip = [];
+            break;
+          case "shipping":
+            setShippingLabelPhotoUrls([]);
+            shippingLabelPhotoUrlsRef.current = [];
+            evidenceBaselineRef.current.shipping = [];
+            break;
+          case "bol":
+            setBolPhotoUrls([]);
+            bolPhotoUrlsRef.current = [];
+            evidenceBaselineRef.current.bol = [];
+            break;
+          case "outside":
+            setOutsideBoxPhotoUrls([]);
+            outsideBoxPhotoUrlsRef.current = [];
+            evidenceBaselineRef.current.outside = [];
+            break;
+          case "inside":
+            setInsideBoxPhotoUrls([]);
+            insideBoxPhotoUrlsRef.current = [];
+            evidenceBaselineRef.current.inside = [];
+            break;
+          default:
+            break;
+        }
+      }
+  }, []);
+
   /** Same readiness as the package-list fetch: Step 3, org context, persisted UUID pallet (draft ids skip). */
   const operatorSavedBoxSearchAvailable =
     isSupabaseConfigured() &&
@@ -2887,6 +3817,8 @@ function OperatorMobileScanPageContent() {
     message: string;
   } | null>(null);
   const [identifyGatePhotoOcrToast, setIdentifyGatePhotoOcrToast] = useState<string | null>(null);
+  const [identifyGatePhotoOcrCandidates, setIdentifyGatePhotoOcrCandidates] = useState<string[]>([]);
+  const [identifyGateSelectedPhotoOcrCandidate, setIdentifyGateSelectedPhotoOcrCandidate] = useState<string | null>(null);
   const [identifyGateOcrReading, setIdentifyGateOcrReading] = useState(false);
   const [identifyGateOcrProgressPct, setIdentifyGateOcrProgressPct] = useState(0);
   const [identifyGateOcrMenuOpen, setIdentifyGateOcrMenuOpen] = useState(false);
@@ -2897,8 +3829,21 @@ function OperatorMobileScanPageContent() {
   const identifyGateOcrBusyRef = useRef(false);
   /** Set after {@link resumeWorkflowFromExistingPalletRow} — used by gate search defined earlier in the file. */
   const resumeFromPalletLookupRef = useRef<
-    (row: OperatorPalletTrackingRow, enteredCode: string) => void | Promise<void>
+    (
+      row: OperatorPalletTrackingRow,
+      enteredCode: string,
+      opts?: { packageRow?: Record<string, unknown> },
+    ) => void | Promise<void>
   >(() => {});
+  const tryResumeSavedReceivingRef = useRef<
+    (
+      enteredCode: string,
+      gateLookup: ShipmentEntryLookupResult | null,
+    ) => Promise<"resumed" | "wrong_store" | "error" | false>
+  >(async () => false);
+  const maybeResumeItemScanAfterPackageRowRef = useRef<
+    (row: Record<string, unknown>) => Promise<boolean>
+  >(async () => false);
 
   const packageScanLaserSuppressed =
     flowPhase === "package_scan" &&
@@ -2910,51 +3855,26 @@ function OperatorMobileScanPageContent() {
     !packageScanLaserSuppressed &&
     !(flowPhase === "items" && isIdentified && !hasReceivableBoxForItems(itemScanPackageId, activeBoxSession));
 
-  /** Keeps laser wedge wedged: items phase stays focusable during save (busy does not disable input). */
-  const scannerDisabled =
-    manualOpen ||
-    !laserEnabled ||
-    (busy && flowPhase !== "items");
-
   const focusScannerAggressive = useCallback(() => {
-    if (manualOpen || !laserEnabled) return;
+    if (manualEntryModeRef.current || manualOpen || !laserEnabled) return;
     if (busy && flowPhase !== "items") return;
     const el = scannerRef.current;
     if (!el) return;
-    /** Guard each focus attempt: if the operator is currently typing in another editable
-     *  element, abort. Without this, the staggered focus retries (rAF + microtask + 0/32/120ms
-     *  timeouts) will yank focus from inputs like the "Other / Not Listed" carrier field,
-     *  making them appear locked. */
-    const shouldRefocus = () => {
-      if (typeof document === "undefined") return true;
-      const active = document.activeElement as HTMLElement | null;
-      if (!active || active === document.body || active === el) return true;
+    const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    if (active && active !== document.body && active !== el) {
       const tag = active.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
-      if (active.isContentEditable) return false;
-      return true;
-    };
-    const run = () => {
-      if (!shouldRefocus()) return;
-      try {
-        el.focus({ preventScroll: true });
-      } catch {
-        el.focus();
-      }
-    };
-    run();
-    requestAnimationFrame(() => {
-      run();
-      queueMicrotask(run);
-      window.setTimeout(run, 0);
-      window.setTimeout(run, 32);
-      window.setTimeout(run, 120);
-    });
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable) return;
+    }
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      el.focus();
+    }
   }, [manualOpen, laserEnabled, busy, flowPhase]);
 
   const scheduleFocusScanner = useCallback(() => {
-    if (modalOpenRef.current || manualOpen || !laserEnabled) return;
-    focusScannerAggressive();
+    if (manualEntryModeRef.current || manualOpen || !laserEnabled) return;
+    window.setTimeout(() => focusScannerAggressive(), 0);
   }, [manualOpen, laserEnabled, focusScannerAggressive]);
 
   const showScanActionToast = useCallback((variant: ScanActionToastVariant, message: string) => {
@@ -2962,6 +3882,50 @@ function OperatorMobileScanPageContent() {
     if (!text) return;
     setScanActionToast({ variant, message: text });
   }, []);
+
+  const clearPreviousLookupResult = useCallback(
+    (options?: {
+      phase?: IdentifyGatePhase;
+      enteredCode?: string;
+      clearResolvedContext?: boolean;
+      clearScanLine?: boolean;
+    }) => {
+      setIdentifyGateError(null);
+      setIdentifyGateEnteredCode(options?.enteredCode ?? "");
+      setIdentifyGateRows([]);
+      setIdentifyGateCanonicalTracking(null);
+      setIdentifyGateMatchField(null);
+      setIdentifyGateEntity(null);
+      setIdentifyGatePhysicalBoxStr("");
+      setIdentifyGateInventoryAgg(null);
+      setIdentifyGateInventoryVisual(null);
+      setIdentifyGateViewHints(null);
+      setIdentifyGateShipmentLines([]);
+      setIdentifyGateExpectationLines([]);
+      setIdentifyGatePhotoOcrToast(null);
+      setIdentifyGatePhotoOcrCandidates([]);
+      setIdentifyGateSelectedPhotoOcrCandidate(null);
+      setIdentifyGateOcrMenuOpen(false);
+      setIdentifyGateOcrDropHighlight(false);
+      setIdentifyGateGlowFlash(false);
+      setAwaitingPostCompleteExtraScan(false);
+      setCompletedShipmentModal(null);
+      setGateTrackingHelpOpen(false);
+      completedShipmentDialogShownForKeyRef.current = null;
+      postCompleteTrackingRef.current = null;
+      if (options?.clearScanLine) setScanLine("");
+      if (options?.clearResolvedContext) {
+        setActivePallet(null);
+        setActiveTracking(null);
+        setCurrentPalletTrackingId(null);
+        setActiveSlipOrPackage(null);
+        setActiveBoxSession(null);
+        setDirectBox(false);
+      }
+      setIdentifyGatePhase(options?.phase ?? "idle");
+    },
+    [],
+  );
 
   const closeItemUnitModal = useCallback(
     (cancelled: boolean) => {
@@ -3036,8 +4000,20 @@ function OperatorMobileScanPageContent() {
   const identifyGateResolvedNameMap = useMemo(() => {
     const m = new Map<string, string>();
     for (const raw of identifyGateRows) {
-      const rid = String((raw as { resolved_product_id?: string | null }).resolved_product_id ?? "").trim();
+      const r = raw as {
+        resolved_product_id?: string | null;
+        product_id?: string | null;
+        resolved_catalog_product_id?: string | null;
+      };
+      const rid = String(r.resolved_product_id ?? r.product_id ?? r.resolved_catalog_product_id ?? "").trim();
       const nm = epPackageRowCatalogSubtitle(raw)?.trim();
+      if (rid && nm) m.set(rid, nm);
+    }
+    for (const line of identifyGateShipmentLines) {
+      const rid = String(
+        line.resolved_product_id ?? line.product_id ?? line.resolved_catalog_product_id ?? "",
+      ).trim();
+      const nm = line.product_name?.trim() ?? "";
       if (rid && nm) m.set(rid, nm);
     }
     for (const line of identifyGateExpectationLines) {
@@ -3057,24 +4033,12 @@ function OperatorMobileScanPageContent() {
     async (rawCode: string) => {
       const trimmed = rawCode.trim();
       if (!trimmed) return;
-      setIdentifyGateError(null);
       setModernPalletWorkspace(false);
-      setIdentifyGateEntity(null);
-      setIdentifyGatePhysicalBoxStr("");
-      setIdentifyGateEnteredCode(trimmed);
-      setIdentifyGateRows([]);
-      setIdentifyGateCanonicalTracking(null);
-      setIdentifyGateMatchField(null);
-      setIdentifyGateShipmentLines([]);
-      setIdentifyGateExpectationLines([]);
-      setIdentifyGateInventoryAgg(null);
-      setIdentifyGateInventoryVisual(null);
-      setIdentifyGateViewHints(null);
-      completedShipmentDialogShownForKeyRef.current = null;
-      setCompletedShipmentModal(null);
-      setAwaitingPostCompleteExtraScan(false);
-      setGateTrackingHelpOpen(false);
-      setIdentifyGatePhase("searching");
+      clearPreviousLookupResult({
+        phase: "searching",
+        enteredCode: trimmed,
+        clearResolvedContext: true,
+      });
       setBusy(true);
       try {
         if (!isSupabaseConfigured()) {
@@ -3139,7 +4103,15 @@ function OperatorMobileScanPageContent() {
 
         let gateLookup: Awaited<ReturnType<typeof lookupShipmentEntryScanCode>>;
         try {
-          gateLookup = await lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed);
+          if (isSupabaseConfigured()) {
+            const gateRes = await lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed);
+            if (!gateRes.ok) {
+              throw new Error(gateRes.error);
+            }
+            gateLookup = gateRes.lookup;
+          } else {
+            gateLookup = await lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed);
+          }
         } catch (err) {
           console.warn("lookupShipmentEntryScanCode failed; inventory slice skipped.", err);
           const emptyAgg = aggregateInventoryStatus([]);
@@ -3159,8 +4131,12 @@ function OperatorMobileScanPageContent() {
           };
         }
 
-        const invRows = gateLookup.inventory_rows;
+        let invRows = gateLookup.inventory_rows;
         const gateMatchField = gateLookup.inventory_matched_field;
+        const submittedTrackingForScope = trimmed;
+        if (gateMatchField === "tracking_number") {
+          invRows = trackingScopedInventoryRows(invRows, submittedTrackingForScope);
+        }
         setIdentifyGateMatchField(gateMatchField);
         if (invRows.length) {
           setIdentifyGateEntity(identifyGateEntityForManifestMatch(gateMatchField, gateLookup.match_status));
@@ -3168,56 +4144,29 @@ function OperatorMobileScanPageContent() {
 
         const agg = aggregateInventoryStatus(invRows);
         const vis = resolveInventoryGateVisualStatus(invRows, agg);
-        setIdentifyGateInventoryAgg(agg);
-        setIdentifyGateInventoryVisual(vis);
-        setIdentifyGateViewHints(pickInventoryViewHints(invRows));
 
-        if (
-          vis === "manual_new" &&
-          gateLookup.match_status === "found_pallet" &&
-          gateLookup.pallet_id &&
-          isUuidString(gateLookup.pallet_id)
-        ) {
-          const dupRes = await findOperatorPalletByTrackingNumberAction(
-            orgId,
-            gateLookup.tracking_number ?? trimmed,
-            sessionStoreId ?? null,
-          );
-          if (dupRes.ok && dupRes.pallet) {
-            setIntakeToast("Pallet found — loading details...");
-            resumeFromPalletLookupRef.current(dupRes.pallet, trimmed);
-            playOperatorSuccessBeep();
-            setIdentifyGateGlowFlash(true);
-            return;
-          }
+        const resumeSaved = await tryResumeSavedReceivingRef.current(trimmed, gateLookup);
+        if (resumeSaved === "resumed") {
+          playOperatorSuccessBeep();
+          setIdentifyGateGlowFlash(true);
+          return;
+        }
+        if (resumeSaved === "wrong_store") {
+          setIdentifyGatePhase("idle");
+          return;
+        }
+        if (resumeSaved === "error") {
+          setIdentifyGatePhase("idle");
+          return;
         }
 
         if (vis === "manual_new" && isShipmentEntryOffManifest(gateLookup)) {
-          if (isSupabaseConfigured()) {
-            const dupRes = await findOperatorPalletByTrackingNumberAction(orgId, trimmed, sessionStoreId ?? null);
-            console.log("Fetched Pallet Data:", dupRes.ok ? dupRes.pallet : null);
-            if (!dupRes.ok) {
-              setIdentifyGateError(dupRes.error);
-              setIdentifyGatePhase("idle");
-              return;
-            }
-            if (dupRes.wrongStore) {
-              setIdentifyGateError(
-                dupRes.wrongStoreMessage ?? formatUnauthorizedTrackingInStoreMessage(""),
-              );
-              setIdentifyGatePhase("idle");
-              return;
-            }
-            if (dupRes.pallet) {
-              setIntakeToast("This Tracking Number already exists. Loading details...");
-              resumeFromPalletLookupRef.current(dupRes.pallet, trimmed);
-              playOperatorSuccessBeep();
-              setIdentifyGateGlowFlash(true);
-              return;
-            }
-          }
           setIdentifyGateError(null);
           setIdentifyGatePhase("new");
+          setIdentifyGateInventoryAgg(agg);
+          setIdentifyGateInventoryVisual(vis);
+          setIdentifyGateViewHints(null);
+          setIdentifyGateEntity(null);
           setIdentifyGateRows([]);
           setIdentifyGateCanonicalTracking(trimmed);
           setIdentifyGateShipmentLines([]);
@@ -3242,17 +4191,23 @@ function OperatorMobileScanPageContent() {
           });
         }
         const safe = Array.isArray(detailRows) ? detailRows : [];
-        setIdentifyGateRows(safe);
         const canon =
           gateLookup.canonical_tracking ??
           invRows.map((r) => String(r.tracking_number ?? "").trim()).find(Boolean) ??
           (String(safe[0]?.tracking_number ?? "").trim() || trimmed);
+        const scopedSafe = gateMatchField === "tracking_number" ? trackingScopedExpectedRows(safe, submittedTrackingForScope) : safe;
+        setIdentifyGateRows(scopedSafe);
         setIdentifyGateCanonicalTracking(canon);
 
         let expectationLines: TrackingOperatorLine[] = [];
         if (sessionStoreId && canon) {
           try {
-            const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, canon);
+            const snap = await loadTrackingExpectationSnapshot(
+              supabase,
+              orgId,
+              sessionStoreId,
+              gateMatchField === "tracking_number" ? submittedTrackingForScope : canon,
+            );
             expectationLines = snap.lines;
           } catch (err) {
             console.warn("loadTrackingExpectationSnapshot failed", err);
@@ -3261,7 +4216,30 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateExpectationLines(expectationLines);
 
         let shipmentLines: VInventoryStatusRow[] = invRows.length ? invRows : [];
-        if (!shipmentLines.length && sessionStoreId && gateMatchField) {
+        if (sessionStoreId && gateMatchField === "tracking_number") {
+          try {
+            let rows: VInventoryStatusRow[] = [];
+            if (isSupabaseConfigured()) {
+              const lineRes = await fetchInventoryItemStatusLinesForGateAction(orgId, sessionStoreId, {
+                mode: "tracking",
+                trackingNumber: submittedTrackingForScope,
+              });
+              if (lineRes.ok) rows = lineRes.rows;
+              else console.warn("fetchInventoryItemStatusLinesForGateAction failed", lineRes.error);
+            } else {
+              const fetched = await fetchVInventoryItemStatusLinesForTrackingNormalized(
+                supabase,
+                orgId,
+                sessionStoreId,
+                submittedTrackingForScope,
+              );
+              rows = fetched.rows;
+            }
+            shipmentLines = rows.length ? trackingScopedInventoryRows(rows, submittedTrackingForScope) : shipmentLines;
+          } catch (err) {
+            console.warn("fetchVInventoryItemStatusLinesForTrackingNormalized failed", err);
+          }
+        } else if (!shipmentLines.length && sessionStoreId && gateMatchField) {
           const narrowFields: InventoryViewMatchField[] = [
             "fnsku",
             "sku",
@@ -3274,19 +4252,62 @@ function OperatorMobileScanPageContent() {
                 ? trimmed
                 : canon || trimmed;
             try {
-              const { rows } = await fetchVInventoryItemStatusLinesExact(
-                supabase,
-                orgId,
-                sessionStoreId,
-                gateMatchField as InventoryViewMatchField,
-                lineValue,
-              );
+              let rows: VInventoryStatusRow[] = [];
+              if (isSupabaseConfigured()) {
+                const lineRes = await fetchInventoryItemStatusLinesForGateAction(orgId, sessionStoreId, {
+                  mode: "exact",
+                  field: gateMatchField as InventoryViewMatchField,
+                  value: lineValue,
+                });
+                if (lineRes.ok) rows = lineRes.rows;
+                else console.warn("fetchInventoryItemStatusLinesForGateAction failed", lineRes.error);
+              } else {
+                const fetched = await fetchVInventoryItemStatusLinesExact(
+                  supabase,
+                  orgId,
+                  sessionStoreId,
+                  gateMatchField as InventoryViewMatchField,
+                  lineValue,
+                );
+                rows = fetched.rows;
+              }
               shipmentLines = rows;
             } catch (err) {
               console.warn("fetchVInventoryItemStatusLinesExact failed", err);
             }
           }
         }
+        if (gateMatchField === "tracking_number") {
+          shipmentLines = trackingScopedInventoryRows(shipmentLines, submittedTrackingForScope);
+        }
+        const scopedAggregateRows = gateMatchField === "tracking_number" ? shipmentLines : invRows;
+        const scopedAgg = aggregateInventoryStatus(scopedAggregateRows);
+        const scopedVis =
+          gateMatchField === "tracking_number"
+            ? deriveInventoryGateVisualStatus(scopedAgg)
+            : resolveInventoryGateVisualStatus(scopedAggregateRows, scopedAgg);
+        if (
+          gateMatchField === "tracking_number" &&
+          shipmentLines.length === 0 &&
+          scopedSafe.length === 0 &&
+          expectationLines.length === 0
+        ) {
+          setIdentifyGateError(null);
+          setIdentifyGatePhase("new");
+          setIdentifyGateInventoryAgg(scopedAgg);
+          setIdentifyGateInventoryVisual("manual_new");
+          setIdentifyGateViewHints(null);
+          setIdentifyGateEntity(null);
+          setIdentifyGateRows([]);
+          setIdentifyGateCanonicalTracking(trimmed);
+          setIdentifyGateShipmentLines([]);
+          setIdentifyGateExpectationLines([]);
+          setIdentifyGateMatchField(null);
+          return;
+        }
+        setIdentifyGateInventoryAgg(scopedAgg);
+        setIdentifyGateInventoryVisual(scopedVis);
+        setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
         setIdentifyGateShipmentLines(shipmentLines);
         setIdentifyGatePhase("matched");
         playOperatorSuccessBeep();
@@ -3306,7 +4327,7 @@ function OperatorMobileScanPageContent() {
         scheduleFocusScanner();
       }
     },
-    [orgId, sessionStoreId, kioskStoreLocked, operatorStores.length, scheduleFocusScanner],
+    [orgId, sessionStoreId, kioskStoreLocked, operatorStores.length, scheduleFocusScanner, clearPreviousLookupResult],
   );
 
   useEffect(() => {
@@ -3379,6 +4400,32 @@ function OperatorMobileScanPageContent() {
     setPalletMixedOrderIdsWarning(false);
   }, [activePallet?.id]);
 
+  /** Pallet row or gate entity must never coexist with direct-box intake mode. */
+  useEffect(() => {
+    if (activePallet?.id?.trim()) setDirectBox(false);
+  }, [activePallet?.id]);
+
+  useEffect(() => {
+    if (identifyGateEntity === "pallet") setDirectBox(false);
+  }, [identifyGateEntity]);
+
+  useEffect(() => {
+    const oid = (orgId ?? "").trim();
+    if (!oid || !isUuidString(oid)) {
+      setCorrectionPerms({ moveBox: false, voidBox: false });
+      return;
+    }
+    let cancelled = false;
+    void getOperatorMobileCorrectionPermissionsAction(oid).then((res) => {
+      if (cancelled) return;
+      if (res.ok) setCorrectionPerms(res.permissions);
+      else setCorrectionPerms({ moveBox: false, voidBox: false });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
   /** Hydrate carrier / order_id / shipment-slip / pallet / BOL photo URLs from the active pallet row. */
   useEffect(() => {
     const palletId = activePallet?.id;
@@ -3389,7 +4436,7 @@ function OperatorMobileScanPageContent() {
     const trackingOnlySession =
       !stableKey &&
       (currentPalletTrackingId ?? "").trim().length > 0 &&
-      (flowPhase === "package_scan" || flowPhase === "items");
+      (flowPhase === "scan" || flowPhase === "package_scan" || flowPhase === "items");
 
     const draftPalletShipmentStep =
       !stableKey &&
@@ -3401,7 +4448,18 @@ function OperatorMobileScanPageContent() {
     if (!stableKey || !palletId || !isUuidString(palletId)) {
       hydrateActivePalletIdRef.current = null;
       palletHydrateStableKeyRef.current = null;
-      if (trackingOnlySession || draftPalletShipmentStep) {
+      const palletReceivingSession =
+      !directBox &&
+      (Boolean(activePallet?.id?.trim()) || Boolean((currentPalletTrackingId ?? "").trim()));
+
+    const receivingLookupInFlight = identifyGatePhase === "searching" || busy;
+
+    if (
+      trackingOnlySession ||
+      draftPalletShipmentStep ||
+      palletReceivingSession ||
+      receivingLookupInFlight
+    ) {
         return;
       }
       setPalletDbHasShipmentDetails(false);
@@ -3415,15 +4473,10 @@ function OperatorMobileScanPageContent() {
       setPalletResolvedOrderId("");
       lastOrderIdAutoFilledFromRaRef.current = null;
       setCurrentPalletTrackingId(null);
-      setShippingLabelPhotoUrls([]);
+      clearOperatorPhotoArrays(["shipping", "bol"]);
       setPalletPhotoUrls([]);
-      setBolPhotoUrls([]);
-      shippingLabelPhotoUrlsRef.current = [];
       palletPhotoUrlsRef.current = [];
-      bolPhotoUrlsRef.current = [];
-      evidenceBaselineRef.current.shipping = [];
       evidenceBaselineRef.current.pallet = [];
-      evidenceBaselineRef.current.bol = [];
       pendingEvidenceStorageDeletesRef.current.clear();
       setSlipExtractMissing(null);
       parentPalletCarrierDefaultRef.current = "";
@@ -3433,7 +4486,9 @@ function OperatorMobileScanPageContent() {
 
     const priorKey = palletHydrateStableKeyRef.current;
     const switchedPalletOrOrg = priorKey !== stableKey;
-    if (switchedPalletOrOrg) {
+    const preserveDraftLookupState =
+      flowPhase === "scan" && (currentPalletTrackingId ?? "").trim().length > 0;
+    if (switchedPalletOrOrg && !preserveDraftLookupState) {
       setPalletCarrier("");
       setPalletCarrierOtherSelected(false);
       setPalletNotes("");
@@ -3563,7 +4618,7 @@ function OperatorMobileScanPageContent() {
         if (switchedPalletOrOrg) {
           parentPalletCarrierDefaultRef.current = raw;
         }
-      } else if (switchedPalletOrOrg) {
+      } else if (switchedPalletOrOrg && !preserveDraftLookupState) {
         parentPalletCarrierDefaultRef.current = "";
       }
       const rowOrder = String(row.order_id ?? "").trim();
@@ -3572,7 +4627,7 @@ function OperatorMobileScanPageContent() {
       // for one tick — `palletMixedOrderIdsUiRef` may read true and incorrectly preserve the old input.
       const lockOrderInput =
         palletMixedOrderIdsUiRef.current && !switchedPalletOrOrg;
-      setPalletOrderId((prev) => (lockOrderInput ? prev : rowOrder));
+      setPalletOrderId((prev) => (lockOrderInput ? prev : rowOrder || (preserveDraftLookupState ? prev : "")));
       lastOrderIdAutoFilledFromRaRef.current = null;
       setActivePallet((p) => {
         if (!p?.id || !isUuidString(p.id) || p.id !== fetchingFor) return p;
@@ -3584,6 +4639,12 @@ function OperatorMobileScanPageContent() {
       setPalletNotes((prev) => (prev.trim() ? prev : String(row.notes ?? "").trim()));
       // Do not hydrate `currentPalletTrackingId` from DB during the session — gate / operator edits own it.
       const hydrated = hydrateOperatorPalletDocumentationPhotoUrls(row, supabase);
+      const incomingPhotoCount =
+        hydrated.shippingLabel.length + hydrated.pallet.length + hydrated.bol.length;
+      const currentPhotoCount =
+        shippingLabelPhotoUrlsRef.current.length +
+        palletPhotoUrlsRef.current.length +
+        bolPhotoUrlsRef.current.length;
       if (process.env.NODE_ENV === "development") {
         console.debug("[operator] pallet documentation hydrate", {
           palletId: fetchingFor,
@@ -3591,29 +4652,46 @@ function OperatorMobileScanPageContent() {
           rawPalletPhotoUrls: row.pallet_photo_urls ?? null,
           rawBolPhotoUrls: row.bol_photo_urls ?? null,
           hydrated,
+          skippedEmptyOverwrite: incomingPhotoCount === 0 && currentPhotoCount > 0,
         });
       }
-      setShippingLabelPhotoUrls(hydrated.shippingLabel);
-      setPalletPhotoUrls(hydrated.pallet);
-      setBolPhotoUrls(hydrated.bol);
-      shippingLabelPhotoUrlsRef.current = [...hydrated.shippingLabel];
-      palletPhotoUrlsRef.current = [...hydrated.pallet];
-      bolPhotoUrlsRef.current = [...hydrated.bol];
-      evidenceBaselineRef.current.shipping = [...hydrated.shippingLabel];
-      evidenceBaselineRef.current.pallet = [...hydrated.pallet];
-      evidenceBaselineRef.current.bol = [...hydrated.bol];
+      if (incomingPhotoCount === 0 && currentPhotoCount > 0) {
+        /* Resume may have populated refs before this async fetch; do not wipe. */
+      } else {
+        setShippingLabelPhotoUrls(hydrated.shippingLabel);
+        setPalletPhotoUrls(hydrated.pallet);
+        setBolPhotoUrls(hydrated.bol);
+        shippingLabelPhotoUrlsRef.current = [...hydrated.shippingLabel];
+        palletPhotoUrlsRef.current = [...hydrated.pallet];
+        bolPhotoUrlsRef.current = [...hydrated.bol];
+        evidenceBaselineRef.current.shipping = [...hydrated.shippingLabel];
+        evidenceBaselineRef.current.pallet = [...hydrated.pallet];
+        evidenceBaselineRef.current.bol = [...hydrated.bol];
+      }
       const persistedSlip =
         Boolean((row.carrier_name ?? "").trim()) ||
         Boolean(rowOrder) ||
-        hydrated.shippingLabel.length > 0 ||
-        hydrated.pallet.length > 0 ||
-        hydrated.bol.length > 0;
+        incomingPhotoCount > 0 ||
+        currentPhotoCount > 0;
       setPalletDbHasShipmentDetails(persistedSlip);
     })();
     return () => {
       cancelled = true;
     };
-  }, [activePallet?.id, orgId, palletDocHydrationNonce, flowPhase, currentPalletTrackingId, persistOperatorSessionCarrier, mergeCarrierIntoActivePalletState, sessionStoreId]);
+  }, [
+    activePallet?.id,
+    orgId,
+    palletDocHydrationNonce,
+    flowPhase,
+    currentPalletTrackingId,
+    directBox,
+    persistOperatorSessionCarrier,
+    mergeCarrierIntoActivePalletState,
+    sessionStoreId,
+    identifyGatePhase,
+    busy,
+    clearOperatorPhotoArrays,
+  ]);
 
   useEffect(() => {
     if (!activePallet) setPalletResolvedOrderId("");
@@ -3658,14 +4736,13 @@ function OperatorMobileScanPageContent() {
       setBoxSlipOrderId(norm.slip);
       setBoxSlipConflictingOrderId(norm.conflicting);
       if (norm.slip) {
-        setPalletOrderId(norm.slip);
-        lastOrderIdAutoFilledFromRaRef.current = null;
+        applySlipOrderIdIfEmpty(norm.slip);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [palletDocHydrationNonce, flowPhase, orgId, sessionStoreId, activeBoxSession?.packageId]);
+  }, [palletDocHydrationNonce, flowPhase, orgId, sessionStoreId, activeBoxSession?.packageId, applySlipOrderIdIfEmpty]);
 
   useEffect(() => {
     setItemReceiveDemoScannedUnits(0);
@@ -4131,9 +5208,9 @@ function OperatorMobileScanPageContent() {
 
   const applyResult = useCallback((r: OperatorResolveResult) => {
     setActiveSlipOrPackage(null);
-    setActiveTracking(null);
-    setCurrentPalletTrackingId(null);
     if (r.kind === "pallet") {
+      setActiveTracking(null);
+      setCurrentPalletTrackingId(null);
       const id = String(r.row.id ?? "");
       const num = String(r.row.pallet_number ?? "");
       if (id && num) {
@@ -4153,20 +5230,36 @@ function OperatorMobileScanPageContent() {
       }
       return;
     }
+    if (r.kind === "package" || r.kind === "slip") {
+      const row = r.row;
+      const pkgLabel = `Box ${String(row.package_code ?? row.slip_id ?? row.package_number ?? row.tracking_number ?? "")}`;
+      const palletId = String(row.pallet_id ?? "").trim();
+      if (palletId && isUuidString(palletId)) {
+        setDirectBox(false);
+        setActiveTracking(null);
+        const cn = String(row.carrier_name ?? "").trim();
+        setActivePallet({
+          id: palletId,
+          pallet_number: palletId,
+          ...(cn ? { carrier_name: cn } : {}),
+        });
+        setActiveSlipOrPackage(pkgLabel);
+        setFlowPhase("scan");
+        return;
+      }
+      setActivePallet(null);
+      setDirectBox(true);
+      setActiveTracking(String(row.tracking_number ?? "").trim() || null);
+      setActiveSlipOrPackage(pkgLabel);
+      return;
+    }
     setActivePallet(null);
+    setActiveTracking(null);
+    setCurrentPalletTrackingId(null);
     if (r.kind === "tracking") {
       setActiveTracking(String(r.row.tracking_number ?? "").trim());
+      setDirectBox(false);
       setFlowPhase("scan");
-      return;
-    }
-    if (r.kind === "package") {
-      setActiveSlipOrPackage(
-        `Box ${String(r.row.package_code ?? r.row.slip_id ?? r.row.package_number ?? r.row.tracking_number ?? "")}`,
-      );
-      return;
-    }
-    if (r.kind === "slip") {
-      setActiveSlipOrPackage(`Slip ${String(r.row.rma_number ?? "")}`);
       return;
     }
     if (r.kind === "item") {
@@ -4421,7 +5514,7 @@ function OperatorMobileScanPageContent() {
         )?.trim() ?? "";
         if (sid) setBoxSlipCode(sid);
         const rma = json.slip.rma_number?.trim() ?? "";
-        if (rma) setBoxSlipRma(rma);
+        if (rma) setBoxSlipRma((prev) => (prev.trim() ? prev : rma));
         const items = Array.isArray(json.slip.items) ? json.slip.items : [];
         commitBoxSlipVisionLinesFromSource(items);
 
@@ -4442,8 +5535,7 @@ function OperatorMobileScanPageContent() {
         setBoxSlipConflictingOrderId(normVision.conflicting);
         const refVision = referenceOrderIdForPackageFieldAfterSlipLoad(normVision, "");
         if (refVision != null) {
-          setPalletOrderId(refVision);
-          lastOrderIdAutoFilledFromRaRef.current = null;
+          applySlipOrderIdIfEmpty(refVision);
         } else if (rma) {
           applyPalletOrderIdFromRaIfApplicable(rma);
         }
@@ -4459,7 +5551,7 @@ function OperatorMobileScanPageContent() {
           items.length > 0
         ) {
           const slipCodeForRow = sid.trim() || null;
-          const rmaForRow = rma.trim() || null;
+          const rmaForRow = (boxSlipRmaRef.current.trim() || rma.trim()) || null;
 
           let blockVisionPersist = false;
           if (slipCodeForRow) {
@@ -4580,6 +5672,7 @@ function OperatorMobileScanPageContent() {
       commitBoxSlipVisionLinesFromSource,
       clearBoxSlipVisionLinesState,
       applyPalletOrderIdFromRaIfApplicable,
+      applySlipOrderIdIfEmpty,
       clearPalletOrderIdIfAutoFilledFromRa,
     ],
   );
@@ -4624,15 +5717,16 @@ function OperatorMobileScanPageContent() {
     const session = activeBoxSession;
     if (!session) {
       hydrateBoxPackageIdRef.current = null;
-      setOutsideBoxPhotoUrls([]);
-      setInsideBoxPhotoUrls([]);
-      setSlipBoxPhotoUrls([]);
-      slipBoxPhotoUrlsRef.current = [];
-      outsideBoxPhotoUrlsRef.current = [];
-      insideBoxPhotoUrlsRef.current = [];
-      evidenceBaselineRef.current.slip = [];
-      evidenceBaselineRef.current.outside = [];
-      evidenceBaselineRef.current.inside = [];
+      const packageRestorePending =
+        identifyGatePhase === "searching" ||
+        busy ||
+        (flowPhase === "package_scan" &&
+          Boolean(activePallet?.id?.trim()) &&
+          isUuidString(String(activePallet?.id ?? "").trim()));
+      if (packageRestorePending) {
+        return;
+      }
+      clearOperatorPhotoArrays(["outside", "inside", "slip"]);
       pendingEvidenceStorageDeletesRef.current.clear();
       setBoxSlipInvalidFormatBlocksSave(false);
       setBoxSlipCode("");
@@ -4682,9 +5776,18 @@ function OperatorMobileScanPageContent() {
         }
       }
       if (!row) return;
-      const o = parsePalletPhotoUrlArray(row.outside_photo_urls);
-      const ins = parsePalletPhotoUrlArray(row.inside_photo_urls);
-      const s = parsePalletPhotoUrlArray(row.slip_photo_urls);
+      const o = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.outside_photo_urls),
+        supabase,
+      );
+      const ins = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.inside_photo_urls),
+        supabase,
+      );
+      const s = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.slip_photo_urls),
+        supabase,
+      );
       setOutsideBoxPhotoUrls(o);
       setInsideBoxPhotoUrls(ins);
       setSlipBoxPhotoUrls(s);
@@ -4714,6 +5817,39 @@ function OperatorMobileScanPageContent() {
       const sidRow = String(row.id_slip_contents ?? row.slip_code ?? row.slip_id ?? "").trim();
       const rmaRow = String(row.rma_number ?? "").trim();
       const fromManifest = parseBoxSlipManifestData(row.manifest_data);
+      const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(row.manifest_data);
+      const hydrateDirectBoxDocs = directBox;
+      if (hydrateDirectBoxDocs) {
+        if (fromDirectBoxDocs.shippingLabelUrls.length > 0) {
+          setShippingLabelPhotoUrls(fromDirectBoxDocs.shippingLabelUrls);
+          shippingLabelPhotoUrlsRef.current = [...fromDirectBoxDocs.shippingLabelUrls];
+          evidenceBaselineRef.current.shipping = [...fromDirectBoxDocs.shippingLabelUrls];
+        }
+        if (fromDirectBoxDocs.bolUrls.length > 0) {
+          setBolPhotoUrls(fromDirectBoxDocs.bolUrls);
+          bolPhotoUrlsRef.current = [...fromDirectBoxDocs.bolUrls];
+          evidenceBaselineRef.current.bol = [...fromDirectBoxDocs.bolUrls];
+        }
+        if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
+          const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
+          const applied =
+            normalized && normalized !== OTHER_CARRIER_NAME
+              ? normalized
+              : fromDirectBoxDocs.carrierName;
+          if (normalized && normalized !== OTHER_CARRIER_NAME) {
+            setPalletCarrier(normalized);
+            setPalletCarrierOtherSelected(false);
+          } else {
+            setPalletCarrier(fromDirectBoxDocs.carrierName);
+            setPalletCarrierOtherSelected(true);
+          }
+          persistOperatorSessionCarrier(applied);
+          mergeCarrierIntoActivePalletState(applied);
+        }
+        if (!palletOrderIdRef.current.trim() && fromDirectBoxDocs.orderId) {
+          setPalletOrderId(fromDirectBoxDocs.orderId);
+        }
+      }
 
       const oidForSlip = (orgId ?? "").trim();
       let lines = fromManifest.lines;
@@ -4750,15 +5886,14 @@ function OperatorMobileScanPageContent() {
       }
 
       setBoxSlipCode(sidRow || fromManifest.slipCode || slipCodeFromContents || "");
-      setBoxSlipRma(rma);
+      setBoxSlipRma((prev) => (prev.trim() ? prev : rma));
       const normHydrate = normalizeSlipOrderConflictPair(slipOrderHydrate, slipConflictingHydrate);
       setBoxSlipOrderId(normHydrate.slip);
       setBoxSlipConflictingOrderId(normHydrate.conflicting);
       const pkgOidHydrate = String(row.order_id ?? "").trim();
       const refHydrate = referenceOrderIdForPackageFieldAfterSlipLoad(normHydrate, pkgOidHydrate);
       if (refHydrate != null) {
-        setPalletOrderId(refHydrate);
-        lastOrderIdAutoFilledFromRaRef.current = null;
+        applySlipOrderIdIfEmpty(refHydrate);
       } else {
         applyPalletOrderIdFromRaIfApplicable(rma);
       }
@@ -4771,7 +5906,20 @@ function OperatorMobileScanPageContent() {
     // Intentionally only `activeBoxSession` + `orgId`: mergeCarrier/persist in the async body are stable callbacks;
     // including them previously re-ran this effect and overwrote in-progress slip uploads from the UI.
     // `orgId` is required so server-side slip_contents hydration uses the current workspace org.
-  }, [activeBoxSession, orgId, sessionStoreId, applyPalletOrderIdFromRaIfApplicable, clearPalletOrderIdIfAutoFilledFromRa]);
+  }, [
+    activeBoxSession,
+    orgId,
+    sessionStoreId,
+    applyPalletOrderIdFromRaIfApplicable,
+    applySlipOrderIdIfEmpty,
+    clearPalletOrderIdIfAutoFilledFromRa,
+    identifyGatePhase,
+    busy,
+    flowPhase,
+    activePallet?.id,
+    directBox,
+    clearOperatorPhotoArrays,
+  ]);
 
   useEffect(() => {
     if (flowPhase !== "package_scan") return;
@@ -4944,6 +6092,39 @@ function OperatorMobileScanPageContent() {
             }
           }
           const fromManifest = parseBoxSlipManifestData(manifestParsed);
+          const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(manifestParsed);
+          const hydrateDirectBoxDocs = directBox;
+          if (hydrateDirectBoxDocs) {
+            if (fromDirectBoxDocs.shippingLabelUrls.length > 0) {
+              setShippingLabelPhotoUrls(fromDirectBoxDocs.shippingLabelUrls);
+              shippingLabelPhotoUrlsRef.current = [...fromDirectBoxDocs.shippingLabelUrls];
+              evidenceBaselineRef.current.shipping = [...fromDirectBoxDocs.shippingLabelUrls];
+            }
+            if (fromDirectBoxDocs.bolUrls.length > 0) {
+              setBolPhotoUrls(fromDirectBoxDocs.bolUrls);
+              bolPhotoUrlsRef.current = [...fromDirectBoxDocs.bolUrls];
+              evidenceBaselineRef.current.bol = [...fromDirectBoxDocs.bolUrls];
+            }
+            if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
+              const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
+              const applied =
+                normalized && normalized !== OTHER_CARRIER_NAME
+                  ? normalized
+                  : fromDirectBoxDocs.carrierName;
+              if (normalized && normalized !== OTHER_CARRIER_NAME) {
+                setPalletCarrier(normalized);
+                setPalletCarrierOtherSelected(false);
+              } else {
+                setPalletCarrier(fromDirectBoxDocs.carrierName);
+                setPalletCarrierOtherSelected(true);
+              }
+              persistOperatorSessionCarrier(applied);
+              mergeCarrierIntoActivePalletState(applied);
+            }
+            if (!palletOrderIdRef.current.trim() && fromDirectBoxDocs.orderId) {
+              setPalletOrderId(fromDirectBoxDocs.orderId);
+            }
+          }
           let lines = fromManifest.lines;
           let rma = rmaRow || fromManifest.rma;
           let slipCodeFromContents: string | null = null;
@@ -4969,15 +6150,14 @@ function OperatorMobileScanPageContent() {
             lines = mergeManifestMissingIntoVisionLines(slipRowsMapped, fromManifest);
           }
           setBoxSlipCode(sidRow || fromManifest.slipCode || slipCodeFromContents || trimmed);
-          setBoxSlipRma(rma);
+          setBoxSlipRma((prev) => (prev.trim() ? prev : rma));
           const normScan = normalizeSlipOrderConflictPair(slipOrderScan, slipConflictingScan);
           setBoxSlipOrderId(normScan.slip);
           setBoxSlipConflictingOrderId(normScan.conflicting);
           const pkgOidScan = String(r.order_id ?? "").trim();
           const refScan = referenceOrderIdForPackageFieldAfterSlipLoad(normScan, pkgOidScan);
           if (refScan != null) {
-            setPalletOrderId(refScan);
-            lastOrderIdAutoFilledFromRaRef.current = null;
+            applySlipOrderIdIfEmpty(refScan);
           } else {
             applyPalletOrderIdFromRaIfApplicable(rma);
           }
@@ -5062,6 +6242,7 @@ function OperatorMobileScanPageContent() {
       scheduleFocusScanner,
       commitBoxSlipVisionLinesFromSource,
       applyPalletOrderIdFromRaIfApplicable,
+      applySlipOrderIdIfEmpty,
     ],
   );
 
@@ -5084,6 +6265,14 @@ function OperatorMobileScanPageContent() {
       }
       if (!slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) {
         setBoxIntakeError("Add at least one packing slip photo before saving this BOX.");
+        return false;
+      }
+      const directBoxShipmentDocumentation = directBox;
+      if (
+        directBoxShipmentDocumentation &&
+        !shippingLabelPhotoUrls.some((u) => String(u ?? "").trim().length > 0)
+      ) {
+        setBoxIntakeError("Add the required shipment photo / shipping label before saving this BOX.");
         return false;
       }
       if (boxSlipInvalidFormatBlocksSave) {
@@ -5118,6 +6307,12 @@ function OperatorMobileScanPageContent() {
         boxSlipVisionLinesPersistRef.current.length > 0
           ? boxSlipVisionLinesPersistRef.current
           : clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+      const directBoxSave = Boolean(directBox);
+      const directBoxTracking =
+        (currentPackageTrackingId ?? "").trim() ||
+        pkgBarcode ||
+        (activeTracking ?? "").trim() ||
+        (currentPalletTrackingId ?? "").trim();
       const manifestPayload = {
         box_slip_vision: {
           id_slip_contents: slipCodePersist,
@@ -5125,6 +6320,17 @@ function OperatorMobileScanPageContent() {
           items: slipLinesForPersist,
           captured_at: new Date().toISOString(),
         },
+        ...(directBoxSave
+          ? {
+              direct_box_shipment_documentation: {
+                shipping_label_photo_urls: shippingLabelPhotoUrls,
+                bol_photo_urls: bolPhotoUrls,
+                carrier_name: carrierToPersist,
+                order_id: orderPersist,
+                captured_at: new Date().toISOString(),
+              },
+            }
+          : {}),
       };
       const oid = orgId?.trim();
 
@@ -5138,8 +6344,8 @@ function OperatorMobileScanPageContent() {
           return false;
         }
         let resolvedPalletId = activePallet?.id && isUuidString(activePallet.id) ? activePallet.id : null;
-        const tnForEnsure = (currentPalletTrackingId ?? "").trim();
-        if (!resolvedPalletId && tnForEnsure) {
+        const tnForEnsure = (currentPalletTrackingId ?? "").trim() || (activeTracking ?? "").trim();
+        if (!directBoxSave && !resolvedPalletId && tnForEnsure) {
           const ensured = await ensureReceivingPalletForTracking(tnForEnsure, orderPersist || null);
           if (!ensured) {
             setBoxIntakeError(
@@ -5159,7 +6365,16 @@ function OperatorMobileScanPageContent() {
             carrier_name: carrierToPersist,
           });
         }
-        const parentShipmentTracking = (currentPalletTrackingId ?? "").trim() || null;
+        if (!directBoxSave && !resolvedPalletId) {
+          setBoxIntakeError(
+            "Could not link this box to a shipment pallet — confirm the tracking ID on the receiving step, then try again.",
+          );
+          return false;
+        }
+        const parentShipmentTracking =
+          directBoxSave
+            ? directBoxTracking || null
+            : (currentPalletTrackingId ?? "").trim() || (activeTracking ?? "").trim() || null;
         let packageId = String(activeBoxSession.packageId ?? "").trim();
         if (!packageId || !isUuidString(packageId)) {
           const ins = await insertOperatorIntakeBoxPackageAction({
@@ -5193,6 +6408,7 @@ function OperatorMobileScanPageContent() {
               : null,
           packageUpdate: {
             package_code: pkgBarcode,
+            ...(directBoxSave ? { carrier_name: carrierToPersist } : {}),
             tracking_number: parentShipmentTracking,
             order_id: orderPersist,
             outside_photo_urls: outsideBoxPhotoUrls,
@@ -5247,12 +6463,7 @@ function OperatorMobileScanPageContent() {
       setBoxIntakeError(null);
       setDuplicatePackingSlip(null);
       setBoxSlipInvalidFormatBlocksSave(false);
-      setOutsideBoxPhotoUrls([]);
-      setInsideBoxPhotoUrls([]);
-      setSlipBoxPhotoUrls([]);
-      slipBoxPhotoUrlsRef.current = [];
-      outsideBoxPhotoUrlsRef.current = [];
-      insideBoxPhotoUrlsRef.current = [];
+      clearOperatorPhotoArrays(["outside", "inside", "slip"]);
       setBoxSlipCode("");
       setBoxSlipRma("");
       clearPalletOrderIdIfAutoFilledFromRa();
@@ -5290,6 +6501,7 @@ function OperatorMobileScanPageContent() {
         setPackageSaveSuccessDestination(null);
         if (stay) {
           setScanSuccessFlash(true);
+          if (!directBoxSave) setDirectBox(false);
           setFlowPhase("package_scan");
           window.requestAnimationFrame(() => {
             window.requestAnimationFrame(() => {
@@ -5310,9 +6522,11 @@ function OperatorMobileScanPageContent() {
   }, [
     activeBoxSession,
     activePallet?.id,
+    activeTracking,
     boxSlipCode,
     boxSlipRma,
     boxSlipVisionLines,
+    bolPhotoUrls,
     insideBoxPhotoUrls,
     loadPalletDetail,
     outsideBoxPhotoUrls,
@@ -5324,10 +6538,13 @@ function OperatorMobileScanPageContent() {
     scheduleFocusScanner,
     shippingLabelPhotoUrls,
     slipBoxPhotoUrls,
+    currentPackageTrackingId,
     currentPalletTrackingId,
+    directBox,
     flushPendingEvidenceStorageDeletes,
     boxSlipInvalidFormatBlocksSave,
     boxSlipVisionBusy,
+    clearOperatorPhotoArrays,
   ]);
 
   const dispatchPackageFinalizeSave = useCallback(
@@ -5886,27 +7103,116 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const resetIdentifyGateForm = useCallback(() => {
-    setIdentifyGatePhase("idle");
-    setIdentifyGateError(null);
-    setIdentifyGateEnteredCode("");
-      setIdentifyGateRows([]);
-      setIdentifyGateCanonicalTracking(null);
-      setIdentifyGateShipmentLines([]);
-      setIdentifyGateExpectationLines([]);
-    setIdentifyGateMatchField(null);
-    setIdentifyGateEntity(null);
-    setIdentifyGatePhysicalBoxStr("");
-    setIdentifyGateInventoryAgg(null);
-    setIdentifyGateInventoryVisual(null);
-    setIdentifyGateViewHints(null);
-    setAwaitingPostCompleteExtraScan(false);
-    setCompletedShipmentModal(null);
-    setGateTrackingHelpOpen(false);
+    clearPreviousLookupResult();
     setScanLine("");
-  }, []);
+  }, [clearPreviousLookupResult]);
+
+  const hydrateSavedPackageRowIntoBoxIntake = useCallback(
+    (row: Record<string, unknown>, opts: { directBox: boolean }) => {
+      const pkgNum = String(row.package_code ?? row.slip_id ?? row.package_number ?? "").trim();
+      const pkgId = String(row.id ?? "").trim();
+      if (pkgNum) setCurrentPackageTrackingId(pkgNum);
+      if (pkgId && isUuidString(pkgId) && pkgNum) {
+        setActiveBoxSession({ barcode: pkgNum, packageId: pkgId });
+        setEditAllMode(false);
+        setPackageCodeCardOpen(false);
+      } else {
+        setActiveBoxSession(null);
+        setPackageCodeCardOpen(true);
+      }
+      setBoxNotes(String(row.notes ?? "").trim());
+      const pkgCarrier = String(row.carrier_name ?? "").trim();
+      if (pkgCarrier && opts.directBox) {
+        const normalized = normalizeCarrierLabel(pkgCarrier);
+        const applied = normalized && normalized !== OTHER_CARRIER_NAME ? normalized : pkgCarrier;
+        if (normalized && normalized !== OTHER_CARRIER_NAME) {
+          setPalletCarrier(normalized);
+          setPalletCarrierOtherSelected(false);
+        } else {
+          setPalletCarrier(pkgCarrier);
+          setPalletCarrierOtherSelected(true);
+        }
+        persistOperatorSessionCarrier(applied);
+      }
+      const o = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.outside_photo_urls),
+        supabase,
+      );
+      const ins = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.inside_photo_urls),
+        supabase,
+      );
+      const s = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.slip_photo_urls),
+        supabase,
+      );
+      setOutsideBoxPhotoUrls(o);
+      setInsideBoxPhotoUrls(ins);
+      setSlipBoxPhotoUrls(s);
+      slipBoxPhotoUrlsRef.current = [...s];
+      outsideBoxPhotoUrlsRef.current = [...o];
+      insideBoxPhotoUrlsRef.current = [...ins];
+      evidenceBaselineRef.current.slip = [...s];
+      evidenceBaselineRef.current.outside = [...o];
+      evidenceBaselineRef.current.inside = [...ins];
+      pendingEvidenceStorageDeletesRef.current.clear();
+      const sidRow = String(row.id_slip_contents ?? row.slip_code ?? row.slip_id ?? "").trim();
+      if (sidRow) setBoxSlipCode(sidRow);
+      const rmaRow = String(row.rma_number ?? "").trim();
+      if (rmaRow) setBoxSlipRma(rmaRow);
+      const orderRow = String((row as { order_id?: unknown }).order_id ?? "").trim();
+      if (orderRow && opts.directBox) setPalletOrderId(orderRow);
+      if (!opts.directBox) return;
+      let manifestParsed: unknown = row.manifest_data;
+      if (typeof manifestParsed === "string") {
+        try {
+          manifestParsed = JSON.parse(manifestParsed) as unknown;
+        } catch {
+          manifestParsed = null;
+        }
+      }
+      const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(manifestParsed);
+      const directShipUrls = normalizePalletDocumentationImageUrls(
+        fromDirectBoxDocs.shippingLabelUrls,
+        supabase,
+      );
+      const directBolUrls = normalizePalletDocumentationImageUrls(fromDirectBoxDocs.bolUrls, supabase);
+      if (directShipUrls.length > 0) {
+        setShippingLabelPhotoUrls(directShipUrls);
+        shippingLabelPhotoUrlsRef.current = [...directShipUrls];
+        evidenceBaselineRef.current.shipping = [...directShipUrls];
+      }
+      if (directBolUrls.length > 0) {
+        setBolPhotoUrls(directBolUrls);
+        bolPhotoUrlsRef.current = [...directBolUrls];
+        evidenceBaselineRef.current.bol = [...directBolUrls];
+      }
+      if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
+        const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
+        const applied =
+          normalized && normalized !== OTHER_CARRIER_NAME ? normalized : fromDirectBoxDocs.carrierName;
+        if (normalized && normalized !== OTHER_CARRIER_NAME) {
+          setPalletCarrier(normalized);
+          setPalletCarrierOtherSelected(false);
+        } else {
+          setPalletCarrier(fromDirectBoxDocs.carrierName);
+          setPalletCarrierOtherSelected(true);
+        }
+        persistOperatorSessionCarrier(applied);
+      }
+      if (!palletOrderIdRef.current.trim() && fromDirectBoxDocs.orderId) {
+        setPalletOrderId(fromDirectBoxDocs.orderId);
+      }
+    },
+    [persistOperatorSessionCarrier],
+  );
 
   const resumeWorkflowFromExistingPalletRow = useCallback(
-    async (row: OperatorPalletTrackingRow, enteredCode: string) => {
+    async (
+      row: OperatorPalletTrackingRow,
+      enteredCode: string,
+      opts?: { packageRow?: Record<string, unknown> },
+    ) => {
       const tracking = String(row.tracking_number ?? "").trim() || enteredCode.trim();
       const opCount = row.operator_package_count;
       const hydratedPhotos = hydrateOperatorPalletDocumentationPhotoUrls(
@@ -5918,6 +7224,7 @@ function OperatorMobileScanPageContent() {
         supabase,
       );
       resetIdentifyGateForm();
+      setModernPalletWorkspace(false);
       setActiveSlipOrPackage(null);
       setDirectBox(false);
       setActiveTracking(null);
@@ -5925,6 +7232,7 @@ function OperatorMobileScanPageContent() {
         id: row.id,
         pallet_number: row.pallet_number,
         carrier_name: String(row.carrier_name ?? "").trim() || undefined,
+        order_id: String(row.order_id ?? "").trim() || null,
       });
       setCurrentPalletTrackingId(tracking);
       if (typeof opCount === "number" && Number.isFinite(opCount) && opCount > 0) {
@@ -5933,6 +7241,26 @@ function OperatorMobileScanPageContent() {
       } else {
         setPhysicalBoxCount(null);
         setBoxScanTargetDenominator(null);
+      }
+      const resumeCarrier = String(row.carrier_name ?? "").trim();
+      if (resumeCarrier) {
+        const normalized = normalizeCarrierLabel(resumeCarrier);
+        const applied = normalized && normalized !== OTHER_CARRIER_NAME ? normalized : resumeCarrier;
+        if (normalized && normalized !== OTHER_CARRIER_NAME) {
+          setPalletCarrier(normalized);
+          setPalletCarrierOtherSelected(false);
+        } else {
+          setPalletCarrier(resumeCarrier);
+          setPalletCarrierOtherSelected(true);
+        }
+        parentPalletCarrierDefaultRef.current = applied;
+        persistOperatorSessionCarrier(applied);
+      }
+      const resumeOrder = String(row.order_id ?? "").trim();
+      if (resumeOrder) {
+        setPalletOrderId(resumeOrder);
+        setPalletResolvedOrderId(resumeOrder);
+        setPalletDbOrderId(resumeOrder);
       }
       const resumeCid = String(row.created_by ?? "").trim();
       if (resumeCid && isUuidString(resumeCid) && isSupabaseConfigured()) {
@@ -5954,7 +7282,31 @@ function OperatorMobileScanPageContent() {
         setPalletCreatedByProfileId(null);
       }
       const hasShip = palletHasPersistedShipmentDetails(row);
-      setFlowPhase(hasShip ? "package_scan" : "scan");
+      let nextPhase: typeof flowPhase = hasShip ? "package_scan" : "scan";
+      let resumedItemScan = false;
+      if (opts?.packageRow) {
+        hydrateSavedPackageRowIntoBoxIntake(opts.packageRow, { directBox: false });
+        resumedItemScan = Boolean(
+          await maybeResumeItemScanAfterPackageRowRef.current?.(opts.packageRow),
+        );
+        if (!resumedItemScan) nextPhase = "package_scan";
+      } else {
+        const oidResume = orgId.trim();
+        if (oidResume && isUuidString(row.id) && isSupabaseConfigured()) {
+          const pkgRes = await listOperatorPackagesForPalletAction(
+            oidResume,
+            row.id,
+            sessionStoreId ?? null,
+          );
+          if (pkgRes.ok && pkgRes.packages.length > 0) {
+            const pkg0 = pkgRes.packages[0] as unknown as Record<string, unknown>;
+            hydrateSavedPackageRowIntoBoxIntake(pkg0, { directBox: false });
+            resumedItemScan = Boolean(await maybeResumeItemScanAfterPackageRowRef.current?.(pkg0));
+            if (!resumedItemScan && hasShip) nextPhase = "package_scan";
+          }
+        }
+      }
+      if (!resumedItemScan) setFlowPhase(nextPhase);
       if (hasShip && orgId.trim()) {
         try {
           window.sessionStorage.setItem(
@@ -5967,20 +7319,327 @@ function OperatorMobileScanPageContent() {
         setPalletShipmentCommitVersion((v) => v + 1);
       }
       setIsIdentified(true);
-      // Directly map Supabase array columns to local uploader/counter state on search resume.
       setShippingLabelPhotoUrls(hydratedPhotos.shippingLabel);
       setPalletPhotoUrls(hydratedPhotos.pallet);
       setBolPhotoUrls(hydratedPhotos.bol);
+      shippingLabelPhotoUrlsRef.current = [...hydratedPhotos.shippingLabel];
+      palletPhotoUrlsRef.current = [...hydratedPhotos.pallet];
+      bolPhotoUrlsRef.current = [...hydratedPhotos.bol];
+      evidenceBaselineRef.current.shipping = [...hydratedPhotos.shippingLabel];
+      evidenceBaselineRef.current.pallet = [...hydratedPhotos.pallet];
+      evidenceBaselineRef.current.bol = [...hydratedPhotos.bol];
       setPalletDocHydrationNonce((n) => n + 1);
-      const resumeCarrier = String(row.carrier_name ?? "").trim();
-      if (resumeCarrier) {
-        parentPalletCarrierDefaultRef.current = resumeCarrier;
-      }
     },
-    [orgId, resetIdentifyGateForm],
+    [
+      orgId,
+      sessionStoreId,
+      resetIdentifyGateForm,
+      hydrateSavedPackageRowIntoBoxIntake,
+      persistOperatorSessionCarrier,
+    ],
+  );
+
+  const resumeWorkflowFromExistingDirectBoxPackage = useCallback(
+    async (row: Record<string, unknown>, enteredCode: string): Promise<void> => {
+      resetIdentifyGateForm();
+      setModernPalletWorkspace(false);
+      setDirectBox(true);
+      setActivePallet(null);
+      setActiveSlipOrPackage(null);
+      const tracking =
+        String(row.tracking_number ?? row.shipment_tracking_number ?? "").trim() || enteredCode.trim();
+      setActiveTracking(tracking);
+      setCurrentPalletTrackingId(tracking);
+      setPhysicalBoxCount(1);
+      setBoxScanTargetDenominator(1);
+
+      const pkgNum = String(row.package_code ?? row.slip_id ?? row.package_number ?? "").trim();
+      const pkgId = String(row.id ?? "").trim();
+      if (pkgId && isUuidString(pkgId) && pkgNum) {
+        setActiveBoxSession({ barcode: pkgNum, packageId: pkgId });
+        setEditAllMode(false);
+        setPackageCodeCardOpen(false);
+        setCurrentPackageTrackingId(pkgNum);
+        // Pin the hydrate guard to this package so the box-hydrate effect's async fetch
+        // re-affirms (never clears) these arrays for the resumed package.
+        hydrateBoxPackageIdRef.current = pkgId;
+      }
+
+      // Hydrate photo states DIRECTLY from the resumed package row (box columns) + manifest
+      // (direct-box shipment docs). Resolve to viewable URLs so saved storage paths render.
+      const slip = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.slip_photo_urls),
+        supabase,
+      );
+      const outside = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.outside_photo_urls),
+        supabase,
+      );
+      const inside = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(row.inside_photo_urls),
+        supabase,
+      );
+      setSlipBoxPhotoUrls(slip);
+      setOutsideBoxPhotoUrls(outside);
+      setInsideBoxPhotoUrls(inside);
+      slipBoxPhotoUrlsRef.current = [...slip];
+      outsideBoxPhotoUrlsRef.current = [...outside];
+      insideBoxPhotoUrlsRef.current = [...inside];
+      evidenceBaselineRef.current.slip = [...slip];
+      evidenceBaselineRef.current.outside = [...outside];
+      evidenceBaselineRef.current.inside = [...inside];
+
+      let manifestParsed: unknown = row.manifest_data;
+      if (typeof manifestParsed === "string") {
+        try {
+          manifestParsed = JSON.parse(manifestParsed) as unknown;
+        } catch {
+          manifestParsed = null;
+        }
+      }
+      const docs = parseDirectBoxShipmentDocumentation(manifestParsed);
+      const shipUrls = normalizePalletDocumentationImageUrls(docs.shippingLabelUrls, supabase);
+      const bolUrls = normalizePalletDocumentationImageUrls(docs.bolUrls, supabase);
+
+      setShippingLabelPhotoUrls(shipUrls);
+      setBolPhotoUrls(bolUrls);
+      shippingLabelPhotoUrlsRef.current = [...shipUrls];
+      bolPhotoUrlsRef.current = [...bolUrls];
+      evidenceBaselineRef.current.shipping = [...shipUrls];
+      evidenceBaselineRef.current.bol = [...bolUrls];
+      pendingEvidenceStorageDeletesRef.current.clear();
+
+      setBoxNotes(String(row.notes ?? "").trim());
+      const carrierRaw = String((row as { carrier_name?: unknown }).carrier_name ?? docs.carrierName ?? "").trim();
+      if (carrierRaw) {
+        const normalized = normalizeCarrierLabel(carrierRaw);
+        const applied = normalized && normalized !== OTHER_CARRIER_NAME ? normalized : carrierRaw;
+        if (normalized && normalized !== OTHER_CARRIER_NAME) {
+          setPalletCarrier(normalized);
+          setPalletCarrierOtherSelected(false);
+        } else {
+          setPalletCarrier(carrierRaw);
+          setPalletCarrierOtherSelected(true);
+        }
+        persistOperatorSessionCarrier(applied);
+      }
+      const sidRow = String(row.id_slip_contents ?? "").trim();
+      if (sidRow) setBoxSlipCode(sidRow);
+      const rmaRow = String(row.rma_number ?? "").trim();
+      if (rmaRow) setBoxSlipRma(rmaRow);
+      const orderRow = String((row as { order_id?: unknown }).order_id ?? docs.orderId ?? "").trim();
+      if (orderRow) setPalletOrderId(orderRow);
+
+      setFlowPhase("package_scan");
+      setIsIdentified(true);
+      setPalletDocHydrationNonce((n) => n + 1);
+    },
+    [resetIdentifyGateForm, persistOperatorSessionCarrier],
+  );
+
+  const tryDirectPackageDbFallbackResume = useCallback(
+    async (
+      searchedCode: string,
+      extraCandidates: string[] = [],
+    ): Promise<"resumed" | "wrong_store" | "error" | false> => {
+      if (!isSupabaseConfigured() || !sessionStoreId) return false;
+      const primary = searchedCode.trim();
+      if (!primary) return false;
+
+      const candidates = [...new Set([primary, ...extraCandidates.map((s) => String(s ?? "").trim()).filter(Boolean)])];
+
+      for (const candidate of candidates) {
+        const lookup = await findOperatorSavedPackageByCodeOrTrackingAction(
+          orgId,
+          candidate,
+          sessionStoreId,
+        );
+        if (!lookup.ok) {
+          setIdentifyGateError(lookup.error);
+          return "error";
+        }
+        if (lookup.wrongStore) {
+          setIdentifyGateError(
+            lookup.wrongStoreMessage ?? formatUnauthorizedTrackingInStoreMessage(""),
+          );
+          return "wrong_store";
+        }
+
+        const pkg = lookup.package;
+        if (!pkg?.id || !isUuidString(pkg.id)) continue;
+
+        const row = pkg as unknown as Record<string, unknown>;
+        const palletId = String(pkg.pallet_id ?? "").trim();
+        if (palletId && isUuidString(palletId)) {
+          const byId = await findOperatorPalletByIdAction(orgId, palletId, sessionStoreId);
+          if (!byId.ok) {
+            setIdentifyGateError(byId.error);
+            return "error";
+          }
+          if (byId.wrongStore) {
+            setIdentifyGateError(
+              byId.wrongStoreMessage ?? formatUnauthorizedTrackingInStoreMessage(""),
+            );
+            return "wrong_store";
+          }
+          if (byId.pallet) {
+            setIntakeToast("Saved package found — loading pallet shipment...");
+            await resumeWorkflowFromExistingPalletRow(byId.pallet, primary, { packageRow: row });
+            return "resumed";
+          }
+        }
+
+        setIntakeToast("Saved direct box found — loading details...");
+        await resumeWorkflowFromExistingDirectBoxPackage(row, primary);
+        return "resumed";
+      }
+
+      return false;
+    },
+    [
+      orgId,
+      sessionStoreId,
+      resumeWorkflowFromExistingPalletRow,
+      resumeWorkflowFromExistingDirectBoxPackage,
+    ],
+  );
+
+  const tryResumeSavedReceivingContext = useCallback(
+    async (
+      enteredCode: string,
+      gateLookup: ShipmentEntryLookupResult | null,
+    ): Promise<"resumed" | "wrong_store" | "error" | false> => {
+      if (!isSupabaseConfigured() || !sessionStoreId) return false;
+      const trimmed = enteredCode.trim();
+      if (!trimmed) return false;
+
+      const trackingCandidates = [
+        trimmed,
+        gateLookup?.canonical_tracking,
+        gateLookup?.tracking_number,
+      ]
+        .map((s) => String(s ?? "").trim())
+        .filter(Boolean);
+      const uniqueTracking = [...new Set(trackingCandidates)];
+
+      const dbFallbackFirst = await tryDirectPackageDbFallbackResume(trimmed, uniqueTracking);
+      if (dbFallbackFirst !== false) return dbFallbackFirst;
+
+      for (const tn of uniqueTracking) {
+        const dupRes = await findOperatorPalletByTrackingNumberAction(orgId, tn, sessionStoreId);
+        if (!dupRes.ok) {
+          setIdentifyGateError(dupRes.error);
+          return "error";
+        }
+        if (dupRes.wrongStore) {
+          setIdentifyGateError(
+            dupRes.wrongStoreMessage ?? formatUnauthorizedTrackingInStoreMessage(""),
+          );
+          return "wrong_store";
+        }
+        if (dupRes.pallet) {
+          setIntakeToast("Pallet found — loading details...");
+          await resumeWorkflowFromExistingPalletRow(dupRes.pallet, trimmed);
+          return "resumed";
+        }
+      }
+
+      const palletIdFromGate = String(gateLookup?.pallet_id ?? "").trim();
+      if (isUuidString(palletIdFromGate)) {
+        const byId = await findOperatorPalletByIdAction(orgId, palletIdFromGate, sessionStoreId);
+        if (!byId.ok) {
+          setIdentifyGateError(byId.error);
+          return "error";
+        }
+        if (byId.wrongStore) {
+          setIdentifyGateError(
+            byId.wrongStoreMessage ?? formatUnauthorizedTrackingInStoreMessage(""),
+          );
+          return "wrong_store";
+        }
+        if (byId.pallet) {
+          setIntakeToast("Pallet found — loading details...");
+          await resumeWorkflowFromExistingPalletRow(byId.pallet, trimmed);
+          return "resumed";
+        }
+      }
+
+      const barcode = gateLookup?.barcode;
+      let pkgResolve: OperatorResolveResult | null = null;
+      if (barcode?.kind === "package" || barcode?.kind === "slip") {
+        pkgResolve = barcode;
+      } else {
+        // Fallback: resolve any already-saved `packages` row for this code / tracking.
+        // Covers a previously-received direct (single) box reopened by its tracking number,
+        // which the gate classifies as `single_box` (not `found_package`) — without this the
+        // matched-start handler would create a fresh empty box session and drop saved photos.
+        // `resolveOperatorBarcode` matches received package rows only, so genuinely-new
+        // expected shipments return `unknown` and fall through to the normal gate.
+        for (const candidate of [...new Set([trimmed, ...uniqueTracking])]) {
+          const resolved = await resolveOperatorBarcode(supabase, orgId, candidate, {
+            only: "package",
+            storeId: sessionStoreId,
+          });
+          if (resolved.kind === "package" || resolved.kind === "slip") {
+            pkgResolve = resolved;
+            break;
+          }
+        }
+      }
+
+      if (pkgResolve?.kind === "package" || pkgResolve?.kind === "slip") {
+        let pkgRow = pkgResolve.row;
+        const pkgId = String(pkgRow.id ?? "").trim();
+        if (pkgId && isUuidString(pkgId)) {
+          const { data: fullPkg } = await supabase
+            .from("packages")
+            .select(
+              "id, package_code, pallet_id, tracking_number, manifest_data, carrier_name, outside_photo_urls, inside_photo_urls, slip_photo_urls, rma_number, notes, order_id, id_slip_contents",
+            )
+            .eq("id", pkgId)
+            .maybeSingle();
+          if (fullPkg && typeof fullPkg === "object") {
+            pkgRow = fullPkg as Record<string, unknown>;
+          }
+        }
+        const palletId = String(pkgRow.pallet_id ?? "").trim();
+        if (palletId && isUuidString(palletId)) {
+          const byId = await findOperatorPalletByIdAction(orgId, palletId, sessionStoreId);
+          if (!byId.ok) {
+            setIdentifyGateError(byId.error);
+            return "error";
+          }
+          if (byId.wrongStore) {
+            setIdentifyGateError(
+              byId.wrongStoreMessage ?? formatUnauthorizedTrackingInStoreMessage(""),
+            );
+            return "wrong_store";
+          }
+          if (byId.pallet) {
+            setIntakeToast("Pallet shipment found — loading details...");
+            await resumeWorkflowFromExistingPalletRow(byId.pallet, trimmed, { packageRow: pkgRow });
+            return "resumed";
+          }
+        } else {
+          setIntakeToast("Direct box found — loading details...");
+          await resumeWorkflowFromExistingDirectBoxPackage(pkgRow, trimmed);
+          return "resumed";
+        }
+      }
+
+      return false;
+    },
+    [
+      orgId,
+      sessionStoreId,
+      resumeWorkflowFromExistingPalletRow,
+      resumeWorkflowFromExistingDirectBoxPackage,
+      tryDirectPackageDbFallbackResume,
+    ],
   );
 
   resumeFromPalletLookupRef.current = resumeWorkflowFromExistingPalletRow;
+  tryResumeSavedReceivingRef.current = tryResumeSavedReceivingContext;
 
   const initializeUnlistedTrackingBaselineReturnItem = useCallback(
     async (code: string): Promise<boolean> => {
@@ -6012,66 +7671,277 @@ function OperatorMobileScanPageContent() {
     [orgId, sessionStoreId],
   );
 
-  const runIdentifyGatePhotoOcr = useCallback(async (file: File) => {
-    if (identifyGateOcrBusyRef.current) return;
-    if (!isAllowedIdentifyGateImageFile(file)) {
-      setIdentifyGatePhotoOcrToast("Please use a JPG or PNG image.");
-      return;
+  const exitManualEntryMode = useCallback(() => {
+    manualEntryModeRef.current = false;
+    setManualEntryMode(false);
+    setManualOpen(false);
+    const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    active?.blur();
+    window.setTimeout(() => focusScannerAggressive(), 0);
+  }, [focusScannerAggressive]);
+
+  const startManualEntryMode = useCallback((inputRef: RefObject<HTMLInputElement | null>) => {
+    manualEntryModeRef.current = true;
+    setManualEntryMode(true);
+    setManualOpen(true);
+    if (!isIdentified && flowPhase === "scan") {
+      clearPreviousLookupResult({ clearResolvedContext: true });
+    } else {
+      setIdentifyGatePhotoOcrToast(null);
+      setIdentifyGatePhotoOcrCandidates([]);
+      setIdentifyGateSelectedPhotoOcrCandidate(null);
     }
-    identifyGateOcrBusyRef.current = true;
-    setIdentifyGateOcrReading(true);
-    setIdentifyGateOcrProgressPct(0);
-    try {
-      const { createWorker, PSM } = await import("tesseract.js");
-      const worker = await createWorker("eng", undefined, {
-        logger: (m: { progress?: number }) => {
-          if (typeof m.progress === "number" && Number.isFinite(m.progress)) {
-            const pct = Math.round(Math.min(100, Math.max(0, m.progress * 100)));
-            setIdentifyGateOcrProgressPct(pct);
-          }
-        },
-      });
+    setScanLine("");
+    scannerRef.current?.blur();
+    const focusManualInput = () => {
+      if (!manualEntryModeRef.current) return;
+      const el = inputRef.current;
+      if (!el) return;
       try {
-        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-        setIdentifyGateOcrProgressPct((p) => Math.max(p, 2));
-        const ocrSource = await preprocessIdentifyGatePhotoForOcr(file);
-        setIdentifyGateOcrProgressPct((p) => Math.max(p, 6));
-        const { data } = await worker.recognize(ocrSource);
-        setIdentifyGateOcrProgressPct(100);
-        const raw = String(data.text ?? "");
-        const picked = extractStrictIdentifyGateSlipCode(raw);
-        const cleaned = stripIdentifyGateOcrEdges(picked);
-        if (!cleaned.trim()) {
-          setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
-          return;
-        }
-        const conf = typeof data.confidence === "number" ? data.confidence : 0;
-        if (!isIdentifyGateOcrAcceptable(conf, cleaned)) {
-          setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
-          return;
-        }
-        setScanLine(cleaned);
-      } finally {
-        await worker.terminate();
+        el.focus({ preventScroll: true });
+        el.select();
+      } catch {
+        el.focus();
       }
-    } catch (err) {
-      console.warn("Identify gate photo OCR failed", err);
-      setIdentifyGatePhotoOcrToast("Could not read text clearly. Please try manual entry.");
-    } finally {
-      identifyGateOcrBusyRef.current = false;
-      setIdentifyGateOcrReading(false);
-      setIdentifyGateOcrProgressPct(0);
-    }
+    };
+    window.requestAnimationFrame(focusManualInput);
+    window.setTimeout(focusManualInput, 0);
+  }, [clearPreviousLookupResult, flowPhase, isIdentified]);
+
+  const handleManualScanLineChange = useCallback(
+    (nextValue: string) => {
+      if (!isIdentified && flowPhase === "scan") {
+        clearPreviousLookupResult({ clearResolvedContext: true });
+      } else {
+        setIdentifyGatePhotoOcrToast(null);
+        setIdentifyGatePhotoOcrCandidates([]);
+        setIdentifyGateSelectedPhotoOcrCandidate(null);
+      }
+      setScanLine(nextValue);
+    },
+    [clearPreviousLookupResult, flowPhase, isIdentified],
+  );
+
+  const openMoveBoxModal = useCallback(() => {
+    setMoveBoxModalError(null);
+    setMoveBoxTargetDraft("");
+    setMoveBoxModalOpen(true);
+    window.queueMicrotask(() => scheduleFocusScanner());
+  }, [scheduleFocusScanner]);
+
+  const closeMoveBoxModal = useCallback(() => {
+    setMoveBoxModalOpen(false);
+    setMoveBoxModalError(null);
+    setMoveBoxTargetDraft("");
+    scheduleFocusScanner();
+  }, [scheduleFocusScanner]);
+
+  const submitScannedCode = useCallback(
+    async (raw: string, options?: { clearPackageBuffer?: boolean }) => {
+      const code = raw.trim();
+      if (!code) return;
+      if (moveBoxModalOpen) {
+        setMoveBoxTargetDraft(code);
+        scheduleFocusScanner();
+        return;
+      }
+      setLastScannedCode(code);
+      if (!isIdentified && flowPhase === "scan" && awaitingPostCompleteExtraScan) {
+        const tn = postCompleteTrackingRef.current?.trim();
+        setAwaitingPostCompleteExtraScan(false);
+        postCompleteTrackingRef.current = null;
+        if (tn) setActiveTracking(tn);
+        setIsIdentified(true);
+        resetIdentifyGateForm();
+        await runResolve(code);
+        return;
+      }
+      if (!isIdentified && flowPhase === "scan") {
+        clearPreviousLookupResult({ phase: "searching", enteredCode: code, clearResolvedContext: true });
+      } else {
+        setIdentifyGatePhotoOcrToast(null);
+        setIdentifyGatePhotoOcrCandidates([]);
+        setIdentifyGateSelectedPhotoOcrCandidate(null);
+      }
+      if (flowPhase === "package_scan") {
+        try {
+          const ok = await handleBoxIntakeScan(code);
+          if (ok && options?.clearPackageBuffer) {
+            setCurrentPackageTrackingId(null);
+          }
+        } catch (e) {
+          setBoxIntakeError(e instanceof Error ? e.message : "Box scan failed.");
+        }
+        return;
+      }
+      if (flowPhase === "items") {
+        await handleItemBarcodeScan(code);
+        return;
+      }
+      if (!isIdentified && flowPhase === "scan") {
+        await runIdentificationGateSearch(code);
+        return;
+      }
+      await runResolve(code);
+    },
+    [
+      flowPhase,
+      isIdentified,
+      awaitingPostCompleteExtraScan,
+      handleBoxIntakeScan,
+      handleItemBarcodeScan,
+      runIdentificationGateSearch,
+      runResolve,
+      resetIdentifyGateForm,
+      clearPreviousLookupResult,
+    ],
+  );
+
+  const onSubmitScan = useCallback(
+    async (e?: FormEvent) => {
+      e?.preventDefault();
+      const packageScanBoxBufferOpen = packageScanUsesHiddenCartonBuffer;
+      const code = packageScanBoxBufferOpen ? (currentPackageTrackingId ?? "").trim() : scanLine.trim();
+      if (packageScanBoxBufferOpen) {
+        // Keep the value visible until the box handler accepts it and clears via submitScannedCode.
+      } else {
+        setScanLine("");
+      }
+      if (manualEntryMode) exitManualEntryMode();
+      await submitScannedCode(code, { clearPackageBuffer: packageScanBoxBufferOpen });
+      scheduleFocusScanner();
+    },
+    [
+      scanLine,
+      currentPackageTrackingId,
+      packageScanUsesHiddenCartonBuffer,
+      manualEntryMode,
+      exitManualEntryMode,
+      submitScannedCode,
+      scheduleFocusScanner,
+    ],
+  );
+
+  const submitScanCaptureInput = useCallback(
+    async (raw: string) => {
+      const code = raw.trim();
+      setScanCaptureLine("");
+      if (!code) {
+        scheduleFocusScanner();
+        return;
+      }
+      await submitScannedCode(code);
+      scheduleFocusScanner();
+    },
+    [scheduleFocusScanner, submitScannedCode],
+  );
+
+  const resetIdentifyGatePhotoFileInputs = useCallback(() => {
+    if (identifyGateCameraCaptureRef.current) identifyGateCameraCaptureRef.current.value = "";
+    if (identifyGateCameraUploadRef.current) identifyGateCameraUploadRef.current.value = "";
   }, []);
+
+  const focusHiddenScannerAfterPhotoScan = useCallback(() => {
+    window.setTimeout(() => {
+      if (manualEntryModeRef.current) return;
+      const el = scannerRef.current;
+      if (!el) return;
+      try {
+        el.focus({ preventScroll: true });
+      } catch {
+        el.focus();
+      }
+    }, 0);
+  }, []);
+
+  const clearIdentifyGatePhotoOcrCandidates = useCallback(() => {
+    setIdentifyGatePhotoOcrToast(null);
+    setIdentifyGatePhotoOcrCandidates([]);
+    setIdentifyGateSelectedPhotoOcrCandidate(null);
+    focusHiddenScannerAfterPhotoScan();
+  }, [focusHiddenScannerAfterPhotoScan]);
+
+  const applyIdentifyGatePhotoOcrCandidate = useCallback(async () => {
+    const candidate = (identifyGateSelectedPhotoOcrCandidate ?? identifyGatePhotoOcrCandidates[0] ?? "").trim();
+    if (!candidate) return;
+    setIdentifyGatePhotoOcrCandidates([]);
+    setIdentifyGateSelectedPhotoOcrCandidate(null);
+    await submitScannedCode(candidate);
+    scheduleFocusScanner();
+  }, [
+    identifyGatePhotoOcrCandidates,
+    identifyGateSelectedPhotoOcrCandidate,
+    scheduleFocusScanner,
+    submitScannedCode,
+  ]);
+
+  const retryIdentifyGatePhotoOcr = useCallback(() => {
+    clearPreviousLookupResult({ clearResolvedContext: true });
+    setIdentifyGateOcrMenuOpen(true);
+    focusHiddenScannerAfterPhotoScan();
+  }, [clearPreviousLookupResult, focusHiddenScannerAfterPhotoScan]);
+
+  const startManualEntryFromPhotoOcrCandidate = useCallback(() => {
+    clearPreviousLookupResult({ clearResolvedContext: true });
+    startManualEntryMode(gateManualInputRef);
+  }, [clearPreviousLookupResult, startManualEntryMode]);
+
+  const decodeAndSubmitIdentifyGatePhotoBarcode = useCallback(
+    async (file: File) => {
+      if (identifyGateOcrBusyRef.current) return;
+      clearPreviousLookupResult({ clearResolvedContext: true });
+      if (!isAllowedIdentifyGateImageFile(file)) {
+        setIdentifyGatePhotoOcrToast("Please use a JPG or PNG image.");
+        resetIdentifyGatePhotoFileInputs();
+        focusHiddenScannerAfterPhotoScan();
+        return;
+      }
+
+      identifyGateOcrBusyRef.current = true;
+      manualEntryModeRef.current = false;
+      setManualEntryMode(false);
+      setManualOpen(false);
+      setIdentifyGateOcrReading(true);
+      setIdentifyGateOcrProgressPct(0);
+
+      try {
+        const result = await detectBarcodeFromImageFile(file);
+        setIdentifyGateOcrProgressPct(100);
+
+        if (result.status === "detected") {
+          await submitScannedCode(result.value);
+          return;
+        }
+
+        if (result.status === "ocr_candidates") {
+          setIdentifyGatePhotoOcrToast(null);
+          setIdentifyGatePhotoOcrCandidates(result.candidates);
+          setIdentifyGateSelectedPhotoOcrCandidate(result.candidates[0] ?? null);
+          return;
+        }
+
+        setIdentifyGatePhotoOcrToast(
+          "No package, tracking, or shipment code found. Capture the label/code area or use Manual Entry.",
+        );
+      } finally {
+        identifyGateOcrBusyRef.current = false;
+        setIdentifyGateOcrReading(false);
+        setIdentifyGateOcrProgressPct(0);
+        resetIdentifyGatePhotoFileInputs();
+        focusHiddenScannerAfterPhotoScan();
+      }
+    },
+    [clearPreviousLookupResult, focusHiddenScannerAfterPhotoScan, resetIdentifyGatePhotoFileInputs, submitScannedCode],
+  );
 
   const onIdentifyGateOcrFileInputChange = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
       const input = e.currentTarget;
       const file = input.files?.[0];
       input.value = "";
-      if (file) await runIdentifyGatePhotoOcr(file);
+      if (file) await decodeAndSubmitIdentifyGatePhotoBarcode(file);
     },
-    [runIdentifyGatePhotoOcr],
+    [decodeAndSubmitIdentifyGatePhotoBarcode],
   );
 
   const onIdentifyGateScanZoneDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
@@ -6093,69 +7963,65 @@ function OperatorMobileScanPageContent() {
       e.preventDefault();
       e.stopPropagation();
       setIdentifyGateOcrDropHighlight(false);
-      const f = e.dataTransfer.files?.[0];
-      if (f) await runIdentifyGatePhotoOcr(f);
+      const file = e.dataTransfer.files?.[0];
+      if (file) await decodeAndSubmitIdentifyGatePhotoBarcode(file);
     },
-    [runIdentifyGatePhotoOcr],
+    [decodeAndSubmitIdentifyGatePhotoBarcode],
   );
 
-  const onSubmitScan = useCallback(
-    async (e?: FormEvent) => {
-      e?.preventDefault();
-      const packageScanBoxBufferOpen = packageScanUsesHiddenCartonBuffer;
-      let code = "";
-      if (packageScanBoxBufferOpen) {
-        code = (currentPackageTrackingId ?? "").trim();
-      } else {
-        code = scanLine.trim();
-        setScanLine("");
+  useEffect(() => {
+    const clearBufferedScan = () => {
+      scanBufferRef.current = "";
+      if (scanBufferClearTimerRef.current !== null) {
+        window.clearTimeout(scanBufferClearTimerRef.current);
+        scanBufferClearTimerRef.current = null;
       }
-      if (!isIdentified && flowPhase === "scan" && awaitingPostCompleteExtraScan) {
-        const tn = postCompleteTrackingRef.current?.trim();
-        setAwaitingPostCompleteExtraScan(false);
-        postCompleteTrackingRef.current = null;
-        if (tn) setActiveTracking(tn);
-        setIsIdentified(true);
-        resetIdentifyGateForm();
-        await runResolve(code);
-        return;
+    };
+
+    const onDocumentKeyDown = (e: KeyboardEvent) => {
+      if (manualOpen || manualEntryMode || manualEntryModeRef.current || modalOpenRef.current || !laserEnabled) return;
+      if (busy && flowPhase !== "items") return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+      if (active && active !== document.body) {
+        const tag = active.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable) return;
       }
-      if (flowPhase === "package_scan") {
-        try {
-          const ok = await handleBoxIntakeScan(code);
-          if (ok && packageScanBoxBufferOpen) {
-            setCurrentPackageTrackingId(null);
-          }
-        } catch (e) {
-          setBoxIntakeError(e instanceof Error ? e.message : "Box scan failed.");
+
+      if (e.key === "Enter") {
+        const buffered = scanBufferRef.current.trim();
+        clearBufferedScan();
+        if (buffered) {
+          e.preventDefault();
+          void submitScannedCode(buffered, { clearPackageBuffer: packageScanUsesHiddenCartonBuffer });
         }
         return;
       }
-      if (flowPhase === "items") {
-        await handleItemBarcodeScan(code);
+
+      if (
+        e.key === "Shift" ||
+        e.key === "Alt" ||
+        e.key === "Control" ||
+        e.key === "Meta" ||
+        e.key === "Tab" ||
+        e.key === "Escape" ||
+        e.key.length !== 1
+      ) {
         return;
       }
-      if (!isIdentified && flowPhase === "scan") {
-        await runIdentificationGateSearch(code);
-        return;
-      }
-      await runResolve(code);
-    },
-    [
-      scanLine,
-      currentPackageTrackingId,
-      activeBoxSession,
-      packageScanUsesHiddenCartonBuffer,
-      flowPhase,
-      isIdentified,
-      awaitingPostCompleteExtraScan,
-      handleBoxIntakeScan,
-      handleItemBarcodeScan,
-      runIdentificationGateSearch,
-      runResolve,
-      resetIdentifyGateForm,
-    ],
-  );
+
+      scanBufferRef.current += e.key;
+      if (scanBufferClearTimerRef.current !== null) window.clearTimeout(scanBufferClearTimerRef.current);
+      scanBufferClearTimerRef.current = window.setTimeout(clearBufferedScan, 650);
+    };
+
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onDocumentKeyDown);
+      clearBufferedScan();
+    };
+  }, [manualOpen, manualEntryMode, laserEnabled, busy, flowPhase, packageScanUsesHiddenCartonBuffer, submitScannedCode]);
 
   const closeUnknown = useCallback(() => {
     setUnknownModal(null);
@@ -6182,9 +8048,10 @@ function OperatorMobileScanPageContent() {
     setActivePallet(null);
     setActiveSlipOrPackage(null);
     setActiveTracking(code);
-    setDirectBox(false);
+    setDirectBox(true);
     setBoxNotes("");
     setActiveBoxSession({ barcode: code, packageId: null });
+    setCurrentPalletTrackingId(code);
     setCurrentPackageTrackingId(code);
     setFlowPhase("package_scan");
     scheduleFocusScanner();
@@ -6271,19 +8138,107 @@ function OperatorMobileScanPageContent() {
     [orgId, sessionStoreId],
   );
 
+  const hydrateMatchedShipmentPalletDraft = useCallback(
+    (effectiveTracking: string, lastResolve: OperatorResolveResult | null) => {
+      const barcodeRow = recordFromResolveResult(lastResolve);
+      const detailRows = identifyGateRows;
+      const lineRows = identifyGateShipmentLines as unknown as Record<string, unknown>[];
+      const lookupRows = [...lineRows, ...detailRows, barcodeRow].filter(Boolean) as Record<string, unknown>[];
+
+      const trackingCandidate = firstNonEmptyString([
+        effectiveTracking,
+        identifyGateCanonicalTracking,
+        firstRecordString(lookupRows, ["tracking_number", "shipment_tracking_number"]),
+        identifyGateEnteredCode,
+      ]);
+      if (trackingCandidate) setCurrentPalletTrackingId(trackingCandidate);
+
+      const carrierRaw = firstNonEmptyString([
+        identifyGateViewHints?.carrier,
+        firstRecordString(lookupRows, [
+          "carrier_name",
+          "carrier",
+          "carrier_code",
+          "scac",
+          "scac_code",
+        ]),
+      ]);
+      if (carrierRaw && !palletCarrierRef.current.trim()) {
+        const normalized = normalizeCarrierLabel(carrierRaw);
+        const applied = normalized && normalized !== OTHER_CARRIER_NAME ? normalized : carrierRaw;
+        if (normalized && normalized !== OTHER_CARRIER_NAME) {
+          setPalletCarrierOtherSelected(false);
+          setPalletCarrier(normalized);
+        } else {
+          setPalletCarrierOtherSelected(true);
+          setPalletCarrier(carrierRaw);
+        }
+        parentPalletCarrierDefaultRef.current = applied;
+        persistOperatorSessionCarrier(applied);
+        mergeCarrierIntoActivePalletState(applied);
+      }
+
+      const orderCandidate = firstRecordString(lookupRows, [
+        "order_id",
+        "amazon_order_id",
+        "amazonOrderId",
+        "purchase_order_id",
+      ]);
+      if (orderCandidate && !palletOrderIdRef.current.trim()) {
+        setPalletOrderId(orderCandidate);
+        setPalletResolvedOrderId(orderCandidate);
+        lastOrderIdAutoFilledFromRaRef.current = null;
+      }
+
+      const activityIso = firstRecordString(lookupRows, [
+        "shipment_date",
+        "received_date",
+        "receive_date",
+        "created_at",
+        "updated_at",
+      ]);
+      if (activityIso) {
+        setPalletCreatedAtIso((prev) => prev ?? activityIso);
+      }
+
+      const expectedPackageCount = countLookupExpectedPackages(
+        identifyGateShipmentLines,
+        detailRows,
+        identifyGateInventoryAgg?.rowCount ?? null,
+      );
+      if (expectedPackageCount != null && expectedPackageCount > 0 && identifyGateEntity !== "pallet") {
+        setPhysicalBoxCount(expectedPackageCount);
+        setBoxScanTargetDenominator(expectedPackageCount);
+      }
+    },
+    [
+      identifyGateCanonicalTracking,
+      identifyGateEnteredCode,
+      identifyGateEntity,
+      identifyGateInventoryAgg?.rowCount,
+      identifyGateRows,
+      identifyGateShipmentLines,
+      identifyGateViewHints?.carrier,
+      mergeCarrierIntoActivePalletState,
+      persistOperatorSessionCarrier,
+    ],
+  );
+
   const handleIdentifyMatchedStartWorkflow = useCallback(async () => {
     if (identifyGatePhase !== "matched" || !identifyGateEntity) return;
     if (identifyGateInventoryVisual === "completed") return;
     const tracking = (identifyGateCanonicalTracking ?? identifyGateEnteredCode).trim();
     if (!tracking) return;
 
+    if (identifyGateEntity === "pallet") setDirectBox(false);
+
     const orderIdFromGate = (): string | null => {
       for (const r of identifyGateShipmentLines) {
-        const o = r.order_id?.trim();
+        const o = firstRecordString([r as unknown as Record<string, unknown>], ["order_id", "amazon_order_id"]);
         if (o) return o;
       }
       for (const r of identifyGateRows) {
-        const o = String((r as { order_id?: unknown }).order_id ?? "").trim();
+        const o = firstRecordString([r], ["order_id", "amazon_order_id", "amazonOrderId"]);
         if (o) return o;
       }
       return null;
@@ -6318,6 +8273,24 @@ function OperatorMobileScanPageContent() {
     setBusy(true);
     try {
       const code = identifyGateEnteredCode.trim() || tracking;
+      if (isSupabaseConfigured() && sessionStoreId) {
+        const dbResume = await tryDirectPackageDbFallbackResume(code, [
+          tracking,
+          identifyGateCanonicalTracking ?? "",
+        ]);
+        if (dbResume === "resumed") {
+          playOperatorSuccessBeep();
+          setIdentifyGateGlowFlash(true);
+          await new Promise((r) => window.setTimeout(r, 400));
+          setIdentifyGateGlowFlash(false);
+          setIsIdentified(true);
+          setPalletDocHydrationNonce((n) => n + 1);
+          resetIdentifyGateForm();
+          return;
+        }
+        if (dbResume === "wrong_store" || dbResume === "error") return;
+      }
+
       let applied = false;
       let lastResolve: OperatorResolveResult | null = null;
       const resolveOnly: OperatorResolveKind | undefined =
@@ -6350,6 +8323,14 @@ function OperatorMobileScanPageContent() {
       if (applied && lastResolve?.kind === "pallet") {
         const rowTn = String(lastResolve.row.tracking_number ?? "").trim();
         setCurrentPalletTrackingId(tracking || rowTn || null);
+        setDirectBox(false);
+      }
+      if (
+        applied &&
+        (lastResolve?.kind === "package" || lastResolve?.kind === "slip") &&
+        String(lastResolve.row.pallet_id ?? "").trim()
+      ) {
+        setDirectBox(false);
       }
 
       let effectiveTracking = tracking;
@@ -6360,62 +8341,85 @@ function OperatorMobileScanPageContent() {
       if (shipContinueVisual) {
         setModernPalletWorkspace(false);
         setActiveSlipOrPackage(null);
-        setActiveTracking(null);
-        setCurrentPalletTrackingId(effectiveTracking);
-        setDirectBox(false);
-        // No DB write here — receiving pallet row is created on first Confirm & Save / pallet shipment commit.
-        setActivePallet(null);
-        if (isSupabaseConfigured() && sessionStoreId) {
-          const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, effectiveTracking);
-          if (snap.rawRowCount > 0) {
-            setPhysicalBoxCount(snap.rawRowCount);
-            setBoxScanTargetDenominator(snap.rawRowCount);
-          }
-        } else {
-          const snap = mockTrackingExpectationSnapshot(effectiveTracking);
-          if (snap.rawRowCount > 0) {
-            setPhysicalBoxCount(snap.rawRowCount);
-            setBoxScanTargetDenominator(snap.rawRowCount);
+        const pkgRow =
+          lastResolve?.kind === "package" || lastResolve?.kind === "slip" ? lastResolve.row : null;
+        const pkgPalletId = String(pkgRow?.pallet_id ?? "").trim();
+        let resumedPalletPackage = false;
+        if (
+          pkgPalletId &&
+          isUuidString(pkgPalletId) &&
+          isSupabaseConfigured() &&
+          sessionStoreId
+        ) {
+          const byId = await findOperatorPalletByIdAction(orgId, pkgPalletId, sessionStoreId);
+          if (byId.ok && byId.pallet) {
+            setDirectBox(false);
+            setActiveTracking(null);
+            setActivePallet({
+              id: byId.pallet.id,
+              pallet_number: byId.pallet.pallet_number,
+              carrier_name: String(byId.pallet.carrier_name ?? "").trim() || undefined,
+            });
+            setCurrentPalletTrackingId(
+              String(byId.pallet.tracking_number ?? "").trim() || effectiveTracking,
+            );
+            if (pkgRow) hydrateSavedPackageRowIntoBoxIntake(pkgRow, { directBox: false });
+            setFlowPhase("package_scan");
+            setPalletDocHydrationNonce((n) => n + 1);
+            resumedPalletPackage = true;
           }
         }
-        setFlowPhase("package_scan");
-      } else {
-        setModernPalletWorkspace(true);
-        if (identifyGateEntity === "single_box") {
-          setActiveSlipOrPackage(null);
-          setDirectBox(false);
-          setPhysicalBoxCount(1);
-          setBoxScanTargetDenominator(1);
-          if (!isSupabaseConfigured() || !sessionStoreId) {
-            setActivePallet({
-              id: crypto.randomUUID(),
-              pallet_number: `RCV-${effectiveTracking.replace(/\s+/g, "").slice(0, 48) || "BOX"}`,
-            });
-            setActiveTracking(null);
-            setCurrentPalletTrackingId(effectiveTracking);
-            setFlowPhase("scan");
-          } else {
-            const receivingPallet = await ensureReceivingPalletForTracking(effectiveTracking, orderId);
-            if (receivingPallet && "blocked" in receivingPallet) {
-              setSyncErrorToast(receivingPallet.message);
-              return;
+        if (!resumedPalletPackage) {
+          const dbResumeShip = await tryDirectPackageDbFallbackResume(effectiveTracking, [
+            code,
+            tracking,
+            identifyGateCanonicalTracking ?? "",
+          ]);
+          if (dbResumeShip === "resumed") {
+            playOperatorSuccessBeep();
+            setIdentifyGateGlowFlash(true);
+            await new Promise((r) => window.setTimeout(r, 400));
+            setIdentifyGateGlowFlash(false);
+            setIsIdentified(true);
+            setPalletDocHydrationNonce((n) => n + 1);
+            resetIdentifyGateForm();
+            return;
+          }
+          if (dbResumeShip === "wrong_store" || dbResumeShip === "error") return;
+
+          setActiveTracking(effectiveTracking);
+          setCurrentPalletTrackingId(effectiveTracking);
+          setDirectBox(true);
+          setActivePallet(null);
+          if (isSupabaseConfigured() && sessionStoreId) {
+            const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, effectiveTracking);
+            if (snap.rawRowCount > 0) {
+              setPhysicalBoxCount(snap.rawRowCount);
+              setBoxScanTargetDenominator(snap.rawRowCount);
             }
-            if (receivingPallet) {
-              setActivePallet({
-                id: receivingPallet.id,
-                pallet_number: receivingPallet.pallet_number,
-                order_id: orderId,
-              });
-              setActiveTracking(null);
-              setCurrentPalletTrackingId(effectiveTracking);
-              setFlowPhase("scan");
-            } else {
-              setActivePallet(null);
-              setActiveTracking(effectiveTracking);
-              setCurrentPalletTrackingId(effectiveTracking);
-              setFlowPhase("scan");
+          } else {
+            const snap = mockTrackingExpectationSnapshot(effectiveTracking);
+            if (snap.rawRowCount > 0) {
+              setPhysicalBoxCount(snap.rawRowCount);
+              setBoxScanTargetDenominator(snap.rawRowCount);
             }
           }
+          setFlowPhase("package_scan");
+        }
+      } else {
+        setModernPalletWorkspace(false);
+        if (identifyGateEntity === "single_box") {
+          setActiveSlipOrPackage(null);
+          setDirectBox(true);
+          setPhysicalBoxCount(1);
+          setBoxScanTargetDenominator(1);
+          setActivePallet(null);
+          setActiveTracking(effectiveTracking);
+          setCurrentPalletTrackingId(effectiveTracking);
+          setBoxNotes("");
+          setActiveBoxSession({ barcode: code, packageId: null });
+          setCurrentPackageTrackingId(code);
+          setFlowPhase("package_scan");
         } else {
           if (!applied) {
             setActivePallet(null);
@@ -6426,6 +8430,7 @@ function OperatorMobileScanPageContent() {
             setFlowPhase("scan");
           }
         }
+        hydrateMatchedShipmentPalletDraft(effectiveTracking, lastResolve);
       }
 
       playOperatorSuccessBeep();
@@ -6454,6 +8459,8 @@ function OperatorMobileScanPageContent() {
     orgId,
     applyResult,
     ensureReceivingPalletForTracking,
+    hydrateMatchedShipmentPalletDraft,
+    hydrateSavedPackageRowIntoBoxIntake,
     scheduleFocusScanner,
     resetIdentifyGateForm,
   ]);
@@ -6481,19 +8488,33 @@ function OperatorMobileScanPageContent() {
         setBoxScanTargetDenominator(null);
       }
       setActiveSlipOrPackage(null);
-      if (identifyGateEntity === "pallet" || identifyGateEntity === "single_box") {
+      if (identifyGateEntity === "pallet") {
         setActivePallet({ id: `local-${crypto.randomUUID()}`, pallet_number: code });
         setPalletCreatedAtIso(new Date().toISOString());
-        setActiveTracking(null);
+        setActiveTracking(code.trim());
         setCurrentPalletTrackingId(code.trim());
         setDirectBox(false);
-        setModernPalletWorkspace(true);
+        setModernPalletWorkspace(false);
         setFlowPhase("scan");
+      } else if (identifyGateEntity === "single_box") {
+        setActivePallet(null);
+        setActiveTracking(code);
+        setCurrentPalletTrackingId(code.trim());
+        setDirectBox(true);
+        setBoxNotes("");
+        setModernPalletWorkspace(false);
+        setActiveBoxSession({ barcode: code.trim(), packageId: null });
+        setCurrentPackageTrackingId(code.trim());
+        setFlowPhase("package_scan");
       } else if (identifyGateEntity === "package") {
         setActivePallet(null);
         setActiveTracking(code);
         setDirectBox(true);
+        setCurrentPalletTrackingId(code.trim());
         setModernPalletWorkspace(false);
+        setBoxNotes("");
+        setActiveBoxSession({ barcode: code.trim(), packageId: null });
+        setCurrentPackageTrackingId(code.trim());
         setFlowPhase("package_scan");
       } else {
         setActivePallet(null);
@@ -6513,6 +8534,20 @@ function OperatorMobileScanPageContent() {
       return;
     }
 
+    if (
+      isSupabaseConfigured() &&
+      (identifyGateEntity === "single_box" || identifyGateEntity === "package")
+    ) {
+      const dbResumeNew = await tryDirectPackageDbFallbackResume(code, []);
+      if (dbResumeNew === "resumed") {
+        setIsIdentified(true);
+        resetIdentifyGateForm();
+        scheduleFocusScanner();
+        return;
+      }
+      if (dbResumeNew === "wrong_store" || dbResumeNew === "error") return;
+    }
+
     setBusy(true);
     try {
       const baselineReady = await initializeUnlistedTrackingBaselineReturnItem(code);
@@ -6521,7 +8556,7 @@ function OperatorMobileScanPageContent() {
       setBusy(false);
     }
 
-    if (identifyGateEntity === "pallet" || identifyGateEntity === "single_box") {
+    if (identifyGateEntity === "pallet") {
       if (boxN != null) {
         setPhysicalBoxCount(boxN);
         setBoxScanTargetDenominator(boxN);
@@ -6532,11 +8567,30 @@ function OperatorMobileScanPageContent() {
       setActiveSlipOrPackage(null);
       setActivePallet({ id: `local-${crypto.randomUUID()}`, pallet_number: code });
       setPalletCreatedAtIso(new Date().toISOString());
-      setActiveTracking(null);
+      setActiveTracking(code.trim());
       setCurrentPalletTrackingId(code.trim());
       setDirectBox(false);
-      setModernPalletWorkspace(true);
+      setModernPalletWorkspace(false);
       setFlowPhase("scan");
+      setIsIdentified(true);
+      resetIdentifyGateForm();
+      scheduleFocusScanner();
+      return;
+    }
+
+    if (identifyGateEntity === "single_box") {
+      setPhysicalBoxCount(1);
+      setBoxScanTargetDenominator(1);
+      setActiveSlipOrPackage(null);
+      setActivePallet(null);
+      setActiveTracking(code);
+      setCurrentPalletTrackingId(code.trim());
+      setDirectBox(true);
+      setBoxNotes("");
+      setModernPalletWorkspace(false);
+      setActiveBoxSession({ barcode: code.trim(), packageId: null });
+      setCurrentPackageTrackingId(code.trim());
+      setFlowPhase("package_scan");
       setIsIdentified(true);
       resetIdentifyGateForm();
       scheduleFocusScanner();
@@ -6554,7 +8608,8 @@ function OperatorMobileScanPageContent() {
         setActivePallet(null);
         setActiveSlipOrPackage(null);
         setActiveTracking(code);
-        setDirectBox(false);
+        setCurrentPalletTrackingId(code.trim());
+        setDirectBox(true);
         setBoxNotes("");
         setModernPalletWorkspace(false);
         setActiveBoxSession({ barcode: code.trim(), packageId: null });
@@ -6589,6 +8644,7 @@ function OperatorMobileScanPageContent() {
     initializeUnlistedTrackingBaselineReturnItem,
     scheduleFocusScanner,
     resetIdentifyGateForm,
+    tryDirectPackageDbFallbackResume,
   ]);
 
   const handleIdentificationGatePrimaryCta = useCallback(() => {
@@ -7066,6 +9122,15 @@ function OperatorMobileScanPageContent() {
         pallet_number: created.pallet_number,
         carrier_name: carrierToPersist,
       });
+    } else {
+      const palletNumForPersist =
+        (activePallet?.pallet_number ?? "").trim() || tracking || palletId;
+      setActivePallet({
+        id: palletId,
+        pallet_number: palletNumForPersist,
+        carrier_name: carrierToPersist,
+        order_id: activePallet?.order_id ?? null,
+      });
     }
 
     const persisted = await commitOperatorPalletShipmentStepAction({
@@ -7180,6 +9245,52 @@ function OperatorMobileScanPageContent() {
   const showShipmentEntryEditAllInHeader =
     showShipmentEntryEditAll && !operatorSavedBoxesHubVisible;
 
+  const correctionSavedPackageId = useMemo(() => {
+    const fromBox = (activeBoxSession?.packageId ?? "").trim();
+    if (flowPhase === "package_scan" && isUuidString(fromBox)) return fromBox;
+    const fromItems = (itemScanPackageId ?? "").trim();
+    if (flowPhase === "items" && isUuidString(fromItems)) return fromItems;
+    return null;
+  }, [flowPhase, activeBoxSession?.packageId, itemScanPackageId]);
+
+  const correctionPackageLabel = useMemo(() => {
+    if (!correctionSavedPackageId) return "";
+    const row = palletPackagePickerList.find((p) => p.id === correctionSavedPackageId);
+    return (
+      (row?.package_code ?? "").trim() ||
+      (activeBoxSession?.barcode ?? "").trim() ||
+      (itemScanPackageLabel ?? "").trim() ||
+      correctionSavedPackageId
+    );
+  }, [
+    correctionSavedPackageId,
+    palletPackagePickerList,
+    activeBoxSession?.barcode,
+    itemScanPackageLabel,
+  ]);
+
+  const showCorrectionResetEntry = useMemo(() => {
+    if (!editAllMode) return false;
+    if (flowPhase === "package_scan") {
+      if (activeBoxSession && !isUuidString((activeBoxSession.packageId ?? "").trim())) return true;
+      if (packageCodeCardOpen && !activeBoxSession) return true;
+    }
+    if (flowPhase === "scan" && parentIdentified && isInitialDraftShipmentUx) return true;
+    return false;
+  }, [
+    editAllMode,
+    flowPhase,
+    activeBoxSession,
+    packageCodeCardOpen,
+    parentIdentified,
+    isInitialDraftShipmentUx,
+  ]);
+
+  const showCorrectionMoveBox =
+    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.moveBox;
+  const showCorrectionVoidBox =
+    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.voidBox;
+
   const handleConfirmStartBoxScan = useCallback(async () => {
     if (!parentIdentified) {
       setSyncErrorToast("Identify the pallet barcode first.");
@@ -7265,6 +9376,7 @@ function OperatorMobileScanPageContent() {
       setEditAllMode(false);
       setScanLine("");
       setCurrentPackageTrackingId(null);
+      setDirectBox(false);
       setFlowPhase("package_scan");
       setPalletDocHydrationNonce((n) => n + 1);
     } finally {
@@ -7285,6 +9397,14 @@ function OperatorMobileScanPageContent() {
   ]);
   const boxScanDocumentationLocked =
     flowPhase === "package_scan" && parentIdentified && !activeBoxSession;
+  const showBoxIntakeShipmentDocumentation =
+    flowPhase === "package_scan" && directBox;
+  const directBoxShipmentLabelUploaded = shippingLabelPhotoUrls.some(
+    (u) => String(u ?? "").trim().length > 0,
+  );
+  const directBoxShipmentDocsSubtitle = directBoxShipmentLabelUploaded
+    ? "Shipment documents saved"
+    : "Required for direct box intake";
   /** BOX intake reference fields: Order / RMA / notes — locked for saved UUID boxes until Edit All; editable for drafts. */
   const boxIntakeReferenceEditable =
     !activeBoxSession
@@ -7298,6 +9418,8 @@ function OperatorMobileScanPageContent() {
     !boxSlipVisionBusy &&
     !boxSlipInvalidFormatBlocksSave &&
     Boolean(palletCarrier.trim()) &&
+    (!showBoxIntakeShipmentDocumentation ||
+      shippingLabelPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) &&
     slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0) &&
     (!isSupabaseConfigured() || Boolean(sessionStoreId)) &&
     !duplicatePackingSlip;
@@ -7467,6 +9589,11 @@ function OperatorMobileScanPageContent() {
         return;
       }
       setBoxIntakeError(null);
+      if (operatorPackageShouldResumeItemScan(p)) {
+        void maybeResumeItemScanAfterPackageRowRef.current?.(p as unknown as Record<string, unknown>);
+        palletPackageSearchInputRef.current?.blur();
+        return;
+      }
       const o = parsePalletPhotoUrlArray(p.outside_photo_urls);
       const ins = parsePalletPhotoUrlArray(p.inside_photo_urls);
       const s = parsePalletPhotoUrlArray(p.slip_photo_urls);
@@ -7512,8 +9639,7 @@ function OperatorMobileScanPageContent() {
           const pkgOidPick = String(p.order_id ?? "").trim();
           const refPick = referenceOrderIdForPackageFieldAfterSlipLoad(normPick, pkgOidPick);
           if (refPick != null) {
-            setPalletOrderId(refPick);
-            lastOrderIdAutoFilledFromRaRef.current = null;
+            applySlipOrderIdIfEmpty(refPick);
           } else if (firstRma) {
             applyPalletOrderIdFromRaIfApplicable(firstRma);
           }
@@ -7524,14 +9650,20 @@ function OperatorMobileScanPageContent() {
       }
       setIntakeToast("Loaded saved box — review photos and slip lines, then save.");
       palletPackageSearchInputRef.current?.blur();
-      scannerRef.current?.blur();
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           operatorMobileMainScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
         });
       });
     },
-    [activeBoxSession, orgId, clearBoxSlipVisionLinesState, commitBoxSlipVisionLinesFromSource, applyPalletOrderIdFromRaIfApplicable],
+    [
+      activeBoxSession,
+      orgId,
+      clearBoxSlipVisionLinesState,
+      commitBoxSlipVisionLinesFromSource,
+      applyPalletOrderIdFromRaIfApplicable,
+      applySlipOrderIdIfEmpty,
+    ],
   );
 
   const closeActiveBoxPackageSession = useCallback(() => {
@@ -7559,19 +9691,340 @@ function OperatorMobileScanPageContent() {
     setDuplicatePackingSlip(null);
     setBoxSlipInvalidFormatBlocksSave(false);
     hydrateBoxPackageIdRef.current = null;
-    setOutsideBoxPhotoUrls([]);
-    setInsideBoxPhotoUrls([]);
-    setSlipBoxPhotoUrls([]);
-    slipBoxPhotoUrlsRef.current = [];
-    outsideBoxPhotoUrlsRef.current = [];
-    insideBoxPhotoUrlsRef.current = [];
+    clearOperatorPhotoArrays(["outside", "inside", "slip"]);
     setBoxSlipCode("");
     setBoxSlipRma("");
     clearPalletOrderIdIfAutoFilledFromRa();
     clearBoxSlipVisionLinesState();
     setBoxNotes("");
     scheduleFocusScanner();
-  }, [scheduleFocusScanner, clearBoxSlipVisionLinesState, orgId, clearPalletOrderIdIfAutoFilledFromRa]);
+  }, [
+    scheduleFocusScanner,
+    clearBoxSlipVisionLinesState,
+    orgId,
+    clearPalletOrderIdIfAutoFilledFromRa,
+    clearOperatorPhotoArrays,
+  ]);
+
+  const resumeItemScanForPackage = useCallback(
+    (p: OperatorPackageListRow) => {
+      const pkgId = String(p.id ?? "").trim();
+      const code = String(p.package_code ?? "").trim();
+      if (!pkgId || !isUuidString(pkgId)) return false;
+      closeActiveBoxPackageSession();
+      setItemScanPackageId(pkgId);
+      setItemScanPackageLabel(code || null);
+      const exp =
+        typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
+          ? Math.floor(p.expected_item_count)
+          : null;
+      setReceivingSlipExpectedItemQtyTotal(exp != null && exp > 0 ? exp : null);
+      resetItemInspectionForm();
+      setItemBarcodeMiss(null);
+      setItemReceiveError(null);
+      setCandidatePicker(null);
+      setSlipLineCandidatePicker(null);
+      setUnexpectedPackageItemModal(null);
+      setItemOverscanWarning(null);
+      setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+      setPackageItemsHydrationNonce((n) => n + 1);
+      setItemReceiveCountSyncNonce((n) => n + 1);
+      setFlowPhase("items");
+      setIsIdentified(true);
+      scheduleFocusScanner();
+      return true;
+    },
+    [closeActiveBoxPackageSession, resetItemInspectionForm, scheduleFocusScanner],
+  );
+
+  const maybeResumeItemScanAfterPackageRow = useCallback(
+    async (row: Record<string, unknown>): Promise<boolean> => {
+      const pkgId = String(row.id ?? "").trim();
+      if (!pkgId || !isUuidString(pkgId)) return false;
+      let pickerRow = operatorPackageListRowFromRecord(row);
+      const needsCounts =
+        pickerRow.expected_item_count == null &&
+        pickerRow.actual_item_count == null &&
+        isSupabaseConfigured();
+      if (needsCounts) {
+        try {
+          const { data } = await supabase
+            .from("packages")
+            .select(
+              "expected_item_count, actual_item_count, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls",
+            )
+            .eq("id", pkgId)
+            .maybeSingle();
+          if (data && typeof data === "object") {
+            pickerRow = {
+              ...pickerRow,
+              ...operatorPackageListRowFromRecord(data as Record<string, unknown>),
+              id: pkgId,
+            };
+          }
+        } catch {
+          /* counts optional for resume heuristic */
+        }
+      }
+      if (!operatorPackageShouldResumeItemScan(pickerRow)) return false;
+      resumeItemScanForPackage(pickerRow);
+      setIntakeToast("Resuming item scan where you left off.");
+      return true;
+    },
+    [resumeItemScanForPackage],
+  );
+
+  useEffect(() => {
+    maybeResumeItemScanAfterPackageRowRef.current = maybeResumeItemScanAfterPackageRow;
+  }, [maybeResumeItemScanAfterPackageRow]);
+
+  /** Leave Item Scan in progress — scanned units already persisted; no discrepancy note. */
+  const confirmItemsPhaseSaveAndExit = useCallback(() => {
+    resetItemInspectionForm();
+    setItemScanPackageId(null);
+    setItemScanPackageLabel(null);
+    setReceivingSlipExpectedItemQtyTotal(null);
+    setItemReceiveDemoScannedUnits(0);
+    setItemReceiveCountSyncNonce(0);
+    setExpectedPkgDetailRows([]);
+    setItemScanExpectationSnapshotLines([]);
+    setItemBarcodeMiss(null);
+    setItemReceiveError(null);
+    setCandidatePicker(null);
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemHydratedRows([]);
+    setPackageItemsHydrating(false);
+    setPackageItemsHydrationNonce(0);
+    setSlipLineCandidatePicker(null);
+    setUnexpectedPackageItemModal(null);
+    setItemOverscanWarning(null);
+    setItemsBoxFinalizeModalOpen(false);
+    modalOpenRef.current = false;
+    closeActiveBoxPackageSession();
+    setScanLine("");
+    setSlipBarcodeExtract(null);
+    setFlowPhase("scan");
+    setIsIdentified(false);
+    completedShipmentDialogShownForKeyRef.current = null;
+    setCompletedShipmentModal(null);
+    clearPreviousLookupResult({ clearResolvedContext: true, phase: "idle" });
+    setIntakeToast("Progress saved. You can continue later.");
+    scheduleFocusScanner();
+  }, [
+    resetItemInspectionForm,
+    closeActiveBoxPackageSession,
+    clearPreviousLookupResult,
+    scheduleFocusScanner,
+  ]);
+
+  const handleCorrectionResetEntry = useCallback(() => {
+    if (flowPhase === "package_scan") {
+      if (activeBoxSession) {
+        closeActiveBoxPackageSession();
+        setEditAllMode(false);
+        scheduleFocusScanner();
+        return;
+      }
+      if (packageCodeCardOpen) {
+        setPackageCodeCardOpen(false);
+        setEditAllMode(false);
+        scheduleFocusScanner();
+        return;
+      }
+    }
+    if (flowPhase === "scan" && parentIdentified) {
+      void abandonUnsavedPalletShipmentEdits();
+      setEditAllMode(false);
+      scheduleFocusScanner();
+    }
+  }, [
+    flowPhase,
+    activeBoxSession,
+    packageCodeCardOpen,
+    parentIdentified,
+    closeActiveBoxPackageSession,
+    abandonUnsavedPalletShipmentEdits,
+    scheduleFocusScanner,
+  ]);
+
+  const handleMoveBoxConfirm = useCallback(
+    async (targetPalletTrackingOrNumber: string) => {
+      const pkgId = correctionSavedPackageId;
+      const oid = (orgId ?? "").trim();
+      if (!pkgId || !oid) return;
+      setCorrectionBusy(true);
+      setMoveBoxModalError(null);
+      try {
+        const res = await moveOperatorIntakeBoxToPalletAction({
+          packageId: pkgId,
+          targetPalletTrackingOrNumber,
+          requestedOrganizationId: oid,
+          storeId: sessionStoreId ?? null,
+        });
+        if (!res.ok) {
+          setMoveBoxModalError(res.message);
+          return;
+        }
+        setMoveBoxModalOpen(false);
+        setMoveBoxTargetDraft("");
+        setEditAllMode(false);
+        setPalletDocHydrationNonce((n) => n + 1);
+        if (res.palletId && activePallet?.id !== res.palletId) {
+          setActivePallet((p) =>
+            p
+              ? { ...p, id: res.palletId, pallet_number: res.palletNumber }
+              : { id: res.palletId, pallet_number: res.palletNumber },
+          );
+          if (res.trackingNumber) {
+            setCurrentPalletTrackingId(res.trackingNumber);
+          }
+        }
+        closeActiveBoxPackageSession();
+        setSyncErrorToast(`Box moved to pallet ${res.palletNumber}.`);
+        scheduleFocusScanner();
+      } finally {
+        setCorrectionBusy(false);
+      }
+    },
+    [
+      correctionSavedPackageId,
+      orgId,
+      sessionStoreId,
+      activePallet?.id,
+      closeActiveBoxPackageSession,
+      scheduleFocusScanner,
+    ],
+  );
+
+  const resetToInitialShipmentEntry = useCallback(() => {
+    closeActiveBoxPackageSession();
+    clearOperatorPhotoArrays(["shipping", "bol", "outside", "inside", "slip"]);
+    setPalletPhotoUrls([]);
+    palletPhotoUrlsRef.current = [];
+    evidenceBaselineRef.current.pallet = [];
+    evidenceBaselineRef.current.shipping = [];
+    evidenceBaselineRef.current.bol = [];
+    pendingEvidenceStorageDeletesRef.current.clear();
+    hydrateActivePalletIdRef.current = null;
+    hydrateBoxPackageIdRef.current = null;
+
+    setEditAllMode(false);
+    setPackageCodeCardOpen(false);
+    setModernPalletWorkspace(false);
+    setActiveSlipOrPackage(null);
+    setActivePallet(null);
+    setActiveTracking(null);
+    setCurrentPalletTrackingId(null);
+    setCurrentPackageTrackingId(null);
+    setDirectBox(false);
+    setPhysicalBoxCount(null);
+    setBoxScanTargetDenominator(null);
+    setScannedBoxesSavedCount(0);
+    setPalletCarrier("");
+    setPalletCarrierOtherSelected(false);
+    setPalletOrderId("");
+    setPalletDbOrderId("");
+    setPalletResolvedOrderId("");
+    setPalletNotes("");
+    setPalletDbHasShipmentDetails(false);
+    setPalletCreatedByLabel(null);
+    setPalletCreatedByProfileId(null);
+    setPalletCreatedAtIso(null);
+    lastOrderIdAutoFilledFromRaRef.current = null;
+    parentPalletCarrierDefaultRef.current = "";
+
+    resetItemInspectionForm();
+    setItemScanPackageId(null);
+    setItemScanPackageLabel(null);
+    setReceivingSlipExpectedItemQtyTotal(null);
+    setItemReceiveDemoScannedUnits(0);
+    setItemReceivePackageActualCount(null);
+    setItemReceiveCountSyncNonce(0);
+    setExpectedPkgDetailRows([]);
+    setCandidatePicker(null);
+    setItemBarcodeMiss(null);
+    modalOpenRef.current = false;
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemHydratedRows([]);
+    setPackageItemsHydrating(false);
+    setPackageItemsHydrationNonce(0);
+
+    setScanLine("");
+    setSlipBarcodeExtract(null);
+    setFlowPhase("scan");
+    setIsIdentified(false);
+    completedShipmentDialogShownForKeyRef.current = null;
+    setCompletedShipmentModal(null);
+    clearPreviousLookupResult({ clearResolvedContext: true, phase: "idle" });
+    scheduleFocusScanner();
+  }, [
+    closeActiveBoxPackageSession,
+    clearOperatorPhotoArrays,
+    resetItemInspectionForm,
+    clearPreviousLookupResult,
+    scheduleFocusScanner,
+  ]);
+
+  const handleVoidBoxConfirm = useCallback(async () => {
+    const pkgId = correctionSavedPackageId;
+    const oid = (orgId ?? "").trim();
+    if (!pkgId || !oid) return;
+    setCorrectionBusy(true);
+    setVoidBoxModalError(null);
+    try {
+      const res = await voidOperatorIntakeBoxPackageAction({
+        packageId: pkgId,
+        requestedOrganizationId: oid,
+        storeId: sessionStoreId ?? null,
+      });
+      if (!res.ok) {
+        setVoidBoxModalError(res.message);
+        return;
+      }
+      setVoidBoxModalOpen(false);
+      const wasDirectBox =
+        res.wasDirectBox ||
+        !res.palletId ||
+        (directBox && !activePallet?.id?.trim());
+
+      if (wasDirectBox) {
+        resetToInitialShipmentEntry();
+        setIntakeToast("Direct box voided.");
+        return;
+      }
+
+      setEditAllMode(false);
+      if (itemScanPackageId === pkgId) {
+        resetItemInspectionForm();
+        setItemScanPackageId(null);
+        setItemScanPackageLabel(null);
+        setReceivingSlipExpectedItemQtyTotal(null);
+      }
+      closeActiveBoxPackageSession();
+      setFlowPhase("package_scan");
+      setPalletDocHydrationNonce((n) => n + 1);
+      setIntakeToast("Box voided.");
+      scheduleFocusScanner();
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById("operator-saved-boxes-hub")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } finally {
+      setCorrectionBusy(false);
+    }
+  }, [
+    correctionSavedPackageId,
+    orgId,
+    sessionStoreId,
+    directBox,
+    activePallet?.id,
+    itemScanPackageId,
+    resetToInitialShipmentEntry,
+    closeActiveBoxPackageSession,
+    resetItemInspectionForm,
+    scheduleFocusScanner,
+  ]);
 
   const editParent = () => {
     closeActiveBoxPackageSession();
@@ -7601,6 +10054,7 @@ function OperatorMobileScanPageContent() {
     setSlipBarcodeExtract(null);
     setFlowPhase("scan");
     setIsIdentified(false);
+    setDirectBox(false);
     completedShipmentDialogShownForKeyRef.current = null;
     setCompletedShipmentModal(null);
     resetIdentifyGateForm();
@@ -7751,14 +10205,20 @@ function OperatorMobileScanPageContent() {
    * `currentPalletTrackingId` (live while Edit All); when not editing, trimmed tracking then `pallet_number`.
    */
   const warehousePalletLabel = (() => {
-    if (!activePallet?.id) return directBox ? "Direct" : null;
+    const palletId = activePallet?.id?.trim() ?? "";
+    if (!palletId) {
+      if (directBox) return "Direct";
+      const trackingOnly =
+        (currentPalletTrackingId ?? "").trim() || (activeTracking ?? "").trim();
+      return trackingOnly.length > 0 ? trackingOnly : null;
+    }
     if (trackingIdEditable) {
       const v = currentPalletTrackingId;
       if (v == null || v === "") return null;
       return v;
     }
     const t = (currentPalletTrackingId ?? "").trim();
-    return t || (activePallet.pallet_number ?? "").trim() || null;
+    return t || (activePallet?.pallet_number ?? "").trim() || null;
   })();
   /** Carton buffer / locked box only — never `currentPalletTrackingId` (shipment id lives in the pallet card, not here). */
   const warehouseBreadcrumbCartonBarcode =
@@ -7788,20 +10248,6 @@ function OperatorMobileScanPageContent() {
           warehouseBreadcrumbMiddleOverride.value === boxTrailTrim
         ? null
         : contextTrailBoxBarcode;
-
-  useEffect(() => {
-    if (flowPhase !== "scan" || !parentIdentified || !boxCountEditable) return;
-    const t = window.setTimeout(() => {
-      const el = physicalBoxCountInputRef.current;
-      if (!el) return;
-      try {
-        el.focus({ preventScroll: true });
-      } catch {
-        el.focus();
-      }
-    }, 180);
-    return () => window.clearTimeout(t);
-  }, [flowPhase, parentIdentified, boxCountEditable]);
 
   const onItemPhotoFile = (which: "front" | "barcode" | "damage", file: File | undefined) => {
     if (!file?.type.startsWith("image/")) return;
@@ -7892,6 +10338,7 @@ function OperatorMobileScanPageContent() {
   const showWarehouseTrail = isIdentified && (parentIdentified || directBox || flowPhase !== "scan");
 
   const openOperatorAddNewBox = useCallback(() => {
+    setDirectBox(false);
     setPackageCodeCardOpen(true);
     setBoxIntakeError(null);
     setPalletPackagePickerQuery("");
@@ -7905,6 +10352,7 @@ function OperatorMobileScanPageContent() {
     setEditAllMode(false);
     setScanLine("");
     setCurrentPackageTrackingId(null);
+    setDirectBox(false);
     setFlowPhase("package_scan");
     setPalletDocHydrationNonce((n) => n + 1);
   }, [physicalBoxCount]);
@@ -7920,7 +10368,6 @@ function OperatorMobileScanPageContent() {
       const el = document.getElementById("operator-saved-boxes-filter");
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
-        window.setTimeout(() => palletPackageSearchInputRef.current?.focus(), 380);
       } else {
         operatorMobileMainScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       }
@@ -7980,9 +10427,6 @@ function OperatorMobileScanPageContent() {
   const blockUntilStoreResolved =
     liveDb && !operatorStoresLoading && !sessionStoreId && !allowSessionIncompleteUi;
 
-  /** Step 3: laser wedge + hidden buffer follow carton state, not `scanLine` (items / gate use `scanLine`). */
-  const packageScanBoxBufferOpen = packageScanUsesHiddenCartonBuffer;
-
   if (!orgId?.trim()) {
     return <ScanPageLoading message="Missing organization context." />;
   }
@@ -8002,58 +10446,37 @@ function OperatorMobileScanPageContent() {
       }${!isIdentified ? " operator-shipment-entry-gate-page" : ""}`}
       style={{ backgroundColor: BG, color: TEXT_PRIMARY }}
     >
+      {/* Zebra Keyboard Wedge requires a focused input, so scan mode keeps this dedicated capture input focused while suppressing the Android soft keyboard with inputMode="none". */}
       <input
         ref={scannerRef}
-        id={`${formId}-laser`}
+        id={`${formId}-scan-capture`}
         type="text"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        disabled={scannerDisabled}
-        value={packageScanBoxBufferOpen ? (currentPackageTrackingId ?? "") : scanLine}
-        onChange={(e) => {
-          const v = e.target.value;
-          if (packageScanBoxBufferOpen) {
-            setCurrentPackageTrackingId(v === "" ? null : v);
-          } else {
-            setScanLine(v);
-          }
+        value={scanCaptureLine}
+        onChange={(e) => setScanCaptureLine(e.target.value)}
+        onFocus={() => {
+          if (manualEntryModeRef.current) scannerRef.current?.blur();
+        }}
+        onBlur={() => {
+          window.setTimeout(() => {
+            if (manualEntryModeRef.current || manualOpen || !laserEnabled) return;
+            focusScannerAggressive();
+          }, 80);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            void onSubmitScan();
+            void submitScanCaptureInput(e.currentTarget.value);
           }
         }}
-        onBlur={() => {
-          window.setTimeout(() => {
-            if (modalOpenRef.current || manualOpen || !laserEnabled) return;
-            // Critical: if focus moved to ANY editable element (input/textarea/select/
-            // contentEditable), the operator is intentionally typing — do not yank focus
-            // back to the hidden laser input or it will appear "locked" and eat keystrokes.
-            const active =
-              typeof document !== "undefined"
-                ? (document.activeElement as HTMLElement | null)
-                : null;
-            if (active && active !== document.body) {
-              const tag = active.tagName;
-              if (
-                tag === "INPUT" ||
-                tag === "TEXTAREA" ||
-                tag === "SELECT" ||
-                active.isContentEditable
-              ) {
-                return;
-              }
-            }
-            focusScannerAggressive();
-          }, 100);
-        }}
-        className="sr-only"
-        aria-hidden
-        tabIndex={flowPhase === "items" && hasItemReceivableBox ? -1 : 0}
+        inputMode="none"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="done"
+        aria-label="Hardware scanner capture"
+        className="pointer-events-none absolute h-px w-px opacity-0 caret-transparent"
+        tabIndex={-1}
       />
-
       <div
         className={
           itemsChromeStickyLayout
@@ -8124,13 +10547,24 @@ function OperatorMobileScanPageContent() {
                   closeActiveBoxPackageSession();
                   return;
                 }
-                if (flowPhase === "items") setFlowPhase("package_scan");
-                else if (flowPhase === "package_scan") setFlowPhase("scan");
+                if (flowPhase === "items") {
+                  confirmItemsPhaseSaveAndExit();
+                  return;
+                } else if (flowPhase === "package_scan") {
+                  if (activePallet?.id?.trim()) setDirectBox(false);
+                  setFlowPhase("scan");
+                }
                 else router.back();
               }}
               className="absolute left-3 top-2 z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/8 sm:left-4"
               style={{ color: TEXT_PRIMARY }}
-              aria-label={flowPhase === "package_scan" && activeBoxSession ? "Exit box session" : "Go back"}
+              aria-label={
+                flowPhase === "items"
+                  ? "Save progress and return to shipment search"
+                  : flowPhase === "package_scan" && activeBoxSession
+                    ? "Exit box session"
+                    : "Go back"
+              }
             >
               <ArrowLeft className="h-5 w-5" strokeWidth={2} />
             </button>
@@ -8296,6 +10730,21 @@ function OperatorMobileScanPageContent() {
                 ) : null}
               </div>
             </div>
+            {editAllMode &&
+            flowPhase === "package_scan" &&
+            (showCorrectionResetEntry || showCorrectionMoveBox || showCorrectionVoidBox) ? (
+              <OperatorCorrectionActionsPanel
+                showReset={showCorrectionResetEntry}
+                showMoveBox={showCorrectionMoveBox}
+                showVoidBox={showCorrectionVoidBox}
+                onReset={handleCorrectionResetEntry}
+                onMoveBox={openMoveBoxModal}
+                onVoidBox={() => {
+                  setVoidBoxModalError(null);
+                  setVoidBoxModalOpen(true);
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -8402,6 +10851,21 @@ function OperatorMobileScanPageContent() {
                       </button>
                     </div>
                   </div>
+                ) : null}
+                {editAllMode &&
+                flowPhase === "scan" &&
+                (showCorrectionResetEntry || showCorrectionMoveBox || showCorrectionVoidBox) ? (
+                  <OperatorCorrectionActionsPanel
+                    showReset={showCorrectionResetEntry}
+                    showMoveBox={showCorrectionMoveBox}
+                    showVoidBox={showCorrectionVoidBox}
+                    onReset={handleCorrectionResetEntry}
+                    onMoveBox={openMoveBoxModal}
+                    onVoidBox={() => {
+                      setVoidBoxModalError(null);
+                      setVoidBoxModalOpen(true);
+                    }}
+                  />
                 ) : null}
               </div>
             ) : null}
@@ -8642,6 +11106,7 @@ function OperatorMobileScanPageContent() {
                     backgroundColor: "#11161C",
                     boxShadow: "inset 0 1px 10px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05)",
                   }}
+                  onClick={focusScannerAggressive}
                 >
                   <ScanLine className="operator-shipment-entry-gate__scan-icon h-10 w-10" strokeWidth={2.25} aria-hidden />
                 </ScanFrameWithLaser>
@@ -8677,35 +11142,56 @@ function OperatorMobileScanPageContent() {
                   onChange={onIdentifyGateOcrFileInputChange}
                 />
                 <div className="relative">
-                  <input
-                    id={`${formId}-gate-manual`}
-                    value={scanLine}
-                    onChange={(e) => setScanLine(e.target.value)}
-                    onFocus={() => setManualOpen(true)}
-                    onBlur={() => {
-                      window.setTimeout(() => setManualOpen(false), 120);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void onSubmitScan();
+                  {isManualEntryMode ? (
+                    <input
+                      ref={gateManualInputRef}
+                      id={`${formId}-gate-manual`}
+                      value={scanLine}
+                      onChange={(e) => handleManualScanLineChange(e.target.value)}
+                      onFocus={() => setManualOpen(true)}
+                      onBlur={() => {
+                        window.setTimeout(() => {
+                          manualEntryModeRef.current = false;
+                          setManualOpen(false);
+                          setManualEntryMode(false);
+                        }, 120);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void onSubmitScan();
+                        }
+                      }}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      inputMode="text"
+                      disabled={identifyGateOcrReading}
+                      aria-busy={identifyGateOcrReading}
+                      aria-label={
+                        identifyGateOcrReading ? "Analyzing image" : "Type tracking or slip code"
                       }
-                    }}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    disabled={identifyGateOcrReading}
-                    aria-busy={identifyGateOcrReading}
-                    aria-label={
-                      identifyGateOcrReading ? "Analyzing image" : "Scan, type or upload photo for tracking or slip code"
-                    }
-                    placeholder={
-                      identifyGateOcrReading ? "⏳ Analyzing image..." : "Scan, type or upload photo..."
-                    }
-                    className="operator-shipment-entry-gate__input scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[4.75rem] font-mono text-[14px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.25rem] sm:text-[15px] sm:placeholder:text-[14px]"
-                    style={{ color: TEXT_PRIMARY }}
-                  />
-                  <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-0.5">
+                      placeholder="Type barcode manually"
+                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[5.5rem] font-mono text-[14px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.75rem] sm:text-[15px] sm:placeholder:text-[14px]"
+                      style={{ color: TEXT_PRIMARY }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startManualEntryMode(gateManualInputRef)}
+                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[3rem] w-full items-center rounded-xl border py-2 pl-3.5 pr-[5.5rem] text-left font-mono text-[14px] outline-none transition sm:min-h-[3.25rem] sm:pr-[5.75rem] sm:text-[15px]"
+                      style={{ color: MUTED_LABEL }}
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between min-[380px]:gap-3">
+                        <span className="min-w-0 truncate">Ready to scan</span>
+                        <span className="operator-shipment-entry-gate__tap-to-type inline-flex shrink-0 items-center justify-end gap-1 text-[9px] font-bold uppercase tracking-wider min-[380px]:text-[10px]">
+                          <Pencil className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                          Tap to type
+                        </span>
+                      </span>
+                    </button>
+                  )}
+                  <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-1">
                     <div className="relative" ref={identifyGateOcrMenuRef}>
                       <button
                         type="button"
@@ -8720,40 +11206,57 @@ function OperatorMobileScanPageContent() {
                         <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
                       </button>
                       {identifyGateOcrMenuOpen ? (
-                        <div
-                          className="scanner-ocr-action-sheet absolute right-0 top-full z-[50] mt-2 w-[min(calc(100vw-2rem),19rem)] overflow-hidden rounded-2xl py-2"
-                          role="menu"
-                        >
+                        <>
                           <button
                             type="button"
-                            role="menuitem"
-                            className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold transition sm:min-h-[3.5rem] sm:text-[16px]"
-                            onClick={() => {
-                              setIdentifyGateOcrMenuOpen(false);
-                              identifyGateCameraCaptureRef.current?.click();
-                            }}
+                            className="fixed inset-0 z-[149] cursor-default bg-black/35"
+                            aria-label="Close photo menu"
+                            onClick={() => setIdentifyGateOcrMenuOpen(false)}
+                          />
+                          <div
+                            className="scanner-ocr-action-sheet fixed bottom-20 left-1/2 z-[150] w-[calc(100vw-1.5rem)] max-w-[406px] -translate-x-1/2 overflow-hidden rounded-2xl py-2"
+                            role="menu"
                           >
-                            <span className="text-xl leading-none" aria-hidden>
-                              📸
-                            </span>
-                            Take a Photo
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="flex min-h-[3.25rem] w-full items-center gap-3 border-t px-4 py-3.5 text-left text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                            style={{ borderColor: "var(--scanner-border)" }}
-                            onClick={() => {
-                              setIdentifyGateOcrMenuOpen(false);
-                              identifyGateCameraUploadRef.current?.click();
-                            }}
-                          >
-                            <span className="text-xl leading-none" aria-hidden>
-                              📁
-                            </span>
-                            Upload from Gallery
-                          </button>
-                        </div>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold transition sm:min-h-[3.5rem] sm:text-[16px]"
+                              onClick={() => {
+                                setIdentifyGateOcrMenuOpen(false);
+                                identifyGateCameraCaptureRef.current?.click();
+                              }}
+                            >
+                              <span className="text-xl leading-none" aria-hidden>
+                                📸
+                              </span>
+                              Take Photo
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex min-h-[3.25rem] w-full items-center gap-3 border-t px-4 py-3.5 text-left text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
+                              style={{ borderColor: "var(--scanner-border)" }}
+                              onClick={() => {
+                                setIdentifyGateOcrMenuOpen(false);
+                                identifyGateCameraUploadRef.current?.click();
+                              }}
+                            >
+                              <span className="text-xl leading-none" aria-hidden>
+                                📁
+                              </span>
+                              Upload Photo
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex min-h-[3.25rem] w-full items-center justify-center border-t px-4 py-3.5 text-center text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
+                              style={{ borderColor: "var(--scanner-border)" }}
+                              onClick={() => setIdentifyGateOcrMenuOpen(false)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </>
                       ) : null}
                     </div>
                     <button
@@ -8784,6 +11287,94 @@ function OperatorMobileScanPageContent() {
                   ) : null}
                 </div>
               </div>
+              {identifyGatePhotoOcrCandidates.length > 0 ? (
+                <div
+                  className="mt-3 rounded-2xl border border-[#b08a3c]/35 bg-[#fffaf0] px-3 py-3 text-[#16181b] shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_14px_32px_rgba(22,24,27,0.12)] dark:border-[#d6b76e]/45 dark:bg-[#0b0d10]/95 dark:text-[#faf6ed] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_14px_36px_rgba(0,0,0,0.34)]"
+                  role="group"
+                  aria-label="AI detected possible photo code"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#8a681f]/35 bg-[#8a681f]/10 text-[#6f5424] dark:border-[#d6b76e]/45 dark:bg-[#d6b76e]/12 dark:text-[#f1d58a]"
+                        aria-hidden
+                      >
+                        <Sparkles className="h-3.5 w-3.5" strokeWidth={2.25} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-black leading-tight text-[#16181b] dark:text-[#faf6ed]">Possible code found</p>
+                        <p className="mt-0.5 text-[10px] font-semibold leading-tight text-[#4d5560] dark:text-[#faf6ed]/65">
+                          Package, tracking, or shipment code found from photo. Please confirm before using it.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className="rounded-full border border-[#8a681f]/35 bg-[#8a681f]/10 px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-wide text-[#524018] dark:border-[#d6b76e]/35 dark:bg-[#d6b76e]/10 dark:text-[#f1d58a]">
+                        AI Detected
+                      </span>
+                      <button
+                        type="button"
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-[#4d5560] transition hover:bg-[#8a681f]/10 hover:text-[#16181b] dark:text-[#faf6ed]/70 dark:hover:bg-white/10 dark:hover:text-[#faf6ed]"
+                        aria-label="Dismiss AI detected code"
+                        onClick={clearIdentifyGatePhotoOcrCandidates}
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-1.5">
+                    {identifyGatePhotoOcrCandidates.slice(0, 3).map((candidate) => {
+                      const selected = candidate === identifyGateSelectedPhotoOcrCandidate;
+                      return (
+                        <button
+                          key={candidate}
+                          type="button"
+                          className={`flex min-w-0 items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-left text-[#2f2410] transition active:scale-[0.99] dark:text-[#fef3c7] ${
+                            selected
+                              ? "border-[#8a681f]/60 bg-[#8a681f]/10 dark:border-[#d6b76e]/70 dark:bg-[#d6b76e]/15"
+                              : "border-[#8a681f]/25 bg-white/45 dark:border-[#d6b76e]/25 dark:bg-black/25"
+                          }`}
+                          aria-pressed={selected}
+                          onClick={() => setIdentifyGateSelectedPhotoOcrCandidate(candidate)}
+                        >
+                          <span className="min-w-0 break-all font-mono text-[18px] font-black leading-tight tracking-wide">
+                            {candidate}
+                          </span>
+                          <span className="shrink-0 rounded-full border border-[#8a681f]/30 bg-[#8a681f]/10 px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-wide text-[#524018] dark:border-[#d6b76e]/35 dark:bg-[#d6b76e]/10 dark:text-[#f1d58a]">
+                            AI Detected
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className="min-h-10 rounded-xl bg-[#1f242b] px-3 py-2 text-[12px] font-black uppercase tracking-wide text-[#fffaf0] shadow-[0_8px_18px_rgba(22,24,27,0.18)] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#d6b76e] dark:text-[#050607] dark:shadow-[0_10px_24px_rgba(214,183,110,0.18)]"
+                      disabled={!identifyGateSelectedPhotoOcrCandidate && identifyGatePhotoOcrCandidates.length === 0}
+                      onClick={() => void applyIdentifyGatePhotoOcrCandidate()}
+                    >
+                      Use this code
+                    </button>
+                    <button
+                      type="button"
+                      className="min-h-10 rounded-xl border border-[#8a681f]/35 bg-[#f8f6f1] px-3 py-2 text-[12px] font-bold uppercase tracking-wide text-[#524018] transition active:scale-[0.98] dark:border-[#d6b76e]/35 dark:bg-[#151a20] dark:text-[#f1d58a]"
+                      onClick={retryIdentifyGatePhotoOcr}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-2 w-full rounded-lg px-2 py-1.5 text-center text-[11px] font-bold text-[#6f5424] underline decoration-[#8a681f]/35 underline-offset-2 transition hover:text-[#524018] dark:text-[#f1d58a]/85 dark:decoration-[#f1d58a]/35 dark:hover:text-[#faf6ed]"
+                    onClick={startManualEntryFromPhotoOcrCandidate}
+                  >
+                    Manual Entry
+                  </button>
+                </div>
+              ) : null}
               {identifyGatePhase === "searching" ? (
                 <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold" style={{ color: "#B9C2CC" }}>
                   <Loader2 className="operator-shipment-entry-gate__searching-spinner h-5 w-5 animate-spin" strokeWidth={2} />
@@ -8869,10 +11460,14 @@ function OperatorMobileScanPageContent() {
                   ) : null}
 
                   <p className="mb-1 max-w-[calc(100%-5.5rem)] text-[13px] font-medium leading-snug text-white/90">
-                    {identifyGateInventoryVisual === "manual_new" && identifyGatePhase === "new"
+                    {identifyGateInventoryVisual !== "manual_new" &&
+                    identifyGateInventoryAgg?.totalScanned === 0 &&
+                    identifyGateInventoryAgg.totalExpected > 0
+                      ? "Expected shipment — no units scanned yet."
+                      : identifyGateInventoryVisual === "manual_new" && identifyGatePhase === "new"
                       ? "No manifest lines for this code — create a record or pick entity type."
                       : identifyGateInventoryVisual === "new"
-                        ? "New on manifest — confirm entity and continue."
+                        ? "Expected shipment — no units scanned yet."
                         : identifyGateInventoryVisual === "unexpected"
                           ? "Not on the expected list (0 expected)."
                           : identifyGateInventoryVisual === "in_progress"
@@ -9012,7 +11607,7 @@ function OperatorMobileScanPageContent() {
                                   <ProductLinkagePrimaryLink
                                     linkage={line.product_linkage}
                                     detailFrom="scan"
-                                    className="text-sm font-bold leading-tight text-sky-300 underline decoration-sky-400/50 underline-offset-2 hover:text-sky-200"
+                                    className="operator-shipment-entry-gate__product-link text-sm font-bold leading-tight underline underline-offset-2"
                                     onClick={(e) => e.stopPropagation()}
                                   />
                                   <OperatorProductLinkageMeta
@@ -9021,8 +11616,7 @@ function OperatorMobileScanPageContent() {
                                     detailFrom="scan"
                                   />
                                   <span className="font-mono text-[10px] tabular-nums text-slate-500">
-                                    Exp {line.expectedQty} · Scan {line.scannedQty} · Var{" "}
-                                    {formatScanVarianceLabel(line.expectedQty, line.scannedQty)}
+                                    Exp {line.expectedQty} · Scan {line.scannedQty}
                                   </span>
                                 </li>
                               ))
@@ -9050,7 +11644,7 @@ function OperatorMobileScanPageContent() {
                                     <ProductLinkagePrimaryLink
                                       linkage={linkage}
                                       detailFrom="scan"
-                                      className="text-sm font-bold leading-tight text-sky-300 underline decoration-sky-400/50 underline-offset-2 hover:text-sky-200"
+                                      className="operator-shipment-entry-gate__product-link text-sm font-bold leading-tight underline underline-offset-2"
                                       onClick={(e) => e.stopPropagation()}
                                     />
                                     <OperatorProductLinkageMeta
@@ -9074,67 +11668,100 @@ function OperatorMobileScanPageContent() {
                           {identifyGateMatchField ? identifyGateMatchFieldUiLabel(identifyGateMatchField) : "tracking"}
                         </span>
                       </p>
-                      <div className="operator-shipment-entry-gate__line-items overflow-x-auto rounded-xl ring-1 ring-white/10">
-                        <table className="w-full min-w-[520px] border-collapse text-left text-[11px]">
-                          <thead>
-                            <tr className="border-b border-white/10 bg-black/25 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                              <th className="px-2 py-2">Product name</th>
-                              <th className="px-2 py-2 font-mono">FNSKU</th>
-                              <th className="px-2 py-2 text-right tabular-nums">Expected</th>
-                              <th className="px-2 py-2 text-right tabular-nums">Scanned</th>
-                              <th className="px-2 py-2 text-right tabular-nums">Variance</th>
-                              <th className="px-2 py-2">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {identifyGateShipmentLines.map((row, idx) => {
-                              const vis = shipmentLineStatusVisual(row.status);
-                              const th = IDENTIFICATION_GATE_THEME[vis];
-                              const epRow =
-                                identifyGateEpById.get(row.expected_package_id) ??
-                                identifyGateEpBySkuFnsku.get(
-                                  `${(row.sku ?? "").trim().toLowerCase()}\u0000${(row.fnsku ?? "").trim().toLowerCase()}\u0000${(row.order_id ?? "").trim().toLowerCase()}`,
-                                );
-                              const lineLinkage = buildInventoryViewProductLinkage(
-                                row,
-                                epRow,
-                                identifyGateResolvedNameMap,
+                      <div className="operator-shipment-entry-gate__line-items rounded-xl ring-1 ring-white/10">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 border-b border-white/10 bg-black/25 px-2 py-1.5 text-[9px] font-black uppercase tracking-wide text-slate-500">
+                          <span>Product</span>
+                          <span className="text-right tabular-nums">Expected</span>
+                          <span className="text-right tabular-nums">Scanned</span>
+                        </div>
+                        <div className="grid gap-2 p-2">
+                          {identifyGateShipmentLines.map((row, idx) => {
+                            const vis = shipmentLineStatusVisual(row);
+                            const th = IDENTIFICATION_GATE_THEME[vis];
+                            const epRow =
+                              identifyGateEpById.get(row.expected_package_id) ??
+                              identifyGateEpBySkuFnsku.get(
+                                `${(row.sku ?? "").trim().toLowerCase()}\u0000${(row.fnsku ?? "").trim().toLowerCase()}\u0000${(row.order_id ?? "").trim().toLowerCase()}`,
                               );
-                              const variance = formatScanVarianceLabel(row.total_expected, row.total_scanned);
-                              return (
-                                <tr key={`${row.expected_package_id}-${idx}`} className="border-b border-white/5">
-                                  <td className="max-w-[200px] px-2 py-2 font-semibold leading-snug text-white">
+                            const lineLinkage = buildInventoryViewProductLinkage(
+                              row,
+                              epRow,
+                              identifyGateResolvedNameMap,
+                            );
+                            const fnsku = row.fnsku?.trim() ?? "";
+                            const asin = row.asin?.trim() ?? "";
+                            const sku = row.sku?.trim() ?? "";
+                            const primaryIdentifier = fnsku || asin || sku;
+                            const primaryIdentifierLabel = fnsku ? "FNSKU" : asin ? "ASIN" : sku ? "SKU" : "Identifier";
+                            const secondaryIdentifier = fnsku ? asin || sku : "";
+                            const secondaryIdentifierLabel = fnsku && asin ? "ASIN" : fnsku && sku ? "SKU" : "";
+
+                            return (
+                              <div
+                                key={`${row.expected_package_id}-${idx}`}
+                                className="operator-shipment-entry-gate__line-item-card rounded-xl border p-2"
+                              >
+                                <div className="flex min-w-0 items-start justify-between gap-2">
+                                  <div
+                                    className="min-w-0 flex-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                  >
                                     <ProductLinkagePrimaryLink
                                       linkage={lineLinkage}
                                       detailFrom="scan"
-                                      className="text-sm font-bold leading-tight text-sky-300 underline decoration-sky-400/50 underline-offset-2 hover:text-sky-200"
+                                      className="operator-shipment-entry-gate__product-link line-clamp-2 break-words text-xs font-semibold leading-tight underline underline-offset-2"
                                       onClick={(e) => e.stopPropagation()}
                                     />
-                                    <OperatorProductLinkageMeta linkage={lineLinkage} linkResolvedProductId={false} detailFrom="scan" />
-                                  </td>
-                                  <td className="px-2 py-2 font-mono text-[11px] text-white/90">
-                                    {row.fnsku?.trim() || row.asin?.trim() || "—"}
-                                  </td>
-                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white">{row.total_expected}</td>
-                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white">{row.total_scanned}</td>
-                                  <td className="px-2 py-2 text-right font-mono tabular-nums text-white/90">{variance}</td>
-                                  <td className="px-2 py-2">
-                                    <span
-                                      className="inline-block rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1"
-                                      style={{
-                                        borderColor: th.border,
-                                        backgroundColor: th.chipBg,
-                                        color: th.headline,
-                                      }}
-                                    >
-                                      {String(row.status ?? "—").trim() || "—"}
+                                    <div className="mt-1 max-w-full overflow-hidden text-[10px] font-medium leading-tight text-slate-400">
+                                      <span className="font-semibold text-slate-500">{primaryIdentifierLabel}</span>{" "}
+                                      <span className="break-words font-mono">{primaryIdentifier || "—"}</span>
+                                      {secondaryIdentifier ? (
+                                        <>
+                                          <span className="mx-1 text-slate-600">|</span>
+                                          <span className="font-semibold text-slate-500">{secondaryIdentifierLabel}</span>{" "}
+                                          <span className="break-words font-mono">{secondaryIdentifier}</span>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                    <div className="[&_*]:text-[8px] [&_*]:leading-none">
+                                      <OperatorProductLinkageMeta
+                                        linkage={lineLinkage}
+                                        linkResolvedProductId={false}
+                                        detailFrom="scan"
+                                      />
+                                    </div>
+                                  </div>
+                                  <span
+                                    data-line-status={vis}
+                                    className="operator-shipment-entry-gate__line-item-status-badge shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide ring-1"
+                                    style={{
+                                      borderColor: th.border,
+                                      backgroundColor: th.chipBg,
+                                      color: th.headline,
+                                    }}
+                                  >
+                                    {shipmentLineStatusLabel(row)}
+                                  </span>
+                                </div>
+                                <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                  <div className="rounded-lg bg-white/[0.03] px-2 py-1">
+                                    Expected{" "}
+                                    <span className="float-right font-mono text-xs font-bold tabular-nums text-white">
+                                      {row.total_expected}
                                     </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                                  </div>
+                                  <div className="rounded-lg bg-white/[0.03] px-2 py-1">
+                                    Scanned{" "}
+                                    <span className="float-right font-mono text-xs font-bold tabular-nums text-white">
+                                      {row.total_scanned}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -9318,7 +11945,7 @@ function OperatorMobileScanPageContent() {
 
         {flowPhase === "scan" && parentIdentified && !modernPalletWorkspace ? (
           <div className="operator-pallet-step-screen">
-            {activePallet?.id ? (
+            {parentIdentified ? (
               <section
                 className={`operator-pallet-docs-card operator-shipment-intake-card relative z-30 mb-1.5 space-y-2 rounded-2xl p-2 ${glassCard}`}
               >
@@ -9628,7 +12255,7 @@ function OperatorMobileScanPageContent() {
           </div>
         ) : null}
 
-        {flowPhase === "scan" && (!parentIdentified || modernPalletWorkspace) ? (
+        {ENABLE_LEGACY_MOBILE_WORKSPACE && flowPhase === "scan" && (!parentIdentified || modernPalletWorkspace) ? (
           <>
             <section className={`mb-4 rounded-[22px] p-3 ${glassCard}`}>
               <div className="flex gap-2.5">
@@ -9715,48 +12342,69 @@ function OperatorMobileScanPageContent() {
                     backgroundColor: BG,
                     boxShadow: "inset 0 1px 8px rgba(0,0,0,0.28)",
                   }}
+                  onClick={focusScannerAggressive}
                 >
                   <Barcode className="h-8 w-8 opacity-45" strokeWidth={1.25} style={{ color: MUTED_LABEL }} />
                 </ScanFrameWithLaser>
               </div>
 
               <div className="mt-2">
-                <label htmlFor={`${formId}-scan-manual`} className="mb-1 block text-[9px] font-semibold uppercase tracking-widest text-slate-500">
-                  Manual entry
-                </label>
                 <div className="relative">
-                  <input
-                    id={`${formId}-scan-manual`}
-                    value={scanLine}
-                    onChange={(e) => setScanLine(e.target.value)}
-                    onFocus={() => setManualOpen(true)}
-                    onBlur={() => {
-                      window.setTimeout(() => setManualOpen(false), 120);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void onSubmitScan();
-                      }
-                    }}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    placeholder="Barcode"
-                    className="scanner-input-glass h-9 w-full rounded-lg border py-0 pl-3 pr-[4.25rem] font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
-                    style={{ color: TEXT_PRIMARY }}
-                  />
-                  <button
-                    type="button"
-                    disabled={busy || !scanLine.trim()}
-                    onClick={() => void onSubmitScan()}
-                    className="absolute right-1 top-1/2 flex h-7 min-w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-md text-[10px] font-bold text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
-                    style={{
-                      color: "#99f6e4",
-                    }}
-                  >
-                    {busy ? "…" : "Apply"}
-                  </button>
+                  {isManualEntryMode ? (
+                    <>
+                      <input
+                        ref={palletManualInputRef}
+                        id={`${formId}-scan-manual`}
+                        value={scanLine}
+                        onChange={(e) => handleManualScanLineChange(e.target.value)}
+                        onFocus={() => setManualOpen(true)}
+                        onBlur={() => {
+                          window.setTimeout(() => {
+                            manualEntryModeRef.current = false;
+                            setManualOpen(false);
+                            setManualEntryMode(false);
+                          }, 120);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void onSubmitScan();
+                          }
+                        }}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        inputMode="text"
+                        placeholder="Type barcode manually"
+                        className="scanner-input-glass h-9 w-full rounded-lg border py-0 pl-3 pr-[4.25rem] font-mono text-[13px] outline-none transition placeholder:opacity-50 focus:border-teal-400/45 focus:shadow-[0_0_0_2px_rgba(45,212,191,0.22)]"
+                        style={{ color: TEXT_PRIMARY }}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy || !scanLine.trim()}
+                        onClick={() => void onSubmitScan()}
+                        className="absolute right-1 top-1/2 flex h-7 min-w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-md text-[10px] font-bold text-teal-100/95 transition hover:bg-teal-500/15 disabled:cursor-not-allowed disabled:opacity-35"
+                        style={{
+                          color: "#99f6e4",
+                        }}
+                      >
+                        {busy ? "…" : "Apply"}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startManualEntryMode(palletManualInputRef)}
+                      className="scanner-input-glass flex h-9 w-full items-center justify-between gap-3 rounded-lg border py-0 pl-3 pr-3 text-left font-mono text-[13px] outline-none transition"
+                      style={{ color: MUTED_LABEL }}
+                    >
+                      <span>Ready to scan</span>
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-sky-200/85">
+                        <Pencil className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                        Tap to type
+                      </span>
+                    </button>
+                  )}
                 </div>
               </div>
             </section>
@@ -10112,47 +12760,72 @@ function OperatorMobileScanPageContent() {
                     <section className={`operator-shipment-intake-card relative z-20 ${activeBoxSession ? "mb-1" : "mb-1.5"} space-y-2 rounded-xl p-2 ${glassCard}`}>
                   {!activeBoxSession ? (
                   <div>
-                    <label
-                      htmlFor={`${formId}-box-intake-manual`}
-                      className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
-                    >
-                      PACKAGE CODE <span className="font-normal normal-case opacity-70">(scan / type — Apply to lock)</span>
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        id={`${formId}-box-intake-manual`}
-                        value={currentPackageTrackingId ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setCurrentPackageTrackingId(v === "" ? null : v);
-                        }}
-                        onFocus={() => setManualOpen(true)}
-                        onBlur={() => {
-                          window.setTimeout(() => setManualOpen(false), 120);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            void onSubmitScan();
-                          }
-                        }}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        placeholder="Scan or type package barcode, then Apply"
-                        disabled={Boolean(activeBoxSession)}
-                        className="scanner-input-glass min-h-[2.75rem] min-w-0 flex-1 rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
-                        style={{ color: TEXT_PRIMARY }}
-                      />
-                      <button
-                        type="button"
-                        disabled={busy || !(currentPackageTrackingId ?? "").trim() || Boolean(activeBoxSession)}
-                        onClick={() => void onSubmitScan()}
-                        className="operator-box-info-apply-btn flex h-[2.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg border-2 px-3 text-[12px] font-bold transition disabled:opacity-40"
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <label
+                        htmlFor={`${formId}-box-intake-manual`}
+                        className="operator-shipment-field-label block text-[10px] font-semibold uppercase tracking-widest"
                       >
-                        <ScanLine className="h-4 w-4" strokeWidth={2} />
-                        Apply
-                      </button>
+                        PACKAGE CODE <span className="font-normal normal-case opacity-70">(scan / type — Apply to lock)</span>
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      {isManualEntryMode ? (
+                        <>
+                          <input
+                            ref={boxManualInputRef}
+                            id={`${formId}-box-intake-manual`}
+                            value={currentPackageTrackingId ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setCurrentPackageTrackingId(v === "" ? null : v);
+                            }}
+                            onFocus={() => setManualOpen(true)}
+                            onBlur={() => {
+                              window.setTimeout(() => {
+                                manualEntryModeRef.current = false;
+                                setManualOpen(false);
+                                setManualEntryMode(false);
+                              }, 120);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void onSubmitScan();
+                              }
+                            }}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            inputMode="text"
+                            placeholder="Type barcode manually"
+                            disabled={Boolean(activeBoxSession)}
+                            className="scanner-input-glass min-h-[2.75rem] min-w-0 flex-1 rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
+                            style={{ color: TEXT_PRIMARY }}
+                          />
+                          <button
+                            type="button"
+                            disabled={busy || !(currentPackageTrackingId ?? "").trim() || Boolean(activeBoxSession)}
+                            onClick={() => void onSubmitScan()}
+                            className="operator-box-info-apply-btn flex h-[2.75rem] shrink-0 items-center justify-center gap-1.5 rounded-lg border-2 px-3 text-[12px] font-bold transition disabled:opacity-40"
+                          >
+                            <ScanLine className="h-4 w-4" strokeWidth={2} />
+                            Apply
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => startManualEntryMode(boxManualInputRef)}
+                          className="scanner-input-glass flex min-h-[2.75rem] min-w-0 flex-1 items-center justify-between gap-3 rounded-lg border px-3 text-left font-mono text-[13px] outline-none transition"
+                          style={{ color: MUTED_LABEL }}
+                        >
+                          <span>Ready to scan</span>
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-sky-200/85">
+                            <Pencil className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                            Tap to type
+                          </span>
+                        </button>
+                      )}
                     </div>
                   </div>
                   ) : null}
@@ -10178,7 +12851,127 @@ function OperatorMobileScanPageContent() {
                             : "space-y-3"
                       }
                     >
-                  <div className={activeBoxSession ? "order-2 space-y-3" : "contents"}>
+                  {showBoxIntakeShipmentDocumentation ? (
+                  <section
+                    className={[
+                      `operator-shipment-intake-card operator-shipment-section--docs relative z-20 mb-1 space-y-3 rounded-xl p-2 ${glassCard}`,
+                      directBoxShipmentLabelUploaded ? "operator-shipment-docs-row--complete" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <ClipboardList className="operator-shipment-section-icon h-3.5 w-3.5" strokeWidth={2} />
+                      <div className="min-w-0">
+                        <p className="operator-shipment-section-title">Shipment Documentation</p>
+                        <p
+                          className={[
+                            "mt-0.5 text-[10px] font-medium normal-case tracking-normal",
+                            directBoxShipmentLabelUploaded
+                              ? "text-emerald-700 dark:text-emerald-300/90"
+                              : "text-slate-500 dark:text-slate-400",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          {directBoxShipmentDocsSubtitle}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="operator-shipment-docs-list">
+                      <div
+                        className={[
+                          "operator-shipment-docs-row relative",
+                          shippingLabelPhotoUrls.length === 0 &&
+                          !boxScanDocumentationLocked &&
+                          !savedBoxIntakeViewLocked
+                            ? "operator-shipment-docs-row--active"
+                            : "",
+                          shippingLabelPhotoUrls.length > 0 ? "operator-shipment-docs-row--complete" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        <MasterUploader
+                          variant="compact"
+                          compactDensity="dense"
+                          compactShowTapSubtitle={
+                            shippingLabelPhotoUrls.length === 0 && !boxScanDocumentationLocked && !savedBoxIntakeViewLocked
+                          }
+                          label={
+                            directBoxShipmentLabelUploaded ? (
+                              "SHIPMENT PHOTO / SHIPPING LABEL"
+                            ) : (
+                              <>
+                                SHIPMENT PHOTO / SHIPPING LABEL{" "}
+                                <span className="operator-shipment-req-mark font-normal normal-case">
+                                  (required)
+                                </span>
+                              </>
+                            )
+                          }
+                          hint={null}
+                          value={shippingLabelPhotoUrls}
+                          onChange={handleShippingLabelPhotoUrlsChange}
+                          organizationId={orgId}
+                          alignedUpload={
+                            operatorPalletAlignedUploadPaths
+                              ? {
+                                  bucket: "media",
+                                  relativePathUnderOrg: operatorPalletAlignedUploadPaths.shipping,
+                                }
+                              : undefined
+                          }
+                          maxFiles={3}
+                          disabled={!orgId?.trim() || boxScanDocumentationLocked}
+                          viewLocked={savedBoxIntakeViewLocked}
+                          className="operator-shipment-docs-uploader"
+                        />
+                      </div>
+                      <div
+                        className={[
+                          "operator-shipment-docs-row",
+                          shippingLabelPhotoUrls.length > 0 &&
+                            bolPhotoUrls.length === 0 &&
+                            !boxScanDocumentationLocked &&
+                            !savedBoxIntakeViewLocked
+                            ? "operator-shipment-docs-row--active"
+                            : "",
+                          bolPhotoUrls.length > 0 ? "operator-shipment-docs-row--complete" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        <MasterUploader
+                          variant="compact"
+                          compactDensity="dense"
+                          compactShowTapSubtitle={
+                            shippingLabelPhotoUrls.length > 0 &&
+                            bolPhotoUrls.length === 0 &&
+                            !boxScanDocumentationLocked &&
+                            !savedBoxIntakeViewLocked
+                          }
+                          label="Bill of Lading (optional)"
+                          hint={null}
+                          value={bolPhotoUrls}
+                          onChange={handleBolPhotoUrlsChange}
+                          organizationId={orgId}
+                          alignedUpload={
+                            operatorPalletAlignedUploadPaths
+                              ? {
+                                  bucket: "media",
+                                  relativePathUnderOrg: operatorPalletAlignedUploadPaths.bol,
+                                }
+                              : undefined
+                          }
+                          maxFiles={3}
+                          disabled={!orgId?.trim() || boxScanDocumentationLocked}
+                          viewLocked={savedBoxIntakeViewLocked}
+                          className="operator-shipment-docs-uploader"
+                        />
+                      </div>
+                    </div>
+                  <div className={activeBoxSession ? "space-y-3" : "contents"}>
                   {!activeBoxSession ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-start">
                     <div className="min-w-0">
@@ -10188,18 +12981,13 @@ function OperatorMobileScanPageContent() {
                       >
                         PACKAGE CODE <span className="operator-shipment-req-mark font-normal normal-case">(required)</span>
                       </label>
-                      <input
+                      <div
                         id={`${formId}-box-package-code-display`}
-                        readOnly
-                        aria-readonly="true"
-                        tabIndex={-1}
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={(currentPackageTrackingId ?? "").trim()}
-                        placeholder="—"
-                        className="scanner-input-glass h-10 w-full cursor-default rounded-lg border px-3 font-mono text-[13px] outline-none"
+                        className="scanner-input-glass flex h-10 w-full cursor-default items-center rounded-lg border px-3 font-mono text-[13px] outline-none"
                         style={{ color: TEXT_PRIMARY }}
-                      />
+                      >
+                        {(currentPackageTrackingId ?? "").trim() || "—"}
+                      </div>
                     </div>
                     <div className="relative z-30 min-w-0">
                       <label
@@ -10469,6 +13257,8 @@ function OperatorMobileScanPageContent() {
                   </div>
                 ) : null}
                   </div>
+                  </section>
+                  ) : null}
 
                 <div className={activeBoxSession ? "order-1 flex flex-col gap-1.5" : "contents"}>
                 <section
@@ -10823,7 +13613,7 @@ function OperatorMobileScanPageContent() {
                     htmlFor={`${formId}-box-general-notes`}
                     className="operator-shipment-notes-label mb-1.5 block uppercase"
                   >
-                    GENERAL NOTES{" "}
+                    Box notes{" "}
                     <span className="font-semibold normal-case tracking-normal opacity-70">(optional)</span>
                   </label>
                   <textarea
@@ -10831,7 +13621,7 @@ function OperatorMobileScanPageContent() {
                     value={boxNotes}
                     onChange={(e) => setBoxNotes(e.target.value)}
                     rows={3}
-                    placeholder="Write notes before saving — they are stored with this package…"
+                    placeholder="Write notes before saving — stored with this package..."
                     disabled={
                       boxScanDocumentationLocked ||
                       !(activeBoxSession ? boxIntakeReferenceEditable : slipCarrierOrderEditable)
@@ -10930,7 +13720,10 @@ function OperatorMobileScanPageContent() {
                     color: "#1e1b4b",
                     boxShadow: `0 6px 20px ${PURPLE_GLOW}`,
                   }}
-                  onClick={() => setFlowPhase("package_scan")}
+                  onClick={() => {
+                    if (activePallet?.id?.trim()) setDirectBox(false);
+                    setFlowPhase("package_scan");
+                  }}
                 >
                   Back to BOX intake
                 </button>
@@ -11359,6 +14152,33 @@ function OperatorMobileScanPageContent() {
           </p>
         </div>
       ) : null}
+
+      <OperatorMoveBoxModal
+        open={moveBoxModalOpen}
+        packageLabel={correctionPackageLabel}
+        busy={correctionBusy}
+        error={moveBoxModalError}
+        target={moveBoxTargetDraft}
+        onTargetChange={setMoveBoxTargetDraft}
+        onRequestScanFocus={scheduleFocusScanner}
+        onClose={() => {
+          if (!correctionBusy) closeMoveBoxModal();
+        }}
+        onConfirm={(target) => void handleMoveBoxConfirm(target)}
+      />
+      <OperatorVoidBoxModal
+        open={voidBoxModalOpen}
+        packageLabel={correctionPackageLabel}
+        busy={correctionBusy}
+        error={voidBoxModalError}
+        onClose={() => {
+          if (!correctionBusy) {
+            setVoidBoxModalOpen(false);
+            setVoidBoxModalError(null);
+          }
+        }}
+        onConfirm={() => void handleVoidBoxConfirm()}
+      />
 
       {completedShipmentModal ? (
         <div
@@ -11802,10 +14622,19 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" && hasItemReceivableBox ? (
         <div
-          className="operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[4.75rem] left-1/2 z-[100] flex w-full max-w-[430px] -translate-x-1/2 justify-center border-t px-3 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-2 sm:px-4"
+          className="operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[4.75rem] left-1/2 z-[100] flex w-full max-w-[430px] -translate-x-1/2 flex-col items-stretch gap-2 border-t px-3 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-2 sm:px-4"
           role="region"
           aria-label="Item inspection actions"
         >
+          <button
+            type="button"
+            disabled={busy || itemsFinalizeBusy}
+            onClick={() => confirmItemsPhaseSaveAndExit()}
+            className="operator-shipment-btn-success flex h-10 w-full items-center justify-center gap-2 rounded-2xl px-4 text-[13px] font-bold leading-tight transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <PackageOpen className="h-4 w-4 shrink-0 opacity-95" strokeWidth={2.25} aria-hidden />
+            <span className="truncate">Save &amp; Exit</span>
+          </button>
           <button
             type="button"
             disabled={busy || itemsFinalizeBusy}
@@ -11813,7 +14642,7 @@ function OperatorMobileScanPageContent() {
               modalOpenRef.current = true;
               setItemsBoxFinalizeModalOpen(true);
             }}
-            className={`operator-item-scan-btn-finalize inline-flex h-11 w-auto max-w-[min(100%,20rem)] shrink-0 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`operator-item-scan-btn-finalize inline-flex h-11 w-full max-w-none shrink-0 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
               isItemsQtyDiscrepancy ? "operator-item-scan-btn-finalize--discrepancy" : "operator-item-scan-btn-finalize--ok"
             }`}
           >

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isUuidString } from "@/lib/uuid";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
 const PAGE = 200;
@@ -67,6 +68,91 @@ export async function findPalletByTrackingNormalized(
     if (!data?.length || data.length < PAGE) break;
   }
   return null;
+}
+
+function palletMatchesStoreScope(
+  palletStoreId: string | null | undefined,
+  storeScope: string | null | undefined,
+): boolean {
+  const scope = String(storeScope ?? "").trim();
+  const palletStore = String(palletStoreId ?? "").trim();
+  if (!scope || !isUuidString(scope)) return true;
+  if (!palletStore || !isUuidString(palletStore)) return true;
+  return palletStore === scope;
+}
+
+/**
+ * Resolve an active pallet by normalized tracking or exact `pallet_number` (case-insensitive).
+ * Optional `storeId` rejects pallets bound to another store when both sides have a store id.
+ */
+/** Load a persisted pallet row by primary key (operator resume / package parent link). */
+export async function findPalletByIdForOperator(
+  supabase: SupabaseClient,
+  organizationId: string,
+  palletId: string,
+  storeId?: string | null,
+): Promise<OperatorPalletTrackingRow | null> {
+  const pid = String(palletId ?? "").trim();
+  if (!pid || !isUuidString(pid)) return null;
+
+  const { data, error } = await supabase
+    .from("pallets")
+    .select(PALLET_TRACKING_SELECT)
+    .eq("organization_id", organizationId)
+    .eq("id", pid)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const hit = data as OperatorPalletTrackingRow;
+  if (!palletMatchesStoreScope(hit.store_id, storeId)) return null;
+  const { data: ext, error: extErr } = await supabase
+    .from("pallets")
+    .select("operator_package_count")
+    .eq("id", hit.id)
+    .maybeSingle();
+  if (!extErr && ext && typeof ext === "object" && "operator_package_count" in ext) {
+    hit.operator_package_count =
+      (ext as { operator_package_count: number | null }).operator_package_count ?? null;
+  }
+  return hit;
+}
+
+export async function findPalletByTrackingOrNumber(
+  supabase: SupabaseClient,
+  organizationId: string,
+  raw: string,
+  storeId?: string | null,
+): Promise<OperatorPalletTrackingRow | null> {
+  const code = String(raw ?? "").trim();
+  if (!code) return null;
+
+  const byTracking = await findPalletByTrackingNormalized(supabase, organizationId, code);
+  if (byTracking && palletMatchesStoreScope(byTracking.store_id, storeId)) {
+    return byTracking;
+  }
+
+  const { data, error } = await supabase
+    .from("pallets")
+    .select(PALLET_TRACKING_SELECT)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .ilike("pallet_number", code)
+    .limit(1);
+  if (error) throw error;
+  const hit = data?.[0] as OperatorPalletTrackingRow | undefined;
+  if (!hit) return null;
+  if (!palletMatchesStoreScope(hit.store_id, storeId)) return null;
+  const { data: ext, error: extErr } = await supabase
+    .from("pallets")
+    .select("operator_package_count")
+    .eq("id", hit.id)
+    .maybeSingle();
+  if (!extErr && ext && typeof ext === "object" && "operator_package_count" in ext) {
+    hit.operator_package_count =
+      (ext as { operator_package_count: number | null }).operator_package_count ?? null;
+  }
+  return hit;
 }
 
 export function palletHasPersistedShipmentDetails(

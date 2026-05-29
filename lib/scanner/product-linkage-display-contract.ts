@@ -17,6 +17,8 @@ export type ProductLinkageDisplayContract = {
 
 export type ProductLinkageSourceRow = {
   resolved_product_id?: string | null;
+  product_id?: string | null;
+  resolved_catalog_product_id?: string | null;
   identifier_resolution_status?: string | null;
   identifier_resolution_confidence?: number | null;
   description?: string | null;
@@ -61,12 +63,17 @@ export function buildProductLinkageDisplayContract(
   row: ProductLinkageSourceRow,
   productNameById: ReadonlyMap<string, string>,
 ): ProductLinkageDisplayContract {
-  const resolvedId = trimOrNull(row.resolved_product_id);
+  const resolvedId =
+    trimOrNull(row.resolved_product_id) ??
+    trimOrNull(row.product_id) ??
+    trimOrNull(row.resolved_catalog_product_id);
   const catalogName = resolvedId ? productNameById.get(resolvedId) ?? null : null;
+  const status = normStatus(row.identifier_resolution_status);
   return {
     product_name: catalogName,
     resolved_product_id: resolvedId,
-    identifier_resolution_status: normStatus(row.identifier_resolution_status),
+    identifier_resolution_status:
+      resolvedId && status !== "ambiguous" && status !== "mismatch" ? "resolved" : status,
     identifier_resolution_confidence: normConfidence(row.identifier_resolution_confidence),
     fallback_display_name: buildProductLinkageFallbackName(row),
   };
@@ -156,7 +163,7 @@ export async function fetchProductNamesByResolvedIds(
   const chunkSize = 80;
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
-    const primary = await supabase.from("products").select("id, product_name, name").in("id", chunk);
+    const primary = await supabase.from("products").select("id, product_name").in("id", chunk);
     let res = primary;
     if (primary.error) {
       res = await supabase.from("products").select("id, name").in("id", chunk);

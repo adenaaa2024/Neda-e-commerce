@@ -11,8 +11,10 @@ import {
   type OperatorResolveResult,
 } from "@/lib/scanner/operator-resolve-barcode";
 import { trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
+import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
 import {
   aggregateInventoryStatus,
+  fetchVInventoryItemStatusLinesForTrackingNormalized,
   fetchVInventoryStatusForScanCode,
   mockVInventoryRowsForScanCode,
   resolveInventoryGateVisualStatus,
@@ -225,8 +227,11 @@ function visualFromBarcodeRow(barcode: OperatorResolveResult): InventoryGateVisu
         order_id: null,
         status: null,
         product_name: null,
+        product_id: null,
         resolved_product_id: null,
+        resolved_catalog_product_id: null,
         product_linkage_status: null,
+        identifier_resolution_status: null,
         identifier_resolution_confidence: null,
         carrier: null,
         total_expected: te,
@@ -278,9 +283,16 @@ function epRowToInventoryStatusRow(
         : null,
     status: null,
     product_name: null,
-    resolved_product_id: null,
-    product_linkage_status: null,
-    identifier_resolution_confidence: null,
+    product_id: (r as { product_id?: string | null }).product_id ?? null,
+    resolved_product_id: (r as { resolved_product_id?: string | null }).resolved_product_id ?? null,
+    resolved_catalog_product_id:
+      (r as { resolved_catalog_product_id?: string | null }).resolved_catalog_product_id ?? null,
+    product_linkage_status:
+      (r as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? null,
+    identifier_resolution_status:
+      (r as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? null,
+    identifier_resolution_confidence:
+      (r as { identifier_resolution_confidence?: number | null }).identifier_resolution_confidence ?? null,
     carrier: null,
     total_expected: Number((r as { expected_scan_quantity?: number }).expected_scan_quantity ?? 0) || 0,
     total_scanned: Number((r as { actual_scanned_count?: number }).actual_scanned_count ?? 0) || 0,
@@ -306,6 +318,25 @@ async function inventoryRowsFromExpectedPackagesFallback(
     rows: exactEp.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>, orgId, storeId)),
     matchedField: "tracking_number",
   };
+}
+
+function trackingScopedInventoryRows(rows: VInventoryStatusRow[], trackingNumber: string): VInventoryStatusRow[] {
+  return rows.filter((row) => trackingKeysEqual(row.tracking_number, trackingNumber));
+}
+
+async function fetchTrackingScopedInventoryItemRows(
+  supabase: SupabaseClient,
+  orgId: string,
+  storeId: string,
+  trackingNumber: string,
+): Promise<VInventoryStatusRow[]> {
+  const { rows } = await fetchVInventoryItemStatusLinesForTrackingNormalized(
+    supabase,
+    orgId,
+    storeId,
+    trackingNumber,
+  );
+  return trackingScopedInventoryRows(rows, trackingNumber);
 }
 
 function trackingFromBarcode(barcode: OperatorResolveResult): string | null {
@@ -513,6 +544,14 @@ export async function lookupShipmentEntryScanCode(
     const inv = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, normalized_code);
     inventory_rows = inv.rows;
     inventory_matched_field = inv.matchedField;
+    if (inventory_matched_field === "tracking_number") {
+      try {
+        const itemRows = await fetchTrackingScopedInventoryItemRows(supabase, orgId, sid, normalized_code);
+        inventory_rows = itemRows.length ? itemRows : trackingScopedInventoryRows(inventory_rows, normalized_code);
+      } catch {
+        inventory_rows = trackingScopedInventoryRows(inventory_rows, normalized_code);
+      }
+    }
   } catch {
     inventory_rows = [];
     inventory_matched_field = null;
@@ -536,6 +575,14 @@ export async function lookupShipmentEntryScanCode(
         if (inv2.rows.length) {
           inventory_rows = inv2.rows;
           inventory_matched_field = inv2.matchedField ?? "tracking_number";
+          if (inventory_matched_field === "tracking_number") {
+            try {
+              const itemRows = await fetchTrackingScopedInventoryItemRows(supabase, orgId, sid, tn);
+              inventory_rows = itemRows.length ? itemRows : trackingScopedInventoryRows(inventory_rows, tn);
+            } catch {
+              inventory_rows = trackingScopedInventoryRows(inventory_rows, tn);
+            }
+          }
         }
       } catch {
         /* keep package-only path */
@@ -569,8 +616,11 @@ export async function lookupShipmentEntryScanCode(
         order_id: null,
         status: null,
         product_name: null,
+        product_id: null,
         resolved_product_id: null,
+        resolved_catalog_product_id: null,
         product_linkage_status: null,
+        identifier_resolution_status: null,
         identifier_resolution_confidence: null,
         carrier: null,
         total_expected: Number(row.expected_item_count ?? 0) || 0,
@@ -579,6 +629,19 @@ export async function lookupShipmentEntryScanCode(
     ];
     inventory_matched_field =
       barcode.kind === "slip" ? "id_slip_contents" : ("tracking_number" as InventoryViewMatchField);
+  }
+
+  try {
+    inventory_rows = await scrubInventoryRowsExcludingVoidedPackages(
+      supabase,
+      orgId,
+      sid,
+      inventory_rows,
+      inventory_matched_field,
+      normalized_code,
+    );
+  } catch {
+    /* keep pre-scrub rows on failure */
   }
 
   const agg = aggregateInventoryStatus(inventory_rows);
