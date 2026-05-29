@@ -1,0 +1,31 @@
+{
+  "name": "Menorix",
+  "short_name": "Menorix",
+  "description": "Warehouse operator scanner",
+  "start_url": "/scanner/operator-mobile/scan",
+  "scope": "/scanner/operator-mobile/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#050607",
+  "theme_color": "#050607",
+  "icons": [
+    {
+      "src": "/scanner/operator-mobile/icon",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/scanner/operator-mobile/icon",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/scanner/operator-mobile/apple-icon",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
