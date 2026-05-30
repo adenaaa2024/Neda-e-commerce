@@ -62,6 +62,10 @@ Package chip: optional `packageStatusOnly` → `v_inventory_status` only.
 - Inferring product from title/OCR in UI  
 - `package_items`; legacy `.from("returns")` for lines  
 
+## Item-level receive (append)
+
+One `return_items` row per scan → one EP unit via `expected_item_id`. See [EXPECTED_ALLOCATION_MODEL.md](EXPECTED_ALLOCATION_MODEL.md) · [SCANNER_STATE.md](SCANNER_STATE.md).
+
 ## Evidence
 
 `inventory-views-product-linkage-contract-v179/` · `inventory-views-return-items-deleted-at-filter-v189/` · `main-v206-package-code-inventory-views-original-parity-apply/` · `product-linkage-browser-proof-signoff-v202/`

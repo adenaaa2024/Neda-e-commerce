@@ -55,7 +55,7 @@ Neda-facing item/product display uses one backend path:
 - Resolved product labels/IDs link to `/pim/products/<product_id>?back=<source>` and stop row-click propagation; unresolved rows do not link to the generic product list.
 - Returns/package/pallet item tables have a separate Product column; identifiers remain separate.
 - `v_inventory_status` is package aggregate/chip data only; item-level product display comes from item rows/read-layer hydration.
-- V193 view DDL applied on staging: item-level inventory views now expose product-id/status/name columns; `v_inventory_status` remains aggregate-only.
+- **CORRECTED (2026-06-07):** V193 view DDL was applied historically but **carrier-normalization DDL later overwrote** the three inventory views on staging. Staging execute `db-parity-view-linkage-slip-columns-staging-execute/20260529T231120Z/` **restored** product-id/status/name linkage on item-level views; original mirror **PENDING**.
 
 ## Expected vs scanned
 
@@ -78,7 +78,7 @@ If both sides have product IDs and they differ, do not let matching raw identifi
 | V190 return_items/Neda milestone | PASS: `3` active, `3` resolved, `0` unresolved, `4` soft-deleted fake/test |
 | V191 add/edit resolver standard | PASS: server actions and deterministic resolver path documented |
 | V191 package/pallet/detail proof | PASS: shared `ProductLinkageDisplayContract` path |
-| V193 inventory view product-id columns | PASS: staging DDL applied; item views expose product columns |
+| V193 inventory view product-id columns | **CORRECTED:** restored staging `20260529T231120Z` after carrier-normalization overwrite; original **PENDING** |
 | Expected package E1 map bridge | PASS: `134` map rows inserted; no products or expected rows updated |
 | Expected package coverage | `1,574 / 1,626` read-layer (post-V200 E1B); **52** unresolved (V201) |
 | V196 lookup item_name/UPC/ambiguous | **PASS** code; UPC field; ambiguous picker; collapse same-product_id |

@@ -54,3 +54,17 @@
 ## AI
 
 Default deny — no autonomous product resolution or external HTTP without explicit gates.
+
+---
+
+## Append — June 2026
+
+| Risk | Detail |
+|------|--------|
+| Build blocker | `tesseract.js` — blocks merge/deploy |
+| Original 2,413 EP unresolved | Wave B map replays |
+| Schema migrations not applied | `claim_lines`, TRID, undo/audit, claim_case_evidence — drafted only |
+| PC03A slip map | **0** candidates — approval false |
+| Merge approved ≠ live claims | Production deploy gate approved; agent/filing flags must stay off |
+
+[PLATFORM_ARCHITECTURE.md](PLATFORM_ARCHITECTURE.md) · [ROADMAP.md](ROADMAP.md) § June 2026

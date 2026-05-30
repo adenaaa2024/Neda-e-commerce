@@ -43,6 +43,8 @@ export type VInventoryStatusRow = {
   /** Present on the view when exposed; omitted from search filters to avoid legacy column errors. */
   status: string | null;
   product_name: string | null;
+  /** Optional view alias for catalog display name when exposed. */
+  product_display_name: string | null;
   product_id: string | null;
   /** Map/read-layer or persisted resolver output when view exposes it. */
   resolved_product_id: string | null;
@@ -111,6 +113,12 @@ function rowFromRecord(r: Record<string, unknown>): VInventoryStatusRow {
     order_id: r.order_id != null ? String(r.order_id) : null,
     status: r.status != null ? String(r.status) : null,
     product_name: r.product_name != null ? String(r.product_name) : null,
+    product_display_name:
+      r.product_display_name != null
+        ? String(r.product_display_name)
+        : r.product_name != null
+          ? String(r.product_name)
+          : null,
     product_id: r.product_id != null ? String(r.product_id) : null,
     resolved_product_id:
       r.resolved_product_id != null && String(r.resolved_product_id).trim()
@@ -262,6 +270,7 @@ function epRowToInventoryStatusRow(r: Record<string, unknown>): VInventoryStatus
     order_id: (r as { order_id?: string | null }).order_id != null ? String((r as { order_id?: string | null }).order_id) : null,
     status: null,
     product_name: null,
+    product_display_name: null,
     product_id: null,
     resolved_product_id: (r as { resolved_product_id?: string | null }).resolved_product_id ?? null,
     resolved_catalog_product_id:

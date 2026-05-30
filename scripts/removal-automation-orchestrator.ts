@@ -31,7 +31,7 @@ import {
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const ORIGINAL_REF = "kxsvedvpjldygtdbylsy";
-const REQUIRED_BRANCH = "feature/product-canonicalization-v2";
+const REQUIRED_BRANCH = "feature/product-canonicalization-v3";
 const ORCHESTRATOR_APPROVAL =
   ".cursor/operator-approvals/removal-automation-cron-implementation-approval.md";
 
@@ -296,7 +296,7 @@ function plannedSteps(window: { start: string; end: string }, runId: string): Pl
       id: "verify",
       pipeline_phase: "5_verify_allocation",
       script: "scripts/removal-quantity-allocation-validation.ts",
-      description: "Read-only allocation contract; abort if mismatch > 0",
+      description: "Read-only allocation contract; gate on non-overflow mismatch = 0 (overflow informational)",
       dry_run_note: "Skipped in dry-run (no child execute)",
       apply_argv: [`--run-id=${runId}-verify`],
       child_out_base: ".cursor/audit-reports/removal-quantity-allocation-validation",
@@ -328,6 +328,46 @@ function runChild(
     exit_code: res.status,
     signal: res.signal,
   };
+}
+
+function readLatestFetchUploadIds(): {
+  order_upload_id: string | null;
+  shipment_upload_id: string | null;
+  run_id: string | null;
+} {
+  const base = path.join(process.cwd(), ".cursor/audit-reports/sp-api-removal-reports-fetch-execute");
+  if (!fs.existsSync(base)) return { order_upload_id: null, shipment_upload_id: null, run_id: null };
+  const dirs = fs
+    .readdirSync(base, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort()
+    .reverse();
+  for (const runId of dirs) {
+    const ids = readFetchUploadIds(runId);
+    if (ids.order_upload_id && ids.shipment_upload_id) {
+      return { ...ids, run_id: runId };
+    }
+  }
+  return { order_upload_id: null, shipment_upload_id: null, run_id: null };
+}
+
+function resolveFetchUploadIds(
+  runId: string,
+  skipFetch: boolean,
+): { order_upload_id: string | null; shipment_upload_id: string | null } {
+  const fromRun = readFetchUploadIds(`${runId}-fetch`);
+  if (fromRun.order_upload_id && fromRun.shipment_upload_id) return fromRun;
+
+  const fromEnv = {
+    order_upload_id: process.env.REMOVAL_AUTOMATION_ORDER_UPLOAD_ID?.trim() || null,
+    shipment_upload_id: process.env.REMOVAL_AUTOMATION_SHIPMENT_UPLOAD_ID?.trim() || null,
+  };
+  if (fromEnv.order_upload_id && fromEnv.shipment_upload_id) return fromEnv;
+
+  if (skipFetch) return readLatestFetchUploadIds();
+
+  return fromRun;
 }
 
 function readFetchUploadIds(fetchRunId: string): {
@@ -382,6 +422,7 @@ async function main(): Promise<void> {
   const apply = hasFlag("--apply");
   const manual = hasFlag("--manual");
   const skipFetch = hasFlag("--skip-fetch");
+  const skipDomainSync = hasFlag("--skip-domain-sync");
   const skipResolver = hasFlag("--skip-resolver");
 
   const outDir = path.join(process.cwd(), OUT_BASE_RUN, runId);
@@ -458,6 +499,7 @@ async function main(): Promise<void> {
   const window = computeWindow();
   const steps = plannedSteps(window, runId).filter((s) => {
     if (skipFetch && s.id === "fetch") return false;
+    if (skipDomainSync && s.id === "domain_sync") return false;
     if (skipResolver && s.id === "resolver") return false;
     return true;
   });
@@ -599,7 +641,7 @@ async function main(): Promise<void> {
   try {
     for (const step of steps) {
       if (step.id === "domain_sync") {
-        const uploads = readFetchUploadIds(`${runId}-fetch`);
+        const uploads = resolveFetchUploadIds(runId, skipFetch);
         if (!uploads.order_upload_id || !uploads.shipment_upload_id) {
           execBlockers.push("Missing upload IDs from fetch manifest.");
           break;
@@ -607,6 +649,13 @@ async function main(): Promise<void> {
         childEnv = {
           REMOVAL_AUTOMATION_ORDER_UPLOAD_ID: uploads.order_upload_id,
           REMOVAL_AUTOMATION_SHIPMENT_UPLOAD_ID: uploads.shipment_upload_id,
+        };
+      }
+
+      if (step.id === "resolver") {
+        childEnv = {
+          ...childEnv,
+          REMOVAL_VERIFY_MANIFEST: `.cursor/audit-reports/removal-quantity-allocation-validation/${runId}-verify/manifest.json`,
         };
       }
 

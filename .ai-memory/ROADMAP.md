@@ -48,3 +48,25 @@
 **North star:** One deterministic product spine across scanner, expected packages, claims, and packaging — with staging-first proofs and original parity by re-run, not UUID copy.
 
 See [NEXT_ACTIONS.md](NEXT_ACTIONS.md) and master history §14–16.
+
+---
+
+## Current program priority — June 2026 (append; authoritative for active work)
+
+**Platform:** Monorix · **Index:** [PLATFORM_ARCHITECTURE.md](PLATFORM_ARCHITECTURE.md)
+
+| # | Track | Focus | Status |
+|---|-------|-------|--------|
+| **1** | **Scanner completion** | Item-level receive (`51bc597`); build fix; Wave C on original; PR/merge | Build **BLOCKED**; smoke **PASS** |
+| **2** | **Product completion** | Original EP resolver gap **2,413**; Wave B map replays | Staging **6,099/6,175** |
+| **3** | **Removal API completion** | SP-API pipeline; rebuild; cron automation | Data wave **DONE** both refs |
+| **4** | **Claims** | `claim_lines` apply → backfill → `claim_case_evidence` schema | Drafted; **not applied** |
+| **5** | **TRID** | Foundation after `claim_lines` | Dry-run **PASS_WITH_BLOCKERS** |
+| **6** | **Inventory** | `v_inventory_item_status` / `package_code` parity | Applied staging + original |
+| **7** | **AI layer** | Assistants / OCR / import GPT | **Later** — default deny |
+
+**Continuity:** PC Phase 01 table above remains historical anchor — phase1 delivery superseded staging EP counts; **do not delete** PC rows.
+
+**Immediate next:** BUILD-FIX-TESSERACT-SCAN-PAGE → ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE → CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY → GH-AUTH-PR-CREATE
+
+**Last updated (append):** 2026-06-06

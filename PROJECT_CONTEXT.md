@@ -64,7 +64,7 @@ Static guard: `npm run check:product-resolution-contract-v192`.
 
 ## Shared memory
 
-- **Session start:** [`.ai-memory/CURRENT_STATE.md`](.ai-memory/CURRENT_STATE.md) → [`.ai-memory/ROADMAP.md`](.ai-memory/ROADMAP.md)
-- **Domain slices:** `PRODUCT_CANONICALIZATION`, `SCANNER_OPERATOR_CONTRACTS`, `CLAIMS_ENGINE_STATE`, `SP_API_STATE`, `PACKAGING_DIMENSIONS_STATE`, `STAGING_ORIGINAL_PARITY`, `MIGRATION_LEDGER`, `KNOWN_RISKS`
+- **Session start:** [`.ai-memory/CURRENT_STATE.md`](.ai-memory/CURRENT_STATE.md) → [`.ai-memory/PLATFORM_ARCHITECTURE.md`](.ai-memory/PLATFORM_ARCHITECTURE.md) → [`.ai-memory/ROADMAP.md`](.ai-memory/ROADMAP.md)
+- **Domain slices:** `PLATFORM_ARCHITECTURE`, `PRODUCT_CANONICALIZATION`, `EXPECTED_ALLOCATION_MODEL`, `SCANNER_OPERATOR_CONTRACTS`, `CLAIM_ARCHITECTURE`, `REMOVAL_API_*`, `STAGING_ORIGINAL_PARITY`, `UNDO_AUDIT_ARCHITECTURE`, `ASYNC_JOB_ARCHITECTURE`, `KNOWN_RISKS`
 - **Full timeline:** [`.ai-memory/HISTORY_POINTERS.md`](.ai-memory/HISTORY_POINTERS.md) → `.cursor/history/ERP_PIM_FULL_APPEND_ONLY_HISTORY_MASTER.md`
 - **Updates:** every memory change must update **append-only full history and `.ai-memory` together** in the same session (paired-update law). Also keep [TASKS.md](TASKS.md) aligned with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md).

@@ -30,7 +30,7 @@ import {
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const ORIGINAL_REF = "kxsvedvpjldygtdbylsy";
-const REQUIRED_BRANCH = "feature/product-canonicalization-v2";
+const REQUIRED_BRANCH = "feature/product-canonicalization-v3";
 const DEFAULT_APPROVAL_PATH = ".cursor/operator-approvals/sp-api-removal-shipment-fetch-approval.md";
 const DEFAULT_OUT_BASE = ".cursor/audit-reports/sp-api-removal-reports-fetch-execute";
 const BACKFILL_9M_APPROVAL_PATH =

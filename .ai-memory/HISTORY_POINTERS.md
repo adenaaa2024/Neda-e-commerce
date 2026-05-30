@@ -8,40 +8,41 @@
 
 | Field | Value |
 |-------|-------|
-| Latest append | `20260528T220000Z` — **ORIGINAL DATA WAVE RESOLVER FINISH VERIFY** |
-| Prior | `20260601T120000Z` — PHASE1 DELIVERY STATUS UPDATE |
+| Latest append | `20260609T140000Z` — **HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS** |
+| Prior | `20260608T120000Z` — **SUPERSEDED** for original parity BLOCKED claim |
 
-## Phase1 delivery modules
+## Product spine + DB parity
+
+| Run | Path | Status |
+|-----|------|--------|
+| Staging true linkage | `product-spine-view-linkage-staging-execute/20260530T171500Z/` | **PASS** |
+| Browser smoke | `product-spine-scanner-browser-smoke-1552698729/` | **PASS** (`1552698729`, `X003S8RCBH`) |
+| Staging slip/view | `db-parity-view-linkage-slip-columns-staging-execute/20260529T231120Z/` | **PASS** |
+| Original slip/view | `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/` | **PASS** |
+| Original product spine view DDL | `product-spine-view-linkage-original-approval.md` | **PENDING** |
+
+**CORRECTED:** Original slip/view was **BLOCKED** in `20260608T120000Z` — now **PASS** `234437Z`.
+
+## Phase 1 census modules
 
 | Doc | Topic |
 |-----|-------|
-| [SCANNER_STATE.md](SCANNER_STATE.md) | Item-level RI; Neda smoke PASS; PR pending |
-| [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md) | Staging 6175 EP / 6099 resolved |
-| [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) | Schema wave 4/4 PASS; data wave pending |
-| [CLAIMS_TRID_STATE.md](CLAIMS_TRID_STATE.md) | claim_lines + TRID dryruns PASS; not applied |
+| [EXPECTED_ALLOCATION_MODEL.md](EXPECTED_ALLOCATION_MODEL.md) | Allocation census complete; delete release gap |
+| [UNDO_AUDIT_ARCHITECTURE.md](UNDO_AUDIT_ARCHITECTURE.md) | Cascade/undo draft not applied |
+| [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md) | Verify gate align; burn-in PASS; +6 EP |
+| [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) | Parity + pending original view DDL |
+| [SCANNER_STATE.md](SCANNER_STATE.md) | True linkage + browser smoke PASS |
 
-## Key audit evidence
+## Key evidence
 
 | Run | Path |
 |-----|------|
-| Commit push 51bc597 | `commit-push-item-level-repair-and-phase1/20260528T191934Z/` |
-| PR phase1 / Neda smoke | `pr-phase1-item-level-repair/20260531T150000Z/` |
-| Original schema 4/4 | `original-parity-phase1-wave-schema-execute/20260530T180000Z/` |
-| Original data execute | `original-parity-phase1-wave-data-execute/20260528T201200Z/` |
-| Resolver finish verify | `original-parity-wave-data-resolver-finish-verify/20260528T220000Z/` |
-| Original data plan | `original-parity-phase1-wave-data-plan/20260530T190000Z/` |
-| EP resolver 6099/6175 | `main-product-linkage-expected-packages-resolver-execute/20260528T181500Z/` |
-| Claim lines dry-run | `claim-return-line-foundation-schema-dryrun/20260528T140000Z/` |
-| Claim backfill dry-run | `claim-return-line-backfill-dryrun/20260528T160000Z/` |
-| TRID migration dry-run | `trid-foundation-migration-dryrun/20260530T200000Z/` |
+| Original parity execute | `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/` |
+| Staging true linkage | `product-spine-view-linkage-staging-execute/20260530T171500Z/` |
+| EP backfill dry-run | `original-product-map-expected-packages-backfill-dryrun/<run_id>/` |
+| Verify gate align | `removal-automation-verify-gate-align/` |
 
-## Migrations (drafted / committed)
-
-| Artifact | Path | Applied |
-|----------|------|---------|
-| Item-level split | `supabase/migrations/20260830120000_expected_receive_split_item_level.sql` | staging + original schema wave |
-| Claim lines (draft) | `supabase/migrations/20260831120000_claim_lines_foundation.sql` | **NO** |
-| TRID foundation (draft) | `supabase/migrations/20260832120000_trid_foundation.sql` | **NO** — needs claim_lines |
+**Memory sync:** `history-memory-align-after-phase1-census/20260609T140000Z/`
 
 ## Paired-update law
 

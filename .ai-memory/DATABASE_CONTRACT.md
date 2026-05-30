@@ -2,14 +2,45 @@
 
 **Staging:** `eiqfaapyumhixxoeltgu`  
 **Original:** `kxsvedvpjldygtdbylsy`  
-**Last updated:** 2026-06-01 (`phase1-delivery-status-update` `20260601T120000Z`)
+**Last updated:** 2026-06-07 (`history-memory-update-product-canonicalization-v3` `20260607T140000Z`)
 
 | Topic | File |
 |-------|------|
-| Scanner / receive model | [SCANNER_STATE.md](SCANNER_STATE.md) |
-| Removal / EP rebuild | [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md) |
+| Platform index | [PLATFORM_ARCHITECTURE.md](PLATFORM_ARCHITECTURE.md) |
+| Scanner / receive | [SCANNER_STATE.md](SCANNER_STATE.md) · [EXPECTED_ALLOCATION_MODEL.md](EXPECTED_ALLOCATION_MODEL.md) |
+| Identifier governance | [PRODUCT_IDENTIFIER_GOVERNANCE.md](PRODUCT_IDENTIFIER_GOVERNANCE.md) |
+| Removal / EP rebuild | [REMOVAL_API_STATE.md](REMOVAL_API_INTAKE.md) |
 | Original parity | [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) |
-| Claims / TRID | [CLAIMS_TRID_STATE.md](CLAIMS_TRID_STATE.md) |
+| Claims / TRID | [CLAIM_ARCHITECTURE.md](CLAIM_ARCHITECTURE.md) · [CLAIMS_TRID_STATE.md](CLAIMS_TRID_STATE.md) |
+
+## Inventory views — product linkage (staging PASS)
+
+**Execute:** `db-parity-view-linkage-slip-columns-staging-execute/20260529T231120Z/` — **PASS**
+
+| View | Status |
+|------|--------|
+| `v_scanned_items_counted` | Replaced — linkage cols exposed |
+| `v_inventory_item_status` | Replaced — linkage cols exposed |
+| `v_inventory_status` | Replaced — linkage cols exposed |
+
+Required linkage columns on item-level views: `resolved_product_id`, `product_id`, `product_linkage_status`, `id_slip_contents`, `package_code`, `product_name`.
+
+**CORRECTED:** Prior memory that V193 columns were live was **stale** — carrier-normalization DDL had overwritten views until this execute restored them.
+
+**Original:** slip/view parity **PASS** — `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/`. Product spine view DDL (`expected_package_id`, `product_display_name`) **PENDING**.
+
+## `slip_contents` — identifier columns (staging PASS)
+
+Reconciled columns added (IF NOT EXISTS) on staging:
+
+| Column | Purpose |
+|--------|---------|
+| `upc`, `fnsku` | Raw identifiers |
+| `parsed_asin`, `parsed_fnsku`, `parsed_sku`, `parsed_upc` | Parsed identifier fields |
+| `resolved_product_id`, `resolved_catalog_product_id` | Resolver output |
+| `identifier_resolution_status`, `identifier_resolution_confidence` | Resolution metadata |
+
+No data backfill in execute — schema-only.
 
 ## Receive architecture (non-negotiable)
 
@@ -18,40 +49,28 @@
 | Rule | Detail |
 |------|--------|
 | Grain | **One physical scanned item per row** |
-| Count | **`COUNT(return_items)`** — not a quantity column on the row |
-| Forbidden | `quantity_entered`, `scanned_quantity`, quantity-only receive allocation |
-| Receive FK | **`expected_item_id`** → `expected_packages.id` (`receive_allocated`) |
-| Product | **`resolved_product_id`** via resolver on insert/update |
+| Count | **`COUNT(return_items)`** |
+| Receive FK | **`expected_item_id`** → `expected_packages.id` |
+| Product | **`resolved_product_id`** via resolver |
 
 ### `expected_packages` — group-level
 
-| Concept | Location |
-|---------|----------|
-| Expected qty | `expected_scan_quantity` |
-| Partial receive | `build_source = receive_allocated` + remainder on root |
-| Removal-derived | `detail_shipment`, `detail_remainder`, `legacy` |
-| Staging resolver | **6,099 / 6,175** resolved; **76** unresolved |
-
-### Receive operations
-
-- Insert **1** `return_items` per scan; allocate **1** unit per `return_item_id`  
-- RPCs present on staging + original (schema wave **4/4** applied)  
-- **Quantity-only allocation blocked**
-
-**Committed repair:** `51bc597` — item-level scanner receive allocation repair
+Staging resolver: **6,099 / 6,175** resolved; **76** unresolved.
 
 ## Schema apply status
 
-| Migration | Staging | Original | Repo |
-|-----------|---------|----------|------|
+| Migration / DDL | Staging | Original | Repo |
+|-----------------|---------|----------|------|
 | Item-level receive split | applied | schema wave **4/4** | committed |
+| View linkage + slip cols | **applied** staging `20260529T231120Z` | **applied** original `20260529T234437Z` | reconcile audit SQL |
+| Product spine view cols | **applied** `20260530T171500Z` | **PENDING** | `product-spine-view-linkage-original-approval.md` |
 | `claim_lines` foundation | **NOT applied** | **NOT applied** | drafted |
-| TRID foundation | **NOT applied** | **NOT applied** | drafted; needs `claim_lines` |
+| TRID foundation | **NOT applied** | **NOT applied** | drafted |
 
 ## Build blocker
 
-`npm run build` fails — `tesseract.js` missing in `scan/page.tsx`. Fix before deploy.
+`npm run build` fails — `tesseract.js` missing in `scan/page.tsx`.
 
 ## Evidence
 
-`commit-push-item-level-repair-and-phase1/20260528T191934Z/` · `original-parity-phase1-wave-schema-execute/20260530T180000Z/`
+`db-parity-view-linkage-slip-columns-staging-execute/20260529T231120Z/` · `db-parity-view-linkage-column-naming-reconcile/20260530T153000Z/`

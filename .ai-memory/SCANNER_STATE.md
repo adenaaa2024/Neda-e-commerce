@@ -1,56 +1,45 @@
 # Scanner state — Neda / operator-mobile
 
-**Branch:** `feature/product-canonicalization-v2`  
+**Branch:** `feature/product-canonicalization-v3` @ `4402064`  
 **Staging:** `eiqfaapyumhixxoeltgu`  
-**Last updated:** 2026-06-01 (`phase1-delivery-status-update` `20260601T120000Z`)
+**Last updated:** 2026-06-09 (`history-memory-align-after-phase1-census` `20260609T140000Z`)
 
 Contract reference: [SCANNER_OPERATOR_CONTRACTS.md](SCANNER_OPERATOR_CONTRACTS.md)
 
-## Item-level receive model (canonical — do not regress)
+## Product spine true linkage — staging PASS
 
-### `return_items` — **item-level**
+| Check | Result |
+|-------|--------|
+| Execute | **PASS** — `product-spine-view-linkage-staging-execute/20260530T171500Z/` |
+| Browser smoke tracking `1552698729` | **PASS** → `product_display_name` = `Bobs Red Mill GF Baking Soda 4/16 Oz` |
+| Browser smoke FNSKU `X003S8RCBH` | **PASS** |
+| True chain | `view.expected_package_id` → `expected_packages.id` → `expected_packages.resolved_product_id` → `products.id` |
 
-| Rule | Contract |
-|------|----------|
-| Grain | **One physical scanned item per row** |
-| Count | **`COUNT(return_items)`** — not a quantity column |
-| Forbidden | **`quantity_entered`**, **`scanned_quantity`**, quantity-only allocation |
-| Receive pointer | **`expected_item_id`** → allocated `expected_packages.id` |
-| Product link | **`resolved_product_id`** via resolver when deterministic |
+## DB parity — slip/view linkage
 
-### `expected_packages` — **group-level allocation**
+| Surface | Status |
+|---------|--------|
+| Staging | **PASS** — `20260529T231120Z` |
+| Original | **PASS** — `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/` |
 
-| Field / concept | Lives here |
-|-----------------|------------|
-| `expected_scan_quantity` | Group expected qty |
-| `receive_allocated` / remainder | Partial receive state |
-| Product resolver | **6,099 / 6,175** resolved staging |
+**CORRECTED:** Original was **BLOCKED** in `20260608T120000Z` memory — **SUPERSEDED**.
 
-**Migrations:** `20260829120000_expected_receive_split.sql` · `20260830120000_expected_receive_split_item_level.sql`
+## Original — product spine view DDL pending
 
-## Git delivery
+`expected_package_id` + `product_display_name` on inventory views — `product-spine-view-linkage-original-approval.md` not yet applied.
 
-| Item | Status |
-|------|--------|
-| Commit | **`51bc597ba1ed1d49761b5650b73f36704f72b1aa`** pushed |
-| Message | `phase1: item-level scanner receive allocation repair` |
-| PR | **Not opened** — needs `GH-AUTH-PR-CREATE` |
+## Item-level receive (census: good)
 
-## Neda smoke
+1 RI row per scan → `expected_item_id` allocation via DB RPCs. Allocation mostly implemented in DB.
 
-| Item | Status |
-|------|--------|
-| Item-level smoke | **PASS** after branch sync |
-| Evidence | `pr-phase1-item-level-repair/20260531T150000Z/` — `staging_smoke_pass: true` |
+## Delete/void gap (census)
 
-## Build blocker
+Delete/void paths **do not fully wire** `release_expected_item_unit` — **DELETE-RELEASE-WIRING** is next.
 
-`npm run build` **FAIL** — `tesseract.js` missing in `app/scanner/operator-mobile/scan/page.tsx`. Fix before deploy.
+## Neda linkage branch
 
-## Original parity
-
-Schema wave **4/4 PASS** on original (`kxsvedvpjldygtdbylsy`); functions/views parity **PASS**. Data wave **NOT EXECUTED**.
+Build/guard **PASS**; merge **WAIT** until original product spine view DDL + smoke.
 
 ## Evidence
 
-`commit-push-item-level-repair-and-phase1/20260528T191934Z/` · `pr-phase1-item-level-repair/20260531T150000Z/` · `expected-receive-split-item-row-repair-execute/20260528T180714Z/`
+`product-spine-scanner-browser-smoke-1552698729/` · `product-spine-view-linkage-staging-execute/20260530T171500Z/` · `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/`

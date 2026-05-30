@@ -7,7 +7,7 @@
 | Artifact | Staging | Original | Notes |
 |----------|---------|----------|-------|
 | PC04 packaging DDL | yes | yes IN PARITY | commit gap |
-| V193 product columns | yes | yes | commit gap |
+| V193 product columns | yes (restored `20260529T231120Z`) | **PENDING** mirror execute | **CORRECTED:** carrier-normalization had overwritten views |
 | V205 package_code views | yes | yes | commit gap |
 
 ## DML — packaging

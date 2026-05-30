@@ -1,34 +1,53 @@
 # Current state — canonical system memory
 
-**Last updated:** 2026-05-28 (`original-parity-wave-data-resolver-finish-verify` `20260528T220000Z`)  
-**Branch:** `feature/product-canonicalization-v2`
+**Last updated:** 2026-06-09 (`history-memory-align-after-phase1-census` `20260609T140000Z`)  
+**Branch:** `feature/product-canonicalization-v3` @ `4402064`
 
-## Phase1 delivery status
+## Product spine true linkage — PASS (staging)
 
-| Track | Status |
+| Check | Status |
 |-------|--------|
-| Git / commit | **`51bc597`** pushed — `phase1: item-level scanner receive allocation repair` |
-| Build | **BLOCKED** — `npm run build` fails on `tesseract.js` / `scan/page.tsx` |
-| Staging EP | **6,175** total; **6,099** resolved; **76** unresolved |
-| Original schema wave | **PASS** — **4/4** migrations on `kxsvedvpjldygtdbylsy`; functions/views parity **PASS** |
-| Original data wave | **EXECUTED + resolver PASS** — **11,790** derived EP; **9,377** resolved; **2,413** unresolved; verify `original-parity-wave-data-resolver-finish-verify/20260528T220000Z/` |
-| Claims | `claim_lines` migration **drafted**; dry-run **PASS**; **not applied**; ~**13,966** upper bound pre-dedupe |
-| TRID | migration **drafted**; dry-run **PASS_WITH_BLOCKERS**; **not applied**; `claim_lines` prerequisite **missing** |
-| Neda | Item-level smoke **PASS** after sync; branch needs **PR/merge** handling |
+| Staging true-link execute | **PASS** — `product-spine-view-linkage-staging-execute/20260530T171500Z/` |
+| Browser smoke tracking `1552698729` | **PASS** |
+| Browser smoke FNSKU `X003S8RCBH` | **PASS** |
+| True chain | `view.expected_package_id` → `expected_packages.id` → `expected_packages.resolved_product_id` → `products.id` |
 
-## Item-level receive model (locked)
+Display: `product_display_name` = `Bobs Red Mill GF Baking Soda 4/16 Oz` (tracking smoke).
 
-| Layer | Grain |
-|-------|--------|
-| **`return_items`** | **Item-level** — 1 row = 1 physical scan; count = `COUNT(return_items)` |
-| **`expected_packages`** | **Group-level** — `expected_scan_quantity`, `receive_allocated`/remainder, slip/package/pallet scope |
+## DB parity — slip/view linkage
 
-Receive: insert 1 RI row → allocate 1 EP unit via `expected_item_id`. **No** quantity-only scanner allocation.
+| Surface | Status | Evidence |
+|---------|--------|----------|
+| Staging | **PASS** | `db-parity-view-linkage-slip-columns-staging-execute/20260529T231120Z/` |
+| Original slip/view | **PASS** | `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/` |
 
-Detail: [SCANNER_STATE.md](SCANNER_STATE.md) · [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md)
+**CORRECTED:** Prior memory (`20260608T120000Z`) said original parity **BLOCKED** — **SUPERSEDED**. Original slip/view parity is **PASS**.
 
-## Session start
+## Original — still pending (product spine view DDL)
 
-1. [NEXT_ACTIONS.md](NEXT_ACTIONS.md) — build fix → original data → claim_lines → PR  
-2. [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) · [CLAIMS_TRID_STATE.md](CLAIMS_TRID_STATE.md)  
-3. [DATABASE_CONTRACT.md](DATABASE_CONTRACT.md)
+Original needs **`expected_package_id` + `product_display_name`** on inventory views — approval/apply pending (`product-spine-view-linkage-original-approval.md`). Prerequisite slip/view parity **PASS** (`234437Z`).
+
+## Expected allocation census (complete)
+
+| Finding | Status |
+|---------|--------|
+| Allocation mostly in DB | **yes** — RPCs/migrations applied |
+| Item-level receive | **good** |
+| Delete/void → `release_expected_item_unit` | **not wired** (census gap — next work) |
+| Cascade/undo draft | **not applied** — `20260901120000_delete_cascade_undo_audit_foundation.sql` |
+
+## Removal pipeline
+
+Verify gate **aligned**; burn-in retry **PASS**; resolver **+6 EP** on staging.
+
+## Platform refs
+
+| Role | Ref |
+|------|-----|
+| Staging | `eiqfaapyumhixxoeltgu` |
+| Original | `kxsvedvpjldygtdbylsy` |
+| Production | `NOT_CREATED_YET` |
+
+Detail: [NEXT_ACTIONS.md](NEXT_ACTIONS.md) · [STAGING_ORIGINAL_PARITY.md](STAGING_ORIGINAL_PARITY.md) · [EXPECTED_ALLOCATION_MODEL.md](EXPECTED_ALLOCATION_MODEL.md)
+
+**Last memory sync:** `history-memory-align-after-phase1-census/20260609T140000Z/`

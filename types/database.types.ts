@@ -282,6 +282,8 @@ export type OrganizationSettingsRow = {
   display_currency_code: string | null;
   /** Enables verbose debug logging/UI for this tenant. */
   is_debug_mode_enabled: boolean | null;
+  /** Claim cutoff policy v1 — scan/claim go-live, window, grouping, hold flags. */
+  claim_policy: Json | null;
 };
 
 // ---------------------------------------------------------------------------

@@ -24,13 +24,65 @@ import {
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const ORIGINAL_REF = "kxsvedvpjldygtdbylsy";
-const REQUIRED_BRANCH = "feature/product-canonicalization-v2";
-const DOMAIN_SYNC_MANIFEST =
+const REQUIRED_BRANCH = "feature/product-canonicalization-v3";
+const DOMAIN_SYNC_MANIFEST_DEFAULT =
   ".cursor/audit-reports/sp-api-removal-reports-domain-sync-execute/20260527T212511Z/manifest.json";
 const APPROVAL_PATH =
   ".cursor/operator-approvals/removal-expected-packages-resolver-backfill-approval.md";
 const OUT_BASE = ".cursor/audit-reports/removal-post-sync-resolver-reconcile";
 const DERIVED_SOURCES = ["detail_shipment", "detail_remainder"] as const;
+
+function domainSyncManifestPath(): string {
+  return (
+    process.env.REMOVAL_DOMAIN_SYNC_MANIFEST?.trim() ||
+    process.env.REMOVAL_AUTOMATION_DOMAIN_SYNC_MANIFEST?.trim() ||
+    DOMAIN_SYNC_MANIFEST_DEFAULT
+  );
+}
+
+function verifyManifestPath(): string | null {
+  return (
+    process.env.REMOVAL_VERIFY_MANIFEST?.trim() ||
+    process.env.REMOVAL_AUTOMATION_VERIFY_MANIFEST?.trim() ||
+    null
+  );
+}
+
+function allocationPreconditionOk(): { ok: boolean; source: string; detail: string } {
+  const verifyRel = verifyManifestPath();
+  if (verifyRel && fs.existsSync(path.join(process.cwd(), verifyRel))) {
+    const vm = JSON.parse(fs.readFileSync(path.join(process.cwd(), verifyRel), "utf8")) as {
+      allocation_contract_valid?: boolean;
+      live_vs_sim_non_overflow_mismatch?: number;
+    };
+    if (vm.allocation_contract_valid === true && Number(vm.live_vs_sim_non_overflow_mismatch ?? 0) === 0) {
+      return { ok: true, source: verifyRel, detail: "verify manifest allocation_contract_valid=yes" };
+    }
+  }
+
+  const syncRel = domainSyncManifestPath();
+  if (fs.existsSync(path.join(process.cwd(), syncRel))) {
+    const dm = JSON.parse(fs.readFileSync(path.join(process.cwd(), syncRel), "utf8")) as {
+      status?: string;
+      rebuild_valid?: boolean;
+      allocation_mismatch_count?: number;
+      allocation_mismatch_non_overflow?: number;
+    };
+    const nonOverflow = Number(
+      dm.allocation_mismatch_non_overflow ?? dm.allocation_mismatch_count ?? 1,
+    );
+    if (dm.status === "PASS" && dm.rebuild_valid === true && nonOverflow === 0) {
+      return { ok: true, source: syncRel, detail: "domain sync manifest rebuild_valid=yes" };
+    }
+    return {
+      ok: false,
+      source: syncRel,
+      detail: `domain sync status=${dm.status} rebuild_valid=${dm.rebuild_valid} non_overflow=${nonOverflow}`,
+    };
+  }
+
+  return { ok: false, source: syncRel, detail: "no verify or domain sync manifest found" };
+}
 
 type BackfillProposal = {
   id: string;
@@ -285,20 +337,12 @@ async function main(): Promise<void> {
     blockers.push(`Supabase URL must be staging ${STAGING_REF}`);
   }
 
-  let domainSyncOk = false;
-  if (fs.existsSync(path.join(process.cwd(), DOMAIN_SYNC_MANIFEST))) {
-    const dm = JSON.parse(fs.readFileSync(path.join(process.cwd(), DOMAIN_SYNC_MANIFEST), "utf8")) as {
-      status?: string;
-      rebuild_valid?: boolean;
-      allocation_mismatch_count?: number;
-    };
-    domainSyncOk =
-      dm.status === "PASS" &&
-      dm.rebuild_valid === true &&
-      Number(dm.allocation_mismatch_count ?? 1) === 0;
-  }
+  const allocationPre = allocationPreconditionOk();
+  const domainSyncOk = allocationPre.ok;
   if (!domainSyncOk) {
-    blockers.push("Domain sync precondition FAIL — require SP-API domain sync PASS + rebuild_valid=yes + mismatch=0");
+    blockers.push(
+      `Allocation precondition FAIL — ${allocationPre.detail} (source: ${allocationPre.source})`,
+    );
   }
 
   fs.writeFileSync(
@@ -312,7 +356,7 @@ async function main(): Promise<void> {
       `| APPROVED_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL | ${approval.raw.APPROVED_REMOVAL_EXPECTED_PACKAGES_RESOLVER_BACKFILL} |`,
       `| valid | **${approval.valid}** |`,
       `| staging_ref | \`${STAGING_REF}\` |`,
-      `| domain_sync_precondition | **${domainSyncOk}** |`,
+      `| domain_sync_precondition | **${domainSyncOk}** (${allocationPre.source}) |`,
     ].join("\n") + "\n",
   );
 

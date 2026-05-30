@@ -336,13 +336,16 @@ Evidence: `pc05-packaging-full-parity-verify/20260526T214000Z/` · `pc05c-packag
 
 ## 16. Next actions
 
-1. **BUILD-FIX-TESSERACT-SCAN-PAGE** — `npm run build` fails on `tesseract.js` / `scan/page.tsx`; fix before deploy  
-2. **ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE** — fresh SP-API fetch on original, not staging copy (`original-parity-phase1-wave-data-approval.md`)  
-3. **CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY** — staging; migration drafted, dry-run PASS; ~13,966 upper bound pre-dedupe  
-4. **GH-AUTH-PR-CREATE** — open PR `feature/product-canonicalization-v2` → `main` for commit `51bc597`  
-5. **TRID-FOUNDATION-MIGRATION-APPLY** — after `claim_lines` prerequisite landed  
+1. **REMOVAL-STAGING-GAP-FETCH-SYNC** — close staging removal data gap (fetch/sync backfill)  
+2. **DELETE-RELEASE-WIRING** — wire `release_expected_item_unit` on delete/void paths (census gap)  
+3. **DELETE-UNDO-RETENTION-ARCHITECTURE** — apply/plan cascade undo + retention (`20260901120000` drafted, not applied)  
+4. **PRODUCT-SPINE-VIEW-LINKAGE-ORIGINAL-EXECUTE** — original `expected_package_id` + `product_display_name` view DDL (`product-spine-view-linkage-original-approval.md`)  
+5. **CLAIMS-ORIGINAL-PARITY-GROUPING** — original claims schema parity + grouping census/execute  
 
-Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `SCANNER_STATE.md`, `REMOVAL_API_STATE.md`, `STAGING_ORIGINAL_PARITY.md`, `CLAIMS_TRID_STATE.md`, `HISTORY_POINTERS.md`
+**Done (do not re-block):** Original slip/view parity **PASS** — `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/`  
+**Done:** Staging product spine true linkage **PASS**; browser smoke **PASS** (`1552698729`, FNSKU `X003S8RCBH`)
+
+Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `STAGING_ORIGINAL_PARITY.md`, `SCANNER_STATE.md`, `EXPECTED_ALLOCATION_MODEL.md`, `REMOVAL_API_STATE.md`, `HISTORY_POINTERS.md`
 
 ---
 
@@ -350,6 +353,9 @@ Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `SCANNER_STATE.md`, `REM
 
 | Run ID | Action | Notes |
 |--------|--------|-------|
+| `20260609T140000Z` | **HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS** | Original slip/view parity PASS `234437Z`; staging true linkage PASS; allocation census; next priorities reordered |
+| `20260608T120000Z` | **HISTORY-MEMORY-UPDATE-AFTER-STAGING-PASS-ORIGINAL-BLOCKED** | **SUPERSEDED** for original parity — was BLOCKED; now PASS `234437Z` |
+| `20260607T140000Z` | **HISTORY-MEMORY-UPDATE-PRODUCT-CANONICALIZATION-V3** | Staging DB parity view+slip execute PASS `20260529T231120Z`; branch `feature/product-canonicalization-v3`; CORRECTED stale V193 view-live memory |
 | `20260601T120000Z` | **PHASE1 DELIVERY STATUS UPDATE** | 51bc597 pushed; build tesseract blocker; original schema 4/4 PASS; data wave pending; claims/TRID dryruns PASS not applied; Neda smoke PASS; PR needed |
 | `20260531T140000Z` | **PHASE1 SCANNER REMOVAL CHECKPOINT** | 80 spreadsheet dims; removal fetch/sync/rebuild/norm/resolver 6099/6175; item-level repair+commit; original schema wave done; claims/TRID plans PASS |
 | `20260529T220000Z` | **ITEM-LEVEL RECEIVE MODEL** | RI item-level vs EP group-level; repair pending; no qty-on-RI regression |
@@ -229964,138 +229970,53 @@ Examples:
 - Warehouse + Claim bundle
 - Claim-only from file imports
 - Claim with API integrations
-- Claim with AI agents
-- Claim with warehouse/operator evidence
-- Inventory forecasting as separate module
-- Product intelligence / Helium-10-like tools as separate module
-- API ingestion as separate module
-- OCR/carton-slip AI as separate module
-- AI agents as separate metered feature
-- user seats, store count, API call limits, AI credits, workflow runs, storage limits as metered dimensions
-
-Architecture required:
-- feature catalog
-- module catalog
-- entitlement policy layer
-- tenant subscription/plan
-- store-level enablement/overrides
-- user/role permissions
-- usage metering
-- billing/credit integration later
-- hard gates before background jobs/workflows run
-- UI gating
-- API gating
-- AI gating
-- import/API job gating
-- marketplace connector gating
-
-Core rule:
-If a tenant/store/user does not have an active entitlement for a feature/module, downstream workflows must not run.
-
-This must be checked before:
-- showing UI nav
-- allowing API routes
-- running imports
-- running claim workflows
-- calling marketplace APIs
-- running AI agents
-- scheduling sync jobs
-- generating reports
-- using OCR
-- creating claims/tasks/cases from a fea
+- Claim wi
 ---
 
-# APPEND SLICE: PHASE1 DELIVERY STATUS UPDATE (20260601T120000Z)
+# APPEND SLICE: HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS (20260609T140000Z)
 
-**Prompt:** HISTORY + MEMORY — PHASE1 DELIVERY STATUS UPDATE  
-**Owner:** Main/user  
-**Branch:** `feature/product-canonicalization-v2`  
-**Mode:** Agent, docs only — no DB/API/migration mutations  
+**Prompt:** HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS · append-only docs/memory sync  
+**Branch:** `feature/product-canonicalization-v3` @ `4402064`
 
-## Commit pushed
+## CORRECTED / SUPERSEDED
 
-| Field | Value |
-|-------|-------|
-| SHA | `51bc597ba1ed1d49761b5650b73f36704f72b1aa` |
-| Message | `phase1: item-level scanner receive allocation repair` |
-| Remote | `origin/feature/product-canonicalization-v2` |
-| Evidence | `commit-push-item-level-repair-and-phase1/20260528T191934Z/` |
+| Prior memory | Correction |
+|--------------|------------|
+| Original DB parity **BLOCKED** (`20260608T120000Z`) | **SUPERSEDED** — original slip/view parity **PASS** `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z` |
 
-## Build blocker
+## Staging product spine true linkage — PASS
 
-| Issue | Detail |
+| Check | Result |
 |-------|--------|
-| `npm run build` | **FAIL** — `tesseract.js` missing in `app/scanner/operator-mobile/scan/page.tsx` |
-| Deploy gate | Fix required before Vercel/deploy merge |
-| Next | **BUILD-FIX-TESSERACT-SCAN-PAGE** |
+| Execute | **PASS** — `product-spine-view-linkage-staging-execute/20260530T171500Z/` |
+| Browser smoke tracking `1552698729` | **PASS** |
+| Browser smoke FNSKU `X003S8RCBH` | **PASS** |
+| True chain | `view.expected_package_id` -> `expected_packages.id` -> `expected_packages.resolved_product_id` -> `products.id` |
 
-## Original schema wave — PASS
+## Original — slip/view parity PASS; product spine view DDL pending
 
-| Item | Status |
-|------|--------|
-| Target | `kxsvedvpjldygtdbylsy` |
-| Migrations applied | **4 / 4** |
-| Functions parity | **PASS** |
-| Views parity | **PASS** |
-| Evidence | `original-parity-phase1-wave-schema-execute/20260530T180000Z/` |
+- Slip/view + slip_contents cols: **PASS** `20260529T234437Z`
+- Still needs: `expected_package_id` + `product_display_name` view DDL on original (`product-spine-view-linkage-original-approval.md`)
 
-## Original data wave — NOT EXECUTED
+## Expected allocation census — COMPLETE
 
-Fresh SP-API fetch on original recommended; do not bulk-clone staging EP/PIM/upload rows. Approval: `original-parity-phase1-wave-data-approval.md`.
+| Finding | Status |
+|---------|--------|
+| Allocation mostly in DB | yes |
+| Item-level receive | good |
+| Delete/void release wiring | **gap** — does not wire `release_expected_item_unit` |
+| Cascade/undo draft | not applied (`20260901120000`) |
 
-## Staging data
+## Removal
 
-`expected_packages` **6,175**; resolved **6,099**; unresolved **76**.
+Verify gate **aligned**; burn-in retry **PASS**; resolver **+6 EP** on staging.
 
-## Claims — dry-run PASS, not applied
+## Next priorities (ordered)
 
-Migration `20260831120000_claim_lines_foundation.sql` drafted; dry-run PASS; ~**13,966** upper bound pre-dedupe.
+1. REMOVAL-STAGING-GAP-FETCH-SYNC
+2. DELETE-RELEASE-WIRING
+3. DELETE-UNDO-RETENTION-ARCHITECTURE
+4. PRODUCT-SPINE-VIEW-LINKAGE-ORIGINAL-EXECUTE
+5. CLAIMS-ORIGINAL-PARITY-GROUPING
 
-## TRID — dry-run PASS, not applied
-
-Migration `20260832120000_trid_foundation.sql` drafted; `claim_lines` prerequisite missing.
-
-## Neda
-
-Item-level smoke **PASS** after sync; PR not opened — needs **GH-AUTH-PR-CREATE**.
-
-## Priority
-
-1. BUILD-FIX-TESSERACT-SCAN-PAGE  
-2. ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE  
-3. CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY  
-4. GH-AUTH-PR-CREATE
-
----
-
-# 20260528T220000Z — ORIGINAL DATA WAVE RESOLVER FINISH VERIFY
-
-**Prompt:** ORIGINAL-PARITY-WAVE-DATA-RESOLVER-FINISH-VERIFY  
-**Evidence:** `.cursor/audit-reports/original-parity-wave-data-resolver-finish-verify/20260528T220000Z/`  
-**Data execute:** `.cursor/audit-reports/original-parity-phase1-wave-data-execute/20260528T201200Z/`
-
-## Result
-
-| Check | Value |
-|-------|-------|
-| resolver_complete | **yes** |
-| original derived EP | **11,790** |
-| original resolved | **9,377** |
-| original unresolved | **2,413** |
-| ambiguous | **0** |
-| rebuild_valid | **yes** (non-overflow mismatch **0**) |
-| resume_needed | **no** |
-
-## Staging vs original (live)
-
-| Metric | Staging | Original |
-|--------|--------:|---------:|
-| derived EP | 6,175 | 11,790 |
-| resolved | 6,099 | 9,377 |
-| unresolved | 76 | 2,413 |
-
-No staging writes. No products/PIM inserts.
-
-## Next
-
-**ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE** — governed map replays on original (optional gap close) -> Wave C scanner verify.
+**Pack:** `.cursor/audit-reports/history-memory-align-after-phase1-census/20260609T140000Z/`

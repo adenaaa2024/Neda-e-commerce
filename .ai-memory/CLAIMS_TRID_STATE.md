@@ -1,8 +1,7 @@
 # Claims & TRID state — phase1 delivery
 
-**Branch:** `feature/product-canonicalization-v2`  
-**Staging:** `eiqfaapyumhixxoeltgu`  
-**Last updated:** 2026-06-01 (`phase1-delivery-status-update` `20260601T120000Z`)
+**Branch:** `feature/product-canonicalization-v3` @ `4402064`  
+**Last updated:** 2026-06-09 (`history-memory-align-after-phase1-census` `20260609T140000Z`)
 
 Related: [CLAIMS_ENGINE_STATE.md](CLAIMS_ENGINE_STATE.md) · [TRID_CLAIM_STATUS.md](TRID_CLAIM_STATUS.md)
 
@@ -55,13 +54,20 @@ Dedupe by `idempotency_key` will reduce actual INSERT count.
 | Expected short/overage | **group-grain** on root EP |
 | Import candidates | **import-grain** until TRID grouping |
 
-## Priority (with phase1 delivery)
+## Priority (June 2026 — append)
+
+Aligns with [ROADMAP.md](ROADMAP.md): Scanner → Product → Removal → **Claims (here)** → TRID → Inventory → AI
+
+**Next (phase 1 census):** **CLAIMS-ORIGINAL-PARITY-GROUPING** — original schema parity + grouping architecture.
 
 1. **BUILD-FIX-TESSERACT-SCAN-PAGE**  
-2. **ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE**  
+2. **ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE** (product completion on original)  
 3. **CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY**  
-4. **GH-AUTH-PR-CREATE**  
-5. **TRID-FOUNDATION-MIGRATION-APPLY** (after claim_lines)
+4. **CLAIM-CASE-EVIDENCE-FOUNDATION-SCHEMA-APPLY** (after claim_lines; approval false)  
+5. **GH-AUTH-PR-CREATE**  
+6. **TRID-FOUNDATION-MIGRATION-APPLY** (after claim_lines)
+
+**Done (append):** ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE · resolver finish verify **PASS**
 
 ## Forbidden
 

@@ -1,28 +1,37 @@
 # Product canonicalization — PC Phase 01
 
-**Branch:** `feature/product-canonicalization-v2`  
-**Last updated:** 2026-05-29 (`removal-api-product-linkage-checkpoint` `20260529T120000Z`)
+**Branch:** `feature/product-canonicalization-v3` @ `4402064`  
+**Last updated:** 2026-06-09 (`history-memory-align-after-phase1-census` `20260609T140000Z`)
 
-## Removal product linkage (checkpoint)
+## DB parity + product spine
 
-| Phase | Product create |
-|-------|----------------|
-| SP-API fetch | **Forbidden** |
-| Domain sync | **Forbidden** |
-| Rebuild | **Forbidden** — qty/tracking only |
-| Resolver backfill | Map-only; **5,397** resolved / **71** missing evidence (dry-run post-fix) |
-| Promotion | Amazon evidence only |
+| Surface | Status |
+|---------|--------|
+| Staging view + slip cols | **PASS** — `20260529T231120Z` |
+| Original view + slip cols | **PASS** — `20260529T234437Z` (**CORRECTED** — was BLOCKED) |
+| Staging true linkage + browser smoke | **PASS** — `20260530T171500Z`; `1552698729`, `X003S8RCBH` |
+| Original product spine view DDL | **PENDING** — `expected_package_id`, `product_display_name` |
 
-**Canonical path:** `product_id` / `resolved_product_id` — no title-only create.
+## Original EP backfill dry-run (read-only)
 
-## Rebuild verify (post allocation fix)
+**Script:** `scripts/original-product-map-expected-packages-backfill-dryrun.ts`
 
-`removal-rebuild-verify-and-resolver-dryrun/20260528T181500Z-verify` — **PASS**, `rebuild_valid=yes`, mismatch **0**.
+| Class | Meaning | Count |
+|-------|---------|------:|
+| A | Existing `product_identifier_map` hit → EP update only | **0** |
+| B | Unique `products.id` → map insert + EP update | **0** |
+| C | Needs product seed (`needs_product_seed`) | **447** |
+| D | Ambiguous multi-product | **0** |
+| E | Missing identifiers | **0** |
 
-See [REMOVAL_API_STATE.md](REMOVAL_API_STATE.md).
+**Execute:** **NOT READY** — wave 1 allows Class A/B only; Class C explicitly excluded per approval doc.
 
-## Spine (unchanged)
+**SUPERSEDED for sequencing:** Exploratory dry-run completed read-only before product spine view DDL on original. **Re-run after** `PRODUCT-SPINE-VIEW-LINKAGE-ORIGINAL-EXECUTE`.
 
-~17,033 `products` · ~16,803 active map rows · V192 contract locked.
+## Removal product linkage (checkpoint — unchanged)
 
-**Guard:** `npm run check:product-resolution-contract-v192`
+SP-API fetch / domain sync / rebuild: **no product create**. Canonical path: `resolved_product_id` via map.
+
+## Spine
+
+~17,033 `products` · V192 contract locked · `npm run check:product-resolution-contract-v192`

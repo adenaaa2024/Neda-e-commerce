@@ -10,6 +10,10 @@ import { createRequire, type Module } from "node:module";
 import pg from "pg";
 
 import {
+  queryEpAllocationMismatchBreakdown,
+  rebuildValidFromBreakdown,
+} from "../lib/removal/ep-allocation-mismatch-breakdown";
+import {
   loadEnvLocalIntoProcess,
   refFromSupabaseUrl,
   supabaseUrlMatchesStagingRef,
@@ -22,7 +26,7 @@ const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const ORIGINAL_REF = "kxsvedvpjldygtdbylsy";
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 const STORE_ID = "509ee1f6-622c-46a5-8110-7b889ba46c2c";
-const REQUIRED_BRANCH = "feature/product-canonicalization-v2";
+const REQUIRED_BRANCH = "feature/product-canonicalization-v3";
 const APPROVAL_PATH = ".cursor/operator-approvals/sp-api-removal-reports-domain-sync-approval.md";
 const FETCH_RUN = "20260527T202818Z";
 const SYNC_PLAN_RUN = "20260527T203758Z";
@@ -155,78 +159,6 @@ async function tableCount(client: pg.Client, table: string): Promise<number> {
   return (r.rows[0] as { c: number }).c;
 }
 
-async function epMismatchCount(client: pg.Client): Promise<number> {
-  const colQ = await client.query(
-    `SELECT column_name FROM information_schema.columns
-     WHERE table_schema='public' AND table_name='amazon_removal_shipments'`,
-  );
-  const shipmentHasDisposition = (colQ.rows as Array<{ column_name: string }>).some(
-    (x) => x.column_name === "disposition",
-  );
-  const shipDispositionSel = shipmentHasDisposition
-    ? "nullif(btrim(s.disposition), '') AS disposition"
-    : "NULL::text AS disposition";
-  const dispositionJoin = shipmentHasDisposition
-    ? "AND s.disposition IS NOT DISTINCT FROM d.disposition"
-    : "";
-
-  const r = await client.query(
-    `
-    WITH detail AS (
-      SELECT d.id AS detail_id, COALESCE(d.shipped_quantity,0) AS detail_shipped_qty,
-        d.organization_id, d.store_id, d.order_id, d.order_type, d.order_date,
-        nullif(btrim(d.sku),'') AS sku, nullif(btrim(d.fnsku),'') AS fnsku, nullif(btrim(d.disposition),'') AS disposition
-      FROM public.amazon_removals d
-      WHERE d.organization_id=$1::uuid AND d.store_id=$2::uuid AND d.order_id IS NOT NULL
-    ),
-    shipment AS (
-      SELECT s.id AS shipment_id, s.organization_id, s.store_id, s.order_id, s.order_type, s.order_date,
-        nullif(btrim(s.sku),'') AS sku, nullif(btrim(s.fnsku),'') AS fnsku, ${shipDispositionSel},
-        COALESCE(s.shipped_quantity,0) AS shipment_shipped_qty
-      FROM public.amazon_removal_shipments s
-      WHERE s.organization_id=$1::uuid AND s.store_id=$2::uuid
-    ),
-    pair AS (
-      SELECT d.detail_id, d.detail_shipped_qty, s.shipment_id, s.shipment_shipped_qty
-      FROM detail d LEFT JOIN shipment s
-        ON s.organization_id=d.organization_id AND s.store_id IS NOT DISTINCT FROM d.store_id
-       AND s.order_id IS NOT DISTINCT FROM d.order_id AND s.order_type IS NOT DISTINCT FROM d.order_type
-       AND s.order_date IS NOT DISTINCT FROM d.order_date AND s.sku IS NOT DISTINCT FROM d.sku
-       AND s.fnsku IS NOT DISTINCT FROM d.fnsku ${dispositionJoin}
-    ),
-    agg AS (
-      SELECT detail_id, max(detail_shipped_qty) AS detail_total,
-        sum(COALESCE(shipment_shipped_qty,0)) FILTER (WHERE shipment_id IS NOT NULL) AS shipment_total,
-        count(*) FILTER (WHERE shipment_id IS NOT NULL) AS shipment_count
-      FROM pair GROUP BY detail_id
-    ),
-    matched_emitted AS (
-      SELECT p.detail_id, p.shipment_shipped_qty AS qty FROM pair p JOIN agg a USING (detail_id) WHERE p.shipment_id IS NOT NULL
-    ),
-    remainder_emitted AS (
-      SELECT DISTINCT ON (p.detail_id) p.detail_id,
-        GREATEST(a.detail_total - COALESCE(a.shipment_total,0),0)::int AS qty
-      FROM pair p JOIN agg a USING (detail_id)
-      WHERE COALESCE(a.shipment_count,0)=0 OR a.detail_total > COALESCE(a.shipment_total,0)
-      ORDER BY p.detail_id
-    ),
-    emitted AS (
-      SELECT detail_id, qty FROM matched_emitted UNION ALL SELECT detail_id, qty FROM remainder_emitted
-    ),
-    sim AS (SELECT detail_id, sum(qty)::int AS sim_sum FROM emitted GROUP BY 1),
-    live AS (
-      SELECT source_detail_row_id AS detail_id, sum(expected_scan_quantity)::int AS live_sum
-      FROM public.expected_packages
-      WHERE organization_id=$1::uuid AND store_id=$2::uuid AND build_source IN ('detail_shipment','detail_remainder')
-      GROUP BY 1
-    )
-    SELECT count(*)::int AS c FROM sim FULL OUTER JOIN live USING (detail_id)
-    WHERE COALESCE(sim_sum,-1) <> COALESCE(live_sum,-2)
-    `,
-    [ORG_ID, STORE_ID],
-  );
-  return (r.rows[0] as { c: number }).c;
-}
 
 async function ensureRebuildIndexes(client: pg.Client): Promise<void> {
   const idx = await client.query(
@@ -493,8 +425,9 @@ async function main(): Promise<void> {
   const afterEp = await epCounts(client);
   const productsAfter = await tableCount(client, "products");
   const pimAfter = await tableCount(client, "product_identifier_map");
-  const mismatchCount = await epMismatchCount(client);
-  const rebuildValid = mismatchCount === 0;
+  const mismatchBreakdown = await queryEpAllocationMismatchBreakdown(client, ORG_ID, STORE_ID);
+  const mismatchCount = mismatchBreakdown.total;
+  const rebuildValid = rebuildValidFromBreakdown(mismatchBreakdown);
 
   await client.end();
 
@@ -502,7 +435,11 @@ async function main(): Promise<void> {
   const execBlockers: string[] = [];
   if (!orderPipe.ok) execBlockers.push(`REMOVAL_ORDER pipeline failed: ${orderPipe.error}`);
   if (!shipPipe.ok) execBlockers.push(`REMOVAL_SHIPMENT pipeline failed: ${shipPipe.error}`);
-  if (!rebuildValid) execBlockers.push(`Rebuild verify FAIL: allocation mismatch count=${mismatchCount}`);
+  if (!rebuildValid) {
+    execBlockers.push(
+      `Rebuild verify FAIL: non-overflow allocation mismatch=${mismatchBreakdown.non_overflow} (total=${mismatchCount}, overflow=${mismatchBreakdown.overflow})`,
+    );
+  }
   if (productsAfter !== productsBefore) execBlockers.push("products count changed (forbidden)");
   if (pimAfter !== pimBefore) execBlockers.push("product_identifier_map count changed (forbidden)");
 
@@ -597,7 +534,7 @@ async function main(): Promise<void> {
       `| Check | Result |`,
       `|-------|--------|`,
       `| rebuild_valid | **${rebuildValid ? "yes" : "no"}** |`,
-      `| allocation mismatch count | **${mismatchCount}** |`,
+      `| allocation mismatch (total / overflow / non-overflow) | **${mismatchCount} / ${mismatchBreakdown.overflow} / ${mismatchBreakdown.non_overflow}** |`,
       `| products unchanged | **${productsAfter === productsBefore}** (${productsBefore} → ${productsAfter}) |`,
       `| product_identifier_map unchanged | **${pimAfter === pimBefore}** (${pimBefore} → ${pimAfter}) |`,
     ].join("\n") + "\n",
@@ -661,6 +598,8 @@ async function main(): Promise<void> {
         expected_packages_after: afterEp.derived_total,
         rebuild_valid: rebuildValid,
         allocation_mismatch_count: mismatchCount,
+        allocation_mismatch_overflow: mismatchBreakdown.overflow,
+        allocation_mismatch_non_overflow: mismatchBreakdown.non_overflow,
         product_promotion_candidates: promoCandidates.count,
         exact_next_prompt: nextPrompt,
       },

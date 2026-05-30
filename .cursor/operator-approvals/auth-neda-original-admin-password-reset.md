@@ -1,0 +1,3 @@
+APPROVED_AUTH_ADMIN_PASSWORD_RESET=true
+TARGET_SUPABASE_REF=kxsvedvpjldygtdbylsy
+TARGET_EMAIL=neda@samdistributioninc.com

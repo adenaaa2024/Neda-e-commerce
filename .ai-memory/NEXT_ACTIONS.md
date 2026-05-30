@@ -1,59 +1,51 @@
 # Next actions — canonical
 
-**Branch:** `feature/product-canonicalization-v2`  
-**Staging:** `eiqfaapyumhixxoeltgu`  
-**Last updated:** 2026-05-28 (`original-parity-wave-data-resolver-finish-verify` `20260528T220000Z`)
+**Branch:** `feature/product-canonicalization-v3` @ `4402064`  
+**Staging:** `eiqfaapyumhixxoeltgu` · **Original:** `kxsvedvpjldygtdbylsy`  
+**Last updated:** 2026-06-09 (`history-memory-align-after-phase1-census` `20260609T140000Z`)
 
 ---
 
-## P0 — Build / deploy gate
+## P0 — Phase 1 next priorities (ordered)
 
-1. **BUILD-FIX-TESSERACT-SCAN-PAGE** — `npm run build` fails on missing `tesseract.js` in `app/scanner/operator-mobile/scan/page.tsx`; fix before deploy/merge  
-
----
-
-## P1 — Original parity (post data wave)
-
-2. **ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE** — governed map replays on original (E1/E2/E1B/PC03B) to reduce **2,413** `missing_product_needs_evidence`  
-3. **ORIGINAL-PARITY-PHASE1-WAVE-C-EXECUTE** — scanner contract verification on original  
+1. **REMOVAL-STAGING-GAP-FETCH-SYNC** — close staging removal fetch/sync data gap  
+2. **DELETE-RELEASE-WIRING** — wire `release_expected_item_unit` on delete/void paths (census identified gap)  
+3. **DELETE-UNDO-RETENTION-ARCHITECTURE** — cascade undo + retention (`20260901120000` drafted, not applied)  
+4. **PRODUCT-SPINE-VIEW-LINKAGE-ORIGINAL-EXECUTE** — original `expected_package_id` + `product_display_name` view DDL  
+5. **CLAIMS-ORIGINAL-PARITY-GROUPING** — original claims schema parity + grouping  
 
 ---
 
-## Done — original data wave
+## P1 — Data backfill (still not ready)
 
-- [x] **ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE** — `20260528T201200Z/` — fetch, sync, rebuild, resolver  
-- [x] **ORIGINAL-PARITY-WAVE-DATA-RESOLVER-FINISH-VERIFY** — `20260528T220000Z/` — resolver complete **yes**; live **9,377 / 11,790** resolved  
-
----
-
-## P2 — Claims / TRID schema apply
-
-3. **CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY** — staging; migration drafted; dry-run **PASS**; ~**13,966** upper bound pre-dedupe  
-4. **TRID-FOUNDATION-MIGRATION-APPLY** — after `claim_lines` prerequisite landed (`trid-foundation-migration-approval.md`)
+6. **ORIGINAL-PRODUCT-MAP-EP-BACKFILL-DRY-RUN-REPEAT** — after product spine view DDL on original  
+7. **ORIGINAL-PRODUCT-MAP-EP-BACKFILL-EXECUTE** — **NOT READY** (447 Class C only; A/B = 0)
 
 ---
 
-## P2 — Branch delivery
+## P2 — Branch / build
 
-5. **GH-AUTH-PR-CREATE** — open PR `feature/product-canonicalization-v2` → `main` for commit `51bc597`  
-   - Compare: `https://github.com/mebrahimipargoo/ecommerce-os/compare/main...feature/product-canonicalization-v2`
-
----
-
-## Done — phase1 delivery
-
-- [x] Commit `51bc597` pushed — item-level scanner receive allocation repair  
-- [x] Original schema wave **4/4** migrations PASS on original  
-- [x] Staging EP **6,099 / 6,175** resolved  
-- [x] Neda item-level smoke **PASS** after sync  
-- [x] Claim lines schema dry-run **PASS**  
-- [x] TRID foundation migration dry-run **PASS_WITH_BLOCKERS** (claim_lines prerequisite)  
+8. **NEDA-LINKAGE-BRANCH-MERGE** — after original product spine view DDL + smoke  
+9. **BUILD-FIX-TESSERACT-SCAN-PAGE**
 
 ---
 
-## Blocked
+## Done
 
-- Deploy — until **BUILD-FIX-TESSERACT-SCAN-PAGE**  
-- TRID apply — until **claim_lines** schema applied  
-- Future production — **NOT_CREATED_YET**  
-- Original production-ready — **NO** until Wave B/C + build fix; data wave resolver **complete**  
+- [x] Staging DB parity slip/view **PASS** — `20260529T231120Z/`  
+- [x] Original DB parity slip/view **PASS** — `20260529T234437Z/` (**CORRECTED** — was BLOCKED in prior memory)  
+- [x] Staging product spine true linkage **PASS** — `product-spine-view-linkage-staging-execute/20260530T171500Z/`  
+- [x] Browser smoke **PASS** — tracking `1552698729`, FNSKU `X003S8RCBH`  
+- [x] Expected allocation census **complete**  
+- [x] Removal verify gate align + burn-in retry **PASS**; resolver **+6 EP**
+
+---
+
+## Blocked / not ready
+
+| Item | Reason |
+|------|--------|
+| Original product spine view DDL | Approval/apply pending |
+| EP backfill execute | Class C only (447 rows) |
+| Cascade/undo migration | Drafted, not applied |
+| Future production | **NOT_CREATED_YET** |
