@@ -76,6 +76,9 @@ const MATERIALIZE_BUCKETS = new Set<ResolverFinalBucket>([
 ]);
 
 export function isEligibleMaterializeProposal(proj: ClaimArtifactCoreProjection): boolean {
+  if (proj.inbox_queue === "ineligible_pre_cutoff") return false;
+  if (proj.badges.includes("pre_cutoff")) return false;
+  if (proj.reason_codes.some((c) => c.startsWith("pre_cutoff:"))) return false;
   if (!MATERIALIZE_BUCKETS.has(proj.final_bucket)) return false;
   if (!ALLOWED_PROPOSAL_FROM.has(proj.proposal_from)) return false;
   if (!proj.proposed_resolved_product_id) return false;

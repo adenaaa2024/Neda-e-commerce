@@ -7,12 +7,9 @@ import { resolveOrganizationId } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
 import {
   buildClaimSubmissionSourcePayloadForReturn,
+  isReturnEligibleForClaimSubmission,
   resolveClaimSubmissionStoreId,
 } from "../returns/actions";
-import {
-  shouldAutoEnqueueAmazonClaimSubmission,
-  storePlatformFromEmbed,
-} from "../returns/claim-queue-helpers";
 import {
   CLAIM_SUBMISSION_RETURN_ID_COLUMN,
   CLAIM_SUBMISSIONS_TABLE,
@@ -121,7 +118,7 @@ export async function generateDailyClaimReports(
     const { data: readyRows, error: rErr } = await supabaseServer
       .from(RETURN_ITEMS_TABLE)
       .select(
-        "id, organization_id, store_id, estimated_value, marketplace, conditions, order_id, package_id, expiration_date, batch_number, notes, stores(platform)",
+        "id, organization_id, store_id, estimated_value, marketplace, conditions, order_id, package_id, expiration_date, batch_number, notes, created_at, photo_evidence, stores(platform)",
       )
       .eq("organization_id", organizationId)
       .eq("status", "ready_for_claim")
@@ -148,10 +145,24 @@ export async function generateDailyClaimReports(
         expiration_date?: string | null;
         batch_number?: string | null;
         notes?: string | null;
+        created_at?: string | null;
+        photo_evidence?: unknown;
         stores?: unknown;
       };
-      const storePlat = storePlatformFromEmbed(r.stores);
-      if (!shouldAutoEnqueueAmazonClaimSubmission(r.marketplace, r.conditions ?? [], storePlat)) continue;
+      if (
+        !(await isReturnEligibleForClaimSubmission({
+          organizationId: String(r.organization_id ?? organizationId),
+          storeId: r.store_id ?? null,
+          marketplace: r.marketplace,
+          conditions: r.conditions ?? [],
+          photoEvidence: (r.photo_evidence ?? null) as import("../../lib/return-photo-evidence").ReturnPhotoEvidenceRow | null,
+          createdAt: r.created_at ?? null,
+          packageId: r.package_id ?? null,
+          stores: r.stores,
+        }))
+      ) {
+        continue;
+      }
 
       const returnId = r.id;
       const rawOrg = String(r.organization_id ?? organizationId ?? "").trim();

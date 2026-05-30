@@ -72,6 +72,7 @@
     "test:import-history-source-run": "tsx scripts/test-import-history-source-run.ts",
     "test:amazon-resolver-target-wiring": "tsx scripts/test-amazon-resolver-target-wiring.ts",
     "test:scanner-product-linkage-ui": "tsx scripts/test-scanner-product-linkage-ui.ts",
+    "test:expected-receive-delete-release": "tsx scripts/test-expected-receive-delete-release.ts",
     "test:product-linkage-display-contract": "tsx scripts/test-product-linkage-display-contract.ts",
     "test:product-linkage-display-ui": "tsx scripts/test-product-linkage-display-ui.ts",
     "test:workspace-url-context": "tsx scripts/test-workspace-url-context.ts",
@@ -115,7 +116,7 @@
     "smoke:scanner-02i-db-verify": "tsx scripts/scanner-02i-db-verify.ts --run-id=20260517T100000Z"
   },
   "dependencies": {
-    "@react-pdf/renderer": "^4.3.2",
+    "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.99.2",
     "@zxing/browser": "^0.2.0",

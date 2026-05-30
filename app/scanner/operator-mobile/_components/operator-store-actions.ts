@@ -33,6 +33,13 @@ import {
   type InventoryViewMatchField,
   type VInventoryStatusRow,
 } from "@/lib/scanner/v-inventory-status";
+import {
+  allocateExpectedItemsForReturnItemIds,
+  buildReceiveScopeKey,
+  fetchPackageReceiveContext,
+  moveExpectedItemsForPackageScope,
+  releaseExpectedItemsForPackage,
+} from "@/lib/scanner/receive-expected-with-split";
 import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
 import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib/server-audit-actor";
 import { sanitizePublicMediaUrlStrings } from "@/lib/entity-photo-evidence";
@@ -75,11 +82,6 @@ import {
   hydrateReturnItemProductLinkage,
 } from "@/lib/scanner/hydrate-return-item-product-linkage";
 import { applyReturnItemProductEnrichmentAfterInsert } from "@/lib/scanner/apply-return-item-product-enrichment";
-import {
-  allocateExpectedItemsForReturnItemIds,
-  buildReceiveScopeKey,
-  fetchPackageReceiveContext,
-} from "@/lib/scanner/receive-expected-with-split";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
 export type OperatorStoreScopeSnapshot = {
@@ -2848,6 +2850,27 @@ export async function moveOperatorIntakeBoxToPalletAction(
   const { error: upErr } = await supabaseServer.from("packages").update(patch).eq("id", packageId);
   if (upErr) return { ok: false, message: upErr.message };
 
+  const pkgStoreForScope = storeScope || pkgStore || "";
+  if (isUuidString(pkgStoreForScope)) {
+    const pkgCtx = await fetchPackageReceiveContext(supabaseServer, packageId);
+    const receiveScopeKey = buildReceiveScopeKey({
+      organizationId,
+      storeId: pkgStoreForScope,
+      packageId,
+      slipCode: pkgCtx.slipCode,
+    });
+    const moveAlloc = await moveExpectedItemsForPackageScope(supabaseServer, {
+      packageId,
+      organizationId,
+      storeId: pkgStoreForScope,
+      receiveScopeKey,
+      trackingNumber: pkgCtx.trackingNumber,
+    });
+    if (!moveAlloc.ok) {
+      return { ok: false, message: moveAlloc.error };
+    }
+  }
+
   return {
     ok: true,
     packageId,
@@ -2867,12 +2890,9 @@ export type VoidOperatorIntakeBoxPackageResult =
   | { ok: true; packageId: string; palletId: string | null; wasDirectBox: boolean }
   | { ok: false; message: string };
 
-const VOID_BLOCKED_ITEMS_MESSAGE =
-  "This box has saved items. Move it instead of deleting.";
-
 /**
- * Soft-voids a package (`deleted_at`). Allowed when no active `return_items` reference the package.
- * Slip-only packages (slip_contents, no return_items) may be voided.
+ * Soft-voids a package (`deleted_at`). Releases expected allocation for each active return_items row first.
+ * Slip-only packages (slip_contents, no return_items) may be voided without allocation release.
  */
 export async function voidOperatorIntakeBoxPackageAction(
   input: VoidOperatorIntakeBoxPackageInput,
@@ -2913,15 +2933,13 @@ export async function voidOperatorIntakeBoxPackageAction(
     return { ok: false, message: "This package belongs to another store — select the correct store." };
   }
 
-  const { count, error: countErr } = await supabaseServer
-    .from(RETURN_ITEMS_TABLE)
-    .select("id", { count: "exact", head: true })
-    .eq("package_id", packageId)
-    .eq("organization_id", organizationId)
-    .is("deleted_at", null);
-  if (countErr) return { ok: false, message: countErr.message };
-  if ((count ?? 0) > 0) {
-    return { ok: false, message: VOID_BLOCKED_ITEMS_MESSAGE };
+  const releaseAlloc = await releaseExpectedItemsForPackage(supabaseServer, {
+    packageId,
+    organizationId,
+    softDelete: true,
+  });
+  if (!releaseAlloc.ok) {
+    return { ok: false, message: releaseAlloc.error };
   }
 
   const actor = await resolveAuditActorForSession();
@@ -2935,7 +2953,7 @@ export async function voidOperatorIntakeBoxPackageAction(
   const { error: upErr } = await supabaseServer.from("packages").update(patch).eq("id", packageId);
   if (upErr) return { ok: false, message: upErr.message };
 
-  // Repair inconsistent rows: soft-delete any return_items still linked to this voided package.
+  // Repair inconsistent rows: soft-delete any return_items still linked (release RPC should have handled active rows).
   const { error: riVoidErr } = await supabaseServer
     .from(RETURN_ITEMS_TABLE)
     .update(patch)

@@ -1,10 +1,7 @@
 "use server";
 
 import { supabaseServer } from "../../lib/supabase-server";
-import {
-  shouldAutoEnqueueAmazonClaimSubmission,
-  storePlatformFromEmbed,
-} from "../returns/claim-queue-helpers";
+import { isReturnEligibleForClaimSubmission } from "../returns/actions";
 import { generateDailyClaimReports } from "./claim-submission-actions";
 import { CLAIM_SUBMISSION_RETURN_ID_COLUMN, CLAIM_SUBMISSIONS_TABLE } from "./claim-submissions-constants";
 import { RETURN_ITEMS_TABLE } from "../returns/returns-constants";
@@ -27,20 +24,40 @@ export async function getClaimQueueSyncStatus(
   try {
     const { data: retRows, error: rErr } = await supabaseServer
       .from(RETURN_ITEMS_TABLE)
-      .select("id, marketplace, conditions, stores(platform)")
+      .select("id, marketplace, conditions, organization_id, store_id, created_at, package_id, photo_evidence, stores(platform)")
       .eq("organization_id", organizationId)
       .eq("status", "ready_for_claim")
       .is("deleted_at", null)
       .limit(5000);
     if (rErr) throw new Error(rErr.message);
-    const amazonReady = (retRows ?? []).filter((row) => {
-      const r = row as { marketplace?: string | null; conditions?: string[] | null; stores?: unknown };
-      return shouldAutoEnqueueAmazonClaimSubmission(
-        r.marketplace,
-        r.conditions ?? [],
-        storePlatformFromEmbed(r.stores),
-      );
-    });
+    const amazonReady: typeof retRows = [];
+    for (const row of retRows ?? []) {
+      const r = row as {
+        id: string;
+        marketplace?: string | null;
+        conditions?: string[] | null;
+        organization_id?: string;
+        store_id?: string | null;
+        created_at?: string | null;
+        package_id?: string | null;
+        photo_evidence?: unknown;
+        stores?: unknown;
+      };
+      if (
+        await isReturnEligibleForClaimSubmission({
+          organizationId: String(r.organization_id ?? organizationId),
+          storeId: r.store_id ?? null,
+          marketplace: r.marketplace,
+          conditions: r.conditions ?? [],
+          photoEvidence: (r.photo_evidence ?? null) as import("../../lib/return-photo-evidence").ReturnPhotoEvidenceRow | null,
+          createdAt: r.created_at ?? null,
+          packageId: r.package_id ?? null,
+          stores: r.stores,
+        })
+      ) {
+        amazonReady.push(row);
+      }
+    }
     const readyIds = amazonReady.map((r) => (r as { id: string }).id);
     const readyForClaimCount = readyIds.length;
     if (readyForClaimCount === 0) {

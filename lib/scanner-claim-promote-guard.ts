@@ -75,6 +75,14 @@ export function isExpectedScannerClaimPromoteSkipReason(reason: string | undefin
   return (
     reason === "promote_disabled" ||
     reason === "original_ref_blocked" ||
-    reason === "ref_not_allowed"
+    reason === "ref_not_allowed" ||
+    reason === "scan_not_live" ||
+    reason === "import_pre_cutoff" ||
+    reason === "outside_window" ||
+    reason === "hold_package_open" ||
+    reason === "hold_pallet_open" ||
+    reason === "hold_order_incomplete" ||
+    reason === "manual_review_required" ||
+    reason === "missing_scanner_evidence"
   );
 }

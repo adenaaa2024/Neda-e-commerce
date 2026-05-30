@@ -13,6 +13,7 @@ import {
   hasReturnPhotoEvidenceUrlSlots,
   type ReturnPhotoEvidenceRow,
 } from "@/lib/return-photo-evidence";
+import { evaluateClaimEligibility } from "@/lib/claim-eligibility-policy";
 import { supabaseServer } from "@/lib/supabase-server";
 import { evaluateScannerClaimPromoteGuard } from "@/lib/scanner-claim-promote-guard";
 import { isUuidString } from "@/lib/uuid";
@@ -63,6 +64,7 @@ type ReturnItemPromoteRow = {
   conditions: string[] | null;
   photo_evidence: ReturnPhotoEvidenceRow;
   notes: string | null;
+  created_at: string | null;
   deleted_at: string | null;
 };
 
@@ -276,7 +278,7 @@ async function loadReturnItemForPromote(
   let q = client
     .from("return_items")
     .select(
-      "id, organization_id, store_id, package_id, pallet_id, expected_item_id, resolved_product_id, order_id, sku, fnsku, asin, conditions, photo_evidence, notes, deleted_at",
+      "id, organization_id, store_id, package_id, pallet_id, expected_item_id, resolved_product_id, order_id, sku, fnsku, asin, conditions, photo_evidence, notes, created_at, deleted_at",
     )
     .eq("id", returnItemId);
   if (organizationId && isUuidString(organizationId)) {
@@ -322,6 +324,20 @@ export async function promoteScannerReturnItemToClaimStructures(
 
   const { canonical, claimSource, tag: sourceTag } = issue;
   const hasPhoto = hasReturnPhotoEvidenceUrlSlots(row.photo_evidence);
+
+  const eligibility = await evaluateClaimEligibility({
+    client,
+    organizationId: row.organization_id,
+    storeId: row.store_id,
+    claimSource: "scanner_operator_issue",
+    eventAt: row.created_at,
+    hasScannerEvidence: hasPhoto,
+    packageId: row.package_id,
+    palletId: row.pallet_id,
+  });
+  if (!eligibility.allowed) {
+    return { promoted: false, skipped_reason: eligibility.reason };
+  }
   const lineStatus = deriveClaimLineStatus(canonical, hasPhoto);
   const discrepancyKind = mapScannerIssueToDiscrepancyKind(canonical);
   const routing = await resolveClaimCompanyRouting(client, {

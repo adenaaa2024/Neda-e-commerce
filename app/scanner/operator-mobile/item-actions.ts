@@ -12,6 +12,8 @@ import {
   allocateExpectedItemsForReturnItemIds,
   buildReceiveScopeKey,
   fetchPackageReceiveContext,
+  releaseExpectedItemUnit,
+  softVoidReturnItemWithExpectedRelease,
 } from "@/lib/scanner/receive-expected-with-split";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
@@ -241,6 +243,39 @@ export async function operatorReceiveItem(
   } catch (e) {
     await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", returnItemId);
     return { ok: false, error: e instanceof Error ? e.message : "Receive failed." };
+  }
+}
+
+/**
+ * Delete one scanned return_items row and release its expected allocation unit first.
+ */
+export async function operatorDeleteReturnItem(input: {
+  return_item_id: string;
+  organization_id?: string;
+  actor_profile_id?: string | null;
+}): Promise<{ ok: boolean; error?: string; released?: boolean }> {
+  const returnItemId = input.return_item_id?.trim();
+  if (!isUuidString(returnItemId)) {
+    return { ok: false, error: "Invalid return item id." };
+  }
+  try {
+    const orgId = await resolveWriteOrganizationId(
+      input.actor_profile_id ?? null,
+      input.organization_id,
+    );
+    await assertRowOrgAccess(input.actor_profile_id ?? null, orgId);
+
+    const actorId = input.actor_profile_id?.trim();
+    const voided = await softVoidReturnItemWithExpectedRelease(supabaseServer, {
+      returnItemId,
+      organizationId: orgId,
+      updatedBy: actorId && isUuidString(actorId) ? actorId : null,
+    });
+    if (!voided.ok) return { ok: false, error: voided.error };
+
+    return { ok: true, released: voided.released };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed." };
   }
 }
 

@@ -2451,12 +2451,39 @@ function pickInventoryViewHints(rows: VInventoryStatusRow[]): {
   let carrier: string | null = null;
   let slipCode: string | null = null;
   for (const r of rows) {
-    if (!productName && r.product_name?.trim()) productName = r.product_name.trim();
+    if (!productName) {
+      const nm = r.product_display_name?.trim() || r.product_name?.trim();
+      if (nm) productName = nm;
+    }
     if (!carrier && r.carrier?.trim()) carrier = r.carrier.trim();
     if (!slipCode && r.id_slip_contents?.trim()) slipCode = r.id_slip_contents.trim();
     if (productName && carrier && slipCode) break;
   }
   return { productName, carrier, slipCode };
+}
+
+function inventoryLineDisplayName(line: VInventoryStatusRow): string | null {
+  return line.product_display_name?.trim() || line.product_name?.trim() || null;
+}
+
+function collectGateProductNamesFromLines(
+  epRows: Record<string, unknown>[],
+  shipmentLines: VInventoryStatusRow[],
+): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const line of shipmentLines) {
+    for (const key of [line.resolved_product_id, line.product_id, line.resolved_catalog_product_id]) {
+      const id = String(key ?? "").trim();
+      const nm = inventoryLineDisplayName(line);
+      if (isUuidString(id) && nm) names.set(id, nm);
+    }
+  }
+  for (const raw of epRows) {
+    const id = deriveExpectedPackageEffectiveProductId(raw);
+    const nm = epPackageRowCatalogSubtitle(raw)?.trim();
+    if (id && isUuidString(id) && nm) names.set(id, nm);
+  }
+  return names;
 }
 
 function collectGateResolvedProductIds(
@@ -4086,17 +4113,12 @@ function OperatorMobileScanPageContent() {
       const rid = String(
         line.resolved_product_id ?? line.product_id ?? line.resolved_catalog_product_id ?? "",
       ).trim();
-      const nm = line.product_name?.trim() ?? "";
+      const nm = inventoryLineDisplayName(line) ?? "";
       if (rid && nm) m.set(rid, nm);
     }
     for (const line of identifyGateExpectationLines) {
       const rid = line.product_linkage?.resolved_product_id?.trim() ?? "";
       const nm = line.product_linkage?.product_name?.trim() ?? "";
-      if (rid && nm) m.set(rid, nm);
-    }
-    for (const row of identifyGateShipmentLines) {
-      const rid = row.resolved_product_id?.trim() ?? "";
-      const nm = row.product_name?.trim() ?? "";
       if (rid && nm) m.set(rid, nm);
     }
     return m;
@@ -4406,17 +4428,23 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateInventoryVisual(scopedVis);
         setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
         if (isSupabaseConfigured() && sessionStoreId) {
+          const viewNames = collectGateProductNamesFromLines(scopedSafe, shipmentLines);
           const productIds = collectGateResolvedProductIds(scopedSafe, shipmentLines);
-          if (productIds.length) {
-            const nameRes = await fetchGateProductNamesByIdsAction(orgId, productIds);
+          const missingIds = productIds.filter((id) => !viewNames.has(id));
+          if (missingIds.length) {
+            const nameRes = await fetchGateProductNamesByIdsAction(orgId, missingIds);
             if (nameRes.ok) {
-              setIdentifyGateBatchProductNames(new Map(Object.entries(nameRes.names)));
+              const merged = new Map(viewNames);
+              for (const [id, nm] of Object.entries(nameRes.names)) {
+                if (id && nm.trim()) merged.set(id, nm.trim());
+              }
+              setIdentifyGateBatchProductNames(merged);
             } else {
               console.warn("fetchGateProductNamesByIdsAction failed", nameRes.error);
-              setIdentifyGateBatchProductNames(new Map());
+              setIdentifyGateBatchProductNames(viewNames);
             }
           } else {
-            setIdentifyGateBatchProductNames(new Map());
+            setIdentifyGateBatchProductNames(viewNames);
           }
         } else {
           setIdentifyGateBatchProductNames(new Map());

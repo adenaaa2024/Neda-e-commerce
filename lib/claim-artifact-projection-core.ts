@@ -7,6 +7,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  evaluateImportCandidateCutoffSync,
+  loadClaimPolicy,
+} from "./claim-eligibility-policy";
+import type { ClaimPolicyV1 } from "./claim-policy-types";
+import {
   CLAIM_SUPPORTED_SOURCE_TABLES,
   type ClaimSourcePack,
   resolveClaimCandidateSourcePack,
@@ -33,7 +38,8 @@ export type InboxQueue =
   | "pim_blocked"
   | "evidence_missing"
   | "ready_for_review"
-  | "needs_product_link";
+  | "needs_product_link"
+  | "ineligible_pre_cutoff";
 
 export type ProposalFrom = "source_resolved" | "source_product_id" | "identifier_map" | "none";
 
@@ -137,9 +143,20 @@ export function computeInboxQueueMeta(args: {
   sourceRowId: string | null;
   sourceFound: boolean;
   pack: ClaimSourcePack | undefined;
+  preCutoff?: boolean;
 }): Pick<InboxProjectionRow, "inbox_queue" | "badges" | "lineage_warning_code" | "automation_allowed"> {
   const badges: string[] = [];
+  if (args.preCutoff) badges.push("pre_cutoff");
   if (args.finalBucket === "ambiguous") badges.push("conflict");
+
+  if (args.preCutoff) {
+    return {
+      inbox_queue: "ineligible_pre_cutoff",
+      badges,
+      lineage_warning_code: "pre_cutoff",
+      automation_allowed: false,
+    };
+  }
 
   const st = args.sourceTableRaw?.toLowerCase() ?? "";
   const p = args.pack;
@@ -367,6 +384,17 @@ export async function projectClaimArtifactsBatchCore(
 
   const pimMembers = await loadPimOpenMemberProductIds(client);
 
+  const policyCache = new Map<string, ClaimPolicyV1>();
+  async function policyForOrg(orgId: string): Promise<ClaimPolicyV1> {
+    const key = orgId.trim();
+    if (!key) return loadClaimPolicy(client, organizationId);
+    const hit = policyCache.get(key);
+    if (hit) return hit;
+    const loaded = await loadClaimPolicy(client, key);
+    policyCache.set(key, loaded);
+    return loaded;
+  }
+
   const byTable = new Map<string, string[]>();
   for (const c of batch) {
     const st = n(c.source_table)?.toLowerCase() ?? "";
@@ -546,6 +574,24 @@ export async function projectClaimArtifactsBatchCore(
       evidenceStatus,
     });
 
+    const orgIdForPolicy = n(c.organization_id) ?? organizationId;
+    const sourceTableLower = sourceTableRaw?.toLowerCase() ?? "";
+    const sourceRow =
+      sourceTableLower && sourceRowId
+        ? sourceMaps.get(sourceTableLower)?.get(sourceRowId) ?? null
+        : null;
+    const policy = await policyForOrg(orgIdForPolicy);
+    const cutoffResult = evaluateImportCandidateCutoffSync(
+      policy,
+      sourceTableRaw,
+      sourceRow ?? undefined,
+      c,
+    );
+    const preCutoff = !cutoffResult.allowed;
+    const reasonCodesWithCutoff = preCutoff
+      ? [...reasonCodes, `pre_cutoff:${cutoffResult.reason}`]
+      : reasonCodes;
+
     const meta = computeInboxQueueMeta({
       finalBucket,
       evidenceStatus,
@@ -553,6 +599,7 @@ export async function projectClaimArtifactsBatchCore(
       sourceRowId,
       sourceFound,
       pack: sourcePackByArtifactId.get(artifactId),
+      preCutoff,
     });
 
     const confidence =
@@ -572,7 +619,7 @@ export async function projectClaimArtifactsBatchCore(
       automation_allowed: meta.automation_allowed,
       proposal_from: proposalFrom,
       confidence,
-      reason_codes: reasonCodes,
+      reason_codes: reasonCodesWithCutoff,
       source_found: sourceFound,
       proposed_resolved_product_id: proposedResolved,
     });
