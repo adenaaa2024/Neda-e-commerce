@@ -150,6 +150,8 @@ import { OperatorProductLinkageMeta } from "@/app/scanner/operator-mobile/_compo
 import { ProductLinkagePrimaryLink } from "@/app/scanner/operator-mobile/_components/ProductLinkagePrimaryLink";
 import {
   buildProductLinkageDisplayContract,
+  PRODUCT_LINKAGE_UNMAPPED_LABEL,
+  productLinkageIsAmbiguous,
   productLinkageOperatorPrimaryDisplayLabel,
   productLinkagePrimaryLabel,
   type ProductLinkageDisplayContract,
@@ -275,7 +277,46 @@ const PURPLE_GLOW = "rgba(139, 92, 246, 0.22)";
 const BOX_PURPLE_TRACK = "rgba(167, 139, 250, 0.45)";
 const BOX_PURPLE_SOFT_BG = "rgba(167, 139, 250, 0.18)";
 
-/** Theme-aware glass panels (see globals.css `.scanner-page-glass-card`) */
+/** Zebra handheld — compact action sizing (inline Tailwind only; no globals.css button hooks). */
+const ZEBRA_COMPACT_BTN =
+  "!h-10 !min-h-0 !max-h-10 !py-2 !text-sm !font-semibold !leading-tight !shadow-none";
+/** Rugged handheld density — forced via `.operator-shipment-handheld-compact` on scan page (not viewport MQ). */
+const HANDHELD_COMPACT =
+  "gap-1 space-y-0.5 px-2 pb-[5.5rem] pt-0";
+const HANDHELD_HEADER_COMPACT =
+  "px-2 pb-0 pt-0";
+const HANDHELD_STEPPER_COMPACT =
+  "mt-0 rounded-lg px-1.5 py-0.5";
+/** Box Info intake (package_scan) — compact polish; scan page only. */
+const BOX_INFO_SECTION =
+  "relative mb-0 overflow-hidden rounded-md border border-[rgba(138,104,31,0.28)] bg-white p-1.5 shadow-[0_2px_8px_rgba(60,45,20,0.05)] dark:border-[rgba(214,183,110,0.24)] dark:bg-[#1a2129] dark:shadow-[0_4px_12px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]";
+const BOX_INFO_NOTES_SECTION =
+  "relative mb-3 overflow-hidden rounded-md border border-[rgba(138,104,31,0.28)] bg-white p-2 shadow-[0_2px_8px_rgba(60,45,20,0.05)] dark:border-[rgba(214,183,110,0.24)] dark:bg-[#1a2129] dark:shadow-[0_4px_12px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]";
+const BOX_INFO_DOCS_LIST = "overflow-hidden rounded-sm";
+const BOX_INFO_DOCS_ROW_BASE =
+  "relative border-b border-[rgba(207,198,182,0.62)] px-1 py-0 last:border-b-0 dark:border-[rgba(185,194,204,0.14)]";
+const BOX_INFO_DOCS_ROW_SURFACE =
+  "bg-[rgba(248,246,241,0.72)] dark:bg-[rgba(255,255,255,0.025)]";
+const BOX_INFO_DOCS_ROW_OPTIONAL =
+  "operator-box-info-docs-row-optional min-h-0 bg-[rgba(248,246,241,0.55)] py-0 dark:bg-[rgba(255,255,255,0.015)]";
+const BOX_INFO_DOCS_ROW_ACTIVE =
+  "operator-box-info-docs-row-active border-l-[3px] border-l-[rgba(138,104,31,0.4)] bg-[rgba(138,104,31,0.06)] py-0.5 pl-[calc(0.5rem-3px)] dark:border-l-[rgba(214,183,110,0.48)] dark:bg-[rgba(214,183,110,0.06)]";
+const BOX_INFO_DOCS_ROW_COMPLETE =
+  "operator-box-info-docs-row-complete border-l-[3px] border-l-[rgba(15,143,99,0.34)] py-0.5 pl-[calc(0.5rem-3px)] dark:border-l-[rgba(34,197,139,0.32)]";
+const BOX_INFO_REFERENCE_DETAILS =
+  "rounded-lg border-t border-[rgba(207,198,182,0.62)] bg-[#f8f6f1] px-0 py-1 dark:border-[rgba(185,194,204,0.14)] dark:bg-[rgba(255,255,255,0.025)]";
+const BOX_INFO_INPUT_BORDER =
+  "border-[rgba(185,194,204,0.28)] px-2 py-0.5 focus:border-[rgba(138,104,31,0.45)] focus:ring-2 focus:ring-[rgba(214,183,110,0.14)] dark:border-[rgba(185,194,204,0.16)] dark:focus:border-[rgba(214,183,110,0.55)] dark:focus:ring-[rgba(214,183,110,0.15)]";
+const BOX_INFO_INPUT_COMPACT_HEIGHT = "h-9 min-h-[36px] text-[13px]";
+const BOX_INFO_INPUT_COMPACT_HEIGHT_SM = "h-9 min-h-[36px] text-[13px]";
+const BOX_INFO_SLIP_META_DIVIDER =
+  "border-b border-[rgba(207,198,182,0.55)] py-0.5 last:border-b-0 dark:border-[rgba(185,194,204,0.12)]";
+const BOX_INFO_BTN_SAVE_EXIT =
+  "flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#0f8f63]/50 bg-[#0f8f63]/12 px-2 text-[13px] text-[#0b6f4d] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35 dark:border-emerald-400/50 dark:bg-emerald-500/18 dark:text-emerald-200";
+const BOX_INFO_BTN_DISCARD =
+  "flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#b4232f]/45 bg-[#b4232f]/12 px-2 text-[13px] text-[#8f1d29] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35 dark:border-red-400/48 dark:bg-red-500/16 dark:text-red-300";
+const BOX_INFO_BTN_PRIMARY =
+  "flex !h-11 min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-[#C8A96A]/55 bg-gradient-to-b from-[#525d6b] to-[#222830] px-3 py-2 text-[13px] font-semibold leading-tight text-[#faf6ed] shadow-none transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40";
 const glassCard = "scanner-page-glass-card";
 /** Gold accent links — reserved for navigation, not success states */
 const viewAllLinkClass = "operator-view-all-link text-[11px] font-bold";
@@ -290,6 +331,22 @@ const PALLET_ORDER_CONFLICT_TOOLTIP =
 /** Generic confirmation copy for destructive save/discard flows on operator scan. */
 const CONFIRM_SAVE_MESSAGE = "Are you sure you want to save these changes?";
 const CONFIRM_DISCARD_MESSAGE = "Unsaved changes will be lost. Are you sure you want to discard?";
+const SCANNER_LEAVE_UNSAVED_TITLE = "Leave without saving changes?";
+const SCANNER_LEAVE_UNSAVED_BODY = "Unsaved photos, notes, or slip details may be lost.";
+/** Set true temporarily to trace back-navigation decisions in the console. */
+const SCANNER_BACK_DEBUG = false;
+
+/** Compare persisted vs current evidence URL lists (order-insensitive). */
+function operatorEvidenceUrlArraysChanged(
+  current: readonly string[],
+  baseline: readonly string[],
+): boolean {
+  const norm = (arr: readonly string[]) =>
+    arr.map((u) => String(u ?? "").trim()).filter(Boolean).sort();
+  const a = norm(current);
+  const b = norm(baseline);
+  return a.length !== b.length || a.some((v, i) => v !== b[i]);
+}
 /** Second gate when saving a BOX while slip snapshot records pallet Order ID conflict. */
 const PACKAGE_SAVE_ORDER_CONFLICT_WARNING =
   "Order ID conflict: the packing slip does not match this pallet's assigned Order ID. Do you want to continue and save anyway?";
@@ -365,10 +422,26 @@ function parsePalletPhotoUrlArray(raw: unknown): string[] {
   return out;
 }
 
+/** PostgREST may return `packages.manifest_data` as a JSON object or a stringified blob. */
+function coercePackageManifestData(raw: unknown): unknown {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return null;
+    try {
+      return JSON.parse(s) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  return raw;
+}
+
 function parseBoxSlipManifestData(raw: unknown): { slipCode: string; rma: string; lines: BoxSlipVisionLine[] } {
   const lines: BoxSlipVisionLine[] = [];
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { slipCode: "", rma: "", lines };
-  const md = raw as Record<string, unknown>;
+  const coerced = coercePackageManifestData(raw);
+  if (!coerced || typeof coerced !== "object" || Array.isArray(coerced)) return { slipCode: "", rma: "", lines };
+  const md = coerced as Record<string, unknown>;
   const box = md.box_slip_vision;
   if (!box || typeof box !== "object" || Array.isArray(box)) return { slipCode: "", rma: "", lines };
   const b = box as Record<string, unknown>;
@@ -414,6 +487,64 @@ function parseBoxSlipManifestData(raw: unknown): { slipCode: string; rma: string
   return { slipCode, rma, lines };
 }
 
+type HydratedBoxSlipVisionSnapshot = {
+  lines: BoxSlipVisionLine[];
+  slipCode: string;
+  rma: string;
+  slipOrderId: string;
+  slipConflictingOrderId: string;
+  packageOrderId: string;
+};
+
+/** DB + manifest → BOX slip vision UI snapshot (`slip_contents` preferred over manifest JSON). */
+async function loadHydratedBoxSlipVisionSnapshot(input: {
+  packageId: string;
+  orgId: string;
+  storeId: string | null;
+  manifestRaw: unknown;
+  idSlipContents?: unknown;
+  rmaNumber?: unknown;
+  packageOrderId?: unknown;
+}): Promise<HydratedBoxSlipVisionSnapshot> {
+  const sidRow = String(input.idSlipContents ?? "").trim();
+  const rmaRow = String(input.rmaNumber ?? "").trim();
+  const fromManifest = parseBoxSlipManifestData(input.manifestRaw);
+  let lines = fromManifest.lines;
+  let rma = rmaRow || fromManifest.rma;
+  let slipCodeFromContents: string | null = null;
+  let slipConflicting = "";
+  let slipOrder = "";
+
+  const slipRes = await listOperatorSlipContentsForPackageAction(
+    input.orgId,
+    input.packageId,
+    input.storeId,
+  );
+  if (slipRes.ok && slipRes.rows.length > 0) {
+    const slipRowsMapped = slipRes.rows.map((sr) =>
+      mapSlipContentRowToVisionLine(sr as unknown as Record<string, unknown>),
+    );
+    const firstRma = String(slipRes.rows[0]?.rma_number ?? "").trim();
+    if (firstRma) rma = firstRma;
+    const sc = String(slipRes.rows[0]?.slip_code ?? "").trim();
+    slipCodeFromContents = sc.length ? sc : null;
+    slipConflicting = firstConflictingOrderIdFromSlipRows(slipRes.rows);
+    slipOrder = firstSlipOrderIdFromSlipRows(slipRes.rows);
+    lines = mergeManifestMissingIntoVisionLines(slipRowsMapped, fromManifest);
+  }
+
+  const slipCode = sidRow || fromManifest.slipCode || slipCodeFromContents || "";
+  const norm = normalizeSlipOrderConflictPair(slipOrder, slipConflicting);
+  return {
+    lines,
+    slipCode,
+    rma,
+    slipOrderId: norm.slip,
+    slipConflictingOrderId: norm.conflicting,
+    packageOrderId: String(input.packageOrderId ?? "").trim(),
+  };
+}
+
 type OperatorPhotoClearField = "slip" | "shipping" | "bol" | "outside" | "inside";
 
 function parseDirectBoxShipmentDocumentation(raw: unknown): {
@@ -422,10 +553,11 @@ function parseDirectBoxShipmentDocumentation(raw: unknown): {
   carrierName: string;
   orderId: string;
 } {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+  const coerced = coercePackageManifestData(raw);
+  if (!coerced || typeof coerced !== "object" || Array.isArray(coerced)) {
     return { shippingLabelUrls: [], bolUrls: [], carrierName: "", orderId: "" };
   }
-  const md = raw as Record<string, unknown>;
+  const md = coerced as Record<string, unknown>;
   const doc = md.direct_box_shipment_documentation;
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
     return { shippingLabelUrls: [], bolUrls: [], carrierName: "", orderId: "" };
@@ -1173,11 +1305,12 @@ function ReceivingMasterStepper({
   const boxActive = flowPhase === "package_scan" && palletDone;
   const itemsActive = flowPhase === "items";
 
-  const ringBase = "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition";
+  const ringBase =
+    "operator-stepper-node flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition";
 
   const rail = () => (
     <div
-      className="operator-stepper-rail mx-1 h-[2px] min-w-[1.25rem] flex-1 max-w-[3rem] shrink rounded-full"
+      className="operator-stepper-rail mx-0.5 h-[2px] min-w-[0.75rem] max-w-[2rem] flex-1 shrink rounded-full"
       aria-hidden
     />
   );
@@ -1242,15 +1375,15 @@ function ReceivingMasterStepper({
   };
 
   return (
-    <div className="w-full px-1 pb-0" role="list" aria-label="Receiving progress">
-      <div className="flex w-full items-center justify-center">
+    <div className="w-full px-0 pb-0" role="list" aria-label="Receiving progress">
+      <div className="operator-receiving-stepper-track flex w-full items-center justify-center">
         {palletNode()}
         {rail()}
         {boxNode()}
         {rail()}
         {itemsNode()}
       </div>
-      <div className="operator-receiving-stepper-labels mt-1 grid grid-cols-3 gap-0.5 text-center text-[8px] font-bold uppercase tracking-widest">
+      <div className="operator-receiving-stepper-labels mt-0.5 grid grid-cols-3 gap-0 text-center text-[7px] font-bold uppercase tracking-wide">
         <span className={palletDone ? "operator-stepper-label--done" : palletActive ? "operator-stepper-label--active" : ""}>
           Pallet
         </span>
@@ -2306,6 +2439,146 @@ function slipRowProductLinkage(
   slip: Pick<OperatorSlipContentsListRow, "product_linkage">,
 ): ProductLinkageDisplayContract {
   return slip.product_linkage;
+}
+
+function productLinkagePrimaryIsUnmapped(linkage: ProductLinkageDisplayContract): boolean {
+  return productLinkageOperatorPrimaryDisplayLabel(linkage) === PRODUCT_LINKAGE_UNMAPPED_LABEL;
+}
+
+/** Prefer Box Info / carryover preview linkage when DB slip row is still unmapped. */
+function mergeSlipRowWithStrongerPreviewLinkage(
+  row: OperatorSlipContentsListRow,
+  preview: ProductLinkageDisplayContract | undefined,
+): OperatorSlipContentsListRow {
+  if (!preview || productLinkagePrimaryIsUnmapped(preview)) return row;
+  if (productLinkagePrimaryIsUnmapped(row.product_linkage)) {
+    return { ...row, product_linkage: preview };
+  }
+  if (!row.product_linkage.product_name?.trim() && preview.product_name?.trim()) {
+    return { ...row, product_linkage: preview };
+  }
+  if (!row.product_linkage.resolved_product_id?.trim() && preview.resolved_product_id?.trim()) {
+    return { ...row, product_linkage: preview };
+  }
+  return row;
+}
+
+function slipInspectionRowsWithMergedPreviewLinkages(
+  dbRows: OperatorSlipContentsListRow[],
+  previewLinkages: ProductLinkageDisplayContract[],
+): OperatorSlipContentsListRow[] {
+  if (!dbRows.length) return dbRows;
+  if (!previewLinkages.length) return dbRows;
+  return dbRows.map((row, i) => mergeSlipRowWithStrongerPreviewLinkage(row, previewLinkages[i]));
+}
+
+function dbSlipRowHasCatalogLinkage(row: OperatorSlipContentsListRow): boolean {
+  const l = row.product_linkage;
+  return Boolean(l.resolved_product_id?.trim() && l.product_name?.trim());
+}
+
+/** Stable key for matching BOX slip line ↔ carryover preview row. */
+function slipInspectionLineMatchKey(row: {
+  fnsku?: string | null;
+  upc?: string | null;
+  description?: string | null;
+}): string {
+  const f = String(row.fnsku ?? "").trim().toLowerCase();
+  if (f.length >= 4) return `fnsku:${f}`;
+  const upcDigits = String(row.upc ?? "").replace(/\D/g, "");
+  if (upcDigits.length >= 8) return `upc:${upcDigits}`;
+  const d = String(row.description ?? "").trim().toLowerCase();
+  if (d.length >= 4) return `desc:${d.slice(0, 80)}`;
+  return "";
+}
+
+function findCarryoverPreviewLinkageForDbRow(
+  dbRow: OperatorSlipContentsListRow,
+  carryoverRows: OperatorSlipContentsListRow[],
+  index: number,
+): ProductLinkageDisplayContract | undefined {
+  const key = slipInspectionLineMatchKey(dbRow);
+  if (key) {
+    const hit = carryoverRows.find((r) => slipInspectionLineMatchKey(r) === key);
+    if (hit) return hit.product_linkage;
+  }
+  return carryoverRows[index]?.product_linkage;
+}
+
+function mergeDbSlipRowsWithCarryoverPreview(
+  dbRows: OperatorSlipContentsListRow[],
+  carryoverRows: OperatorSlipContentsListRow[],
+): OperatorSlipContentsListRow[] {
+  if (!dbRows.length) return dbRows;
+  if (!carryoverRows.length) return dbRows;
+  return dbRows.map((row, i) => {
+    if (dbSlipRowHasCatalogLinkage(row)) return row;
+    const preview = findCarryoverPreviewLinkageForDbRow(row, carryoverRows, i);
+    return mergeSlipRowWithStrongerPreviewLinkage(row, preview);
+  });
+}
+
+type ItemScanSlipCarryoverPayload = {
+  packageId: string;
+  rows: OperatorSlipContentsListRow[];
+};
+
+function snapshotItemScanSlipCarryoverFromBoxIntake(
+  packageId: string,
+  visionLines: BoxSlipVisionLine[],
+  linkages: ProductLinkageDisplayContract[],
+): ItemScanSlipCarryoverPayload {
+  const pid = String(packageId ?? "").trim();
+  const lines = clonePersistBoxSlipVisionLines(visionLines);
+  const linkSnap = linkages.length >= lines.length ? linkages : linkages.slice(0, lines.length);
+  const paddedLinkages: ProductLinkageDisplayContract[] = lines.map(
+    (_, i) =>
+      linkSnap[i] ??
+      buildProductLinkageDisplayContract(
+        {
+          fnsku: lines[i]?.fnsku,
+          upc: lines[i]?.upc,
+          description: lines[i]?.description,
+        },
+        EMPTY_PRODUCT_NAME_LOOKUP,
+      ),
+  );
+  return {
+    packageId: pid,
+    rows: slipRowsFromBoxSlipVision(lines, paddedLinkages),
+  };
+}
+
+/** Map BOX slip vision rows + preview linkages into item-scan slip row shape. */
+function slipRowsFromBoxSlipVision(
+  lines: BoxSlipVisionLine[],
+  linkages: ProductLinkageDisplayContract[],
+): OperatorSlipContentsListRow[] {
+  return lines.map((v, i) => {
+    const description = v.description?.trim() ? v.description.trim() : null;
+    const upc = v.upc?.trim() ? v.upc.trim() : null;
+    const fnsku = v.fnsku?.trim() ? v.fnsku.trim() : null;
+    const previewLinkage = linkages[i];
+    return {
+      id: null,
+      upc,
+      fnsku,
+      description,
+      quantity: Math.max(0, Math.floor(Number(v.expected_qty ?? 0))),
+      condition: v.condition?.trim() ? v.condition.trim() : null,
+      rma_number: null,
+      sort_index: i,
+      slip_code: null,
+      order_id: null,
+      conflicting_order_id: null,
+      product_linkage:
+        previewLinkage ??
+        buildProductLinkageDisplayContract(
+          { description, fnsku, upc },
+          EMPTY_PRODUCT_NAME_LOOKUP,
+        ),
+    };
+  });
 }
 
 function productLinkageForSlipMatch(
@@ -3462,6 +3735,9 @@ function OperatorMobileScanPageContent() {
     null | "save_items" | "save_hub" | "discrepancy"
   >(null);
   const [pickerDismissConfirmOpen, setPickerDismissConfirmOpen] = useState(false);
+  /** Shared back-navigation gate for unsaved box / pallet intake edits. */
+  const [scannerLeaveConfirmOpen, setScannerLeaveConfirmOpen] = useState(false);
+  const scannerLeavePendingActionRef = useRef<(() => void) | null>(null);
   /** Exit active box intake without persisting. */
   const [packageSessionCancelConfirmOpen, setPackageSessionCancelConfirmOpen] = useState(false);
   /** Brief full-screen success after package save (before hub scroll or item phase). */
@@ -3525,6 +3801,14 @@ function OperatorMobileScanPageContent() {
     pallet: string[];
     bol: string[];
   }>({ slip: [], outside: [], inside: [], shipping: [], pallet: [], bol: [] });
+  const boxNotesBaselineRef = useRef("");
+  const boxIntakeFieldsBaselineRef = useRef({
+    slipCode: "",
+    rma: "",
+    orderId: "",
+    carrier: "",
+  });
+  const palletNotesBaselineRef = useRef("");
   /** Persisted storage public URLs to remove after a successful Save/Confirm. */
   const pendingEvidenceStorageDeletesRef = useRef<Set<string>>(new Set());
   /** `pallets.notes` — collaboration / receiving notes (pallet step). */
@@ -3734,6 +4018,10 @@ function OperatorMobileScanPageContent() {
     insideBoxPhotoUrlsRef.current = insideBoxPhotoUrls;
   }, [insideBoxPhotoUrls]);
   const [boxSlipCode, setBoxSlipCode] = useState("");
+  const boxSlipCodeRef = useRef("");
+  useEffect(() => {
+    boxSlipCodeRef.current = boxSlipCode;
+  }, [boxSlipCode]);
   const [boxSlipRma, setBoxSlipRma] = useState("");
   const boxSlipRmaRef = useRef("");
   useEffect(() => {
@@ -3749,6 +4037,7 @@ function OperatorMobileScanPageContent() {
   const [boxSlipVisionLineLinkages, setBoxSlipVisionLineLinkages] = useState<
     ProductLinkageDisplayContract[]
   >([]);
+  const boxSlipVisionLineLinkagesRef = useRef<ProductLinkageDisplayContract[]>([]);
   const boxSlipVisionLinesPersistRef = useRef<BoxSlipVisionLine[]>([]);
   const commitBoxSlipVisionLinesFromSource = useCallback((lines: BoxSlipVisionLine[]) => {
     const snap = clonePersistBoxSlipVisionLines(lines);
@@ -3762,10 +4051,71 @@ function OperatorMobileScanPageContent() {
     setBoxSlipOrderId("");
     setBoxSlipConflictingOrderId("");
   }, []);
+
+  const applyHydratedBoxSlipVisionSnapshot = useCallback(
+    (snap: HydratedBoxSlipVisionSnapshot) => {
+      if (snap.slipCode) setBoxSlipCode(snap.slipCode);
+      setBoxSlipRma((prev) => (prev.trim() ? prev : snap.rma));
+      setBoxSlipOrderId(snap.slipOrderId);
+      setBoxSlipConflictingOrderId(snap.slipConflictingOrderId);
+      const refHydrate = referenceOrderIdForPackageFieldAfterSlipLoad(
+        { slip: snap.slipOrderId, conflicting: snap.slipConflictingOrderId },
+        snap.packageOrderId,
+      );
+      if (refHydrate != null) {
+        applySlipOrderIdIfEmpty(refHydrate);
+      } else if (snap.rma) {
+        applyPalletOrderIdFromRaIfApplicable(snap.rma);
+      }
+      commitBoxSlipVisionLinesFromSource(snap.lines);
+      setBoxSlipInvalidFormatBlocksSave(false);
+    },
+    [
+      commitBoxSlipVisionLinesFromSource,
+      applySlipOrderIdIfEmpty,
+      applyPalletOrderIdFromRaIfApplicable,
+    ],
+  );
+
+  const hydrateBoxSlipVisionFromSavedPackage = useCallback(
+    async (
+      packageId: string,
+      row: {
+        manifest_data?: unknown;
+        id_slip_contents?: unknown;
+        slip_code?: unknown;
+        slip_id?: unknown;
+        rma_number?: unknown;
+        order_id?: unknown;
+      },
+    ) => {
+      const pid = String(packageId ?? "").trim();
+      const oid = (orgId ?? "").trim();
+      if (!pid || !isUuidString(pid) || !oid) return;
+      try {
+        const snap = await loadHydratedBoxSlipVisionSnapshot({
+          packageId: pid,
+          orgId: oid,
+          storeId: sessionStoreId ?? null,
+          manifestRaw: row.manifest_data,
+          idSlipContents: row.id_slip_contents ?? row.slip_code ?? row.slip_id ?? "",
+          rmaNumber: row.rma_number,
+          packageOrderId: row.order_id,
+        });
+        if (hydrateBoxPackageIdRef.current !== pid) return;
+        applyHydratedBoxSlipVisionSnapshot(snap);
+      } catch {
+        /* resume hydration is best-effort */
+      }
+    },
+    [orgId, sessionStoreId, applyHydratedBoxSlipVisionSnapshot],
+  );
+
   const [boxSlipVisionBusy, setBoxSlipVisionBusy] = useState(false);
 
   useEffect(() => {
     if (!orgId || !sessionStoreId || !isSupabaseConfigured() || boxSlipVisionLines.length === 0) {
+      boxSlipVisionLineLinkagesRef.current = [];
       setBoxSlipVisionLineLinkages([]);
       return;
     }
@@ -3781,7 +4131,9 @@ function OperatorMobileScanPageContent() {
         })),
       });
       if (cancelled) return;
-      setBoxSlipVisionLineLinkages(res.ok ? res.linkages : []);
+      const next = res.ok ? res.linkages : [];
+      boxSlipVisionLineLinkagesRef.current = next;
+      setBoxSlipVisionLineLinkages(next);
     })();
     return () => {
       cancelled = true;
@@ -3866,6 +4218,11 @@ function OperatorMobileScanPageContent() {
   const [expectedPkgDetailRows, setExpectedPkgDetailRows] = useState<Record<string, unknown>[]>([]);
   /** `slip_contents` lines for Step 3 (refetched when entering item inspection for a UUID package). */
   const [itemInspectionSlipLines, setItemInspectionSlipLines] = useState<OperatorSlipContentsListRow[]>([]);
+  /** Box Info vision rows + preview linkage — survives phase flip before `slip_contents` resolves. */
+  const [itemScanSlipCarryover, setItemScanSlipCarryover] = useState<ItemScanSlipCarryoverPayload | null>(
+    null,
+  );
+  const itemScanSlipCarryoverRef = useRef<ItemScanSlipCarryoverPayload | null>(null);
   /** Set when item-phase EP fetch returns zero rows for an active tracking (live DB only). */
   const [itemDraft, setItemDraft] = useState<{
     barcode: string;
@@ -4831,7 +5188,12 @@ function OperatorMobileScanPageContent() {
       if (process.env.NODE_ENV === "development") {
         console.log("Current Pallet Data from DB:", { palletId: fetchingFor, ...row });
       }
-      setPalletNotes((prev) => (prev.trim() ? prev : String(row.notes ?? "").trim()));
+      setPalletNotes((prev) => {
+        if (prev.trim()) return prev;
+        const next = String(row.notes ?? "").trim();
+        palletNotesBaselineRef.current = next;
+        return next;
+      });
       // Do not hydrate `currentPalletTrackingId` from DB during the session — gate / operator edits own it.
       const hydrated = hydrateOperatorPalletDocumentationPhotoUrls(row, supabase);
       const incomingPhotoCount =
@@ -5001,7 +5363,12 @@ function OperatorMobileScanPageContent() {
   }, [flowPhase, itemScanPackageId, orgId, receivingSlipExpectedItemQtyTotal]);
 
   useEffect(() => {
-    if (flowPhase !== "items" || !itemScanPackageId || !isUuidString(itemScanPackageId)) {
+    if (flowPhase !== "items") {
+      setItemInspectionSlipLines([]);
+      setItemInspectionSlipLinesLoading(false);
+      return;
+    }
+    if (!itemScanPackageId || !isUuidString(itemScanPackageId)) {
       setItemInspectionSlipLines([]);
       setItemInspectionSlipLinesLoading(false);
       return;
@@ -5016,7 +5383,16 @@ function OperatorMobileScanPageContent() {
     setItemInspectionSlipLinesLoading(true);
     void listOperatorSlipContentsForPackageAction(oid, itemScanPackageId, sessionStoreId ?? null).then((res) => {
       if (cancelled) return;
-      setItemInspectionSlipLines(res.ok ? res.rows : []);
+      const rows = res.ok ? res.rows : [];
+      setItemInspectionSlipLines(rows);
+      if (rows.length > 0) {
+        const allDbCatalogLinked = rows.every(
+          (r) =>
+            Boolean(r.product_linkage?.resolved_product_id?.trim()) &&
+            Boolean(r.product_linkage?.product_name?.trim()),
+        );
+        if (allDbCatalogLinked) setItemScanSlipCarryover(null);
+      }
       setItemInspectionSlipLinesLoading(false);
     });
     return () => {
@@ -5027,6 +5403,12 @@ function OperatorMobileScanPageContent() {
 
   useEffect(() => {
     if (flowPhase !== "items") {
+      setItemScanExpectationSnapshotLines([]);
+      setItemScanExpectationLoading(false);
+      return;
+    }
+    const pkgScoped = Boolean(itemScanPackageId && isUuidString(itemScanPackageId));
+    if (pkgScoped) {
       setItemScanExpectationSnapshotLines([]);
       setItemScanExpectationLoading(false);
       return;
@@ -5073,6 +5455,7 @@ function OperatorMobileScanPageContent() {
     };
   }, [
     flowPhase,
+    itemScanPackageId,
     orgId,
     sessionStoreId,
     currentPalletTrackingId,
@@ -5530,13 +5913,25 @@ function OperatorMobileScanPageContent() {
     o.shipping = [...shippingLabelPhotoUrlsRef.current];
     o.pallet = [...palletPhotoUrlsRef.current];
     o.bol = [...bolPhotoUrlsRef.current];
-  }, []);
+    palletNotesBaselineRef.current = palletNotes.trim();
+  }, [palletNotes]);
 
   const captureBoxEvidenceBaseline = useCallback(() => {
     const o = evidenceBaselineRef.current;
     o.slip = [...slipBoxPhotoUrlsRef.current];
     o.outside = [...outsideBoxPhotoUrlsRef.current];
     o.inside = [...insideBoxPhotoUrlsRef.current];
+    boxNotesBaselineRef.current = boxNotesRef.current.trim();
+  }, []);
+
+  const captureBoxIntakeFieldsBaseline = useCallback(() => {
+    boxNotesBaselineRef.current = boxNotesRef.current.trim();
+    boxIntakeFieldsBaselineRef.current = {
+      slipCode: boxSlipCodeRef.current.trim(),
+      rma: boxSlipRmaRef.current.trim(),
+      orderId: palletOrderIdRef.current.trim(),
+      carrier: palletCarrierRef.current.trim(),
+    };
   }, []);
 
   const deleteOrphanEvidenceUploads = useCallback(async (urls: readonly string[]) => {
@@ -6008,7 +6403,10 @@ function OperatorMobileScanPageContent() {
       evidenceBaselineRef.current.outside = [...o];
       evidenceBaselineRef.current.inside = [...ins];
       pendingEvidenceStorageDeletesRef.current.clear();
-      setBoxNotes(String(row.notes ?? "").trim());
+      const hydratedNotes = String(row.notes ?? "").trim();
+      setBoxNotes(hydratedNotes);
+      boxNotesBaselineRef.current = hydratedNotes;
+      captureBoxIntakeFieldsBaseline();
       const pkgCarrierRaw = String(row.carrier_name ?? "").trim();
       if (pkgCarrierRaw) {
         const normalized = normalizeCarrierLabel(pkgCarrierRaw);
@@ -6024,9 +6422,6 @@ function OperatorMobileScanPageContent() {
         persistOperatorSessionCarrier(applied);
         mergeCarrierIntoActivePalletState(applied);
       }
-      const sidRow = String(row.id_slip_contents ?? row.slip_code ?? row.slip_id ?? "").trim();
-      const rmaRow = String(row.rma_number ?? "").trim();
-      const fromManifest = parseBoxSlipManifestData(row.manifest_data);
       const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(row.manifest_data);
       const hydrateDirectBoxDocs = directBox;
       if (hydrateDirectBoxDocs) {
@@ -6062,53 +6457,20 @@ function OperatorMobileScanPageContent() {
       }
 
       const oidForSlip = (orgId ?? "").trim();
-      let lines = fromManifest.lines;
-      let rma = rmaRow || fromManifest.rma;
-      let slipRowsMapped: BoxSlipVisionLine[] | null = null;
-      let slipCodeFromContents: string | null = null;
-      let slipConflictingHydrate = "";
-      let slipOrderHydrate = "";
-
       if (oidForSlip) {
-        const slipRes = await listOperatorSlipContentsForPackageAction(oidForSlip, fetchingFor, sessionStoreId ?? null);
-        if (
-          !cancelled &&
-          hydrateBoxPackageIdRef.current === fetchingFor &&
-          slipRes.ok &&
-          slipRes.rows.length > 0
-        ) {
-          slipRowsMapped = slipRes.rows.map((sr) =>
-            mapSlipContentRowToVisionLine(sr as unknown as Record<string, unknown>),
-          );
-          const firstRma = String(slipRes.rows[0]?.rma_number ?? "").trim();
-          if (firstRma) rma = firstRma;
-          const sc = String(slipRes.rows[0]?.slip_code ?? "").trim();
-          slipCodeFromContents = sc.length ? sc : null;
-          slipConflictingHydrate = firstConflictingOrderIdFromSlipRows(slipRes.rows);
-          slipOrderHydrate = firstSlipOrderIdFromSlipRows(slipRes.rows);
-        }
+        const snap = await loadHydratedBoxSlipVisionSnapshot({
+          packageId: fetchingFor,
+          orgId: oidForSlip,
+          storeId: sessionStoreId ?? null,
+          manifestRaw: row.manifest_data,
+          idSlipContents: row.id_slip_contents ?? row.slip_code ?? row.slip_id ?? "",
+          rmaNumber: row.rma_number,
+          packageOrderId: row.order_id,
+        });
+        if (cancelled || hydrateBoxPackageIdRef.current !== fetchingFor) return;
+        applyHydratedBoxSlipVisionSnapshot(snap);
+        captureBoxIntakeFieldsBaseline();
       }
-
-      if (cancelled || hydrateBoxPackageIdRef.current !== fetchingFor) return;
-
-      if (slipRowsMapped && slipRowsMapped.length > 0) {
-        lines = mergeManifestMissingIntoVisionLines(slipRowsMapped, fromManifest);
-      }
-
-      setBoxSlipCode(sidRow || fromManifest.slipCode || slipCodeFromContents || "");
-      setBoxSlipRma((prev) => (prev.trim() ? prev : rma));
-      const normHydrate = normalizeSlipOrderConflictPair(slipOrderHydrate, slipConflictingHydrate);
-      setBoxSlipOrderId(normHydrate.slip);
-      setBoxSlipConflictingOrderId(normHydrate.conflicting);
-      const pkgOidHydrate = String(row.order_id ?? "").trim();
-      const refHydrate = referenceOrderIdForPackageFieldAfterSlipLoad(normHydrate, pkgOidHydrate);
-      if (refHydrate != null) {
-        applySlipOrderIdIfEmpty(refHydrate);
-      } else {
-        applyPalletOrderIdFromRaIfApplicable(rma);
-      }
-      commitBoxSlipVisionLinesFromSource(lines);
-      setBoxSlipInvalidFormatBlocksSave(false);
     })();
     return () => {
       cancelled = true;
@@ -6120,8 +6482,7 @@ function OperatorMobileScanPageContent() {
     activeBoxSession,
     orgId,
     sessionStoreId,
-    applyPalletOrderIdFromRaIfApplicable,
-    applySlipOrderIdIfEmpty,
+    applyHydratedBoxSlipVisionSnapshot,
     clearPalletOrderIdIfAutoFilledFromRa,
     identifyGatePhase,
     busy,
@@ -6129,6 +6490,7 @@ function OperatorMobileScanPageContent() {
     activePallet?.id,
     directBox,
     clearOperatorPhotoArrays,
+    captureBoxIntakeFieldsBaseline,
   ]);
 
   useEffect(() => {
@@ -6408,6 +6770,13 @@ function OperatorMobileScanPageContent() {
           setActiveBoxSession({ barcode: trimmed, packageId: null });
           setPackageCodeCardOpen(false);
           setCurrentPackageTrackingId(trimmed);
+          boxNotesBaselineRef.current = "";
+          boxIntakeFieldsBaselineRef.current = {
+            slipCode: "",
+            rma: "",
+            orderId: palletOrderIdRef.current.trim(),
+            carrier: palletCarrierRef.current.trim(),
+          };
           const tnHit = expectedPkgTrackingNumbers.some((t) => trackingKeysEqual(t, trimmed));
           if (tnHit) setIntakeToast("Tracking matched to box");
           playOperatorSuccessBeep();
@@ -6426,6 +6795,13 @@ function OperatorMobileScanPageContent() {
         setActiveBoxSession({ barcode: trimmed, packageId: null });
         setPackageCodeCardOpen(false);
         setCurrentPackageTrackingId(trimmed);
+        boxNotesBaselineRef.current = "";
+        boxIntakeFieldsBaselineRef.current = {
+          slipCode: "",
+          rma: "",
+          orderId: palletOrderIdRef.current.trim(),
+          carrier: palletCarrierRef.current.trim(),
+        };
         const tnHit = expectedPkgTrackingNumbers.some((t) => trackingKeysEqual(t, trimmed));
         if (tnHit) setIntakeToast("Tracking matched to box — Confirm & Save when ready.");
         playOperatorSuccessBeep();
@@ -6657,6 +7033,23 @@ function OperatorMobileScanPageContent() {
           setPalletMixedOrderIdsWarning(true);
         }
         operatorPackageSaveResult = saveRes;
+        const visionSnap = clonePersistBoxSlipVisionLines(slipLinesForPersist);
+        const linkageSnap =
+          boxSlipVisionLineLinkagesRef.current.length > 0
+            ? [...boxSlipVisionLineLinkagesRef.current]
+            : [...boxSlipVisionLineLinkages];
+        if (!opts?.stayOnPackageScanAfterSave) {
+          const carryPayload = snapshotItemScanSlipCarryoverFromBoxIntake(
+            packageId,
+            visionSnap,
+            linkageSnap,
+          );
+          itemScanSlipCarryoverRef.current = carryPayload;
+          setItemScanSlipCarryover(carryPayload);
+        } else {
+          itemScanSlipCarryoverRef.current = null;
+          setItemScanSlipCarryover(null);
+        }
         setItemScanPackageId(packageId);
       } else {
         setItemScanPackageId(`demo-${Date.now()}`);
@@ -6755,6 +7148,7 @@ function OperatorMobileScanPageContent() {
     flushPendingEvidenceStorageDeletes,
     boxSlipInvalidFormatBlocksSave,
     boxSlipVisionBusy,
+    boxSlipVisionLineLinkages,
     clearOperatorPhotoArrays,
   ]);
 
@@ -7110,11 +7504,23 @@ function OperatorMobileScanPageContent() {
   );
 
   const beginItemPhase = useCallback(() => {
+    const pkgId = String(itemScanPackageId ?? "").trim();
+    const sessionPkgId = String(activeBoxSession?.packageId ?? "").trim();
+    if (
+      pkgId &&
+      sessionPkgId &&
+      pkgId === sessionPkgId &&
+      isUuidString(pkgId)
+    ) {
+      setFlowPhase("items");
+      scheduleFocusScanner();
+      return;
+    }
     if (activeBoxSession) {
       setBoxIntakeError("Confirm & Save this BOX before continuing to item inspection.");
       return;
     }
-    if (!String(itemScanPackageId ?? "").trim()) {
+    if (!pkgId) {
       setBoxIntakeError("Save this BOX first to continue.");
       return;
     }
@@ -7331,7 +7737,9 @@ function OperatorMobileScanPageContent() {
         setActiveBoxSession(null);
         setPackageCodeCardOpen(true);
       }
-      setBoxNotes(String(row.notes ?? "").trim());
+      const resumeBoxNotes = String(row.notes ?? "").trim();
+      setBoxNotes(resumeBoxNotes);
+      boxNotesBaselineRef.current = resumeBoxNotes;
       const pkgCarrier = String(row.carrier_name ?? "").trim();
       if (pkgCarrier && opts.directBox) {
         const normalized = normalizeCarrierLabel(pkgCarrier);
@@ -7368,54 +7776,58 @@ function OperatorMobileScanPageContent() {
       evidenceBaselineRef.current.inside = [...ins];
       pendingEvidenceStorageDeletesRef.current.clear();
       const sidRow = String(row.id_slip_contents ?? row.slip_code ?? row.slip_id ?? "").trim();
-      if (sidRow) setBoxSlipCode(sidRow);
+      if (sidRow) {
+        setBoxSlipCode(sidRow);
+        boxSlipCodeRef.current = sidRow;
+      }
       const rmaRow = String(row.rma_number ?? "").trim();
-      if (rmaRow) setBoxSlipRma(rmaRow);
+      if (rmaRow) {
+        setBoxSlipRma(rmaRow);
+        boxSlipRmaRef.current = rmaRow;
+      }
       const orderRow = String((row as { order_id?: unknown }).order_id ?? "").trim();
       if (orderRow && opts.directBox) setPalletOrderId(orderRow);
-      if (!opts.directBox) return;
-      let manifestParsed: unknown = row.manifest_data;
-      if (typeof manifestParsed === "string") {
-        try {
-          manifestParsed = JSON.parse(manifestParsed) as unknown;
-        } catch {
-          manifestParsed = null;
+      if (opts.directBox) {
+        const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(row.manifest_data);
+        const directShipUrls = normalizePalletDocumentationImageUrls(
+          fromDirectBoxDocs.shippingLabelUrls,
+          supabase,
+        );
+        const directBolUrls = normalizePalletDocumentationImageUrls(fromDirectBoxDocs.bolUrls, supabase);
+        if (directShipUrls.length > 0) {
+          setShippingLabelPhotoUrls(directShipUrls);
+          shippingLabelPhotoUrlsRef.current = [...directShipUrls];
+          evidenceBaselineRef.current.shipping = [...directShipUrls];
+        }
+        if (directBolUrls.length > 0) {
+          setBolPhotoUrls(directBolUrls);
+          bolPhotoUrlsRef.current = [...directBolUrls];
+          evidenceBaselineRef.current.bol = [...directBolUrls];
+        }
+        if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
+          const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
+          const applied =
+            normalized && normalized !== OTHER_CARRIER_NAME ? normalized : fromDirectBoxDocs.carrierName;
+          if (normalized && normalized !== OTHER_CARRIER_NAME) {
+            setPalletCarrier(normalized);
+            setPalletCarrierOtherSelected(false);
+          } else {
+            setPalletCarrier(fromDirectBoxDocs.carrierName);
+            setPalletCarrierOtherSelected(true);
+          }
+          persistOperatorSessionCarrier(applied);
+        }
+        if (!palletOrderIdRef.current.trim() && fromDirectBoxDocs.orderId) {
+          setPalletOrderId(fromDirectBoxDocs.orderId);
         }
       }
-      const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(manifestParsed);
-      const directShipUrls = normalizePalletDocumentationImageUrls(
-        fromDirectBoxDocs.shippingLabelUrls,
-        supabase,
-      );
-      const directBolUrls = normalizePalletDocumentationImageUrls(fromDirectBoxDocs.bolUrls, supabase);
-      if (directShipUrls.length > 0) {
-        setShippingLabelPhotoUrls(directShipUrls);
-        shippingLabelPhotoUrlsRef.current = [...directShipUrls];
-        evidenceBaselineRef.current.shipping = [...directShipUrls];
+      if (pkgId && isUuidString(pkgId)) {
+        hydrateBoxPackageIdRef.current = pkgId;
+        void hydrateBoxSlipVisionFromSavedPackage(pkgId, row);
       }
-      if (directBolUrls.length > 0) {
-        setBolPhotoUrls(directBolUrls);
-        bolPhotoUrlsRef.current = [...directBolUrls];
-        evidenceBaselineRef.current.bol = [...directBolUrls];
-      }
-      if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
-        const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
-        const applied =
-          normalized && normalized !== OTHER_CARRIER_NAME ? normalized : fromDirectBoxDocs.carrierName;
-        if (normalized && normalized !== OTHER_CARRIER_NAME) {
-          setPalletCarrier(normalized);
-          setPalletCarrierOtherSelected(false);
-        } else {
-          setPalletCarrier(fromDirectBoxDocs.carrierName);
-          setPalletCarrierOtherSelected(true);
-        }
-        persistOperatorSessionCarrier(applied);
-      }
-      if (!palletOrderIdRef.current.trim() && fromDirectBoxDocs.orderId) {
-        setPalletOrderId(fromDirectBoxDocs.orderId);
-      }
+      captureBoxIntakeFieldsBaseline();
     },
-    [persistOperatorSessionCarrier],
+    [persistOperatorSessionCarrier, hydrateBoxSlipVisionFromSavedPackage, captureBoxIntakeFieldsBaseline],
   );
 
   const resumeWorkflowFromExistingPalletRow = useCallback(
@@ -7600,15 +8012,7 @@ function OperatorMobileScanPageContent() {
       evidenceBaselineRef.current.outside = [...outside];
       evidenceBaselineRef.current.inside = [...inside];
 
-      let manifestParsed: unknown = row.manifest_data;
-      if (typeof manifestParsed === "string") {
-        try {
-          manifestParsed = JSON.parse(manifestParsed) as unknown;
-        } catch {
-          manifestParsed = null;
-        }
-      }
-      const docs = parseDirectBoxShipmentDocumentation(manifestParsed);
+      const docs = parseDirectBoxShipmentDocumentation(row.manifest_data);
       const shipUrls = normalizePalletDocumentationImageUrls(docs.shippingLabelUrls, supabase);
       const bolUrls = normalizePalletDocumentationImageUrls(docs.bolUrls, supabase);
 
@@ -7620,7 +8024,9 @@ function OperatorMobileScanPageContent() {
       evidenceBaselineRef.current.bol = [...bolUrls];
       pendingEvidenceStorageDeletesRef.current.clear();
 
-      setBoxNotes(String(row.notes ?? "").trim());
+      const directBoxNotes = String(row.notes ?? "").trim();
+      setBoxNotes(directBoxNotes);
+      boxNotesBaselineRef.current = directBoxNotes;
       const carrierRaw = String((row as { carrier_name?: unknown }).carrier_name ?? docs.carrierName ?? "").trim();
       if (carrierRaw) {
         const normalized = normalizeCarrierLabel(carrierRaw);
@@ -7634,18 +8040,19 @@ function OperatorMobileScanPageContent() {
         }
         persistOperatorSessionCarrier(applied);
       }
-      const sidRow = String(row.id_slip_contents ?? "").trim();
-      if (sidRow) setBoxSlipCode(sidRow);
-      const rmaRow = String(row.rma_number ?? "").trim();
-      if (rmaRow) setBoxSlipRma(rmaRow);
       const orderRow = String((row as { order_id?: unknown }).order_id ?? docs.orderId ?? "").trim();
       if (orderRow) setPalletOrderId(orderRow);
+
+      if (pkgId && isUuidString(pkgId)) {
+        await hydrateBoxSlipVisionFromSavedPackage(pkgId, row);
+      }
 
       setFlowPhase("package_scan");
       setIsIdentified(true);
       setPalletDocHydrationNonce((n) => n + 1);
+      captureBoxIntakeFieldsBaseline();
     },
-    [resetIdentifyGateForm, persistOperatorSessionCarrier],
+    [resetIdentifyGateForm, persistOperatorSessionCarrier, hydrateBoxSlipVisionFromSavedPackage, captureBoxIntakeFieldsBaseline],
   );
 
   const tryDirectPackageDbFallbackResume = useCallback(
@@ -8957,34 +9364,41 @@ function OperatorMobileScanPageContent() {
     });
   }, [expectedPkgDetailRows, itemDraft, itemQtyStepper]);
 
+  const carryoverRowsForActiveItemScanPackage = useMemo((): OperatorSlipContentsListRow[] => {
+    const pid = String(itemScanPackageId ?? "").trim();
+    if (!pid || !isUuidString(pid)) return [];
+    const fromState =
+      itemScanSlipCarryover?.packageId === pid ? itemScanSlipCarryover.rows : [];
+    if (fromState.length > 0) return fromState;
+    const fromRef =
+      itemScanSlipCarryoverRef.current?.packageId === pid
+        ? itemScanSlipCarryoverRef.current.rows
+        : [];
+    return fromRef;
+  }, [itemScanPackageId, itemScanSlipCarryover]);
+
+  const previewLinkagesForItemScanSlipRows = useMemo((): ProductLinkageDisplayContract[] => {
+    if (carryoverRowsForActiveItemScanPackage.length > 0) {
+      return carryoverRowsForActiveItemScanPackage.map((r) => r.product_linkage);
+    }
+    if (boxSlipVisionLineLinkages.length > 0) return boxSlipVisionLineLinkages;
+    return boxSlipVisionLineLinkagesRef.current;
+  }, [carryoverRowsForActiveItemScanPackage, boxSlipVisionLineLinkages]);
+
   const slipLikeRowsForInspection = useMemo((): OperatorSlipContentsListRow[] => {
-    if (itemInspectionSlipLines.length > 0) return itemInspectionSlipLines;
+    const carryover = carryoverRowsForActiveItemScanPackage;
+    if (itemInspectionSlipLines.length > 0) {
+      if (carryover.length > 0) {
+        return mergeDbSlipRowsWithCarryoverPreview(itemInspectionSlipLines, carryover);
+      }
+      return slipInspectionRowsWithMergedPreviewLinkages(
+        itemInspectionSlipLines,
+        previewLinkagesForItemScanSlipRows,
+      );
+    }
+    if (carryover.length > 0) return carryover;
     if (boxSlipVisionLines.length > 0) {
-      return boxSlipVisionLines.map((v, i) => {
-        const description = v.description?.trim() ? v.description.trim() : null;
-        const upc = v.upc?.trim() ? v.upc.trim() : null;
-        const fnsku = v.fnsku?.trim() ? v.fnsku.trim() : null;
-        const previewLinkage = boxSlipVisionLineLinkages[i];
-        return {
-          id: null,
-          upc,
-          fnsku,
-          description,
-          quantity: Math.max(0, Math.floor(Number(v.expected_qty ?? 0))),
-          condition: v.condition?.trim() ? v.condition.trim() : null,
-          rma_number: null,
-          sort_index: i,
-          slip_code: null,
-          order_id: null,
-          conflicting_order_id: null,
-          product_linkage:
-            previewLinkage ??
-            buildProductLinkageDisplayContract(
-              { description, fnsku, upc },
-              EMPTY_PRODUCT_NAME_LOOKUP,
-            ),
-        };
-      });
+      return slipRowsFromBoxSlipVision(boxSlipVisionLines, boxSlipVisionLineLinkages);
     }
     const eps = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
     if (eps.length > 0) {
@@ -9018,7 +9432,15 @@ function OperatorMobileScanPageContent() {
       });
     }
     return [];
-  }, [itemInspectionSlipLines, boxSlipVisionLines, boxSlipVisionLineLinkages, expectedPkgDetailRows, epReceiveLinkageByEpId]);
+  }, [
+    itemInspectionSlipLines,
+    carryoverRowsForActiveItemScanPackage,
+    previewLinkagesForItemScanSlipRows,
+    boxSlipVisionLines,
+    boxSlipVisionLineLinkages,
+    expectedPkgDetailRows,
+    epReceiveLinkageByEpId,
+  ]);
 
   const itemInspectionSlipCells = useMemo(() => {
     const epRows = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
@@ -9045,7 +9467,52 @@ function OperatorMobileScanPageContent() {
     packageItemScanState.bySlipId,
   ]);
 
+  /** Saved package item scan — slip_contents / BOX vision, not shipment tracking EP aggregate. */
+  const itemScanUsesPackageSlipExpectedRows = useMemo(
+    () => Boolean(itemScanPackageId && isUuidString(itemScanPackageId)),
+    [itemScanPackageId],
+  );
+
+  type ItemScanExpectedItemsRenderSource =
+    | "loading"
+    | "tracking_ep_variance"
+    | "package_slip_cells"
+    | "hydrated_return_items_only"
+    | "empty";
+
+  const itemScanExpectedItemsRenderSource = useMemo((): ItemScanExpectedItemsRenderSource => {
+    if (flowPhase !== "items") return "empty";
+    const packageSlipRowsReady =
+      itemInspectionSlipCells.length > 0 || slipLikeRowsForInspection.length > 0;
+    if (
+      itemInspectionSlipLinesLoading ||
+      (itemScanUsesPackageSlipExpectedRows && !packageSlipRowsReady)
+    ) {
+      return "loading";
+    }
+    if (itemScanUsesPackageSlipExpectedRows && packageSlipRowsReady) {
+      return "package_slip_cells";
+    }
+    if (!itemScanUsesPackageSlipExpectedRows && itemScanExpectationLinesLive.length > 0) {
+      return "tracking_ep_variance";
+    }
+    if (itemInspectionSlipCells.length > 0) return "package_slip_cells";
+    if (packageItemHydratedRows.length > 0) return "hydrated_return_items_only";
+    return "empty";
+  }, [
+    flowPhase,
+    itemInspectionSlipLinesLoading,
+    itemScanUsesPackageSlipExpectedRows,
+    itemInspectionSlipCells.length,
+    slipLikeRowsForInspection.length,
+    itemScanExpectationLinesLive.length,
+    packageItemHydratedRows.length,
+  ]);
+
   const itemInspectionQtyBasisExpected = useMemo(() => {
+    if (itemScanUsesPackageSlipExpectedRows && itemInspectionSlipCells.length > 0) {
+      return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0);
+    }
     if (itemScanExpectationLinesLive.length > 0) {
       return itemScanExpectationLinesLive.reduce((s, line) => s + Math.max(0, line.expectedQty), 0);
     }
@@ -9053,9 +9520,18 @@ function OperatorMobileScanPageContent() {
       return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0);
     }
     return itemExpectedUnitsTotal;
-  }, [itemScanExpectationLinesLive, itemInspectionSlipCells, itemExpectedUnitsTotal]);
+  }, [
+    itemScanUsesPackageSlipExpectedRows,
+    itemScanExpectationLinesLive,
+    itemInspectionSlipCells,
+    itemExpectedUnitsTotal,
+  ]);
 
   const itemInspectionQtyBasisScanned = useMemo(() => {
+    if (itemScanUsesPackageSlipExpectedRows && itemInspectionSlipCells.length > 0) {
+      const lineSum = itemInspectionSlipCells.reduce((s, c) => s + c.scanned, 0);
+      return lineSum + packageItemScanState.unexpectedUnits;
+    }
     if (itemScanExpectationLinesLive.length > 0) {
       return itemScanExpectationLinesLive.reduce((s, line) => s + Math.max(0, line.scannedQty), 0);
     }
@@ -9065,6 +9541,7 @@ function OperatorMobileScanPageContent() {
     }
     return itemInspectionEpOnlyQtyRows.reduce((sum, cell) => sum + cell.scanned, 0) + packageItemScanState.unexpectedUnits;
   }, [
+    itemScanUsesPackageSlipExpectedRows,
     itemScanExpectationLinesLive,
     itemInspectionSlipCells,
     itemInspectionEpOnlyQtyRows,
@@ -9125,7 +9602,7 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const itemInspectionDiscrepancyKinds = useMemo(() => {
-    if (itemScanExpectationLinesLive.length > 0) {
+    if (!itemScanUsesPackageSlipExpectedRows && itemScanExpectationLinesLive.length > 0) {
       const hasShortage = itemScanExpectationLinesLive.some((line) => line.scannedQty < line.expectedQty);
       const hasSurplus = itemScanExpectationLinesLive.some((line) => line.scannedQty > line.expectedQty);
       return {
@@ -9139,6 +9616,7 @@ function OperatorMobileScanPageContent() {
       src.some((x) => x.scanned > x.expected) || packageItemScanState.unexpectedUnits > 0;
     return { hasShortage, hasSurplus };
   }, [
+    itemScanUsesPackageSlipExpectedRows,
     itemScanExpectationLinesLive,
     itemInspectionSlipCells,
     itemInspectionEpOnlyQtyRows,
@@ -9147,7 +9625,7 @@ function OperatorMobileScanPageContent() {
 
   const itemInspectionAggregateStatusLabel = useMemo(() => {
     if (isItemsQtyDiscrepancy) return "Quantity mismatch (expected vs scanned totals)";
-    if (itemScanExpectationLinesLive.length > 0) {
+    if (!itemScanUsesPackageSlipExpectedRows && itemScanExpectationLinesLive.length > 0) {
       const { hasShortage, hasSurplus } = itemInspectionDiscrepancyKinds;
       if (hasShortage && hasSurplus) return "Mixed: shortage and surplus";
       if (hasSurplus) return "Surplus (over-scanned)";
@@ -9658,7 +10136,11 @@ function OperatorMobileScanPageContent() {
   /** Primary CTA: save current box and go to items, or resume items when a box is already saved. */
   const canContinueToItemInspection =
     (Boolean(activeBoxSession) && canSaveBoxScan) ||
-    (!activeBoxSession && Boolean((itemScanPackageId ?? "").trim()));
+    (!activeBoxSession && Boolean((itemScanPackageId ?? "").trim())) ||
+    (Boolean(activeBoxSession?.packageId) &&
+      Boolean(itemScanPackageId) &&
+      activeBoxSession?.packageId === itemScanPackageId &&
+      isUuidString(itemScanPackageId));
 
   /** Persisted pallet changed on receiving step — start in locked shipment view (Edit All off). */
   useEffect(() => {
@@ -9840,46 +10322,24 @@ function OperatorMobileScanPageContent() {
       evidenceBaselineRef.current.inside = [...ins];
       pendingEvidenceStorageDeletesRef.current.clear();
       setBoxSlipInvalidFormatBlocksSave(false);
-      setBoxNotes(String(p.notes ?? "").trim());
+      const loadedBoxNotes = String(p.notes ?? "").trim();
+      setBoxNotes(loadedBoxNotes);
+      boxNotesBaselineRef.current = loadedBoxNotes;
+      captureBoxIntakeFieldsBaseline();
       clearBoxSlipVisionLinesState();
       setBoxSlipCode(String(p.id_slip_contents ?? "").trim());
+      boxSlipCodeRef.current = String(p.id_slip_contents ?? "").trim();
       setPalletPackagePickerQuery("");
       setPackageCodeCardOpen(false);
       setCurrentPackageTrackingId(code);
       setReceivingSlipExpectedItemQtyTotal(null);
       setEditAllMode(false);
       setActiveBoxSession({ barcode: code, packageId: p.id });
-      const oidPick = (orgId ?? "").trim();
-      const pickedId = p.id;
-      if (oidPick && isUuidString(pickedId)) {
-        void listOperatorSlipContentsForPackageAction(oidPick, pickedId, sessionStoreId ?? null).then((slipRes) => {
-          if (!slipRes.ok || slipRes.rows.length === 0) return;
-          if (activeBoxSessionPackageIdRef.current !== pickedId) return;
-          const vision = slipRes.rows.map((sr) =>
-            mapSlipContentRowToVisionLine(sr as unknown as Record<string, unknown>),
-          );
-          const firstRma = String(slipRes.rows[0]?.rma_number ?? "").trim();
-          commitBoxSlipVisionLinesFromSource(vision);
-          if (firstRma) {
-            setBoxSlipRma((prev) => (prev.trim() ? prev : firstRma));
-          }
-          const slipO = firstSlipOrderIdFromSlipRows(slipRes.rows);
-          const slipC = firstConflictingOrderIdFromSlipRows(slipRes.rows);
-          const normPick = normalizeSlipOrderConflictPair(slipO, slipC);
-          setBoxSlipOrderId(normPick.slip);
-          setBoxSlipConflictingOrderId(normPick.conflicting);
-          const pkgOidPick = String(p.order_id ?? "").trim();
-          const refPick = referenceOrderIdForPackageFieldAfterSlipLoad(normPick, pkgOidPick);
-          if (refPick != null) {
-            applySlipOrderIdIfEmpty(refPick);
-          } else if (firstRma) {
-            applyPalletOrderIdFromRaIfApplicable(firstRma);
-          }
-          const slipCodeRow = String(slipRes.rows[0]?.slip_code ?? "").trim();
-          if (slipCodeRow) setBoxSlipCode((prev) => (prev.trim() ? prev : slipCodeRow));
-          setBoxSlipInvalidFormatBlocksSave(false);
-        });
-      }
+      hydrateBoxPackageIdRef.current = p.id;
+      void hydrateBoxSlipVisionFromSavedPackage(p.id, {
+        id_slip_contents: p.id_slip_contents,
+        order_id: p.order_id,
+      });
       setIntakeToast("Loaded saved box — review photos and slip lines, then save.");
       palletPackageSearchInputRef.current?.blur();
       window.requestAnimationFrame(() => {
@@ -9892,9 +10352,8 @@ function OperatorMobileScanPageContent() {
       activeBoxSession,
       orgId,
       clearBoxSlipVisionLinesState,
-      commitBoxSlipVisionLinesFromSource,
-      applyPalletOrderIdFromRaIfApplicable,
-      applySlipOrderIdIfEmpty,
+      hydrateBoxSlipVisionFromSavedPackage,
+      captureBoxIntakeFieldsBaseline,
     ],
   );
 
@@ -9929,6 +10388,8 @@ function OperatorMobileScanPageContent() {
     clearPalletOrderIdIfAutoFilledFromRa();
     clearBoxSlipVisionLinesState();
     setBoxNotes("");
+    boxNotesBaselineRef.current = "";
+    boxIntakeFieldsBaselineRef.current = { slipCode: "", rma: "", orderId: "", carrier: "" };
     scheduleFocusScanner();
   }, [
     scheduleFocusScanner,
@@ -10012,6 +10473,8 @@ function OperatorMobileScanPageContent() {
 
   /** Leave Item Scan in progress — scanned units already persisted; no discrepancy note. */
   const confirmItemsPhaseSaveAndExit = useCallback(() => {
+    itemScanSlipCarryoverRef.current = null;
+    setItemScanSlipCarryover(null);
     resetItemInspectionForm();
     setItemScanPackageId(null);
     setItemScanPackageLabel(null);
@@ -10047,6 +10510,365 @@ function OperatorMobileScanPageContent() {
     closeActiveBoxPackageSession,
     clearPreviousLookupResult,
     scheduleFocusScanner,
+  ]);
+
+  const hasUnsavedPalletShipmentEdits = useCallback(() => {
+    if (!isIdentified || flowPhase !== "scan") return false;
+    const b = evidenceBaselineRef.current;
+    if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) return true;
+    if (operatorEvidenceUrlArraysChanged(palletPhotoUrlsRef.current, b.pallet)) return true;
+    if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) return true;
+    if (palletNotes.trim() !== palletNotesBaselineRef.current) return true;
+    if (editAllMode) {
+      const cur = (currentPalletTrackingId ?? "").trim();
+      const base = palletTrackingEditBaselineRef.current.trim();
+      if (cur !== base) return true;
+    }
+    return false;
+  }, [isIdentified, flowPhase, palletNotes, editAllMode, currentPalletTrackingId]);
+
+  const hasUnsavedBoxIntakeEdits = useCallback(() => {
+    if (flowPhase !== "package_scan") return false;
+    const sessionPackageId = (activeBoxSession?.packageId ?? "").trim();
+    if (activeBoxSession && !isUuidString(sessionPackageId)) return true;
+    const b = evidenceBaselineRef.current;
+    if (operatorEvidenceUrlArraysChanged(slipBoxPhotoUrlsRef.current, b.slip)) return true;
+    if (operatorEvidenceUrlArraysChanged(outsideBoxPhotoUrlsRef.current, b.outside)) return true;
+    if (operatorEvidenceUrlArraysChanged(insideBoxPhotoUrlsRef.current, b.inside)) return true;
+    if (directBox) {
+      if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) return true;
+      if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) return true;
+    }
+    if (boxNotesRef.current.trim() !== boxNotesBaselineRef.current) return true;
+    const fieldBaseline = boxIntakeFieldsBaselineRef.current;
+    if (boxSlipCodeRef.current.trim() !== fieldBaseline.slipCode) return true;
+    if (boxSlipRmaRef.current.trim() !== fieldBaseline.rma) return true;
+    if (palletOrderIdRef.current.trim() !== fieldBaseline.orderId) return true;
+    if (palletCarrierRef.current.trim() !== fieldBaseline.carrier) return true;
+    if (
+      JSON.stringify(boxSlipVisionLines) !== JSON.stringify(boxSlipVisionLinesPersistRef.current)
+    ) {
+      return true;
+    }
+    return false;
+  }, [flowPhase, activeBoxSession, directBox, boxSlipVisionLines]);
+
+  const hasUnsavedItemScanModalDraft = useCallback(
+    () =>
+      Boolean(
+        itemUnitModal ||
+          candidatePicker ||
+          slipLineCandidatePicker ||
+          unexpectedPackageItemModal ||
+          manualOpen,
+      ),
+    [itemUnitModal, candidatePicker, slipLineCandidatePicker, unexpectedPackageItemModal, manualOpen],
+  );
+
+  const dismissItemScanModalDrafts = useCallback(() => {
+    modalOpenRef.current = false;
+    setItemUnitModal(null);
+    setCandidatePicker(null);
+    setSlipLineCandidatePicker(null);
+    setUnexpectedPackageItemModal(null);
+    setManualOpen(false);
+    manualEntryModeRef.current = false;
+  }, []);
+
+  const requestScannerLeaveConfirm = useCallback((action: () => void) => {
+    scannerLeavePendingActionRef.current = action;
+    modalOpenRef.current = true;
+    setScannerLeaveConfirmOpen(true);
+  }, []);
+
+  const runScannerLeavePendingAction = useCallback(() => {
+    const action = scannerLeavePendingActionRef.current;
+    scannerLeavePendingActionRef.current = null;
+    setScannerLeaveConfirmOpen(false);
+    modalOpenRef.current = false;
+    action?.();
+  }, []);
+
+  const returnFromPackageScanToShipmentSearch = useCallback(() => {
+    if (activePallet?.id?.trim()) setDirectBox(false);
+    setFlowPhase("scan");
+    scheduleFocusScanner();
+  }, [activePallet?.id, scheduleFocusScanner]);
+
+  const resetToInitialShipmentEntry = useCallback(() => {
+    closeActiveBoxPackageSession();
+    clearOperatorPhotoArrays(["shipping", "bol", "outside", "inside", "slip"]);
+    setPalletPhotoUrls([]);
+    palletPhotoUrlsRef.current = [];
+    evidenceBaselineRef.current.pallet = [];
+    evidenceBaselineRef.current.shipping = [];
+    evidenceBaselineRef.current.bol = [];
+    pendingEvidenceStorageDeletesRef.current.clear();
+    hydrateActivePalletIdRef.current = null;
+    hydrateBoxPackageIdRef.current = null;
+
+    setEditAllMode(false);
+    setPackageCodeCardOpen(false);
+    setModernPalletWorkspace(false);
+    setActiveSlipOrPackage(null);
+    setActivePallet(null);
+    setActiveTracking(null);
+    setCurrentPalletTrackingId(null);
+    setCurrentPackageTrackingId(null);
+    setDirectBox(false);
+    setPhysicalBoxCount(null);
+    setBoxScanTargetDenominator(null);
+    setScannedBoxesSavedCount(0);
+    setPalletCarrier("");
+    setPalletCarrierOtherSelected(false);
+    setPalletOrderId("");
+    setPalletDbOrderId("");
+    setPalletResolvedOrderId("");
+    setPalletNotes("");
+    setPalletDbHasShipmentDetails(false);
+    setPalletCreatedByLabel(null);
+    setPalletCreatedByProfileId(null);
+    setPalletCreatedAtIso(null);
+    lastOrderIdAutoFilledFromRaRef.current = null;
+    parentPalletCarrierDefaultRef.current = "";
+
+    resetItemInspectionForm();
+    setItemScanPackageId(null);
+    setItemScanPackageLabel(null);
+    setReceivingSlipExpectedItemQtyTotal(null);
+    setItemReceiveDemoScannedUnits(0);
+    setItemReceivePackageActualCount(null);
+    setItemReceiveCountSyncNonce(0);
+    setExpectedPkgDetailRows([]);
+    setCandidatePicker(null);
+    setItemBarcodeMiss(null);
+    modalOpenRef.current = false;
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemHydratedRows([]);
+    setPackageItemsHydrating(false);
+    setPackageItemsHydrationNonce(0);
+
+    setScanLine("");
+    setSlipBarcodeExtract(null);
+    setFlowPhase("scan");
+    setIsIdentified(false);
+    completedShipmentDialogShownForKeyRef.current = null;
+    setCompletedShipmentModal(null);
+    clearPreviousLookupResult({ clearResolvedContext: true, phase: "idle" });
+    scheduleFocusScanner();
+  }, [
+    closeActiveBoxPackageSession,
+    clearOperatorPhotoArrays,
+    resetItemInspectionForm,
+    clearPreviousLookupResult,
+    scheduleFocusScanner,
+  ]);
+
+  const performBoxIntakeBackNavigation = useCallback(() => {
+    if (directBox || !(activePallet?.id?.trim())) {
+      resetToInitialShipmentEntry();
+      return;
+    }
+    if (activeBoxSession) {
+      closeActiveBoxPackageSession();
+      return;
+    }
+    returnFromPackageScanToShipmentSearch();
+  }, [
+    directBox,
+    activePallet?.id,
+    activeBoxSession,
+    resetToInitialShipmentEntry,
+    closeActiveBoxPackageSession,
+    returnFromPackageScanToShipmentSearch,
+  ]);
+
+  /** Item Scan header back — return to Box Info for the same package without leaving the workflow. */
+  const returnFromItemsPhaseToBoxInfo = useCallback(() => {
+    dismissItemScanModalDrafts();
+    resetItemInspectionForm();
+    setItemBarcodeMiss(null);
+    setItemReceiveError(null);
+    setItemOverscanWarning(null);
+    modalOpenRef.current = false;
+
+    const pkgId = String(itemScanPackageId ?? "").trim();
+    const label = String(itemScanPackageLabel ?? "").trim();
+    if (pkgId && isUuidString(pkgId)) {
+      const row = palletPackagePickerList.find((p) => p.id === pkgId);
+      const barcode = label || String(row?.package_code ?? "").trim() || pkgId;
+      setActiveBoxSession({ barcode, packageId: pkgId });
+      setCurrentPackageTrackingId(barcode);
+      setPackageCodeCardOpen(false);
+      setEditAllMode(false);
+      hydrateBoxPackageIdRef.current = pkgId;
+      void hydrateBoxSlipVisionFromSavedPackage(pkgId, {
+        id_slip_contents: row?.id_slip_contents ?? null,
+        order_id: row?.order_id ?? null,
+      });
+    } else if (label) {
+      setCurrentPackageTrackingId(label);
+      setActiveBoxSession({ barcode: label, packageId: null });
+      setPackageCodeCardOpen(false);
+    }
+
+    setFlowPhase("package_scan");
+    scheduleFocusScanner();
+  }, [
+    dismissItemScanModalDrafts,
+    resetItemInspectionForm,
+    itemScanPackageId,
+    itemScanPackageLabel,
+    palletPackagePickerList,
+    hydrateBoxSlipVisionFromSavedPackage,
+    scheduleFocusScanner,
+  ]);
+
+  const handleScannerBack = useCallback(() => {
+    const logScannerBack = (phase: string, dirty: unknown, action: string) => {
+      if (!SCANNER_BACK_DEBUG) return;
+      console.log(`[scanner-back] phase=${phase}`);
+      console.log(`[scanner-back] dirty=${JSON.stringify(dirty)}`);
+      console.log(`[scanner-back] action=${action}`);
+    };
+
+    if (identifyGatePhase !== "idle") {
+      logScannerBack("identify-gate", identifyGatePhase, "resetIdentifyGateForm");
+      resetIdentifyGateForm();
+      scheduleFocusScanner();
+      return;
+    }
+
+    if (flowPhase === "items") {
+      const proceed = () => {
+        returnFromItemsPhaseToBoxInfo();
+      };
+      const modalDraft = hasUnsavedItemScanModalDraft();
+      logScannerBack("items", { modalDraft }, modalDraft ? "confirm-box-info" : "box-info");
+      if (modalDraft) {
+        requestScannerLeaveConfirm(proceed);
+        return;
+      }
+      proceed();
+      return;
+    }
+
+    if (flowPhase === "package_scan") {
+      const dirty = hasUnsavedBoxIntakeEdits();
+      const isDirect = directBox || !(activePallet?.id?.trim());
+
+      if (activeBoxSession) {
+        const action = () => performBoxIntakeBackNavigation();
+        logScannerBack("package_scan/session", { dirty, isDirect }, dirty ? "confirm-leave" : "leave");
+        if (dirty) requestScannerLeaveConfirm(action);
+        else action();
+        return;
+      }
+
+      if (packageCodeCardOpen) {
+        const dismissPicker = () => {
+          if (isDirect) {
+            resetToInitialShipmentEntry();
+            return;
+          }
+          setPackageCodeCardOpen(false);
+          setPalletPackagePickerQuery("");
+          setBoxIntakeError(null);
+          closeActiveBoxPackageSession();
+          scheduleFocusScanner();
+        };
+        const pickerDirty =
+          dirty ||
+          Boolean(palletPackagePickerQuery.trim()) ||
+          Boolean((currentPackageTrackingId ?? "").trim());
+        logScannerBack(
+          "package_scan/picker",
+          { dirty: pickerDirty, isDirect },
+          pickerDirty ? "confirm-dismiss" : "dismiss",
+        );
+        if (pickerDirty) requestScannerLeaveConfirm(dismissPicker);
+        else dismissPicker();
+        return;
+      }
+
+      const action = () => performBoxIntakeBackNavigation();
+      logScannerBack("package_scan/hub", { dirty, isDirect }, dirty ? "confirm-leave" : "leave");
+      if (dirty) requestScannerLeaveConfirm(action);
+      else action();
+      return;
+    }
+
+    if (flowPhase === "scan" && isIdentified) {
+      const dirty = hasUnsavedPalletShipmentEdits();
+      logScannerBack("scan/identified", { dirty }, dirty ? "confirm-router-back" : "router-back");
+      if (dirty) {
+        requestScannerLeaveConfirm(() => {
+          void abandonUnsavedPalletShipmentEdits().finally(() => {
+            router.back();
+          });
+        });
+        return;
+      }
+      router.back();
+      return;
+    }
+
+    if (flowPhase === "scan" && !isIdentified) {
+      const hasReceivingContext =
+        Boolean(activePallet?.id?.trim()) ||
+        Boolean(activeBoxSession) ||
+        Boolean((itemScanPackageId ?? "").trim());
+      const initialDirty =
+        Boolean(scanLine.trim()) || manualOpen || hasUnsavedPalletShipmentEdits();
+      logScannerBack(
+        "scan/initial",
+        { hasReceivingContext, initialDirty },
+        !hasReceivingContext && !initialDirty ? "router-back" : "clear-or-router-back",
+      );
+      if (!hasReceivingContext && !initialDirty) {
+        router.back();
+        return;
+      }
+      if (scanLine.trim() || manualOpen) {
+        resetIdentifyGateForm();
+        setManualOpen(false);
+        manualEntryModeRef.current = false;
+        setManualEntryMode(false);
+        scheduleFocusScanner();
+        return;
+      }
+      router.back();
+      return;
+    }
+
+    logScannerBack(String(flowPhase), null, "router-back-fallback");
+    router.back();
+  }, [
+    identifyGatePhase,
+    resetIdentifyGateForm,
+    scheduleFocusScanner,
+    flowPhase,
+    hasUnsavedItemScanModalDraft,
+    dismissItemScanModalDrafts,
+    returnFromItemsPhaseToBoxInfo,
+    requestScannerLeaveConfirm,
+    hasUnsavedBoxIntakeEdits,
+    directBox,
+    activePallet?.id,
+    activeBoxSession,
+    performBoxIntakeBackNavigation,
+    packageCodeCardOpen,
+    palletPackagePickerQuery,
+    currentPackageTrackingId,
+    closeActiveBoxPackageSession,
+    resetToInitialShipmentEntry,
+    isIdentified,
+    hasUnsavedPalletShipmentEdits,
+    abandonUnsavedPalletShipmentEdits,
+    scanLine,
+    manualOpen,
+    itemScanPackageId,
+    router,
   ]);
 
   const handleCorrectionResetEntry = useCallback(() => {
@@ -10127,75 +10949,6 @@ function OperatorMobileScanPageContent() {
       scheduleFocusScanner,
     ],
   );
-
-  const resetToInitialShipmentEntry = useCallback(() => {
-    closeActiveBoxPackageSession();
-    clearOperatorPhotoArrays(["shipping", "bol", "outside", "inside", "slip"]);
-    setPalletPhotoUrls([]);
-    palletPhotoUrlsRef.current = [];
-    evidenceBaselineRef.current.pallet = [];
-    evidenceBaselineRef.current.shipping = [];
-    evidenceBaselineRef.current.bol = [];
-    pendingEvidenceStorageDeletesRef.current.clear();
-    hydrateActivePalletIdRef.current = null;
-    hydrateBoxPackageIdRef.current = null;
-
-    setEditAllMode(false);
-    setPackageCodeCardOpen(false);
-    setModernPalletWorkspace(false);
-    setActiveSlipOrPackage(null);
-    setActivePallet(null);
-    setActiveTracking(null);
-    setCurrentPalletTrackingId(null);
-    setCurrentPackageTrackingId(null);
-    setDirectBox(false);
-    setPhysicalBoxCount(null);
-    setBoxScanTargetDenominator(null);
-    setScannedBoxesSavedCount(0);
-    setPalletCarrier("");
-    setPalletCarrierOtherSelected(false);
-    setPalletOrderId("");
-    setPalletDbOrderId("");
-    setPalletResolvedOrderId("");
-    setPalletNotes("");
-    setPalletDbHasShipmentDetails(false);
-    setPalletCreatedByLabel(null);
-    setPalletCreatedByProfileId(null);
-    setPalletCreatedAtIso(null);
-    lastOrderIdAutoFilledFromRaRef.current = null;
-    parentPalletCarrierDefaultRef.current = "";
-
-    resetItemInspectionForm();
-    setItemScanPackageId(null);
-    setItemScanPackageLabel(null);
-    setReceivingSlipExpectedItemQtyTotal(null);
-    setItemReceiveDemoScannedUnits(0);
-    setItemReceivePackageActualCount(null);
-    setItemReceiveCountSyncNonce(0);
-    setExpectedPkgDetailRows([]);
-    setCandidatePicker(null);
-    setItemBarcodeMiss(null);
-    modalOpenRef.current = false;
-    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
-    setPackageItemHydratedRows([]);
-    setPackageItemsHydrating(false);
-    setPackageItemsHydrationNonce(0);
-
-    setScanLine("");
-    setSlipBarcodeExtract(null);
-    setFlowPhase("scan");
-    setIsIdentified(false);
-    completedShipmentDialogShownForKeyRef.current = null;
-    setCompletedShipmentModal(null);
-    clearPreviousLookupResult({ clearResolvedContext: true, phase: "idle" });
-    scheduleFocusScanner();
-  }, [
-    closeActiveBoxPackageSession,
-    clearOperatorPhotoArrays,
-    resetItemInspectionForm,
-    clearPreviousLookupResult,
-    scheduleFocusScanner,
-  ]);
 
   const handleVoidBoxConfirm = useCallback(async () => {
     const pkgId = correctionSavedPackageId;
@@ -10563,10 +11316,11 @@ function OperatorMobileScanPageContent() {
     headerIdentityBoxSurface,
   ]);
 
-  /** Hide center breadcrumb in header when box session open or identity strip rules (not item-scan body). */
+  /** Hide redundant mini breadcrumb on compact handheld Box Info + Item Scan (identity strip / stepper suffice). */
   const hideHeaderWarehouseTrail =
-    ((flowPhase === "package_scan" || flowPhase === "items") && Boolean(activeBoxSession)) ||
-    (showIdentitySummaryStrip && (flowPhase === "scan" || flowPhase === "package_scan"));
+    flowPhase === "package_scan" ||
+    flowPhase === "items" ||
+    (showIdentitySummaryStrip && flowPhase === "scan");
   const showWarehouseTrail = isIdentified && (parentIdentified || directBox || flowPhase !== "scan");
 
   const openOperatorAddNewBox = useCallback(() => {
@@ -10673,7 +11427,7 @@ function OperatorMobileScanPageContent() {
 
   return (
     <div
-      className={`flex min-h-0 min-w-0 flex-1 flex-col text-[15px] font-medium leading-snug [&_button]:touch-manipulation [&_button]:transition-transform [&_button]:duration-150 [&_button]:ease-out [&_button]:active:scale-95 ${
+      className={`operator-shipment-handheld-compact flex min-h-0 min-w-0 flex-1 flex-col text-[14px] font-medium leading-snug [&_button]:touch-manipulation [&_button]:transition-transform [&_button]:duration-150 [&_button]:ease-out [&_button]:active:scale-95 ${
         itemsChromeStickyLayout ? "operator-item-scan-screen overflow-hidden" : "overflow-visible"
       }${!isIdentified ? " operator-shipment-entry-gate-page" : ""}`}
       style={{ backgroundColor: BG, color: TEXT_PRIMARY }}
@@ -10723,14 +11477,13 @@ function OperatorMobileScanPageContent() {
       >
       <header
         ref={scanPageHeaderRef}
-        className={`operator-shipment-entry-header relative shrink-0 border-b pt-0 ${itemsChromeStickyLayout ? "z-[1]" : "z-[110]"}`}
+        className={`operator-shipment-entry-header relative shrink-0 pt-0 ${itemsChromeStickyLayout ? "z-[1]" : "z-[110]"}`}
         style={{
-          borderColor: BORDER,
           background: "var(--scanner-header-gradient)",
         }}
       >
         {showIdentitySummaryStrip ? (
-          <div className="operator-shipment-entry-identity-strip border-b px-3 py-0.5 sm:px-4">
+          <div className={`operator-shipment-entry-identity-strip border-b px-2.5 py-0`}>
             <p
               className="text-center text-[10px] font-semibold leading-snug tracking-wide tabular-nums sm:text-[11px]"
               style={{
@@ -10743,7 +11496,7 @@ function OperatorMobileScanPageContent() {
             </p>
             {palletIdentityOrderId || palletMixedOrderIdsUi ? (
               <p
-                className="operator-shipment-entry-order-meta operator-box-info-order-meta mt-0.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center font-mono text-[10px] font-semibold leading-snug tracking-wide tabular-nums sm:text-[11px]"
+                className="operator-shipment-entry-order-meta operator-box-info-order-meta mt-0 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0 text-center font-mono text-[9px] font-semibold leading-tight tracking-wide tabular-nums"
                 aria-label={`Order ID ${palletIdentityOrderId || "not set"}`}
               >
                 <span>
@@ -10769,137 +11522,124 @@ function OperatorMobileScanPageContent() {
         ) : null}
         {isIdentified ? (
           <div
-            className="operator-shipment-entry-title-row relative min-h-[2.75rem] px-3 pb-0.5 pt-0.5 sm:min-h-[3rem] sm:px-4"
+            className={`operator-shipment-entry-title-row px-3 pb-0.5 pt-1 sm:px-4 ${HANDHELD_HEADER_COMPACT}`}
             data-receiving-phase={flowPhase}
           >
-            <button
-              type="button"
-              onClick={() => {
-                if (flowPhase === "package_scan" && activeBoxSession) {
-                  closeActiveBoxPackageSession();
-                  return;
-                }
-                if (flowPhase === "items") {
-                  confirmItemsPhaseSaveAndExit();
-                  return;
-                } else if (flowPhase === "package_scan") {
-                  if (activePallet?.id?.trim()) setDirectBox(false);
-                  setFlowPhase("scan");
-                }
-                else router.back();
-              }}
-              className="absolute left-3 top-2 z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/8 sm:left-4"
-              style={{ color: TEXT_PRIMARY }}
-              aria-label={
-                flowPhase === "items"
-                  ? "Save progress and return to shipment search"
-                  : flowPhase === "package_scan" && activeBoxSession
-                    ? "Exit box session"
-                    : "Go back"
-              }
-            >
-              <ArrowLeft className="h-5 w-5" strokeWidth={2} />
-            </button>
             <div
-              className={`operator-shipment-edit-all-slot absolute top-1.5 end-0 z-10 flex items-start justify-end${
-                flowPhase === "scan" ? " min-h-6" : " min-h-8"
-              }`}
+              className="flex items-center gap-1 !border-b !border-[#C8A96A]/30 !pb-0.5"
+              style={{ borderBottomWidth: 1, borderBottomColor: "rgba(200, 169, 106, 0.3)" }}
             >
-              {showShipmentEntryEditAllInHeader ? (
-                <button
-                  type="button"
-                  onClick={() => setEditAllMode((m) => !m)}
-                  aria-pressed={editAllMode}
-                  className={`operator-shipment-edit-all-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border font-bold uppercase tracking-wider shadow-sm transition active:scale-95${
-                    flowPhase === "scan"
-                      ? " gap-0.5 px-2 py-0.5 text-xs"
-                      : " gap-1 px-2.5 py-1 text-xs sm:px-3"
-                  }${editAllMode ? " operator-shipment-edit-all-btn--active" : ""}`}
-                >
-                  {editAllMode ? (
-                    <>
-                      <CheckCircle2
-                        className={`shrink-0 ${flowPhase === "scan" ? "h-2.5 w-2.5" : "h-3 w-3"}`}
-                        strokeWidth={2.5}
-                      />
-                      Done
-                    </>
-                  ) : (
-                    <>
-                      <Pencil
-                        className={`shrink-0 ${flowPhase === "scan" ? "h-2.5 w-2.5" : "h-3 w-3"}`}
-                        strokeWidth={2}
-                      />
-                      Edit All
-                    </>
-                  )}
-                </button>
-              ) : (
-                <span
-                  className={`inline-block shrink-0 ${flowPhase === "scan" ? "h-6 w-6" : "h-8 w-8"}`}
-                  aria-hidden
-                />
-              )}
-            </div>
-            <div className="mx-auto flex w-full max-w-lg flex-col items-center px-11 text-center sm:px-16">
+              <button
+                type="button"
+                onClick={() => handleScannerBack()}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/8"
+                style={{ color: TEXT_PRIMARY }}
+                aria-label={
+                  flowPhase === "items"
+                    ? "Return to box info"
+                    : flowPhase === "package_scan" && activeBoxSession
+                      ? "Exit box session"
+                      : "Go back"
+                }
+              >
+                <ArrowLeft className="h-5 w-5" strokeWidth={2} />
+              </button>
               <h1
-                className="operator-heading text-[1.12rem] font-bold leading-tight tracking-tight sm:text-[1.22rem]"
+                className="operator-heading min-w-0 flex-1 truncate text-lg font-bold uppercase tracking-wide text-[15px] leading-tight"
                 style={{ color: TEXT_PRIMARY }}
               >
                 {headerTitle}
               </h1>
-              <div className="operator-shipment-entry-stepper-shell operator-box-info-stepper-shell operator-pallet-stepper-shell relative z-[1] isolate mx-auto mt-0.5 w-full max-w-[19rem] rounded-2xl px-3 py-2 sm:max-w-sm">
-                <ReceivingMasterStepper
-                  flowPhase={flowPhase}
-                  parentIdentified={parentIdentified}
-                  directBox={directBox}
+              <div
+                className={`operator-shipment-edit-all-slot flex shrink-0 items-center justify-end${
+                  flowPhase === "scan" ? " min-h-6" : " min-h-8"
+                }`}
+              >
+                {showShipmentEntryEditAllInHeader ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditAllMode((m) => !m)}
+                    aria-pressed={editAllMode}
+                    className={`operator-shipment-edit-all-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border font-bold uppercase tracking-wider shadow-sm transition active:scale-95${
+                      flowPhase === "scan"
+                        ? " gap-0.5 px-2 py-0.5 text-xs"
+                        : " gap-1 px-2.5 py-1 text-xs sm:px-3"
+                    }${editAllMode ? " operator-shipment-edit-all-btn--active" : ""}`}
+                  >
+                    {editAllMode ? (
+                      <>
+                        <CheckCircle2
+                          className={`shrink-0 ${flowPhase === "scan" ? "h-2.5 w-2.5" : "h-3 w-3"}`}
+                          strokeWidth={2.5}
+                        />
+                        Done
+                      </>
+                    ) : (
+                      <>
+                        <Pencil
+                          className={`shrink-0 ${flowPhase === "scan" ? "h-2.5 w-2.5" : "h-3 w-3"}`}
+                          strokeWidth={2}
+                        />
+                        Edit All
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <span
+                    className={`inline-block shrink-0 ${flowPhase === "scan" ? "h-6 w-6" : "h-8 w-8"}`}
+                    aria-hidden
+                  />
+                )}
+              </div>
+            </div>
+            <div className={`operator-shipment-entry-stepper-shell operator-box-info-stepper-shell operator-pallet-stepper-shell relative z-[1] isolate mx-auto w-full max-w-[19rem] sm:max-w-sm ${HANDHELD_STEPPER_COMPACT}`}>
+              <ReceivingMasterStepper
+                flowPhase={flowPhase}
+                parentIdentified={parentIdentified}
+                directBox={directBox}
+              />
+            </div>
+            {showWarehouseTrail && !hideHeaderWarehouseTrail ? (
+              <div className="mt-0.5 flex w-full justify-center">
+                <WarehouseBreadcrumb
+                  className="w-full flex-wrap justify-center"
+                  storeLabel={activeStoreLabel}
+                  palletLabel={warehousePalletLabel}
+                  shipmentIdLabel={warehouseBreadcrumbShipmentForTrail}
+                  middleOverride={warehouseBreadcrumbMiddleOverride}
+                  boxBarcode={warehouseBreadcrumbTrailingBarcode}
                 />
               </div>
-              {showWarehouseTrail && !hideHeaderWarehouseTrail ? (
-                <div className="mt-1 flex w-full justify-center">
-                  <WarehouseBreadcrumb
-                    className="w-full flex-wrap justify-center"
-                    storeLabel={activeStoreLabel}
-                    palletLabel={warehousePalletLabel}
-                    shipmentIdLabel={warehouseBreadcrumbShipmentForTrail}
-                    middleOverride={warehouseBreadcrumbMiddleOverride}
-                    boxBarcode={warehouseBreadcrumbTrailingBarcode}
-                  />
-                </div>
-              ) : null}
-            </div>
+            ) : null}
           </div>
         ) : (
-          <div className="operator-shipment-entry-title-row grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-x-1 px-3 pb-1 pt-1 sm:gap-x-2 sm:px-4">
+          <div
+            className={`operator-shipment-entry-title-row flex items-center gap-2 !border-b !border-[#C8A96A]/30 px-3 !pb-1 pt-1 sm:px-4 ${HANDHELD_HEADER_COMPACT}`}
+            style={{ borderBottomWidth: 1, borderBottomColor: "rgba(200, 169, 106, 0.3)" }}
+          >
             <button
               type="button"
-              onClick={() => {
-                if (identifyGatePhase !== "idle") {
-                  resetIdentifyGateForm();
-                  scheduleFocusScanner();
-                  return;
-                }
-                router.back();
-              }}
-              className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/8"
+              onClick={() => handleScannerBack()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition hover:bg-black/[0.06] active:scale-95 dark:hover:bg-white/8"
               style={{ color: TEXT_PRIMARY }}
               aria-label="Go back"
             >
               <ArrowLeft className="h-5 w-5" strokeWidth={2} />
             </button>
-            <div className="min-w-0 px-1 text-center">
-              <div className="h-8 min-h-[2rem] sm:h-9" aria-hidden />
-            </div>
-            <div className="flex min-h-10 items-start justify-end pt-0.5">
-              <span className="inline-block h-10 w-10 shrink-0" aria-hidden />
-            </div>
+            <h1
+              className="operator-heading min-w-0 flex-1 truncate text-lg font-bold uppercase tracking-wide text-[15px] leading-tight"
+              style={{ color: TEXT_PRIMARY }}
+            >
+              {headerTitle}
+            </h1>
+            <span className="inline-block h-9 w-9 shrink-0" aria-hidden />
           </div>
         )}
 
         {isIdentified && flowPhase === "package_scan" && activeBoxSession ? (
           <div
             id="operator-mobile-box-summary-bar"
-            className="border-t px-3 py-2 sm:px-4"
+            className={`border-t px-2 py-1`}
             style={{ borderColor: BORDER, backgroundColor: "var(--scanner-card-inner)" }}
           >
             <div className="operator-compact-row flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -10985,7 +11725,7 @@ function OperatorMobileScanPageContent() {
         boxProgressExpectedY > 0 &&
         ((flowPhase === "package_scan" && activeBoxSession) || flowPhase === "scan") ? (
           <div
-            className={`operator-shipment-entry-progress operator-shipment-box-progress border-t px-3 py-1.5 sm:px-4${
+            className={`operator-shipment-entry-progress operator-shipment-box-progress border-t px-2 py-0.5${
               flowPhase === "scan" && parentIdentified ? " operator-pallet-progress-block" : ""
             }`}
           >
@@ -11196,7 +11936,7 @@ function OperatorMobileScanPageContent() {
             type="button"
             disabled={busy}
             onClick={() => openAddScanItemModal()}
-            className="operator-neda-mechanical-scan-btn mb-0 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-black uppercase tracking-wide transition active:translate-y-[1px] active:shadow-inner disabled:cursor-not-allowed disabled:opacity-40"
+            className={`mb-0 flex ${ZEBRA_COMPACT_BTN} w-full items-center justify-center gap-1.5 rounded-xl border border-[#C8A96A]/60 bg-gradient-to-b from-[#2a313a] to-[#0c0f13] px-4 text-[#faf6ed] transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
             Add / Scan Item
@@ -11238,8 +11978,8 @@ function OperatorMobileScanPageContent() {
         ref={itemsChromeStickyLayout ? undefined : bindOperatorMainScrollEl}
         className={`min-h-0 flex-1 px-3 pt-1 ${
           itemsChromeStickyLayout
-            ? "flex flex-col overflow-hidden overscroll-contain pb-28"
-            : `overflow-y-auto overscroll-contain pb-3 ${mainScrollClass}`
+            ? "operator-item-scan-main flex min-h-0 flex-col overflow-hidden overscroll-contain"
+            : `overflow-y-auto overscroll-contain pb-3 ${mainScrollClass} ${HANDHELD_COMPACT}`
         }`}
       >
         {!isIdentified ? (
@@ -11270,18 +12010,10 @@ function OperatorMobileScanPageContent() {
               </p>
             ) : null}
 
-            <div className="operator-shipment-entry-gate__title-wrap mb-1.5 px-0.5">
-              <h1
-                className="operator-shipment-entry-gate__title operator-heading text-[1.12rem] font-bold leading-tight tracking-tight sm:text-[1.22rem]"
-              >
-                {headerTitle}
-              </h1>
-            </div>
-
-            <section className={`operator-shipment-entry-gate-scan-card relative z-10 mb-3 rounded-[22px] p-3 sm:p-4 ${glassCard}`}>
+            <section className={`operator-shipment-entry-gate-scan-card relative z-10 mb-3 rounded-[22px] p-3 sm:p-4 mb-1.5 rounded-lg p-2 ${glassCard}`}>
               <div className="flex items-center justify-between gap-2.5">
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                  <div className="operator-shipment-entry-gate__barcode-plate scanner-neon-icon-ring flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
+                  <div className="operator-shipment-entry-gate__barcode-plate scanner-neon-icon-ring flex h-11 w-11 shrink-0 items-center justify-center rounded-xl h-9 w-9 rounded-lg">
                     <Barcode className="h-6 w-6" strokeWidth={2.35} aria-hidden />
                   </div>
                   <p className="operator-shipment-entry-gate__tracking-label min-w-0 text-[10px] font-bold uppercase leading-snug tracking-[0.12em] sm:text-xs sm:tracking-[0.14em]">
@@ -11404,14 +12136,14 @@ function OperatorMobileScanPageContent() {
                         identifyGateOcrReading ? "Analyzing image" : "Type tracking or slip code"
                       }
                       placeholder="Type barcode manually"
-                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[3rem] w-full rounded-xl border py-2 pl-3.5 pr-[5.5rem] font-mono text-[14px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[3.25rem] sm:pr-[5.75rem] sm:text-[15px] sm:placeholder:text-[14px]"
+                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[36px] w-full rounded-xl border py-1 pl-3 pr-[4.75rem] font-mono text-[13px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                       style={{ color: TEXT_PRIMARY }}
                     />
                   ) : (
                     <button
                       type="button"
                       onClick={() => startManualEntryMode(gateManualInputRef)}
-                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[3rem] w-full items-center rounded-xl border py-2 pl-3.5 pr-[5.5rem] text-left font-mono text-[14px] outline-none transition sm:min-h-[3.25rem] sm:pr-[5.75rem] sm:text-[15px]"
+                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[36px] w-full items-center rounded-xl border py-1 pl-3 pr-[4.75rem] text-left font-mono text-[13px] outline-none transition"
                       style={{ color: MUTED_LABEL }}
                     >
                       <span className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between min-[380px]:gap-3">
@@ -12093,10 +12825,10 @@ function OperatorMobileScanPageContent() {
                       Boolean(completedShipmentModal)
                     }
                     onClick={() => void handleIdentificationGatePrimaryCta()}
-                    className="operator-shipment-entry-gate__primary-cta mt-5 flex h-[52px] w-full items-center justify-center gap-2 rounded-[18px] text-[15px] font-bold shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35"
+                    className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl transition disabled:cursor-not-allowed disabled:opacity-35 ${ZEBRA_COMPACT_BTN}`}
                     style={{
                       background: `linear-gradient(180deg, ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].chipBg} 0%, rgba(15,23,42,0.95) 100%)`,
-                      border: `2px solid ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border}`,
+                      border: `1px solid ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border}`,
                       color: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].headline,
                     }}
                   >
@@ -12199,7 +12931,7 @@ function OperatorMobileScanPageContent() {
                           <div className="relative z-50 mt-2">
                             <label
                               htmlFor={`${formId}-pallet-carrier-custom`}
-                              className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                              className="operator-shipment-field-label mb-0.5 block text-[9px] font-semibold uppercase leading-tight tracking-wide"
                             >
                               Enter Carrier Name{" "}
                               <span className={REQ_STAR_CLASS}>*</span>
@@ -12241,7 +12973,7 @@ function OperatorMobileScanPageContent() {
                     <div className="mb-1 flex flex-wrap items-center gap-1.5">
                       <label
                         htmlFor={slipCarrierOrderEditable ? `${formId}-pallet-order-id` : undefined}
-                        className="operator-shipment-field-label block text-[10px] font-semibold uppercase tracking-widest"
+                        className="operator-shipment-field-label block text-[9px] font-semibold uppercase leading-tight tracking-wide mb-0.5"
                       >
                         Order ID{" "}
                         <span className="font-normal normal-case opacity-70">(optional)</span>
@@ -12750,7 +13482,7 @@ function OperatorMobileScanPageContent() {
               <button
                 type="button"
                 onClick={() => continueModernPalletToBoxInfo()}
-                className="operator-neda-mechanical-scan-btn mb-4 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-black uppercase tracking-wide transition active:translate-y-[1px] active:shadow-inner disabled:cursor-not-allowed disabled:opacity-40"
+                className={`mb-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#C8A96A]/60 bg-gradient-to-b from-[#2a313a] to-[#0c0f13] px-4 text-[#faf6ed] transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
               >
                 <ScanLine className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
                 Continue to Box Info
@@ -12786,7 +13518,7 @@ function OperatorMobileScanPageContent() {
                 Identify a pallet or tracking parent before BOX intake.
               </p>
             ) : (
-              <div className="operator-box-info-screen flex flex-col gap-3 overflow-visible">
+              <div className="operator-box-info-screen flex flex-col gap-1 overflow-visible pb-2">
                 {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
                   <p
                     className="mb-4 rounded-[20px] border px-3.5 py-2.5 text-[12px] font-semibold"
@@ -12822,10 +13554,7 @@ function OperatorMobileScanPageContent() {
                   <div className="mb-1 flex justify-end">
                     <button
                       type="button"
-                      onClick={() => {
-                        modalOpenRef.current = true;
-                        setPickerDismissConfirmOpen(true);
-                      }}
+                      onClick={() => handleScannerBack()}
                       className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-white/90 transition hover:bg-white/[0.06] active:scale-[0.98]"
                       style={{ borderColor: BORDER, backgroundColor: CARD_INNER }}
                     >
@@ -12955,13 +13684,13 @@ function OperatorMobileScanPageContent() {
                 {/* Inputs: carton lock first, then slip+carrier row, then order+rma row. */}
                 {showOperatorPackageIntakePanel ? (
                   <>
-                    <section className={`operator-shipment-intake-card relative z-20 ${activeBoxSession ? "mb-1" : "mb-1.5"} space-y-2 rounded-xl p-2 ${glassCard}`}>
+                    <section className={`operator-shipment-intake-shell relative z-20 mb-0 space-y-0.5`}>
                   {!activeBoxSession ? (
                   <div>
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <label
                         htmlFor={`${formId}-box-intake-manual`}
-                        className="operator-shipment-field-label block text-[10px] font-semibold uppercase tracking-widest"
+                        className="operator-shipment-field-label block text-[9px] font-semibold uppercase leading-tight tracking-wide mb-0.5"
                       >
                         PACKAGE CODE <span className="font-normal normal-case opacity-70">(scan / type — Apply to lock)</span>
                       </label>
@@ -13052,14 +13781,13 @@ function OperatorMobileScanPageContent() {
                   {showBoxIntakeShipmentDocumentation ? (
                   <section
                     className={[
-                      `operator-shipment-intake-card operator-shipment-section--docs relative z-20 mb-1 space-y-3 rounded-xl p-2 ${glassCard}`,
-                      directBoxShipmentLabelUploaded ? "operator-shipment-docs-row--complete" : "",
+                      `${BOX_INFO_SECTION} operator-shipment-section--docs relative z-20 mb-0 space-y-1`,
                     ]
                       .filter(Boolean)
                       .join(" ")}
                   >
                     <div className="flex items-center gap-1.5">
-                      <ClipboardList className="operator-shipment-section-icon h-3.5 w-3.5" strokeWidth={2} />
+                      <ClipboardList className="operator-shipment-section-icon h-3.5 w-3.5 h-3 w-3" strokeWidth={2} />
                       <div className="min-w-0">
                         <p className="operator-shipment-section-title">Shipment Documentation</p>
                         <p
@@ -13076,16 +13804,17 @@ function OperatorMobileScanPageContent() {
                         </p>
                       </div>
                     </div>
-                    <div className="operator-shipment-docs-list">
+                    <div className={BOX_INFO_DOCS_LIST}>
                       <div
                         className={[
-                          "operator-shipment-docs-row relative",
+                          BOX_INFO_DOCS_ROW_BASE,
                           shippingLabelPhotoUrls.length === 0 &&
                           !boxScanDocumentationLocked &&
                           !savedBoxIntakeViewLocked
-                            ? "operator-shipment-docs-row--active"
-                            : "",
-                          shippingLabelPhotoUrls.length > 0 ? "operator-shipment-docs-row--complete" : "",
+                            ? BOX_INFO_DOCS_ROW_ACTIVE
+                            : shippingLabelPhotoUrls.length > 0
+                              ? `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_COMPLETE}`
+                              : `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_OPTIONAL}`,
                         ]
                           .filter(Boolean)
                           .join(" ")}
@@ -13128,14 +13857,15 @@ function OperatorMobileScanPageContent() {
                       </div>
                       <div
                         className={[
-                          "operator-shipment-docs-row",
+                          BOX_INFO_DOCS_ROW_BASE,
                           shippingLabelPhotoUrls.length > 0 &&
                             bolPhotoUrls.length === 0 &&
                             !boxScanDocumentationLocked &&
                             !savedBoxIntakeViewLocked
-                            ? "operator-shipment-docs-row--active"
-                            : "",
-                          bolPhotoUrls.length > 0 ? "operator-shipment-docs-row--complete" : "",
+                            ? BOX_INFO_DOCS_ROW_ACTIVE
+                            : bolPhotoUrls.length > 0
+                              ? `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_COMPLETE}`
+                              : `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_OPTIONAL}`,
                         ]
                           .filter(Boolean)
                           .join(" ")}
@@ -13171,17 +13901,17 @@ function OperatorMobileScanPageContent() {
                     </div>
                   <div className={activeBoxSession ? "space-y-3" : "contents"}>
                   {!activeBoxSession ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-start">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-start gap-1.5">
                     <div className="min-w-0">
                       <label
                         htmlFor={`${formId}-box-package-code-display`}
-                        className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                        className="operator-shipment-field-label mb-0.5 block text-[9px] font-semibold uppercase leading-tight tracking-wide"
                       >
                         PACKAGE CODE <span className="operator-shipment-req-mark font-normal normal-case">(required)</span>
                       </label>
                       <div
                         id={`${formId}-box-package-code-display`}
-                        className="scanner-input-glass flex h-10 w-full cursor-default items-center rounded-lg border px-3 font-mono text-[13px] outline-none"
+                        className={`scanner-input-glass flex h-10 w-full cursor-default items-center rounded-lg border px-3 font-mono text-[13px] outline-none ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT}`}
                         style={{ color: TEXT_PRIMARY }}
                       >
                         {(currentPackageTrackingId ?? "").trim() || "—"}
@@ -13190,13 +13920,13 @@ function OperatorMobileScanPageContent() {
                     <div className="relative z-30 min-w-0">
                       <label
                         htmlFor={`${formId}-box-pallet-carrier`}
-                        className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                        className="operator-shipment-field-label mb-0.5 block text-[9px] font-semibold uppercase leading-tight tracking-wide"
                       >
                         Carrier <span className="operator-shipment-req-mark font-normal normal-case">(required)</span>
                       </label>
                       {boxIntakeCarrierReadOnly ? (
                         <div
-                          className="scanner-input-glass flex h-10 w-full min-w-0 items-center rounded-lg border px-3 font-mono text-[13px]"
+                          className={`scanner-input-glass flex h-10 w-full min-w-0 items-center rounded-lg border px-3 font-mono text-[13px] ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT}`}
                           style={{ color: TEXT_PRIMARY }}
                           aria-readonly="true"
                         >
@@ -13205,7 +13935,7 @@ function OperatorMobileScanPageContent() {
                       ) : (
                         <CarrierCombobox
                           triggerId={`${formId}-box-pallet-carrier`}
-                          triggerClassName="scanner-input-glass flex h-10 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-[13px] outline-none transition"
+                          triggerClassName={`scanner-input-glass flex h-10 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-[13px] outline-none transition ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT}`}
                           value={palletCarrier}
                           otherSelected={palletCarrierOtherSelected}
                           invalid={palletCarrierOtherSelected && palletCarrier.trim().length === 0}
@@ -13225,17 +13955,17 @@ function OperatorMobileScanPageContent() {
                     </div>
                   </div>
                   ) : activeBoxSession || slipCarrierOrderEditable || palletCarrierOtherSelected || boxIntakeCarrierReadOnly ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-1 sm:items-start">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-1 sm:items-start gap-1.5">
                     <div className="relative z-30 min-w-0">
                       <label
                         htmlFor={`${formId}-box-pallet-carrier`}
-                        className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                        className="operator-shipment-field-label mb-0.5 block text-[9px] font-semibold uppercase leading-tight tracking-wide"
                       >
                         Carrier <span className="operator-shipment-req-mark font-normal normal-case">(required)</span>
                       </label>
                       {boxIntakeCarrierReadOnly ? (
                         <div
-                          className="scanner-input-glass flex h-10 w-full min-w-0 items-center rounded-lg border px-3 font-mono text-[13px]"
+                          className={`scanner-input-glass flex h-10 w-full min-w-0 items-center rounded-lg border px-3 font-mono text-[13px] ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT}`}
                           style={{ color: TEXT_PRIMARY }}
                           aria-readonly="true"
                         >
@@ -13244,7 +13974,7 @@ function OperatorMobileScanPageContent() {
                       ) : (
                         <CarrierCombobox
                           triggerId={`${formId}-box-pallet-carrier`}
-                          triggerClassName="scanner-input-glass flex h-10 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-[13px] outline-none transition"
+                          triggerClassName={`scanner-input-glass flex h-10 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-[13px] outline-none transition ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT}`}
                           value={palletCarrier}
                           otherSelected={palletCarrierOtherSelected}
                           invalid={palletCarrierOtherSelected && palletCarrier.trim().length === 0}
@@ -13268,7 +13998,7 @@ function OperatorMobileScanPageContent() {
                     <div className="relative z-40">
                       <label
                         htmlFor={`${formId}-box-pallet-carrier-custom`}
-                        className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                        className="operator-shipment-field-label mb-0.5 block text-[9px] font-semibold uppercase leading-tight tracking-wide"
                       >
                         Carrier name <span className="operator-shipment-req-mark">*</span>
                       </label>
@@ -13281,7 +14011,7 @@ function OperatorMobileScanPageContent() {
                         autoComplete="off"
                         spellCheck={false}
                         disabled={!slipCarrierOrderEditable || boxScanDocumentationLocked}
-                        className="scanner-input-glass h-10 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
+                        className={`scanner-input-glass h-10 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45 ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT}`}
                         style={{ color: TEXT_PRIMARY }}
                       />
                     </div>
@@ -13289,12 +14019,12 @@ function OperatorMobileScanPageContent() {
 
                   {!activeBoxSession ? (
                     <>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="operator-shipment-reference-fields mt-1 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                         <div className="min-w-0">
                           <div className="mb-1 flex flex-wrap items-center gap-1.5">
                             <label
                               htmlFor={`${formId}-box-pallet-order-id`}
-                              className="operator-shipment-field-label block text-[10px] font-semibold uppercase tracking-widest"
+                              className="operator-shipment-field-label block text-[9px] font-semibold uppercase leading-tight tracking-wide mb-0.5"
                             >
                               Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
                             </label>
@@ -13314,14 +14044,14 @@ function OperatorMobileScanPageContent() {
                                 ? PALLET_ORDER_CONFLICT_TOOLTIP
                                 : undefined
                             }
-                            className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
+                            className={`scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45 ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT_SM}`}
                             style={{ color: packageScanOrderIdInputColor }}
                           />
                         </div>
                         <div className="min-w-0">
                           <label
                             htmlFor={`${formId}-box-slip-rma`}
-                            className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                            className="operator-shipment-field-label mb-0.5 block text-[9px] font-semibold uppercase leading-tight tracking-wide"
                           >
                             RMA # <span className="font-normal normal-case opacity-70">(optional)</span>
                           </label>
@@ -13335,7 +14065,7 @@ function OperatorMobileScanPageContent() {
                             placeholder="RMA / RA / return #"
                             readOnly={!slipCarrierOrderEditable}
                             disabled={!slipCarrierOrderEditable || boxScanDocumentationLocked}
-                            className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
+                            className={`scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45 ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT_SM}`}
                             style={{ color: TEXT_PRIMARY }}
                           />
                         </div>
@@ -13359,7 +14089,7 @@ function OperatorMobileScanPageContent() {
                     </>
                   ) : (
                     <details
-                      className="operator-shipment-reference-details rounded-lg border px-2 py-1.5"
+                      className={`${BOX_INFO_REFERENCE_DETAILS} operator-shipment-reference-details`}
                       open={Boolean(
                         palletIdentityOrderId ||
                           palletOrderId.trim() ||
@@ -13370,16 +14100,16 @@ function OperatorMobileScanPageContent() {
                       )}
                     >
                       <summary
-                        className="cursor-pointer select-none text-[10px] font-bold uppercase tracking-widest"
+                        className="cursor-pointer select-none text-[9px] font-bold uppercase leading-tight tracking-wide text-[#4d5560] dark:text-[#b9c2cc]"
                       >
                         Reference — order ID & RMA
                       </summary>
-                      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="operator-shipment-reference-fields mt-1 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                         <div className="min-w-0">
                           <div className="mb-1 flex flex-wrap items-center gap-1.5">
                             <label
                               htmlFor={`${formId}-box-pallet-order-id`}
-                              className="operator-shipment-field-label block text-[10px] font-semibold uppercase tracking-widest"
+                              className="operator-shipment-field-label block text-[9px] font-semibold uppercase leading-tight tracking-wide mb-0.5"
                             >
                               Order ID <span className="font-normal normal-case opacity-70">(optional)</span>
                             </label>
@@ -13399,14 +14129,14 @@ function OperatorMobileScanPageContent() {
                                 ? PALLET_ORDER_CONFLICT_TOOLTIP
                                 : undefined
                             }
-                            className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
+                            className={`scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45 ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT_SM}`}
                             style={{ color: packageScanOrderIdInputColor }}
                           />
                         </div>
                         <div className="min-w-0">
                           <label
                             htmlFor={`${formId}-box-slip-rma`}
-                            className="operator-shipment-field-label mb-1 block text-[10px] font-semibold uppercase tracking-widest"
+                            className="operator-shipment-field-label mb-0.5 block text-[9px] font-semibold uppercase leading-tight tracking-wide"
                           >
                             RMA # <span className="font-normal normal-case opacity-70">(optional)</span>
                           </label>
@@ -13420,7 +14150,7 @@ function OperatorMobileScanPageContent() {
                             placeholder="RMA / RA / return #"
                             readOnly={!boxIntakeReferenceEditable}
                             disabled={!boxIntakeReferenceEditable || boxScanDocumentationLocked}
-                            className="scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45"
+                            className={`scanner-input-glass h-8 w-full rounded-lg border px-3 font-mono text-[13px] outline-none transition disabled:opacity-45 ${BOX_INFO_INPUT_BORDER} ${BOX_INFO_INPUT_COMPACT_HEIGHT_SM}`}
                             style={{ color: TEXT_PRIMARY }}
                           />
                         </div>
@@ -13460,22 +14190,23 @@ function OperatorMobileScanPageContent() {
 
                 <div className={activeBoxSession ? "order-1 flex flex-col gap-1.5" : "contents"}>
                 <section
-                  className={`operator-shipment-intake-card operator-shipment-section--docs relative z-20 mb-1 space-y-2 rounded-xl p-2 ${glassCard}`}
+                  className={`${BOX_INFO_SECTION} operator-shipment-section--docs relative z-20 mb-0 space-y-1`}
                 >
                   <div className="flex items-center gap-1.5">
-                    <ClipboardList className="operator-shipment-section-icon h-3.5 w-3.5" strokeWidth={2} />
+                    <ClipboardList className="operator-shipment-section-icon h-3.5 w-3.5 h-3 w-3" strokeWidth={2} />
                     <p className="operator-shipment-section-title">Documentation photos</p>
                   </div>
-                  <div className="operator-shipment-docs-list">
+                  <div className={BOX_INFO_DOCS_LIST}>
                     <div
                       className={[
-                        "operator-shipment-docs-row relative",
+                        BOX_INFO_DOCS_ROW_BASE,
                         slipBoxPhotoUrls.length === 0 &&
                         !boxScanDocumentationLocked &&
                         !savedBoxIntakeViewLocked
-                          ? "operator-shipment-docs-row--active"
-                          : "",
-                        slipBoxPhotoUrls.length > 0 ? "operator-shipment-docs-row--complete" : "",
+                          ? BOX_INFO_DOCS_ROW_ACTIVE
+                          : slipBoxPhotoUrls.length > 0
+                            ? `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_COMPLETE}`
+                            : `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_OPTIONAL}`,
                       ]
                         .filter(Boolean)
                         .join(" ")}
@@ -13523,14 +14254,15 @@ function OperatorMobileScanPageContent() {
                     </div>
                     <div
                       className={[
-                        "operator-shipment-docs-row",
+                        BOX_INFO_DOCS_ROW_BASE,
                         slipBoxPhotoUrls.length > 0 &&
                           outsideBoxPhotoUrls.length === 0 &&
                           !boxScanDocumentationLocked &&
                           !savedBoxIntakeViewLocked
-                          ? "operator-shipment-docs-row--active"
-                          : "",
-                        outsideBoxPhotoUrls.length > 0 ? "operator-shipment-docs-row--complete" : "",
+                          ? BOX_INFO_DOCS_ROW_ACTIVE
+                          : outsideBoxPhotoUrls.length > 0
+                            ? `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_COMPLETE}`
+                            : `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_OPTIONAL}`,
                       ]
                         .filter(Boolean)
                         .join(" ")}
@@ -13565,14 +14297,15 @@ function OperatorMobileScanPageContent() {
                     </div>
                     <div
                       className={[
-                        "operator-shipment-docs-row",
+                        BOX_INFO_DOCS_ROW_BASE,
                         outsideBoxPhotoUrls.length > 0 &&
                           insideBoxPhotoUrls.length === 0 &&
                           !boxScanDocumentationLocked &&
                           !savedBoxIntakeViewLocked
-                          ? "operator-shipment-docs-row--active"
-                          : "",
-                        insideBoxPhotoUrls.length > 0 ? "operator-shipment-docs-row--complete" : "",
+                          ? BOX_INFO_DOCS_ROW_ACTIVE
+                          : insideBoxPhotoUrls.length > 0
+                            ? `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_COMPLETE}`
+                            : `${BOX_INFO_DOCS_ROW_SURFACE} ${BOX_INFO_DOCS_ROW_OPTIONAL}`,
                       ]
                         .filter(Boolean)
                         .join(" ")}
@@ -13609,8 +14342,12 @@ function OperatorMobileScanPageContent() {
                 </section>
 
                 <section
-                  className={`operator-shipment-intake-card operator-shipment-section--slip relative z-30 mb-2 space-y-2 rounded-xl p-2 ${glassCard}`}
+                  className={`${BOX_INFO_SECTION} operator-shipment-section--slip relative z-30 mb-0.5 space-y-1`}
                 >
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-4 top-0 h-[2px] rounded-full bg-gradient-to-r from-transparent via-[rgba(214,183,110,0.38)] to-transparent dark:via-[rgba(214,183,110,0.44)]"
+                  />
                   {boxSlipVisionLines.length > 0 ||
                   boxSlipVisionBusy ||
                   boxSlipCode.trim() ||
@@ -13621,7 +14358,7 @@ function OperatorMobileScanPageContent() {
                       id="box-slip-verify-table"
                       className="operator-shipment-slip-panel scroll-mt-4 text-left"
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-2 text-left">
+                      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[rgba(214,183,110,0.22)] pb-2 text-left dark:border-[rgba(214,183,110,0.28)]">
                         <h3 className="operator-shipment-slip-title text-left tracking-tight">Slip Content Info</h3>
                         {boxSlipVisionLines.length > 0 || boxSlipVisionBusy ? (
                           <span className="operator-shipment-slip-ai-badge shrink-0 rounded-full border px-2 py-0.5 uppercase leading-tight tracking-wide">
@@ -13630,7 +14367,7 @@ function OperatorMobileScanPageContent() {
                         ) : null}
                       </div>
                       {boxSlipCode.trim() ? (
-                        <div className="operator-shipment-slip-meta operator-shipment-slip-meta--code mt-2 rounded-lg border px-2.5 py-1.5 text-left">
+                        <div className={`operator-shipment-slip-meta operator-shipment-slip-meta--code mt-2 px-0 py-1.5 text-left ${BOX_INFO_SLIP_META_DIVIDER}`}>
                           <p className="operator-shipment-slip-meta__label font-bold uppercase tracking-widest">Slip code</p>
                           <p className="operator-shipment-slip-meta__value mt-0.5 font-mono font-bold tabular-nums">
                             {boxSlipCode.trim()}
@@ -13638,7 +14375,7 @@ function OperatorMobileScanPageContent() {
                         </div>
                       ) : null}
                       {boxSlipOrderId.trim() ? (
-                        <div className="operator-shipment-slip-meta operator-shipment-slip-meta--order mt-2 rounded-lg border px-2.5 py-1.5 text-left">
+                        <div className={`operator-shipment-slip-meta operator-shipment-slip-meta--order mt-2 px-0 py-1.5 text-left ${BOX_INFO_SLIP_META_DIVIDER}`}>
                           <p className="operator-shipment-slip-meta__label font-bold uppercase tracking-widest">
                             Slip order ID
                           </p>
@@ -13651,7 +14388,7 @@ function OperatorMobileScanPageContent() {
                         <>
                           <p className="operator-shipment-detected-heading mb-1.5 mt-3">Detected Items</p>
                       {boxSlipVisionLines.length > 0 ? (
-                        <div className="operator-shipment-detected-table-wrap leading-snug">
+                        <div className="operator-shipment-detected-table-wrap rounded-md bg-[#f8f6f1] leading-snug dark:bg-[rgba(255,255,255,0.025)]">
                           <table className="operator-shipment-detected-table border-collapse text-left">
                             <caption className="sr-only">
                               Line items from packing slip vision. FNSKU, UPC, description, and quantity are read-only.
@@ -13710,11 +14447,11 @@ function OperatorMobileScanPageContent() {
                                         {upcTrim || "—"}
                                       </span>
                                     </td>
-                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-desc align-top">
+                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-desc operator-shipment-detected-td-product align-top">
                                       <ProductLinkagePrimaryLink
                                         linkage={linkage}
                                         detailFrom="scan"
-                                        className="operator-shipment-detected-cell-desc font-medium leading-snug text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+                                        className="operator-shipment-detected-cell-product font-medium leading-snug text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
                                       />
                                       <OperatorProductLinkageMeta
                                         linkage={linkage}
@@ -13722,7 +14459,7 @@ function OperatorMobileScanPageContent() {
                                         detailFrom="scan"
                                       />
                                     </td>
-                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-desc align-top">
+                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-desc operator-shipment-detected-td-description align-top">
                                       <span className="operator-shipment-detected-cell-desc font-medium leading-snug text-zinc-400">
                                         {descTrim || "—"}
                                       </span>
@@ -13827,14 +14564,14 @@ function OperatorMobileScanPageContent() {
                 ) : null}
 
                 <section
-                  className={`operator-shipment-notes-card operator-shipment-intake-card mb-4 rounded-[22px] border p-3.5 ${glassCard}`}
+                  className={`${BOX_INFO_NOTES_SECTION} operator-shipment-notes-card`}
                 >
                   <label
                     htmlFor={`${formId}-box-general-notes`}
-                    className="operator-shipment-notes-label mb-1.5 block uppercase"
+                    className="operator-shipment-notes-label mb-1 block text-[9px] uppercase leading-tight tracking-wide text-[#4d5560] dark:text-[#b9c2cc]"
                   >
                     Box notes{" "}
-                    <span className="font-semibold normal-case tracking-normal opacity-70">(optional)</span>
+                    <span className="font-semibold normal-case tracking-normal text-[#66707a] dark:text-[#b9c2cc]">(optional)</span>
                   </label>
                   <textarea
                     id={`${formId}-box-general-notes`}
@@ -13846,23 +14583,32 @@ function OperatorMobileScanPageContent() {
                       boxScanDocumentationLocked ||
                       !(activeBoxSession ? boxIntakeReferenceEditable : slipCarrierOrderEditable)
                     }
-                    className="scanner-input-glass w-full resize-y rounded-lg border px-3 py-2.5 text-[13px] outline-none transition disabled:opacity-45"
+                    className={`scanner-input-glass w-full resize-y rounded-lg border px-3 py-1.5 text-[13px] outline-none transition disabled:opacity-45 placeholder:text-[#66707a] dark:placeholder:text-[#87919d] min-h-[64px] ${BOX_INFO_INPUT_BORDER}`}
                     style={{ color: TEXT_PRIMARY }}
                   />
 
-                  <div className="mt-1.5 space-y-2">
+                  <div className="operator-shipment-notes-actions mt-1 space-y-1 pb-2 pt-0.5">
                     <button
                       type="button"
                       disabled={!canContinueToItemInspection || boxSaveBusy}
                       onClick={() => {
+                        const pkgId = String(itemScanPackageId ?? "").trim();
+                        const sessionPkgId = String(activeBoxSession?.packageId ?? "").trim();
+                        const resumeSavedItemScan =
+                          pkgId &&
+                          sessionPkgId &&
+                          pkgId === sessionPkgId &&
+                          isUuidString(pkgId);
+                        if (resumeSavedItemScan || (!activeBoxSession && pkgId)) {
+                          beginItemPhase();
+                          return;
+                        }
                         if (activeBoxSession && canSaveBoxScan) {
                           modalOpenRef.current = true;
                           setPackageFinalizeConfirmKind("save_items");
-                        } else if (!activeBoxSession && (itemScanPackageId ?? "").trim()) {
-                          beginItemPhase();
                         }
                       }}
-                      className="operator-shipment-btn-primary flex h-12 w-full items-center justify-center gap-2 rounded-2xl transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                      className={BOX_INFO_BTN_PRIMARY}
                     >
                       {boxSaveBusy && activeBoxSession ? (
                         <>
@@ -13882,7 +14628,7 @@ function OperatorMobileScanPageContent() {
                           modalOpenRef.current = true;
                           setPackageFinalizeConfirmKind("save_hub");
                         }}
-                        className="operator-shipment-btn-success flex h-10 items-center justify-center gap-1.5 rounded-xl px-2 leading-tight transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35"
+                        className={`${BOX_INFO_BTN_SAVE_EXIT} !h-11 !min-h-[44px] !max-h-11 !py-2 !text-sm !font-semibold !leading-tight !shadow-none`}
                       >
                         <PackageOpen className="h-3.5 w-3.5 shrink-0 opacity-95" strokeWidth={2.25} aria-hidden />
                         Save & Exit
@@ -13894,7 +14640,7 @@ function OperatorMobileScanPageContent() {
                           modalOpenRef.current = true;
                           setPackageSessionCancelConfirmOpen(true);
                         }}
-                        className="operator-shipment-btn-danger flex h-10 items-center justify-center gap-1.5 rounded-xl px-2 leading-tight transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35"
+                        className={`${BOX_INFO_BTN_DISCARD} !h-11 !min-h-[44px] !max-h-11 !py-2 !text-sm !font-semibold !leading-tight !shadow-none`}
                       >
                         Discard & Back
                       </button>
@@ -13909,7 +14655,7 @@ function OperatorMobileScanPageContent() {
                             modalOpenRef.current = true;
                             setPackageFinalizeConfirmKind("discrepancy");
                           }}
-                          className="operator-item-scan-btn-finalize operator-item-scan-btn-finalize--discrepancy inline-flex h-10 w-auto max-w-[min(100%,18.5rem)] items-center justify-center gap-2 rounded-2xl px-5 text-[12px] font-bold leading-tight transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                          className={`inline-flex w-auto max-w-[min(100%,18.5rem)] items-center justify-center gap-2 rounded-2xl border-2 border-amber-500/60 bg-gradient-to-b from-amber-200 to-amber-500 px-4 text-amber-950 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
                         >
                           <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
                           <span className="text-center leading-snug">Complete with Discrepancy</span>
@@ -13950,7 +14696,7 @@ function OperatorMobileScanPageContent() {
               </section>
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+            <div className="operator-item-scan-body flex min-h-0 flex-1 flex-col gap-1.5">
               {!itemsChromeStickyLayout ? (
               <div className="shrink-0 space-y-2">
                 {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
@@ -14009,7 +14755,7 @@ function OperatorMobileScanPageContent() {
                   type="button"
                   disabled={busy}
                   onClick={() => openAddScanItemModal()}
-                  className="operator-neda-mechanical-scan-btn mb-0 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-black uppercase tracking-wide transition active:translate-y-[1px] active:shadow-inner disabled:cursor-not-allowed disabled:opacity-40"
+                  className={`mb-0 flex ${ZEBRA_COMPACT_BTN} w-full items-center justify-center gap-1.5 rounded-xl border border-[#C8A96A]/60 bg-gradient-to-b from-[#2a313a] to-[#0c0f13] px-4 text-[#faf6ed] transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
                   Add / Scan Item
@@ -14089,11 +14835,11 @@ function OperatorMobileScanPageContent() {
               </div>
               <div
                 ref={bindOperatorMainScrollEl}
-                className={`min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-1.5 px-0.5 pb-1 ${mainScrollClass}`}
+                className={`operator-item-scan-expected-list-scroll min-h-0 flex-1 space-y-1.5 px-0.5 ${mainScrollClass}`}
               >
-                {itemInspectionSlipLinesLoading || itemScanExpectationLoading ? (
+                {itemScanExpectedItemsRenderSource === "loading" ? (
                   <ItemInspectionSlipSkeletonRows />
-                ) : itemScanExpectationLinesLive.length > 0 ? (
+                ) : itemScanExpectedItemsRenderSource === "tracking_ep_variance" ? (
                   <>
                     {itemScanExpectationLinesLive.map((line) => (
                       <ItemScanExpectationVarianceRow
@@ -14138,7 +14884,7 @@ function OperatorMobileScanPageContent() {
                       );
                     })() : null}
                   </>
-                ) : itemInspectionSlipCells.length === 0 ? (
+                ) : itemScanExpectedItemsRenderSource === "hydrated_return_items_only" ? (
                   packageItemHydratedRows.length > 0 ? (
                     <>
                       <p className="operator-item-scan-empty-note mb-1 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold">
@@ -14188,7 +14934,7 @@ function OperatorMobileScanPageContent() {
                       shipment lines may still appear once expectations load.
                     </p>
                   )
-                ) : (
+                ) : itemScanExpectedItemsRenderSource === "package_slip_cells" ? (
                   <>
                     {itemInspectionSlipCells.map((cell) => {
                       const itemScanDiscrepancyUi =
@@ -14275,6 +15021,10 @@ function OperatorMobileScanPageContent() {
                       );
                     })() : null}
                   </>
+                ) : (
+                  <p className="operator-item-scan-empty-note rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold">
+                    No expected item rows for this package (debug source: {itemScanExpectedItemsRenderSource}).
+                  </p>
                 )}
                 {!directBox && parentIdentified && expectedPkgLines.length > 0 ? (
                   <section className={`operator-item-scan-shipment-summary mt-3 rounded-xl border p-3 ${glassCard}`}>
@@ -14305,6 +15055,9 @@ function OperatorMobileScanPageContent() {
                 ) : null}
               </div>
             </section>
+            {itemsChromeStickyLayout ? (
+              <div aria-hidden className="operator-item-scan-footer-spacer" />
+            ) : null}
             </div>
           )
         ) : null}
@@ -14665,6 +15418,47 @@ function OperatorMobileScanPageContent() {
         </div>
       ) : null}
 
+      {scannerLeaveConfirmOpen ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-scanner-leave-title`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-scanner-leave-title`}
+              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+            >
+              {SCANNER_LEAVE_UNSAVED_TITLE}
+            </p>
+            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+              {SCANNER_LEAVE_UNSAVED_BODY}
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="operator-shipment-flow-modal__btn-secondary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                onClick={() => {
+                  scannerLeavePendingActionRef.current = null;
+                  setScannerLeaveConfirmOpen(false);
+                  modalOpenRef.current = false;
+                }}
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                className="operator-shipment-flow-modal__btn-danger h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                onClick={() => runScannerLeavePendingAction()}
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {pickerDismissConfirmOpen ? (
         <div
           className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
@@ -14699,7 +15493,7 @@ function OperatorMobileScanPageContent() {
                 onClick={() => {
                   setPickerDismissConfirmOpen(false);
                   modalOpenRef.current = false;
-                  closeActiveBoxPackageSession();
+                  performBoxIntakeBackNavigation();
                 }}
               >
                 Discard
@@ -14743,14 +15537,17 @@ function OperatorMobileScanPageContent() {
                 onClick={() => {
                   setPackageSessionCancelConfirmOpen(false);
                   modalOpenRef.current = false;
-                  closeActiveBoxPackageSession();
-                  window.requestAnimationFrame(() => {
+                  const scrollToHub = !directBox && Boolean(activePallet?.id?.trim());
+                  performBoxIntakeBackNavigation();
+                  if (scrollToHub) {
                     window.requestAnimationFrame(() => {
-                      document
-                        .getElementById("operator-saved-boxes-hub")
-                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      window.requestAnimationFrame(() => {
+                        document
+                          .getElementById("operator-saved-boxes-hub")
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      });
                     });
-                  });
+                  }
                 }}
               >
                 Discard & Back
@@ -14800,7 +15597,7 @@ function OperatorMobileScanPageContent() {
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                className="operator-shipment-flow-modal__btn-secondary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                className={`rounded-xl border border-[var(--scanner-border)] bg-[var(--scanner-card)] text-[var(--scanner-text)] transition active:scale-[0.98] ${ZEBRA_COMPACT_BTN}`}
                 onClick={() => {
                   setItemsBoxFinalizeModalOpen(false);
                   modalOpenRef.current = false;
@@ -14812,10 +15609,10 @@ function OperatorMobileScanPageContent() {
               <button
                 type="button"
                 disabled={busy || itemsFinalizeBusy}
-                className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`flex w-full items-center justify-center gap-2 rounded-xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
                   isItemsQtyDiscrepancy
-                    ? "operator-shipment-flow-modal__btn-warning"
-                    : "operator-shipment-flow-modal__btn-primary"
+                    ? "border-amber-500/50 bg-amber-100 text-amber-950"
+                    : "border-[#C8A96A]/55 bg-gradient-to-b from-[#3d4550] to-[#171c22] text-[#faf6ed]"
                 }`}
                 onClick={() => void confirmItemsPhaseFinalizeToHub()}
               >
@@ -14857,7 +15654,12 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" && hasItemReceivableBox ? (
         <div
-          className="operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[4.75rem] left-1/2 z-[100] flex w-full max-w-[430px] -translate-x-1/2 flex-col items-stretch gap-2 border-t px-3 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-2 sm:px-4"
+          className="operator-item-scan-fixed-actions fixed bottom-[4.75rem] left-1/2 z-[100] flex w-full max-w-[430px] -translate-x-1/2 flex-col items-stretch gap-1 border-t px-3 pb-2 pt-1 sm:px-4"
+          style={{
+            borderColor: BORDER,
+            backgroundColor: "color-mix(in srgb, var(--scanner-card-inner) 96%, transparent)",
+            backdropFilter: "blur(8px)",
+          }}
           role="region"
           aria-label="Item inspection actions"
         >
@@ -14865,7 +15667,7 @@ function OperatorMobileScanPageContent() {
             type="button"
             disabled={busy || itemsFinalizeBusy}
             onClick={() => confirmItemsPhaseSaveAndExit()}
-            className="operator-shipment-btn-success flex h-10 w-full items-center justify-center gap-2 rounded-2xl px-4 text-[13px] font-bold leading-tight transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            className={`flex w-full items-center justify-center gap-2 rounded-2xl border border-[#0f8f63]/45 bg-[#0f8f63]/10 px-4 text-[#0b6f4d] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
           >
             <PackageOpen className="h-4 w-4 shrink-0 opacity-95" strokeWidth={2.25} aria-hidden />
             <span className="truncate">Save &amp; Exit</span>
@@ -14877,8 +15679,10 @@ function OperatorMobileScanPageContent() {
               modalOpenRef.current = true;
               setItemsBoxFinalizeModalOpen(true);
             }}
-            className={`operator-item-scan-btn-finalize inline-flex h-11 w-full max-w-none shrink-0 items-center justify-center gap-2 rounded-2xl px-5 text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
-              isItemsQtyDiscrepancy ? "operator-item-scan-btn-finalize--discrepancy" : "operator-item-scan-btn-finalize--ok"
+            className={`inline-flex w-full max-w-none shrink-0 items-center justify-center gap-2 rounded-2xl px-4 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
+              isItemsQtyDiscrepancy
+                ? "border-2 border-amber-500/60 bg-gradient-to-b from-amber-200 to-amber-500 text-amber-950"
+                : "border border-[#C8A96A]/55 bg-gradient-to-b from-[#3d4550] to-[#171c22] text-[#faf6ed]"
             }`}
           >
             {isItemsQtyDiscrepancy ? (

@@ -563,14 +563,10 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
   color: var(--op-accent-gold) !important;
 }
 
-/* Operator mobile scanner header — compact density only.
-   Title stays in its own row/column (never moved into the back-arrow row). */
-.operator-mobile-app-shell .operator-shipment-entry-header .operator-shipment-entry-title-row > .mx-auto {
-  padding-top: 0.125rem;
-}
-
+/* Operator mobile scanner header — compact density; title inline with back arrow. */
 .operator-mobile-app-shell .operator-shipment-entry-header .operator-shipment-entry-title-row h1.operator-heading {
   margin-bottom: 0;
+  color: var(--scanner-text);
 }
 
 .operator-shipment-entry-gate__title {
@@ -2211,7 +2207,7 @@ html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:bg-slate
 html.light .operator-box-info-screen .operator-shipment-docs-row .border-slate-300,
 html.light .operator-box-info-screen .operator-shipment-docs-row .dark\:border-slate-700,
 html.light .operator-box-info-screen .operator-shipment-docs-uploader > div > div {
-  border-width: 1px !important;
+  border: none !important;
   box-shadow: none !important;
 }
 
@@ -2284,7 +2280,7 @@ html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:bg-slate-
 html.dark .operator-box-info-screen .operator-shipment-docs-row .border-slate-200,
 html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:border-slate-800,
 html.dark .operator-box-info-screen .operator-shipment-docs-uploader > div > div {
-  border-width: 1px !important;
+  border: none !important;
   box-shadow: none !important;
 }
 
@@ -2301,6 +2297,648 @@ html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:text-emer
 html.dark .operator-box-info-screen .operator-shipment-docs-row .bg-emerald-100,
 html.dark .operator-box-info-screen .operator-shipment-docs-row .dark\:bg-emerald-950\/40 {
   background: rgba(34, 197, 139, 0.14) !important;
+}
+
+/* Box Info intake — flattened section hierarchy (Shipment Entry package_scan) */
+html.dark .operator-box-info-screen .operator-shipment-section-card {
+  background-color: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.24) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-section-card {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.2) !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-list {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0;
+  overflow: visible;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-list {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0;
+  overflow: visible;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row {
+  background: rgba(255, 255, 255, 0.025) !important;
+  border-bottom: 1px solid rgba(185, 194, 204, 0.12) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row--active {
+  background: rgba(214, 183, 110, 0.05) !important;
+  box-shadow: inset 3px 0 0 rgba(214, 183, 110, 0.45) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) {
+  background: rgba(255, 255, 255, 0.025) !important;
+  box-shadow: inset 3px 0 0 rgba(34, 197, 139, 0.32) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row:not(.operator-shipment-docs-row--active):not(.operator-shipment-docs-row--complete) {
+  background: rgba(255, 255, 255, 0.015) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row {
+  background: rgba(248, 246, 241, 0.65) !important;
+  border-bottom: 1px solid rgba(207, 198, 182, 0.45) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row--active {
+  background: rgba(138, 104, 31, 0.05) !important;
+  box-shadow: inset 3px 0 0 rgba(138, 104, 31, 0.38) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) {
+  background: rgba(248, 246, 241, 0.65) !important;
+  box-shadow: inset 3px 0 0 rgba(15, 143, 99, 0.32) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row .space-y-0 > div,
+html.light .operator-box-info-screen .operator-shipment-docs-row .space-y-0 > div {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-row--active .space-y-0 > div,
+html.dark .operator-box-info-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) .space-y-0 > div,
+html.light .operator-box-info-screen .operator-shipment-docs-row--active .space-y-0 > div,
+html.light .operator-box-info-screen .operator-shipment-docs-row--complete:not(.operator-shipment-docs-row--active) .space-y-0 > div {
+  border: none !important;
+  background: transparent !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-docs-uploader > div > div,
+html.light .operator-box-info-screen .operator-shipment-docs-uploader > div > div {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-box-info-screen .scanner-input-glass,
+html.dark .operator-box-info-screen .scanner-input-glass[readonly],
+html.dark .operator-box-info-screen .scanner-input-glass.cursor-default {
+  border-color: rgba(185, 194, 204, 0.16) !important;
+}
+
+html.light .operator-box-info-screen .scanner-input-glass,
+html.light .operator-box-info-screen .scanner-input-glass[readonly],
+html.light .operator-box-info-screen .scanner-input-glass.cursor-default {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+}
+
+html.dark .operator-box-info-screen .scanner-input-glass:focus,
+html.dark .operator-box-info-screen .scanner-input-glass:focus-visible {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.15) !important;
+}
+
+html.light .operator-box-info-screen .scanner-input-glass:focus,
+html.light .operator-box-info-screen .scanner-input-glass:focus-visible {
+  border-color: rgba(138, 104, 31, 0.45) !important;
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.14) !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-reference-details {
+  border: none !important;
+  border-top: 1px solid rgba(185, 194, 204, 0.12) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  border-radius: 0.375rem !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-reference-details {
+  border: none !important;
+  border-top: 1px solid rgba(207, 198, 182, 0.55) !important;
+  background: #f8f6f1 !important;
+  border-radius: 0.375rem !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-slip-meta--code,
+html.dark .operator-box-info-screen .operator-shipment-slip-meta--order {
+  border: none !important;
+  background: transparent !important;
+  border-bottom: 1px solid rgba(185, 194, 204, 0.12) !important;
+  border-radius: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  box-shadow: none !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-slip-meta--code,
+html.light .operator-box-info-screen .operator-shipment-slip-meta--order {
+  border: none !important;
+  background: transparent !important;
+  border-bottom: 1px solid rgba(207, 198, 182, 0.55) !important;
+  border-radius: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-detected-table-wrap {
+  background: rgba(255, 255, 255, 0.025) !important;
+  border-radius: 0.375rem;
+}
+
+html.light .operator-box-info-screen .operator-shipment-detected-table-wrap {
+  background: #f8f6f1 !important;
+  border-radius: 0.375rem;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-notes-card {
+  border: 1px solid rgba(214, 183, 110, 0.24) !important;
+  background: #1a2129 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-notes-card {
+  border: 1px solid rgba(138, 104, 31, 0.2) !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+html.dark .operator-box-info-screen .operator-shipment-notes-card .scanner-input-glass {
+  border-color: rgba(185, 194, 204, 0.16) !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-input-glass {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+}
+
+/* Shipment Entry — Zebra compact density (`.operator-shipment-handheld-compact`; class-scoped, not viewport MQ) */
+.operator-shipment-handheld-compact .operator-shipment-entry-header {
+  --handheld-compact-active: 1;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-identity-strip {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-identity-strip > p {
+  font-size: 0.5625rem !important;
+  line-height: 1.2 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-title-row {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-title-row h1.operator-heading {
+  font-size: 0.9375rem !important;
+  line-height: 1.2 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell {
+  padding: 0.1875rem 0.375rem !important;
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+  border-radius: 0.5rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-track {
+  display: grid !important;
+  grid-template-columns: 1fr minmax(0.625rem, 1.5rem) 1fr minmax(0.625rem, 1.5rem) 1fr !important;
+  align-items: center !important;
+  gap: 0.375rem !important;
+  width: 100% !important;
+  padding-inline: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-track .operator-stepper-node {
+  justify-self: center !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-track .operator-stepper-rail {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin-inline: 0 !important;
+  flex: none !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-node {
+  min-height: 1.375rem !important;
+  min-width: 1.375rem !important;
+  height: 1.375rem !important;
+  width: 1.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-node .lucide {
+  height: 0.6875rem !important;
+  width: 0.6875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-labels {
+  margin-top: 0.25rem !important;
+  gap: 0.5rem !important;
+  padding-inline: 0.25rem !important;
+  font-size: 0.4375rem !important;
+  letter-spacing: 0.04em !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-progress,
+.operator-shipment-handheld-compact .operator-shipment-box-progress {
+  padding-top: 0.1875rem !important;
+  padding-bottom: 0.1875rem !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-box-progress__text {
+  font-size: 0.625rem !important;
+  line-height: 1.25 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-box-progress__label,
+.operator-shipment-handheld-compact .operator-shipment-box-progress__count,
+.operator-shipment-handheld-compact .operator-shipment-box-progress__total {
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-progress-tools {
+  margin-bottom: 0.25rem !important;
+  gap: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate-scan-card {
+  margin-bottom: 0.375rem !important;
+  padding: 0.5rem !important;
+  border-radius: 0.625rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__barcode-plate {
+  height: 1.875rem !important;
+  width: 1.875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__barcode-plate .lucide {
+  height: 0.9375rem !important;
+  width: 0.9375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__scan-icon {
+  height: 1.875rem !important;
+  width: 1.875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__camera-btn,
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__search-btn {
+  height: 2.75rem !important;
+  width: 2.75rem !important;
+  min-height: 2.75rem !important;
+  min-width: 2.75rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__input {
+  min-height: 2.25rem !important;
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+  font-size: 0.8125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen {
+  gap: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-section-icon {
+  height: 0.6875rem !important;
+  width: 0.6875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-section-title {
+  font-size: 0.6875rem !important;
+  line-height: 1.2 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader > div > div {
+  border-width: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader .border-2 {
+  border-width: 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-optional .operator-shipment-docs-uploader button,
+.operator-shipment-handheld-compact .operator-box-info-docs-row-optional .operator-shipment-docs-uploader > div > div > div.opacity-60 {
+  min-height: 2rem !important;
+  max-height: 2.25rem !important;
+  height: 2.125rem !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  gap: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-optional .operator-shipment-docs-uploader button .h-6.w-6 {
+  height: 1.125rem !important;
+  width: 1.125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-optional .operator-shipment-docs-uploader button p {
+  font-size: 0.625rem !important;
+  line-height: 1.1 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-optional .operator-shipment-docs-uploader button .min-w-0 > div:last-child {
+  display: none !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-active .operator-shipment-docs-uploader button {
+  min-height: 2.75rem !important;
+  padding-top: 0.1875rem !important;
+  padding-bottom: 0.1875rem !important;
+  justify-content: flex-start !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-active .operator-shipment-docs-uploader button .min-w-0 {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-active .operator-shipment-docs-uploader button .min-w-0 > div:first-child {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.375rem !important;
+  width: 100% !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-active .operator-shipment-docs-uploader button .min-w-0 > div:first-child p {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  text-align: left !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-active .operator-shipment-docs-uploader button .min-w-0 > div:first-child span {
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+}
+
+/* Photo rows with thumbnails — horizontal document row (label left, thumbs right) */
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto !important;
+  align-items: center !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-complete,
+.operator-shipment-handheld-compact .operator-box-info-docs-row-active:has(.grid.grid-cols-5) {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b {
+  grid-column: 1 / 2 !important;
+  grid-row: 1 !important;
+  border-bottom-width: 0 !important;
+  min-height: 2.25rem !important;
+  padding: 0.1875rem 0.375rem !important;
+  gap: 0.375rem !important;
+  justify-content: flex-start !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.375rem !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 p {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  text-align: left !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 span {
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b .h-6.w-6 {
+  height: 1.25rem !important;
+  width: 1.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b .lucide {
+  height: 0.75rem !important;
+  width: 0.75rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b p {
+  font-size: 0.625rem !important;
+  line-height: 1.1 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b span {
+  font-size: 0.5625rem !important;
+  line-height: 1.1 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) .grid.grid-cols-5 {
+  grid-column: 2 / 3 !important;
+  grid-row: 1 !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  width: auto !important;
+  max-width: none !important;
+  gap: 0.1875rem !important;
+  padding: 0.1875rem 0.375rem 0.1875rem 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) .grid.grid-cols-5 > div {
+  width: 2.25rem !important;
+  max-width: 2.25rem !important;
+  height: 2.25rem !important;
+  max-height: 2.25rem !important;
+  flex-shrink: 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > button.border-t {
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
+  min-height: 2.25rem !important;
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+  font-size: 0.625rem !important;
+  line-height: 1.1 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-docs-row-complete .operator-shipment-docs-uploader > div > div > div.border-b {
+  padding-top: 0.1875rem !important;
+  padding-bottom: 0.1875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-order-meta {
+  font-size: 0.5625rem !important;
+  margin-top: 0 !important;
+  line-height: 1.15 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-edit-all-btn {
+  padding-top: 0.125rem !important;
+  padding-bottom: 0.125rem !important;
+  font-size: 0.5625rem !important;
+  gap: 0.125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-reference-details summary {
+  font-size: 0.5625rem !important;
+  line-height: 1.2 !important;
+  padding: 0.125rem 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-reference-details {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-reference-fields {
+  margin-top: 0.25rem !important;
+  gap: 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-reference-fields .operator-shipment-field-label,
+.operator-shipment-handheld-compact .operator-shipment-reference-details .operator-shipment-field-label {
+  margin-bottom: 0.0625rem !important;
+  font-size: 0.5625rem !important;
+  line-height: 1.15 !important;
+  letter-spacing: 0.04em !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-reference-fields .mb-1.flex,
+.operator-shipment-handheld-compact .operator-shipment-reference-details .mb-1.flex {
+  margin-bottom: 0.0625rem !important;
+  gap: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-reference-fields input,
+.operator-shipment-handheld-compact .operator-shipment-reference-details input {
+  min-height: 2rem !important;
+  height: 2rem !important;
+  padding-top: 0.125rem !important;
+  padding-bottom: 0.125rem !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+  font-size: 0.75rem !important;
+  line-height: 1.2 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-reference-details > p {
+  margin-top: 0.375rem !important;
+  font-size: 0.625rem !important;
+  line-height: 1.25 !important;
+}
+
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-field-label {
+  font-size: 0.5625rem !important;
+  margin-bottom: 0.125rem !important;
+  letter-spacing: 0.05em !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-notes-card textarea {
+  min-height: 4rem !important;
+  max-height: 5.5rem !important;
+  padding-top: 0.375rem !important;
+  padding-bottom: 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-slip-title {
+  font-size: 0.6875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-slip-meta__value {
+  font-size: 0.75rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-notes-label {
+  margin-bottom: 0.25rem !important;
+  font-size: 0.5625rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-intake-shell {
+  gap: 0.125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-notes-card .operator-shipment-notes-actions {
+  margin-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+  padding-top: 0.0625rem !important;
+  gap: 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-notes-card .operator-shipment-notes-actions button {
+  min-height: 2.5rem !important;
+  max-height: 2.625rem !important;
+  height: 2.5rem !important;
+  padding-top: 0.3125rem !important;
+  padding-bottom: 0.3125rem !important;
+  font-size: 0.75rem !important;
+  line-height: 1.2 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-section--docs,
+.operator-shipment-handheld-compact .operator-shipment-section--slip {
+  padding: 0.375rem !important;
+  margin-bottom: 0.125rem !important;
+}
+
+.operator-shipment-handheld-compact #operator-mobile-box-summary-bar {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+
+.operator-shipment-handheld-compact #operator-mobile-box-summary-bar .font-mono {
+  font-size: 0.8125rem !important;
+  line-height: 1.1 !important;
+}
+
+.operator-shipment-handheld-compact #operator-mobile-box-summary-bar .operator-compact-row {
+  gap: 0.25rem 0.5rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-title-row .operator-heading {
+  font-size: 0.9375rem !important;
+  line-height: 1.15 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-title-row button[aria-label] {
+  height: 2.25rem !important;
+  width: 2.25rem !important;
+  min-height: 2.25rem !important;
+  min-width: 2.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-title-row button[aria-label] .lucide {
+  height: 1.125rem !important;
+  width: 1.125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-notes-card {
+  padding: 0.375rem 0.5rem !important;
+  margin-bottom: 0.5rem !important;
 }
 
 /* Pallet step — documentation photo rows (mirror box intake) */
@@ -2724,6 +3362,247 @@ html.light .operator-shipment-detected-table .operator-shipment-qty-pill {
   border-radius: 0.25rem !important;
 }
 
+/* Detected Items — stacked cards (Shipment Entry handheld compact only) */
+.operator-shipment-handheld-compact .operator-shipment-detected-table-wrap {
+  max-height: min(15rem, 35vh) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(214, 183, 110, 0.35) transparent !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-radius: 0.375rem !important;
+  padding: 0.125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-table-wrap::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(214, 183, 110, 0.35) !important;
+  border-radius: 999px !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-table-wrap {
+  background: rgba(138, 104, 31, 0.04) !important;
+  scrollbar-color: rgba(138, 104, 31, 0.28) transparent !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(138, 104, 31, 0.28) !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-table {
+  display: block !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  table-layout: auto !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-table colgroup {
+  display: none !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-thead {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-table tbody {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+  gap: 0.25rem 0.5rem !important;
+  padding: 0.5rem 0.625rem !important;
+  border: 1px solid rgba(214, 183, 110, 0.2) !important;
+  border-top: 1px solid rgba(214, 183, 110, 0.2) !important;
+  border-radius: 0.5rem !important;
+  background: #1e252d !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-row {
+  border-color: rgba(138, 104, 31, 0.24) !important;
+  background: #ece8df !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+  color: #16181b !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td {
+  display: block !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: visible !important;
+  text-align: left !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-product {
+  order: 1 !important;
+  flex: 1 1 calc(100% - 3.25rem) !important;
+  min-width: 0 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-qty {
+  order: 2 !important;
+  flex: 0 0 auto !important;
+  align-self: flex-start !important;
+  margin-left: auto !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-fnsku {
+  order: 3 !important;
+  flex: 0 1 auto !important;
+  max-width: 100% !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-upc {
+  order: 4 !important;
+  flex: 0 1 auto !important;
+  max-width: 100% !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-description {
+  order: 5 !important;
+  flex: 1 1 100% !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-fnsku,
+.operator-shipment-handheld-compact .operator-shipment-detected-td-upc {
+  display: flex !important;
+  align-items: baseline !important;
+  flex-wrap: wrap !important;
+  gap: 0.125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-cell-fnsku,
+.operator-shipment-handheld-compact .operator-shipment-detected-cell-upc {
+  font-size: 0.625rem !important;
+  line-height: 1.25 !important;
+  word-break: break-all !important;
+  color: #b9c2cc !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-cell-fnsku,
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-cell-upc {
+  color: #4d5560 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-fnsku::before {
+  content: "FNSKU" !important;
+  font-family: inherit !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: rgba(214, 183, 110, 0.72) !important;
+  margin-right: 0.25rem !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-td-upc::before {
+  color: rgba(79, 85, 96, 0.45) !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-upc::before {
+  content: "·" !important;
+  margin-inline: 0.375rem 0.25rem !important;
+  color: rgba(185, 194, 204, 0.55) !important;
+  font-weight: 700 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-upc .operator-shipment-detected-cell-upc::before {
+  content: "UPC" !important;
+  font-family: inherit !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: rgba(214, 183, 110, 0.72) !important;
+  margin-right: 0.25rem !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-td-fnsku::before,
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-td-upc .operator-shipment-detected-cell-upc::before {
+  color: rgba(138, 104, 31, 0.72) !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-cell-product,
+.operator-shipment-handheld-compact .operator-shipment-detected-td-product a {
+  display: inline !important;
+  font-size: 0.75rem !important;
+  line-height: 1.3 !important;
+  font-weight: 600 !important;
+  color: #faf6ed !important;
+  text-decoration-color: rgba(214, 183, 110, 0.45) !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-cell-product,
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-td-product a {
+  color: #16181b !important;
+  text-decoration-color: rgba(138, 104, 31, 0.4) !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-td-product .mt-1.flex {
+  margin-top: 0.25rem !important;
+  gap: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-cell-desc {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+  overflow: hidden !important;
+  font-size: 0.6875rem !important;
+  line-height: 1.35 !important;
+  color: #87919d !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-cell-desc {
+  color: #4d5560 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-table .operator-shipment-qty-pill {
+  min-width: 2.25rem !important;
+  max-width: none !important;
+  padding: 0.25rem 0.4375rem !important;
+  font-size: 0.75rem !important;
+  line-height: 1.2 !important;
+  border: 1px solid rgba(214, 183, 110, 0.35) !important;
+  background: rgba(214, 183, 110, 0.1) !important;
+  color: #f1d58a !important;
+  border-radius: 0.375rem !important;
+}
+
+html.light .operator-shipment-handheld-compact .operator-shipment-detected-table .operator-shipment-qty-pill {
+  border-color: rgba(138, 104, 31, 0.32) !important;
+  background: rgba(138, 104, 31, 0.1) !important;
+  color: #8a681f !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-detected-heading {
+  margin-top: 0.75rem !important;
+  margin-bottom: 0.375rem !important;
+}
+
 html.dark .operator-shipment-slip-hint {
   color: #87919d !important;
   font-size: 0.6875rem !important;
@@ -2787,7 +3666,7 @@ html.dark .operator-shipment-btn-primary {
   background: linear-gradient(180deg, #525d6b 0%, #3a4450 36%, #2a3139 68%, #222830 100%) !important;
   color: #faf6ed !important;
   font-size: 0.875rem !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
   box-shadow:
     inset 0 1px 0 rgba(241, 213, 138, 0.35),
@@ -2813,7 +3692,7 @@ html.light .operator-shipment-btn-primary {
   border: 2px solid rgba(138, 104, 31, 0.55) !important;
   background: linear-gradient(180deg, #4f5864 0%, #3d4550 42%, #2f3844 100%) !important;
   color: #faf6ed !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   box-shadow:
     inset 0 1px 0 rgba(232, 212, 168, 0.45),
     0 3px 0 rgba(22, 24, 27, 0.16),
@@ -2829,8 +3708,8 @@ html.light .operator-shipment-btn-success {
   border: 1px solid rgba(15, 143, 99, 0.45) !important;
   background: rgba(15, 143, 99, 0.1) !important;
   color: #0b6f4d !important;
-  font-size: 0.75rem !important;
-  font-weight: 700 !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
 }
 
@@ -2844,8 +3723,8 @@ html.light .operator-shipment-btn-danger {
   border: 1px solid rgba(180, 35, 47, 0.42) !important;
   background: rgba(180, 35, 47, 0.08) !important;
   color: #8f1d29 !important;
-  font-size: 0.75rem !important;
-  font-weight: 700 !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
 }
 
@@ -3292,12 +4171,12 @@ html.light .operator-shipment-flow-toast--neutral .operator-shipment-flow-toast_
 
 html.dark .operator-item-scan-screen .operator-item-scan-actions--compact {
   min-height: 0 !important;
-  padding-top: 0.5rem !important;
+  padding-top: 0.375rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-actions--compact {
   min-height: 0 !important;
-  padding-top: 0.5rem !important;
+  padding-top: 0.375rem !important;
 }
 
 /* Item unit record modal (Shipment Entry item scan save/cancel) */
@@ -3369,8 +4248,8 @@ html.dark .operator-shipment-btn-success {
   border: 2px solid rgba(34, 197, 139, 0.42) !important;
   background: linear-gradient(180deg, #1e4d3a 0%, #163d2e 52%, #123528 100%) !important;
   color: #d1fae5 !important;
-  font-size: 0.75rem !important;
-  font-weight: 700 !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 2px 8px rgba(0, 0, 0, 0.28) !important;
@@ -3385,8 +4264,8 @@ html.dark .operator-shipment-btn-danger {
   border: 2px solid rgba(239, 91, 91, 0.48) !important;
   background: linear-gradient(180deg, rgba(69, 22, 22, 0.55) 0%, rgba(42, 14, 14, 0.72) 100%) !important;
   color: #fecaca !important;
-  font-size: 0.75rem !important;
-  font-weight: 700 !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
@@ -4301,6 +5180,49 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
     0 3px 12px rgba(60, 45, 20, 0.16) !important;
 }
 
+/* Step 3 ITEM SCAN — reserve space above viewport-fixed action footer (nav is in-flow below main) */
+.operator-mobile-app-shell .operator-item-scan-screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  /*
+   * Fixed actions: bottom offset 4.75rem (sits above bottom nav) + ~2×40px buttons + gap/padding.
+   * Nav height is NOT included — ScannerBottomNav is already below <main> in the flex column.
+   */
+  --operator-item-scan-actions-stack: 7.5rem;
+  --operator-item-scan-footer-reserve: calc(
+    var(--operator-item-scan-actions-stack) + 1.25rem + env(safe-area-inset-bottom, 0px)
+  );
+}
+
+.operator-item-scan-main {
+  min-height: 0;
+}
+
+.operator-item-scan-body {
+  min-height: 0;
+}
+
+.operator-item-scan-expected-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.operator-item-scan-expected-list-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 1rem;
+}
+
+/* In-flow spacer — keeps panel bottom border above the fixed action footer overlay */
+.operator-item-scan-footer-spacer {
+  flex-shrink: 0;
+  width: 100%;
+  height: var(--operator-item-scan-footer-reserve);
+  pointer-events: none;
+}
+
 /* Step 3 ITEM SCAN — Shipment Entry item inspection (visual polish only) */
 html.light .operator-item-scan-screen {
   background-color: #f4f2ed !important;
@@ -4822,7 +5744,8 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-row [class*="text
 
   html.light .operator-item-scan-screen .operator-item-scan-btn-finalize,
   html.dark .operator-item-scan-screen .operator-item-scan-btn-finalize {
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
+    font-weight: 600;
   }
 }
 
@@ -5162,13 +6085,13 @@ html.dark .operator-status-pill--progress {
 }
 
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap {
-  height: 1.875rem;
-  width: 2rem;
+  height: 1.625rem;
+  width: 1.75rem;
 }
 
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap .lucide {
-  height: 1.375rem;
-  width: 1.375rem;
+  height: 1.125rem;
+  width: 1.125rem;
 }
 
 .operator-nav-icon-wrap--active {
@@ -5423,9 +6346,9 @@ html.light .operator-nav-icon-wrap--active {
 }
 
 @media (max-width: 360px) {
-  .operator-nav-icon-wrap {
-    height: 2rem;
-    width: 2.125rem;
+  .operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap {
+    height: 1.5rem;
+    width: 1.625rem;
   }
 
   .operator-nav-alert-badge {
