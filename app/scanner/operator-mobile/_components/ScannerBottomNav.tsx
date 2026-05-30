@@ -35,14 +35,14 @@ function NavItem({
 }) {
   const showBadge = typeof badge === "number" && badge > 0;
   const inactive = "operator-nav-inactive";
-  const itemClass = `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-0.5 ${active ? "" : inactive}`;
+  const itemClass = `flex min-w-0 flex-1 flex-col items-center gap-0 py-0 ${active ? "" : inactive}`;
   const iconWrapClass = active
     ? "operator-nav-icon-wrap operator-nav-icon-wrap--active"
     : "operator-nav-icon-wrap";
 
   const iconWrap = (
     <span className={iconWrapClass}>
-      <Icon className="h-6 w-6 shrink-0" strokeWidth={active ? 2.65 : 2.45} aria-hidden />
+      <Icon className="h-5 w-5 shrink-0" strokeWidth={active ? 2.65 : 2.45} aria-hidden />
       {showBadge ? (
         <span
           className="operator-nav-alert-badge absolute -right-1.5 -top-1 z-[2] flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none text-white"
@@ -90,9 +90,9 @@ export function ScannerBottomNav({ active = "home", alertCount = 0 }: ScannerBot
   return (
     <nav
       dir="ltr"
-      className="shrink-0 border-t px-0 pt-1 pb-0.5 backdrop-blur-xl backdrop-saturate-150"
+      className="shrink-0 border-t px-0 py-2 backdrop-blur-xl backdrop-saturate-150"
       style={{
-        paddingBottom: "max(0.3rem, env(safe-area-inset-bottom))",
+        paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))",
         borderColor: "var(--scanner-border)",
         backgroundColor: "color-mix(in srgb, var(--scanner-card-inner) 92%, transparent)",
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
