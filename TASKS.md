@@ -1,28 +1,33 @@
 # Tasks — active board
 
-Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md) · [`.ai-memory/ROADMAP.md`](.ai-memory/ROADMAP.md).
+Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md) · [`.ai-memory/SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md`](.ai-memory/SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md).
 
-**Branch:** `feature/product-canonicalization-v2`
+**Branch:** `feature/phase1-latest-stash-land` @ `c78fbb8` — **no merge**
 
-## P1 — Next (ordered)
+## P0 — Scanner / return remediation
 
-- [ ] **PC06A** — commit operator DDL to `supabase/migrations/`
-- [ ] **PC07-EXEC** — dirty-source fix execute (38 rows; approval)
-- [ ] **PC07** — original spine DML parity plan
-- [ ] **PC02C** — 5 API-404 ASIN corrections
-- [ ] **CLAIM-CLEANUP** — Wave B + original parity
+- [ ] **BULK-RETURN-ITEMS-PROVENANCE-READONLY** — ~5,333 orphan RIs; trace bulk load; no deletes
+- [ ] **BULK-RETURN-ITEMS-QUARANTINE-APPROVAL-AND-EXECUTE** — soft-delete orphans + release allocation
+- [ ] **CLAIM-RETURNS-WORK-QUEUE-PHYSICAL-ANCHOR-GATE** — require `package_id` in queue + promote
+
+## P0 — Product sheet (after scanner P0)
+
+- [ ] **PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION** — 3399 conflicts
+- [ ] **PRODUCT-SHEET-IMPORT-MAX-25-SAMPLE-WAVE** — max 25 rows
 
 ## P0 — Policy
 
-- [ ] Staging quartet → `eiqfaapyumhixxoeltgu` for dev/Neda
-- [ ] No `package_items`; no legacy `returns`; no fuzzy product create
-- [ ] No Amazon API until PC02 approval
-- [ ] Future production — **blocked**
+- [ ] Staging quartet → `eiqfaapyumhixxoeltgu`
+- [ ] No `package_items`; no legacy `returns`; no bulk RI from forecast
+- [ ] No merge / deploy / original apply until scanner remediation complete
+- [ ] Architecture audit + approval before scanner/return/claims DB writes
+- [ ] `CLAIM_SCANNER_AUTO_PROMOTE_ENABLED` — **off**
 
 ## Done
 
-- [x] PC Phase 01 closeout (PC01–PC06, packaging apply/backfill)
-- [x] Canonical memory rebuild `20260526T200000Z`
+- [x] Full scanner/expected/returns/claims architecture recovery — `20260531T084101Z`
+- [x] Wave2 `resolved_product_id` rollback — **PASS** (active RI 5,366; resolved 57)
+- [x] Architecture correction history/memory update — `20260531T120000Z`
 
 ## Forbidden
 

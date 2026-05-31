@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import pg from "pg";
 
+import { sqlReturnItemBackfillLaneWhere } from "../lib/return-item-physical-scan";
 import { getStagingProjectRef, loadEnvLocalIntoProcess, refFromSupabaseUrl } from "../lib/staging-project-ref";
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
@@ -153,7 +154,7 @@ WHERE metadata->>'backfill_run_id' = '${runId}';
       'detected',
       $1::jsonb
     FROM public.return_items ri
-    WHERE ri.deleted_at IS NULL AND ri.expected_item_id IS NOT NULL
+    WHERE ${sqlReturnItemBackfillLaneWhere("ri")}
     ON CONFLICT (idempotency_key) DO NOTHING
     RETURNING id
   `;

@@ -17,6 +17,7 @@ import type {
   EnqueueJobInput,
   EnqueueJobResult,
   JobStatus,
+  JobType,
   RetryJobResult,
   TickJobResult,
 } from "./types";
@@ -28,6 +29,11 @@ function leaseExpiryIso(): string {
   return new Date(Date.now() + LEASE_MS).toISOString();
 }
 
+function defaultBudgetMsForJobType(jobType: JobType): number {
+  if (jobType === "product_enrichment") return 120_000;
+  return 25_000;
+}
+
 function buildDefaultSteps(input: EnqueueJobInput) {
   const workerKind = defaultWorkerKindForJobType(input.jobType);
   return [
@@ -35,7 +41,7 @@ function buildDefaultSteps(input: EnqueueJobInput) {
       step_key: workerKind,
       worker_kind: workerKind,
       input: input.payload ?? {},
-      budget_ms: 25_000,
+      budget_ms: defaultBudgetMsForJobType(input.jobType),
     },
   ];
 }
@@ -46,7 +52,7 @@ function normalizeSteps(input: EnqueueJobInput) {
       step_key: s.step_key,
       worker_kind: s.worker_kind,
       input: s.input ?? {},
-      budget_ms: s.budget_ms ?? 25_000,
+      budget_ms: s.budget_ms ?? defaultBudgetMsForJobType(input.jobType),
     }));
   }
   return buildDefaultSteps(input);

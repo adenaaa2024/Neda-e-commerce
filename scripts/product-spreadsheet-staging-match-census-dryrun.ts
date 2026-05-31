@@ -559,6 +559,7 @@ async function main(): Promise<void> {
   writeCsv(path.join(outDir, "missing-products.csv"), csvHeaders, missingProducts);
   writeCsv(path.join(outDir, "identifier-mismatches.csv"), csvHeaders, idMismatches);
   writeCsv(path.join(outDir, "vendor-brand-candidates.csv"), csvHeaders, vendorCandidates);
+  writeCsv(path.join(outDir, "all-classified-rows.csv"), csvHeaders, classified);
 
   const sampleN = 8;
   const samplesMd = `# Row classification samples

@@ -16,7 +16,19 @@ export type ClaimEligibilityClaimSource =
   | "scanner_operator_issue"
   | "ready_for_claim"
   | "import_candidate"
-  | "expected_mismatch";
+  | "expected_mismatch"
+  | "warehouse_qc_issue";
+
+export type ClaimModuleDomain =
+  | "returns"
+  | "warehouse_inventory"
+  | "carrier_shipments"
+  | "removals"
+  | "financial"
+  | "expected_mismatch"
+  | "marketplace";
+
+export type EnabledClaimDomains = Record<ClaimModuleDomain, boolean>;
 
 export type ClaimPolicyV1 = {
   schema_version: 1;
@@ -25,6 +37,7 @@ export type ClaimPolicyV1 = {
   claim_eligibility_window_days: number;
   claim_grouping_policy: ClaimGroupingPolicy;
   claim_hold_policy: ClaimHoldPolicyFlag[];
+  enabled_claim_domains: EnabledClaimDomains;
   allow_manual_override?: boolean;
 };
 
@@ -38,7 +51,8 @@ export type ClaimEligibilityReason =
   | "hold_order_incomplete"
   | "manual_review_required"
   | "missing_scanner_evidence"
-  | "promote_disabled";
+  | "promote_disabled"
+  | "module_scope_disabled";
 
 export type ClaimEligibilityResult = {
   allowed: boolean;
@@ -55,6 +69,15 @@ export const DEFAULT_CLAIM_POLICY_V1: ClaimPolicyV1 = {
   claim_eligibility_window_days: 90,
   claim_grouping_policy: "single_item",
   claim_hold_policy: ["hold_until_package_closed"],
+  enabled_claim_domains: {
+    returns: false,
+    warehouse_inventory: false,
+    carrier_shipments: false,
+    removals: false,
+    financial: false,
+    expected_mismatch: false,
+    marketplace: false,
+  },
 };
 
 export const CLAIM_GROUPING_POLICY_OPTIONS: { value: ClaimGroupingPolicy; label: string }[] = [

@@ -8,6 +8,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import pg from "pg";
 
+import {
+  sqlPhysicalReturnItemForClaimsWhere,
+  sqlReturnItemBackfillLaneWhere,
+} from "../lib/return-item-physical-scan";
 import { getStagingProjectRef, loadEnvLocalIntoProcess, refFromSupabaseUrl } from "../lib/staging-project-ref";
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
@@ -126,10 +130,15 @@ async function main(): Promise<void> {
   const ri = await client.query(`
     SELECT
       COUNT(*) FILTER (WHERE deleted_at IS NULL)::int AS active,
-      COUNT(*) FILTER (WHERE deleted_at IS NULL AND expected_item_id IS NOT NULL)::int AS with_expected_item_id
-    FROM public.return_items
+      COUNT(*) FILTER (WHERE deleted_at IS NULL AND expected_item_id IS NOT NULL)::int AS with_expected_item_id,
+      COUNT(*) FILTER (WHERE ${sqlReturnItemBackfillLaneWhere("ri")})::int AS backfill_lane_eligible
+    FROM public.return_items ri
   `);
-  const riRow = ri.rows[0] as { active: number; with_expected_item_id: number };
+  const riRow = ri.rows[0] as {
+    active: number;
+    with_expected_item_id: number;
+    backfill_lane_eligible: number;
+  };
 
   const invExists =
     (await client.query(
@@ -242,8 +251,7 @@ async function main(): Promise<void> {
     WHERE cc.source_table = 'return_items'
       AND EXISTS (
         SELECT 1 FROM public.return_items ri
-        WHERE ri.deleted_at IS NULL
-          AND ri.expected_item_id IS NOT NULL
+        WHERE ${sqlReturnItemBackfillLaneWhere("ri")}
           AND ri.id::text = cc.source_row_id::text
           AND ri.organization_id = cc.organization_id
       )
@@ -264,7 +272,7 @@ async function main(): Promise<void> {
 
   const removalInsert = remD.distinct_keys;
   const returnishInsert = retD.distinct_keys - Number(crossReturnItemWins.rows[0]?.c ?? 0);
-  const returnItemInsert = riRow.with_expected_item_id;
+  const returnItemInsert = riRow.backfill_lane_eligible;
   const expectedShortInsert = invResolvableShort;
   const expectedOverInsert = invResolvableOver;
 
@@ -293,9 +301,12 @@ async function main(): Promise<void> {
     },
     return_items_with_expected_item_id: {
       raw: riRow.with_expected_item_id,
+      physical_anchor_eligible: riRow.backfill_lane_eligible,
+      bulk_orphan_excluded: Math.max(0, riRow.with_expected_item_id - riRow.backfill_lane_eligible),
       planned_inserts: returnItemInsert,
       line_grain: "return_item",
       discrepancy_kind: "other",
+      physical_anchor_sql: sqlReturnItemBackfillLaneWhere("ri"),
       idempotency_template: IDEM.returnItem("{org}", "{return_item_id}"),
     },
     expected_group_short: {
@@ -359,10 +370,12 @@ async function main(): Promise<void> {
       "",
       `**Raw total:** **${returnishRaw}** | **Distinct source keys:** **${retD.distinct_keys}**`,
       "",
-      "## return_items with expected_item_id",
+      "## return_items with expected_item_id (physical anchor gate)",
       "",
       `- Active return_items: **${riRow.active}**`,
       `- With expected_item_id: **${riRow.with_expected_item_id}**`,
+      `- Backfill-lane eligible (package_id + not bulk orphan): **${riRow.backfill_lane_eligible}**`,
+      `- Bulk orphan excluded from return_item lane: **${Math.max(0, riRow.with_expected_item_id - riRow.backfill_lane_eligible)}**`,
       "",
       "## v_inventory_item_status",
       "",
@@ -401,13 +414,13 @@ async function main(): Promise<void> {
       "",
       "## Within-lane rules",
       "",
-      "1. **return_item** — one line per `return_item_id` (natural PK).",
+      "1. **return_item** — one line per `return_item_id` (natural PK); **only** rows matching `sqlReturnItemBackfillLaneWhere` (package_id required, bulk orphan excluded).",
       "2. **expected_group** — one line per root EP + `discrepancy_kind`; resolve root EP via tracking/slip/sku/fnsku match on `expected_packages` (`detail_shipment`, `detail_remainder`, `legacy`). Unresolvable view groups are **skipped** (see census).",
       "3. **import_source** — one line per `(organization_id, source_table, source_row_id)`; duplicate candidate rows collapse to single insert.",
       "",
       "## Cross-lane precedence",
       "",
-      "1. **return_item grain wins** over `claim_candidates` where `source_table='return_items'` and RI has `expected_item_id` — skip duplicate import_source line.",
+      "1. **return_item grain wins** over `claim_candidates` where `source_table='return_items'` and RI passes physical backfill lane — skip duplicate import_source line.",
       "2. **Do not** double-insert removal candidate if a `return_item` line already exists for the same physical unit (future: match via resolver; not in v1 backfill).",
       "3. **expected_group** lines are independent of import_source removal lines (different discrepancy_kind / grain).",
       "",

@@ -336,16 +336,19 @@ Evidence: `pc05-packaging-full-parity-verify/20260526T214000Z/` · `pc05c-packag
 
 ## 16. Next actions
 
-1. **REMOVAL-STAGING-GAP-FETCH-SYNC** — close staging removal data gap (fetch/sync backfill)  
-2. **DELETE-RELEASE-WIRING** — wire `release_expected_item_unit` on delete/void paths (census gap)  
-3. **DELETE-UNDO-RETENTION-ARCHITECTURE** — apply/plan cascade undo + retention (`20260901120000` drafted, not applied)  
-4. **PRODUCT-SPINE-VIEW-LINKAGE-ORIGINAL-EXECUTE** — original `expected_package_id` + `product_display_name` view DDL (`product-spine-view-linkage-original-approval.md`)  
-5. **CLAIMS-ORIGINAL-PARITY-GROUPING** — original claims schema parity + grouping census/execute  
+1. **INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION** — exclude deleted bulk/orphan RI pattern from inventory views; align `v_scanned_sum` with physical scans  
+2. **PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION** — resolve **3399** needs-review/conflicts before any apply  
+3. **PRODUCT-SHEET-IMPORT-MAX-25-SAMPLE-WAVE** — after Phase F: sample dry-run -> approval -> sample apply -> verify (max **25** rows)  
+4. **CLAIM-RETURNS-WORK-QUEUE-PHYSICAL-ANCHOR-GATE** — require `package_id IS NOT NULL` in queue + promote paths  
+5. **PRODUCT-ENRICHMENT-BACKEND-JOB-WAVES** — replace browser-loop update button with governed backend job  
 
-**Done (do not re-block):** Original slip/view parity **PASS** — `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z/`  
-**Done:** Staging product spine true linkage **PASS**; browser smoke **PASS** (`1552698729`, FNSKU `X003S8RCBH`)
+**Architecture (CORRECTED):** `expected_packages` = API/removal/expected forecast; `return_items` = physical scanned units only; no bulk RI from expected/API/removal; no EP→RI product copy unless RI is proven physical scan  
+**Staging repair (2026-06-14):** hard-delete **5333** bulk/orphan RIs complete — active RI **33** (`active_with_package` **3**); spine unchanged (`products` **17033**, `expected_packages` **9459** / **9139** resolved, `product_identifier_map` **16811**); `v_scanned_sum` **3**  
+**Execution policy (mandatory):** census -> classify -> sample dry-run -> approval -> sample apply -> verify -> next wave  
+**Product Core:** protected backbone — do not rewrite/simplify/bypass; core changes require read-only audit + parity proof + risk report + operator approval  
+**Forbidden:** broad product import (**1700** blocked creates in dry-run); merge to main; cron apply; original DB changes without explicit approval  
 
-Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `STAGING_ORIGINAL_PARITY.md`, `SCANNER_STATE.md`, `EXPECTED_ALLOCATION_MODEL.md`, `REMOVAL_API_STATE.md`, `HISTORY_POINTERS.md`
+Sync: `.cursor/.ai-memory/SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md`, `CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `ROADMAP.md`, `FORBIDDEN_ACTIONS.md`, `HISTORY_POINTERS.md`
 
 ---
 
@@ -353,7 +356,11 @@ Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `STAGING_ORIGINAL_PARITY
 
 | Run ID | Action | Notes |
 |--------|--------|-------|
-| `20260609T140000Z` | **HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS** | Original slip/view parity PASS `234437Z`; staging true linkage PASS; allocation census; next priorities reordered |
+| `20260614T120000Z` | **ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC** | Staging RI hard-delete complete; 5333 bulk/orphan removed; active RI 33 (3 with package); spine unchanged; P0 inventory views migration + Phase F |
+| `20260613T120000Z` | **PRODUCT-CORE-PROTECTION-HISTORY-MEMORY-UPDATE** | Product Core protected backbone; change gate; roadmap CLARIFIED 90-95% arch / 65-75% ops; Wave1 enrichment refactor SAFE |
+| `20260612T120000Z` | **PHASE1-ROADMAP-AND-HISTORY-MEMORY-UPDATE-AFTER-DRYRUNS** | Product sheet dry-run 4479 rows; linkage census Class A=2; execution policy locked; claims cutoff unconfigured |
+| `20260611T120000Z` | **PHASE1-ROADMAP-AND-HISTORY-MEMORY-UPDATE** | main 4402064; stash-land c78fbb8 not merged; removal mismatch fixed; roadmap priorities |
+| `20260609T140000Z` | **HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS** | Original slip/view parity PASS `234437Z`; staging true linkage PASS; allocation census |
 | `20260608T120000Z` | **HISTORY-MEMORY-UPDATE-AFTER-STAGING-PASS-ORIGINAL-BLOCKED** | **SUPERSEDED** for original parity — was BLOCKED; now PASS `234437Z` |
 | `20260607T140000Z` | **HISTORY-MEMORY-UPDATE-PRODUCT-CANONICALIZATION-V3** | Staging DB parity view+slip execute PASS `20260529T231120Z`; branch `feature/product-canonicalization-v3`; CORRECTED stale V193 view-live memory |
 | `20260601T120000Z` | **PHASE1 DELIVERY STATUS UPDATE** | 51bc597 pushed; build tesseract blocker; original schema 4/4 PASS; data wave pending; claims/TRID dryruns PASS not applied; Neda smoke PASS; PR needed |
@@ -229947,76 +229954,69 @@ Locked FK decisions:
 - store_id -> stores(id) ON DELETE RESTRICT
 
 Unresolved assumptions from result:
-- profiles.organization_id vs assignment.organization_id for a profile is not enforced in DB.
-- Platform RLS omits some system roles such as system_employee; can extend later.
-- legacy profiles.role = system_admin is allowed in platform path; document and revisit if data differs.
-
-Current instruction:
-- Since the migration file is created but not executed, user should NOT run Supabase migration yet without a verify/dry-read step.
-- Next step should verify migration SQL text, RLS assumptions, and prepare a safe migration execution checklist.
-
+- profiles.organization_id vs assignme
 ================================================================================
-V95 NEW GLOBAL PRODUCT REQUIREMENT — MODULAR FEATURES / ENTITLEMENTS / SELLABLE MODULES
+APPEND SLICE — ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC (20260614T120000Z)
 ================================================================================
 
-User emphasized:
-The whole system must be designed so every module/feature can be sold separately or disabled independently.
+Run: ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC
+Branch: feature/phase1-latest-stash-land @ 9a5cda8
+Mode: APPEND-ONLY HISTORY/MEMORY UPDATE
+No DB writes in this run. No code changes. No merge.
 
-This is a global architecture requirement, not only claims.
+## Staging return_items repair (executed prior to this memory sync)
 
-Examples:
-- Claim Engine as a sellable module
-- Return + Claim bundle
-- Warehouse + Claim bundle
-- Claim-only from file imports
-- Claim with API integrations
-- Claim wi
----
+- Staging return_items hard-delete completed
+- Invalid bulk/orphan cohort: 5333 rows removed
+- return_items total = 33
+- return_items active = 33
+- bulk_orphan = 0
+- active_with_package = 3
 
-# APPEND SLICE: HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS (20260609T140000Z)
+## Spine unchanged
 
-**Prompt:** HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS · append-only docs/memory sync  
-**Branch:** `feature/product-canonicalization-v3` @ `4402064`
+- products = 17,033 unchanged
+- expected_packages = 9,459 unchanged; 9,139 resolved
+- product_identifier_map = 16,811 unchanged
+- v_scanned_sum = 3
 
-## CORRECTED / SUPERSEDED
+## CORRECTED architecture (locked)
 
-| Prior memory | Correction |
-|--------------|------------|
-| Original DB parity **BLOCKED** (`20260608T120000Z`) | **SUPERSEDED** — original slip/view parity **PASS** `db-parity-view-linkage-slip-columns-original-execute/20260529T234437Z` |
+- expected_packages = API / removal / expected forecast
+- return_items = physical scanned units only
+- No bulk RI from expected / API / removal
+- No EP->RI product copy unless RI is proven physical scan
+- Product Core remains protected
 
-## Staging product spine true linkage — PASS
+## P0 (ordered)
 
-| Check | Result |
-|-------|--------|
-| Execute | **PASS** — `product-spine-view-linkage-staging-execute/20260530T171500Z/` |
-| Browser smoke tracking `1552698729` | **PASS** |
-| Browser smoke FNSKU `X003S8RCBH` | **PASS** |
-| True chain | `view.expected_package_id` -> `expected_packages.id` -> `expected_packages.resolved_product_id` -> `products.id` |
+1. INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION
+2. PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION
 
-## Original — slip/view parity PASS; product spine view DDL pending
+## Policy
 
-- Slip/view + slip_contents cols: **PASS** `20260529T234437Z`
-- Still needs: `expected_package_id` + `product_display_name` view DDL on original (`product-spine-view-linkage-original-approval.md`)
+- Do not merge to main yet
+- Safe Git action: commit current repair state to feature branch only
 
-## Expected allocation census — COMPLETE
+## Memory sync
 
-| Finding | Status |
-|---------|--------|
-| Allocation mostly in DB | yes |
-| Item-level receive | good |
-| Delete/void release wiring | **gap** — does not wire `release_expected_item_unit` |
-| Cascade/undo draft | not applied (`20260901120000`) |
+- .cursor/.ai-memory/CURRENT_STATE.md
+- .cursor/.ai-memory/NEXT_ACTIONS.md
+- .cursor/.ai-memory/HISTORY_POINTERS.md
+- .cursor/.ai-memory/SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md
+- .cursor/.ai-memory/EXPECTED_ALLOCATION_MODEL.md
+- .cursor/.ai-memory/FORBIDDEN_ACTIONS.md
+- .cursor/.ai-memory/SCANNER_STATE.md
+- .cursor/.ai-memory/ROADMAP.md
 
-## Removal
+Living sections updated: master history section 16 + section 17 row 20260614T120000Z.
 
-Verify gate **aligned**; burn-in retry **PASS**; resolver **+6 EP** on staging.
+SUPERSEDES: 20260531T120000Z orphan RI pending state (~5333 rows) -> hard-delete COMPLETE.
 
-## Next priorities (ordered)
+### Exact next prompt
 
-1. REMOVAL-STAGING-GAP-FETCH-SYNC
-2. DELETE-RELEASE-WIRING
-3. DELETE-UNDO-RETENTION-ARCHITECTURE
-4. PRODUCT-SPINE-VIEW-LINKAGE-ORIGINAL-EXECUTE
-5. CLAIMS-ORIGINAL-PARITY-GROUPING
+INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION
 
-**Pack:** `.cursor/audit-reports/history-memory-align-after-phase1-census/20260609T140000Z/`
+================================================================================
+END APPEND SLICE — 20260614T120000Z
+================================================================================

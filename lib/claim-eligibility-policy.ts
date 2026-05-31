@@ -1,12 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  isClaimModuleDomainEnabled,
+  parseEnabledClaimDomains,
+  resolveClaimModuleDomain,
+} from "./claim-module-scope";
+import {
   DEFAULT_CLAIM_POLICY_V1,
   type ClaimEligibilityClaimSource,
   type ClaimEligibilityReason,
   type ClaimEligibilityResult,
   type ClaimGroupingPolicy,
   type ClaimHoldPolicyFlag,
+  type ClaimModuleDomain,
   type ClaimPolicyV1,
 } from "./claim-policy-types";
 
@@ -91,6 +97,7 @@ export function normalizeClaimPolicy(raw: unknown): ClaimPolicyV1 {
     claim_eligibility_window_days: clampWindowDays(o.claim_eligibility_window_days),
     claim_grouping_policy: grouping,
     claim_hold_policy: parseHoldPolicy(o.claim_hold_policy),
+    enabled_claim_domains: parseEnabledClaimDomains(o.enabled_claim_domains),
     allow_manual_override: o.allow_manual_override === true,
   };
 }
@@ -140,6 +147,10 @@ export type EvaluateClaimEligibilityInput = {
   evaluationDate?: string | Date;
   packageClosed?: boolean | null;
   palletClosed?: boolean | null;
+  /** Import/API source table for import_candidate domain routing. */
+  sourceTable?: string | null;
+  /** When set, overrides resolveClaimModuleDomain(claimSource, sourceTable). */
+  moduleDomain?: ClaimModuleDomain;
 };
 
 /** Pure eligibility evaluation — no DB I/O. */
@@ -157,6 +168,12 @@ export function evaluateClaimEligibilitySync(input: EvaluateClaimEligibilityInpu
 
   if (policy.claim_hold_policy.includes("manual_review_required")) {
     return { allowed: false, reason: "manual_review_required", ...base };
+  }
+
+  const moduleDomain =
+    input.moduleDomain ?? resolveClaimModuleDomain(input.claimSource, input.sourceTable);
+  if (!isClaimModuleDomainEnabled(policy, moduleDomain)) {
+    return { allowed: false, reason: "module_scope_disabled", ...base };
   }
 
   if (!cutoff) {
@@ -237,6 +254,8 @@ export async function evaluateClaimEligibility(args: {
   packageId?: string | null;
   palletId?: string | null;
   evaluationDate?: string | Date;
+  sourceTable?: string | null;
+  moduleDomain?: ClaimModuleDomain;
 }): Promise<ClaimEligibilityResult> {
   const policy = await loadClaimPolicy(args.client, args.organizationId);
   const packageClosed = await loadPackageClosed(args.client, args.packageId);
@@ -248,6 +267,8 @@ export async function evaluateClaimEligibility(args: {
     evaluationDate: args.evaluationDate,
     packageClosed,
     palletClosed: null,
+    sourceTable: args.sourceTable,
+    moduleDomain: args.moduleDomain,
   });
 }
 
@@ -302,6 +323,7 @@ export function evaluateImportCandidateCutoffSync(
     eventAt,
     hasScannerEvidence: false,
     evaluationDate,
+    sourceTable,
   });
 }
 
@@ -343,6 +365,8 @@ export function claimEligibilityReasonLabel(reason: ClaimEligibilityReason): str
       return "Missing scanner evidence";
     case "promote_disabled":
       return "Promote disabled";
+    case "module_scope_disabled":
+      return "Claim module disabled";
     default:
       return reason;
   }

@@ -183,6 +183,17 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
           },
           {
             kind: "leaf",
+            id: "returns_claims_queue",
+            label: "Returns Claims",
+            path: "/returns/claims",
+            featureKey: "claims.engine",
+            permissionBase: "claims.engine",
+            icon: "RotateCcw",
+            rbac: "canSeeClaimEngine",
+            order: 2.52,
+          },
+          {
+            kind: "leaf",
             id: "claim_review_ops",
             label: "Review operations",
             path: "/claim-engine/review-ops",

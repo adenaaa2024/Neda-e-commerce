@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
+import {
+  countsTowardActivePhysicalScan,
+  type ActivePhysicalScanCountRow,
+} from "@/lib/return-item-physical-scan";
 import { fetchReturnItemsScannedCountsForTracking } from "@/lib/scanner/operator-tracking-expectations";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import {
@@ -113,7 +117,7 @@ export async function countActiveReturnItemsForIdentifierScan(
 
   const { data: items, error } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("id, package_id, notes")
+    .select("id, package_id, pallet_id, expected_item_id, notes")
     .eq("organization_id", orgId)
     .eq("store_id", sid)
     .eq(field, v)
@@ -128,17 +132,18 @@ export async function countActiveReturnItemsForIdentifierScan(
 
   let count = 0;
   for (const item of items) {
-    const pkgId = String((item as { package_id?: string | null }).package_id ?? "").trim();
-    if (pkgId) {
-      if (activePackageIds.has(pkgId)) count++;
-      continue;
-    }
     const baselineTn = baselineTrackingFromNotes((item as { notes?: string | null }).notes);
-    if (baselineTn) {
-      if (await hasActivePackageForCode(supabase, orgId, sid, baselineTn)) count++;
-      continue;
+    const hasActiveBaseline =
+      !!baselineTn && (await hasActivePackageForCode(supabase, orgId, sid, baselineTn));
+    if (
+      countsTowardActivePhysicalScan(item as ActivePhysicalScanCountRow, {
+        activePackageIds,
+        baselineTrackingFromNotes: baselineTn,
+        hasActivePackageForBaselineTracking: hasActiveBaseline,
+      })
+    ) {
+      count++;
     }
-    count++;
   }
   return count;
 }

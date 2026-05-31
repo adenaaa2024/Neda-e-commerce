@@ -18,7 +18,9 @@ import {
   resolveFilingCallbackHmacSecret,
   verifyFilingCallbackHmac,
 } from "./claim-filing-handoff-callback";
+import { loadClaimPolicy } from "./claim-eligibility-policy";
 import { assertStoreBelongsToOrganization, fetchClaimSubmissionScopeForOrganization } from "./claim-org-scope";
+import { isClaimModuleDomainEnabled } from "./claim-module-scope";
 import { assertEntitlement } from "./entitlements/resolve-entitlement";
 import { isUuidString } from "./uuid";
 
@@ -61,6 +63,14 @@ export async function createClaimFilingRequest(args: {
 
   const storeOk = await assertStoreBelongsToOrganization(organizationId, storeId);
   if (!storeOk.ok) return { status: storeOk.status, body: { error: storeOk.error } };
+
+  const claimPolicy = await loadClaimPolicy(args.supabase, organizationId);
+  if (!isClaimModuleDomainEnabled(claimPolicy, "marketplace")) {
+    return {
+      status: 403,
+      body: { error: "Marketplace claim filing is disabled for this organization (module scope)." },
+    };
+  }
 
   const ent = assertEntitlement("claims.filing.handoff", {
     organizationId,

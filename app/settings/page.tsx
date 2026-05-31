@@ -89,6 +89,7 @@ import {
   getOrganizationClaimPolicy,
   saveOrganizationClaimPolicy,
 } from "./organization-claim-policy-actions";
+import { CLAIM_MODULE_DOMAIN_OPTIONS } from "../../lib/claim-module-scope";
 import {
   DEFAULT_CLAIM_POLICY_V1,
   CLAIM_GROUPING_POLICY_OPTIONS,
@@ -1193,6 +1194,7 @@ export default function SettingsPage() {
         claim_eligibility_window_days: claimPolicyLocal.claim_eligibility_window_days,
         claim_grouping_policy: claimPolicyLocal.claim_grouping_policy,
         hold_until_package_closed: holdFlags.includes("hold_until_package_closed"),
+        enabled_claim_domains: claimPolicyLocal.enabled_claim_domains,
       },
       tenantCtx,
     );
@@ -3109,6 +3111,64 @@ export default function SettingsPage() {
                       Save cutoff policy
                     </button>
                   </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Claim module scope</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Phase 1: only <span className="font-semibold">Returns</span> can be enabled. Other domains stay off until
+                      phase 2. Marketplace filing requires the marketplace domain when implemented.
+                    </p>
+                  </div>
+                  {!claimPolicyLocal.enabled_claim_domains.returns ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">
+                      Returns claims are <span className="font-semibold">disabled</span> — scanner promote and return-item claim
+                      paths are blocked even when cutoff dates are set.
+                    </div>
+                  ) : null}
+                  <ul className="space-y-2">
+                    {CLAIM_MODULE_DOMAIN_OPTIONS.map((opt) => {
+                      const enabled = claimPolicyLocal.enabled_claim_domains[opt.key];
+                      const phase1Toggle = opt.configurablePhase1;
+                      return (
+                        <li
+                          key={opt.key}
+                          className={[
+                            "flex items-start gap-3 rounded-xl border p-3",
+                            phase1Toggle ? "border-border bg-muted/10" : "border-dashed border-border/70 bg-muted/5 opacity-80",
+                          ].join(" ")}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                            checked={enabled}
+                            disabled={!phase1Toggle || claimPolicyLoading || mockPlan === "Free Tier"}
+                            onChange={(e) =>
+                              setClaimPolicyLocal((p) => ({
+                                ...p,
+                                enabled_claim_domains: {
+                                  ...p.enabled_claim_domains,
+                                  [opt.key]: e.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-foreground">{opt.label}</span>
+                              {!phase1Toggle ? (
+                                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Phase 2
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-muted-foreground">{opt.description}</span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               </form>
 

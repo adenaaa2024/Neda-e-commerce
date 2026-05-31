@@ -30,6 +30,7 @@ import {
   RETURN_LIST_SELECT,
   RETURN_SELECT,
 } from "./returns-constants";
+import { applyExcludeBulkOrphanReturnItemsFilter } from "@/lib/return-item-physical-scan";
 import {
   enrichExpectedItemsProductResolution,
   resolveScannerProductIdentifiers,
@@ -1510,6 +1511,7 @@ export async function countReturns(
       .from(RETURN_ITEMS_TABLE)
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null);
+    q = applyExcludeBulkOrphanReturnItemsFilter(q);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { count, error } = await q;
     if (error) {
@@ -1533,9 +1535,9 @@ export async function listClaimPipelineReturns(
     let q = supabaseServer.from(RETURN_ITEMS_TABLE)
       .select(RETURN_LIST_SELECT)
       .in("status", ["ready_for_claim", "pending_evidence"])
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(200);
+      .is("deleted_at", null);
+    q = applyExcludeBulkOrphanReturnItemsFilter(q);
+    q = q.order("created_at", { ascending: false }).limit(200);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
@@ -1550,9 +1552,9 @@ export async function listReturns(
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_SELECT)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }).limit(200);
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_SELECT).is("deleted_at", null);
+    q = applyExcludeBulkOrphanReturnItemsFilter(q);
+    q = q.order("created_at", { ascending: false }).limit(200);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) {
@@ -1611,14 +1613,21 @@ export async function getDashboardSnapshot(
   const iso = startUtc.toISOString();
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qReturnsToday = supabaseServer.from(RETURN_ITEMS_TABLE).select("id", { count: "exact", head: true }).gte("created_at", iso).is("deleted_at", null);
+    let qReturnsToday = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", iso)
+      .is("deleted_at", null);
+    qReturnsToday = applyExcludeBulkOrphanReturnItemsFilter(qReturnsToday);
     let qPallets = supabaseServer.from("pallets").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qPackages = supabaseServer.from("packages").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qClaims = supabaseServer
       .from("claim_submissions")
       .select("id", { count: "exact", head: true })
       .eq("status", "ready_to_send");
-    let qEst = supabaseServer.from(RETURN_ITEMS_TABLE).select("estimated_value").is("deleted_at", null).limit(10000);
+    let qEst = supabaseServer.from(RETURN_ITEMS_TABLE).select("estimated_value").is("deleted_at", null);
+    qEst = applyExcludeBulkOrphanReturnItemsFilter(qEst);
+    qEst = qEst.limit(10000);
     if (scope.mode === "single") {
       qReturnsToday = qReturnsToday.eq("organization_id", scope.organizationId);
       qPallets = qPallets.eq("organization_id", scope.organizationId);
@@ -1677,7 +1686,12 @@ export async function getReturnsAnalyticsData(
 ): Promise<{ ok: boolean; data?: ReturnsAnalyticsPayload; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qRet = supabaseServer.from(RETURN_ITEMS_TABLE).select("id,conditions,created_at,updated_at,package_id,created_by").limit(500);
+    let qRet = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id,conditions,created_at,updated_at,package_id,pallet_id,expected_item_id,created_by")
+      .is("deleted_at", null);
+    qRet = applyExcludeBulkOrphanReturnItemsFilter(qRet);
+    qRet = qRet.limit(500);
     let qPkg = supabaseServer.from("packages").select("id,carrier_name").limit(500);
     let qPlt = supabaseServer.from("pallets").select("id").limit(500);
     if (scope.mode === "single") {

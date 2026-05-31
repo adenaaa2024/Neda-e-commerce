@@ -45,6 +45,7 @@ function main(): void {
     claim_eligibility_window_days: 90,
     claim_grouping_policy: "single_item",
     claim_hold_policy: ["hold_until_package_closed"],
+    enabled_claim_domains: { returns: true },
   });
 
   const checks: Check[] = [
@@ -69,9 +70,9 @@ function main(): void {
       evaluateClaimEligibilitySync({
         policy: configured,
         claimSource: "scanner_operator_issue",
-        eventAt: "2026-02-01",
+        eventAt: "2026-05-10",
         hasScannerEvidence: true,
-        evaluationDate: "2026-02-10",
+        evaluationDate: "2026-05-18",
         packageClosed: true,
       }).allowed,
       "post go-live scan with evidence should pass when package closed",
@@ -92,23 +93,23 @@ function main(): void {
       "import_pre_cutoff_blocked",
       evaluateImportCandidateCutoffSync(
         configured,
-        "amazon_removals",
-        { shipment_date: "2025-09-01", created_at: "2025-09-01T00:00:00Z" },
+        "amazon_returns",
+        { return_date: "2025-09-01", created_at: "2025-09-01T00:00:00Z" },
         { created_at: "2025-09-01T00:00:00Z" },
-        "2026-02-10",
+        "2026-05-18",
       ).reason === "import_pre_cutoff",
-      "historical removal import candidate blocked",
+      "historical returns import candidate blocked before claim_start_date",
     ),
     assert(
       "import_post_start_allowed_window",
-      evaluateImportCandidateCutoffSync(
+      !evaluateImportCandidateCutoffSync(
         configured,
         "amazon_removals",
-        { shipment_date: "2026-02-01", created_at: "2026-02-01T00:00:00Z" },
-        { created_at: "2026-02-01T00:00:00Z" },
-        "2026-02-10",
+        { shipment_date: "2026-05-01", created_at: "2026-05-01T00:00:00Z" },
+        { created_at: "2026-05-01T00:00:00Z" },
+        "2026-05-18",
       ).allowed,
-      "post claim_start_date import candidate allowed (no scanner evidence required)",
+      "removals domain off blocks post-cutoff removal import candidates",
     ),
     assert(
       "expected_api_only_not_eligible",

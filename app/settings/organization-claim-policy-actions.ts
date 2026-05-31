@@ -1,5 +1,6 @@
 "use server";
 
+import { evaluateClaimPermissionForActor } from "../../lib/claim-permission-evaluate";
 import { resolveTenantOrganizationId, type TenantWriteContext } from "../../lib/server-tenant";
 import { supabaseServer } from "../../lib/supabase-server";
 import { normalizeClaimPolicy } from "../../lib/claim-eligibility-policy";
@@ -7,7 +8,9 @@ import {
   DEFAULT_CLAIM_POLICY_V1,
   type ClaimGroupingPolicy,
   type ClaimHoldPolicyFlag,
+  type ClaimModuleDomain,
   type ClaimPolicyV1,
+  type EnabledClaimDomains,
 } from "../../lib/claim-policy-types";
 
 export type ClaimPolicyPatch = {
@@ -16,11 +19,25 @@ export type ClaimPolicyPatch = {
   claim_eligibility_window_days?: number;
   claim_grouping_policy?: ClaimGroupingPolicy;
   hold_until_package_closed?: boolean;
+  enabled_claim_domains?: Partial<EnabledClaimDomains>;
 };
 
 function emptyDateToNull(v: string | null | undefined): string | null {
   const s = String(v ?? "").trim();
   return s || null;
+}
+
+function mergeEnabledDomains(
+  current: EnabledClaimDomains,
+  patch?: Partial<EnabledClaimDomains>,
+): EnabledClaimDomains {
+  if (!patch) return current;
+  const next = { ...current };
+  for (const key of Object.keys(patch) as ClaimModuleDomain[]) {
+    if (patch[key] === true) next[key] = true;
+    else if (patch[key] === false) next[key] = false;
+  }
+  return next;
 }
 
 export async function getOrganizationClaimPolicy(
@@ -52,6 +69,16 @@ export async function saveOrganizationClaimPolicy(
   tenant?: TenantWriteContext | null,
 ): Promise<{ ok: boolean; error?: string; policy?: ClaimPolicyV1 }> {
   const companyId = await resolveTenantOrganizationId(tenant);
+  const actorId = tenant?.actorProfileId?.trim() ?? "";
+  if (actorId) {
+    const perm = await evaluateClaimPermissionForActor("claims.settings.manage", actorId, {
+      organizationId: companyId,
+    });
+    if (!perm.ok) {
+      return { ok: false, error: perm.message };
+    }
+  }
+
   try {
     const current = await getOrganizationClaimPolicy(tenant);
     const holdFlags = new Set(current.claim_hold_policy);
@@ -59,6 +86,19 @@ export async function saveOrganizationClaimPolicy(
       holdFlags.add("hold_until_package_closed");
     } else if (patch.hold_until_package_closed === false) {
       holdFlags.delete("hold_until_package_closed");
+    }
+
+    const domainPatch = patch.enabled_claim_domains;
+    const mergedDomains = mergeEnabledDomains(current.enabled_claim_domains, domainPatch);
+    if (domainPatch) {
+      for (const key of Object.keys(domainPatch) as ClaimModuleDomain[]) {
+        if (domainPatch[key] === true && key !== "returns") {
+          return {
+            ok: false,
+            error: `${key} module scope cannot be enabled in phase 1 — only Returns is available.`,
+          };
+        }
+      }
     }
 
     const merged = normalizeClaimPolicy({
@@ -75,6 +115,7 @@ export async function saveOrganizationClaimPolicy(
         patch.claim_eligibility_window_days ?? current.claim_eligibility_window_days,
       claim_grouping_policy: patch.claim_grouping_policy ?? current.claim_grouping_policy,
       claim_hold_policy: [...holdFlags] as ClaimHoldPolicyFlag[],
+      enabled_claim_domains: mergedDomains,
     });
 
     const { data: existing } = await supabaseServer
