@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { resolveScannerProductIdentifiers } from "../lib/scanner-product-resolve";
 import { RETURN_ITEMS_TABLE } from "../app/returns/returns-constants";
-import { refFromSupabaseUrl } from "../lib/staging-project-ref";
+import { assertScriptReturnItemsWriteAllowed } from "../lib/script-return-items-write-guard";
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const AUDIT_ROOT = ".cursor/audit-reports/neda-scanner-expected-link-write-verify";
@@ -110,21 +110,36 @@ async function selectWithOptionalColumns(
 
 async function main(): Promise<void> {
   loadEnvLocal();
+  const writeGuard = assertScriptReturnItemsWriteAllowed();
   const outDir = join(process.cwd(), AUDIT_ROOT, RUN_ID);
   mkdirSync(outDir, { recursive: true });
 
-  const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const url = writeGuard.supabaseUrl;
   const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
-  const ref = refFromSupabaseUrl(url);
+  const ref = writeGuard.stagingRef;
 
-  if (!url || !key) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  }
-  if (ref !== STAGING_REF) {
-    throw new Error(`Ref mismatch. expected=${STAGING_REF} got=${ref ?? "missing"}`);
+  if (!key) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY.");
   }
 
   const sb = createClient(url, key, { auth: { persistSession: false } });
+  const fixturePackageId = writeGuard.testPackageId;
+
+  const { data: fixturePkg, error: fixturePkgErr } = await sb
+    .from("packages")
+    .select("id, organization_id, store_id, tracking_number, package_code")
+    .eq("id", fixturePackageId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (fixturePkgErr || !fixturePkg?.id) {
+    throw new Error(
+      `TEST_PACKAGE_ID fixture ${fixturePackageId} not found: ${fixturePkgErr?.message ?? "missing"}`,
+    );
+  }
+  const packageId = String(fixturePkg.id);
+  const fixtureOrg = String((fixturePkg as { organization_id?: string }).organization_id ?? "").trim();
+  const fixtureStore = String((fixturePkg as { store_id?: string }).store_id ?? "").trim();
+  const fixtureTn = String((fixturePkg as { tracking_number?: string | null }).tracking_number ?? "").trim();
 
   const epProbe = await selectWithOptionalColumns(
     sb,
@@ -156,10 +171,18 @@ async function main(): Promise<void> {
   let epQuery = sb
     .from("expected_packages")
     .select(epSelect)
+    .eq("organization_id", fixtureOrg)
+    .eq("store_id", fixtureStore)
     .gt("expected_scan_quantity", 0)
     .not("tracking_number", "is", null)
     .not("order_id", "is", null)
     .or("fnsku.not.is.null,sku.not.is.null");
+  const epHint = String(process.env.TEST_EXPECTED_PACKAGE_ID ?? "").trim();
+  if (epHint) {
+    epQuery = epQuery.eq("id", epHint);
+  } else if (fixtureTn) {
+    epQuery = epQuery.eq("tracking_number", fixtureTn);
+  }
   if (productPresenceClause) {
     epQuery = epQuery.or(productPresenceClause);
   }
@@ -169,22 +192,11 @@ async function main(): Promise<void> {
   const expected = (candidates?.[0] ?? null) as ExpectedRow | null;
   if (!expected) {
     throw new Error(
-      "No deterministic expected_packages row found with tracking/order, sku-or-fnsku, resolved product, expected_scan_quantity > 0.",
+      `No expected_packages row for TEST_PACKAGE_ID ${fixturePackageId} (set TEST_EXPECTED_PACKAGE_ID to override).`,
     );
   }
 
   const tn = String(expected.tracking_number ?? "").trim();
-  const { data: pkg } = await sb
-    .from("packages")
-    .select("id")
-    .eq("organization_id", expected.organization_id)
-    .eq("store_id", expected.store_id)
-    .eq("tracking_number", tn)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const packageId = String((pkg as { id?: string } | null)?.id ?? "").trim() || null;
 
   const expectedProductId = String(
     expected.expected_product_id ?? expected.resolved_product_id ?? expected.product_id ?? "",
