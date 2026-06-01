@@ -34,6 +34,8 @@ import { ProductDetailDrawer } from "./ProductDetailDrawer";
 import { ManualProductForm } from "./ManualProductForm";
 import { PimHelpNote } from "./PimHelpNote";
 import { PimCatalogEnrichmentJobPanel } from "./PimCatalogEnrichmentJobPanel";
+import { ProductDataUpdatePanel } from "./ProductDataUpdatePanel";
+import { buildProductDataUpdatePanelProps } from "./mapProductDataUpdatePanelProps";
 import { usePimCatalogEnrichmentJob } from "./usePimCatalogEnrichmentJob";
 import type { ProductEnrichmentJobUiStatus } from "@/lib/jobs/product-enrichment-job-status";
 import type { PimCatalogEnrichmentRequestBody } from "@/lib/pim-catalog-enrichment-batch-request";
@@ -768,6 +770,67 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     [browserLoopDev, enrichAdminDebug, enrichmentJob, oid, runEnrichmentBatches, storeId],
   );
 
+  const productDataUpdatePanelProps = useMemo(
+    () =>
+      buildProductDataUpdatePanelProps({
+        jobStatus: enrichmentJob.jobStatus,
+        jobRunning: enrichmentJob.jobRunning,
+        jobBusy: enrichmentJob.jobBusy,
+        jobErr: enrichmentJob.jobErr,
+        lastRunAt: enrichLastRunAt,
+        amazonSpConfigured,
+        storeReady: Boolean(oid && storeId),
+        hasFailedProducts: enrichRetryIds.length > 0,
+        onStartApply: () => {
+          if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
+          setJobPanelDismissed(false);
+          setEnrichDebugRows([]);
+          void runProductDataUpdate(
+            { organization_id: oid, store_id: storeId, include_enrichment_debug: enrichAdminDebug },
+            true,
+          );
+        },
+        onResume: () => {
+          if (!oid || !storeId) return;
+          setJobPanelDismissed(false);
+          void enrichmentJob.resumeBackendJob({
+            organization_id: oid,
+            store_id: storeId,
+            include_enrichment_debug: enrichAdminDebug,
+          });
+        },
+        onCancel: () => void enrichmentJob.cancelBackendJob(),
+        onRetryFailed: () => {
+          if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
+          setEnrichErr(null);
+          void runProductDataUpdate(
+            {
+              organization_id: oid,
+              store_id: storeId,
+              retry_failed_only: true,
+              product_ids: enrichRetryIds,
+              include_enrichment_debug: enrichAdminDebug,
+            },
+            false,
+          );
+        },
+        onRefreshStatus: () => {
+          if (enrichmentJob.jobId) void enrichmentJob.refreshJobStatus(enrichmentJob.jobId);
+        },
+      }),
+    [
+      amazonSpConfigured,
+      enrichAdminDebug,
+      enrichLastRunAt,
+      enrichRetryIds,
+      enrichmentJob,
+      oid,
+      productUpdateStarting,
+      runProductDataUpdate,
+      storeId,
+    ],
+  );
+
   const vendorOptions = useMemo(
     () => vendorsAgg.filter((v) => !isPimInvalidVendorCategoryLabel(v.name)).map((v) => ({ id: v.id, name: v.name })),
     [vendorsAgg],
@@ -882,6 +945,10 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
               </div>
             ))}
           </div>
+        ) : null}
+
+        {storeId ? (
+          <ProductDataUpdatePanel {...productDataUpdatePanelProps} />
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-muted/10 p-2">
