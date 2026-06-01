@@ -318,6 +318,22 @@ const BOX_INFO_BTN_DISCARD =
 const BOX_INFO_BTN_PRIMARY =
   "flex !h-11 min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-[#C8A96A]/55 bg-gradient-to-b from-[#525d6b] to-[#222830] px-3 py-2 text-[13px] font-semibold leading-tight text-[#faf6ed] shadow-none transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40";
 const glassCard = "scanner-page-glass-card";
+/** Item scan / slip cards — high-density warehouse typography (inline Tailwind; overrides globals.css leaks). */
+const SLIP_CARD_HEADING =
+  "operator-item-scan-product-link line-clamp-2 text-xs font-bold tracking-wide text-[#FAF6ED] no-underline hover:text-[#FAF6ED]";
+const SLIP_CARD_SUBTEXT = "text-[11px] leading-tight text-neutral-400";
+const SLIP_CARD_TECH_ID = "font-mono text-[10px] text-neutral-500";
+const SLIP_CARD_STATUS_BADGE =
+  "text-[9px] px-1 py-0.5 font-bold uppercase leading-none tracking-wide max-w-[6rem] truncate rounded";
+const SLIP_CARD_ROW =
+  "operator-item-scan-slip-row rounded-lg border border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)] px-2 py-1 shadow-none";
+const SLIP_CARD_ROW_ACTIVE = "border-[rgba(34,197,139,0.32)]";
+const SLIP_CARD_META_LINKAGE =
+  "[&_[data-linkage-chip]]:text-[9px] [&_[data-linkage-chip]]:px-1 [&_[data-linkage-chip]]:py-0.5 [&_[data-linkage-chip]]:font-bold [&_[data-linkage-chip]]:uppercase [&_[data-linkage-chip]]:leading-none [&_.truncate]:text-[11px] [&_.truncate]:leading-tight [&_.truncate]:text-neutral-400 [&_.truncate]:font-medium";
+const SLIP_CARD_SECTION =
+  "rounded-lg border border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)]";
+const SLIP_CARD_DIVIDER = "border-[rgba(185,194,204,0.12)]";
+const SLIP_CARD_DIVIDE_Y = "divide-[rgba(185,194,204,0.12)]";
 /** Gold accent links — reserved for navigation, not success states */
 const viewAllLinkClass = "operator-view-all-link text-[11px] font-bold";
 
@@ -901,8 +917,9 @@ function shipmentLineStatusLabel(row: Pick<VInventoryStatusRow, "total_expected"
  * Behavior:
  *   • Trigger button shows the current carrier (a known canonical name, the "Other / Not Listed"
  *     sentinel, or a placeholder when blank).
- *   • Clicking the trigger opens a popover with a search input and a filtered list. The filter
- *     matches against carrier name AND SCAC code, so typing "EX" finds "Estes (EXLA)".
+ *   • Clicking the trigger opens a popover with a touch-only carrier list (no soft keyboard).
+ *   • Optional search: operator taps "Search carrier" to reveal/focus the filter input.
+ *     The filter matches against carrier name AND SCAC code, so typing "EX" finds "Estes (EXLA)".
  *   • Picking a known carrier sets the value and closes the panel.
  *   • Picking "Other / Not Listed" closes the panel, sets the explicit-other flag, and lets the
  *     parent reveal a manual "Enter Carrier Name" input that writes back into the same value.
@@ -923,6 +940,8 @@ function CarrierCombobox(props: {
   disabled?: boolean;
   /** Optional trigger classes (defaults to compact glass row). */
   triggerClassName?: string;
+  /** After the panel closes, refocus the hidden wedge capture input (Zebra). */
+  onRequestScanFocus?: () => void;
 }) {
   const {
     triggerId,
@@ -933,9 +952,11 @@ function CarrierCombobox(props: {
     invalid = false,
     disabled = false,
     triggerClassName,
+    onRequestScanFocus,
   } = props;
 
   const [open, setOpen] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
   const [query, setQuery] = useState("");
   const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(
     null,
@@ -955,10 +976,21 @@ function CarrierCombobox(props: {
     });
   }, []);
 
+  const closePanel = useCallback(() => {
+    setOpen(false);
+    setSearchMode(false);
+    onRequestScanFocus?.();
+  }, [onRequestScanFocus]);
+
+  const enableCarrierSearch = useCallback(() => {
+    setSearchMode(true);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+  }, []);
+
   // Close panel if interaction becomes disabled while open.
   useEffect(() => {
-    if (disabled) setOpen(false);
-  }, [disabled]);
+    if (disabled && open) closePanel();
+  }, [disabled, open, closePanel]);
 
   // Close on outside click / Escape key.
   useEffect(() => {
@@ -968,13 +1000,10 @@ function CarrierCombobox(props: {
       if (!target) return;
       if (triggerRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
-      setOpen(false);
+      closePanel();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
+      if (e.key === "Escape") closePanel();
     };
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("touchstart", onPointerDown, { passive: true });
@@ -984,22 +1013,21 @@ function CarrierCombobox(props: {
       document.removeEventListener("touchstart", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, closePanel]);
 
-  // Reset query and auto-focus search when the panel opens.
+  // Reset query/search mode and sync panel position when the panel opens.
   useEffect(() => {
     if (!open) {
       setQuery("");
+      setSearchMode(false);
       setPanelPos(null);
       return;
     }
     syncPanelPosition();
-    const id = window.setTimeout(() => searchRef.current?.focus(), 60);
     const onReflow = () => syncPanelPosition();
     window.addEventListener("resize", onReflow);
     window.addEventListener("scroll", onReflow, true);
     return () => {
-      window.clearTimeout(id);
       window.removeEventListener("resize", onReflow);
       window.removeEventListener("scroll", onReflow, true);
     };
@@ -1032,7 +1060,8 @@ function CarrierCombobox(props: {
         disabled={disabled}
         onClick={() => {
           if (disabled) return;
-          setOpen((o) => !o);
+          if (open) closePanel();
+          else setOpen(true);
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -1058,7 +1087,7 @@ function CarrierCombobox(props: {
               <div
                 className="fixed inset-0 z-[198] cursor-default"
                 aria-hidden
-                onClick={() => setOpen(false)}
+                onClick={closePanel}
               />
               <div
                 ref={panelRef}
@@ -1075,35 +1104,48 @@ function CarrierCombobox(props: {
                   color: "var(--scanner-text, #f1f5f9)",
                 }}
               >
-            <div
-              className="flex items-center gap-1.5 border-b px-2.5 py-2"
-              style={{ borderColor: "var(--scanner-border, #243241)" }}
-            >
-              <Search className="h-3.5 w-3.5 shrink-0 opacity-60" strokeWidth={2.25} />
-              <input
-                ref={searchRef}
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search carrier or SCAC (e.g. EXLA)"
-                className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-50"
-                spellCheck={false}
-                autoComplete="off"
-              />
-              {query ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQuery("");
-                    searchRef.current?.focus();
-                  }}
-                  aria-label="Clear search"
-                  className="rounded-md p-0.5 opacity-60 hover:opacity-100"
-                >
-                  <X className="h-3 w-3" strokeWidth={2.5} />
-                </button>
-              ) : null}
-            </div>
+            {searchMode ? (
+              <div
+                className="flex items-center gap-1.5 border-b px-2.5 py-2"
+                style={{ borderColor: "var(--scanner-border, #243241)" }}
+              >
+                <Search className="h-3.5 w-3.5 shrink-0 opacity-60" strokeWidth={2.25} />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search carrier or SCAC (e.g. EXLA)"
+                  className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-50"
+                  spellCheck={false}
+                  autoComplete="off"
+                  inputMode="search"
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery("");
+                      searchRef.current?.focus();
+                    }}
+                    aria-label="Clear search"
+                    className="rounded-md p-0.5 opacity-60 hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" strokeWidth={2.5} />
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={enableCarrierSearch}
+                className="flex w-full items-center gap-1.5 border-b px-2.5 py-2 text-left text-[12px] font-semibold opacity-80 transition hover:bg-white/5 hover:opacity-100"
+                style={{ borderColor: "var(--scanner-border, #243241)" }}
+              >
+                <Search className="h-3.5 w-3.5 shrink-0 opacity-60" strokeWidth={2.25} />
+                <span>Search carrier</span>
+              </button>
+            )}
             <ul className="max-h-[min(50vh,320px)] list-none overflow-y-auto overscroll-contain py-1">
               {filteredKnown.length === 0 ? (
                 <li className="px-3 py-2 text-[12px] font-medium opacity-70" aria-live="polite">
@@ -1118,8 +1160,7 @@ function CarrierCombobox(props: {
                         type="button"
                         onClick={() => {
                           onPickKnown(entry.name);
-                          setOpen(false);
-                          triggerRef.current?.focus();
+                          closePanel();
                         }}
                         className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[12px] font-semibold transition hover:bg-white/5 ${
                           isSelected ? "bg-teal-500/10 text-teal-200" : ""
@@ -1152,7 +1193,7 @@ function CarrierCombobox(props: {
                   type="button"
                   onClick={() => {
                     onPickOther();
-                    setOpen(false);
+                    closePanel();
                   }}
                   className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[12px] font-semibold transition hover:bg-white/5 ${
                     otherSelected || (value !== "" && !isKnown)
@@ -1441,13 +1482,17 @@ function itemInspectionSlipCardStyle(vis: ReturnType<typeof itemInspectionSlipLi
   };
 }
 
+function itemScanSlipRowShellClass(active?: boolean): string {
+  return active ? `${SLIP_CARD_ROW} ${SLIP_CARD_ROW_ACTIVE}` : SLIP_CARD_ROW;
+}
+
 /** Compact status chip for item slip rows (all states show a visible label). */
 function slipCardStatusMark(vis: ReturnType<typeof itemInspectionSlipLinePresentation>) {
   const label = vis.label;
   if (label === "Awaiting") {
     return (
       <span
-        className="operator-item-scan-slip-status operator-item-scan-slip-status--awaiting max-w-[6rem] truncate rounded border px-1 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide"
+        className={`operator-item-scan-slip-status operator-item-scan-slip-status--awaiting border ${SLIP_CARD_STATUS_BADGE}`}
         style={{
           borderColor: "rgba(148,163,184,0.38)",
           backgroundColor: "rgba(30,41,59,0.45)",
@@ -1468,10 +1513,10 @@ function slipCardStatusMark(vis: ReturnType<typeof itemInspectionSlipLinePresent
           ? "text-red-300"
           : label === "OVER" || label === "UNEXPECTED"
             ? "text-amber-200"
-            : "text-slate-400";
+            : "text-neutral-500";
   return (
     <span
-      className={`operator-item-scan-slip-status max-w-[6rem] truncate text-[9px] font-bold uppercase tracking-wide ${tone}`}
+      className={`operator-item-scan-slip-status ${SLIP_CARD_STATUS_BADGE} ${tone}`}
       data-neda-qty={label}
       title={label}
     >
@@ -1554,15 +1599,14 @@ function ItemInspectionSlipSkeletonRows() {
       {[0, 1, 2].map((i) => (
         <div
           key={`slip-skel-${i}`}
-          className="animate-pulse rounded-xl border px-3 py-2.5"
-          style={{ borderColor: BORDER, backgroundColor: CARD_INNER }}
+          className={`animate-pulse ${SLIP_CARD_ROW}`}
           aria-hidden
         >
-          <div className="mb-2 h-3.5 w-3/4 rounded bg-slate-700/80" />
-          <div className="mb-1.5 h-2 w-1/2 rounded bg-slate-800/90" />
+          <div className="mb-1.5 h-3 w-3/4 rounded bg-slate-700/80" />
+          <div className="mb-1 h-2 w-1/2 rounded bg-slate-800/90" />
           <div className="flex justify-between gap-2">
             <div className="h-2 w-24 rounded bg-slate-800/90" />
-            <div className="h-4 w-14 rounded bg-slate-700/70" />
+            <div className="h-3 w-12 rounded bg-slate-700/70" />
           </div>
         </div>
       ))}
@@ -3231,10 +3275,7 @@ function ItemScanExpectationVarianceRow(props: {
 
   return (
     <div
-      className={
-        "operator-item-scan-slip-row rounded-xl border px-3 py-1.5 shadow-sm" +
-        (vis.matchedRing ? " ring-2 ring-emerald-400/65" : "")
-      }
+      className={itemScanSlipRowShellClass(vis.matchedRing)}
       data-neda-qty={vis.label}
       style={itemInspectionSlipCardStyle(vis)}
     >
@@ -3242,38 +3283,40 @@ function ItemScanExpectationVarianceRow(props: {
         <ProductLinkagePrimaryLink
           linkage={linkage}
           detailFrom="scan"
-          className="operator-item-scan-product-link line-clamp-2 text-sm font-medium leading-tight text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+          className={SLIP_CARD_HEADING}
           onClick={(e) => e.stopPropagation()}
         />
-        <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+        <div className={SLIP_CARD_META_LINKAGE}>
+          <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+        </div>
       </div>
-      <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
-        <p className="operator-item-scan-slip-row__meta min-w-0 flex-1 truncate font-mono text-[10px] leading-none">
-          <span className="operator-item-scan-slip-row__meta-label font-bold">SKU</span> {line.sku?.trim() ? line.sku.trim() : "—"}
-          <span className="operator-item-scan-slip-row__meta-sep mx-1">·</span>
-          <span className="operator-item-scan-slip-row__meta-label font-bold">FNSKU</span> {line.fnsku?.trim() ? line.fnsku.trim() : "—"}
+      <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+        <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+          SKU {line.sku?.trim() ? line.sku.trim() : "—"}
+          <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">·</span>
+          FNSKU {line.fnsku?.trim() ? line.fnsku.trim() : "—"}
           {line.disposition ? (
             <>
-              <span className="operator-item-scan-slip-row__meta-sep mx-1">·</span>
+              <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">·</span>
               <span className="operator-item-scan-slip-row__meta-disp">{line.disposition}</span>
             </>
           ) : null}
         </p>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           {slipCardStatusMark(vis)}
-          <span className="operator-item-scan-slip-row__qty whitespace-nowrap font-mono text-[10px] font-bold tabular-nums">
-            Exp <span className="operator-item-scan-slip-row__qty-exp">{line.expectedQty}</span>
+          <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+            Exp {line.expectedQty}
             <span className="operator-item-scan-slip-row__qty-sep mx-0.5">·</span>
-            Scn <span className="operator-item-scan-slip-row__qty-scn">{line.scannedQty}</span>
+            Scn {line.scannedQty}
             <span className="operator-item-scan-slip-row__qty-sep mx-0.5">·</span>
             Var{" "}
             <span
               className={
                 line.varianceQty > 0
-                  ? "operator-item-scan-slip-row__qty-var--over"
+                  ? "operator-item-scan-slip-row__qty-var--over text-amber-300"
                   : line.varianceQty < 0
-                    ? "operator-item-scan-slip-row__qty-var--under"
-                    : "operator-item-scan-slip-row__qty-var--neutral"
+                    ? "operator-item-scan-slip-row__qty-var--under text-red-300"
+                    : "operator-item-scan-slip-row__qty-var--neutral text-neutral-500"
               }
             >
               {varianceLabel}
@@ -4365,6 +4408,12 @@ function OperatorMobileScanPageContent() {
     if (manualEntryModeRef.current || manualOpen || !laserEnabled) return;
     window.setTimeout(() => focusScannerAggressive(), 0);
   }, [manualOpen, laserEnabled, focusScannerAggressive]);
+
+  useEffect(() => {
+    const onRequestScanFocus = () => scheduleFocusScanner();
+    window.addEventListener("operator-mobile:request-scan-focus", onRequestScanFocus);
+    return () => window.removeEventListener("operator-mobile:request-scan-focus", onRequestScanFocus);
+  }, [scheduleFocusScanner]);
 
   const showScanActionToast = useCallback((variant: ScanActionToastVariant, message: string) => {
     const text = message.trim();
@@ -12331,7 +12380,7 @@ function OperatorMobileScanPageContent() {
               <section
                 key={`identify-gate-results-${identifyGatePhase}-${identifyGateInventoryVisual}`}
                 data-gate-visual={identifyGateInventoryVisual}
-                className={`operator-shipment-entry-gate__results animate-scanner-results-enter relative z-0 mb-4 w-full max-w-full overflow-hidden rounded-[22px] border-2 px-6 py-6 sm:px-8 sm:py-7 ${glassCard}${
+                className={`operator-shipment-entry-gate__results animate-scanner-results-enter relative z-0 mb-4 w-full max-w-full overflow-hidden rounded-lg border px-4 py-4 sm:px-5 sm:py-5 border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)] ${glassCard}${
                   identifyGateGlowFlash ? " operator-shipment-entry-gate__results--glow-flash" : ""
                 }`}
               >
@@ -12345,7 +12394,7 @@ function OperatorMobileScanPageContent() {
                 <div className="absolute right-4 top-4 z-[2] flex items-center gap-1 sm:right-5 sm:top-5">
                   <span
                     data-gate-badge={identifyGateInventoryVisual}
-                    className="operator-shipment-entry-gate__status-badge inline-flex max-w-[10.5rem] items-center truncate rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow-sm sm:max-w-[12rem]"
+                    className={`operator-shipment-entry-gate__status-badge inline-flex max-w-[10.5rem] items-center truncate rounded-full border ${SLIP_CARD_STATUS_BADGE} sm:max-w-[12rem]`}
                     style={{
                       borderColor: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border,
                       backgroundColor: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].chipBg,
@@ -12366,8 +12415,7 @@ function OperatorMobileScanPageContent() {
                 <div className="relative z-[1] pr-1 pt-1 sm:pr-2">
                   {(identifyGatePhase === "matched" || identifyGatePhase === "new") && identifyGateEnteredCode.trim() ? (
                     <div
-                      className="operator-shipment-entry-gate__code-summary mb-5 rounded-xl border px-3.5 py-3 text-[12px] sm:px-4"
-                      style={{ borderColor: "rgba(148,163,184,0.25)", backgroundColor: "rgba(0,0,0,0.28)" }}
+                      className="operator-shipment-entry-gate__code-summary mb-4 rounded-lg border border-[rgba(185,194,204,0.16)] bg-[rgba(255,255,255,0.025)] px-2.5 py-2 text-[11px] sm:px-3"
                     >
                       {identifyGatePhase === "matched" && identifyGateMatchField ? (
                         <p className="font-semibold leading-snug text-white">
@@ -12520,7 +12568,7 @@ function OperatorMobileScanPageContent() {
                       <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                         Product resolution (expectation lines)
                       </p>
-                      <ul className="space-y-2 rounded-xl ring-1 ring-white/10 bg-black/20 px-3 py-2.5">
+                      <ul className={`space-y-1.5 rounded-lg px-2 py-1.5 ${SLIP_CARD_SECTION}`}>
                         {identifyGateExpectationLines.length > 0
                           ? identifyGateExpectationLines
                               .filter(
@@ -12532,20 +12580,22 @@ function OperatorMobileScanPageContent() {
                               .map((line) => (
                                 <li
                                   key={`ep-snap-${line.groupKey}`}
-                                  className="flex flex-col gap-1 border-b border-white/5 pb-2 last:border-b-0 last:pb-0"
+                                  className={`flex flex-col gap-0.5 border-b pb-1.5 last:border-b-0 last:pb-0 ${SLIP_CARD_DIVIDER}`}
                                 >
                                   <ProductLinkagePrimaryLink
                                     linkage={line.product_linkage}
                                     detailFrom="scan"
-                                    className="operator-shipment-entry-gate__product-link text-sm font-bold leading-tight underline underline-offset-2"
+                                    className={`operator-shipment-entry-gate__product-link ${SLIP_CARD_HEADING}`}
                                     onClick={(e) => e.stopPropagation()}
                                   />
-                                  <OperatorProductLinkageMeta
-                                    linkage={line.product_linkage}
-                                    linkResolvedProductId={false}
-                                    detailFrom="scan"
-                                  />
-                                  <span className="font-mono text-[10px] tabular-nums text-slate-500">
+                                  <div className={SLIP_CARD_META_LINKAGE}>
+                                    <OperatorProductLinkageMeta
+                                      linkage={line.product_linkage}
+                                      linkResolvedProductId={false}
+                                      detailFrom="scan"
+                                    />
+                                  </div>
+                                  <span className={`tabular-nums ${SLIP_CARD_TECH_ID}`}>
                                     Exp {line.expectedQty} · Scan {line.scannedQty}
                                   </span>
                                 </li>
@@ -12569,19 +12619,21 @@ function OperatorMobileScanPageContent() {
                                 return (
                                   <li
                                     key={`ep-res-${String((raw as { id?: string }).id ?? idx)}`}
-                                    className="flex flex-col gap-1 border-b border-white/5 pb-2 last:border-b-0 last:pb-0"
+                                    className={`flex flex-col gap-0.5 border-b pb-1.5 last:border-b-0 last:pb-0 ${SLIP_CARD_DIVIDER}`}
                                   >
                                     <ProductLinkagePrimaryLink
                                       linkage={linkage}
                                       detailFrom="scan"
-                                      className="operator-shipment-entry-gate__product-link text-sm font-bold leading-tight underline underline-offset-2"
+                                      className={`operator-shipment-entry-gate__product-link ${SLIP_CARD_HEADING}`}
                                       onClick={(e) => e.stopPropagation()}
                                     />
-                                    <OperatorProductLinkageMeta
-                                      linkage={linkage}
-                                      linkResolvedProductId={false}
-                                      detailFrom="scan"
-                                    />
+                                    <div className={SLIP_CARD_META_LINKAGE}>
+                                      <OperatorProductLinkageMeta
+                                        linkage={linkage}
+                                        linkResolvedProductId={false}
+                                        detailFrom="scan"
+                                      />
+                                    </div>
                                   </li>
                                 );
                               })}
@@ -12598,13 +12650,13 @@ function OperatorMobileScanPageContent() {
                           {identifyGateMatchField ? identifyGateMatchFieldUiLabel(identifyGateMatchField) : "tracking"}
                         </span>
                       </p>
-                      <div className="operator-shipment-entry-gate__line-items rounded-xl ring-1 ring-white/10">
-                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 border-b border-white/10 bg-black/25 px-2 py-1.5 text-[9px] font-black uppercase tracking-wide text-slate-500">
+                      <div className={`operator-shipment-entry-gate__line-items ${SLIP_CARD_SECTION}`}>
+                        <div className={`grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 border-b bg-transparent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-neutral-500 ${SLIP_CARD_DIVIDER}`}>
                           <span>Product</span>
                           <span className="text-right tabular-nums">Expected</span>
                           <span className="text-right tabular-nums">Scanned</span>
                         </div>
-                        <div className="grid gap-2 p-2">
+                        <div className="grid gap-1 p-1">
                           {identifyGateShipmentLines.map((row, idx) => {
                             const vis = shipmentLineStatusVisual(row);
                             const th = IDENTIFICATION_GATE_THEME[vis];
@@ -12629,7 +12681,7 @@ function OperatorMobileScanPageContent() {
                             return (
                               <div
                                 key={`${row.expected_package_id}-${idx}`}
-                                className="operator-shipment-entry-gate__line-item-card rounded-xl border p-2"
+                                className="operator-shipment-entry-gate__line-item-card rounded-md bg-[rgba(255,255,255,0.025)] p-1.5"
                               >
                                 <div className="flex min-w-0 items-start justify-between gap-2">
                                   <div
@@ -12640,21 +12692,21 @@ function OperatorMobileScanPageContent() {
                                     <ProductLinkagePrimaryLink
                                       linkage={lineLinkage}
                                       detailFrom="scan"
-                                      className="operator-shipment-entry-gate__product-link line-clamp-2 break-words text-xs font-semibold leading-tight underline underline-offset-2"
+                                      className={`operator-shipment-entry-gate__product-link line-clamp-2 break-words ${SLIP_CARD_HEADING}`}
                                       onClick={(e) => e.stopPropagation()}
                                     />
-                                    <div className="mt-1 max-w-full overflow-hidden text-[10px] font-medium leading-tight text-slate-400">
-                                      <span className="font-semibold text-slate-500">{primaryIdentifierLabel}</span>{" "}
-                                      <span className="break-words font-mono">{primaryIdentifier || "—"}</span>
+                                    <div className={`mt-0.5 max-w-full overflow-hidden leading-tight ${SLIP_CARD_TECH_ID}`}>
+                                      <span className="text-neutral-500">{primaryIdentifierLabel}</span>{" "}
+                                      <span className="break-words">{primaryIdentifier || "—"}</span>
                                       {secondaryIdentifier ? (
                                         <>
-                                          <span className="mx-1 text-slate-600">|</span>
-                                          <span className="font-semibold text-slate-500">{secondaryIdentifierLabel}</span>{" "}
-                                          <span className="break-words font-mono">{secondaryIdentifier}</span>
+                                          <span className="mx-1 text-neutral-600">|</span>
+                                          <span className="text-neutral-500">{secondaryIdentifierLabel}</span>{" "}
+                                          <span className="break-words">{secondaryIdentifier}</span>
                                         </>
                                       ) : null}
                                     </div>
-                                    <div className="[&_*]:text-[8px] [&_*]:leading-none">
+                                    <div className={SLIP_CARD_META_LINKAGE}>
                                       <OperatorProductLinkageMeta
                                         linkage={lineLinkage}
                                         linkResolvedProductId={false}
@@ -12664,7 +12716,7 @@ function OperatorMobileScanPageContent() {
                                   </div>
                                   <span
                                     data-line-status={vis}
-                                    className="operator-shipment-entry-gate__line-item-status-badge shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide ring-1"
+                                    className={`operator-shipment-entry-gate__line-item-status-badge shrink-0 rounded-full ${SLIP_CARD_STATUS_BADGE}`}
                                     style={{
                                       borderColor: th.border,
                                       backgroundColor: th.chipBg,
@@ -12674,16 +12726,16 @@ function OperatorMobileScanPageContent() {
                                     {shipmentLineStatusLabel(row)}
                                   </span>
                                 </div>
-                                <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                                  <div className="rounded-lg bg-white/[0.03] px-2 py-1">
+                                <div className={`mt-1 grid grid-cols-2 gap-1.5 uppercase tracking-wide ${SLIP_CARD_TECH_ID}`}>
+                                  <div className="px-1 py-0.5">
                                     Expected{" "}
-                                    <span className="float-right font-mono text-xs font-bold tabular-nums text-white">
+                                    <span className="float-right tabular-nums">
                                       {row.total_expected}
                                     </span>
                                   </div>
-                                  <div className="rounded-lg bg-white/[0.03] px-2 py-1">
+                                  <div className="px-1 py-0.5">
                                     Scanned{" "}
-                                    <span className="float-right font-mono text-xs font-bold tabular-nums text-white">
+                                    <span className="float-right tabular-nums">
                                       {row.total_scanned}
                                     </span>
                                   </div>
@@ -12926,6 +12978,7 @@ function OperatorMobileScanPageContent() {
                               commitPalletCarrierDraft("");
                             }
                           }}
+                          onRequestScanFocus={scheduleFocusScanner}
                         />
                         {palletCarrierOtherSelected ? (
                           <div className="relative z-50 mt-2">
@@ -13950,6 +14003,7 @@ function OperatorMobileScanPageContent() {
                               commitPalletCarrierDraft("");
                             }
                           }}
+                          onRequestScanFocus={scheduleFocusScanner}
                         />
                       )}
                     </div>
@@ -13989,6 +14043,7 @@ function OperatorMobileScanPageContent() {
                               commitPalletCarrierDraft("");
                             }
                           }}
+                          onRequestScanFocus={scheduleFocusScanner}
                         />
                       )}
                     </div>
@@ -14388,7 +14443,7 @@ function OperatorMobileScanPageContent() {
                         <>
                           <p className="operator-shipment-detected-heading mb-1.5 mt-3">Detected Items</p>
                       {boxSlipVisionLines.length > 0 ? (
-                        <div className="operator-shipment-detected-table-wrap rounded-md bg-[#f8f6f1] leading-snug dark:bg-[rgba(255,255,255,0.025)]">
+                        <div className={`operator-shipment-detected-table-wrap rounded-md leading-snug ${SLIP_CARD_SECTION}`}>
                           <table className="operator-shipment-detected-table border-collapse text-left">
                             <caption className="sr-only">
                               Line items from packing slip vision. FNSKU, UPC, description, and quantity are read-only.
@@ -14435,15 +14490,15 @@ function OperatorMobileScanPageContent() {
                                 return (
                                   <tr
                                     key={`slip-line-${i}`}
-                                    className="operator-shipment-detected-row cursor-default border-t"
+                                    className={`operator-shipment-detected-row cursor-default !rounded-md !border !border-[rgba(214,183,110,0.24)] !bg-[rgba(255,255,255,0.025)] !px-2 !py-1 !shadow-none border-t ${SLIP_CARD_DIVIDER}`}
                                   >
                                     <td className="operator-shipment-detected-td operator-shipment-detected-td-fnsku align-top">
-                                      <span className="operator-shipment-detected-cell-fnsku font-mono font-semibold leading-snug">
+                                      <span className={`operator-shipment-detected-cell-fnsku !font-mono !text-[10px] !font-normal !text-neutral-500 leading-snug`}>
                                         {fnskuTrim || "—"}
                                       </span>
                                     </td>
                                     <td className="operator-shipment-detected-td operator-shipment-detected-td-upc align-top">
-                                      <span className="operator-shipment-detected-cell-upc font-mono font-semibold leading-snug">
+                                      <span className={`operator-shipment-detected-cell-upc !font-mono !text-[10px] !font-normal !text-neutral-500 leading-snug`}>
                                         {upcTrim || "—"}
                                       </span>
                                     </td>
@@ -14451,22 +14506,24 @@ function OperatorMobileScanPageContent() {
                                       <ProductLinkagePrimaryLink
                                         linkage={linkage}
                                         detailFrom="scan"
-                                        className="operator-shipment-detected-cell-product font-medium leading-snug text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+                                        className={`operator-shipment-detected-cell-product !text-xs !font-bold !tracking-wide !text-[#FAF6ED] !no-underline hover:!text-[#FAF6ED]`}
                                       />
-                                      <OperatorProductLinkageMeta
-                                        linkage={linkage}
-                                        linkResolvedProductId={false}
-                                        detailFrom="scan"
-                                      />
+                                      <div className={SLIP_CARD_META_LINKAGE}>
+                                        <OperatorProductLinkageMeta
+                                          linkage={linkage}
+                                          linkResolvedProductId={false}
+                                          detailFrom="scan"
+                                        />
+                                      </div>
                                     </td>
                                     <td className="operator-shipment-detected-td operator-shipment-detected-td-desc operator-shipment-detected-td-description align-top">
-                                      <span className="operator-shipment-detected-cell-desc font-medium leading-snug text-zinc-400">
+                                      <span className={`operator-shipment-detected-cell-desc ${SLIP_CARD_SUBTEXT}`}>
                                         {descTrim || "—"}
                                       </span>
                                     </td>
                                     <td className="operator-shipment-detected-td operator-shipment-detected-td-qty align-top">
                                       <span
-                                        className="operator-shipment-qty-pill font-mono font-bold tabular-nums"
+                                        className={`operator-shipment-qty-pill !font-mono !text-[10px] !font-normal !text-neutral-500 !border-0 !bg-transparent !p-0 tabular-nums`}
                                         aria-label={`Line ${i + 1} quantity`}
                                       >
                                         {row.expected_qty}
@@ -14792,7 +14849,7 @@ function OperatorMobileScanPageContent() {
               ) : null}
 
             <section
-              className={`operator-item-scan-expected-panel mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border p-3 ${glassCard}`}
+              className={`operator-item-scan-expected-panel mb-0 flex min-h-0 flex-1 flex-col overflow-hidden p-2 ${SLIP_CARD_SECTION}`}
               style={itemScanContainerMatrixStyle}
             >
               <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-2">
@@ -14858,25 +14915,21 @@ function OperatorMobileScanPageContent() {
                       return (
                         <div
                           key="unexpected-package-items-ep"
-                          className={
-                            "operator-item-scan-slip-row rounded-xl border px-3 py-1.5 shadow-sm" +
-                            (vis.matchedRing ? " ring-2 ring-emerald-400/65" : "")
-                          }
+                          className={itemScanSlipRowShellClass(vis.matchedRing)}
                           data-neda-qty={vis.label}
                           style={itemInspectionSlipCardStyle(vis)}
                         >
-                          <p className="operator-item-scan-slip-row__title line-clamp-2 text-sm font-medium leading-tight">
+                          <p className={`operator-item-scan-slip-row__title line-clamp-2 ${SLIP_CARD_HEADING}`}>
                             Not on packing slip
                           </p>
-                          <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
-                            <p className="operator-item-scan-slip-row__meta min-w-0 flex-1 truncate text-[10px] leading-none">
+                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
                               No slip line match · {u} unit{u === 1 ? "" : "s"}
                             </p>
-                            <div className="flex shrink-0 items-center gap-1.5">
+                            <div className="flex shrink-0 items-center gap-1">
                               {slipCardStatusMark(vis)}
-                              <span className="operator-item-scan-slip-row__qty whitespace-nowrap font-mono text-[10px] font-bold tabular-nums">
-                                Qty <span>{u}</span>
-                                <span className="operator-item-scan-slip-row__qty-sep">/</span>0
+                              <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                Qty {u}/0
                               </span>
                             </div>
                           </div>
@@ -14887,7 +14940,7 @@ function OperatorMobileScanPageContent() {
                 ) : itemScanExpectedItemsRenderSource === "hydrated_return_items_only" ? (
                   packageItemHydratedRows.length > 0 ? (
                     <>
-                      <p className="operator-item-scan-empty-note mb-1 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold">
+                      <p className={`operator-item-scan-empty-note mb-1 rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
                         Scanned units (no packing slip lines on this box)
                       </p>
                       {packageItemHydratedRows.map((unit) => {
@@ -14897,30 +14950,32 @@ function OperatorMobileScanPageContent() {
                         return (
                           <div
                             key={unit.id}
-                            className="operator-item-scan-slip-row rounded-xl border px-3 py-1.5 shadow-sm"
+                            className={itemScanSlipRowShellClass(false)}
                             data-neda-qty={vis.label}
                             style={itemInspectionSlipCardStyle(vis)}
                           >
                             <ProductLinkagePrimaryLink
                               linkage={linkage}
                               detailFrom="scan"
-                              className="operator-item-scan-product-link line-clamp-2 text-sm font-medium leading-tight text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+                              className={SLIP_CARD_HEADING}
                             />
-                            <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
-                            <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
-                              <p className="operator-item-scan-slip-row__meta min-w-0 flex-1 truncate font-mono text-[10px] leading-none">
-                                <span className="operator-item-scan-slip-row__meta-label font-bold">Barcode</span> {bc}
+                            <div className={SLIP_CARD_META_LINKAGE}>
+                              <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+                            </div>
+                            <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                              <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+                                Barcode {bc}
                                 {unit.match_kind === "unexpected" ? (
                                   <>
-                                    <span className="operator-item-scan-slip-row__meta-sep mx-1">·</span>
-                                    <span className="operator-item-scan-slip-row__meta-warn">Off-slip</span>
+                                    <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">·</span>
+                                    <span className="operator-item-scan-slip-row__meta-warn text-amber-300">Off-slip</span>
                                   </>
                                 ) : null}
                               </p>
-                              <div className="flex shrink-0 items-center gap-1.5">
+                              <div className="flex shrink-0 items-center gap-1">
                                 {slipCardStatusMark(vis)}
-                                <span className="operator-item-scan-slip-row__qty whitespace-nowrap font-mono text-[10px] font-bold tabular-nums">
-                                  Qty <span>{Math.max(1, Math.floor(Number(unit.quantity ?? 1)))}</span>
+                                <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                  Qty {Math.max(1, Math.floor(Number(unit.quantity ?? 1)))}
                                 </span>
                               </div>
                             </div>
@@ -14929,7 +14984,7 @@ function OperatorMobileScanPageContent() {
                       })}
                     </>
                   ) : (
-                    <p className="operator-item-scan-empty-note rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold">
+                    <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
                       No slip lines yet — add a packing slip on BOX intake (Confirm &amp; Save) or wait for sync. Expected
                       shipment lines may still appear once expectations load.
                     </p>
@@ -14948,37 +15003,37 @@ function OperatorMobileScanPageContent() {
                       const linkage = slipRowProductLinkage(slip);
                       const upcLabel = slip.upc?.trim() ? slip.upc.trim() : "—";
                       const fnskuLabel = slip.fnsku?.trim() ? slip.fnsku.trim() : "—";
-                      const matchedRing = vis.matchedRing ? " ring-2 ring-emerald-400/65" : "";
+                      const matchedRing = vis.matchedRing;
                       return (
                         <div
                           key={cell.key}
-                          className={"operator-item-scan-slip-row rounded-xl border px-3 py-1.5 shadow-sm" + matchedRing}
+                          className={itemScanSlipRowShellClass(matchedRing)}
                           data-neda-qty={vis.label}
                           style={itemInspectionSlipCardStyle(vis)}
                         >
                           <ProductLinkagePrimaryLink
                             linkage={linkage}
                             detailFrom="scan"
-                            className="operator-item-scan-product-link line-clamp-2 text-sm font-medium leading-tight text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+                            className={SLIP_CARD_HEADING}
                           />
-                          <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
-                          <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
-                            <p className="operator-item-scan-slip-row__meta min-w-0 flex-1 truncate font-mono text-[10px] leading-none">
-                              <span className="operator-item-scan-slip-row__meta-label font-bold">UPC</span> {upcLabel}
-                              <span className="operator-item-scan-slip-row__meta-sep mx-1">·</span>
-                              <span className="operator-item-scan-slip-row__meta-label font-bold">FNSKU</span> {fnskuLabel}
+                          <div className={SLIP_CARD_META_LINKAGE}>
+                            <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+                          </div>
+                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+                              UPC {upcLabel}
+                              <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">·</span>
+                              FNSKU {fnskuLabel}
                             </p>
-                            <div className="flex shrink-0 items-center gap-1.5">
+                            <div className="flex shrink-0 items-center gap-1">
                               {slipCardStatusMark(vis)}
-                              <span className="operator-item-scan-slip-row__qty whitespace-nowrap font-mono text-[10px] font-bold tabular-nums">
-                                Qty <span>{cell.scanned}</span>
-                                <span className="operator-item-scan-slip-row__qty-sep">/</span>
-                                {cell.expected}
+                              <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                Qty {cell.scanned}/{cell.expected}
                               </span>
                             </div>
                           </div>
                           {cell.draftExtra > 0 ? (
-                            <p className="operator-item-scan-slip-row__draft mt-0.5 text-[9px] font-semibold">
+                            <p className={`operator-item-scan-slip-row__draft mt-0.5 ${SLIP_CARD_SUBTEXT}`}>
                               +{cell.draftExtra} staged (open draft)
                             </p>
                           ) : null}
@@ -14995,25 +15050,21 @@ function OperatorMobileScanPageContent() {
                       return (
                         <div
                           key="unexpected-package-items"
-                          className={
-                            "operator-item-scan-slip-row rounded-xl border px-3 py-1.5 shadow-sm" +
-                            (vis.matchedRing ? " ring-2 ring-emerald-400/65" : "")
-                          }
+                          className={itemScanSlipRowShellClass(vis.matchedRing)}
                           data-neda-qty={vis.label}
                           style={itemInspectionSlipCardStyle(vis)}
                         >
-                          <p className="operator-item-scan-slip-row__title line-clamp-2 text-sm font-medium leading-tight">
+                          <p className={`operator-item-scan-slip-row__title line-clamp-2 ${SLIP_CARD_HEADING}`}>
                             Not on packing slip
                           </p>
-                          <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
-                            <p className="operator-item-scan-slip-row__meta min-w-0 flex-1 truncate text-[10px] leading-none">
+                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
                               No slip line match · {u} unit{u === 1 ? "" : "s"}
                             </p>
-                            <div className="flex shrink-0 items-center gap-1.5">
+                            <div className="flex shrink-0 items-center gap-1">
                               {slipCardStatusMark(vis)}
-                              <span className="operator-item-scan-slip-row__qty whitespace-nowrap font-mono text-[10px] font-bold tabular-nums">
-                                Qty <span>{u}</span>
-                                <span className="operator-item-scan-slip-row__qty-sep">/</span>0
+                              <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                Qty {u}/0
                               </span>
                             </div>
                           </div>
@@ -15022,23 +15073,23 @@ function OperatorMobileScanPageContent() {
                     })() : null}
                   </>
                 ) : (
-                  <p className="operator-item-scan-empty-note rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold">
+                  <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
                     No expected item rows for this package (debug source: {itemScanExpectedItemsRenderSource}).
                   </p>
                 )}
                 {!directBox && parentIdentified && expectedPkgLines.length > 0 ? (
-                  <section className={`operator-item-scan-shipment-summary mt-3 rounded-xl border p-3 ${glassCard}`}>
-                    <h3 className="operator-item-scan-shipment-summary__title mb-1 text-[12px] font-bold">Shipment summary</h3>
-                    <ul className="operator-item-scan-shipment-summary__list divide-y">
+                  <section className={`operator-item-scan-shipment-summary mt-2 p-2 ${SLIP_CARD_SECTION}`}>
+                    <h3 className="operator-item-scan-shipment-summary__title mb-1 text-[11px] font-bold text-[#FAF6ED]">Shipment summary</h3>
+                    <ul className={`operator-item-scan-shipment-summary__list divide-y ${SLIP_CARD_DIVIDE_Y}`}>
                       {expectedPkgLines.slice(0, 8).map((line) => (
-                        <li key={line.groupKey} className="flex flex-col gap-0.5 py-1.5 text-[11px]">
+                        <li key={line.groupKey} className="flex flex-col gap-0.5 py-1 text-[11px]">
                           <div className="flex justify-between gap-2">
                             <ProductLinkagePrimaryLink
                               linkage={line.product_linkage}
                               detailFrom="scan"
-                              className="operator-item-scan-product-link min-w-0 truncate font-semibold text-sky-300 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-200"
+                              className={`${SLIP_CARD_HEADING} min-w-0 truncate`}
                             />
-                            <span className="operator-item-scan-shipment-summary__counts shrink-0 font-mono text-[10px] font-bold tabular-nums">
+                            <span className={`operator-item-scan-shipment-summary__counts shrink-0 tabular-nums ${SLIP_CARD_TECH_ID}`}>
                               Exp {line.expectedQty}
                               <span className="operator-item-scan-shipment-summary__counts-scn"> · Scn {line.scannedQty}</span>
                               <span className="operator-item-scan-shipment-summary__counts-var">
@@ -15047,7 +15098,9 @@ function OperatorMobileScanPageContent() {
                               </span>
                             </span>
                           </div>
-                          <OperatorProductLinkageMeta linkage={line.product_linkage} linkResolvedProductId={false} detailFrom="scan" />
+                          <div className={SLIP_CARD_META_LINKAGE}>
+                            <OperatorProductLinkageMeta linkage={line.product_linkage} linkResolvedProductId={false} detailFrom="scan" />
+                          </div>
                         </li>
                       ))}
                     </ul>

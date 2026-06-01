@@ -27,6 +27,10 @@ function normMarker(value: string | null | undefined): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
+export function isProductionSupabaseRef(ref: string | null | undefined): boolean {
+  return normMarker(ref) === RETURN_ITEMS_PRODUCTION_SUPABASE_REF;
+}
+
 function hasTestPrefix(value: string): boolean {
   return TEST_ITEM_NAME_PREFIXES.some((prefix) => value.startsWith(prefix));
 }
@@ -59,10 +63,10 @@ export function shouldExcludeReturnItemFromScannerCounts(fields: ReturnItemMarke
   return hasReturnItemTestDataMarker(fields);
 }
 
+/** Backward-compatible alias for existing call sites. */
+export const isTestReturnItemMarker = isReturnItemTestDataMarker;
+
 /** Drop script/parity marker rows from scanned-unit aggregates (defensive; does not affect inserts). */
 export function filterReturnItemsExcludingTestMarkers<T extends ReturnItemMarkerFields>(rows: T[]): T[] {
   return rows.filter((row) => !shouldExcludeReturnItemFromScannerCounts(row));
 }
-
-/** Backward-compatible alias for existing call sites. */
-export const isTestReturnItemMarker = isReturnItemTestDataMarker;
