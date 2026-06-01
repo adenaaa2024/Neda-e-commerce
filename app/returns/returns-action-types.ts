@@ -225,3 +225,35 @@ export type ReturnsAnalyticsPayload = {
   carrierBars: { name: string; count: number }[];
   operatorStats: { operator: string; count: number }[];
 };
+
+/** Command center KPIs + charts — consumed by `CommandCenterDashboard`. */
+export type CommandCenterSnapshot = {
+  returnsToday: number;
+  openPackageCount: number;
+  openPalletCount: number;
+  expectedItemsTotal: number;
+  scannedItemsTotal: number;
+  readyClaimsValueUsd: number;
+  missingEvidenceCount: number;
+  needsProductLinkCount: number;
+  returnsTrend7d: { date: string; count: number }[];
+  returnsTrend30d: { date: string; count: number }[];
+  productLinkage: { resolved: number; unresolved: number };
+  claimFunnel: { stage: string; count: number }[];
+  actionQueue: {
+    id: string;
+    kind: string;
+    title: string;
+    detail: string;
+    href?: string | null;
+    createdAt: string | null;
+  }[];
+  health: {
+    lastSyncAt: string | null;
+    lastProductUpdateAt: string | null;
+    apiAutomationStatus: string;
+    importErrorsCount: number;
+  };
+  claimsReadyToSend: number;
+  returnsEstimatedValueUsd: number;
+};
