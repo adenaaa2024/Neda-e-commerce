@@ -10,7 +10,6 @@ import {
 import {
   RETURN_ITEMS_PRODUCTION_SUPABASE_REF,
   RETURN_ITEMS_STAGING_SUPABASE_REF,
-  isProductionSupabaseRef,
 } from "@/lib/scanner/return-items-test-data-guard";
 import {
   assertStagingSupabaseUrl,
@@ -25,6 +24,10 @@ export type ScriptReturnItemsWriteGuardResult = {
   supabaseUrl: string;
   testPackageId: string;
 };
+
+function isProductionSupabaseRef(ref: string | null | undefined): boolean {
+  return String(ref ?? "").trim().toLowerCase() === RETURN_ITEMS_PRODUCTION_SUPABASE_REF;
+}
 
 function scriptStagingEnvOpen(): { ok: true } | { ok: false; reason: string } {
   const markers = [

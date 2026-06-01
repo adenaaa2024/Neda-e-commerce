@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
-import { isTestReturnItemMarker } from "@/lib/scanner/return-items-test-data-guard";
+import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
 import type {
   ProductLinkageDisplayContract,
   ProductsLookupClient,
@@ -109,7 +109,7 @@ function accumulateReturnItemScannedCounts(
   const byProductId = new Map<string, number>();
   for (const r of retRows ?? []) {
     if (
-      isTestReturnItemMarker({
+      shouldExcludeReturnItemFromScannerCounts({
         item_name: r.item_name,
         sku: r.sku,
         fnsku: r.fnsku,
