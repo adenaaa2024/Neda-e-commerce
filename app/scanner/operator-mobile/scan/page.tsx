@@ -169,7 +169,6 @@ import { OperatorCorrectionActionsPanel } from "@/app/scanner/operator-mobile/_c
 import { ScannerPhotoActionSheet } from "@/app/scanner/operator-mobile/_components/ScannerPhotoActionSheet";
 import { OperatorMoveBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorMoveBoxModal";
 import { OperatorVoidBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorVoidBoxModal";
-import { ScannerPhotoActionSheet } from "@/app/scanner/operator-mobile/_components/ScannerPhotoActionSheet";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
