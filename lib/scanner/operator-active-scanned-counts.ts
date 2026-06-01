@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import { fetchReturnItemsScannedCountsForTracking } from "@/lib/scanner/operator-tracking-expectations";
+import { isTestReturnItemMarker } from "@/lib/scanner/return-items-test-data-guard";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import {
   type InventoryViewMatchField,
@@ -113,7 +114,7 @@ export async function countActiveReturnItemsForIdentifierScan(
 
   const { data: items, error } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("id, package_id, notes")
+    .select("id, package_id, notes, item_name, sku, fnsku, product_identifier")
     .eq("organization_id", orgId)
     .eq("store_id", sid)
     .eq(field, v)
@@ -121,13 +122,25 @@ export async function countActiveReturnItemsForIdentifierScan(
   if (error) throw error;
   if (!items?.length) return 0;
 
+  const activeItems = items.filter(
+    (item) =>
+      !isTestReturnItemMarker({
+        item_name: (item as { item_name?: string | null }).item_name,
+        sku: (item as { sku?: string | null }).sku,
+        fnsku: (item as { fnsku?: string | null }).fnsku,
+        product_identifier: (item as { product_identifier?: string | null }).product_identifier,
+        notes: (item as { notes?: string | null }).notes,
+      }),
+  );
+  if (!activeItems.length) return 0;
+
   const activePackageIds = await loadActivePackageIdSet(
     supabase,
-    items.map((item) => String((item as { package_id?: string | null }).package_id ?? "")),
+    activeItems.map((item) => String((item as { package_id?: string | null }).package_id ?? "")),
   );
 
   let count = 0;
-  for (const item of items) {
+  for (const item of activeItems) {
     const pkgId = String((item as { package_id?: string | null }).package_id ?? "").trim();
     if (pkgId) {
       if (activePackageIds.has(pkgId)) count++;

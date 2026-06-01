@@ -36,6 +36,7 @@ import {
 } from "../../lib/scanner-product-resolve";
 import { syncSlipContentsResolverForPackage } from "../../lib/slip-contents-resolver-write";
 import { promoteScannerReturnItemToClaimStructures } from "../../lib/scanner-operator-claim-promote";
+import { assertReturnItemInsertNotTestDataInProduction } from "../../lib/scanner/return-items-test-data-guard";
 import {
   mapPackageWriteRow,
   mapPalletWriteRow,
@@ -990,6 +991,14 @@ export async function insertReturn(
     const normalizedFnsku = normalizeUpperIdentifier(payload.fnsku);
     const normalizedSku = normalizeFreeTextIdentifier(payload.sku);
     const normalizedProductIdentifier = normalizeBarcodeIdentifier(payload.product_identifier);
+
+    assertReturnItemInsertNotTestDataInProduction({
+      item_name: payload.item_name,
+      sku: normalizedSku,
+      fnsku: normalizedFnsku,
+      product_identifier: normalizedProductIdentifier,
+      notes: payload.notes,
+    });
 
     // Post-migration columns — only written once their migrations are applied
     if (normalizedAsin) insertRow.asin = normalizedAsin;

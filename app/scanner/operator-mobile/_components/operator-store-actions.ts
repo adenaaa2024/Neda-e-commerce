@@ -25,6 +25,7 @@ import {
   OPERATOR_MOBILE_VOID_BOX,
 } from "@/lib/operator-mobile-permissions";
 import { softDeleteShipmentEntryBaselineReturnItems } from "@/lib/scanner/operator-active-scanned-counts";
+import { isTestReturnItemMarker } from "@/lib/scanner/return-items-test-data-guard";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import { lookupShipmentEntryScanCode, type ShipmentEntryLookupResult } from "@/lib/scanner/shipment-entry-lookup";
 import {
@@ -1910,6 +1911,16 @@ export async function listOperatorPackageItemsForPackageAction(
   }
 
   const raw = Array.isArray(returnRes.data) ? returnRes.data : [];
+  const realReturnRows = raw.filter((r: unknown) => {
+    const row = r as Record<string, unknown>;
+    return !isTestReturnItemMarker({
+      item_name: typeof row.item_name === "string" ? row.item_name : null,
+      sku: typeof row.sku === "string" ? row.sku : null,
+      fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
+      product_identifier: typeof row.product_identifier === "string" ? row.product_identifier : null,
+      notes: typeof row.notes === "string" ? row.notes : null,
+    });
+  });
   const stubs: {
     id: string;
     slip_content_id: string | null;
@@ -1927,7 +1938,7 @@ export async function listOperatorPackageItemsForPackageAction(
     fnsku: string | null;
     sku: string | null;
     product_identifier: string | null;
-  }[] = raw.map((r: unknown) => {
+  }[] = realReturnRows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     const id = typeof row.id === "string" && isUuidString(row.id.trim()) ? row.id.trim() : "";
     const fnsku = typeof row.fnsku === "string" ? row.fnsku : null;
