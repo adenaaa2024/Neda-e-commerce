@@ -418,6 +418,12 @@ async function runBrowserItemScanProof(
     }
     routes.push(page.url());
 
+    for (let i = 0; i < 60; i++) {
+      const gateBody = await page.locator("body").innerText().catch(() => "");
+      if (!/Searching inventory status/i.test(gateBody)) break;
+      await page.waitForTimeout(500);
+    }
+
     await navigateToItemScan(page, api.package_code);
     await page.waitForTimeout(4000);
 

@@ -2387,6 +2387,34 @@ function epRowToSlipDescriptionForItemModal(row: Record<string, unknown>): strin
 
 type IdentifyGateEntity = "pallet" | "package" | "item" | "single_box";
 type IdentifyGatePhase = "idle" | "searching" | "matched" | "new";
+
+/** Cap Shipment Entry inventory view reads so the gate cannot spin indefinitely on slow staging. */
+const IDENTIFY_GATE_LOOKUP_TIMEOUT_MS = 22_000;
+
+async function withIdentifyGateLookupTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs = IDENTIFY_GATE_LOOKUP_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Inventory status lookup timed out after ${Math.round(timeoutMs / 1000)}s`,
+              ),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 type ShipmentEntryItemViewMatchField =
   | InventoryViewMatchField
   | "order_id"
@@ -3351,6 +3379,7 @@ function OperatorMobileScanPageContent() {
   /** Continue from Shipment Entry should land on Neda's modern Pallet workspace, never the legacy docs form. */
   const [modernPalletWorkspace, setModernPalletWorkspace] = useState(false);
   const [identifyGatePhase, setIdentifyGatePhase] = useState<IdentifyGatePhase>("idle");
+  const [identifyGateSlowHint, setIdentifyGateSlowHint] = useState<string | null>(null);
   const [identifyGateError, setIdentifyGateError] = useState<string | null>(null);
   const [identifyGateEnteredCode, setIdentifyGateEnteredCode] = useState("");
   const [identifyGateRows, setIdentifyGateRows] = useState<Record<string, unknown>[]>([]);
@@ -3994,6 +4023,7 @@ function OperatorMobileScanPageContent() {
       clearScanLine?: boolean;
     }) => {
       setIdentifyGateError(null);
+      setIdentifyGateSlowHint(null);
       setIdentifyGateEnteredCode(options?.enteredCode ?? "");
       setIdentifyGateRows([]);
       setIdentifyGateCanonicalTracking(null);
@@ -4224,23 +4254,33 @@ function OperatorMobileScanPageContent() {
         let gateLookup: Awaited<ReturnType<typeof lookupShipmentEntryScanCode>>;
         try {
           if (isSupabaseConfigured()) {
-            const gateRes = await lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed);
+            const gateRes = await withIdentifyGateLookupTimeout(
+              lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed),
+            );
             if (!gateRes.ok) {
               throw new Error(gateRes.error);
             }
             gateLookup = gateRes.lookup;
           } else {
-            gateLookup = await lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed);
+            gateLookup = await withIdentifyGateLookupTimeout(
+              lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed),
+            );
           }
         } catch (err) {
           console.warn("lookupShipmentEntryScanCode failed; inventory slice skipped.", err);
           const emptyAgg = aggregateInventoryStatus([]);
+          const timedOut = err instanceof Error && /timed out/i.test(err.message);
+          if (timedOut) {
+            setIdentifyGateSlowHint(
+              "Inventory status is slow or unavailable. You can continue with manual shipment entry below.",
+            );
+          }
           gateLookup = {
             normalized_code: trimmed,
             match_status: "not_found",
             entity_type: "unknown",
             entity_id: null,
-            status_label: "Lookup error",
+            status_label: timedOut ? "Lookup timed out" : "Lookup error",
             status_detail: err instanceof Error ? err.message : "Lookup failed",
             next_action: "show_not_found",
             inventory_rows: [],
@@ -4428,30 +4468,43 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateInventoryAgg(scopedAgg);
         setIdentifyGateInventoryVisual(scopedVis);
         setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
+        setIdentifyGateShipmentLines(shipmentLines);
+        setIdentifyGatePhase("matched");
+        if (!invRows.length && !shipmentLines.length && !scopedSafe.length) {
+          setIdentifyGateSlowHint(
+            (prev) =>
+              prev ??
+              "No inventory status rows for this code — continue with Shipment Entry or manual tracking.",
+          );
+        }
+        const viewNames = collectGateProductNamesFromLines(scopedSafe, shipmentLines);
+        setIdentifyGateBatchProductNames(viewNames);
         if (isSupabaseConfigured() && sessionStoreId) {
-          const viewNames = collectGateProductNamesFromLines(scopedSafe, shipmentLines);
           const productIds = collectGateResolvedProductIds(scopedSafe, shipmentLines);
           const missingIds = productIds.filter((id) => !viewNames.has(id));
           if (missingIds.length) {
-            const nameRes = await fetchGateProductNamesByIdsAction(orgId, missingIds);
-            if (nameRes.ok) {
-              const merged = new Map(viewNames);
-              for (const [id, nm] of Object.entries(nameRes.names)) {
-                if (id && nm.trim()) merged.set(id, nm.trim());
-              }
-              setIdentifyGateBatchProductNames(merged);
-            } else {
-              console.warn("fetchGateProductNamesByIdsAction failed", nameRes.error);
-              setIdentifyGateBatchProductNames(viewNames);
-            }
-          } else {
-            setIdentifyGateBatchProductNames(viewNames);
+            void withIdentifyGateLookupTimeout(
+              fetchGateProductNamesByIdsAction(orgId, missingIds),
+              12_000,
+            )
+              .then((nameRes) => {
+                if (!nameRes.ok) {
+                  console.warn("fetchGateProductNamesByIdsAction failed", nameRes.error);
+                  return;
+                }
+                setIdentifyGateBatchProductNames((prev) => {
+                  const merged = new Map(prev);
+                  for (const [id, nm] of Object.entries(nameRes.names)) {
+                    if (id && nm.trim()) merged.set(id, nm.trim());
+                  }
+                  return merged;
+                });
+              })
+              .catch((err) => {
+                console.warn("fetchGateProductNamesByIdsAction failed", err);
+              });
           }
-        } else {
-          setIdentifyGateBatchProductNames(new Map());
         }
-        setIdentifyGateShipmentLines(shipmentLines);
-        setIdentifyGatePhase("matched");
         playOperatorSuccessBeep();
         setIdentifyGateGlowFlash(true);
       } catch (e) {
@@ -5450,13 +5503,27 @@ function OperatorMobileScanPageContent() {
   useEffect(() => {
     const raw = searchParams.get("code") ?? searchParams.get("q");
     if (!raw?.trim()) return;
+    if (operatorStoresLoading) return;
+    if (isSupabaseConfigured() && !sessionStoreId) return;
     const code = raw.trim();
     setScanLine(code);
     router.replace(pathname, { scroll: false });
     queueMicrotask(() => {
       void runIdentificationGateSearchRef.current(code);
     });
-  }, [searchParams, pathname, router]);
+  }, [searchParams, pathname, router, operatorStoresLoading, sessionStoreId]);
+
+  useEffect(() => {
+    if (identifyGatePhase !== "searching") return;
+    const t = window.setTimeout(() => {
+      setIdentifyGateSlowHint((prev) =>
+        prev?.startsWith("Loading saved")
+          ? prev
+          : "Still checking inventory status… You can use Manual Entry if this takes too long.",
+      );
+    }, 8_000);
+    return () => window.clearTimeout(t);
+  }, [identifyGatePhase]);
 
   const capturePalletEvidenceBaseline = useCallback(() => {
     const o = evidenceBaselineRef.current;
@@ -7627,14 +7694,20 @@ function OperatorMobileScanPageContent() {
             return "wrong_store";
           }
           if (byId.pallet) {
+            setIdentifyGatePhase("idle");
+            setIdentifyGateSlowHint("Loading saved shipment…");
             setIntakeToast("Saved package found — loading pallet shipment...");
             await resumeWorkflowFromExistingPalletRow(byId.pallet, primary, { packageRow: row });
+            setIdentifyGateSlowHint(null);
             return "resumed";
           }
         }
 
+        setIdentifyGatePhase("idle");
+        setIdentifyGateSlowHint("Loading saved box…");
         setIntakeToast("Saved direct box found — loading details...");
         await resumeWorkflowFromExistingDirectBoxPackage(row, primary);
+        setIdentifyGateSlowHint(null);
         return "resumed";
       }
 
@@ -7682,8 +7755,11 @@ function OperatorMobileScanPageContent() {
           return "wrong_store";
         }
         if (dupRes.pallet) {
+          setIdentifyGatePhase("idle");
+          setIdentifyGateSlowHint("Loading saved shipment…");
           setIntakeToast("Pallet found — loading details...");
           await resumeWorkflowFromExistingPalletRow(dupRes.pallet, trimmed);
+          setIdentifyGateSlowHint(null);
           return "resumed";
         }
       }
@@ -7702,8 +7778,11 @@ function OperatorMobileScanPageContent() {
           return "wrong_store";
         }
         if (byId.pallet) {
+          setIdentifyGatePhase("idle");
+          setIdentifyGateSlowHint("Loading saved shipment…");
           setIntakeToast("Pallet found — loading details...");
           await resumeWorkflowFromExistingPalletRow(byId.pallet, trimmed);
+          setIdentifyGateSlowHint(null);
           return "resumed";
         }
       }
@@ -7760,13 +7839,19 @@ function OperatorMobileScanPageContent() {
             return "wrong_store";
           }
           if (byId.pallet) {
+            setIdentifyGatePhase("idle");
+            setIdentifyGateSlowHint("Loading saved shipment…");
             setIntakeToast("Pallet shipment found — loading details...");
             await resumeWorkflowFromExistingPalletRow(byId.pallet, trimmed, { packageRow: pkgRow });
+            setIdentifyGateSlowHint(null);
             return "resumed";
           }
         } else {
+          setIdentifyGatePhase("idle");
+          setIdentifyGateSlowHint("Loading saved box…");
           setIntakeToast("Direct box found — loading details...");
           await resumeWorkflowFromExistingDirectBoxPackage(pkgRow, trimmed);
+          setIdentifyGateSlowHint(null);
           return "resumed";
         }
       }
@@ -11473,6 +11558,25 @@ function OperatorMobileScanPageContent() {
                 <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold" style={{ color: "#B9C2CC" }}>
                   <Loader2 className="operator-shipment-entry-gate__searching-spinner h-5 w-5 animate-spin" strokeWidth={2} />
                   Searching inventory status…
+                </p>
+              ) : identifyGateSlowHint && busy ? (
+                <p
+                  className="mt-4 rounded-xl border px-3 py-2 text-center text-[12px] font-semibold leading-snug"
+                  style={{
+                    borderColor: "rgba(214,183,110,0.35)",
+                    backgroundColor: "rgba(214,183,110,0.08)",
+                    color: "#e8dcc0",
+                  }}
+                >
+                  {identifyGateSlowHint}
+                </p>
+              ) : null}
+              {identifyGateSlowHint && identifyGatePhase !== "searching" && !busy ? (
+                <p
+                  className="mt-3 rounded-xl border px-3 py-2 text-center text-[11px] font-semibold leading-snug text-[#524018] dark:text-[#f1d58a]"
+                  style={{ borderColor: "rgba(138,104,31,0.35)", backgroundColor: "rgba(138,104,31,0.08)" }}
+                >
+                  {identifyGateSlowHint}
                 </p>
               ) : null}
               {identifyGateError ? <OperatorCrossStoreScopeBanner message={identifyGateError} className="mt-3" /> : null}
