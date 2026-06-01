@@ -30,7 +30,11 @@ import {
   RETURN_LIST_SELECT,
   RETURN_SELECT,
 } from "./returns-constants";
-import { applyExcludeBulkOrphanReturnItemsFilter } from "@/lib/return-item-physical-scan";
+import {
+  applyExcludeBulkOrphanReturnItemsFilter,
+  isSyntheticBulkOrphanInsertBlocked,
+  SYNTHETIC_BULK_ORPHAN_INSERT_ERROR,
+} from "@/lib/return-item-physical-scan";
 import {
   enrichExpectedItemsProductResolution,
   resolveScannerProductIdentifiers,
@@ -1132,6 +1136,11 @@ export async function insertReturn(
     const effectiveAmazonOrderId =
       (amazonOrderFromPayload || orderFromPackage || "").trim() || null;
 
+    const createdBy =
+      uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ??
+      resolveActorUserId(payload.created_by);
+    const expectedItemFk = uuidFkOrNull(payload.expected_item_id ?? null, "expected_item_id");
+
     const insertRow: Record<string, unknown> = {
       organization_id: orgId,
       lpn:             payload.lpn?.trim() || null,
@@ -1146,7 +1155,7 @@ export async function insertReturn(
       pallet_id:       effectivePalletId,
       package_id:      packageIdFk,
       status,
-      created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
+      created_by:      createdBy,
       store_id:        resolvedStoreId,
     };
     const normalizedAsin = normalizeUpperIdentifier(payload.asin);
@@ -1161,7 +1170,6 @@ export async function insertReturn(
     if (normalizedProductIdentifier) insertRow.product_identifier = normalizedProductIdentifier;
     if (effectiveAmazonOrderId) insertRow.order_id = String(effectiveAmazonOrderId);
 
-    const expectedItemFk = uuidFkOrNull(payload.expected_item_id ?? null, "expected_item_id");
     if (expectedItemFk) insertRow.expected_item_id = expectedItemFk;
 
     const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
@@ -1177,6 +1185,17 @@ export async function insertReturn(
     insertRow.resolved_catalog_product_id = resCols.resolved_catalog_product_id;
     insertRow.identifier_resolution_status = resCols.identifier_resolution_status;
     insertRow.identifier_resolution_confidence = resCols.identifier_resolution_confidence;
+
+    if (
+      isSyntheticBulkOrphanInsertBlocked({
+        package_id: packageIdFk,
+        pallet_id: effectivePalletId,
+        expected_item_id: expectedItemFk,
+        created_by: createdBy,
+      })
+    ) {
+      throw new Error(SYNTHETIC_BULK_ORPHAN_INSERT_ERROR);
+    }
 
     const { data, error } = await supabaseServer.from(RETURN_ITEMS_TABLE)
       .insert(insertRow).select(RETURN_SELECT).single();

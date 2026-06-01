@@ -3,6 +3,11 @@
  * Refuses production Supabase and requires explicit non-production env markers.
  */
 import {
+  type ReturnItemInsertGuardRow,
+  isSyntheticBulkOrphanInsertBlocked,
+  SYNTHETIC_BULK_ORPHAN_INSERT_ERROR,
+} from "@/lib/return-item-physical-scan";
+import {
   RETURN_ITEMS_PRODUCTION_SUPABASE_REF,
   RETURN_ITEMS_STAGING_SUPABASE_REF,
 } from "@/lib/scanner/return-items-test-data-guard";
@@ -97,4 +102,13 @@ export function assertScriptReturnItemsWriteAllowed(options?: {
   }
 
   return { stagingRef: RETURN_ITEMS_STAGING_SUPABASE_REF, supabaseUrl, testPackageId };
+}
+
+/** Reject insert payloads that match the rogue bulk-orphan fingerprint before DB round-trip. */
+export function assertReturnItemsInsertNotSyntheticBulkOrphan(
+  row: ReturnItemInsertGuardRow,
+): void {
+  if (isSyntheticBulkOrphanInsertBlocked(row)) {
+    throw new Error(`BLOCKED: ${SYNTHETIC_BULK_ORPHAN_INSERT_ERROR}`);
+  }
 }

@@ -32,6 +32,8 @@
     "test:returns-manual-claim-grouping-phase1": "tsx scripts/test-returns-manual-claim-grouping-phase1.ts",
     "test:claim-draft-policy-gate": "tsx scripts/test-claim-draft-policy-gate.ts",
     "test:scanner-active-scan-counts-bulk-orphan-guard": "tsx scripts/test-scanner-active-scan-counts-bulk-orphan-guard.ts",
+    "test:return-items-synthetic-insert-guard": "tsx scripts/test-return-items-synthetic-insert-guard.ts",
+    "test:return-items-script-insert-guard": "tsx scripts/test-return-items-script-insert-guard.ts",
     "test:claim-reference-candidates": "tsx scripts/test-claim-reference-candidates.ts",
     "verify:trid-v170-staging": "tsx scripts/trid-v170-staging-validate.ts",
     "verify:claim-trid-read-path-v171": "tsx scripts/claim-trid-read-path-v171-smoke.ts",

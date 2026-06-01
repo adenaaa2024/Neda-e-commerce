@@ -23,6 +23,22 @@ export function isBulkOrphanReturnItemPattern(row: ReturnItemPhysicalAnchorRow):
   return !trimUuidLike(row.package_id) && !trimUuidLike(row.pallet_id);
 }
 
+export type ReturnItemInsertGuardRow = ReturnItemPhysicalAnchorRow & {
+  created_by?: string | null;
+};
+
+/**
+ * INSERT guard (DB trigger + app): block synthetic bulk-orphan materialization.
+ * Rogue pattern: expected_item_id set, no package/pallet, no operator created_by.
+ */
+export function isSyntheticBulkOrphanInsertBlocked(row: ReturnItemInsertGuardRow): boolean {
+  if (!isBulkOrphanReturnItemPattern(row)) return false;
+  return !trimUuidLike(row.created_by);
+}
+
+export const SYNTHETIC_BULK_ORPHAN_INSERT_ERROR =
+  "return_items_insert_blocked: expected_item_id requires package_id, pallet_id, or operator created_by";
+
 /** Documented SQL form for audits and raw queries (no runtime execution here). */
 export const BULK_ORPHAN_RETURN_ITEM_PREDICATE_SQL = `
   ri.expected_item_id IS NOT NULL
