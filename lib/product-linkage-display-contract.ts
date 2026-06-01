@@ -69,6 +69,7 @@ function linkageFieldsFromRow(row: Record<string, unknown>): ProductLinkageField
     resolved_catalog_product_id: str(row, "resolved_catalog_product_id"),
     identifier_resolution_status: str(row, "identifier_resolution_status"),
     identifier_resolution_confidence: num(row, "identifier_resolution_confidence"),
+    catalog_product_name: str(row, "catalog_product_name"),
   };
 }
 
@@ -82,8 +83,10 @@ export function mapRowToProductLinkageDisplayContract(
   const fields = linkageFieldsFromRow(row);
   const status = normalizeResolutionStatus(fields.identifier_resolution_status ?? null);
   const resolvedId = fields.resolved_product_id ?? null;
-  const productName = product ? pickProductRowDisplayName(product) : null;
-  const isResolved = status === "resolved" && !!resolvedId;
+  const productName =
+    (product ? pickProductRowDisplayName(product) : null) ??
+    str(row, "catalog_product_name");
+  const isResolved = !!resolvedId && status === "resolved";
 
   return {
     source_row_id,

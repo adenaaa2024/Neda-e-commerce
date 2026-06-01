@@ -78,9 +78,10 @@ claim_lines → return_items (after issue/evidence/cutoff)
 
 | Item | Status |
 |------|--------|
-| Returns claims work queue | **UNSAFE** until **physical-anchor gate** (`package_id IS NOT NULL`) patched |
+| Returns-first policy (staging) | **CONFIGURED** — domains, dates, window, evidence/hold |
+| Draft E2E | **BLOCKED** — closed package + evidence/note required |
 | `CLAIM_SCANNER_AUTO_PROMOTE_ENABLED` | **off** |
-| Merge / deploy / original apply | **NO** — feature-branch commit only; no merge to main yet |
+| Merge / deploy / original apply | **NO** until Phase1 final QA gate |
 
 ---
 

@@ -1,6 +1,7 @@
 "use server";
 
-import { loadClaimPolicy } from "../../lib/claim-eligibility-policy";
+import { loadClaimPolicy, normalizeClaimPolicy } from "../../lib/claim-eligibility-policy";
+import type { ClaimPolicyV1 } from "../../lib/claim-policy-types";
 import { isClaimModuleDomainEnabled } from "../../lib/claim-module-scope";
 import {
   buildReturnsClaimQueueRow,
@@ -58,8 +59,12 @@ export type ListReturnsClaimsWorkQueueResult = {
   policy_summary: {
     scan_go_live_date: string | null;
     claim_start_date: string | null;
+    claim_eligibility_window_days: number;
     returns_enabled: boolean;
+    allow_manual_override: boolean;
   };
+  /** Full policy for client-side draft gate (serialized). */
+  claim_policy: ClaimPolicyV1;
   stats: {
     scanned_return_items: number;
     claimable_conditions_count: number;
@@ -110,15 +115,17 @@ export async function listReturnsClaimsWorkQueue(
     const policy_summary = {
       scan_go_live_date: policy.scan_go_live_date,
       claim_start_date: policy.claim_start_date,
+      claim_eligibility_window_days: policy.claim_eligibility_window_days,
       returns_enabled: returnsEnabled,
+      allow_manual_override: policy.allow_manual_override === true,
     };
-
     if (!returnsEnabled) {
       return {
         ok: true,
         rows: [],
         returns_domain_enabled: false,
         policy_summary,
+        claim_policy: policy,
         stats: emptyStats,
       };
     }
@@ -157,6 +164,7 @@ export async function listReturnsClaimsWorkQueue(
         rows: [],
         returns_domain_enabled: true,
         policy_summary,
+        claim_policy: policy,
         stats: {
           ...emptyStats,
           scanned_return_items: scanned.length,
@@ -215,6 +223,8 @@ export async function listReturnsClaimsWorkQueue(
         organization_id: r.organization_id,
         store_id: r.store_id,
         package_id: r.package_id,
+        pallet_id: r.pallet_id,
+        expected_item_id: r.expected_item_id,
         created_at: r.created_at,
         conditions: r.conditions,
         photo_evidence: r.photo_evidence,
@@ -264,6 +274,7 @@ export async function listReturnsClaimsWorkQueue(
       rows,
       returns_domain_enabled: true,
       policy_summary,
+      claim_policy: effectivePolicy,
       stats: {
         scanned_return_items: scanned.length,
         claimable_conditions_count: withClaimableConditions.length,
@@ -284,8 +295,11 @@ export async function listReturnsClaimsWorkQueue(
       policy_summary: {
         scan_go_live_date: null,
         claim_start_date: null,
+        claim_eligibility_window_days: 90,
         returns_enabled: false,
+        allow_manual_override: false,
       },
+      claim_policy: normalizeClaimPolicy(null),
       stats: emptyStats,
     };
   }

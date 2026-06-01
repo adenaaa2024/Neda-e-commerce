@@ -1,7 +1,7 @@
 # Product canonicalization — PC Phase 01
 
-**Branch:** `feature/phase1-latest-stash-land` @ `c78fbb8`  
-**Last updated:** 2026-06-13 (`product-core-protection-history-memory-update` `20260613T120000Z`)
+**Branch:** `feature/phase1-latest-stash-land` @ `999f765`  
+**Last updated:** 2026-06-16 (`phase1-pre-neda-merge-history-memory-sync` `20260616T120000Z`)
 
 ## Product Core protection
 
@@ -51,4 +51,25 @@ Staging + original slip/view parity **PASS** · staging true linkage **PASS**.
 
 ## Spine
 
-V192 contract · no title/OCR auto-create · map-only resolver paths.
+V192 contract · no title/OCR auto-create · map-only resolver paths · **do not redesign Product Core resolver** · **do not auto-create products except governed seed approvals** · **do not touch UniversalImporter file pipeline**.
+
+---
+
+## Vendor 1883 staging cleanup (2026-06-16)
+
+| Item | Status |
+|------|--------|
+| `products.vendor_name` exact `1883` → `1883 Maison Routin` | **COMPLETE** |
+| Remaining exact `vendor_name = 1883` | **0** |
+| Product Hub vendor warnings | **Generic/data-driven** — effective vendor label (`vendor_id` / `vendors.name` / cache); not 1883-specific |
+
+**SUPERSEDES:** V196 vendor 1883 plan-only memory.
+
+---
+
+## Product sheet sample wave (2026-06-16)
+
+| Item | Status |
+|------|--------|
+| Sample wave apply | **PASS** — **0 product creates** |
+| Broad import | **Still forbidden** — Phase F conflicts remain for full cohort |

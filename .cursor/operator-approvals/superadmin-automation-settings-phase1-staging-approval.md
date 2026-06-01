@@ -51,6 +51,8 @@ APPROVED_SUPERADMIN_AUTOMATION_SETTINGS_PHASE1_STAGING=true
 TARGET_SUPABASE_REF=eiqfaapyumhixxoeltgu
 ```
 
+Applied for staging verify: `SUPERADMIN-AUTOMATION-SETTINGS-STAGING-APPLY-VERIFY` (migration `20260903120000_platform_automation_settings.sql`).
+
 ## Deploy order
 
 1. Apply DDL on staging (this approval)

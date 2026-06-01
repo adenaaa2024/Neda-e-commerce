@@ -336,19 +336,16 @@ Evidence: `pc05-packaging-full-parity-verify/20260526T214000Z/` · `pc05c-packag
 
 ## 16. Next actions
 
-1. **INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION** — exclude deleted bulk/orphan RI pattern from inventory views; align `v_scanned_sum` with physical scans  
-2. **PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION** — resolve **3399** needs-review/conflicts before any apply  
-3. **PRODUCT-SHEET-IMPORT-MAX-25-SAMPLE-WAVE** — after Phase F: sample dry-run -> approval -> sample apply -> verify (max **25** rows)  
-4. **CLAIM-RETURNS-WORK-QUEUE-PHYSICAL-ANCHOR-GATE** — require `package_id IS NOT NULL` in queue + promote paths  
-5. **PRODUCT-ENRICHMENT-BACKEND-JOB-WAVES** — replace browser-loop update button with governed backend job  
+1. **PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE** — mandatory gate before any Neda merge  
+2. **CLAIMS-RETURNS-FIRST-DRAFT-E2E-CLOSED-PACKAGE-EVIDENCE** — returns policy configured; `expected_group` + `import_source` **blocked**; draft E2E needs closed package + evidence/note  
+3. **INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION** — view read-model alignment (non-blocking for core scanner demo)  
 
-**Architecture (CORRECTED):** `expected_packages` = API/removal/expected forecast; `return_items` = physical scanned units only; no bulk RI from expected/API/removal; no EP→RI product copy unless RI is proven physical scan  
-**Staging repair (2026-06-14):** hard-delete **5333** bulk/orphan RIs complete — active RI **33** (`active_with_package` **3**); spine unchanged (`products` **17033**, `expected_packages` **9459** / **9139** resolved, `product_identifier_map` **16811**); `v_scanned_sum` **3**  
-**Execution policy (mandatory):** census -> classify -> sample dry-run -> approval -> sample apply -> verify -> next wave  
-**Product Core:** protected backbone — do not rewrite/simplify/bypass; core changes require read-only audit + parity proof + risk report + operator approval  
-**Forbidden:** broad product import (**1700** blocked creates in dry-run); merge to main; cron apply; original DB changes without explicit approval  
+**Phase1 demo-ready (2026-06-17):** Automation API Center **COMPLETE** · Imports file-only **COMPLETE** · Product Core no auto-create **ENFORCED** · vendor 1883 cleanup **COMPLETE** (warning architecture generic/data-driven) · scanner physical-only RI + linkage **preserved** · delete/move/void backend parity **COMPLETE** on staging (restore-RPC wiring + original undo apply remain separate)  
+**Claims:** returns-first policy **configured** on staging; returns lane only — **expected_group** and **import_source** grains **blocked**  
+**Neda merge contract:** preserve scanner UX + Phase1 governed allocation/release rules; **no original DB DDL** without separate approval  
+**Merge:** **NO** until Phase1 final QA gate + operator approval  
 
-Sync: `.cursor/.ai-memory/SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md`, `CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `ROADMAP.md`, `FORBIDDEN_ACTIONS.md`, `HISTORY_POINTERS.md`
+Sync: `.cursor/.ai-memory/PHASE1_DEMO_READY.md`, `AUTOMATION_API_CENTER.md`, `CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `SCANNER_STATE.md`, `CLAIM_ARCHITECTURE.md`, `NEDA_HANDOFF.md`, `HISTORY_POINTERS.md`
 
 ---
 
@@ -356,6 +353,8 @@ Sync: `.cursor/.ai-memory/SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md`, `CURRENT_STAT
 
 | Run ID | Action | Notes |
 |--------|--------|-------|
+| `20260617T120000Z` | **PHASE1-DEMO-READY-HISTORY-MEMORY-SYNC** | Demo-ready checkpoint; delete/move/void parity complete staging; claims expected_group/import_source blocked; Neda merge contract locked |
+| `20260616T120000Z` | **PHASE1-PRE-NEDA-MERGE-HISTORY-MEMORY-SYNC** | Automation API Center UX locked; Imports file-only cutover; vendor 1883 cleanup; sample wave 0 creates; claims policy on staging; QA gate before Neda merge |
 | `20260614T120000Z` | **ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC** | Staging RI hard-delete complete; 5333 bulk/orphan removed; active RI 33 (3 with package); spine unchanged; P0 inventory views migration + Phase F |
 | `20260613T120000Z` | **PRODUCT-CORE-PROTECTION-HISTORY-MEMORY-UPDATE** | Product Core protected backbone; change gate; roadmap CLARIFIED 90-95% arch / 65-75% ops; Wave1 enrichment refactor SAFE |
 | `20260612T120000Z` | **PHASE1-ROADMAP-AND-HISTORY-MEMORY-UPDATE-AFTER-DRYRUNS** | Product sheet dry-run 4479 rows; linkage census Class A=2; execution policy locked; claims cutoff unconfigured |
@@ -229939,84 +229938,52 @@ Migration contents:
 - org/store alignment trigger:
   assert_user_store_assignment_org_matches_store()
 - updated_at trigger using public.set_updated_at()
-- RLS enabled
-- SELECT own assignment policy
-- FOR ALL tenant_admin/admin in same org policy
-- FOR ALL platform/super_admin/system_admin policy
-- grants:
-  authenticated SELECT + DML with RLS
-  service_role full DML
-- NOTIFY pgrst, 'reload schema' after COMMIT
-
-Locked FK decisions:
-- organization_id -> organizations(id) ON DELETE RESTRICT
-- profile_id -> profiles(id) ON DELETE CASCADE
-- store_id -> stores(id) ON DELETE RESTRICT
-
-Unresolved assumptions from result:
-- profiles.organization_id vs assignme
+- R
 ================================================================================
-APPEND SLICE — ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC (20260614T120000Z)
+APPEND SLICE — PHASE1-DEMO-READY-HISTORY-MEMORY-SYNC (20260617T120000Z)
 ================================================================================
 
-Run: ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC
-Branch: feature/phase1-latest-stash-land @ 9a5cda8
+Run: PHASE1-DEMO-READY-HISTORY-MEMORY-SYNC
+Branch: feature/phase1-latest-stash-land @ 999f765
 Mode: APPEND-ONLY HISTORY/MEMORY UPDATE
-No DB writes in this run. No code changes. No merge.
+No DB writes. No code changes. No merge.
 
-## Staging return_items repair (executed prior to this memory sync)
+## Phase1 demo-ready state (final checkpoint)
 
-- Staging return_items hard-delete completed
-- Invalid bulk/orphan cohort: 5333 rows removed
-- return_items total = 33
-- return_items active = 33
-- bulk_orphan = 0
-- active_with_package = 3
+### COMPLETE
+- Automation API Center
+- Imports file-only (UniversalImporter + history remain)
+- Product Core no auto-create enforced
+- Vendor 1883 staging cleanup (remaining vendor_name exact 1883 = 0)
+- Product Hub vendor warning architecture: generic/data-driven effective label
+- Scanner physical-only return_items + product linkage preserved
+- Delete/move/void backend parity COMPLETE on staging:
+  operatorDeleteReturnItem, voidOperatorIntakeBoxPackageAction,
+  moveOperatorIntakeBoxToPalletAction with release/move RPCs
 
-## Spine unchanged
+### Remaining blockers (non-demo vs merge)
+- INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION (view layer)
+- DELETE-VOID restore-RPC wiring to undo_snapshots (enhancement)
+- DELETE-CASCADE-UNDO original apply (separate approval)
+- CLAIMS-RETURNS-FIRST-DRAFT-E2E (closed package + evidence/note)
+- PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE
 
-- products = 17,033 unchanged
-- expected_packages = 9,459 unchanged; 9,139 resolved
-- product_identifier_map = 16,811 unchanged
-- v_scanned_sum = 3
+### Claims returns-first
+- Policy configured on staging
+- expected_group and import_source grains BLOCKED for returns-first queue
 
-## CORRECTED architecture (locked)
+### Neda merge contract
+- Must preserve scanner UX + Phase1 governed allocation/release rules
+- No original DB DDL without separate approval
 
-- expected_packages = API / removal / expected forecast
-- return_items = physical scanned units only
-- No bulk RI from expected / API / removal
-- No EP->RI product copy unless RI is proven physical scan
-- Product Core remains protected
+### Demo readiness: READY (core surfaces)
+### Merge readiness: NOT READY
 
-## P0 (ordered)
+Memory sync: PHASE1_DEMO_READY.md (NEW) + CURRENT_STATE, NEXT_ACTIONS, SCANNER_STATE,
+CLAIM_ARCHITECTURE, NEDA_HANDOFF, HISTORY_POINTERS, ROADMAP, etc.
 
-1. INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION
-2. PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION
-
-## Policy
-
-- Do not merge to main yet
-- Safe Git action: commit current repair state to feature branch only
-
-## Memory sync
-
-- .cursor/.ai-memory/CURRENT_STATE.md
-- .cursor/.ai-memory/NEXT_ACTIONS.md
-- .cursor/.ai-memory/HISTORY_POINTERS.md
-- .cursor/.ai-memory/SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md
-- .cursor/.ai-memory/EXPECTED_ALLOCATION_MODEL.md
-- .cursor/.ai-memory/FORBIDDEN_ACTIONS.md
-- .cursor/.ai-memory/SCANNER_STATE.md
-- .cursor/.ai-memory/ROADMAP.md
-
-Living sections updated: master history section 16 + section 17 row 20260614T120000Z.
-
-SUPERSEDES: 20260531T120000Z orphan RI pending state (~5333 rows) -> hard-delete COMPLETE.
-
-### Exact next prompt
-
-INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION
+Exact next prompt: PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE
 
 ================================================================================
-END APPEND SLICE — 20260614T120000Z
+END APPEND SLICE — 20260617T120000Z
 ================================================================================

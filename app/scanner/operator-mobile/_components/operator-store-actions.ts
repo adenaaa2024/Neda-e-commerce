@@ -25,6 +25,7 @@ import {
   OPERATOR_MOBILE_VOID_BOX,
 } from "@/lib/operator-mobile-permissions";
 import { softDeleteShipmentEntryBaselineReturnItems } from "@/lib/scanner/operator-active-scanned-counts";
+import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import { lookupShipmentEntryScanCode, type ShipmentEntryLookupResult } from "@/lib/scanner/shipment-entry-lookup";
 import {
@@ -39,6 +40,7 @@ import {
   fetchPackageReceiveContext,
   moveExpectedItemsForPackageScope,
   releaseExpectedItemsForPackage,
+  syncReturnItemsPalletForPackage,
 } from "@/lib/scanner/receive-expected-with-split";
 import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
 import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib/server-audit-actor";
@@ -756,7 +758,7 @@ export async function findOperatorPalletByIdAction(
 }
 
 const OPERATOR_SAVED_PACKAGE_RESUME_SELECT =
-  "id, package_code, tracking_number, pallet_id, slip_photo_urls, outside_photo_urls, inside_photo_urls, manifest_data, carrier_name, order_id, rma_number, notes, id_slip_contents, store_id";
+  "id, package_code, tracking_number, pallet_id, slip_photo_urls, outside_photo_urls, inside_photo_urls, manifest_data, carrier_name, order_id, rma_number, notes, id_slip_contents, expected_item_count, actual_item_count, store_id";
 
 export type OperatorSavedPackageResumeRow = {
   id: string;
@@ -772,6 +774,8 @@ export type OperatorSavedPackageResumeRow = {
   rma_number: string | null;
   notes: string | null;
   id_slip_contents: string | null;
+  expected_item_count?: number | null;
+  actual_item_count?: number | null;
   store_id: string | null;
 };
 
@@ -1912,6 +1916,16 @@ export async function listOperatorPackageItemsForPackageAction(
   }
 
   const raw = Array.isArray(returnRes.data) ? returnRes.data : [];
+  const realReturnRows = raw.filter((r: unknown) => {
+    const row = r as Record<string, unknown>;
+    return !shouldExcludeReturnItemFromScannerCounts({
+      item_name: typeof row.item_name === "string" ? row.item_name : null,
+      sku: typeof row.sku === "string" ? row.sku : null,
+      fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
+      product_identifier: typeof row.product_identifier === "string" ? row.product_identifier : null,
+      notes: typeof row.notes === "string" ? row.notes : null,
+    });
+  });
   const stubs: {
     id: string;
     slip_content_id: string | null;
@@ -1929,7 +1943,7 @@ export async function listOperatorPackageItemsForPackageAction(
     fnsku: string | null;
     sku: string | null;
     product_identifier: string | null;
-  }[] = raw.map((r: unknown) => {
+  }[] = realReturnRows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     const id = typeof row.id === "string" && isUuidString(row.id.trim()) ? row.id.trim() : "";
     const fnsku = typeof row.fnsku === "string" ? row.fnsku : null;
@@ -2108,6 +2122,17 @@ async function tryPromoteScannerClaimForReturnItem(
   }
 }
 
+/** Mirrors `operatorReceiveItem` rollback when expected allocation fails after insert. */
+async function rollbackOperatorPackageReturnItemsOnAllocationFailure(
+  returnItemIds: string[],
+): Promise<void> {
+  for (const id of returnItemIds) {
+    const rid = String(id ?? "").trim();
+    if (!isUuidString(rid)) continue;
+    await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", rid);
+  }
+}
+
 async function finalizeOperatorPackageItemLinkage(
   returnItemId: string,
   params: {
@@ -2118,9 +2143,9 @@ async function finalizeOperatorPackageItemLinkage(
     slipLinkage: SlipLinkageInheritRow | null;
     scanIds: { asin?: string | null; fnsku?: string | null; sku?: string | null; upc?: string | null };
   },
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const rid = String(returnItemId ?? "").trim();
-  if (!isUuidString(rid)) return;
+  if (!isUuidString(rid)) return { ok: true };
 
   await applyReturnItemProductEnrichmentAfterInsert(supabaseServer, {
     returnItemId: rid,
@@ -2161,9 +2186,10 @@ async function finalizeOperatorPackageItemLinkage(
       receiveScopeKey,
     });
     if (!alloc.ok) {
-      console.warn("[insertOperatorPackageItemAction] expected allocation skipped:", alloc.error);
+      return { ok: false, error: alloc.error };
     }
   }
+  return { ok: true };
 }
 
 export type PreviewOperatorItemBarcodeLinkageInput = {
@@ -2648,8 +2674,9 @@ export async function insertOperatorPackageItemAction(
   }
 
   const primaryId = ins.data.id;
+  const insertedIds: string[] = [primaryId];
 
-  await finalizeOperatorPackageItemLinkage(primaryId, {
+  const finalizePrimary = await finalizeOperatorPackageItemLinkage(primaryId, {
     organizationId,
     storeId: storeIdResolved,
     packageId: looseItem ? null : pkgId,
@@ -2662,6 +2689,10 @@ export async function insertOperatorPackageItemAction(
       upc: scanIds.upc ?? null,
     },
   });
+  if (!finalizePrimary.ok) {
+    await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
+    return { ok: false, message: finalizePrimary.error };
+  }
   await tryPromoteScannerClaimForReturnItem(primaryId, organizationId, sessionUserId);
 
   if (quantity > 1) {
@@ -2683,9 +2714,11 @@ export async function insertOperatorPackageItemAction(
         product_identifier: scanIds.upc?.slice(0, 500),
       });
       if (!extra.ok || !extra.data?.id) {
+        await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
         return { ok: false, message: extra.error ?? "Failed to save item scan." };
       }
-      await finalizeOperatorPackageItemLinkage(extra.data.id, {
+      insertedIds.push(extra.data.id);
+      const finalizeExtra = await finalizeOperatorPackageItemLinkage(extra.data.id, {
         organizationId,
         storeId: storeIdResolved,
         packageId: looseItem ? null : pkgId,
@@ -2698,6 +2731,10 @@ export async function insertOperatorPackageItemAction(
           upc: scanIds.upc ?? null,
         },
       });
+      if (!finalizeExtra.ok) {
+        await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
+        return { ok: false, message: finalizeExtra.error };
+      }
       await tryPromoteScannerClaimForReturnItem(extra.data.id, organizationId, sessionUserId);
     }
   }
@@ -2865,10 +2902,21 @@ export async function moveOperatorIntakeBoxToPalletAction(
       storeId: pkgStoreForScope,
       receiveScopeKey,
       trackingNumber: pkgCtx.trackingNumber,
+      palletId: targetPallet.id,
+      actorId: actor.userId && isUuidString(actor.userId) ? actor.userId : null,
     });
     if (!moveAlloc.ok) {
       return { ok: false, message: moveAlloc.error };
     }
+  }
+
+  const syncPallet = await syncReturnItemsPalletForPackage(supabaseServer, {
+    packageId,
+    organizationId,
+    palletId: targetPallet.id,
+  });
+  if (!syncPallet.ok) {
+    return { ok: false, message: syncPallet.error };
   }
 
   return {

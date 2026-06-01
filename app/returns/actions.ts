@@ -46,6 +46,8 @@ import {
   softVoidPalletWithExpectedRelease,
   softVoidReturnItemWithExpectedRelease,
 } from "../../lib/scanner/receive-expected-with-split";
+import { fetchProductNamesByResolvedIds } from "../../lib/scanner/product-linkage-display-contract";
+import { moveReturnItemParentV2 } from "../../lib/scanner/delete-cascade-v2-app";
 import {
   mapPackageWriteRow,
   mapPalletWriteRow,
@@ -111,6 +113,31 @@ function dedupeReturnsById(rows: unknown[] | null | undefined): ReturnRecord[] {
   const out = [...map.values()];
   out.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   return out;
+}
+
+/** Batch-hydrate catalog titles for linked return_items (Product Core read-only). */
+async function hydrateReturnRecordsCatalogNames(rows: ReturnRecord[]): Promise<ReturnRecord[]> {
+  if (!rows.length) return rows;
+  const productIds = [
+    ...new Set(
+      rows
+        .map((r) => r.resolved_product_id?.trim())
+        .filter((id): id is string => !!id && isUuidString(id)),
+    ),
+  ];
+  if (!productIds.length) return rows;
+
+  const nameById = await fetchProductNamesByResolvedIds(
+    supabaseServer as unknown as Parameters<typeof fetchProductNamesByResolvedIds>[0],
+    productIds,
+  );
+  return rows.map((r) => {
+    const pid = r.resolved_product_id?.trim();
+    if (!pid) return r;
+    const catalog_product_name = nameById.get(pid) ?? null;
+    if (!catalog_product_name) return r;
+    return { ...r, catalog_product_name };
+  });
 }
 
 /** Rejects invalid client values (e.g. mistyped default store id in localStorage). */
@@ -906,6 +933,8 @@ export async function updatePackage(
           storeId: storeIdForMove,
           receiveScopeKey,
           trackingNumber: pkgCtx.trackingNumber,
+          palletId: nextPallet,
+          actorId: actorProfileId ?? null,
         });
         if (!moveAlloc.ok) throw new Error(moveAlloc.error);
       }
@@ -983,7 +1012,8 @@ export async function listReturnsByPackage(
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     return { ok: false, data: [], error: err instanceof Error ? err.message : "Failed to load package items." };
   }
@@ -1325,6 +1355,57 @@ export async function updateReturn(
       patch.product_identifier = normalizeBarcodeIdentifier(updates.product_identifier);
     }
 
+    const prevPackageId = uuidOrNull(ex.package_id);
+    const prevPalletId = uuidOrNull(ex.pallet_id);
+    const finalNextPackageId =
+      "package_id" in patch ? uuidOrNull(patch.package_id as string) : prevPackageId;
+    const finalNextPalletId =
+      "pallet_id" in patch ? uuidOrNull(patch.pallet_id as string) : prevPalletId;
+    const clearingPackage =
+      "package_id" in updates && (updates.package_id === null || updates.package_id === "");
+    const parentChanged =
+      !clearingPackage &&
+      (finalNextPackageId !== prevPackageId ||
+        (finalNextPalletId !== prevPalletId &&
+          (finalNextPalletId !== null || prevPalletId !== null)));
+
+    if (parentChanged) {
+      const storeIdForMove =
+        updates.store_id !== undefined
+          ? updates.store_id === null || updates.store_id === ""
+            ? null
+            : uuidOrNull(String(updates.store_id).trim())
+          : uuidOrNull(ex.store_id);
+      if (!storeIdForMove || !isUuidString(storeIdForMove)) {
+        throw new Error("Store required to move return item parent.");
+      }
+
+      const targetPackageId = finalNextPackageId ?? prevPackageId;
+      const pkgCtx = await fetchPackageReceiveContext(supabaseServer, targetPackageId);
+      const receiveScopeKey = buildReceiveScopeKey({
+        organizationId: ex.organization_id,
+        storeId: storeIdForMove,
+        packageId: targetPackageId,
+        slipCode: pkgCtx.slipCode,
+      });
+
+      const moved = await moveReturnItemParentV2(supabaseServer, {
+        organizationId: ex.organization_id,
+        returnItemId: rid,
+        packageId: finalNextPackageId !== prevPackageId ? finalNextPackageId : undefined,
+        palletId: finalNextPalletId !== prevPalletId ? finalNextPalletId : undefined,
+        storeId: storeIdForMove,
+        receiveScopeKey,
+        trackingNumber: pkgCtx.trackingNumber,
+        actorId: actorProfileId ?? null,
+        reason: "app_update_return_parent",
+      });
+      if (!moved.ok) throw new Error(moved.error);
+
+      delete patch.package_id;
+      delete patch.pallet_id;
+    }
+
     const nextSku =
       updates.sku !== undefined ? normalizeFreeTextIdentifier(updates.sku) : ex.sku;
     const nextAsin =
@@ -1541,7 +1622,8 @@ export async function listClaimPipelineReturns(
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     return { ok: false, data: [], error: err instanceof Error ? err.message : "Failed to load claim pipeline items." };
   }
@@ -1561,7 +1643,8 @@ export async function listReturns(
       console.error("[listReturns] Supabase error:", error.message, "| code:", error.code, "| details:", error.details);
       throw new Error(error.message);
     }
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to load returns.";
     console.error("[listReturns] Caught error:", msg);
@@ -1580,7 +1663,8 @@ export async function listReturnsByPallet(
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     return { ok: false, data: [], error: err instanceof Error ? err.message : "Failed to load pallet items." };
   }

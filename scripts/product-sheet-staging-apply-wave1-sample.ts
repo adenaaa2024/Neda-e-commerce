@@ -2,6 +2,7 @@
  * PRODUCT-SHEET-STAGING-APPLY-WAVE1-SAMPLE
  *   npx tsx scripts/product-sheet-staging-apply-wave1-sample.ts --run-id=<UTC>
  *   npx tsx scripts/product-sheet-staging-apply-wave1-sample.ts --run-id=<UTC> --apply
+ *   npx tsx scripts/product-sheet-staging-apply-wave1-sample.ts --run-id=<UTC> --verify-only
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -186,6 +187,57 @@ async function tableCounts(client: pg.Client): Promise<Record<string, number>> {
   return r.rows[0] as Record<string, number>;
 }
 
+async function verifyPhaseFSlice(
+  client: pg.Client,
+  sampleSkus: string[],
+  mismatchQueuePath: string,
+): Promise<{ pass: boolean; checks: Record<string, unknown> }> {
+  const checks: Record<string, unknown> = {};
+  let mismatchSkus = new Set<string>();
+  if (fs.existsSync(mismatchQueuePath)) {
+    const q = parseCsv(fs.readFileSync(mismatchQueuePath, "utf8"));
+    mismatchSkus = new Set(q.map((r) => r.seller_sku).filter(Boolean));
+  }
+  const touchedMismatch = sampleSkus.filter((s) => mismatchSkus.has(s));
+  checks.no_class_a_mismatch_rows_touched = touchedMismatch.length === 0;
+  checks.touched_mismatch_skus = touchedMismatch;
+
+  const dupAsin = await client.query(
+    `
+    WITH sample AS (
+      SELECT unnest($1::text[]) AS seller_sku
+    ),
+    hits AS (
+      SELECT s.seller_sku, p.asin, COUNT(*)::int AS product_count
+      FROM sample s
+      JOIN public.product_identifier_map m
+        ON m.organization_id = $2::uuid
+       AND m.store_id = $3::uuid
+       AND m.deleted_at IS NULL
+       AND m.seller_sku = s.seller_sku
+      JOIN public.products p ON p.id = m.product_id
+      WHERE p.asin IS NOT NULL
+      GROUP BY s.seller_sku, p.asin
+    ),
+    asin_multi AS (
+      SELECT asin, COUNT(DISTINCT seller_sku)::int AS sku_count
+      FROM hits
+      GROUP BY asin
+      HAVING COUNT(DISTINCT seller_sku) > 1
+    )
+    SELECT COUNT(*)::int AS duplicate_asin_groups FROM asin_multi
+    `,
+    [sampleSkus, ORG, STORE],
+  );
+  checks.no_duplicate_asin_class_c_in_sample = Number(dupAsin.rows[0]?.duplicate_asin_groups ?? 0) === 0;
+  checks.duplicate_asin_groups = Number(dupAsin.rows[0]?.duplicate_asin_groups ?? 0);
+
+  const pass =
+    Boolean(checks.no_class_a_mismatch_rows_touched) &&
+    Boolean(checks.no_duplicate_asin_class_c_in_sample);
+  return { pass, checks };
+}
+
 async function verifySampleLinkage(
   client: pg.Client,
   sampleSkus: string[],
@@ -223,9 +275,17 @@ async function verifySampleLinkage(
   return { pass, rows };
 }
 
+function hasFlag(f: string): boolean {
+  return process.argv.includes(f);
+}
+
 async function main(): Promise<void> {
   const runId = runIdArg();
+  const verifyOnly = hasFlag("--verify-only");
   const apply = process.argv.includes("--apply");
+  if (verifyOnly && apply) {
+    throw new Error("Use either --verify-only or --apply, not both");
+  }
   const outDir = path.join(process.cwd(), OUT_BASE, runId);
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -468,12 +528,22 @@ async function main(): Promise<void> {
     return true;
   });
 
+  const updatableMapNullFills = mapPayload.filter((row) => {
+    if (!row.fnsku) return false;
+    const skuHit = existingSkuMaps.rows.find((r) => r.seller_sku === row.seller_sku);
+    if (!skuHit) return false;
+    if (String(skuHit.product_id) !== String(row.product_id)) return false;
+    if (skuHit.fnsku != null && String(skuHit.fnsku).trim() !== "") return false;
+    return true;
+  });
+
   const skippedExistingSkuMaps = mapPayload.filter((row) =>
     existingSkuMaps.rows.some((r) => r.seller_sku === row.seller_sku),
   );
 
   let nullFillApplied: Record<string, unknown>[] = [];
   let mapInserted: Record<string, unknown>[] = [];
+  let mapFnskuNullFill: Record<string, unknown>[] = [];
   let catalogApplied: { seller_sku: string; asin: string; catalog_id: string | null; action: string }[] = [];
 
   if (apply) {
@@ -576,6 +646,32 @@ async function main(): Promise<void> {
         mapInserted = ins.rows;
       }
 
+      for (const row of updatableMapNullFills) {
+        const before = existingSkuMaps.rows.find((r) => r.seller_sku === row.seller_sku);
+        if (!before) continue;
+        const upd = await client.query(
+          `UPDATE public.product_identifier_map
+           SET fnsku = $1, updated_at = now()
+           WHERE id = $2::uuid
+             AND organization_id = $3::uuid
+             AND store_id = $4::uuid
+             AND deleted_at IS NULL
+             AND fnsku IS NULL
+           RETURNING id::text, product_id::text, seller_sku, fnsku, external_listing_id`,
+          [row.fnsku, before.id, ORG, STORE],
+        );
+        if (upd.rowCount) {
+          mapFnskuNullFill.push({
+            map_id: before.id,
+            product_id: row.product_id,
+            seller_sku: row.seller_sku,
+            fnsku: row.fnsku,
+            before_fnsku: before.fnsku,
+            after: upd.rows[0],
+          });
+        }
+      }
+
       for (const row of catalogPlan) {
         const existed = catalogPre.rows.some(
           (r) => r.seller_sku === row.seller_sku && r.asin === row.sheet_asin,
@@ -617,6 +713,7 @@ async function main(): Promise<void> {
     SELECT external_listing_id, COUNT(*)::int AS c
     FROM public.product_identifier_map
     WHERE match_source = $1
+      AND external_listing_id IS NOT NULL
     GROUP BY external_listing_id
     HAVING COUNT(*) > 1
     `,
@@ -632,7 +729,10 @@ async function main(): Promise<void> {
   ];
   const sampleFnskus = [...new Set(mapPlan.map((r) => r.identifier_value))];
   const linkage = await verifySampleLinkage(client, sampleSkus, sampleFnskus);
+  const mismatchQueuePath = path.join(process.cwd(), PLAN_DIR, "identifier-mismatch-review-queue.csv");
+  const phaseFSlice = await verifyPhaseFSlice(client, sampleSkus, mismatchQueuePath);
 
+  const mapRowsApplied = mapInserted.length + mapFnskuNullFill.length;
   const productCountDelta = Number(afterCounts.products) - Number(beforeCounts.products);
   const verification = {
     before_after_counts: { before: beforeCounts, after: afterCounts },
@@ -640,20 +740,31 @@ async function main(): Promise<void> {
     canonical_id_stable: idStable || nullFillApplied.length === 0,
     no_duplicate_wave1_maps: duplicateMaps.rows.length === 0,
     sample_linkage_check: linkage,
+    phase_f_slice_recheck: phaseFSlice,
     rows_applied: {
       null_fill: nullFillApplied.length,
       map_inserts: mapInserted.length,
+      map_fnsku_null_fill: mapFnskuNullFill.length,
+      map_rows_applied: mapRowsApplied,
       catalog_upserts: catalogApplied.length,
       packaging: 0,
     },
     skipped_existing_maps: preExistingMaps.rows.length,
   };
-  const allPass =
-    apply &&
-    verification.product_count_unchanged &&
-    verification.canonical_id_stable &&
-    verification.no_duplicate_wave1_maps &&
-    linkage.pass;
+  const mapCsvRows = parseCsv(
+    fs.readFileSync(path.join(process.cwd(), PLAN_DIR, "sample-wave-map-inserts.csv"), "utf8"),
+  ).length;
+  const gatePass =
+    verification.no_duplicate_wave1_maps && linkage.pass && phaseFSlice.pass && blockers.length === 0;
+  const allPass = verifyOnly
+    ? gatePass && verification.product_count_unchanged
+    : apply &&
+      verification.product_count_unchanged &&
+      verification.canonical_id_stable &&
+      gatePass &&
+      catalogApplied.length === catalogPlan.length &&
+      mapRowsApplied === mapPlan.length &&
+      mapCsvRows <= MAX_MAP;
 
   await client.end();
 
@@ -674,6 +785,12 @@ async function main(): Promise<void> {
       `DELETE FROM public.product_identifier_map WHERE id IN (${mapInserted.map((r) => `${sqlLit(String(r.id))}::uuid`).join(", ")});`,
     );
   }
+  for (const row of mapFnskuNullFill) {
+    const beforeFnsku = (row as { before_fnsku: string | null }).before_fnsku;
+    rollbackLines.push(
+      `UPDATE public.product_identifier_map SET fnsku = ${beforeFnsku == null ? "NULL" : sqlLit(String(beforeFnsku))}, updated_at = now() WHERE id = ${sqlLit(String((row as { map_id: string }).map_id))}::uuid;`,
+    );
+  }
   for (const row of catalogApplied) {
     const pre = catalogPre.rows.find(
       (r) => r.seller_sku === row.seller_sku && r.asin === row.asin,
@@ -690,6 +807,7 @@ async function main(): Promise<void> {
 
   fs.writeFileSync(path.join(outDir, "null-fill-applied.json"), JSON.stringify(nullFillApplied, null, 2));
   fs.writeFileSync(path.join(outDir, "map-inserted.json"), JSON.stringify(mapInserted, null, 2));
+  fs.writeFileSync(path.join(outDir, "map-fnsku-null-fill.json"), JSON.stringify(mapFnskuNullFill, null, 2));
   fs.writeFileSync(
     path.join(outDir, "skipped-existing-seller-sku.json"),
     JSON.stringify(skippedExistingSkuMaps, null, 2),
@@ -707,10 +825,12 @@ async function main(): Promise<void> {
     [
       "# Product sheet staging apply wave1 sample",
       "",
-      `- Mode: **${apply ? "APPLY" : "DRY-RUN (pass --apply to write)"}**`,
+      `- Mode: **${verifyOnly ? "VERIFY-ONLY" : apply ? "APPLY" : "DRY-RUN (pass --apply to write)"}**`,
       `- Phase F plan: \`${PLAN_DIR}\``,
       `- Null-fill applied: **${nullFillApplied.length}** / ${nullFill.length}`,
-      `- Map inserts: **${mapInserted.length}** / ${mapPlan.length} (${preExistingMaps.rows.length} external_listing_id skipped, ${skippedExistingSkuMaps.length} seller_sku already mapped)`,
+      `- Map inserts: **${mapInserted.length}** / ${mapPlan.length}`,
+      `- Map FNSKU null-fill: **${mapFnskuNullFill.length}** / ${updatableMapNullFills.length} (existing seller_sku rows)`,
+      `- Map rows applied (insert + null-fill): **${mapRowsApplied}** / ${mapPlan.length}`,
       `- Catalog upserts: **${catalogApplied.length}** / ${catalogPlan.length}`,
       `- Packaging: **0** (no conflict-free sample rows)`,
       "",
@@ -720,7 +840,8 @@ async function main(): Promise<void> {
       `- Canonical product ids stable: ${verification.canonical_id_stable ? "PASS" : "FAIL"}`,
       `- No duplicate wave1 map rows: ${verification.no_duplicate_wave1_maps ? "PASS" : "FAIL"}`,
       `- Sample linkage check: ${linkage.pass ? "PASS" : "FAIL"}`,
-      `- Overall: **${allPass ? "PASS" : apply ? "FAIL" : "PENDING (--apply)"}**`,
+      `- Phase F slice re-check: ${phaseFSlice.pass ? "PASS" : "FAIL"}`,
+      `- Overall: **${allPass ? "PASS" : verifyOnly ? "FAIL" : apply ? "FAIL" : "PENDING (--apply)"}**`,
       "",
       "## Rollback",
       "",
@@ -737,11 +858,12 @@ async function main(): Promise<void> {
     run_id: runId,
     staging_ref: STAGING_REF,
     phase_f_run_id: PHASE_F_RUN_ID,
-    mode: apply ? "apply" : "dry-run",
-    status: allPass ? "PASS" : apply ? "FAIL" : "DRY-RUN",
+    mode: verifyOnly ? "verify-only" : apply ? "apply" : "dry-run",
+    status: allPass ? "PASS" : verifyOnly || apply ? "FAIL" : "DRY-RUN",
     approval_path: APPROVAL_PATH,
     rows_applied: verification.rows_applied,
     verification_pass: allPass,
+    safe_to_continue: allPass ? "yes" : verifyOnly || apply ? "no" : "pending",
     wave2_safe: Boolean(allPass),
     rollback_path: `${OUT_BASE}/${runId}/rollback.sql`,
     forbidden_writes: {

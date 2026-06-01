@@ -166,6 +166,7 @@ import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobil
 import { OperatorCorrectionActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorCorrectionActionsPanel";
 import { OperatorMoveBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorMoveBoxModal";
 import { OperatorVoidBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorVoidBoxModal";
+import { ScannerPhotoActionSheet } from "@/app/scanner/operator-mobile/_components/ScannerPhotoActionSheet";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
@@ -11342,7 +11343,7 @@ function OperatorMobileScanPageContent() {
                       <button
                         type="button"
                         disabled={busy || identifyGateOcrReading}
-                        onClick={() => setIdentifyGateOcrMenuOpen((o) => !o)}
+                        onClick={() => setIdentifyGateOcrMenuOpen(true)}
                         className="operator-shipment-entry-gate__camera-btn flex h-10 w-10 shrink-0 items-center justify-center rounded-lg outline-none transition disabled:cursor-not-allowed disabled:opacity-35"
                         aria-label="Photo or upload for OCR"
                         aria-expanded={identifyGateOcrMenuOpen}
@@ -11351,59 +11352,6 @@ function OperatorMobileScanPageContent() {
                       >
                         <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
                       </button>
-                      {identifyGateOcrMenuOpen ? (
-                        <>
-                          <button
-                            type="button"
-                            className="fixed inset-0 z-[149] cursor-default bg-black/35"
-                            aria-label="Close photo menu"
-                            onClick={() => setIdentifyGateOcrMenuOpen(false)}
-                          />
-                          <div
-                            className="scanner-ocr-action-sheet fixed bottom-20 left-1/2 z-[150] w-[calc(100vw-1.5rem)] max-w-[406px] -translate-x-1/2 overflow-hidden rounded-2xl py-2"
-                            role="menu"
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold transition sm:min-h-[3.5rem] sm:text-[16px]"
-                              onClick={() => {
-                                setIdentifyGateOcrMenuOpen(false);
-                                identifyGateCameraCaptureRef.current?.click();
-                              }}
-                            >
-                              <span className="text-xl leading-none" aria-hidden>
-                                📸
-                              </span>
-                              Take Photo
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center gap-3 border-t px-4 py-3.5 text-left text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                              style={{ borderColor: "var(--scanner-border)" }}
-                              onClick={() => {
-                                setIdentifyGateOcrMenuOpen(false);
-                                identifyGateCameraUploadRef.current?.click();
-                              }}
-                            >
-                              <span className="text-xl leading-none" aria-hidden>
-                                📁
-                              </span>
-                              Upload Photo
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center justify-center border-t px-4 py-3.5 text-center text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                              style={{ borderColor: "var(--scanner-border)" }}
-                              onClick={() => setIdentifyGateOcrMenuOpen(false)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </>
-                      ) : null}
                     </div>
                     <button
                       type="button"
@@ -14320,6 +14268,21 @@ function OperatorMobileScanPageContent() {
           </p>
         </div>
       ) : null}
+
+      <ScannerPhotoActionSheet
+        open={identifyGateOcrMenuOpen}
+        onClose={() => setIdentifyGateOcrMenuOpen(false)}
+        onTakePhoto={() => {
+          setIdentifyGateOcrMenuOpen(false);
+          identifyGateCameraCaptureRef.current?.click();
+        }}
+        onUploadPhoto={() => {
+          setIdentifyGateOcrMenuOpen(false);
+          identifyGateCameraUploadRef.current?.click();
+        }}
+        disabled={busy || identifyGateOcrReading}
+        title="Photo options"
+      />
 
       <OperatorMoveBoxModal
         open={moveBoxModalOpen}

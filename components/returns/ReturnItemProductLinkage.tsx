@@ -37,7 +37,7 @@ export function ReturnItemProductLinkage({
       row: fields as unknown as Record<string, unknown>,
     });
     setLinkage(nextFallback);
-    if (!showCanonical || !fields.resolved_product_id) {
+    if (!showCanonical || !fields.resolved_product_id || fields.catalog_product_name?.trim()) {
       return;
     }
     let cancelled = false;
@@ -63,6 +63,7 @@ export function ReturnItemProductLinkage({
     fields.product_identifier,
     fields.resolved_product_id,
     fields.resolved_catalog_product_id,
+    fields.catalog_product_name,
     fields.identifier_resolution_status,
     fields.identifier_resolution_confidence,
     showCanonical,

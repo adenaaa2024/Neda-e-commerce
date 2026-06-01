@@ -8,40 +8,31 @@
 
 | Field | Value |
 |-------|-------|
-| Latest append | `20260614T120000Z` — **ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC** |
-| Prior | `20260613T120000Z` — PRODUCT-CORE-PROTECTION-HISTORY-MEMORY-UPDATE |
+| Latest append | `20260617T120000Z` — **PHASE1-DEMO-READY-HISTORY-MEMORY-SYNC** |
+| Prior | `20260616T120000Z` — PHASE1-PRE-NEDA-MERGE-HISTORY-MEMORY-SYNC |
 
-## Scanner / Return / Claims (corrected + repaired)
-
-| Doc | Topic |
-|-----|-------|
-| [SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md](SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md) | Authoritative architecture; bulk/orphan hard-delete complete |
-| [EXPECTED_ALLOCATION_MODEL.md](EXPECTED_ALLOCATION_MODEL.md) | Two-grain allocation model |
-| [SCANNER_STATE.md](SCANNER_STATE.md) | Operator-mobile staging state |
-| [CLAIM_ARCHITECTURE.md](CLAIM_ARCHITECTURE.md) | Claims layers + queue safety |
-
-## Product Core (protected)
+## Phase1 demo + merge
 
 | Doc | Topic |
 |-----|-------|
-| [PRODUCT_CORE_ARCHITECTURE.md](PRODUCT_CORE_ARCHITECTURE.md) | Protected backbone; change gate; completion estimates |
-| [FORBIDDEN_ACTIONS.md](FORBIDDEN_ACTIONS.md) | Product Core + scanner/return forbidden actions |
-| [PRODUCT_CANONICALIZATION.md](PRODUCT_CANONICALIZATION.md) | PC Phase 01 under Product Core |
+| [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md) | Demo readiness · merge contract · remaining blockers |
+| [AUTOMATION_API_CENTER.md](AUTOMATION_API_CENTER.md) | Automation complete |
+| [NEDA_HANDOFF.md](NEDA_HANDOFF.md) | Neda merge must preserve scanner UX + allocation rules |
 
 ## Git refs
 
 | Ref | SHA |
 |-----|-----|
 | `main` | `4402064` |
-| `feature/phase1-latest-stash-land` | `9a5cda8` (not merged) |
+| `feature/phase1-latest-stash-land` | `999f765` (not merged) |
 
 ## Exact next prompt
 
 ```text
-INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION
+PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE
 ```
 
-**Memory sync:** `architecture-correction-history-memory-sync/20260614T120000Z/`
+**Memory sync:** `phase1-demo-ready-history-memory-sync/20260617T120000Z/`
 
 ## Paired-update law
 

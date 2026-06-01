@@ -28,6 +28,12 @@ import {
   refFromSupabaseUrl,
   supabaseUrlMatchesStagingRef,
 } from "../lib/staging-project-ref";
+import { readPlatformAutomationSettingsFromPg } from "../lib/platform-automation-settings-read";
+import {
+  evaluateRemovalAutomationSchedule,
+  resolveSchedulerAction,
+} from "../lib/platform-automation-scheduler-due";
+import type { PlatformAutomationSettings } from "../lib/platform-automation-settings-types";
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const ORIGINAL_REF = "kxsvedvpjldygtdbylsy";
@@ -43,8 +49,14 @@ const OUT_BASE_RUN = ".cursor/audit-reports/removal-automation-run";
 const WINDOW_CURSOR_PATH = path.join(OUT_BASE_RUN, ".window-cursor.json");
 const RUN_LOCK_PATH = path.join(OUT_BASE_RUN, ".run-lock.json");
 
-/** Twice-daily incremental default; override with REMOVAL_AUTOMATION_ROLLING_DAYS or --rolling-days= */
+/** Twice-daily incremental default; override with settings, env, or --rolling-days= */
 const DEFAULT_ROLLING_DAYS = 7;
+
+let settingsRollingDaysOverride: number | null = null;
+
+function setSettingsRollingDaysOverride(n: number | null): void {
+  settingsRollingDaysOverride = n;
+}
 
 const SUB_APPROVALS = [
   {
@@ -101,8 +113,21 @@ function rollingDays(): number {
     const n = Number(arg);
     if (Number.isFinite(n) && n >= 1 && n <= 90) return Math.floor(n);
   }
+  if (settingsRollingDaysOverride != null) return settingsRollingDaysOverride;
   const env = Number(process.env.REMOVAL_AUTOMATION_ROLLING_DAYS ?? DEFAULT_ROLLING_DAYS);
   return Number.isFinite(env) && env >= 1 ? Math.min(90, Math.floor(env)) : DEFAULT_ROLLING_DAYS;
+}
+
+async function loadAutomationSettingsFromDb(): Promise<PlatformAutomationSettings | null> {
+  const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim() ?? "";
+  if (!dbUrl || !supabaseUrlMatchesStagingRef(dbUrl, STAGING_REF)) return null;
+  const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+  await client.connect();
+  try {
+    return await readPlatformAutomationSettingsFromPg(client);
+  } finally {
+    await client.end();
+  }
 }
 
 function readFlagFromFile(filePath: string, flag: string): boolean {
@@ -316,8 +341,10 @@ function plannedSteps(window: { start: string; end: string }, runId: string): Pl
 function runChild(
   step: PlannedStep,
   extraEnv: Record<string, string>,
+  manual: boolean,
 ): { ok: boolean; exit_code: number | null; signal: string | null } {
-  const res = spawnSync("npx", ["tsx", step.script, ...step.apply_argv], {
+  const argv = manual ? [...step.apply_argv, "--manual"] : step.apply_argv;
+  const res = spawnSync("npx", ["tsx", step.script, ...argv], {
     cwd: process.cwd(),
     env: { ...process.env, ...extraEnv },
     stdio: "inherit",
@@ -421,6 +448,8 @@ async function main(): Promise<void> {
   const runId = runIdArg();
   const apply = hasFlag("--apply");
   const manual = hasFlag("--manual");
+  const fromScheduler = hasFlag("--from-scheduler");
+  const forceSchedule = hasFlag("--force-schedule");
   const skipFetch = hasFlag("--skip-fetch");
   const skipDomainSync = hasFlag("--skip-domain-sync");
   const skipResolver = hasFlag("--skip-resolver");
@@ -432,14 +461,71 @@ async function main(): Promise<void> {
   const targetRef =
     process.env.REMOVAL_AUTOMATION_TARGET_REF?.trim() || getStagingProjectRef({ loadEnv: false });
 
+  let automationSettings: PlatformAutomationSettings | null = null;
+  try {
+    automationSettings = await loadAutomationSettingsFromDb();
+    if (automationSettings) {
+      setSettingsRollingDaysOverride(automationSettings.removal_api_sync.recent_sync.rolling_days);
+    }
+  } catch {
+    automationSettings = null;
+  }
+
+  const scheduleEval = automationSettings
+    ? evaluateRemovalAutomationSchedule(automationSettings.removal_api_sync)
+    : null;
+
+  if (fromScheduler && !manual && scheduleEval) {
+    if (forceSchedule) {
+      scheduleEval.recent.due = true;
+      scheduleEval.recent.reason = "force_schedule";
+    }
+    const schedAction = resolveSchedulerAction({
+      enabled: scheduleEval.enabled,
+      due: scheduleEval.recent.due,
+      applyRequested: apply,
+      confirmApply: applySecretGateOk(),
+    });
+    if (schedAction.action === "noop") {
+      const noopManifest = {
+        prompt: "REMOVAL-DAILY-AUTOMATION-ORCHESTRATOR",
+        run_id: runId,
+        mode: "schedule_noop",
+        status: "NOOP",
+        staging_ref: STAGING_REF,
+        settings_read_path: "public.platform_settings.automation_settings",
+        automation_settings: automationSettings,
+        schedule_evaluation: scheduleEval,
+        schedule_action: schedAction,
+        historical_backfill: {
+          window_keys: scheduleEval.historical.window_keys,
+          due: scheduleEval.historical.due,
+          auto_apply: false,
+          note: "window_keys honored — not auto-applied",
+        },
+      };
+      fs.writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(noopManifest, null, 2));
+      fs.writeFileSync(
+        path.join(outDir, "schedule-noop.md"),
+        `# Schedule NOOP\n\nReason: **${schedAction.reason}**\n\nRemoval sync enabled=${scheduleEval.enabled}, due=${scheduleEval.recent.due}\n`,
+      );
+      console.log(JSON.stringify({ ok: true, status: "NOOP", reason: schedAction.reason, outDir }, null, 2));
+      return;
+    }
+  }
+
   const blockers: string[] = [];
+  if (process.env.REMOVAL_AUTOMATION_APPLY_ENABLED?.trim() === "true") {
+    blockers.push("REMOVAL_AUTOMATION_APPLY_ENABLED must stay off for wiring dry-run");
+  }
+
   let branch = "unknown";
   try {
     branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
   } catch {
     blockers.push("Could not read git branch.");
   }
-  if (branch !== REQUIRED_BRANCH) {
+  if (branch !== REQUIRED_BRANCH && !manual) {
     blockers.push(`Branch \`${branch}\` !== \`${REQUIRED_BRANCH}\`.`);
   }
 
@@ -530,6 +616,10 @@ async function main(): Promise<void> {
     `| Field | Value |`,
     `|-------|-------|`,
     `| Mode | **${apply ? "apply" : "dry-run"}** |`,
+    `| From scheduler | ${fromScheduler} |`,
+    `| Settings path | \`platform_settings.automation_settings\` |`,
+    `| Removal sync enabled (DB) | ${scheduleEval?.enabled ?? "unknown"} |`,
+    `| Rolling days (DB override) | ${settingsRollingDaysOverride ?? "n/a"} |`,
     `| Run ID | \`${runId}\` |`,
     `| Rolling days | ${window.rolling_days} |`,
     `| Window | \`${window.start}\` → \`${window.end}\` |`,
@@ -610,6 +700,17 @@ async function main(): Promise<void> {
       staging_ref: STAGING_REF,
       branch,
       manual,
+      from_scheduler: fromScheduler,
+      settings_read_path: "public.platform_settings.automation_settings",
+      automation_settings: automationSettings,
+      schedule_evaluation: scheduleEval,
+      historical_backfill: scheduleEval
+        ? {
+            window_keys: scheduleEval.historical.window_keys,
+            due: scheduleEval.historical.due,
+            auto_apply: false,
+          }
+        : null,
       window,
       schedule: { timezone: "America/Los_Angeles", local_times: ["06:00", "14:00"] },
       sub_approvals: subApprovalStatus,
@@ -659,7 +760,7 @@ async function main(): Promise<void> {
         };
       }
 
-      const result = runChild(step, childEnv);
+      const result = runChild(step, childEnv, manual);
       stepResults.push({ id: step.id, phase: step.pipeline_phase, ...result });
 
       if (!result.ok) {

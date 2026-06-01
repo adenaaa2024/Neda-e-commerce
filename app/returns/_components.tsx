@@ -1726,7 +1726,6 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
                         organizationId={r.organization_id}
                         fields={r}
                         compact
-                        showCanonical={false}
                       />
                     </td>
                     <td className="hidden px-3 py-2.5 sm:table-cell"><StatusBadge status={r.status} /></td>
@@ -2163,7 +2162,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
             )}
             {editCatalogStatus === "unresolved" && (
               <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-                Unknown Item — not found locally{editCatalogPreview?.reason ? ` (${editCatalogPreview.reason})` : ""}.
+                Unknown item — not in catalog{editCatalogPreview?.reason ? ` (${editCatalogPreview.reason})` : ""}. Link the product via Product Core import; returns cannot auto-create products.
               </div>
             )}
           </div>
@@ -3700,7 +3699,6 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                             organizationId={it.organization_id}
                             fields={it}
                             compact
-                            showCanonical={false}
                           />
                         </td>
                         <td className="px-3 py-2.5 text-center text-slate-400">—</td>
@@ -4609,7 +4607,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
         )}
         {state.catalog_resolution === "unknown" && (
           <div className="mt-1.5 rounded-xl border-2 border-yellow-400 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800 dark:border-yellow-500/60 dark:bg-yellow-950/20 dark:text-yellow-300">
-            Unknown Item — not found locally{catalogPreview?.reason ? ` (${catalogPreview.reason})` : ""}. Enter the item name below if this business flow permits.
+            Unknown item — not in catalog{catalogPreview?.reason ? ` (${catalogPreview.reason})` : ""}. Link via Product Core import; returns cannot auto-create products. Enter item name below only if your workflow allows manual entry.
           </div>
         )}
         <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">

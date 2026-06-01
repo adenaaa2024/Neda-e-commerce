@@ -73,6 +73,25 @@ export async function fetchJobSteps(client: SupabaseClient, jobId: string): Prom
   return (data ?? []) as JobStepRow[];
 }
 
+/** Latest non-terminal job for org + store + type (refresh-safe UI attach). */
+export async function findActiveBackgroundJob(
+  client: SupabaseClient,
+  input: { organizationId: string; storeId: string; jobType: JobType },
+): Promise<BackgroundJobRow | null> {
+  const { data, error } = await client
+    .from("background_jobs")
+    .select("*")
+    .eq("organization_id", input.organizationId)
+    .eq("store_id", input.storeId)
+    .eq("job_type", input.jobType)
+    .in("status", ["queued", "running"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`findActiveBackgroundJob: ${error.message}`);
+  return (data as BackgroundJobRow | null) ?? null;
+}
+
 export async function findExistingJob(
   client: SupabaseClient,
   organizationId: string,

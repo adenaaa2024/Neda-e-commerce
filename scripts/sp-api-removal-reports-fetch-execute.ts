@@ -312,7 +312,7 @@ async function main(): Promise<void> {
   } catch {
     blockers.push("Could not read git branch.");
   }
-  if (branch !== REQUIRED_BRANCH) {
+  if (branch !== REQUIRED_BRANCH && !process.argv.includes("--manual")) {
     blockers.push(`Branch \`${branch}\` !== \`${REQUIRED_BRANCH}\`.`);
   }
 

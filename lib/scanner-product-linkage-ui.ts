@@ -22,6 +22,8 @@ export type ProductLinkageFields = {
   identifier_resolution_status?: IdentifierResolutionStatus;
   identifier_resolution_confidence?: number | null;
   expiration_date?: string | null;
+  /** Populated by listReturns batch hydrate — avoids per-row client fetch. */
+  catalog_product_name?: string | null;
 };
 
 export const RESOLVER_SOURCE_LABEL = "product_identifier_map" as const;
@@ -33,6 +35,8 @@ export function normalizeResolutionStatus(
   status: IdentifierResolutionStatus,
 ): IdentifierResolutionStatus {
   const s = typeof status === "string" ? status.trim().toLowerCase() : "";
+  /** EP/view rows often persist `matched` while return_items use `resolved` — same operator meaning. */
+  if (s === "matched") return "resolved";
   if (s === "resolved" || s === "ambiguous" || s === "unresolved" || s === "mismatch") return s;
   return status;
 }

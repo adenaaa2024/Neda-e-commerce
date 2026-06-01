@@ -5973,3 +5973,138 @@ html.light .operator-home-page .operator-home-recent-action-btn:hover {
     width: 2rem;
   }
 }
+
+/* Neda Zebra — portaled photo action sheet (ScannerPhotoActionSheet) */
+.scanner-photo-action-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.scanner-photo-action-sheet-panel {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: 58%;
+  bottom: auto;
+  transform: translateY(-50%);
+  z-index: 261;
+  width: auto;
+  max-width: 430px;
+  margin-inline: auto;
+  max-height: min(
+    17.5rem,
+    calc(100dvh - var(--scanner-bottom-nav-height, 4.75rem) - env(safe-area-inset-bottom, 0px) - 6rem)
+  );
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: 1rem;
+}
+
+html.dark .scanner-photo-action-sheet-panel {
+  background-color: rgba(32, 40, 50, 0.96);
+  border: 1px solid var(--scanner-border, #323c48);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+  box-shadow:
+    0 0 28px rgba(214, 183, 110, 0.18),
+    0 22px 52px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html.light .scanner-photo-action-sheet-panel {
+  background-color: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--scanner-border, rgba(138, 104, 31, 0.28));
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 14px 40px -10px rgba(22, 24, 27, 0.18);
+}
+
+.scanner-photo-action-sheet-handle {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 0.25rem;
+}
+
+.scanner-photo-action-sheet-handle::before {
+  content: "";
+  display: block;
+  height: 0.25rem;
+  width: 2.5rem;
+  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.55);
+}
+
+html.dark .scanner-photo-action-sheet-handle::before {
+  background: rgba(100, 116, 139, 0.85);
+}
+
+.scanner-photo-action-sheet-title {
+  padding: 0 1rem 0.5rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--scanner-text-secondary, #87919d);
+}
+
+.scanner-photo-action-sheet-options {
+  display: flex;
+  flex-direction: column;
+}
+
+.scanner-photo-action-sheet-option {
+  display: flex;
+  min-height: 3.25rem;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.25;
+  transition: background-color 0.15s ease;
+}
+
+.scanner-photo-action-sheet-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.scanner-photo-action-sheet-option--border {
+  border-top: 1px solid var(--scanner-border, #323c48);
+}
+
+.scanner-photo-action-sheet-option--cancel {
+  justify-content: center;
+  text-align: center;
+  font-weight: 600;
+}
+
+html.dark .scanner-photo-action-sheet-option {
+  color: #faf6ed;
+}
+
+html.dark .scanner-photo-action-sheet-option:hover:not(:disabled),
+html.dark .scanner-photo-action-sheet-option:active:not(:disabled) {
+  background: rgba(214, 183, 110, 0.12);
+}
+
+html.light .scanner-photo-action-sheet-option {
+  color: #16181b;
+}
+
+html.light .scanner-photo-action-sheet-option:hover:not(:disabled),
+html.light .scanner-photo-action-sheet-option:active:not(:disabled) {
+  background: rgba(138, 104, 31, 0.1);
+}
+
+.scanner-photo-action-sheet-option-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}

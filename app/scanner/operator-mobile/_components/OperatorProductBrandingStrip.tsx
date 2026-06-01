@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Check, ChevronDown, Lock, Search } from "lucide-react";
 import { useBranding } from "@/components/BrandingContext";
@@ -14,6 +14,14 @@ import { isSupabaseConfigured } from "@/src/lib/supabase";
  * mid-flow. To switch stores they must navigate Back to Home.
  */
 const OPERATOR_HOME_ROUTE = "/scanner/operator-mobile";
+
+function requestOperatorScanFocus() {
+  try {
+    window.dispatchEvent(new CustomEvent("operator-mobile:request-scan-focus"));
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
  * Brand header row for the operator-mobile shell:
@@ -272,10 +280,22 @@ function StoreCombobox(props: {
   const { triggerId, labelClass, baseChip, stores, sessionStoreId, onSelect } = props;
 
   const [open, setOpen] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const closePanel = useCallback(() => {
+    setOpen(false);
+    setSearchMode(false);
+    requestOperatorScanFocus();
+  }, []);
+
+  const enableStoreSearch = useCallback(() => {
+    setSearchMode(true);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+  }, []);
 
   // Close on outside click / Escape key.
   useEffect(() => {
@@ -285,13 +305,10 @@ function StoreCombobox(props: {
       if (!target) return;
       if (triggerRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
-      setOpen(false);
+      closePanel();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
+      if (e.key === "Escape") closePanel();
     };
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("touchstart", onPointerDown, { passive: true });
@@ -301,19 +318,15 @@ function StoreCombobox(props: {
       document.removeEventListener("touchstart", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, closePanel]);
 
-  // Auto-focus the search input when the panel opens (only when search is shown).
+  // Reset query/search mode when the panel closes.
   useEffect(() => {
     if (!open) {
       setQuery("");
-      return;
+      setSearchMode(false);
     }
-    if (stores.length > 6) {
-      const id = window.setTimeout(() => searchRef.current?.focus(), 60);
-      return () => window.clearTimeout(id);
-    }
-  }, [open, stores.length]);
+  }, [open]);
 
   const selected = stores.find((s) => s.id === sessionStoreId) ?? null;
   const trimmedQuery = query.trim().toLowerCase();
@@ -333,7 +346,10 @@ function StoreCombobox(props: {
         id={triggerId}
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (open) closePanel();
+          else setOpen(true);
+        }}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-invalid={triggerInvalid}
@@ -363,7 +379,7 @@ function StoreCombobox(props: {
           <div
             className="fixed inset-0 z-[140] cursor-default"
             aria-hidden
-            onClick={() => setOpen(false)}
+            onClick={closePanel}
           />
           <div
             ref={panelRef}
@@ -377,22 +393,35 @@ function StoreCombobox(props: {
             }}
           >
             {showSearch ? (
-              <div
-                className="flex items-center gap-1.5 border-b px-2.5 py-2"
-                style={{ borderColor: "var(--scanner-border, #243241)" }}
-              >
-                <Search className="h-3.5 w-3.5 shrink-0 opacity-60" strokeWidth={2.25} />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={`Search ${stores.length} stores…`}
-                  className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-50"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-              </div>
+              searchMode ? (
+                <div
+                  className="flex items-center gap-1.5 border-b px-2.5 py-2"
+                  style={{ borderColor: "var(--scanner-border, #243241)" }}
+                >
+                  <Search className="h-3.5 w-3.5 shrink-0 opacity-60" strokeWidth={2.25} />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={`Search ${stores.length} stores…`}
+                    className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none placeholder:opacity-50"
+                    spellCheck={false}
+                    autoComplete="off"
+                    inputMode="search"
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={enableStoreSearch}
+                  className="flex w-full items-center gap-1.5 border-b px-2.5 py-2 text-left text-[12px] font-semibold opacity-80 transition hover:bg-white/5 hover:opacity-100"
+                  style={{ borderColor: "var(--scanner-border, #243241)" }}
+                >
+                  <Search className="h-3.5 w-3.5 shrink-0 opacity-60" strokeWidth={2.25} />
+                  <span>Search stores</span>
+                </button>
+              )
             ) : null}
             <ul className="max-h-[min(60vh,360px)] list-none overflow-y-auto overscroll-contain py-1">
               {filtered.length === 0 ? (
@@ -411,8 +440,7 @@ function StoreCombobox(props: {
                         type="button"
                         onClick={() => {
                           onSelect(s.id);
-                          setOpen(false);
-                          triggerRef.current?.focus();
+                          closePanel();
                         }}
                         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[12px] font-semibold transition hover:bg-white/5"
                         style={

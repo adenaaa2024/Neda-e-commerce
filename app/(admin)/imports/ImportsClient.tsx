@@ -15,9 +15,7 @@ import React, { useCallback, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Database } from "lucide-react";
 import { UniversalImporter } from "./UniversalImporter";
-import { FinancesApiArchivePanel } from "./FinancesApiArchivePanel";
-import { ReportsApiReimbursementsPanel } from "./ReportsApiReimbursementsPanel";
-import { ReportsApiSettlementPanel } from "./ReportsApiSettlementPanel";
+import { ImportsApiAutomationNotice } from "./ImportsApiAutomationNotice";
 import { RawReportImportsPanel } from "./RawReportImportsPanel";
 import { useUserRole } from "../../../components/UserRoleContext";
 import { SettingsPageAccessPanel } from "@/components/settings/SettingsPageAccessPanel";
@@ -25,7 +23,7 @@ import { SettingsPageAccessPanel } from "@/components/settings/SettingsPageAcces
 export function ImportsClient() {
   const pathname = usePathname();
   const isSettingsImportsRoute = (pathname ?? "").includes("/settings/imports");
-  const { organizationId, organizationName } = useUserRole();
+  const { organizationId, organizationName, role } = useUserRole();
 
   /** Bumps to tell Import History to refetch — do NOT remount the panel (avoids empty-table flicker). */
   const [historyRefreshSignal, setHistoryRefreshSignal] = useState(0);
@@ -68,18 +66,7 @@ export function ImportsClient() {
         />
       ) : null}
 
-      {/* ── Amazon Reports API (reimbursements) ─────────────────────────────── */}
-      <ReportsApiReimbursementsPanel
-        organizationId={activeOrgId}
-        onUploadComplete={refreshHistory}
-      />
-
-      <ReportsApiSettlementPanel
-        organizationId={activeOrgId}
-        onUploadComplete={refreshHistory}
-      />
-
-      <FinancesApiArchivePanel organizationId={activeOrgId} />
+      {role === "super_admin" ? <ImportsApiAutomationNotice /> : null}
 
       {/* ── Importer card ───────────────────────────────────────────────────── */}
       <UniversalImporter

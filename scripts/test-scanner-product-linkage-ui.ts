@@ -14,7 +14,9 @@ import {
   resolutionStatusBadgeClass,
   resolutionStatusLabel,
   resolveLinkageDisplayTitle,
+  normalizeResolutionStatus,
 } from "../lib/scanner-product-linkage-ui";
+import { mapRowToProductLinkageDisplayContract } from "../lib/product-linkage-display-contract";
 
 function eq<T>(actual: T, expected: T, label: string) {
   assert.deepEqual(actual, expected, label);
@@ -75,5 +77,21 @@ assert(
   resolutionStatusBadgeClass("ambiguous").includes("amber"),
   "ambiguous badge uses amber",
 );
+
+eq(normalizeResolutionStatus("matched"), "resolved", "matched normalizes to resolved");
+
+const matchedLinked = mapRowToProductLinkageDisplayContract({
+  source_table: "return_items",
+  source_row_id: "ri-1",
+  row: {
+    resolved_product_id: "e3832e25-275f-4124-906b-f2d6b7931b86",
+    identifier_resolution_status: "matched",
+    catalog_product_name: "Bob's Red Mill",
+    item_name: "OCR title",
+  },
+  product: { product_name: "Bob's Red Mill" },
+});
+assert(matchedLinked.is_resolved, "matched + resolved_product_id is display-linked");
+eq(matchedLinked.product_name, "Bob's Red Mill", "catalog name hydrates");
 
 console.log("test-scanner-product-linkage-ui: all checks passed");

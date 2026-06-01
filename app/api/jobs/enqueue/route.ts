@@ -7,6 +7,7 @@ import {
   parseJobType,
   parseUuidField,
 } from "@/lib/jobs/api-helpers";
+import { assertUserCanAccessOrganization } from "@/app/dashboard/products/pim-actions";
 import { enqueueJob } from "@/lib/jobs/orchestrator";
 import type { EnqueueStepInput, JobType } from "@/lib/jobs/types";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -45,6 +46,14 @@ export async function POST(req: Request): Promise<Response> {
 
   const storeId = body.store_id ? parseUuidField(body.store_id, "store_id") : null;
   if (body.store_id && !storeId) return jobApiError("store_id must be a UUID when provided.");
+
+  const gate = await assertUserCanAccessOrganization(organizationId);
+  if (!gate.ok) {
+    return NextResponse.json(
+      { ok: false, error: gate.error },
+      { status: gate.error === "Not signed in." ? 401 : 403 },
+    );
+  }
 
   try {
     const result = await enqueueJob(supabaseServer, {

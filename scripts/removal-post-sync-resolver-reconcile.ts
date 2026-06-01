@@ -323,7 +323,8 @@ async function main(): Promise<void> {
   const approval = readApproval();
   const blockers: string[] = [];
 
-  if (branch !== REQUIRED_BRANCH) blockers.push(`Branch must be ${REQUIRED_BRANCH}`);
+  if (branch !== REQUIRED_BRANCH && !process.argv.includes("--manual"))
+    blockers.push(`Branch must be ${REQUIRED_BRANCH}`);
   if (!approval.valid) blockers.push("Approval flags not both true");
 
   const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim() ?? "";

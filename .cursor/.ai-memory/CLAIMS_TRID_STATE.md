@@ -1,25 +1,38 @@
 # Claims & TRID state — phase1 delivery
 
-**Main:** `4402064` · **Stash land:** `feature/phase1-latest-stash-land` @ `c78fbb8`  
-**Last updated:** 2026-06-12 (`phase1-roadmap-and-history-memory-update-after-dryruns` `20260612T120000Z`)
+**Main:** `4402064` · **Stash land:** `feature/phase1-latest-stash-land` @ `999f765`  
+**Last updated:** 2026-06-16 (`phase1-pre-neda-merge-history-memory-sync` `20260616T120000Z`)
 
-Related: [CLAIMS_ENGINE_STATE.md](CLAIMS_ENGINE_STATE.md) · [TRID_CLAIM_STATUS.md](TRID_CLAIM_STATUS.md)
+Related: [CLAIMS_ENGINE_STATE.md](CLAIMS_ENGINE_STATE.md) · [TRID_CLAIM_STATUS.md](TRID_CLAIM_STATUS.md) · [CLAIM_ARCHITECTURE.md](CLAIM_ARCHITECTURE.md)
 
-## Claims returns-first (2026-06-12)
+## Claims returns-first (CORRECTED 2026-06-16)
 
 | Item | Status |
 |------|--------|
 | Policy direction | **returns-first** |
-| Cutoff dates | **unconfigured** (**CORRECTED** — not ready despite prior cutoff apply memory) |
-| Module scope | **not implemented** |
-| Manual grouping UI | **not built** |
+| Logic | **Built** |
+| Staging policy config | **CONFIGURED** — `enabled_claim_domains.returns`, `scan_go_live_date`, `claim_start_date`, claim window, evidence/hold policy |
+| **`expected_group` grain** | **BLOCKED** for returns-first queue |
+| **`import_source` grain** | **BLOCKED** for returns-first queue |
+| Draft E2E | **BLOCKED** — closed package + evidence/note |
+| Auto-promote | **off** |
+| Manual grouping UI | Per policy; validate in draft E2E |
+
+**SUPERSEDES (2026-06-12):** cutoff dates "unconfigured" — now **configured on staging**; draft E2E remains gate.
+
+## Returns config keys (staging — locked)
+
+- `enabled_claim_domains.returns`
+- `scan_go_live_date`
+- `claim_start_date`
+- claim window
+- evidence / hold policy
 
 ## Next (returns-first — ordered)
 
-1. Configure cutoff dates + scoping  
-2. Data validation gates on claim candidates  
-3. Manual grouping UI architecture + build  
-4. Original schema parity (explicit approval only)
+1. **CLAIMS-RETURNS-FIRST-DRAFT-E2E-CLOSED-PACKAGE-EVIDENCE** — prove draft path with closed package + evidence/note  
+2. **PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE** — include claims E2E in QA checklist  
+3. Original schema parity (explicit approval only)
 
 ## Delivery status summary
 
@@ -28,39 +41,7 @@ Related: [CLAIMS_ENGINE_STATE.md](CLAIMS_ENGINE_STATE.md) · [TRID_CLAIM_STATUS.
 | Claim lines schema | **PASS** | **NO** | Schema apply staging |
 | Claim lines backfill | **PASS** | **NO** | After schema apply |
 | TRID foundation | **PASS_WITH_BLOCKERS** | **NO** | After `claim_lines` |
-
-## Claims — claim_lines
-
-| Item | Detail |
-|------|--------|
-| Migration file | `supabase/migrations/20260831120000_claim_lines_foundation.sql` |
-| Schema dry-run | **PASS** — `claim-return-line-foundation-schema-dryrun/20260528T140000Z/` |
-| Applied | **NO** (drafted per delivery checkpoint) |
-| Backfill upper bound | **~13,966** pre-dedupe |
-| Backfill dry-run | **PASS** — `claim-return-line-backfill-dryrun/20260528T160000Z/` |
-| Approval | `claim-return-line-foundation-schema-approval.md` |
-
-### Backfill lanes (upper bound)
-
-| Lane | Est. rows |
-|------|----------:|
-| removal claim candidates | 6,481 |
-| returnish claim candidates | 2,574 |
-| expected group short | 4,911 |
-| return_item grain | 0 |
-
-Dedupe by `idempotency_key` will reduce actual INSERT count.
-
-## TRID foundation
-
-| Item | Detail |
-|------|--------|
-| Migration file | `supabase/migrations/20260832120000_trid_foundation.sql` |
-| Dry-run | **PASS_WITH_BLOCKERS** — `trid-foundation-migration-dryrun/20260530T200000Z/` |
-| Applied | **NO** |
-| Prerequisite | **`public.claim_lines` missing** — apply claim_lines migration first |
-| Approval | `trid-foundation-migration-approval.md` |
-| Reuse | `financial_reference_resolver` — 560,222 distinct trid_keys |
+| Returns-first policy | **CONFIGURED** (staging) | staging | Draft E2E |
 
 ## Claim line grain (locked)
 
@@ -72,25 +53,6 @@ Dedupe by `idempotency_key` will reduce actual INSERT count.
 
 ## Priority (June 2026 — append)
 
-Aligns with [ROADMAP.md](ROADMAP.md): Scanner → Product → Removal → **Claims (here)** → TRID → Inventory → AI
+Aligns with [ROADMAP.md](ROADMAP.md): Phase1 QA gate → Claims draft E2E → TRID
 
-**Next (returns-first roadmap — 2026-06-12):**
-
-1. **CLAIMS-RETURNS-FIRST-CONFIGURE** — cutoff dates (**unconfigured**), module scope, manual grouping UI  
-2. Data validation gates on claim candidates  
-3. Governed sample apply per execution policy  
-
-**SUPERSEDED:** cutoff/scoping assumed configured — dates still **unconfigured**.
-
-**Done (append):** ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE · resolver finish verify **PASS**
-
-## Forbidden
-
-- No claim submit without approval  
-- No product auto-create from claims  
-- No TRID apply before claim_lines  
-- No production writes  
-
-## Evidence
-
-`claim-return-line-foundation-schema-dryrun/20260528T140000Z/` · `claim-return-line-backfill-dryrun/20260528T160000Z/` · `trid-foundation-migration-dryrun/20260530T200000Z/`
+**Next prompt:** `CLAIMS-RETURNS-FIRST-DRAFT-E2E-CLOSED-PACKAGE-EVIDENCE`

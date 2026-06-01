@@ -176,3 +176,43 @@ Browser-loop update button — needs **backend job in waves**.
 2. **PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION**
 
 **Exact next prompt:** `INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION`
+
+---
+
+## Phase1 pre-Neda merge sync (2026-06-16)
+
+**Authoritative:** [AUTOMATION_API_CENTER.md](AUTOMATION_API_CENTER.md) · [CURRENT_STATE.md](CURRENT_STATE.md)
+
+| Area | Status |
+|------|--------|
+| Automation API Center | Company/store scoped; type combo; one card; in-page selectors; **not** global top selector |
+| Imports | File-import only; UniversalImporter + history remain; API routes reused by Automation |
+| Vendor 1883 cleanup (staging) | **COMPLETE**; Product Hub warning fixed (effective vendor label) |
+| Product sheet sample wave | **0 product creates** |
+| Claims returns-first | Policy **on staging**; draft E2E needs closed package + evidence/note |
+| Product Core | Protected — no resolver rewrite; governed seed only |
+| Merge readiness | **NOT READY** — Phase1 final QA gate required |
+
+### P0 before merge
+
+1. **PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE**
+2. **CLAIMS-RETURNS-FIRST-DRAFT-E2E-CLOSED-PACKAGE-EVIDENCE**
+3. **INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION**
+4. **PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION**
+
+**Exact next prompt:** `PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE`
+
+---
+
+## Phase1 demo-ready (2026-06-17)
+
+**Authoritative:** [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
+
+| Check | Status |
+|-------|--------|
+| Demo readiness | **READY** — Automation · Imports · scanner · Product Hub |
+| Merge readiness | **NOT READY** — QA gate + claims E2E + operator approval |
+| Delete/move/void backend | **COMPLETE** staging |
+| Original DB DDL | **Separate approval** |
+
+**Exact next prompt:** `PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE`

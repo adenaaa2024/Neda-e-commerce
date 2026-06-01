@@ -187,6 +187,8 @@ export type ReturnRecord = {
   resolved_catalog_product_id?: string | null;
   identifier_resolution_status?: string | null;
   identifier_resolution_confidence?: number | null;
+  /** Server-hydrated `products.product_name` for list views (read-only display). */
+  catalog_product_name?: string | null;
 };
 
 export type ReturnUpdatePayload = Partial<Pick<

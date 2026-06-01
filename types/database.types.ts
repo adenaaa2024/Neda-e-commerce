@@ -252,6 +252,7 @@ export type PlatformSettingsRow = {
   id: boolean;
   app_name: string;
   logo_url: string | null;
+  automation_settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };

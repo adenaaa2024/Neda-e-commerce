@@ -241,7 +241,19 @@ function staticWiringChecks(): void {
   const opDel = itemActions.slice(itemActions.indexOf("export async function operatorDeleteReturnItem"));
   assert.doesNotMatch(opDel, /from\(RETURN_ITEMS_TABLE\)\.delete\(/);
   assert.match(splitLib, /softVoidPackageWithExpectedRelease/);
+  assert.match(splitLib, /deletePackageCascadeV2/);
+  assert.match(splitLib, /deletePalletCascadeV2/);
+  assert.match(splitLib, /moveReturnItemParentV2/);
+  assert.doesNotMatch(splitLib, /rpc\("move_expected_item_unit"/);
   assert.doesNotMatch(storeActions, /VOID_BLOCKED_ITEMS_MESSAGE/);
+  assert.match(splitLib, /syncReturnItemsPalletForPackage/);
+  assert.match(splitLib, /isSupabaseRpcMissingError/);
+  const moveBoxSlice = storeActions.slice(
+    storeActions.indexOf("export async function moveOperatorIntakeBoxToPalletAction"),
+    storeActions.indexOf("export async function voidOperatorIntakeBoxPackageAction"),
+  );
+  assert.match(moveBoxSlice, /palletId:\s*targetPallet\.id/);
+  assert.match(moveBoxSlice, /syncReturnItemsPalletForPackage/);
 }
 
 async function main(): Promise<void> {

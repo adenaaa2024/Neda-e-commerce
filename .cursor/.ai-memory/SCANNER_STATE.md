@@ -1,55 +1,40 @@
 # Scanner state — Neda / operator-mobile
 
-**Branch:** `feature/phase1-latest-stash-land` @ `9a5cda8`  
+**Branch:** `feature/phase1-latest-stash-land` @ `999f765`  
 **Staging:** `eiqfaapyumhixxoeltgu`  
-**Last updated:** 2026-06-14 (`architecture-correction-history-memory-sync` `20260614T120000Z`)
+**Last updated:** 2026-06-17 (`phase1-demo-ready-history-memory-sync` `20260617T120000Z`)
 
-Contract reference: [SCANNER_OPERATOR_CONTRACTS.md](SCANNER_OPERATOR_CONTRACTS.md) · [SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md](SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md)
+Contract reference: [SCANNER_OPERATOR_CONTRACTS.md](SCANNER_OPERATOR_CONTRACTS.md) · [SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md](SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md) · [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
 
 ## CORRECTED — return_items rule
 
-**`return_items` = physical scanned units only.** Forecast belongs in **`expected_packages`**.
+**`return_items` = physical scanned units only.** Forecast belongs in **`expected_packages`**. Product linkage preserved on physical scan path.
 
 | Staging metric | Value |
 |----------------|------:|
-| `return_items` total / active | **33** / **33** |
-| Proven physical scans (`package_id` set) | **3** |
-| `bulk_orphan` | **0** (**5333** hard-deleted 2026-06-14) |
+| Active `return_items` | **33** |
+| Proven physical scans (`package_id`) | **3** |
+| `bulk_orphan` | **0** |
 | `v_scanned_sum` | **3** |
-| `products` | **17,033** (unchanged) |
-| `expected_packages` | **9,459** (**9,139** resolved; unchanged) |
-| `product_identifier_map` | **16,811** (unchanged) |
-
-Wave2 EP→RI `resolved_product_id` copy **reverted (PASS)**. Bulk/orphan remediation **COMPLETE**.
 
 ## Item-level receive (canonical path)
 
 1 RI per scan → `operatorReceiveItem` / `insertReturn` (qty=1) → `allocate_expected_items_for_return_item_ids` → `expected_item_id`.
 
-## Neda delete / move / void (implemented)
+## Delete / move / void — backend parity (COMPLETE staging)
 
-| Action | Path |
-|--------|------|
-| Delete item | `operatorDeleteReturnItem` → `release_expected_item_unit` → soft void |
-| Void box | `voidOperatorIntakeBoxPackageAction` → release all RIs → soft void package |
-| Move box | `moveOperatorIntakeBoxToPalletAction` → reparent package → `move_expected_item_unit` per RI |
+| Action | Path | Status |
+|--------|------|--------|
+| Delete item | `operatorDeleteReturnItem` → `release_expected_item_unit` → soft void | **COMPLETE** |
+| Void box | `voidOperatorIntakeBoxPackageAction` → release all RIs → soft void package | **COMPLETE** |
+| Move box | `moveOperatorIntakeBoxToPalletAction` → `move_expected_item_unit` per RI | **COMPLETE** |
 
-## Product spine true linkage — staging PASS
+**Remaining (non-demo-blocking):** restore-RPC wiring to `undo_snapshots`; original DB undo migration apply — separate approval.
 
-Execute: `product-spine-view-linkage-staging-execute/20260530T171500Z/` — linkage on **expected_packages** spine, not bulk RI fill.
+## Neda merge contract
 
-## DB parity — slip/view linkage
-
-Staging **PASS** `20260529T231120Z` · Original **PASS** `20260529T234437Z`
-
-## Deploy gate
-
-Merge **WAIT** — no merge to main; safe action is feature-branch commit/push only.
+Merge **must preserve** scanner UX + Phase1 governed allocation/release rules. See [NEDA_HANDOFF.md](NEDA_HANDOFF.md).
 
 ## P0 next
 
-**INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION**
-
-## Evidence
-
-`architecture-correction-history-memory-sync/20260614T120000Z/` · `full-scanner-expected-returns-claims-architecture-readonly/20260531T084101Z/`
+**PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE**

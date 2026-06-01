@@ -22,6 +22,25 @@ const INVALID_LOWER = new Set([
 
 const EXCEL_ERROR = /^(#\s*value!\s*|#\s*n\/?a\s*|#\s*ref!\s*|#\s*num!\s*|#\s*div\/0!\s*)$/i;
 
+/** Product-facing vendor label: prefer products.vendor_name, else vendors.name. */
+export function resolvePimEffectiveVendorLabel(
+  vendorName: string | null | undefined,
+  vendorTableName: string | null | undefined,
+): string {
+  const fromProduct = String(vendorName ?? "").trim();
+  if (fromProduct) return fromProduct;
+  return String(vendorTableName ?? "").trim();
+}
+
+export function isPimInvalidEffectiveVendorLabel(
+  vendorName: string | null | undefined,
+  vendorTableName: string | null | undefined,
+): boolean {
+  const effective = resolvePimEffectiveVendorLabel(vendorName, vendorTableName);
+  if (!effective) return true;
+  return isPimInvalidVendorCategoryLabel(effective);
+}
+
 export function isPimInvalidVendorCategoryLabel(name: string): boolean {
   const t = name.trim();
   if (!t) return true;

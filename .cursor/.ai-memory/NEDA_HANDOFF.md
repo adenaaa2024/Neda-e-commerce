@@ -119,6 +119,36 @@ V193 exception path: backend enrichment is allowed only if staging/server gates 
 - No production DB touch.
 - No DB mutation, migration, Amazon API, or AI/OpenAI work for this docs-only handoff.
 
+## Pre-Neda merge gate (2026-06-16)
+
+**Before merge with Neda:** run **PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE**.
+
+| Prerequisite | Status |
+|--------------|--------|
+| Automation API Center | **COMPLETE** |
+| Imports file-only cutover | **COMPLETE** |
+| Scanner/RI physical-only architecture | **LOCKED** |
+| Delete/move/void backend parity | **COMPLETE** (staging) |
+| Product Core resolver | **Do not rewrite** |
+| Product sheet sample wave | **0 creates** |
+| Claims returns-first draft E2E | **BLOCKED** |
+| Merge to main | **NO** until QA gate passes |
+
+Branch: `feature/phase1-latest-stash-land` @ `999f765`
+
+---
+
+## Neda merge contract (2026-06-17 — LOCKED)
+
+When merge is approved, Neda integration **must preserve**:
+
+1. **Scanner UX** — operator-mobile receive, delete, move, void flows  
+2. **Phase1 governed allocation/release rules** — `allocate_expected_items_for_return_item_ids`, `release_expected_item_unit`, `move_expected_item_unit`; physical-only `return_items`; no bulk RI; no EP→RI product copy without proven scan  
+
+**No original DB DDL** without separate operator approval.
+
+**Demo readiness:** [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
+
 ## Evidence
 
 `NEDA_FINAL_BACKEND_HANDOFF_V193.md` · `history-v196/20260522T230000Z/` · `history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` · `v200-product-lookup-browser-proof-complete/20260522T195000Z/`

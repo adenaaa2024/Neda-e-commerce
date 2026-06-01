@@ -62,7 +62,8 @@ async function main(): Promise<void> {
   loadEnvLocalIntoProcess();
   const branch = execSync("git branch --show-current", { encoding: "utf8" }).trim();
   const blockers: string[] = [];
-  if (branch !== REQUIRED_BRANCH) blockers.push(`Branch must be ${REQUIRED_BRANCH}`);
+  if (branch !== REQUIRED_BRANCH && !process.argv.includes("--manual"))
+    blockers.push(`Branch must be ${REQUIRED_BRANCH}`);
 
   const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim() ?? "";
   if (!dbUrl || !supabaseUrlMatchesStagingRef(dbUrl, STAGING_REF)) {

@@ -68,6 +68,11 @@ Requires explicit env: `AI_EXTERNAL_HTTP_ENABLED` + surface flags (e.g. `AI_IMPO
 | **Rewrite, simplify, bypass, or replace** Product Core flows | Protected backbone architecture |
 | Change **matching, merge, resolver, product creation, normalization, or identifier-map writes** without gate | Requires read-only audit + parity proof + risk report + operator approval |
 | **Broad product sheet import** | Dry-run: **1700** blocked creates; **3399** conflicts |
+| **Redesign Product Core resolver** | Protected backbone — audit gate required |
+| **Auto-create products** except governed seed approvals | Governance V165/V175/V178 |
+| **Touch UniversalImporter file pipeline** | File-import path locked on Imports |
+| **Drive Automation scope from global top selector** | Automation uses in-page company/store selectors only |
+| **Re-add API panels to Data Management → Imports** | Cut over to Automation API Center |
 
 Scope: `products`, `product_identifier_map`, `catalog_products`, resolver rules, PIM/sheet import, API enrichment, brand/category/vendor/dimensions/packaging/spec normalization, safe creation rules, raw/provenance preservation.
 
