@@ -52,6 +52,7 @@ import {
 } from "../../lib/scanner/receive-expected-with-split";
 import { fetchProductNamesByResolvedIds } from "../../lib/scanner/product-linkage-display-contract";
 import { moveReturnItemParentV2 } from "../../lib/scanner/delete-cascade-v2-app";
+import { assertCanInsertReturnItemAgainstTestMarkers } from "../../lib/scanner/return-items-test-data-server-guard";
 import {
   mapPackageWriteRow,
   mapPalletWriteRow,
@@ -1162,6 +1163,14 @@ export async function insertReturn(
     const normalizedFnsku = normalizeUpperIdentifier(payload.fnsku);
     const normalizedSku = normalizeFreeTextIdentifier(payload.sku);
     const normalizedProductIdentifier = normalizeBarcodeIdentifier(payload.product_identifier);
+
+    assertCanInsertReturnItemAgainstTestMarkers({
+      item_name: payload.item_name,
+      sku: normalizedSku,
+      fnsku: normalizedFnsku,
+      product_identifier: normalizedProductIdentifier,
+      notes: payload.notes,
+    });
 
     // Post-migration columns — only written once their migrations are applied
     if (normalizedAsin) insertRow.asin = normalizedAsin;

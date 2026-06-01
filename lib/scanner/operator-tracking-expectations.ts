@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
+import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
 import type {
   ProductLinkageDisplayContract,
   ProductsLookupClient,
@@ -92,11 +93,32 @@ export type ReturnItemsScannedCountMaps = {
 };
 
 function accumulateReturnItemScannedCounts(
-  retRows: { sku?: string | null; fnsku?: string | null; resolved_product_id?: string | null }[] | null | undefined,
+  retRows:
+    | {
+        sku?: string | null;
+        fnsku?: string | null;
+        resolved_product_id?: string | null;
+        item_name?: string | null;
+        product_identifier?: string | null;
+        notes?: string | null;
+      }[]
+    | null
+    | undefined,
 ): ReturnItemsScannedCountMaps {
   const bySkuFnsku = new Map<string, number>();
   const byProductId = new Map<string, number>();
   for (const r of retRows ?? []) {
+    if (
+      shouldExcludeReturnItemFromScannerCounts({
+        item_name: r.item_name,
+        sku: r.sku,
+        fnsku: r.fnsku,
+        product_identifier: r.product_identifier,
+        notes: r.notes,
+      })
+    ) {
+      continue;
+    }
     const sku = String(r.sku ?? "").trim();
     const fnsku = String(r.fnsku ?? "").trim();
     const k = sfKey(sku, fnsku);
@@ -579,7 +601,7 @@ export async function fetchReturnItemsScannedCountsForPallet(
 
   const { data: retRows, error: retErr } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("sku, fnsku, resolved_product_id")
+    .select("sku, fnsku, resolved_product_id, item_name, product_identifier, notes")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
     .is("deleted_at", null)
@@ -587,9 +609,7 @@ export async function fetchReturnItemsScannedCountsForPallet(
 
   if (retErr) throw retErr;
 
-  return accumulateReturnItemScannedCounts(
-    (retRows ?? []) as { sku?: string | null; fnsku?: string | null; resolved_product_id?: string | null }[],
-  );
+  return accumulateReturnItemScannedCounts(retRows ?? []);
 }
 
 function normSkuFnskuDispositionKey(raw: Record<string, unknown>): string {
@@ -850,7 +870,7 @@ export async function fetchReturnItemsScannedCountsForTracking(
 
   const { data: retRows, error: retErr } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("sku, fnsku, resolved_product_id")
+    .select("sku, fnsku, resolved_product_id, item_name, product_identifier, notes")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
     .is("deleted_at", null)
@@ -858,9 +878,7 @@ export async function fetchReturnItemsScannedCountsForTracking(
 
   if (retErr) throw retErr;
 
-  return accumulateReturnItemScannedCounts(
-    (retRows ?? []) as { sku?: string | null; fnsku?: string | null; resolved_product_id?: string | null }[],
-  );
+  return accumulateReturnItemScannedCounts(retRows ?? []);
 }
 
 /**

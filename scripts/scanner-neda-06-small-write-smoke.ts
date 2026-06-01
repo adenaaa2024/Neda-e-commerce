@@ -14,6 +14,10 @@ import {
   resolveItemBarcodeAgainstSlipRows,
   type SlipBarcodeMatchRow,
 } from "../lib/scanner/operator-slip-item-resolve";
+import {
+  assertScriptReturnItemsWriteAllowed,
+  DEFAULT_SCANNER_SMOKE_FIXTURE_PACKAGE_ID,
+} from "../lib/script-return-items-write-guard";
 
 const APPROVAL_PATH = join(
   process.cwd(),
@@ -24,7 +28,7 @@ const APPROVAL_TOKEN = "APPROVED_TO_RUN_SCANNER_NEDA_06_SMALL_WRITE_SMOKE=true";
 const RETURN_ITEMS_ITEM_SCAN_SELECT =
   "id, fnsku, sku, product_identifier, conditions, expiration_date, batch_number, photo_evidence, created_at, resolved_product_id, resolved_catalog_product_id, item_name, package_id, organization_id";
 
-const DEFAULT_FIXTURE_PACKAGE_ID = "9528d923-3d27-4aed-a773-095b5028743d";
+const DEFAULT_FIXTURE_PACKAGE_ID = DEFAULT_SCANNER_SMOKE_FIXTURE_PACKAGE_ID;
 
 function loadEnvLocal(): void {
   const p = join(process.cwd(), ".env.local");
@@ -93,6 +97,10 @@ async function probePackageItemsAbsent(supabase: SupabaseClient): Promise<{ ok: 
 
 async function main(): Promise<void> {
   loadEnvLocal();
+  const writeGuard = assertScriptReturnItemsWriteAllowed({
+    testPackageIdEnv: "SCANNER_NEDA_06_FIXTURE_PACKAGE_ID",
+    defaultTestPackageId: DEFAULT_FIXTURE_PACKAGE_ID,
+  });
   const runId = process.env.SCANNER_NEDA_06_RUN_ID ?? "run-20260518-001";
   const outDir = join(
     process.cwd(),
@@ -101,7 +109,7 @@ async function main(): Promise<void> {
   );
   const deleteAfter = process.env.SCANNER_NEDA_06_DELETE_AFTER === "true";
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const url = writeGuard.supabaseUrl;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
   const report: Record<string, unknown> = {
@@ -145,8 +153,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const fixturePkgId =
-    process.env.SCANNER_NEDA_06_FIXTURE_PACKAGE_ID?.trim() || DEFAULT_FIXTURE_PACKAGE_ID;
+  const fixturePkgId = writeGuard.testPackageId;
 
   const { data: pkgRow, error: pkgErr } = await supabase
     .from("packages")

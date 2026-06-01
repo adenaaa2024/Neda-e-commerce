@@ -1,12 +1,16 @@
 /**
  * NEDA item-level receive smoke (after EXPECTED-RECEIVE-SPLIT-ITEM-ROW-REPAIR).
  * Usage: npx tsx scripts/neda-item-level-receive-smoke-after-repair.ts
+ *
+ * Requires staging Supabase + TEST_PACKAGE_ID (defaults to scanner fixture package).
+ * Optional: TEST_EXPECTED_PACKAGE_ID, SUPABASE_SERVICE_ROLE_KEY, APP_ENV=staging
  */
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { resolveScannerProductIdentifiers } from "../lib/scanner-product-resolve";
 import { refFromSupabaseUrl } from "../lib/staging-project-ref";
+import { assertScriptReturnItemsWriteAllowed } from "../lib/script-return-items-write-guard";
 import { RETURN_ITEMS_TABLE } from "../app/returns/returns-constants";
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
@@ -314,6 +318,7 @@ async function selectEpCandidates(sb: SupabaseClient): Promise<ExpectedRow[]> {
 
 async function main(): Promise<void> {
   loadEnvLocal();
+  const writeGuard = assertScriptReturnItemsWriteAllowed();
   const outDir = join(process.cwd(), AUDIT_ROOT, RUN_ID);
   mkdirSync(outDir, { recursive: true });
 
@@ -334,12 +339,11 @@ async function main(): Promise<void> {
   );
 
   const blockers: string[] = [];
-  const url = String(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const url = writeGuard.supabaseUrl;
   const key = String(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
-  const ref = refFromSupabaseUrl(url);
+  const ref = writeGuard.stagingRef;
 
-  if (!url || !key) blockers.push("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  if (ref !== STAGING_REF) blockers.push(`Ref mismatch: expected ${STAGING_REF}, got ${ref ?? "missing"}`);
+  if (!key) blockers.push("Missing SUPABASE_SERVICE_ROLE_KEY.");
 
   const sb = url && key ? createClient(url, key, { auth: { persistSession: false } }) : null;
 
@@ -412,49 +416,58 @@ ${JSON.stringify(preflight, null, 2)}
 `);
 
   if (sb && canRunWrites) {
-    const candidates = await selectEpCandidates(sb);
-    expected =
-      candidates.find((r) => String(r.build_source ?? "").includes("remainder")) ??
-      candidates[0] ??
-      null;
-    if (!expected) {
-      blockers.push("No expected_packages row with expected_scan_quantity >= 3 and resolved_product_id.");
+    const fixturePackageId = writeGuard.testPackageId;
+    const { data: pkgRow, error: pkgErr } = await sb
+      .from("packages")
+      .select("id, organization_id, store_id, tracking_number, id_slip_contents, package_code")
+      .eq("id", fixturePackageId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (pkgErr || !pkgRow?.id) {
+      blockers.push(
+        `TEST_PACKAGE_ID fixture ${fixturePackageId} not found or deleted: ${pkgErr?.message ?? "missing"}`,
+      );
     } else {
-      const tn = String(expected.tracking_number ?? "").trim();
-      const tnToken = tn.split(",")[0]?.trim() ?? tn;
-      let pkg: { id?: string; id_slip_contents?: string } | null = null;
-      {
-        const { data } = await sb
-          .from("packages")
-          .select("id, id_slip_contents, tracking_number")
-          .eq("organization_id", expected.organization_id)
-          .eq("store_id", expected.store_id)
-          .eq("tracking_number", tnToken)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        pkg = (data as { id?: string; id_slip_contents?: string } | null) ?? null;
+      packageId = String(pkgRow.id);
+      const slipCode = String((pkgRow as { id_slip_contents?: string | null }).id_slip_contents ?? "").trim() || null;
+      const orgId = String((pkgRow as { organization_id?: string }).organization_id ?? "").trim();
+      const storeId = String((pkgRow as { store_id?: string }).store_id ?? "").trim();
+      const tn = String((pkgRow as { tracking_number?: string | null }).tracking_number ?? "").trim();
+
+      const epHint = String(process.env.TEST_EXPECTED_PACKAGE_ID ?? "").trim();
+      let epQuery = sb
+        .from("expected_packages")
+        .select(
+          "id, organization_id, store_id, tracking_number, order_id, sku, fnsku, disposition, expected_scan_quantity, actual_scanned_count, build_source, resolved_product_id, parent_expected_package_id, expected_product_id, product_id",
+        )
+        .eq("organization_id", orgId)
+        .eq("store_id", storeId)
+        .gte("expected_scan_quantity", 3);
+      if (epHint) {
+        epQuery = epQuery.eq("id", epHint);
+      } else if (tn) {
+        epQuery = epQuery.eq("tracking_number", tn);
       }
-      if (!pkg?.id && tnToken) {
-        const { data: rows } = await sb
-          .from("packages")
-          .select("id, id_slip_contents, tracking_number")
-          .eq("organization_id", expected.organization_id)
-          .eq("store_id", expected.store_id)
-          .ilike("tracking_number", `%${tnToken.slice(0, 16)}%`)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        pkg = (rows?.[0] as { id?: string; id_slip_contents?: string } | undefined) ?? null;
+      const { data: epRows, error: epErr } = await epQuery.order("expected_scan_quantity", { ascending: false }).limit(5);
+      if (epErr) {
+        blockers.push(`expected_packages lookup for fixture failed: ${epErr.message}`);
+      } else {
+        expected =
+          (epRows ?? []).find((r) => String((r as ExpectedRow).build_source ?? "").includes("remainder")) ??
+          ((epRows?.[0] ?? null) as ExpectedRow | null);
       }
-      packageId = String((pkg as { id?: string } | null)?.id ?? "").trim() || null;
-      const slipCode = String((pkg as { id_slip_contents?: string } | null)?.id_slip_contents ?? "").trim() || null;
+
+    if (!expected) {
+      blockers.push(
+        `No expected_packages row with expected_scan_quantity >= 3 for TEST_PACKAGE_ID ${fixturePackageId} (set TEST_EXPECTED_PACKAGE_ID to override).`,
+      );
+    } else {
       parentBeforeQty = Number(expected.expected_scan_quantity ?? 0);
 
       const smokeInput = {
         run_id: RUN_ID,
         staging_ref: ref,
+        test_package_id: fixturePackageId,
         expected_package_id: expected.id,
         parent_expected_scan_quantity_before: parentBeforeQty,
         package_id: packageId,
@@ -528,6 +541,7 @@ ${JSON.stringify(preflight, null, 2)}
           }
         }
       }
+    }
     }
   } else if (sb) {
     w(
