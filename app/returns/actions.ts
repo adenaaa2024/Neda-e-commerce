@@ -1170,6 +1170,7 @@ export async function insertReturn(
       fnsku: normalizedFnsku,
       product_identifier: normalizedProductIdentifier,
       notes: payload.notes,
+      raw_return_data: null,
     });
 
     // Post-migration columns — only written once their migrations are applied
@@ -1194,6 +1195,9 @@ export async function insertReturn(
     insertRow.resolved_catalog_product_id = resCols.resolved_catalog_product_id;
     insertRow.identifier_resolution_status = resCols.identifier_resolution_status;
     insertRow.identifier_resolution_confidence = resCols.identifier_resolution_confidence;
+    if (resCols.resolved_product_id) {
+      insertRow.product_id = resCols.resolved_product_id;
+    }
 
     if (
       isSyntheticBulkOrphanInsertBlocked({
@@ -1464,6 +1468,7 @@ export async function updateReturn(
       resolved_catalog_product_id: resCols.resolved_catalog_product_id,
       identifier_resolution_status: resCols.identifier_resolution_status,
       identifier_resolution_confidence: resCols.identifier_resolution_confidence,
+      ...(resCols.resolved_product_id ? { product_id: resCols.resolved_product_id } : {}),
     });
 
     const scope = await resolveTenantListScope({ actorProfileId });

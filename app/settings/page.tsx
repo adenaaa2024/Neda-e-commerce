@@ -1135,6 +1135,7 @@ export default function SettingsPage() {
     setClaimAgentSaving(true);
     const res = await saveClaimAgentConfig({
       auto_generate_pdf_reports: claimAgentLocal.auto_generate_pdf_reports ?? true,
+      scanner_auto_promote_on_save: claimAgentLocal.scanner_auto_promote_on_save ?? true,
       allow_agent_direct_submit: claimAgentLocal.allow_agent_direct_submit ?? false,
       max_auto_submit_amount_usd: maxUsd,
       autonomous_claim_submission_0_50_usd: claimAgentLocal.autonomous_claim_submission_0_50_usd ?? false,
@@ -3377,6 +3378,26 @@ export default function SettingsPage() {
                           <span className="block text-sm font-semibold">Auto-generate PDF reports</span>
                           <span className="text-xs text-muted-foreground">
                             When enabled, daily claim PDFs are generated automatically for eligible submissions (default: on).
+                          </span>
+                        </span>
+                      </label>
+
+                      <label className="flex cursor-pointer items-start gap-3 border-t border-border pt-4">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 rounded accent-rose-600"
+                          checked={claimAgentLocal.scanner_auto_promote_on_save ?? true}
+                          onChange={(e) =>
+                            setClaimAgentLocal((p) => ({
+                              ...p,
+                              scanner_auto_promote_on_save: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold">Auto-create claim drafts on scan</span>
+                          <span className="text-xs text-muted-foreground">
+                            When enabled, eligible physical scans create claim cases/lines after save (policy-gated; default: on).
                           </span>
                         </span>
                       </label>

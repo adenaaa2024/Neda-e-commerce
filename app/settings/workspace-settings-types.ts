@@ -40,6 +40,11 @@ export type ClaimFilingAutomationMode =
 export interface ClaimAgentConfig {
   /** Default ON — auto-generate PDF reports for ready-for-claim items. */
   auto_generate_pdf_reports?: boolean;
+  /**
+   * Default ON — after eligible scanner save, auto-create claim_cases/lines/evidence (policy-gated).
+   * When off, only manual returns draft / explicit actions create claim structures.
+   */
+  scanner_auto_promote_on_save?: boolean;
   /** Default OFF — allow agent to file directly to marketplace. */
   allow_agent_direct_submit?: boolean;
   /** Upper bound (USD) for automated submission when direct submit is enabled. */
@@ -106,6 +111,7 @@ export const DEFAULT_CORE_SETTINGS: CoreSettings = {
 
 export const DEFAULT_CLAIM_AGENT_CONFIG: ClaimAgentConfig = {
   auto_generate_pdf_reports: true,
+  scanner_auto_promote_on_save: true,
   allow_agent_direct_submit: false,
   max_auto_submit_amount_usd: 500,
   autonomous_claim_submission_0_50_usd: false,

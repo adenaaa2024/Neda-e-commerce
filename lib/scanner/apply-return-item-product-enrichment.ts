@@ -3,6 +3,7 @@ import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import { isUuidString, uuidOrNull } from "@/lib/uuid";
 import { resolveProductForScannerItem } from "./resolve-product-for-scanner-item";
 import { updateRowWithScannerLinkagePatch } from "./scanner-linkage-patch";
+import { withLegacyProductIdPatch } from "./sync-resolved-product-id";
 
 /**
  * Post-insert enrichment for `return_items`: never throws; logs and skips on schema drift.
@@ -41,13 +42,16 @@ export async function applyReturnItemProductEnrichmentAfterInsert(
       source_row_id: rid,
     });
 
-    const patch: Record<string, unknown> = {
-      resolved_product_id: res.resolved_product_id,
-      resolved_catalog_product_id: res.resolved_catalog_product_id,
-      identifier_resolution_status: res.status,
-      identifier_resolution_confidence: res.confidence,
-      identifier_resolution_source: res.matched_via,
-    };
+    const patch = withLegacyProductIdPatch(
+      {
+        resolved_product_id: res.resolved_product_id,
+        resolved_catalog_product_id: res.resolved_catalog_product_id,
+        identifier_resolution_status: res.status,
+        identifier_resolution_confidence: res.confidence,
+        identifier_resolution_source: res.matched_via,
+      },
+      res.resolved_product_id,
+    );
 
     const { error } = await updateRowWithScannerLinkagePatch(supabase, RETURN_ITEMS_TABLE, rid, patch);
     if (error) {

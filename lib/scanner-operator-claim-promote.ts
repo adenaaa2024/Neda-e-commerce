@@ -21,7 +21,8 @@ import {
   type ScannerClaimSource,
 } from "@/lib/scanner-claim-issue-pick";
 import { supabaseServer } from "@/lib/supabase-server";
-import { evaluateScannerClaimPromoteGuard } from "@/lib/scanner-claim-promote-guard";
+import { evaluateScannerClaimPromoteAllowed } from "@/lib/scanner-claim-promote-guard";
+import { returnHasResolvedProduct } from "@/lib/returns-claims-work-queue";
 import { isUuidString } from "@/lib/uuid";
 
 export {
@@ -208,7 +209,8 @@ export async function promoteScannerReturnItemToClaimStructures(
     client?: SupabaseClient;
   },
 ): Promise<PromoteScannerClaimResult> {
-  const guard = evaluateScannerClaimPromoteGuard();
+  const client = options?.client ?? supabaseServer;
+  const guard = await evaluateScannerClaimPromoteAllowed(client);
   if (!guard.allowed) {
     return { promoted: false, skipped_reason: guard.skipped_reason ?? "promote_disabled" };
   }
@@ -218,7 +220,6 @@ export async function promoteScannerReturnItemToClaimStructures(
     return { promoted: false, skipped_reason: "invalid_return_item_id" };
   }
 
-  const client = options?.client ?? supabaseServer;
   const row = await loadReturnItemForPromote(client, rid, options?.organizationId);
   if (!row) {
     return { promoted: false, skipped_reason: "return_item_not_found" };
@@ -238,7 +239,14 @@ export async function promoteScannerReturnItemToClaimStructures(
     return { promoted: false, skipped_reason: "not_claimable" };
   }
 
+  if (!returnHasResolvedProduct(row)) {
+    return { promoted: false, skipped_reason: "needs_product_resolution" };
+  }
+
   const { canonical, claimSource, tag: sourceTag } = issue;
+  if (canonical === "operator_other" && !String(row.notes ?? "").trim()) {
+    return { promoted: false, skipped_reason: "missing_operator_note" };
+  }
   const hasPhoto = hasReturnPhotoEvidenceUrlSlots(row.photo_evidence);
 
   const eligibilityClaimSource =

@@ -2165,6 +2165,7 @@ async function finalizeOperatorPackageItemLinkage(
       const slipStatus = String(params.slipLinkage?.identifier_resolution_status ?? "").trim().toLowerCase();
       await updateRowWithScannerLinkagePatch(supabaseServer, RETURN_ITEMS_TABLE, rid, {
         resolved_product_id: slipPid,
+        product_id: slipPid,
         resolved_catalog_product_id: params.slipLinkage?.resolved_catalog_product_id ?? null,
         identifier_resolution_status: slipStatus === "ambiguous" ? "ambiguous" : "resolved",
         identifier_resolution_confidence: params.slipLinkage?.identifier_resolution_confidence ?? null,
