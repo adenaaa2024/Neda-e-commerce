@@ -86,6 +86,17 @@ import {
   saveOrganizationClaimEvidenceDefaults,
 } from "./organization-claim-evidence-actions";
 import {
+  getOrganizationClaimPolicy,
+  saveOrganizationClaimPolicy,
+} from "./organization-claim-policy-actions";
+import { CLAIM_MODULE_DOMAIN_OPTIONS } from "../../lib/claim-module-scope";
+import {
+  DEFAULT_CLAIM_POLICY_V1,
+  CLAIM_GROUPING_POLICY_OPTIONS,
+  type ClaimHoldPolicyFlag,
+  type ClaimPolicyV1,
+} from "../../lib/claim-policy-types";
+import {
   getOrganizationOperationalPreferences,
   saveOrganizationDefaultStoreId,
   saveOrganizationDisplayCurrencyCode,
@@ -533,6 +544,10 @@ export default function SettingsPage() {
   const [claimEvidenceLoading, setClaimEvidenceLoading] = useState(false);
   const [claimEvidenceSaving, setClaimEvidenceSaving] = useState(false);
 
+  const [claimPolicyLocal, setClaimPolicyLocal] = useState<ClaimPolicyV1>(DEFAULT_CLAIM_POLICY_V1);
+  const [claimPolicyLoading, setClaimPolicyLoading] = useState(false);
+  const [claimPolicySaving, setClaimPolicySaving] = useState(false);
+
   const [logisticsSyncStatus, setLogisticsSyncStatus] = useState<{
     pendingSyncCount: number;
     systemUpToDate: boolean;
@@ -759,6 +774,23 @@ export default function SettingsPage() {
       })
       .finally(() => {
         if (!cancelled) setClaimEvidenceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, activeTab, tenantCtx]);
+
+  // ── Claim cutoff policy (organization_settings.claim_policy) ───────────────
+  useEffect(() => {
+    if (!mounted || activeTab !== "claim_engine") return;
+    let cancelled = false;
+    setClaimPolicyLoading(true);
+    getOrganizationClaimPolicy(tenantCtx)
+      .then((policy) => {
+        if (!cancelled) setClaimPolicyLocal(policy);
+      })
+      .finally(() => {
+        if (!cancelled) setClaimPolicyLoading(false);
       });
     return () => {
       cancelled = true;
@@ -1145,6 +1177,34 @@ export default function SettingsPage() {
     }
     setClaimEvidenceLocal(mergeDefaultClaimEvidence(patch));
     showToast("Default claim evidence saved.", true);
+  }
+
+  async function handleSaveClaimPolicy(e: React.FormEvent) {
+    e.preventDefault();
+    if (mockPlan === "Free Tier") {
+      showToast("Upgrade to Pro to configure claim cutoff policy.", false);
+      return;
+    }
+    setClaimPolicySaving(true);
+    const holdFlags = claimPolicyLocal.claim_hold_policy ?? [];
+    const res = await saveOrganizationClaimPolicy(
+      {
+        scan_go_live_date: claimPolicyLocal.scan_go_live_date,
+        claim_start_date: claimPolicyLocal.claim_start_date,
+        claim_eligibility_window_days: claimPolicyLocal.claim_eligibility_window_days,
+        claim_grouping_policy: claimPolicyLocal.claim_grouping_policy,
+        hold_until_package_closed: holdFlags.includes("hold_until_package_closed"),
+        enabled_claim_domains: claimPolicyLocal.enabled_claim_domains,
+      },
+      tenantCtx,
+    );
+    setClaimPolicySaving(false);
+    if (!res.ok || !res.policy) {
+      showToast(res.error ?? "Failed to save claim cutoff policy.", false);
+      return;
+    }
+    setClaimPolicyLocal(res.policy);
+    showToast("Claim cutoff policy saved.", true);
   }
 
   function handleSaveHardware(e: React.FormEvent) {
@@ -2905,6 +2965,212 @@ export default function SettingsPage() {
                   </div>
                 </div>
               )}
+
+              <form
+                onSubmit={handleSaveClaimPolicy}
+                className={[
+                  "space-y-6 transition-all",
+                  mockPlan === "Free Tier" ? "opacity-50 pointer-events-none select-none" : "",
+                ].join(" ")}
+              >
+                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-950/50">
+                      <ShieldCheck className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-bold text-foreground">Claim Cutoff &amp; Eligibility</h3>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Historical import may populate expected inventory, but auto-claims require configured go-live dates,
+                        scanner evidence, and hold rules. Stored in{" "}
+                        <code className="rounded bg-muted px-1 font-mono text-[10px]">organization_settings.claim_policy</code>.
+                      </p>
+                    </div>
+                  </div>
+
+                  {!claimPolicyLocal.scan_go_live_date && !claimPolicyLocal.claim_start_date ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">
+                      Auto-claims are <span className="font-semibold">blocked</span> until scan and/or claim start dates are set.
+                      Keep <code className="font-mono">CLAIM_SCANNER_AUTO_PROMOTE_ENABLED</code> off until configured.
+                    </div>
+                  ) : null}
+
+                  {claimPolicyLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading…
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className={LABEL_CLS}>Scan go-live date</label>
+                        <p className={HINT_CLS}>Scanner promote / ready_for_claim paths require return scan on or after this date.</p>
+                        <input
+                          type="date"
+                          className={INPUT_CLS}
+                          value={claimPolicyLocal.scan_go_live_date ?? ""}
+                          onChange={(e) =>
+                            setClaimPolicyLocal((p) => ({
+                              ...p,
+                              scan_go_live_date: e.target.value.trim() || null,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className={LABEL_CLS}>Claim start date</label>
+                        <p className={HINT_CLS}>Import/API claim candidates require source events on or after this date.</p>
+                        <input
+                          type="date"
+                          className={INPUT_CLS}
+                          value={claimPolicyLocal.claim_start_date ?? ""}
+                          onChange={(e) =>
+                            setClaimPolicyLocal((p) => ({
+                              ...p,
+                              claim_start_date: e.target.value.trim() || null,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className={LABEL_CLS}>Eligibility window (days)</label>
+                        <p className={HINT_CLS}>Default 90 — max days after event date that auto-claims remain allowed.</p>
+                        <input
+                          type="number"
+                          min={1}
+                          max={730}
+                          className={INPUT_CLS}
+                          value={claimPolicyLocal.claim_eligibility_window_days}
+                          onChange={(e) =>
+                            setClaimPolicyLocal((p) => ({
+                              ...p,
+                              claim_eligibility_window_days: Number(e.target.value) || 90,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className={LABEL_CLS}>Grouping policy</label>
+                        <p className={HINT_CLS}>Phase 1 stores preference; enforcement uses single-item idempotency keys.</p>
+                        <select
+                          className={INPUT_CLS}
+                          value={claimPolicyLocal.claim_grouping_policy}
+                          onChange={(e) =>
+                            setClaimPolicyLocal((p) => ({
+                              ...p,
+                              claim_grouping_policy: e.target.value as ClaimPolicyV1["claim_grouping_policy"],
+                            }))
+                          }
+                        >
+                          {CLAIM_GROUPING_POLICY_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/10 p-3">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                            checked={claimPolicyLocal.claim_hold_policy.includes("hold_until_package_closed")}
+                            onChange={(e) =>
+                              setClaimPolicyLocal((p) => ({
+                                ...p,
+                                claim_hold_policy: e.target.checked
+                                  ? ([
+                                      ...new Set([
+                                        ...p.claim_hold_policy,
+                                        "hold_until_package_closed" as ClaimHoldPolicyFlag,
+                                      ]),
+                                    ] as ClaimHoldPolicyFlag[])
+                                  : p.claim_hold_policy.filter(
+                                      (f) => f !== "hold_until_package_closed",
+                                    ),
+                              }))
+                            }
+                          />
+                          <span>
+                            <span className="block text-sm font-semibold text-foreground">Hold until package closed</span>
+                            <span className="text-xs text-muted-foreground">
+                              Block auto-promote and submissions while the return&apos;s package is still open.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+                    <button
+                      type="submit"
+                      disabled={claimPolicySaving || claimPolicyLoading || mockPlan === "Free Tier"}
+                      className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-violet-500 disabled:opacity-50"
+                    >
+                      {claimPolicySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Save cutoff policy
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Claim module scope</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Phase 1: only <span className="font-semibold">Returns</span> can be enabled. Other domains stay off until
+                      phase 2. Marketplace filing requires the marketplace domain when implemented.
+                    </p>
+                  </div>
+                  {!claimPolicyLocal.enabled_claim_domains.returns ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">
+                      Returns claims are <span className="font-semibold">disabled</span> — scanner promote and return-item claim
+                      paths are blocked even when cutoff dates are set.
+                    </div>
+                  ) : null}
+                  <ul className="space-y-2">
+                    {CLAIM_MODULE_DOMAIN_OPTIONS.map((opt) => {
+                      const enabled = claimPolicyLocal.enabled_claim_domains[opt.key];
+                      const phase1Toggle = opt.configurablePhase1;
+                      return (
+                        <li
+                          key={opt.key}
+                          className={[
+                            "flex items-start gap-3 rounded-xl border p-3",
+                            phase1Toggle ? "border-border bg-muted/10" : "border-dashed border-border/70 bg-muted/5 opacity-80",
+                          ].join(" ")}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                            checked={enabled}
+                            disabled={!phase1Toggle || claimPolicyLoading || mockPlan === "Free Tier"}
+                            onChange={(e) =>
+                              setClaimPolicyLocal((p) => ({
+                                ...p,
+                                enabled_claim_domains: {
+                                  ...p.enabled_claim_domains,
+                                  [opt.key]: e.target.checked,
+                                },
+                              }))
+                            }
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-foreground">{opt.label}</span>
+                              {!phase1Toggle ? (
+                                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Phase 2
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-muted-foreground">{opt.description}</span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </form>
 
               <form
                 onSubmit={handleSaveClaimEvidence}

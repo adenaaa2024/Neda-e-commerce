@@ -14,7 +14,7 @@ export function LogoMark({ className }: { className?: string }) {
   return (
     <div
       className={[
-        "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-sky-500/10 ring-1 ring-sky-500/40 dark:bg-sky-950/50 dark:ring-sky-500/30",
+        "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-primary/30 bg-gradient-to-br from-primary/15 to-card shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]",
         className ?? "",
       ].filter(Boolean).join(" ")}
     >
@@ -28,7 +28,7 @@ export function LogoMark({ className }: { className?: string }) {
           onError={() => setImgBroken(true)}
         />
       ) : (
-        <span className="text-[11px] font-bold leading-none tracking-tight text-sky-600 dark:text-sky-400">
+        <span className="text-[11px] font-bold leading-none tracking-tight text-primary">
           {loading ? "…" : monogram || "·"}
         </span>
       )}

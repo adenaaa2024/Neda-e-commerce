@@ -26,7 +26,8 @@ export type InboxQueueTab =
   | "evidence_missing"
   | "needs_product_link"
   | "pim_blocked"
-  | "legacy_source_broken";
+  | "legacy_source_broken"
+  | "ineligible_pre_cutoff";
 
 export type InboxListItem = {
   id: string;
@@ -62,6 +63,7 @@ const QUEUE_TABS: { id: InboxQueueTab; label: string }[] = [
   { id: "needs_product_link", label: "Needs Product Link" },
   { id: "pim_blocked", label: "PIM Blocked" },
   { id: "legacy_source_broken", label: "Legacy Source Broken" },
+  { id: "ineligible_pre_cutoff", label: "Pre-cutoff" },
 ];
 
 const SOURCE_TABLE_OPTIONS = ["", "amazon_returns", "amazon_removals", "amazon_removal_shipments", "return_items", "returns"];
@@ -106,6 +108,7 @@ function queueLabel(q: string): string {
     needs_product_link: "Needs product link",
     pim_blocked: "PIM blocked",
     legacy_source_broken: "Legacy source broken",
+    ineligible_pre_cutoff: "Before claim start date",
   };
   return m[q] ?? q.replace(/_/g, " ");
 }

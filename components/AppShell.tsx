@@ -185,6 +185,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     const path = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
     if (href === "/") return path === "/";
     if (href === "/settings") return path === "/settings";
+    if (href === "/platform/settings") return path === "/platform/settings";
     if (href === "/claim-engine") {
       return path === "/claim-engine" || path.startsWith("/claim-engine/investigation");
     }

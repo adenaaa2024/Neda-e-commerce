@@ -19,6 +19,7 @@ const INBOX_QUEUES = new Set<InboxQueue>([
   "evidence_missing",
   "ready_for_review",
   "needs_product_link",
+  "ineligible_pre_cutoff",
 ]);
 
 const MAX_PAGE_SIZE = 100;
@@ -241,6 +242,7 @@ function queueLabel(q: string): string {
     needs_product_link: "Needs product link",
     pim_blocked: "PIM blocked",
     legacy_source_broken: "Legacy source broken",
+    ineligible_pre_cutoff: "Before claim start date",
   };
   return m[q] ?? q.replace(/_/g, " ");
 }

@@ -1,41 +1,36 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CLAIM_CONDITIONS } from "@/app/returns/claim-queue-helpers";
-import {
-  ITEM_UNIT_DAMAGE_TAG_KEYS,
-  ITEM_UNIT_SELLABLE_OK_TAG,
-  type ItemUnitDamageTagKey,
-} from "@/lib/scanner/item-unit-discrepancy-tags";
 import {
   getReturnPhotoEvidenceGalleryUrls,
   getReturnPhotoEvidenceUrls,
   hasReturnPhotoEvidenceUrlSlots,
   type ReturnPhotoEvidenceRow,
 } from "@/lib/return-photo-evidence";
+import { evaluateClaimEligibility } from "@/lib/claim-eligibility-policy";
+import { resolveClaimModuleDomain } from "@/lib/claim-module-scope";
+import {
+  isBulkOrphanReturnItemPattern,
+  isPhysicalReturnItemForClaims,
+} from "@/lib/returns-claims-work-queue";
+import {
+  CANONICAL_SCANNER_ISSUE_TYPES,
+  mapScannerIssueToDiscrepancyKind,
+  pickPrimaryScannerIssueFromConditions,
+  type CanonicalScannerIssueType,
+  type ScannerClaimSource,
+} from "@/lib/scanner-claim-issue-pick";
 import { supabaseServer } from "@/lib/supabase-server";
 import { evaluateScannerClaimPromoteGuard } from "@/lib/scanner-claim-promote-guard";
 import { isUuidString } from "@/lib/uuid";
 
-/** Canonical values accepted by claim_cases / claim_lines / claim_evidence CHECK constraints. */
-export const CANONICAL_SCANNER_ISSUE_TYPES = [
-  "damaged_product",
-  "scratched",
-  "expired",
-  "missing_parts",
-  "wrong_item",
-  "empty_box",
-  "damaged_box",
-  "wet",
-  "counterfeit_suspect",
-  "operator_other",
-] as const;
-
-export type CanonicalScannerIssueType = (typeof CANONICAL_SCANNER_ISSUE_TYPES)[number];
-
-export type ScannerClaimSource =
-  | "scanner_operator_issue"
-  | "warehouse_qc_issue";
+export {
+  CANONICAL_SCANNER_ISSUE_TYPES,
+  pickPrimaryScannerIssueFromConditions,
+  mapScannerIssueToDiscrepancyKind,
+  type CanonicalScannerIssueType,
+  type ScannerClaimSource,
+};
 
 export type PromoteScannerClaimResult = {
   promoted: boolean;
@@ -63,45 +58,8 @@ type ReturnItemPromoteRow = {
   conditions: string[] | null;
   photo_evidence: ReturnPhotoEvidenceRow;
   notes: string | null;
+  created_at: string | null;
   deleted_at: string | null;
-};
-
-const SCANNER_TAG_PRIORITY: readonly string[] = [
-  "damaged_product",
-  "scratched",
-  "wrong_item",
-  "expired",
-  "missing_parts",
-  "missing_item",
-];
-
-const LEGACY_CONDITION_TO_CANONICAL: Record<string, CanonicalScannerIssueType> = {
-  damaged_product: "damaged_product",
-  scratched: "scratched",
-  expired: "expired",
-  missing_parts: "missing_parts",
-  missing_item: "missing_parts",
-  wrong_item: "wrong_item",
-  wrong_item_junk: "wrong_item",
-  wrong_item_different: "wrong_item",
-  empty_box: "empty_box",
-  damaged_box: "damaged_box",
-  damaged_warehouse: "operator_other",
-  damaged_customer: "operator_other",
-  damaged_carrier: "operator_other",
-};
-
-const ISSUE_TO_DISCREPANCY: Record<CanonicalScannerIssueType, string> = {
-  damaged_product: "damage",
-  scratched: "damage",
-  expired: "other",
-  missing_parts: "other",
-  wrong_item: "wrong_item",
-  empty_box: "other",
-  damaged_box: "damage",
-  wet: "damage",
-  counterfeit_suspect: "other",
-  operator_other: "other",
 };
 
 function claimLineIdempotencyKey(organizationId: string, returnItemId: string): string {
@@ -118,55 +76,6 @@ function claimCaseIdempotencyKey(
 
 function evidenceIdempotencyKey(returnItemId: string, publicUrl: string): string {
   return `ce:photo:${returnItemId}:${publicUrl.trim()}`;
-}
-
-/** Scanner item-unit damage tags plus legacy claim conditions that may appear on return_items. */
-export function isScannerClaimableConditionTag(tag: string): boolean {
-  const k = String(tag ?? "").trim();
-  if (!k || k === ITEM_UNIT_SELLABLE_OK_TAG) return false;
-  if ((ITEM_UNIT_DAMAGE_TAG_KEYS as readonly string[]).includes(k)) return true;
-  return CLAIM_CONDITIONS.has(k);
-}
-
-export function pickPrimaryScannerIssueFromConditions(
-  conditions: string[] | null | undefined,
-): { tag: string; canonical: CanonicalScannerIssueType; claimSource: ScannerClaimSource } | null {
-  const list = (conditions ?? []).map((c) => String(c ?? "").trim()).filter(Boolean);
-  if (!list.length) return null;
-  if (list.length === 1 && list[0] === ITEM_UNIT_SELLABLE_OK_TAG) return null;
-
-  let picked: string | null = null;
-  for (const p of SCANNER_TAG_PRIORITY) {
-    if (list.includes(p)) {
-      picked = p;
-      break;
-    }
-  }
-  if (!picked) {
-    for (const c of list) {
-      if (isScannerClaimableConditionTag(c)) {
-        picked = c;
-        break;
-      }
-    }
-  }
-  if (!picked || !isScannerClaimableConditionTag(picked)) return null;
-
-  const canonical = LEGACY_CONDITION_TO_CANONICAL[picked];
-  if (!canonical) return null;
-
-  const claimSource: ScannerClaimSource =
-    picked === "damaged_warehouse" ||
-    picked === "damaged_customer" ||
-    picked === "damaged_carrier"
-      ? "warehouse_qc_issue"
-      : "scanner_operator_issue";
-
-  return { tag: picked, canonical, claimSource };
-}
-
-export function mapScannerIssueToDiscrepancyKind(canonical: CanonicalScannerIssueType): string {
-  return ISSUE_TO_DISCREPANCY[canonical] ?? "other";
 }
 
 function collectPhotoEvidenceUrls(pe: ReturnPhotoEvidenceRow): { url: string; label: string }[] {
@@ -276,7 +185,7 @@ async function loadReturnItemForPromote(
   let q = client
     .from("return_items")
     .select(
-      "id, organization_id, store_id, package_id, pallet_id, expected_item_id, resolved_product_id, order_id, sku, fnsku, asin, conditions, photo_evidence, notes, deleted_at",
+      "id, organization_id, store_id, package_id, pallet_id, expected_item_id, resolved_product_id, order_id, sku, fnsku, asin, conditions, photo_evidence, notes, created_at, deleted_at",
     )
     .eq("id", returnItemId);
   if (organizationId && isUuidString(organizationId)) {
@@ -315,6 +224,15 @@ export async function promoteScannerReturnItemToClaimStructures(
     return { promoted: false, skipped_reason: "return_item_not_found" };
   }
 
+  if (!isPhysicalReturnItemForClaims(row)) {
+    return {
+      promoted: false,
+      skipped_reason: isBulkOrphanReturnItemPattern(row)
+        ? "bulk_orphan_excluded"
+        : "not_physical_scan",
+    };
+  }
+
   const issue = pickPrimaryScannerIssueFromConditions(row.conditions);
   if (!issue) {
     return { promoted: false, skipped_reason: "not_claimable" };
@@ -322,6 +240,23 @@ export async function promoteScannerReturnItemToClaimStructures(
 
   const { canonical, claimSource, tag: sourceTag } = issue;
   const hasPhoto = hasReturnPhotoEvidenceUrlSlots(row.photo_evidence);
+
+  const eligibilityClaimSource =
+    claimSource === "warehouse_qc_issue" ? "warehouse_qc_issue" : "scanner_operator_issue";
+  const eligibility = await evaluateClaimEligibility({
+    client,
+    organizationId: row.organization_id,
+    storeId: row.store_id,
+    claimSource: eligibilityClaimSource,
+    eventAt: row.created_at,
+    hasScannerEvidence: hasPhoto,
+    packageId: row.package_id,
+    palletId: row.pallet_id,
+    moduleDomain: resolveClaimModuleDomain(eligibilityClaimSource, null),
+  });
+  if (!eligibility.allowed) {
+    return { promoted: false, skipped_reason: eligibility.reason };
+  }
   const lineStatus = deriveClaimLineStatus(canonical, hasPhoto);
   const discrepancyKind = mapScannerIssueToDiscrepancyKind(canonical);
   const routing = await resolveClaimCompanyRouting(client, {

@@ -227,6 +227,7 @@ function visualFromBarcodeRow(barcode: OperatorResolveResult): InventoryGateVisu
         order_id: null,
         status: null,
         product_name: null,
+        product_display_name: null,
         product_id: null,
         resolved_product_id: null,
         resolved_catalog_product_id: null,
@@ -283,6 +284,7 @@ function epRowToInventoryStatusRow(
         : null,
     status: null,
     product_name: null,
+    product_display_name: null,
     product_id: (r as { product_id?: string | null }).product_id ?? null,
     resolved_product_id: (r as { resolved_product_id?: string | null }).resolved_product_id ?? null,
     resolved_catalog_product_id:
@@ -616,6 +618,7 @@ export async function lookupShipmentEntryScanCode(
         order_id: null,
         status: null,
         product_name: null,
+        product_display_name: null,
         product_id: null,
         resolved_product_id: null,
         resolved_catalog_product_id: null,

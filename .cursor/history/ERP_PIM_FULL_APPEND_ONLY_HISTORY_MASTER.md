@@ -336,13 +336,16 @@ Evidence: `pc05-packaging-full-parity-verify/20260526T214000Z/` · `pc05c-packag
 
 ## 16. Next actions
 
-1. **BUILD-FIX-TESSERACT-SCAN-PAGE** — `npm run build` fails on `tesseract.js` / `scan/page.tsx`; fix before deploy  
-2. **ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE** — fresh SP-API fetch on original, not staging copy (`original-parity-phase1-wave-data-approval.md`)  
-3. **CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY** — staging; migration drafted, dry-run PASS; ~13,966 upper bound pre-dedupe  
-4. **GH-AUTH-PR-CREATE** — open PR `feature/product-canonicalization-v2` → `main` for commit `51bc597`  
-5. **TRID-FOUNDATION-MIGRATION-APPLY** — after `claim_lines` prerequisite landed  
+1. **PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE** — mandatory gate before any Neda merge  
+2. **CLAIMS-RETURNS-FIRST-DRAFT-E2E-CLOSED-PACKAGE-EVIDENCE** — returns policy configured; `expected_group` + `import_source` **blocked**; draft E2E needs closed package + evidence/note  
+3. **INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION** — view read-model alignment (non-blocking for core scanner demo)  
 
-Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `SCANNER_STATE.md`, `REMOVAL_API_STATE.md`, `STAGING_ORIGINAL_PARITY.md`, `CLAIMS_TRID_STATE.md`, `HISTORY_POINTERS.md`
+**Phase1 demo-ready (2026-06-17):** Automation API Center **COMPLETE** · Imports file-only **COMPLETE** · Product Core no auto-create **ENFORCED** · vendor 1883 cleanup **COMPLETE** (warning architecture generic/data-driven) · scanner physical-only RI + linkage **preserved** · delete/move/void backend parity **COMPLETE** on staging (restore-RPC wiring + original undo apply remain separate)  
+**Claims:** returns-first policy **configured** on staging; returns lane only — **expected_group** and **import_source** grains **blocked**  
+**Neda merge contract:** preserve scanner UX + Phase1 governed allocation/release rules; **no original DB DDL** without separate approval  
+**Merge:** **NO** until Phase1 final QA gate + operator approval  
+
+Sync: `.cursor/.ai-memory/PHASE1_DEMO_READY.md`, `AUTOMATION_API_CENTER.md`, `CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `SCANNER_STATE.md`, `CLAIM_ARCHITECTURE.md`, `NEDA_HANDOFF.md`, `HISTORY_POINTERS.md`
 
 ---
 
@@ -350,6 +353,15 @@ Sync: `.ai-memory/CURRENT_STATE.md`, `NEXT_ACTIONS.md`, `SCANNER_STATE.md`, `REM
 
 | Run ID | Action | Notes |
 |--------|--------|-------|
+| `20260617T120000Z` | **PHASE1-DEMO-READY-HISTORY-MEMORY-SYNC** | Demo-ready checkpoint; delete/move/void parity complete staging; claims expected_group/import_source blocked; Neda merge contract locked |
+| `20260616T120000Z` | **PHASE1-PRE-NEDA-MERGE-HISTORY-MEMORY-SYNC** | Automation API Center UX locked; Imports file-only cutover; vendor 1883 cleanup; sample wave 0 creates; claims policy on staging; QA gate before Neda merge |
+| `20260614T120000Z` | **ARCHITECTURE-CORRECTION-HISTORY-MEMORY-SYNC** | Staging RI hard-delete complete; 5333 bulk/orphan removed; active RI 33 (3 with package); spine unchanged; P0 inventory views migration + Phase F |
+| `20260613T120000Z` | **PRODUCT-CORE-PROTECTION-HISTORY-MEMORY-UPDATE** | Product Core protected backbone; change gate; roadmap CLARIFIED 90-95% arch / 65-75% ops; Wave1 enrichment refactor SAFE |
+| `20260612T120000Z` | **PHASE1-ROADMAP-AND-HISTORY-MEMORY-UPDATE-AFTER-DRYRUNS** | Product sheet dry-run 4479 rows; linkage census Class A=2; execution policy locked; claims cutoff unconfigured |
+| `20260611T120000Z` | **PHASE1-ROADMAP-AND-HISTORY-MEMORY-UPDATE** | main 4402064; stash-land c78fbb8 not merged; removal mismatch fixed; roadmap priorities |
+| `20260609T140000Z` | **HISTORY-MEMORY-ALIGN-AFTER-PHASE1-CENSUS** | Original slip/view parity PASS `234437Z`; staging true linkage PASS; allocation census |
+| `20260608T120000Z` | **HISTORY-MEMORY-UPDATE-AFTER-STAGING-PASS-ORIGINAL-BLOCKED** | **SUPERSEDED** for original parity — was BLOCKED; now PASS `234437Z` |
+| `20260607T140000Z` | **HISTORY-MEMORY-UPDATE-PRODUCT-CANONICALIZATION-V3** | Staging DB parity view+slip execute PASS `20260529T231120Z`; branch `feature/product-canonicalization-v3`; CORRECTED stale V193 view-live memory |
 | `20260601T120000Z` | **PHASE1 DELIVERY STATUS UPDATE** | 51bc597 pushed; build tesseract blocker; original schema 4/4 PASS; data wave pending; claims/TRID dryruns PASS not applied; Neda smoke PASS; PR needed |
 | `20260531T140000Z` | **PHASE1 SCANNER REMOVAL CHECKPOINT** | 80 spreadsheet dims; removal fetch/sync/rebuild/norm/resolver 6099/6175; item-level repair+commit; original schema wave done; claims/TRID plans PASS |
 | `20260529T220000Z` | **ITEM-LEVEL RECEIVE MODEL** | RI item-level vs EP group-level; repair pending; no qty-on-RI regression |
@@ -229926,176 +229938,52 @@ Migration contents:
 - org/store alignment trigger:
   assert_user_store_assignment_org_matches_store()
 - updated_at trigger using public.set_updated_at()
-- RLS enabled
-- SELECT own assignment policy
-- FOR ALL tenant_admin/admin in same org policy
-- FOR ALL platform/super_admin/system_admin policy
-- grants:
-  authenticated SELECT + DML with RLS
-  service_role full DML
-- NOTIFY pgrst, 'reload schema' after COMMIT
-
-Locked FK decisions:
-- organization_id -> organizations(id) ON DELETE RESTRICT
-- profile_id -> profiles(id) ON DELETE CASCADE
-- store_id -> stores(id) ON DELETE RESTRICT
-
-Unresolved assumptions from result:
-- profiles.organization_id vs assignment.organization_id for a profile is not enforced in DB.
-- Platform RLS omits some system roles such as system_employee; can extend later.
-- legacy profiles.role = system_admin is allowed in platform path; document and revisit if data differs.
-
-Current instruction:
-- Since the migration file is created but not executed, user should NOT run Supabase migration yet without a verify/dry-read step.
-- Next step should verify migration SQL text, RLS assumptions, and prepare a safe migration execution checklist.
-
+- R
 ================================================================================
-V95 NEW GLOBAL PRODUCT REQUIREMENT — MODULAR FEATURES / ENTITLEMENTS / SELLABLE MODULES
+APPEND SLICE — PHASE1-DEMO-READY-HISTORY-MEMORY-SYNC (20260617T120000Z)
 ================================================================================
 
-User emphasized:
-The whole system must be designed so every module/feature can be sold separately or disabled independently.
+Run: PHASE1-DEMO-READY-HISTORY-MEMORY-SYNC
+Branch: feature/phase1-latest-stash-land @ 999f765
+Mode: APPEND-ONLY HISTORY/MEMORY UPDATE
+No DB writes. No code changes. No merge.
 
-This is a global architecture requirement, not only claims.
+## Phase1 demo-ready state (final checkpoint)
 
-Examples:
-- Claim Engine as a sellable module
-- Return + Claim bundle
-- Warehouse + Claim bundle
-- Claim-only from file imports
-- Claim with API integrations
-- Claim with AI agents
-- Claim with warehouse/operator evidence
-- Inventory forecasting as separate module
-- Product intelligence / Helium-10-like tools as separate module
-- API ingestion as separate module
-- OCR/carton-slip AI as separate module
-- AI agents as separate metered feature
-- user seats, store count, API call limits, AI credits, workflow runs, storage limits as metered dimensions
+### COMPLETE
+- Automation API Center
+- Imports file-only (UniversalImporter + history remain)
+- Product Core no auto-create enforced
+- Vendor 1883 staging cleanup (remaining vendor_name exact 1883 = 0)
+- Product Hub vendor warning architecture: generic/data-driven effective label
+- Scanner physical-only return_items + product linkage preserved
+- Delete/move/void backend parity COMPLETE on staging:
+  operatorDeleteReturnItem, voidOperatorIntakeBoxPackageAction,
+  moveOperatorIntakeBoxToPalletAction with release/move RPCs
 
-Architecture required:
-- feature catalog
-- module catalog
-- entitlement policy layer
-- tenant subscription/plan
-- store-level enablement/overrides
-- user/role permissions
-- usage metering
-- billing/credit integration later
-- hard gates before background jobs/workflows run
-- UI gating
-- API gating
-- AI gating
-- import/API job gating
-- marketplace connector gating
+### Remaining blockers (non-demo vs merge)
+- INVENTORY-VIEWS-BULK-ORPHAN-RI-EXCLUSION-MIGRATION (view layer)
+- DELETE-VOID restore-RPC wiring to undo_snapshots (enhancement)
+- DELETE-CASCADE-UNDO original apply (separate approval)
+- CLAIMS-RETURNS-FIRST-DRAFT-E2E (closed package + evidence/note)
+- PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE
 
-Core rule:
-If a tenant/store/user does not have an active entitlement for a feature/module, downstream workflows must not run.
+### Claims returns-first
+- Policy configured on staging
+- expected_group and import_source grains BLOCKED for returns-first queue
 
-This must be checked before:
-- showing UI nav
-- allowing API routes
-- running imports
-- running claim workflows
-- calling marketplace APIs
-- running AI agents
-- scheduling sync jobs
-- generating reports
-- using OCR
-- creating claims/tasks/cases from a fea
----
+### Neda merge contract
+- Must preserve scanner UX + Phase1 governed allocation/release rules
+- No original DB DDL without separate approval
 
-# APPEND SLICE: PHASE1 DELIVERY STATUS UPDATE (20260601T120000Z)
+### Demo readiness: READY (core surfaces)
+### Merge readiness: NOT READY
 
-**Prompt:** HISTORY + MEMORY — PHASE1 DELIVERY STATUS UPDATE  
-**Owner:** Main/user  
-**Branch:** `feature/product-canonicalization-v2`  
-**Mode:** Agent, docs only — no DB/API/migration mutations  
+Memory sync: PHASE1_DEMO_READY.md (NEW) + CURRENT_STATE, NEXT_ACTIONS, SCANNER_STATE,
+CLAIM_ARCHITECTURE, NEDA_HANDOFF, HISTORY_POINTERS, ROADMAP, etc.
 
-## Commit pushed
+Exact next prompt: PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE
 
-| Field | Value |
-|-------|-------|
-| SHA | `51bc597ba1ed1d49761b5650b73f36704f72b1aa` |
-| Message | `phase1: item-level scanner receive allocation repair` |
-| Remote | `origin/feature/product-canonicalization-v2` |
-| Evidence | `commit-push-item-level-repair-and-phase1/20260528T191934Z/` |
-
-## Build blocker
-
-| Issue | Detail |
-|-------|--------|
-| `npm run build` | **FAIL** — `tesseract.js` missing in `app/scanner/operator-mobile/scan/page.tsx` |
-| Deploy gate | Fix required before Vercel/deploy merge |
-| Next | **BUILD-FIX-TESSERACT-SCAN-PAGE** |
-
-## Original schema wave — PASS
-
-| Item | Status |
-|------|--------|
-| Target | `kxsvedvpjldygtdbylsy` |
-| Migrations applied | **4 / 4** |
-| Functions parity | **PASS** |
-| Views parity | **PASS** |
-| Evidence | `original-parity-phase1-wave-schema-execute/20260530T180000Z/` |
-
-## Original data wave — NOT EXECUTED
-
-Fresh SP-API fetch on original recommended; do not bulk-clone staging EP/PIM/upload rows. Approval: `original-parity-phase1-wave-data-approval.md`.
-
-## Staging data
-
-`expected_packages` **6,175**; resolved **6,099**; unresolved **76**.
-
-## Claims — dry-run PASS, not applied
-
-Migration `20260831120000_claim_lines_foundation.sql` drafted; dry-run PASS; ~**13,966** upper bound pre-dedupe.
-
-## TRID — dry-run PASS, not applied
-
-Migration `20260832120000_trid_foundation.sql` drafted; `claim_lines` prerequisite missing.
-
-## Neda
-
-Item-level smoke **PASS** after sync; PR not opened — needs **GH-AUTH-PR-CREATE**.
-
-## Priority
-
-1. BUILD-FIX-TESSERACT-SCAN-PAGE  
-2. ORIGINAL-PARITY-PHASE1-WAVE-DATA-EXECUTE  
-3. CLAIM-RETURN-LINE-FOUNDATION-SCHEMA-APPLY  
-4. GH-AUTH-PR-CREATE
-
----
-
-# 20260528T220000Z — ORIGINAL DATA WAVE RESOLVER FINISH VERIFY
-
-**Prompt:** ORIGINAL-PARITY-WAVE-DATA-RESOLVER-FINISH-VERIFY  
-**Evidence:** `.cursor/audit-reports/original-parity-wave-data-resolver-finish-verify/20260528T220000Z/`  
-**Data execute:** `.cursor/audit-reports/original-parity-phase1-wave-data-execute/20260528T201200Z/`
-
-## Result
-
-| Check | Value |
-|-------|-------|
-| resolver_complete | **yes** |
-| original derived EP | **11,790** |
-| original resolved | **9,377** |
-| original unresolved | **2,413** |
-| ambiguous | **0** |
-| rebuild_valid | **yes** (non-overflow mismatch **0**) |
-| resume_needed | **no** |
-
-## Staging vs original (live)
-
-| Metric | Staging | Original |
-|--------|--------:|---------:|
-| derived EP | 6,175 | 11,790 |
-| resolved | 6,099 | 9,377 |
-| unresolved | 76 | 2,413 |
-
-No staging writes. No products/PIM inserts.
-
-## Next
-
-**ORIGINAL-PARITY-PHASE1-WAVE-B-EXECUTE** — governed map replays on original (optional gap close) -> Wave C scanner verify.
+================================================================================
+END APPEND SLICE — 20260617T120000Z
+================================================================================

@@ -39,6 +39,22 @@ function epCatalogNameFromRow(row: Record<string, unknown>): string | null {
   return trimOrNull(prod?.product_name);
 }
 
+function inventoryViewDisplayName(invRow: VInventoryStatusRow): string | null {
+  return trimOrNull(invRow.product_display_name) ?? trimOrNull(invRow.product_name);
+}
+
+function normalizeDisplayLinkageStatus(
+  status: string | null,
+  effectiveId: string | null,
+  displayName: string | null,
+): string | null {
+  const st = normStatus(status);
+  if (!effectiveId) return st ?? "unresolved";
+  if (st === "ambiguous" || st === "mismatch") return st;
+  if (displayName || st === "resolved" || st === "matched") return "resolved";
+  return st ?? "unresolved";
+}
+
 function expectedPackageProductId(row: Record<string, unknown>): string | null {
   return (
     trimOrNull(row.resolved_product_id) ??
@@ -87,8 +103,8 @@ function mergeInventoryViewIntoLinkage(
   invRow: VInventoryStatusRow,
   productNameById: ReadonlyMap<string, string>,
 ): ProductLinkageDisplayContract {
-  const invResolved = trimOrNull(invRow.resolved_product_id);
-  const invName = trimOrNull(invRow.product_name);
+  const invResolved = trimOrNull(invRow.resolved_product_id) ?? trimOrNull(invRow.product_id);
+  const invName = inventoryViewDisplayName(invRow);
   const invStatus = normStatus(invRow.product_linkage_status);
   const effectiveId = trimOrNull(linkage.resolved_product_id) ?? invResolved;
   const nameMap = new Map(productNameById);
@@ -96,10 +112,13 @@ function mergeInventoryViewIntoLinkage(
   const merged = buildProductLinkageDisplayContract(
     {
       resolved_product_id: effectiveId,
-      identifier_resolution_status:
-        linkage.identifier_resolution_status === "resolved" || invStatus === "resolved"
-          ? "resolved"
-          : linkage.identifier_resolution_status ?? invStatus,
+      product_name: invName ?? undefined,
+      product_display_name: trimOrNull(invRow.product_display_name) ?? undefined,
+      identifier_resolution_status: normalizeDisplayLinkageStatus(
+        linkage.identifier_resolution_status ?? invStatus,
+        effectiveId,
+        invName ?? trimOrNull(linkage.product_name),
+      ),
       identifier_resolution_confidence:
         linkage.identifier_resolution_confidence ?? invRow.identifier_resolution_confidence,
       sku: invRow.sku ?? undefined,
@@ -124,8 +143,8 @@ export function buildInventoryViewProductLinkage(
   epRow: Record<string, unknown> | null | undefined,
   productNameById: ReadonlyMap<string, string>,
 ): ProductLinkageDisplayContract {
-  const invResolved = trimOrNull(invRow.resolved_product_id);
-  const invName = trimOrNull(invRow.product_name);
+  const invResolved = trimOrNull(invRow.resolved_product_id) ?? trimOrNull(invRow.product_id);
+  const invName = inventoryViewDisplayName(invRow);
   const invStatus = normStatus(invRow.product_linkage_status);
   const nameMap = new Map(productNameById);
   if (invResolved && invName) nameMap.set(invResolved, invName);
@@ -136,11 +155,12 @@ export function buildInventoryViewProductLinkage(
   }
 
   const effectiveId = invResolved;
-  const status =
-    invStatus ?? (effectiveId && invName ? "resolved" : effectiveId ? "unresolved" : "unresolved");
+  const status = normalizeDisplayLinkageStatus(invStatus, effectiveId, invName);
   return buildProductLinkageDisplayContract(
     {
       resolved_product_id: effectiveId,
+      product_name: invName ?? undefined,
+      product_display_name: trimOrNull(invRow.product_display_name) ?? undefined,
       identifier_resolution_status: status,
       identifier_resolution_confidence: invRow.identifier_resolution_confidence,
       description: invName ?? undefined,

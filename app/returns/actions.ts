@@ -31,11 +31,27 @@ import {
   RETURN_SELECT,
 } from "./returns-constants";
 import {
+  applyExcludeBulkOrphanReturnItemsFilter,
+  isSyntheticBulkOrphanInsertBlocked,
+  SYNTHETIC_BULK_ORPHAN_INSERT_ERROR,
+} from "@/lib/return-item-physical-scan";
+import {
   enrichExpectedItemsProductResolution,
   resolveScannerProductIdentifiers,
 } from "../../lib/scanner-product-resolve";
 import { syncSlipContentsResolverForPackage } from "../../lib/slip-contents-resolver-write";
 import { promoteScannerReturnItemToClaimStructures } from "../../lib/scanner-operator-claim-promote";
+import { evaluateClaimEligibility } from "../../lib/claim-eligibility-policy";
+import {
+  buildReceiveScopeKey,
+  fetchPackageReceiveContext,
+  moveExpectedItemsForPackageScope,
+  softVoidPackageWithExpectedRelease,
+  softVoidPalletWithExpectedRelease,
+  softVoidReturnItemWithExpectedRelease,
+} from "../../lib/scanner/receive-expected-with-split";
+import { fetchProductNamesByResolvedIds } from "../../lib/scanner/product-linkage-display-contract";
+import { moveReturnItemParentV2 } from "../../lib/scanner/delete-cascade-v2-app";
 import {
   mapPackageWriteRow,
   mapPalletWriteRow,
@@ -101,6 +117,31 @@ function dedupeReturnsById(rows: unknown[] | null | undefined): ReturnRecord[] {
   const out = [...map.values()];
   out.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   return out;
+}
+
+/** Batch-hydrate catalog titles for linked return_items (Product Core read-only). */
+async function hydrateReturnRecordsCatalogNames(rows: ReturnRecord[]): Promise<ReturnRecord[]> {
+  if (!rows.length) return rows;
+  const productIds = [
+    ...new Set(
+      rows
+        .map((r) => r.resolved_product_id?.trim())
+        .filter((id): id is string => !!id && isUuidString(id)),
+    ),
+  ];
+  if (!productIds.length) return rows;
+
+  const nameById = await fetchProductNamesByResolvedIds(
+    supabaseServer as unknown as Parameters<typeof fetchProductNamesByResolvedIds>[0],
+    productIds,
+  );
+  return rows.map((r) => {
+    const pid = r.resolved_product_id?.trim();
+    if (!pid) return r;
+    const catalog_product_name = nameById.get(pid) ?? null;
+    if (!catalog_product_name) return r;
+    return { ...r, catalog_product_name };
+  });
 }
 
 /** Rejects invalid client values (e.g. mistyped default store id in localStorage). */
@@ -234,6 +275,67 @@ function deriveStatus(
     hasReturnPhotoEvidenceUrlSlots(pe);
   if (fromItem) return "ready_for_claim";
   return "pending_evidence";
+}
+
+function returnHasScannerClaimEvidence(
+  conditions: string[] | null | undefined,
+  photoEvidence: ReturnPhotoEvidenceRow | undefined | null,
+): boolean {
+  const list = conditions ?? [];
+  const needsClaim = list.some((c) => CLAIM_CONDITIONS.has(c));
+  if (!needsClaim) return false;
+  const pe = photoEvidence ?? null;
+  return hasReturnPhotoEvidenceCounts(pe) || hasReturnPhotoEvidenceUrlSlots(pe);
+}
+
+async function resolveReturnWorkflowStatus(
+  organizationId: string,
+  storeId: string | null | undefined,
+  conditions: string[],
+  photoEvidence: ReturnPhotoEvidenceRow | undefined,
+  createdAt: string | null | undefined,
+  packageId: string | null | undefined,
+): Promise<string> {
+  const base = deriveStatus(conditions, photoEvidence);
+  if (base !== "ready_for_claim") return base;
+  const eligibility = await evaluateClaimEligibility({
+    client: supabaseServer,
+    organizationId,
+    storeId,
+    claimSource: "ready_for_claim",
+    eventAt: createdAt ?? new Date(),
+    hasScannerEvidence: returnHasScannerClaimEvidence(conditions, photoEvidence),
+    packageId,
+  });
+  return eligibility.allowed ? "ready_for_claim" : "pending_evidence";
+}
+
+/** Gate Amazon claim_submissions enqueue — conditions, marketplace, and cutoff policy. */
+export async function isReturnEligibleForClaimSubmission(opts: {
+  organizationId: string;
+  storeId?: string | null;
+  marketplace?: string | null;
+  conditions?: string[] | null;
+  photoEvidence?: ReturnPhotoEvidenceRow | null;
+  createdAt?: string | null;
+  packageId?: string | null;
+  stores?: unknown;
+}): Promise<boolean> {
+  const storePlat = storePlatformFromEmbed(opts.stores);
+  if (
+    !shouldAutoEnqueueAmazonClaimSubmission(opts.marketplace, opts.conditions ?? [], storePlat)
+  ) {
+    return false;
+  }
+  const status = await resolveReturnWorkflowStatus(
+    opts.organizationId,
+    opts.storeId ?? null,
+    opts.conditions ?? [],
+    opts.photoEvidence ?? undefined,
+    opts.createdAt ?? null,
+    opts.packageId ?? null,
+  );
+  return status === "ready_for_claim";
 }
 
 /** Builds `source_payload` for `claim_submissions` including package + pallet evidence and optional extra URLs (e.g. condition-category uploads). Exported for batch sync. */
@@ -631,16 +733,22 @@ export async function deletePallet(
     const id = uuidOrNull(palletId);
     if (!id) throw new Error("Invalid pallet id.");
     const scope = await resolveTenantListScope({ actorProfileId });
+    const orgId = scope.mode === "single" ? scope.organizationId : DEFAULT_ORG;
+    const updatedBy = uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor);
+
+    const voided = await softVoidPalletWithExpectedRelease(supabaseServer, {
+      palletId: id,
+      organizationId: orgId,
+      updatedBy: updatedBy && isUuidString(updatedBy) ? updatedBy : null,
+    });
+    if (!voided.ok) throw new Error(voided.error);
+
     void logPalletAudit({
-      organizationId: scope.mode === "single" ? scope.organizationId : DEFAULT_ORG,
+      organizationId: orgId,
       palletId: id,
       action: "deleted",
       actor: actor ?? DEFAULT_ACTOR,
     });
-    let q = supabaseServer.from("pallets").delete().eq("id", id);
-    if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
-    const { error } = await q;
-    if (error) throw new Error(error.message);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to delete pallet." };
@@ -726,6 +834,13 @@ export async function updatePackage(
     const pkgId = uuidOrNull(packageId);
     if (!pkgId) throw new Error("Invalid package id.");
     const scope = await resolveTenantListScope({ actorProfileId });
+    const { data: pkgBefore, error: beforeErr } = await supabaseServer
+      .from("packages")
+      .select("organization_id, store_id, pallet_id")
+      .eq("id", pkgId)
+      .maybeSingle();
+    if (beforeErr) throw new Error(beforeErr.message);
+
     const safeUpdates = { ...(updates as unknown as Record<string, unknown>) };
     delete safeUpdates.updated_by;
     const payload = mapPackageWriteRow(
@@ -782,14 +897,51 @@ export async function updatePackage(
     const { data, error } = await q.select(PACKAGE_MUTATION_SELECT).single();
     if (error) throw new Error(parseDuplicateError(error.message));
     const row = normalizePackageRow(data as unknown as Record<string, unknown>);
+    const orgIdForMove =
+      row.organization_id ??
+      (pkgBefore as { organization_id?: string } | null)?.organization_id ??
+      (scope.mode === "single" ? scope.organizationId : "");
+    const storeIdForMove =
+      (row.store_id as string | null | undefined) ??
+      (pkgBefore as { store_id?: string | null } | null)?.store_id ??
+      null;
+
     // Keep denormalized returns.pallet_id in sync when package moves between pallets
     if ("pallet_id" in payload) {
+      const prevPallet = (pkgBefore as { pallet_id?: string | null } | null)?.pallet_id ?? null;
+      const nextPallet = row.pallet_id ?? null;
       let syncQ = supabaseServer.from(RETURN_ITEMS_TABLE)
         .update({ pallet_id: row.pallet_id })
         .eq("package_id", pkgId);
       if (scope.mode === "single") syncQ = syncQ.eq("organization_id", scope.organizationId);
       const { error: syncErr } = await syncQ;
       if (syncErr) console.error("[updatePackage] sync return_items.pallet_id:", syncErr.message);
+
+      if (
+        prevPallet !== nextPallet &&
+        orgIdForMove &&
+        isUuidString(orgIdForMove) &&
+        storeIdForMove &&
+        isUuidString(storeIdForMove)
+      ) {
+        const pkgCtx = await fetchPackageReceiveContext(supabaseServer, pkgId);
+        const receiveScopeKey = buildReceiveScopeKey({
+          organizationId: orgIdForMove,
+          storeId: storeIdForMove,
+          packageId: pkgId,
+          slipCode: pkgCtx.slipCode,
+        });
+        const moveAlloc = await moveExpectedItemsForPackageScope(supabaseServer, {
+          packageId: pkgId,
+          organizationId: orgIdForMove,
+          storeId: storeIdForMove,
+          receiveScopeKey,
+          trackingNumber: pkgCtx.trackingNumber,
+          palletId: nextPallet,
+          actorId: actorProfileId ?? null,
+        });
+        if (!moveAlloc.ok) throw new Error(moveAlloc.error);
+      }
     }
     void syncSlipContentsResolverForPackage(supabaseServer, {
       organizationId: row.organization_id ?? (scope.mode === "single" ? scope.organizationId : ""),
@@ -864,7 +1016,8 @@ export async function listReturnsByPackage(
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     return { ok: false, data: [], error: err instanceof Error ? err.message : "Failed to load package items." };
   }
@@ -910,16 +1063,22 @@ export async function deletePackage(
     const id = uuidOrNull(packageId);
     if (!id) throw new Error("Invalid package id.");
     const scope = await resolveTenantListScope({ actorProfileId });
+    const orgId = scope.mode === "single" ? scope.organizationId : DEFAULT_ORG;
+    const updatedBy = uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor);
+
+    const voided = await softVoidPackageWithExpectedRelease(supabaseServer, {
+      packageId: id,
+      organizationId: orgId,
+      updatedBy: updatedBy && isUuidString(updatedBy) ? updatedBy : null,
+    });
+    if (!voided.ok) throw new Error(voided.error);
+
     void logPackageAudit({
-      organizationId: scope.mode === "single" ? scope.organizationId : DEFAULT_ORG,
+      organizationId: orgId,
       packageId: id,
       action: "deleted",
       actor: actor ?? DEFAULT_ACTOR,
     });
-    let q = supabaseServer.from("packages").delete().eq("id", id);
-    if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
-    const { error } = await q;
-    if (error) throw new Error(error.message);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to delete package." };
@@ -937,8 +1096,6 @@ export async function insertReturn(
       payload.organization_id,
     );
     const packageIdFk = uuidFkOrNull(payload.package_id ?? null, "package_id");
-    /** Status / claims use `returns.photo_evidence` only — do not read packages.photo_evidence here. */
-    const status = deriveStatus(payload.conditions, payload.photo_evidence ?? null, {});
 
     /** Pallet FK only when linked to a real package — inherit from package row (never raw user text). */
     let effectivePalletId: string | null = null;
@@ -959,6 +1116,16 @@ export async function insertReturn(
       package_id: packageIdFk,
     });
 
+    /** Status / claims use `returns.photo_evidence` only — do not read packages.photo_evidence here. */
+    const status = await resolveReturnWorkflowStatus(
+      orgId,
+      resolvedStoreId ?? null,
+      payload.conditions,
+      payload.photo_evidence ?? null,
+      new Date().toISOString(),
+      packageIdFk,
+    );
+
     const orderFromPackage = await fetchPackageOrderId(packageIdFk);
     const amazonOrderFromPayload = (
       payload.amazon_order_id?.trim() ||
@@ -968,6 +1135,11 @@ export async function insertReturn(
     /** TEXT marketplace order id only — never assign to store_id / package_id / pallet_id. */
     const effectiveAmazonOrderId =
       (amazonOrderFromPayload || orderFromPackage || "").trim() || null;
+
+    const createdBy =
+      uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ??
+      resolveActorUserId(payload.created_by);
+    const expectedItemFk = uuidFkOrNull(payload.expected_item_id ?? null, "expected_item_id");
 
     const insertRow: Record<string, unknown> = {
       organization_id: orgId,
@@ -983,7 +1155,7 @@ export async function insertReturn(
       pallet_id:       effectivePalletId,
       package_id:      packageIdFk,
       status,
-      created_by: uuidFkOrNull(payload.actor_profile_id ?? null, "created_by") ?? resolveActorUserId(payload.created_by),
+      created_by:      createdBy,
       store_id:        resolvedStoreId,
     };
     const normalizedAsin = normalizeUpperIdentifier(payload.asin);
@@ -998,7 +1170,6 @@ export async function insertReturn(
     if (normalizedProductIdentifier) insertRow.product_identifier = normalizedProductIdentifier;
     if (effectiveAmazonOrderId) insertRow.order_id = String(effectiveAmazonOrderId);
 
-    const expectedItemFk = uuidFkOrNull(payload.expected_item_id ?? null, "expected_item_id");
     if (expectedItemFk) insertRow.expected_item_id = expectedItemFk;
 
     const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
@@ -1015,6 +1186,17 @@ export async function insertReturn(
     insertRow.identifier_resolution_status = resCols.identifier_resolution_status;
     insertRow.identifier_resolution_confidence = resCols.identifier_resolution_confidence;
 
+    if (
+      isSyntheticBulkOrphanInsertBlocked({
+        package_id: packageIdFk,
+        pallet_id: effectivePalletId,
+        expected_item_id: expectedItemFk,
+        created_by: createdBy,
+      })
+    ) {
+      throw new Error(SYNTHETIC_BULK_ORPHAN_INSERT_ERROR);
+    }
+
     const { data, error } = await supabaseServer.from(RETURN_ITEMS_TABLE)
       .insert(insertRow).select(RETURN_SELECT).single();
 
@@ -1022,16 +1204,17 @@ export async function insertReturn(
     const rec = normalizeReturnRecordFromRow(data);
 
     if (status === "ready_for_claim") {
-      let storePlat: string | null | undefined;
-      if (resolvedStoreId) {
-        const { data: st } = await supabaseServer
-          .from("stores")
-          .select("platform")
-          .eq("id", resolvedStoreId)
-          .maybeSingle();
-        storePlat = (st as { platform?: string } | null)?.platform ?? null;
-      }
-      if (shouldAutoEnqueueAmazonClaimSubmission(payload.marketplace, payload.conditions, storePlat)) {
+      if (
+        await isReturnEligibleForClaimSubmission({
+          organizationId: orgId,
+          storeId: rec.store_id ?? resolvedStoreId ?? null,
+          marketplace: payload.marketplace,
+          conditions: payload.conditions,
+          photoEvidence: rec.photo_evidence ?? payload.photo_evidence ?? null,
+          createdAt: rec.created_at,
+          packageId: rec.package_id ?? packageIdFk,
+        })
+      ) {
         const ev = rec.estimated_value;
         const n = Number(ev);
         const claimAmount = Number.isFinite(n) && n > 0 ? n : 100;
@@ -1150,7 +1333,20 @@ export async function updateReturn(
               : String(updates.package_id),
           )
         : uuidOrNull(ex.package_id);
-    patch.status = deriveStatus(nextConditions, nextPhotoEvidence ?? null, {});
+    const nextStore =
+      updates.store_id !== undefined
+        ? updates.store_id === null || updates.store_id === ""
+          ? null
+          : String(updates.store_id).trim() || null
+        : ex.store_id ?? null;
+    patch.status = await resolveReturnWorkflowStatus(
+      ex.organization_id,
+      nextStore,
+      nextConditions,
+      nextPhotoEvidence ?? null,
+      ex.created_at,
+      nextPackageId,
+    );
     if (patch.store_id != null) {
       const sid = String(patch.store_id).trim();
       if (sid && !isUuidString(sid)) {
@@ -1178,6 +1374,57 @@ export async function updateReturn(
       patch.product_identifier = normalizeBarcodeIdentifier(updates.product_identifier);
     }
 
+    const prevPackageId = uuidOrNull(ex.package_id);
+    const prevPalletId = uuidOrNull(ex.pallet_id);
+    const finalNextPackageId =
+      "package_id" in patch ? uuidOrNull(patch.package_id as string) : prevPackageId;
+    const finalNextPalletId =
+      "pallet_id" in patch ? uuidOrNull(patch.pallet_id as string) : prevPalletId;
+    const clearingPackage =
+      "package_id" in updates && (updates.package_id === null || updates.package_id === "");
+    const parentChanged =
+      !clearingPackage &&
+      (finalNextPackageId !== prevPackageId ||
+        (finalNextPalletId !== prevPalletId &&
+          (finalNextPalletId !== null || prevPalletId !== null)));
+
+    if (parentChanged) {
+      const storeIdForMove =
+        updates.store_id !== undefined
+          ? updates.store_id === null || updates.store_id === ""
+            ? null
+            : uuidOrNull(String(updates.store_id).trim())
+          : uuidOrNull(ex.store_id);
+      if (!storeIdForMove || !isUuidString(storeIdForMove)) {
+        throw new Error("Store required to move return item parent.");
+      }
+
+      const targetPackageId = finalNextPackageId ?? prevPackageId;
+      const pkgCtx = await fetchPackageReceiveContext(supabaseServer, targetPackageId);
+      const receiveScopeKey = buildReceiveScopeKey({
+        organizationId: ex.organization_id,
+        storeId: storeIdForMove,
+        packageId: targetPackageId,
+        slipCode: pkgCtx.slipCode,
+      });
+
+      const moved = await moveReturnItemParentV2(supabaseServer, {
+        organizationId: ex.organization_id,
+        returnItemId: rid,
+        packageId: finalNextPackageId !== prevPackageId ? finalNextPackageId : undefined,
+        palletId: finalNextPalletId !== prevPalletId ? finalNextPalletId : undefined,
+        storeId: storeIdForMove,
+        receiveScopeKey,
+        trackingNumber: pkgCtx.trackingNumber,
+        actorId: actorProfileId ?? null,
+        reason: "app_update_return_parent",
+      });
+      if (!moved.ok) throw new Error(moved.error);
+
+      delete patch.package_id;
+      delete patch.pallet_id;
+    }
+
     const nextSku =
       updates.sku !== undefined ? normalizeFreeTextIdentifier(updates.sku) : ex.sku;
     const nextAsin =
@@ -1192,11 +1439,11 @@ export async function updateReturn(
       ...patch,
       updated_by: uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor),
     });
-    const nextStore =
+    const resolvedNextStore =
       updates.store_id !== undefined ? (clean.store_id as string | null | undefined) : ex.store_id;
     const resCols = await resolveScannerProductIdentifiers(supabaseServer, {
       organizationId: ex.organization_id,
-      storeId: nextStore,
+      storeId: resolvedNextStore,
       sku: nextSku,
       asin: nextAsin,
       fnsku: nextFnsku,
@@ -1220,8 +1467,18 @@ export async function updateReturn(
     const rec = normalizeReturnRecordFromRow(data);
 
     if (rec.status === "ready_for_claim") {
-      const storePlat = storePlatformFromEmbed(rec.stores);
-      if (shouldAutoEnqueueAmazonClaimSubmission(rec.marketplace, rec.conditions ?? [], storePlat)) {
+      if (
+        await isReturnEligibleForClaimSubmission({
+          organizationId: rec.organization_id,
+          storeId: rec.store_id,
+          marketplace: rec.marketplace,
+          conditions: rec.conditions ?? [],
+          photoEvidence: rec.photo_evidence ?? null,
+          createdAt: rec.created_at,
+          packageId: rec.package_id ?? null,
+          stores: rec.stores,
+        })
+      ) {
         const ev = rec.estimated_value;
         const n = Number(ev);
         const claimAmount = Number.isFinite(n) && n > 0 ? n : 100;
@@ -1277,16 +1534,29 @@ export async function deleteReturn(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const scope = await resolveTenantListScope({ actorProfileId });
+    const orgId = scope.mode === "single" ? scope.organizationId : DEFAULT_ORG;
+
+    let loadQ = supabaseServer.from(RETURN_ITEMS_TABLE).select("id, organization_id").eq("id", returnId);
+    if (scope.mode === "single") loadQ = loadQ.eq("organization_id", scope.organizationId);
+    const { data: row, error: loadErr } = await loadQ.maybeSingle();
+    if (loadErr) throw new Error(loadErr.message);
+    if (!row) return { ok: false, error: "Return item not found." };
+
+    const rowOrg = String((row as { organization_id?: string }).organization_id ?? orgId).trim();
+    const updatedBy = uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(actor);
+    const voided = await softVoidReturnItemWithExpectedRelease(supabaseServer, {
+      returnItemId: returnId,
+      organizationId: rowOrg,
+      updatedBy: updatedBy && isUuidString(updatedBy) ? updatedBy : null,
+    });
+    if (!voided.ok) throw new Error(voided.error);
+
     void logReturnAudit({
-      organizationId: scope.mode === "single" ? scope.organizationId : DEFAULT_ORG,
+      organizationId: orgId,
       returnId,
       action: "deleted",
       actor: actor ?? DEFAULT_ACTOR,
     });
-    let q = supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", returnId);
-    if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
-    const { error } = await q;
-    if (error) throw new Error(error.message);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to delete return." };
@@ -1306,20 +1576,22 @@ export async function bulkDeleteReturns(
     }
     const a = actor ?? DEFAULT_ACTOR;
     const scope = await resolveTenantListScope({ actorProfileId });
+    const orgId = scope.mode === "single" ? scope.organizationId : DEFAULT_ORG;
+
+    const updatedBy = uuidFkOrNull(actorProfileId ?? null, "updated_by") ?? resolveActorUserId(a);
     for (const id of validIds) {
+      const voided = await softVoidReturnItemWithExpectedRelease(supabaseServer, {
+        returnItemId: id,
+        organizationId: orgId,
+        updatedBy: updatedBy && isUuidString(updatedBy) ? updatedBy : null,
+      });
+      if (!voided.ok) return { ok: false, error: voided.error };
       void logReturnAudit({
-        organizationId: scope.mode === "single" ? scope.organizationId : DEFAULT_ORG,
+        organizationId: orgId,
         returnId: id,
         action: "deleted",
         actor: a,
       });
-    }
-    let q = supabaseServer.from(RETURN_ITEMS_TABLE).delete().in("id", validIds);
-    if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
-    const { error } = await q;
-    if (error) {
-      console.error("[bulkDeleteReturns] Supabase error:", error.message, "| code:", error.code);
-      return { ok: false, error: error.message };
     }
     return { ok: true };
   } catch (err) {
@@ -1339,6 +1611,7 @@ export async function countReturns(
       .from(RETURN_ITEMS_TABLE)
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null);
+    q = applyExcludeBulkOrphanReturnItemsFilter(q);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { count, error } = await q;
     if (error) {
@@ -1362,13 +1635,14 @@ export async function listClaimPipelineReturns(
     let q = supabaseServer.from(RETURN_ITEMS_TABLE)
       .select(RETURN_LIST_SELECT)
       .in("status", ["ready_for_claim", "pending_evidence"])
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(200);
+      .is("deleted_at", null);
+    q = applyExcludeBulkOrphanReturnItemsFilter(q);
+    q = q.order("created_at", { ascending: false }).limit(200);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     return { ok: false, data: [], error: err instanceof Error ? err.message : "Failed to load claim pipeline items." };
   }
@@ -1379,16 +1653,17 @@ export async function listReturns(
 ): Promise<{ ok: boolean; data: ReturnRecord[]; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_SELECT)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }).limit(200);
+    let q = supabaseServer.from(RETURN_ITEMS_TABLE).select(RETURN_LIST_SELECT).is("deleted_at", null);
+    q = applyExcludeBulkOrphanReturnItemsFilter(q);
+    q = q.order("created_at", { ascending: false }).limit(200);
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) {
       console.error("[listReturns] Supabase error:", error.message, "| code:", error.code, "| details:", error.details);
       throw new Error(error.message);
     }
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to load returns.";
     console.error("[listReturns] Caught error:", msg);
@@ -1407,7 +1682,8 @@ export async function listReturnsByPallet(
     if (scope.mode === "single") q = q.eq("organization_id", scope.organizationId);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return { ok: true, data: dedupeReturnsById(data ?? []) };
+    const dataRows = await hydrateReturnRecordsCatalogNames(dedupeReturnsById(data ?? []));
+    return { ok: true, data: dataRows };
   } catch (err) {
     return { ok: false, data: [], error: err instanceof Error ? err.message : "Failed to load pallet items." };
   }
@@ -1440,14 +1716,21 @@ export async function getDashboardSnapshot(
   const iso = startUtc.toISOString();
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qReturnsToday = supabaseServer.from(RETURN_ITEMS_TABLE).select("id", { count: "exact", head: true }).gte("created_at", iso).is("deleted_at", null);
+    let qReturnsToday = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", iso)
+      .is("deleted_at", null);
+    qReturnsToday = applyExcludeBulkOrphanReturnItemsFilter(qReturnsToday);
     let qPallets = supabaseServer.from("pallets").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qPackages = supabaseServer.from("packages").select("id", { count: "exact", head: true }).is("deleted_at", null);
     let qClaims = supabaseServer
       .from("claim_submissions")
       .select("id", { count: "exact", head: true })
       .eq("status", "ready_to_send");
-    let qEst = supabaseServer.from(RETURN_ITEMS_TABLE).select("estimated_value").is("deleted_at", null).limit(10000);
+    let qEst = supabaseServer.from(RETURN_ITEMS_TABLE).select("estimated_value").is("deleted_at", null);
+    qEst = applyExcludeBulkOrphanReturnItemsFilter(qEst);
+    qEst = qEst.limit(10000);
     if (scope.mode === "single") {
       qReturnsToday = qReturnsToday.eq("organization_id", scope.organizationId);
       qPallets = qPallets.eq("organization_id", scope.organizationId);
@@ -1506,7 +1789,12 @@ export async function getReturnsAnalyticsData(
 ): Promise<{ ok: boolean; data?: ReturnsAnalyticsPayload; error?: string }> {
   try {
     const scope = await resolveTenantListScope(tenant);
-    let qRet = supabaseServer.from(RETURN_ITEMS_TABLE).select("id,conditions,created_at,updated_at,package_id,created_by").limit(500);
+    let qRet = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id,conditions,created_at,updated_at,package_id,pallet_id,expected_item_id,created_by")
+      .is("deleted_at", null);
+    qRet = applyExcludeBulkOrphanReturnItemsFilter(qRet);
+    qRet = qRet.limit(500);
     let qPkg = supabaseServer.from("packages").select("id,carrier_name").limit(500);
     let qPlt = supabaseServer.from("pallets").select("id").limit(500);
     if (scope.mode === "single") {

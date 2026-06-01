@@ -320,29 +320,25 @@ async function tryBackendCatalogEvidence(input: {
   };
 }
 
+/** Catalog evidence only — returns/scanner paths must never auto-create products (V196). */
 async function tryBackendEnrichment(input: {
   organizationId: string;
   storeId: string;
   identifiers: ReturnType<typeof classifiedIdentifiers>;
 }): Promise<
   | { ok: false; attempted: boolean; enabled: boolean; reason: string }
-  | { ok: true; product: Record<string, unknown>; reason: string }
+  | { ok: true; fields: ProductInputLookupFields; reason: string }
 > {
   const spApiEnabled = envFlag("AMAZON_SP_API_ENABLED");
-  const autoCreateEnabled = envFlag("PRODUCT_ENRICHMENT_AUTO_CREATE_ENABLED");
   const stagingUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
   const stagingOk = supabaseUrlMatchesStagingRef(stagingUrl, STAGING_REF);
 
-  if (!spApiEnabled || !autoCreateEnabled || !stagingOk) {
+  if (!spApiEnabled || !stagingOk) {
     return {
       ok: false,
       attempted: false,
       enabled: false,
-      reason: !stagingOk
-        ? "blocked_non_staging"
-        : !spApiEnabled
-          ? "amazon_sp_api_disabled"
-          : "product_enrichment_auto_create_disabled",
+      reason: !stagingOk ? "blocked_non_staging" : "amazon_sp_api_disabled",
     };
   }
 
@@ -351,7 +347,7 @@ async function tryBackendEnrichment(input: {
       ok: false,
       attempted: true,
       enabled: true,
-      reason: "backend_enrichment_currently_requires_asin",
+      reason: "needs_manual_review_requires_asin",
     };
   }
 
@@ -369,55 +365,19 @@ async function tryBackendEnrichment(input: {
 
   const extracted = extractCatalogMainImageAndText(cat.body);
   const name = extracted.product_name ?? input.identifiers.asin;
-  const insertRow = {
-    organization_id: input.organizationId,
-    store_id: input.storeId,
-    product_name: name,
-    asin: input.identifiers.asin,
-    fnsku: input.identifiers.fnsku,
-    sku: input.identifiers.sku,
-    upc_code: input.identifiers.upc,
-    barcode: input.identifiers.upc,
-    main_image_url: extracted.main_image_url,
-    image_url: extracted.main_image_url,
-    brand: extracted.brand,
-    status: "active",
-    metadata: {
-      source: "amazon_sp_api_catalog_items",
-      prompt: "PRODUCT-INPUT-AUTO-LOOKUP-AND-ENRICHMENT-V193",
+  return {
+    ok: true,
+    fields: {
+      item_name: name,
+      asin: input.identifiers.asin,
+      fnsku: input.identifiers.fnsku,
+      sku: input.identifiers.sku,
+      upc: input.identifiers.upc,
+      product_identifier: input.identifiers.asin,
+      image_url: extracted.main_image_url,
     },
-    first_seen_at: new Date().toISOString(),
-    last_seen_at: new Date().toISOString(),
+    reason: "product_auto_create_blocked_catalog_evidence_only",
   };
-
-  const { data: product, error } = await supabaseServer
-    .from("products")
-    .insert(insertRow)
-    .select("id, organization_id, store_id, product_name, main_image_url, image_url, asin, fnsku, sku, upc_code, barcode")
-    .single();
-
-  if (error || !product) {
-    return { ok: false, attempted: true, enabled: true, reason: error?.message ?? "product_insert_failed" };
-  }
-
-  await supabaseServer.from("product_identifier_map").insert({
-    organization_id: input.organizationId,
-    store_id: input.storeId,
-    product_id: (product as { id: string }).id,
-    seller_sku: input.identifiers.sku,
-    msku: input.identifiers.sku,
-    asin: input.identifiers.asin,
-    fnsku: input.identifiers.fnsku,
-    upc_code: input.identifiers.upc,
-    match_source: "product_input_auto_enrichment_v193",
-    source_report_type: "product_input_auto_enrichment_v193",
-    external_listing_id: `product_input_auto_enrichment_v193:${(product as { id: string }).id}`,
-    is_primary: true,
-    first_seen_at: new Date().toISOString(),
-    last_seen_at: new Date().toISOString(),
-  });
-
-  return { ok: true, product: product as Record<string, unknown>, reason: "amazon_sp_api_catalog_items" };
 }
 
 export async function lookupProductInputForReturnItem(input: {
@@ -603,28 +563,33 @@ export async function lookupProductInputForReturnItem(input: {
 
     const enriched = await tryBackendEnrichment({ organizationId, storeId, identifiers });
     if (enriched.ok) {
-      const productId = n(enriched.product.id);
       const linkage = await buildLookupContract({
         organizationId,
         sourceRowId: identifiers.normalized,
         identifiers,
-        resolved_product_id: productId,
-        identifier_resolution_status: productId ? "resolved" : "unresolved",
-        identifier_resolution_confidence: productId ? 1 : null,
-        product: enriched.product,
+        resolved_product_id: null,
+        identifier_resolution_status: "unresolved",
+        identifier_resolution_confidence: resolution.identifier_resolution_confidence,
+        product: null,
       });
       const audit_id = await auditLookup({
         organizationId,
         actorProfileId: input.actorProfileId,
-        action: "product_input_lookup_v193_backend_enriched",
-        detail: { normalized: identifiers.normalized, kind: identifiers.kind, product_id: productId, source: enriched.reason },
+        action: "product_input_lookup_v193_backend_evidence",
+        detail: {
+          normalized: identifiers.normalized,
+          kind: identifiers.kind,
+          source: enriched.reason,
+          item_name: enriched.fields.item_name,
+          product_auto_create_blocked: true,
+        },
       });
-      const enrichedFields = lookupFieldsFromProduct(enriched.product, identifiers);
+      const enrichedFields = { ...enriched.fields };
       enrichedFields.item_name =
         canonicalItemNameFromLookup(enrichedFields, linkage) ?? enrichedFields.item_name;
       return {
         ok: true,
-        status: "backend_enriched",
+        status: "backend_evidence",
         normalized_input: identifiers.normalized,
         classified_kind: identifiers.kind,
         fields: enrichedFields,

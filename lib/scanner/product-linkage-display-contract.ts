@@ -21,6 +21,9 @@ export type ProductLinkageSourceRow = {
   resolved_catalog_product_id?: string | null;
   identifier_resolution_status?: string | null;
   identifier_resolution_confidence?: number | null;
+  /** View/EP catalog name — display only when a product id is already resolved. */
+  product_name?: string | null;
+  product_display_name?: string | null;
   description?: string | null;
   fnsku?: string | null;
   upc?: string | null;
@@ -59,6 +62,23 @@ export function buildProductLinkageFallbackName(row: ProductLinkageSourceRow): s
   return "Line item";
 }
 
+/** Display name from hydration map, then governed view/EP row fields (never infers product id). */
+export function resolveProductLinkageCatalogName(
+  row: ProductLinkageSourceRow,
+  productNameById: ReadonlyMap<string, string>,
+  resolvedId: string | null,
+): string | null {
+  const fromMap = resolvedId ? trimOrNull(productNameById.get(resolvedId)) : null;
+  if (fromMap) return fromMap;
+  if (!resolvedId) return null;
+  return (
+    trimOrNull(row.product_display_name) ??
+    trimOrNull(row.product_name) ??
+    trimOrNull(row.description) ??
+    null
+  );
+}
+
 export function buildProductLinkageDisplayContract(
   row: ProductLinkageSourceRow,
   productNameById: ReadonlyMap<string, string>,
@@ -67,7 +87,7 @@ export function buildProductLinkageDisplayContract(
     trimOrNull(row.resolved_product_id) ??
     trimOrNull(row.product_id) ??
     trimOrNull(row.resolved_catalog_product_id);
-  const catalogName = resolvedId ? productNameById.get(resolvedId) ?? null : null;
+  const catalogName = resolveProductLinkageCatalogName(row, productNameById, resolvedId);
   const status = normStatus(row.identifier_resolution_status);
   return {
     product_name: catalogName,
@@ -120,18 +140,32 @@ export function productLinkagePrimaryLabel(linkage: ProductLinkageDisplayContrac
   return linkage.product_name?.trim() || linkage.fallback_display_name.trim() || "Line item";
 }
 
+function productLinkageIsDisplayLinked(linkage: ProductLinkageDisplayContract): boolean {
+  const resolvedId = linkage.resolved_product_id?.trim();
+  if (!resolvedId) return false;
+  const st = linkage.identifier_resolution_status;
+  if (st === "ambiguous" || st === "mismatch") return false;
+  return st === "resolved" || st === "matched" || !!linkage.product_name?.trim();
+}
+
 /** Operator row title per Neda display contract (resolved title vs fixed unmapped / review copy). */
 export function productLinkageOperatorPrimaryDisplayLabel(linkage: ProductLinkageDisplayContract): string {
   if (productLinkageIsAmbiguous(linkage)) return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
   const catalogName = linkage.product_name?.trim();
   const resolvedId = linkage.resolved_product_id?.trim();
   if (resolvedId && catalogName) return catalogName;
-  const st = linkage.identifier_resolution_status;
-  if (st === "unresolved" || st === "quarantined_dirty_source" || !st) {
-    return productLinkageUnresolvedReasonLabel(st);
+  if (!resolvedId) {
+    const st = linkage.identifier_resolution_status;
+    if (st === "unresolved" || st === "quarantined_dirty_source" || !st) {
+      return productLinkageUnresolvedReasonLabel(st);
+    }
+    if (productLinkageShowsUnmappedLabel(linkage)) return productLinkageUnresolvedReasonLabel(st);
+    return productLinkagePrimaryLabel(linkage);
   }
-  if (st === "resolved") return productLinkagePrimaryLabel(linkage);
-  if (productLinkageShowsUnmappedLabel(linkage)) return productLinkageUnresolvedReasonLabel(st);
+  if (productLinkageIsDisplayLinked(linkage)) return productLinkagePrimaryLabel(linkage);
+  if (productLinkageShowsUnmappedLabel(linkage)) {
+    return productLinkageUnresolvedReasonLabel(linkage.identifier_resolution_status);
+  }
   return productLinkagePrimaryLabel(linkage);
 }
 

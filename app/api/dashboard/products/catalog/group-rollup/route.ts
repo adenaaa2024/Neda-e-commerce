@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { assertUserCanAccessOrganization } from "../../../../../dashboard/products/pim-actions";
-import { isPimInvalidVendorCategoryLabel } from "../../../../../../lib/pim-invalid-label";
+import {
+  isPimInvalidEffectiveVendorLabel,
+  resolvePimEffectiveVendorLabel,
+} from "../../../../../../lib/pim-invalid-label";
 import { resolvePimDisplayImageUrl } from "../../../../../../lib/pim-display-image";
 import { supabaseServer } from "../../../../../../lib/supabase-server";
 import { isUuidString } from "../../../../../../lib/uuid";
@@ -192,8 +195,8 @@ export async function GET(req: Request) {
       const vid = String(p.vendor_id ?? "").trim();
       const vn = String(p.vendor_name ?? "").trim();
       const fromTable = vid ? (vendorNameById.get(vid) ?? "").trim() : "";
-      const resolved = fromTable || vn;
-      const invalid = Boolean(resolved && isPimInvalidVendorCategoryLabel(resolved));
+      const resolved = resolvePimEffectiveVendorLabel(vn, fromTable);
+      const invalid = isPimInvalidEffectiveVendorLabel(vn, fromTable);
 
       if (invalid) {
         const g = bump(m, VENDOR_CLEANUP, "Needs cleanup (invalid vendor label)", {
@@ -227,10 +230,7 @@ export async function GET(req: Request) {
       }
 
       if (vid) {
-        const label =
-          fromTable ||
-          vn ||
-          `Vendor (${vid.slice(0, 8)}…)`;
+        const label = resolved || fromTable || vn || `Vendor (${vid.slice(0, 8)}…)`;
         const g = bump(m, vid, label, { filter_vendor_id: vid, filter_vendor_name: null });
         g.product_count += 1;
         if (!hasDisplayImage(p)) g.missing_image += 1;

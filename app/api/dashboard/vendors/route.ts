@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { assertUserCanAccessOrganization } from "../../../dashboard/products/pim-actions";
 import { supabaseServer } from "../../../../lib/supabase-server";
-import { isPimInvalidVendorCategoryLabel } from "../../../../lib/pim-invalid-label";
+import {
+  isPimInvalidEffectiveVendorLabel,
+  isPimInvalidVendorCategoryLabel,
+  resolvePimEffectiveVendorLabel,
+} from "../../../../lib/pim-invalid-label";
 import { isUuidString } from "../../../../lib/uuid";
 
 export async function GET(req: Request) {
@@ -46,7 +50,7 @@ export async function GET(req: Request) {
 
   const { data: prows, error: pErr } = await supabaseServer
     .from("products")
-    .select("vendor_id, asin, main_image_url, amazon_raw, category_id, status")
+    .select("vendor_id, vendor_name, asin, main_image_url, amazon_raw, category_id, status")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
     .is("deleted_at", null);
@@ -98,22 +102,63 @@ export async function GET(req: Request) {
       active_status_count: a?.active_status ?? 0,
     };
   });
-  const invalidEnriched = invalidAudit.map((v) => {
-    const a = aggBy.get(v.id);
-    return {
-      ...v,
-      product_count: a?.n ?? 0,
-      missing_asin: a?.missing_asin ?? 0,
-      missing_image: a?.missing_image ?? 0,
-      missing_category: a?.missing_category ?? 0,
-      active_status_count: a?.active_status ?? 0,
-    };
-  });
+  const vendorTableNameById = new Map(vendorsRaw.map((v) => [v.id, v.name]));
+  type ProductAggRow = {
+    vendor_id?: string | null;
+    vendor_name?: string | null;
+    asin?: string | null;
+    main_image_url?: string | null;
+    amazon_raw?: unknown;
+    category_id?: string | null;
+    status?: string | null;
+  };
+  const invalidAggBy = new Map<string, Agg>();
+  for (const row of (prows ?? []) as ProductAggRow[]) {
+    const vid = String(row.vendor_id ?? "").trim();
+    if (!vid) continue;
+    const tableName = vendorTableNameById.get(vid) ?? "";
+    if (!isPimInvalidEffectiveVendorLabel(row.vendor_name, tableName)) continue;
+    let a = invalidAggBy.get(vid);
+    if (!a) a = { n: 0, missing_asin: 0, missing_image: 0, missing_category: 0, active_status: 0 };
+    a.n += 1;
+    const asin = String(row.asin ?? "").trim();
+    if (!asin) a.missing_asin += 1;
+    if (!hasImage(row)) a.missing_image += 1;
+    if (!row.category_id) a.missing_category += 1;
+    const st = String(row.status ?? "").trim();
+    if (st && active(st)) a.active_status += 1;
+    invalidAggBy.set(vid, a);
+  }
+
+  const invalidEnriched = [...invalidAggBy.entries()]
+    .map(([vendorId, a]) => {
+      const v = vendorsRaw.find((row) => row.id === vendorId);
+      const effectiveExamples = new Set<string>();
+      for (const row of (prows ?? []) as ProductAggRow[]) {
+        if (String(row.vendor_id ?? "").trim() !== vendorId) continue;
+        const effective = resolvePimEffectiveVendorLabel(row.vendor_name, v?.name ?? "");
+        if (effective) effectiveExamples.add(effective);
+        if (effectiveExamples.size >= 3) break;
+      }
+      return {
+        id: vendorId,
+        name: v?.name ?? effectiveExamples.values().next().value ?? vendorId,
+        created_at: v?.created_at,
+        updated_at: v?.updated_at,
+        product_count: a.n,
+        missing_asin: a.missing_asin,
+        missing_image: a.missing_image,
+        missing_category: a.missing_category,
+        active_status_count: a.active_status,
+      };
+    })
+    .filter((v) => v.product_count > 0)
+    .sort((a, b) => b.product_count - a.product_count || a.name.localeCompare(b.name));
 
   return NextResponse.json({
     ok: true,
     vendors: enrichedRaw,
-    ...(includeInvalidAudit ? { invalid_vendor_audit: invalidEnriched } : {}),
+    invalid_vendor_audit: invalidEnriched,
   });
 }
 

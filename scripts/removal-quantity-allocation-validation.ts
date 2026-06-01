@@ -9,6 +9,10 @@ import { execSync } from "node:child_process";
 import pg from "pg";
 
 import {
+  queryEpAllocationMismatchBreakdown,
+  rebuildValidFromBreakdown,
+} from "../lib/removal/ep-allocation-mismatch-breakdown";
+import {
   loadEnvLocalIntoProcess,
   supabaseUrlMatchesStagingRef,
 } from "../lib/staging-project-ref";
@@ -16,7 +20,7 @@ import {
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const SAM_ORG = "00000000-0000-0000-0000-000000000001";
 const SAM_STORE = "509ee1f6-622c-46a5-8110-7b889ba46c2c";
-const REQUIRED_BRANCH = "feature/product-canonicalization-v2";
+const REQUIRED_BRANCH = "feature/product-canonicalization-v3";
 const OUT_BASE = ".cursor/audit-reports/removal-quantity-allocation-validation";
 
 type InvariantRow = {
@@ -58,7 +62,8 @@ async function main(): Promise<void> {
   loadEnvLocalIntoProcess();
   const branch = execSync("git branch --show-current", { encoding: "utf8" }).trim();
   const blockers: string[] = [];
-  if (branch !== REQUIRED_BRANCH) blockers.push(`Branch must be ${REQUIRED_BRANCH}`);
+  if (branch !== REQUIRED_BRANCH && !process.argv.includes("--manual"))
+    blockers.push(`Branch must be ${REQUIRED_BRANCH}`);
 
   const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim() ?? "";
   if (!dbUrl || !supabaseUrlMatchesStagingRef(dbUrl, STAGING_REF)) {
@@ -72,6 +77,8 @@ async function main(): Promise<void> {
   let shipmentCols: string[] = [];
   let epDerivedCount = 0;
   let epMismatchVsSim = 0;
+  let epMismatchOverflow = 0;
+  let epMismatchNonOverflow = 0;
   let shipmentHasDisposition = false;
   let detailLinesSimulated = 0;
 
@@ -446,6 +453,10 @@ async function main(): Promise<void> {
     );
     epMismatchVsSim = (epCmp.rows[0] as { c: number }).c;
 
+    const mismatchBreakdown = await queryEpAllocationMismatchBreakdown(client, SAM_ORG, SAM_STORE);
+    epMismatchOverflow = mismatchBreakdown.overflow;
+    epMismatchNonOverflow = mismatchBreakdown.non_overflow;
+
     const epCountRes = await client.query(
       `SELECT COUNT(*)::int AS c FROM public.expected_packages
        WHERE organization_id=$1::uuid AND store_id=$2::uuid
@@ -557,7 +568,7 @@ async function main(): Promise<void> {
   }
 
   const failCount = invariants.filter((i) => i.status === "fail").length;
-  const allocationContractValid = failCount === 0;
+  const allocationContractValid = failCount === 0 && epMismatchNonOverflow === 0;
 
   const contractMd = [
     "# Quantity allocation contract",
@@ -580,11 +591,12 @@ async function main(): Promise<void> {
     "## Invariants",
     "",
     "1. **Coverage (non-overflow):** `sum(expected_scan_quantity)` per detail = `D` when `S ≤ D`.",
-    "2. **Overflow:** when `S > D`, all matched rows flagged `shipment_overflow_conflict`; remainder omitted; sum = `S` (intentional).",
-    "3. **Remainder:** at most one remainder row per detail; only when `S = 0` or `D > S`.",
-    "4. **Dedupe:** unique `(organization_id, source_detail_row_id, source_shipment_row_id)` for derived rows.",
-    "5. **Join:** 7-tuple NULL-safe; never SKU-only.",
-    "6. **Tracking:** only on `detail_shipment` rows.",
+    "2. **Overflow (`S > D`):** rebuild live EP sums to **D** (or 0 on conflict); verify simulation may sum to **S**. Overflow live≠sim mismatches are **informational only** and do not fail the automation gate.",
+    "3. **Gate:** `allocation_contract_valid` requires invariant pass **and** `non_overflow_mismatch = 0`.",
+    "4. **Remainder:** at most one remainder row per detail; only when `S = 0` or `D > S`.",
+    "5. **Dedupe:** unique `(organization_id, source_detail_row_id, source_shipment_row_id)` for derived rows.",
+    "6. **Join:** 7-tuple NULL-safe; never SKU-only.",
+    "7. **Tracking:** only on `detail_shipment` rows.",
     "",
     `**Validation result:** ${allocationContractValid ? "PASS" : "FAIL"} (${failCount} invariant failures)`,
   ].join("\n");
@@ -667,13 +679,15 @@ async function main(): Promise<void> {
       "## Live expected_packages vs simulation",
       "",
       `- Derived EP rows on staging: **${epDerivedCount}**`,
-      `- Detail lines where live sum ≠ simulated sum: **${epMismatchVsSim === -1 ? "compare skipped" : epMismatchVsSim}**`,
+      `- Detail lines where live sum ≠ simulated sum: **${epMismatchVsSim}** (overflow **${epMismatchOverflow}**, non-overflow **${epMismatchNonOverflow}**)`,
       "",
-      epMismatchVsSim > 0
-        ? "⚠ Live derived rows may be stale vs current removals/shipments — rerun rebuild after import."
-        : epMismatchVsSim === 0
-          ? "Live derived totals match simulation for all detail ids."
-          : "",
+      epMismatchNonOverflow > 0
+        ? "⚠ Non-overflow live vs sim mismatches — resolve before resolver execute."
+        : epMismatchVsSim > 0
+          ? "ℹ Overflow-only live vs sim mismatches — allowed by automation gate (rebuild caps at D)."
+          : epMismatchVsSim === 0
+            ? "Live derived totals match simulation for all detail ids."
+            : "",
       "",
       shipmentHasDisposition
         ? ""
@@ -724,6 +738,13 @@ async function main(): Promise<void> {
         orphan_shipment_lines: orphanShipments,
         live_ep_derived_count: epDerivedCount,
         live_vs_sim_mismatch_details: epMismatchVsSim,
+        live_vs_sim_overflow_mismatch: epMismatchOverflow,
+        live_vs_sim_non_overflow_mismatch: epMismatchNonOverflow,
+        rebuild_valid: rebuildValidFromBreakdown({
+          total: epMismatchVsSim,
+          overflow: epMismatchOverflow,
+          non_overflow: epMismatchNonOverflow,
+        }),
         exact_next_prompt: nextPrompt,
         forbidden: { db_writes: true },
       },
@@ -739,7 +760,9 @@ async function main(): Promise<void> {
         outDir,
         allocation_contract_valid: allocationContractValid,
         sample_orders_checked: examples.length,
-        mismatches_count: failCount + Math.max(0, epMismatchVsSim),
+        mismatches_count: failCount + epMismatchNonOverflow,
+        overflow_mismatch_count: epMismatchOverflow,
+        non_overflow_mismatch_count: epMismatchNonOverflow,
         next_prompt: nextPrompt,
       },
       null,

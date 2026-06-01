@@ -120,6 +120,10 @@ export default function PlatformSettingsPage() {
             <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">
               platform_settings
             </code>
+            . Schedule automation on{" "}
+            <a href="/platform/settings/automation" className="font-medium text-violet-600 hover:underline dark:text-violet-400">
+              Automation settings
+            </a>
             .
           </p>
         </PageHeaderWithInfo>

@@ -1,4 +1,6 @@
 -- =============================================================================
+-- SUPERSEDED — DO NOT APPLY. Wrong release/move_expected_item_unit call signatures.
+-- Use: supabase/migrations/20260903120000_delete_cascade_undo_audit_foundation_v2.sql
 -- DELETE CASCADE + UNDO AUDIT FOUNDATION (DRAFT — do not apply without approval)
 -- Prerequisite: DELETE CASCADE + UNDO AUDIT ARCHITECTURE PLAN
 -- Integrates: release_expected_item_unit / move_expected_item_unit (item-level split)

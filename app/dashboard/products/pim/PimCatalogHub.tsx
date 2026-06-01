@@ -5,12 +5,12 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BadgeInfo,
-  Banknote,
   ChevronDown,
   Fingerprint,
   FolderTree,
   LayoutGrid,
   Loader2,
+  Package,
   Plus,
   RefreshCw,
   Search,
@@ -33,6 +33,10 @@ import type { VendorAggRow } from "./VendorTreeView";
 import { ProductDetailDrawer } from "./ProductDetailDrawer";
 import { ManualProductForm } from "./ManualProductForm";
 import { PimHelpNote } from "./PimHelpNote";
+import { PimCatalogEnrichmentJobPanel } from "./PimCatalogEnrichmentJobPanel";
+import { usePimCatalogEnrichmentJob } from "./usePimCatalogEnrichmentJob";
+import type { ProductEnrichmentJobUiStatus } from "@/lib/jobs/product-enrichment-job-status";
+import type { PimCatalogEnrichmentRequestBody } from "@/lib/pim-catalog-enrichment-batch-request";
 import { isAdminRole, useUserRole } from "../../../../components/UserRoleContext";
 
 type ViewMode = "grid" | "vendor" | "category" | "brand" | "identifiers";
@@ -46,27 +50,11 @@ type Facets = {
 
 type TriFilter = "any" | "has" | "missing";
 
-/** ISO 4217 codes for catalog price display (org default in Settings → General). */
-const PIM_DISPLAY_CURRENCIES = [
-  "USD",
-  "EUR",
-  "GBP",
-  "CAD",
-  "AUD",
-  "JPY",
-  "CHF",
-  "SEK",
-  "NOK",
-  "MXN",
-  "INR",
-  "CNY",
-  "BRL",
-  "ZAR",
-  "AED",
-  "SGD",
-  "HKD",
-  "NZD",
-] as const;
+type CatalogSummary = {
+  total: number;
+  linked: number;
+  unresolved: number;
+};
 
 type EnrichCatalogMetrics = {
   scanned: number;
@@ -230,6 +218,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   const [gridErr, setGridErr] = useState<string | null>(null);
   const [facets, setFacets] = useState<Facets | null>(null);
   const [vendorsAgg, setVendorsAgg] = useState<VendorAggRow[]>([]);
+  const [invalidVendorAuditRows, setInvalidVendorAuditRows] = useState<VendorAggRow[]>([]);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -247,8 +236,12 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   const [enrichDebugRows, setEnrichDebugRows] = useState<EnrichmentDebugRow[]>([]);
   const [enrichRetryIds, setEnrichRetryIds] = useState<string[]>([]);
   const [enrichLastRunAt, setEnrichLastRunAt] = useState<string | null>(null);
+  const [catalogSummary, setCatalogSummary] = useState<CatalogSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [jobPanelDismissed, setJobPanelDismissed] = useState(false);
 
   const oid = organizationId?.trim() ?? "";
+  const browserLoopDev = enrichAdminDebug && searchParams.get("pim_enrichment_browser") === "1";
   const prevOidRef = useRef("");
 
   const filtersActive = useMemo(() => {
@@ -451,6 +444,45 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     if (data.ok && data.facets) setFacets(data.facets);
   }, [oid, storeId]);
 
+  const loadCatalogSummary = useCallback(async () => {
+    if (!oid || !storeId) {
+      setCatalogSummary(null);
+      return;
+    }
+    setSummaryLoading(true);
+    try {
+      const base = new URL("/api/dashboard/products/catalog", window.location.origin);
+      base.searchParams.set("organization_id", oid);
+      base.searchParams.set("store_id", storeId);
+      base.searchParams.set("page", "1");
+      base.searchParams.set("page_size", "1");
+
+      const linkedUrl = new URL(base);
+      linkedUrl.searchParams.set("filter_asin", "has");
+      const unresolvedUrl = new URL(base);
+      unresolvedUrl.searchParams.set("filter_asin", "missing");
+
+      const [allRes, linkedRes, unresolvedRes] = await Promise.all([
+        fetch(base.toString()),
+        fetch(linkedUrl.toString()),
+        fetch(unresolvedUrl.toString()),
+      ]);
+      const parseTotal = async (res: Response) => {
+        const data = (await res.json()) as { ok?: boolean; total?: number };
+        return res.ok && data.ok ? Number(data.total ?? 0) : 0;
+      };
+      setCatalogSummary({
+        total: await parseTotal(allRes),
+        linked: await parseTotal(linkedRes),
+        unresolved: await parseTotal(unresolvedRes),
+      });
+    } catch {
+      setCatalogSummary(null);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [oid, storeId]);
+
   const refreshVendorsAgg = useCallback(async () => {
     if (!oid || !storeId) return;
     const u = new URL("/api/dashboard/vendors", window.location.origin);
@@ -458,8 +490,17 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     u.searchParams.set("store_id", storeId);
     u.searchParams.set("include_counts", "1");
     const res = await fetch(u.toString());
-    const data = (await res.json()) as { ok?: boolean; vendors?: VendorAggRow[] };
+    const data = (await res.json()) as {
+      ok?: boolean;
+      vendors?: VendorAggRow[];
+      invalid_vendor_audit?: VendorAggRow[];
+    };
     if (data.ok && data.vendors) setVendorsAgg(data.vendors);
+    if (data.ok && Array.isArray(data.invalid_vendor_audit)) {
+      setInvalidVendorAuditRows(data.invalid_vendor_audit);
+    } else if (data.ok && data.vendors) {
+      setInvalidVendorAuditRows(data.vendors.filter((v) => isPimInvalidVendorCategoryLabel(v.name)));
+    }
   }, [oid, storeId]);
 
   const loadGrid = useCallback(async () => {
@@ -540,7 +581,8 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
 
   useEffect(() => {
     void loadFacets();
-  }, [loadFacets]);
+    void loadCatalogSummary();
+  }, [loadFacets, loadCatalogSummary]);
 
   useEffect(() => {
     void refreshVendorsAgg();
@@ -630,6 +672,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
         );
         void loadGrid();
         void loadFacets();
+        void loadCatalogSummary();
         void refreshVendorsAgg();
         window.dispatchEvent(new Event("pim-catalog-refresh"));
         return true;
@@ -644,11 +687,92 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     [oid, storeId, enrichAdminDebug, loadGrid, loadFacets, refreshVendorsAgg],
   );
 
+  const applyEnrichmentJobStatus = useCallback(
+    (st: ProductEnrichmentJobUiStatus) => {
+      if (st.metrics && typeof st.metrics === "object") {
+        setEnrichMetrics(st.metrics as EnrichCatalogMetrics);
+      }
+      setEnrichFailures(st.failures ?? []);
+      setEnrichRetryIds(st.failed_product_ids ?? []);
+      if (st.last_error) setEnrichErr(st.last_error);
+      else if (st.status === "completed") setEnrichErr(null);
+      setEnrichLastRunAt(new Date().toISOString());
+      setToast(
+        st.status === "completed"
+          ? "Product Data Update finished (backend job)."
+          : st.status === "cancelled"
+            ? "Product Data Update cancelled."
+            : null,
+      );
+      void loadGrid();
+      void loadFacets();
+      void loadCatalogSummary();
+      void refreshVendorsAgg();
+      window.dispatchEvent(new Event("pim-catalog-refresh"));
+    },
+    [loadGrid, loadFacets, loadCatalogSummary, refreshVendorsAgg],
+  );
+
+  const enrichmentJob = usePimCatalogEnrichmentJob({
+    organizationId: oid || null,
+    storeId,
+    callbacks: {
+      onTerminal: applyEnrichmentJobStatus,
+      onError: (msg) => setEnrichErr(msg),
+    },
+  });
+
+  useEffect(() => {
+    if (enrichmentJob.jobRunning) setJobPanelDismissed(false);
+  }, [enrichmentJob.jobRunning]);
+
+  const enrichmentJobActive =
+    Boolean(enrichmentJob.jobStatus || enrichmentJob.jobErr) &&
+    !jobPanelDismissed &&
+    (enrichmentJob.jobRunning ||
+      enrichmentJob.jobStatus?.status === "completed" ||
+      enrichmentJob.jobStatus?.status === "cancelled" ||
+      enrichmentJob.jobStatus?.status === "failed" ||
+      Boolean(enrichmentJob.jobErr));
+
+  const productUpdateStarting = enrichBusy || enrichmentJob.jobBusy;
+
+  const runProductDataUpdate = useCallback(
+    async (base: Record<string, unknown>, loopUntilDone: boolean) => {
+      if (!oid || !storeId) return false;
+      const payload: PimCatalogEnrichmentRequestBody = {
+        ...(base as PimCatalogEnrichmentRequestBody),
+        organization_id: oid,
+        store_id: storeId,
+        include_enrichment_debug: enrichAdminDebug,
+      };
+      if (!browserLoopDev) {
+        setJobPanelDismissed(false);
+        setEnrichErr(null);
+        setEnrichFailures([]);
+        setEnrichDetailOpen(false);
+        setEnrichDebugOpen(false);
+        const res = await enrichmentJob.startBackendJob(payload);
+        if (res.ok) {
+          setToast("Product Data Update started — runs in the background. You can navigate away.");
+        }
+        return res.ok;
+      }
+      setEnrichBusy(true);
+      try {
+        return await runEnrichmentBatches(base, loopUntilDone);
+      } finally {
+        setEnrichBusy(false);
+      }
+    },
+    [browserLoopDev, enrichAdminDebug, enrichmentJob, oid, runEnrichmentBatches, storeId],
+  );
+
   const vendorOptions = useMemo(
     () => vendorsAgg.filter((v) => !isPimInvalidVendorCategoryLabel(v.name)).map((v) => ({ id: v.id, name: v.name })),
     [vendorsAgg],
   );
-  const invalidVendorAudit = useMemo(() => vendorsAgg.filter((v) => isPimInvalidVendorCategoryLabel(v.name)), [vendorsAgg]);
+  const invalidVendorAudit = invalidVendorAuditRows;
   const categoryListUrl = useMemo(() => {
     if (!oid) return "";
     return `/api/dashboard/product-categories?organization_id=${encodeURIComponent(oid)}${storeId ? `&store_id=${encodeURIComponent(storeId)}&include_counts=1` : ""}`;
@@ -702,78 +826,105 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
         </div>
       ) : null}
 
-      <div className="mb-3 space-y-2">
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold text-foreground sm:text-lg">Catalog Hub</h2>
-            <PimHelpNote label="Catalog Hub">
-              <div className="space-y-2">
-                <div>
-                  Grid plus tree groupings for vendor, category, and brand. Use <strong>Identifiers</strong> for SKU/ASIN/FNSKU/UPC groups from the identity map. Optional Amazon enrichment runs as a batch job only — not while the table renders.
-                  Invalid vendor or category labels appear in the audit banner when present.
+      <div className="mb-4 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">Products</h2>
+              <PimHelpNote label="Product catalog">
+                <div className="space-y-2">
+                  <div>
+                    Browse and manage store products. Use views for vendor, category, brand, and identifier groups.
+                    <strong> Product Data Update</strong> enriches ASIN rows from Amazon in the background.
+                  </div>
+                  <div>
+                    <Link href="/dashboard/file-import" className="font-medium text-primary underline-offset-2 hover:underline">
+                      File imports
+                    </Link>{" "}
+                    use the Imports pipeline.
+                  </div>
                 </div>
-                <div>
-                  <Link href="/dashboard/file-import" className="font-medium text-primary underline-offset-2 hover:underline">
-                    Full staged file imports
-                  </Link>{" "}
-                  use the Imports pipeline.
-                </div>
-              </div>
-            </PimHelpNote>
+              </PimHelpNote>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {organizationName ? `${organizationName} · ` : ""}
+              Prices shown in {displayCurrency} — change in Settings → General
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">Browse and manage store products.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+
+        {storeId ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {(
+              [
+                ["Total products", catalogSummary?.total, summaryLoading] as const,
+                ["Linked (ASIN)", catalogSummary?.linked, summaryLoading] as const,
+                ["Unresolved", catalogSummary?.unresolved, summaryLoading] as const,
+                [
+                  "Last update",
+                  enrichLastRunAt
+                    ? new Date(enrichLastRunAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+                    : enrichmentJob.jobRunning
+                      ? "Running…"
+                      : "—",
+                  false,
+                ] as const,
+              ] as const
+            ).map(([label, value, loading]) => (
+              <div
+                key={label}
+                className="rounded-xl border border-border/60 bg-background/80 px-3 py-2.5 shadow-sm"
+              >
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
+                  {loading ? "…" : typeof value === "number" ? value.toLocaleString() : value}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-muted/10 p-2">
           <div className="flex select-none items-center gap-1.5">
             <button
               type="button"
-              disabled={!storeId || enrichBusy || !amazonSpConfigured}
+              disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.jobRunning}
               title={
                 !amazonSpConfigured
-                  ? "Connect Amazon SP-API for this workspace (Settings → Marketplaces & Stores, or organization amazon_sp_api key)."
-                  : "Batch job: call Amazon Catalog (ASIN) to fill missing images, weak titles, missing brand, matching category, and optional list price when present. Never runs during table render."
+                  ? "Connect Amazon SP-API (Settings → Marketplaces & Stores)."
+                  : "Fetch catalog data from Amazon for products with an ASIN. Runs as a background job — you can navigate away."
               }
               onClick={() => {
-                if (!oid || !storeId || enrichBusy) return;
-                setEnrichBusy(true);
-                setEnrichErr(null);
-                setEnrichFailures([]);
-                setEnrichDetailOpen(false);
-                setEnrichDebugOpen(false);
+                if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
                 setEnrichDebugRows([]);
-                void runEnrichmentBatches(
+                void runProductDataUpdate(
                   { organization_id: oid, store_id: storeId, include_enrichment_debug: enrichAdminDebug },
                   true,
-                ).finally(() => setEnrichBusy(false));
+                );
               }}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {enrichBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              Enrich catalog data
+              {productUpdateStarting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Package className="h-4 w-4" aria-hidden />}
+              Product Data Update
             </button>
-            <PimHelpNote label="Catalog enrichment">
+            <PimHelpNote label="Product Data Update">
               <div className="space-y-2">
                 <div>
-                  Batch Amazon Catalog Items call for every product with an ASIN. The hub automatically continues in batches until the full list is
-                  covered (not only the first few hundred). Fills images, titles, brand, category, and prices when APIs return them. Never runs during
-                  table render.
+                  Batch Amazon catalog fetch for every product with an ASIN. Runs in the background — status persists if you leave this page.
                 </div>
-                <div>
-                  If the AI module is enabled, mapping or validation may be assisted automatically. AI should not invent product data.
-                </div>
+                <div>Cancel stops between batches. Resume continues from the last cursor.</div>
               </div>
             </PimHelpNote>
           </div>
-          {enrichRetryIds.length > 0 && !enrichBusy ? (
+          {enrichRetryIds.length > 0 && !enrichmentJob.jobRunning ? (
             <button
               type="button"
-              disabled={!storeId || enrichBusy || !amazonSpConfigured}
-              title="Re-run Amazon catalog fetch only for products that failed last time."
+              disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.jobRunning}
+              title="Re-run only products that failed last time."
               onClick={() => {
-                if (!oid || !storeId || enrichBusy) return;
-                setEnrichBusy(true);
+                if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
                 setEnrichErr(null);
-                void runEnrichmentBatches(
+                void runProductDataUpdate(
                   {
                     organization_id: oid,
                     store_id: storeId,
@@ -782,26 +933,25 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                     include_enrichment_debug: enrichAdminDebug,
                   },
                   false,
-                ).finally(() => setEnrichBusy(false));
+                );
               }}
-              className="h-10 rounded-lg border border-dashed border-border px-3 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
+              className="h-9 rounded-lg border border-dashed border-border bg-background px-3 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
             >
-              Retry failed only
+              Retry failed
             </button>
           ) : null}
           <button
             type="button"
-            disabled={!storeId || enrichBusy || !amazonSpConfigured}
-            title="Re-run pricing paths only for products that have an ASIN but no product_prices row yet. Uses extra ASINs from identifier map, saved catalog JSON, and listing snapshots when APIs return nothing."
+            disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.jobRunning}
+            title="Re-run pricing for ASIN products missing a price row."
             onClick={() => {
-              if (!oid || !storeId || enrichBusy) return;
-              setEnrichBusy(true);
+              if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
               setEnrichErr(null);
               setEnrichFailures([]);
               setEnrichDetailOpen(false);
               setEnrichDebugOpen(false);
               setEnrichDebugRows([]);
-              void runEnrichmentBatches(
+              void runProductDataUpdate(
                 {
                   organization_id: oid,
                   store_id: storeId,
@@ -809,12 +959,11 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                   include_enrichment_debug: enrichAdminDebug,
                 },
                 true,
-              ).finally(() => setEnrichBusy(false));
+              );
             }}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
           >
-            {enrichBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-            Retry missing prices only
+            Retry missing prices
           </button>
           <button
             type="button"
@@ -823,7 +972,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
               setFormOpen(true);
             }}
             disabled={!storeId}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             Add product
@@ -834,16 +983,42 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
             onClick={() => {
               void loadGrid();
               void loadFacets();
+              void loadCatalogSummary();
               void refreshVendorsAgg();
               window.dispatchEvent(new Event("pim-catalog-refresh"));
             }}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-muted"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
           >
             <RefreshCw className={`h-4 w-4 ${gridLoading ? "animate-spin" : ""}`} />
             Refresh
           </button>
+          {browserLoopDev ? (
+            <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-medium text-amber-900 dark:text-amber-100">
+              Dev: browser loop (?pim_enrichment_browser=1)
+            </span>
+          ) : null}
         </div>
       </div>
+
+      {enrichmentJobActive ? (
+        <PimCatalogEnrichmentJobPanel
+          status={enrichmentJob.jobStatus}
+          busy={enrichmentJob.jobBusy}
+          error={enrichmentJob.jobErr}
+          canResume={Boolean(enrichmentJob.jobStatus?.can_resume)}
+          onCancel={() => void enrichmentJob.cancelBackendJob()}
+          onDismiss={() => setJobPanelDismissed(true)}
+          onResume={() => {
+            if (!oid || !storeId) return;
+            setJobPanelDismissed(false);
+            void enrichmentJob.resumeBackendJob({
+              organization_id: oid,
+              store_id: storeId,
+              include_enrichment_debug: enrichAdminDebug,
+            });
+          }}
+        />
+      ) : null}
 
       {(enrichMetrics || enrichErr || enrichFailures.length > 0) && (
         <div className="mb-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm">
@@ -1078,60 +1253,6 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
               <code className="rounded bg-muted px-1 py-0.5 text-[10px]">?workspace_org=…&amp;store=…</code>.
             </p>
           ) : null}
-        </div>
-        <div className="flex w-full min-w-[12rem] max-w-full flex-col gap-1 sm:w-auto">
-          <span className="flex items-center gap-1.5 text-sm font-medium leading-none text-foreground">
-            <Banknote className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-            Price display
-            <PimHelpNote label="Currency in the catalog">
-              <div className="space-y-2">
-                <p>
-                  Default comes from <span className="font-medium">Settings → General → Display currency</span>. Changing the menu here only affects
-                  number formatting in this catalog (grid, groups, product details). Stored amounts in the database are unchanged.
-                </p>
-                <p>If a row has its own currency from imports or Amazon, that value still wins.</p>
-              </div>
-            </PimHelpNote>
-          </span>
-          <select
-            value={displayCurrency}
-            onChange={(e) => setDisplayCurrency(e.target.value)}
-            className="block h-10 w-full min-w-[10rem] rounded-lg border border-border bg-background px-3 text-sm sm:w-40"
-            aria-label="Display currency for prices"
-          >
-            {PIM_DISPLAY_CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex w-full min-w-[12rem] max-w-full flex-col gap-1 sm:w-auto">
-          <span className="flex items-center gap-1.5 text-sm font-medium leading-none text-foreground">
-            <Banknote className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-            Price display
-            <PimHelpNote label="Currency in the catalog">
-              <div className="space-y-2">
-                <p>
-                  Default comes from <span className="font-medium">Settings → General → Display currency</span>. Changing the menu here only affects
-                  number formatting in this catalog (grid, groups, product details). Stored amounts in the database are unchanged.
-                </p>
-                <p>If a row has its own currency from imports or Amazon, that value still wins.</p>
-              </div>
-            </PimHelpNote>
-          </span>
-          <select
-            value={displayCurrency}
-            onChange={(e) => setDisplayCurrency(e.target.value)}
-            className="block h-10 w-full min-w-[10rem] rounded-lg border border-border bg-background px-3 text-sm sm:w-40"
-            aria-label="Display currency for prices"
-          >
-            {PIM_DISPLAY_CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
         </div>
         <div className="max-w-full overflow-x-auto rounded-lg border border-border p-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex min-w-max flex-nowrap">

@@ -20,6 +20,8 @@ const ALLOWED_INSERT_FILES = new Set([
 ]);
 
 const INSERT_RE = /\.from\s*\(\s*["']products["']\s*\)[\s\S]{0,120}?\.insert\s*\(/;
+const MAP_INSERT_RE =
+  /\.from\s*\(\s*["']product_identifier_map["']\s*\)[\s\S]{0,120}?\.insert\s*\(/;
 
 function collectFiles(rel: string): string[] {
   const abs = path.join(ROOT, rel);
@@ -45,7 +47,6 @@ function main(): void {
     const norm = path.normalize(file);
     if (ALLOWED_INSERT_FILES.has(norm)) continue;
     const content = fs.readFileSync(path.join(ROOT, file), "utf8");
-    if (!INSERT_RE.test(content)) continue;
     const lines = content.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       const chunk = lines.slice(i, Math.min(i + 3, lines.length)).join("\n");
@@ -53,7 +54,15 @@ function main(): void {
         violations.push({
           file,
           line: i + 1,
-          snippet: lines[i]!.trim().slice(0, 120),
+          snippet: `[products.insert] ${lines[i]!.trim().slice(0, 100)}`,
+        });
+        break;
+      }
+      if (MAP_INSERT_RE.test(chunk)) {
+        violations.push({
+          file,
+          line: i + 1,
+          snippet: `[product_identifier_map.insert] ${lines[i]!.trim().slice(0, 100)}`,
         });
         break;
       }

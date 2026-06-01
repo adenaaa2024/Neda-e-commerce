@@ -30,7 +30,7 @@ export const RETURN_LIST_SELECT =
   "id, organization_id, lpn, rma_number, marketplace, item_name, " +
   "asin, fnsku, sku, product_identifier, " +
   "conditions, status, notes, photo_evidence, " +
-  "expiration_date, batch_number, store_id, pallet_id, package_id, " +
+  "expiration_date, batch_number, store_id, pallet_id, package_id, expected_item_id, " +
   "order_id, " +
   // Omit legacy `product_id` here — not added in all migration paths; detail/update use `RETURN_SELECT` (`*`).
   "resolved_product_id, resolved_catalog_product_id, identifier_resolution_status, identifier_resolution_confidence, " +

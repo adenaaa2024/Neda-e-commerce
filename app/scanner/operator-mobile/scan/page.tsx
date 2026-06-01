@@ -166,6 +166,7 @@ import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobil
 import { OperatorCorrectionActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorCorrectionActionsPanel";
 import { OperatorMoveBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorMoveBoxModal";
 import { OperatorVoidBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorVoidBoxModal";
+import { ScannerPhotoActionSheet } from "@/app/scanner/operator-mobile/_components/ScannerPhotoActionSheet";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
@@ -2386,6 +2387,34 @@ function epRowToSlipDescriptionForItemModal(row: Record<string, unknown>): strin
 
 type IdentifyGateEntity = "pallet" | "package" | "item" | "single_box";
 type IdentifyGatePhase = "idle" | "searching" | "matched" | "new";
+
+/** Cap Shipment Entry inventory view reads so the gate cannot spin indefinitely on slow staging. */
+const IDENTIFY_GATE_LOOKUP_TIMEOUT_MS = 22_000;
+
+async function withIdentifyGateLookupTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs = IDENTIFY_GATE_LOOKUP_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Inventory status lookup timed out after ${Math.round(timeoutMs / 1000)}s`,
+              ),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 type ShipmentEntryItemViewMatchField =
   | InventoryViewMatchField
   | "order_id"
@@ -2451,12 +2480,39 @@ function pickInventoryViewHints(rows: VInventoryStatusRow[]): {
   let carrier: string | null = null;
   let slipCode: string | null = null;
   for (const r of rows) {
-    if (!productName && r.product_name?.trim()) productName = r.product_name.trim();
+    if (!productName) {
+      const nm = r.product_display_name?.trim() || r.product_name?.trim();
+      if (nm) productName = nm;
+    }
     if (!carrier && r.carrier?.trim()) carrier = r.carrier.trim();
     if (!slipCode && r.id_slip_contents?.trim()) slipCode = r.id_slip_contents.trim();
     if (productName && carrier && slipCode) break;
   }
   return { productName, carrier, slipCode };
+}
+
+function inventoryLineDisplayName(line: VInventoryStatusRow): string | null {
+  return line.product_display_name?.trim() || line.product_name?.trim() || null;
+}
+
+function collectGateProductNamesFromLines(
+  epRows: Record<string, unknown>[],
+  shipmentLines: VInventoryStatusRow[],
+): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const line of shipmentLines) {
+    for (const key of [line.resolved_product_id, line.product_id, line.resolved_catalog_product_id]) {
+      const id = String(key ?? "").trim();
+      const nm = inventoryLineDisplayName(line);
+      if (isUuidString(id) && nm) names.set(id, nm);
+    }
+  }
+  for (const raw of epRows) {
+    const id = deriveExpectedPackageEffectiveProductId(raw);
+    const nm = epPackageRowCatalogSubtitle(raw)?.trim();
+    if (id && isUuidString(id) && nm) names.set(id, nm);
+  }
+  return names;
 }
 
 function collectGateResolvedProductIds(
@@ -3323,6 +3379,7 @@ function OperatorMobileScanPageContent() {
   /** Continue from Shipment Entry should land on Neda's modern Pallet workspace, never the legacy docs form. */
   const [modernPalletWorkspace, setModernPalletWorkspace] = useState(false);
   const [identifyGatePhase, setIdentifyGatePhase] = useState<IdentifyGatePhase>("idle");
+  const [identifyGateSlowHint, setIdentifyGateSlowHint] = useState<string | null>(null);
   const [identifyGateError, setIdentifyGateError] = useState<string | null>(null);
   const [identifyGateEnteredCode, setIdentifyGateEnteredCode] = useState("");
   const [identifyGateRows, setIdentifyGateRows] = useState<Record<string, unknown>[]>([]);
@@ -3966,6 +4023,7 @@ function OperatorMobileScanPageContent() {
       clearScanLine?: boolean;
     }) => {
       setIdentifyGateError(null);
+      setIdentifyGateSlowHint(null);
       setIdentifyGateEnteredCode(options?.enteredCode ?? "");
       setIdentifyGateRows([]);
       setIdentifyGateCanonicalTracking(null);
@@ -4086,17 +4144,12 @@ function OperatorMobileScanPageContent() {
       const rid = String(
         line.resolved_product_id ?? line.product_id ?? line.resolved_catalog_product_id ?? "",
       ).trim();
-      const nm = line.product_name?.trim() ?? "";
+      const nm = inventoryLineDisplayName(line) ?? "";
       if (rid && nm) m.set(rid, nm);
     }
     for (const line of identifyGateExpectationLines) {
       const rid = line.product_linkage?.resolved_product_id?.trim() ?? "";
       const nm = line.product_linkage?.product_name?.trim() ?? "";
-      if (rid && nm) m.set(rid, nm);
-    }
-    for (const row of identifyGateShipmentLines) {
-      const rid = row.resolved_product_id?.trim() ?? "";
-      const nm = row.product_name?.trim() ?? "";
       if (rid && nm) m.set(rid, nm);
     }
     return m;
@@ -4201,23 +4254,33 @@ function OperatorMobileScanPageContent() {
         let gateLookup: Awaited<ReturnType<typeof lookupShipmentEntryScanCode>>;
         try {
           if (isSupabaseConfigured()) {
-            const gateRes = await lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed);
+            const gateRes = await withIdentifyGateLookupTimeout(
+              lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed),
+            );
             if (!gateRes.ok) {
               throw new Error(gateRes.error);
             }
             gateLookup = gateRes.lookup;
           } else {
-            gateLookup = await lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed);
+            gateLookup = await withIdentifyGateLookupTimeout(
+              lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed),
+            );
           }
         } catch (err) {
           console.warn("lookupShipmentEntryScanCode failed; inventory slice skipped.", err);
           const emptyAgg = aggregateInventoryStatus([]);
+          const timedOut = err instanceof Error && /timed out/i.test(err.message);
+          if (timedOut) {
+            setIdentifyGateSlowHint(
+              "Inventory status is slow or unavailable. You can continue with manual shipment entry below.",
+            );
+          }
           gateLookup = {
             normalized_code: trimmed,
             match_status: "not_found",
             entity_type: "unknown",
             entity_id: null,
-            status_label: "Lookup error",
+            status_label: timedOut ? "Lookup timed out" : "Lookup error",
             status_detail: err instanceof Error ? err.message : "Lookup failed",
             next_action: "show_not_found",
             inventory_rows: [],
@@ -4405,24 +4468,43 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateInventoryAgg(scopedAgg);
         setIdentifyGateInventoryVisual(scopedVis);
         setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
-        if (isSupabaseConfigured() && sessionStoreId) {
-          const productIds = collectGateResolvedProductIds(scopedSafe, shipmentLines);
-          if (productIds.length) {
-            const nameRes = await fetchGateProductNamesByIdsAction(orgId, productIds);
-            if (nameRes.ok) {
-              setIdentifyGateBatchProductNames(new Map(Object.entries(nameRes.names)));
-            } else {
-              console.warn("fetchGateProductNamesByIdsAction failed", nameRes.error);
-              setIdentifyGateBatchProductNames(new Map());
-            }
-          } else {
-            setIdentifyGateBatchProductNames(new Map());
-          }
-        } else {
-          setIdentifyGateBatchProductNames(new Map());
-        }
         setIdentifyGateShipmentLines(shipmentLines);
         setIdentifyGatePhase("matched");
+        if (!invRows.length && !shipmentLines.length && !scopedSafe.length) {
+          setIdentifyGateSlowHint(
+            (prev) =>
+              prev ??
+              "No inventory status rows for this code — continue with Shipment Entry or manual tracking.",
+          );
+        }
+        const viewNames = collectGateProductNamesFromLines(scopedSafe, shipmentLines);
+        setIdentifyGateBatchProductNames(viewNames);
+        if (isSupabaseConfigured() && sessionStoreId) {
+          const productIds = collectGateResolvedProductIds(scopedSafe, shipmentLines);
+          const missingIds = productIds.filter((id) => !viewNames.has(id));
+          if (missingIds.length) {
+            void withIdentifyGateLookupTimeout(
+              fetchGateProductNamesByIdsAction(orgId, missingIds),
+              12_000,
+            )
+              .then((nameRes) => {
+                if (!nameRes.ok) {
+                  console.warn("fetchGateProductNamesByIdsAction failed", nameRes.error);
+                  return;
+                }
+                setIdentifyGateBatchProductNames((prev) => {
+                  const merged = new Map(prev);
+                  for (const [id, nm] of Object.entries(nameRes.names)) {
+                    if (id && nm.trim()) merged.set(id, nm.trim());
+                  }
+                  return merged;
+                });
+              })
+              .catch((err) => {
+                console.warn("fetchGateProductNamesByIdsAction failed", err);
+              });
+          }
+        }
         playOperatorSuccessBeep();
         setIdentifyGateGlowFlash(true);
       } catch (e) {
@@ -5421,13 +5503,27 @@ function OperatorMobileScanPageContent() {
   useEffect(() => {
     const raw = searchParams.get("code") ?? searchParams.get("q");
     if (!raw?.trim()) return;
+    if (operatorStoresLoading) return;
+    if (isSupabaseConfigured() && !sessionStoreId) return;
     const code = raw.trim();
     setScanLine(code);
     router.replace(pathname, { scroll: false });
     queueMicrotask(() => {
       void runIdentificationGateSearchRef.current(code);
     });
-  }, [searchParams, pathname, router]);
+  }, [searchParams, pathname, router, operatorStoresLoading, sessionStoreId]);
+
+  useEffect(() => {
+    if (identifyGatePhase !== "searching") return;
+    const t = window.setTimeout(() => {
+      setIdentifyGateSlowHint((prev) =>
+        prev?.startsWith("Loading saved")
+          ? prev
+          : "Still checking inventory status… You can use Manual Entry if this takes too long.",
+      );
+    }, 8_000);
+    return () => window.clearTimeout(t);
+  }, [identifyGatePhase]);
 
   const capturePalletEvidenceBaseline = useCallback(() => {
     const o = evidenceBaselineRef.current;
@@ -7598,14 +7694,20 @@ function OperatorMobileScanPageContent() {
             return "wrong_store";
           }
           if (byId.pallet) {
+            setIdentifyGatePhase("idle");
+            setIdentifyGateSlowHint("Loading saved shipment…");
             setIntakeToast("Saved package found — loading pallet shipment...");
             await resumeWorkflowFromExistingPalletRow(byId.pallet, primary, { packageRow: row });
+            setIdentifyGateSlowHint(null);
             return "resumed";
           }
         }
 
+        setIdentifyGatePhase("idle");
+        setIdentifyGateSlowHint("Loading saved box…");
         setIntakeToast("Saved direct box found — loading details...");
         await resumeWorkflowFromExistingDirectBoxPackage(row, primary);
+        setIdentifyGateSlowHint(null);
         return "resumed";
       }
 
@@ -7653,8 +7755,11 @@ function OperatorMobileScanPageContent() {
           return "wrong_store";
         }
         if (dupRes.pallet) {
+          setIdentifyGatePhase("idle");
+          setIdentifyGateSlowHint("Loading saved shipment…");
           setIntakeToast("Pallet found — loading details...");
           await resumeWorkflowFromExistingPalletRow(dupRes.pallet, trimmed);
+          setIdentifyGateSlowHint(null);
           return "resumed";
         }
       }
@@ -7673,8 +7778,11 @@ function OperatorMobileScanPageContent() {
           return "wrong_store";
         }
         if (byId.pallet) {
+          setIdentifyGatePhase("idle");
+          setIdentifyGateSlowHint("Loading saved shipment…");
           setIntakeToast("Pallet found — loading details...");
           await resumeWorkflowFromExistingPalletRow(byId.pallet, trimmed);
+          setIdentifyGateSlowHint(null);
           return "resumed";
         }
       }
@@ -7731,13 +7839,19 @@ function OperatorMobileScanPageContent() {
             return "wrong_store";
           }
           if (byId.pallet) {
+            setIdentifyGatePhase("idle");
+            setIdentifyGateSlowHint("Loading saved shipment…");
             setIntakeToast("Pallet shipment found — loading details...");
             await resumeWorkflowFromExistingPalletRow(byId.pallet, trimmed, { packageRow: pkgRow });
+            setIdentifyGateSlowHint(null);
             return "resumed";
           }
         } else {
+          setIdentifyGatePhase("idle");
+          setIdentifyGateSlowHint("Loading saved box…");
           setIntakeToast("Direct box found — loading details...");
           await resumeWorkflowFromExistingDirectBoxPackage(pkgRow, trimmed);
+          setIdentifyGateSlowHint(null);
           return "resumed";
         }
       }
@@ -11314,7 +11428,7 @@ function OperatorMobileScanPageContent() {
                       <button
                         type="button"
                         disabled={busy || identifyGateOcrReading}
-                        onClick={() => setIdentifyGateOcrMenuOpen((o) => !o)}
+                        onClick={() => setIdentifyGateOcrMenuOpen(true)}
                         className="operator-shipment-entry-gate__camera-btn flex h-10 w-10 shrink-0 items-center justify-center rounded-lg outline-none transition disabled:cursor-not-allowed disabled:opacity-35"
                         aria-label="Photo or upload for OCR"
                         aria-expanded={identifyGateOcrMenuOpen}
@@ -11323,59 +11437,6 @@ function OperatorMobileScanPageContent() {
                       >
                         <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
                       </button>
-                      {identifyGateOcrMenuOpen ? (
-                        <>
-                          <button
-                            type="button"
-                            className="fixed inset-0 z-[149] cursor-default bg-black/35"
-                            aria-label="Close photo menu"
-                            onClick={() => setIdentifyGateOcrMenuOpen(false)}
-                          />
-                          <div
-                            className="scanner-ocr-action-sheet fixed bottom-20 left-1/2 z-[150] w-[calc(100vw-1.5rem)] max-w-[406px] -translate-x-1/2 overflow-hidden rounded-2xl py-2"
-                            role="menu"
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold transition sm:min-h-[3.5rem] sm:text-[16px]"
-                              onClick={() => {
-                                setIdentifyGateOcrMenuOpen(false);
-                                identifyGateCameraCaptureRef.current?.click();
-                              }}
-                            >
-                              <span className="text-xl leading-none" aria-hidden>
-                                📸
-                              </span>
-                              Take Photo
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center gap-3 border-t px-4 py-3.5 text-left text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                              style={{ borderColor: "var(--scanner-border)" }}
-                              onClick={() => {
-                                setIdentifyGateOcrMenuOpen(false);
-                                identifyGateCameraUploadRef.current?.click();
-                              }}
-                            >
-                              <span className="text-xl leading-none" aria-hidden>
-                                📁
-                              </span>
-                              Upload Photo
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center justify-center border-t px-4 py-3.5 text-center text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                              style={{ borderColor: "var(--scanner-border)" }}
-                              onClick={() => setIdentifyGateOcrMenuOpen(false)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </>
-                      ) : null}
                     </div>
                     <button
                       type="button"
@@ -11497,6 +11558,25 @@ function OperatorMobileScanPageContent() {
                 <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold" style={{ color: "#B9C2CC" }}>
                   <Loader2 className="operator-shipment-entry-gate__searching-spinner h-5 w-5 animate-spin" strokeWidth={2} />
                   Searching inventory status…
+                </p>
+              ) : identifyGateSlowHint && busy ? (
+                <p
+                  className="mt-4 rounded-xl border px-3 py-2 text-center text-[12px] font-semibold leading-snug"
+                  style={{
+                    borderColor: "rgba(214,183,110,0.35)",
+                    backgroundColor: "rgba(214,183,110,0.08)",
+                    color: "#e8dcc0",
+                  }}
+                >
+                  {identifyGateSlowHint}
+                </p>
+              ) : null}
+              {identifyGateSlowHint && identifyGatePhase !== "searching" && !busy ? (
+                <p
+                  className="mt-3 rounded-xl border px-3 py-2 text-center text-[11px] font-semibold leading-snug text-[#524018] dark:text-[#f1d58a]"
+                  style={{ borderColor: "rgba(138,104,31,0.35)", backgroundColor: "rgba(138,104,31,0.08)" }}
+                >
+                  {identifyGateSlowHint}
                 </p>
               ) : null}
               {identifyGateError ? <OperatorCrossStoreScopeBanner message={identifyGateError} className="mt-3" /> : null}
@@ -14292,6 +14372,21 @@ function OperatorMobileScanPageContent() {
           </p>
         </div>
       ) : null}
+
+      <ScannerPhotoActionSheet
+        open={identifyGateOcrMenuOpen}
+        onClose={() => setIdentifyGateOcrMenuOpen(false)}
+        onTakePhoto={() => {
+          setIdentifyGateOcrMenuOpen(false);
+          identifyGateCameraCaptureRef.current?.click();
+        }}
+        onUploadPhoto={() => {
+          setIdentifyGateOcrMenuOpen(false);
+          identifyGateCameraUploadRef.current?.click();
+        }}
+        disabled={busy || identifyGateOcrReading}
+        title="Photo options"
+      />
 
       <OperatorMoveBoxModal
         open={moveBoxModalOpen}

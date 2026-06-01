@@ -1,4 +1,5 @@
 import type { JobTickInput, JobTickResult, JobWorkerFn } from "./types";
+import { runProductEnrichmentWorker } from "./workers/product-enrichment-worker";
 import { runSmokeTickWorker } from "./workers/smoke-worker";
 
 function skeletonWorker(kind: string): JobWorkerFn {
@@ -15,7 +16,7 @@ function skeletonWorker(kind: string): JobWorkerFn {
 export const WORKER_REGISTRY: Record<string, JobWorkerFn> = {
   smoke_tick: runSmokeTickWorker,
   product_import: skeletonWorker("product_import"),
-  product_enrichment: skeletonWorker("product_enrichment"),
+  product_enrichment: runProductEnrichmentWorker,
   amazon_fetch: skeletonWorker("amazon_fetch"),
   amazon_domain_sync: skeletonWorker("amazon_domain_sync"),
   resolver_backfill: skeletonWorker("resolver_backfill"),

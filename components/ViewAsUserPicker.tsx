@@ -208,7 +208,7 @@ export function ViewAsUserPicker({
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         className={[
-          "flex w-full min-w-0 items-center justify-between gap-1 rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs font-medium shadow-sm outline-none ring-offset-background hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+          "admin-chrome-control flex w-full min-w-0 items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-left text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
           dense ? "py-1" : "",
         ].join(" ")}
         aria-expanded={open}

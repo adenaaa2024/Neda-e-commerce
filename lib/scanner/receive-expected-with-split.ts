@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUuidString } from "@/lib/uuid";
+import {
+  deletePackageCascadeV2,
+  deletePalletCascadeV2,
+  deleteReturnItemWithExpectedReleaseV2,
+  moveReturnItemParentV2,
+} from "@/lib/scanner/delete-cascade-v2-app";
 
 export type AllocateReturnItemsResult = {
   return_item_id: string;
@@ -99,4 +105,340 @@ export async function allocateExpectedItemsForReturnItemIds(
   }
 
   return { ok: true, rows };
+}
+
+export type ReleaseExpectedItemUnitResult = {
+  released: boolean;
+  parent_restored_id: string | null;
+  child_archived_id: string | null;
+};
+
+/** Release one allocated expected unit for a return_items row (RPC: release_expected_item_unit). */
+export async function releaseExpectedItemUnit(
+  supabase: SupabaseClient,
+  input: {
+    returnItemId: string;
+    organizationId: string;
+    /** When true, RPC soft-deletes the return_items row; when false, only clears expected_item_id. */
+    softDelete?: boolean;
+  },
+): Promise<{ ok: true; result: ReleaseExpectedItemUnitResult } | { ok: false; error: string }> {
+  const returnItemId = input.returnItemId.trim();
+  const organizationId = input.organizationId.trim();
+  if (!isUuidString(returnItemId) || !isUuidString(organizationId)) {
+    return { ok: false, error: "Invalid return_item or organization id." };
+  }
+
+  const { data, error } = await supabase.rpc("release_expected_item_unit", {
+    p_return_item_id: returnItemId,
+    p_organization_id: organizationId,
+    p_soft_delete: input.softDelete ?? true,
+  });
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | undefined;
+  return {
+    ok: true,
+    result: {
+      released: Boolean(row?.released),
+      parent_restored_id: row?.parent_restored_id ? String(row.parent_restored_id) : null,
+      child_archived_id: row?.child_archived_id ? String(row.child_archived_id) : null,
+    },
+  };
+}
+
+/** Release allocation for every active return_items row on a package (void/delete package path). */
+export async function releaseExpectedItemsForPackage(
+  supabase: SupabaseClient,
+  input: {
+    packageId: string;
+    organizationId: string;
+    softDelete?: boolean;
+  },
+): Promise<
+  | { ok: true; releasedCount: number; results: Array<{ returnItemId: string; released: boolean }> }
+  | { ok: false; error: string }
+> {
+  const packageId = input.packageId.trim();
+  const organizationId = input.organizationId.trim();
+  if (!isUuidString(packageId) || !isUuidString(organizationId)) {
+    return { ok: false, error: "Invalid package or organization id." };
+  }
+
+  const { data: rows, error: listErr } = await supabase
+    .from("return_items")
+    .select("id")
+    .eq("package_id", packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null);
+
+  if (listErr) return { ok: false, error: listErr.message };
+
+  const results: Array<{ returnItemId: string; released: boolean }> = [];
+  let releasedCount = 0;
+
+  for (const row of rows ?? []) {
+    const returnItemId = String((row as { id?: string }).id ?? "").trim();
+    if (!isUuidString(returnItemId)) continue;
+    const rel = await releaseExpectedItemUnit(supabase, {
+      returnItemId,
+      organizationId,
+      softDelete: input.softDelete ?? true,
+    });
+    if (!rel.ok) return { ok: false, error: rel.error };
+    results.push({ returnItemId, released: rel.result.released });
+    if (rel.result.released) releasedCount += 1;
+  }
+
+  return { ok: true, releasedCount, results };
+}
+
+/** Re-scope allocated units after package parent move (v2: move_return_item_parent per row). */
+export async function moveExpectedItemsForPackageScope(
+  supabase: SupabaseClient,
+  input: {
+    packageId: string;
+    organizationId: string;
+    storeId: string;
+    receiveScopeKey: string;
+    trackingNumber?: string | null;
+    palletId?: string | null;
+    actorId?: string | null;
+  },
+): Promise<{ ok: true; movedCount: number } | { ok: false; error: string }> {
+  const packageId = input.packageId.trim();
+  const organizationId = input.organizationId.trim();
+  const storeId = input.storeId.trim();
+  if (!isUuidString(packageId) || !isUuidString(organizationId) || !isUuidString(storeId)) {
+    return { ok: false, error: "Invalid package, organization, or store id." };
+  }
+
+  const { data: rows, error: listErr } = await supabase
+    .from("return_items")
+    .select("id")
+    .eq("package_id", packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null);
+
+  if (listErr) return { ok: false, error: listErr.message };
+
+  let movedCount = 0;
+  for (const row of rows ?? []) {
+    const returnItemId = String((row as { id?: string }).id ?? "").trim();
+    if (!isUuidString(returnItemId)) continue;
+
+    const moved = await moveReturnItemParentV2(supabase, {
+      organizationId,
+      returnItemId,
+      packageId,
+      palletId: input.palletId ?? null,
+      storeId,
+      receiveScopeKey: input.receiveScopeKey,
+      trackingNumber: input.trackingNumber ?? null,
+      actorId: input.actorId ?? null,
+      reason: "package_scope_move",
+    });
+    if (!moved.ok) return { ok: false, error: moved.error };
+    movedCount += 1;
+  }
+
+  return { ok: true, movedCount };
+}
+
+/** Keep return_items.pallet_id aligned with packages.pallet_id after move-box (physical layer). */
+export async function syncReturnItemsPalletForPackage(
+  supabase: SupabaseClient,
+  input: {
+    packageId: string;
+    organizationId: string;
+    palletId: string;
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const packageId = input.packageId.trim();
+  const organizationId = input.organizationId.trim();
+  const palletId = input.palletId.trim();
+  if (!isUuidString(packageId) || !isUuidString(organizationId) || !isUuidString(palletId)) {
+    return { ok: false, error: "Invalid package, organization, or pallet id." };
+  }
+
+  const { error } = await supabase
+    .from("return_items")
+    .update({ pallet_id: palletId, updated_at: new Date().toISOString() })
+    .eq("package_id", packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null);
+
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export function isSupabaseRpcMissingError(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("could not find the function") || m.includes("pgrst202");
+}
+
+/** Soft-void one return_items row via v2 delete RPC (release + undo batch). */
+export async function softVoidReturnItemWithExpectedRelease(
+  supabase: SupabaseClient,
+  input: {
+    returnItemId: string;
+    organizationId: string;
+    updatedBy?: string | null;
+  },
+): Promise<{ ok: true; released: boolean } | { ok: false; error: string }> {
+  const returnItemId = input.returnItemId.trim();
+  const organizationId = input.organizationId.trim();
+  if (!isUuidString(returnItemId) || !isUuidString(organizationId)) {
+    return { ok: false, error: "Invalid return_item or organization id." };
+  }
+
+  const deleted = await deleteReturnItemWithExpectedReleaseV2(supabase, {
+    organizationId,
+    returnItemId,
+    actorId: input.updatedBy ?? null,
+    reason: "app_soft_void_return_item",
+  });
+  if (!deleted.ok) {
+    if (!isSupabaseRpcMissingError(deleted.error)) {
+      return { ok: false, error: deleted.error };
+    }
+    const rel = await releaseExpectedItemUnit(supabase, {
+      returnItemId,
+      organizationId,
+      softDelete: true,
+    });
+    if (!rel.ok) return { ok: false, error: rel.error };
+    return { ok: true, released: rel.result.released };
+  }
+
+  return {
+    ok: true,
+    released: deleted.message === "deleted" || deleted.message === "idempotent_replay",
+  };
+}
+
+/** Soft-void a package via v2 cascade RPC (child return_items + expected release). */
+export async function softVoidPackageWithExpectedRelease(
+  supabase: SupabaseClient,
+  input: {
+    packageId: string;
+    organizationId: string;
+    updatedBy?: string | null;
+  },
+): Promise<{ ok: true; releasedCount: number } | { ok: false; error: string }> {
+  const packageId = input.packageId.trim();
+  const organizationId = input.organizationId.trim();
+  if (!isUuidString(packageId) || !isUuidString(organizationId)) {
+    return { ok: false, error: "Invalid package or organization id." };
+  }
+
+  const deleted = await deletePackageCascadeV2(supabase, {
+    organizationId,
+    packageId,
+    actorId: input.updatedBy ?? null,
+    reason: "app_soft_void_package",
+  });
+  if (!deleted.ok) {
+    if (!isSupabaseRpcMissingError(deleted.error)) {
+      return { ok: false, error: deleted.error };
+    }
+    const rel = await releaseExpectedItemsForPackage(supabase, {
+      packageId,
+      organizationId,
+      softDelete: true,
+    });
+    if (!rel.ok) return { ok: false, error: rel.error };
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = { deleted_at: now, updated_at: now };
+    if (input.updatedBy && isUuidString(input.updatedBy)) patch.updated_by = input.updatedBy;
+    const { error } = await supabase
+      .from("packages")
+      .update(patch)
+      .eq("id", packageId)
+      .eq("organization_id", organizationId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, releasedCount: rel.releasedCount };
+  }
+
+  return { ok: true, releasedCount: deleted.itemsDeleted };
+}
+
+/** Soft-void a pallet via v2 cascade RPC. */
+export async function softVoidPalletWithExpectedRelease(
+  supabase: SupabaseClient,
+  input: {
+    palletId: string;
+    organizationId: string;
+    updatedBy?: string | null;
+  },
+): Promise<
+  | { ok: true; packagesVoided: number; itemsVoided: number; releasedCount: number }
+  | { ok: false; error: string }
+> {
+  const palletId = input.palletId.trim();
+  const organizationId = input.organizationId.trim();
+  if (!isUuidString(palletId) || !isUuidString(organizationId)) {
+    return { ok: false, error: "Invalid pallet or organization id." };
+  }
+
+  const deleted = await deletePalletCascadeV2(supabase, {
+    organizationId,
+    palletId,
+    actorId: input.updatedBy ?? null,
+    reason: "app_soft_void_pallet",
+  });
+  if (!deleted.ok) {
+    if (!isSupabaseRpcMissingError(deleted.error)) {
+      return { ok: false, error: deleted.error };
+    }
+    const { data: packages, error: listErr } = await supabase
+      .from("packages")
+      .select("id")
+      .eq("pallet_id", palletId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null);
+    if (listErr) return { ok: false, error: listErr.message };
+
+    let packagesVoided = 0;
+    let releasedCount = 0;
+    for (const row of packages ?? []) {
+      const pkgId = String((row as { id?: string }).id ?? "").trim();
+      if (!isUuidString(pkgId)) continue;
+      const voided = await softVoidPackageWithExpectedRelease(supabase, {
+        packageId: pkgId,
+        organizationId,
+        updatedBy: input.updatedBy ?? null,
+      });
+      if (!voided.ok) return { ok: false, error: voided.error };
+      packagesVoided += 1;
+      releasedCount += voided.releasedCount;
+    }
+
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = { deleted_at: now, updated_at: now };
+    if (input.updatedBy && isUuidString(input.updatedBy)) patch.updated_by = input.updatedBy;
+    const { error: palErr } = await supabase
+      .from("pallets")
+      .update(patch)
+      .eq("id", palletId)
+      .eq("organization_id", organizationId);
+    if (palErr) return { ok: false, error: palErr.message };
+
+    return {
+      ok: true,
+      packagesVoided,
+      itemsVoided: releasedCount,
+      releasedCount,
+    };
+  }
+
+  return {
+    ok: true,
+    packagesVoided: deleted.packagesDeleted,
+    itemsVoided: deleted.itemsDeleted,
+    releasedCount: deleted.itemsDeleted,
+  };
 }

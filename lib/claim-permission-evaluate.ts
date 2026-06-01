@@ -1,5 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import { loadClaimPolicy } from "./claim-eligibility-policy";
+import {
+  isClaimModuleDomainEnabled,
+  isMarketplaceClaimPermission,
+} from "./claim-module-scope";
 import {
   CLAIM_ACCESS_RANK,
   CLAIM_PERMISSION_CATALOG,
@@ -307,6 +312,18 @@ export async function evaluateClaimPermissionForActor(
     const flags = await loadUserOrgAccessFlags(userId, organizationId);
     if (!flags.ok) {
       return { ok: false, code: "ORG_DENIED", message: "You do not have access to this organization.", httpStatus: 403 };
+    }
+
+    if (isMarketplaceClaimPermission(action)) {
+      const policy = await loadClaimPolicy(getServiceSupabase(), organizationId);
+      if (!isClaimModuleDomainEnabled(policy, "marketplace")) {
+        return {
+          ok: false,
+          code: "PERMISSION_DENIED",
+          message: "Marketplace claims are disabled for this organization (claim policy module scope).",
+          httpStatus: 403,
+        };
+      }
     }
 
     if (claimFamily != null && claimFamily !== "") {
