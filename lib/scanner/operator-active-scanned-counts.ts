@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import { fetchReturnItemsScannedCountsForTracking } from "@/lib/scanner/operator-tracking-expectations";
-import { isTestReturnItemMarker } from "@/lib/scanner/return-items-test-data-guard";
+import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import {
   type InventoryViewMatchField,
@@ -124,7 +124,7 @@ export async function countActiveReturnItemsForIdentifierScan(
 
   const activeItems = items.filter(
     (item) =>
-      !isTestReturnItemMarker({
+      !shouldExcludeReturnItemFromScannerCounts({
         item_name: (item as { item_name?: string | null }).item_name,
         sku: (item as { sku?: string | null }).sku,
         fnsku: (item as { fnsku?: string | null }).fnsku,

@@ -166,6 +166,7 @@ import { buildOperatorBarcodeResolverFields } from "@/lib/scanner/operator-barco
 import { OperatorCrossStoreScopeBanner } from "@/app/scanner/operator-mobile/_components/OperatorCrossStoreScopeBanner";
 import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobile/_components/OperatorDuplicatePackingSlipBanner";
 import { OperatorCorrectionActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorCorrectionActionsPanel";
+import { ScannerPhotoActionSheet } from "@/app/scanner/operator-mobile/_components/ScannerPhotoActionSheet";
 import { OperatorMoveBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorMoveBoxModal";
 import { OperatorVoidBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorVoidBoxModal";
 import { useUserRole } from "@/components/UserRoleContext";
@@ -682,25 +683,125 @@ function resolveOperatorPackagePickerRowStatus(p: OperatorPackageListRow): Opera
   return "partial";
 }
 
-/** Box intake is saved (photos present) and item receiving is not finalized — resume Item Scan, not BOX intake. */
-function operatorPackageShouldResumeItemScan(p: OperatorPackageListRow): boolean {
-  const notes = String(p.notes ?? "").toLowerCase();
-  if (notes.includes("discrepancy")) return false;
-  const hasPhotos =
-    countOperatorPackagePhotoSlotsFilled(p.slip_photo_urls) >= 1 &&
-    countOperatorPackagePhotoSlotsFilled(p.outside_photo_urls) >= 1 &&
-    countOperatorPackagePhotoSlotsFilled(p.inside_photo_urls) >= 1;
-  if (!hasPhotos) return false;
+function packageBoxIntakeManifestSaved(row: Record<string, unknown>): boolean {
+  const coerced = coercePackageManifestData(row.manifest_data);
+  if (!coerced || typeof coerced !== "object" || Array.isArray(coerced)) return false;
+  const box = (coerced as Record<string, unknown>).box_slip_vision;
+  if (!box || typeof box !== "object" || Array.isArray(box)) return false;
+  return Boolean(String((box as Record<string, unknown>).captured_at ?? "").trim());
+}
+
+function packageHasSlipContentsSaved(
+  row: Record<string, unknown>,
+  pickerRow: OperatorPackageListRow,
+  slipLineCount?: number | null,
+): boolean {
+  if (typeof slipLineCount === "number" && slipLineCount > 0) return true;
+  if (String(row.id_slip_contents ?? pickerRow.id_slip_contents ?? "").trim()) return true;
+  const manifest = parseBoxSlipManifestData(row.manifest_data);
+  if (manifest.lines.length > 0) return true;
+  const expRaw = pickerRow.expected_item_count ?? row.expected_item_count;
+  if (typeof expRaw === "number" && Number.isFinite(expRaw) && Math.floor(expRaw) > 0) return true;
+  return false;
+}
+
+function packageUsesManualItemScanMode(
+  row: Record<string, unknown>,
+  pickerRow: OperatorPackageListRow,
+): boolean {
+  const actRaw = pickerRow.actual_item_count ?? row.actual_item_count;
+  const act =
+    typeof actRaw === "number" && Number.isFinite(actRaw) ? Math.floor(actRaw) : 0;
+  if (act > 0 && !packageHasSlipContentsSaved(row, pickerRow)) return true;
+  if (packageBoxIntakeManifestSaved(row) && !packageHasSlipContentsSaved(row, pickerRow)) return true;
+  return false;
+}
+
+function packageBoxDocsCompleteEnough(
+  row: Record<string, unknown>,
+  directBox: boolean,
+  intakeSaved = false,
+): boolean {
+  if (countOperatorPackagePhotoSlotsFilled(row.slip_photo_urls) < 1) return false;
+  const carrier =
+    String(row.carrier_name ?? "").trim() ||
+    (directBox ? parseDirectBoxShipmentDocumentation(row.manifest_data).carrierName.trim() : "");
+  if (!carrier && !intakeSaved) return false;
+  if (directBox) {
+    const docs = parseDirectBoxShipmentDocumentation(row.manifest_data);
+    const hasShippingLabel = docs.shippingLabelUrls.some((u) => String(u ?? "").trim().length > 0);
+    if (hasShippingLabel) return true;
+    return intakeSaved || packageBoxIntakeManifestSaved(row);
+  }
+  return true;
+}
+
+function packageItemScanFinalized(pickerRow: OperatorPackageListRow): boolean {
   const exp =
-    typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
-      ? Math.floor(p.expected_item_count)
+    typeof pickerRow.expected_item_count === "number" && Number.isFinite(pickerRow.expected_item_count)
+      ? Math.floor(pickerRow.expected_item_count)
       : null;
   const act =
-    typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
-      ? Math.floor(p.actual_item_count)
+    typeof pickerRow.actual_item_count === "number" && Number.isFinite(pickerRow.actual_item_count)
+      ? Math.floor(pickerRow.actual_item_count)
       : null;
-  if (exp != null && exp > 0 && act != null && act === exp) return false;
+  return exp != null && exp > 0 && act != null && act === exp;
+}
+
+/** Resume Item Scan when box intake is saved and item receiving is not finalized. */
+function shouldResumePackageToItemScan(input: {
+  row: Record<string, unknown>;
+  pickerRow: OperatorPackageListRow;
+  directBox?: boolean;
+  slipLineCount?: number | null;
+}): boolean {
+  const { row, pickerRow, directBox = false, slipLineCount } = input;
+  const notes = String(pickerRow.notes ?? row.notes ?? "").toLowerCase();
+  if (notes.includes("discrepancy")) return false;
+  if (packageItemScanFinalized(pickerRow)) return false;
+
+  const pkgId = String(row.id ?? pickerRow.id ?? "").trim();
+  if (!pkgId || !isUuidString(pkgId)) return false;
+
+  const hasSlipPhoto = countOperatorPackagePhotoSlotsFilled(row.slip_photo_urls ?? pickerRow.slip_photo_urls) >= 1;
+  const actRaw = pickerRow.actual_item_count ?? row.actual_item_count;
+  const actStarted =
+    typeof actRaw === "number" && Number.isFinite(actRaw) && Math.floor(actRaw) > 0;
+  const intakeSaved =
+    packageBoxIntakeManifestSaved(row) ||
+    packageHasSlipContentsSaved(row, pickerRow, slipLineCount) ||
+    actStarted;
+
+  if (hasSlipPhoto && !intakeSaved) return false;
+
+  if (
+    !packageBoxDocsCompleteEnough(
+      {
+        ...row,
+        slip_photo_urls: row.slip_photo_urls ?? pickerRow.slip_photo_urls,
+      },
+      directBox,
+      intakeSaved,
+    )
+  ) {
+    return false;
+  }
+
+  const slipReady =
+    packageHasSlipContentsSaved(row, pickerRow, slipLineCount) ||
+    packageUsesManualItemScanMode(row, pickerRow) ||
+    actStarted;
+  if (!slipReady) return false;
+
   return true;
+}
+
+/** Box intake is saved and item receiving is not finalized — resume Item Scan, not BOX intake. */
+function operatorPackageShouldResumeItemScan(p: OperatorPackageListRow): boolean {
+  return shouldResumePackageToItemScan({
+    row: p as unknown as Record<string, unknown>,
+    pickerRow: p,
+  });
 }
 
 function operatorPackageListRowFromRecord(row: Record<string, unknown>): OperatorPackageListRow {
@@ -4300,7 +4401,6 @@ function OperatorMobileScanPageContent() {
   const [identifyGateOcrDropHighlight, setIdentifyGateOcrDropHighlight] = useState(false);
   const identifyGateCameraCaptureRef = useRef<HTMLInputElement>(null);
   const identifyGateCameraUploadRef = useRef<HTMLInputElement>(null);
-  const identifyGateOcrMenuRef = useRef<HTMLDivElement | null>(null);
   const identifyGateOcrBusyRef = useRef(false);
   /** Set after {@link resumeWorkflowFromExistingPalletRow} — used by gate search defined earlier in the file. */
   const resumeFromPalletLookupRef = useRef<
@@ -4317,7 +4417,7 @@ function OperatorMobileScanPageContent() {
     ) => Promise<"resumed" | "wrong_store" | "error" | false>
   >(async () => false);
   const maybeResumeItemScanAfterPackageRowRef = useRef<
-    (row: Record<string, unknown>) => Promise<boolean>
+    (row: Record<string, unknown>, opts?: { directBox?: boolean }) => Promise<boolean>
   >(async () => false);
 
   const packageScanLaserSuppressed =
@@ -4507,30 +4607,6 @@ function OperatorMobileScanPageContent() {
     }
     return m;
   }, [identifyGateBatchProductNames, identifyGateRows, identifyGateExpectationLines, identifyGateShipmentLines]);
-
-  const identifyGateProductDisplay = useMemo(() => {
-    const fromView = identifyGateViewHints?.productName?.trim();
-    if (fromView) return fromView;
-    if (identifyGateShipmentLines.length > 0) {
-      const labels = new Set<string>();
-      for (const row of identifyGateShipmentLines) {
-        const epRow = gateEpRowForInventoryLine(row, identifyGateEpById, identifyGateEpBySkuFnsku);
-        const linkage = buildInventoryViewProductLinkage(row, epRow, identifyGateResolvedNameMap);
-        labels.add(productLinkageOperatorPrimaryDisplayLabel(linkage));
-      }
-      if (labels.size === 1) return [...labels][0]!;
-      if (labels.size > 1) return `${labels.size} products`;
-    }
-    const summary = identifyGateSummary.productName.trim();
-    return summary && summary !== "—" ? summary : "No product link yet";
-  }, [
-    identifyGateViewHints?.productName,
-    identifyGateSummary.productName,
-    identifyGateShipmentLines,
-    identifyGateEpById,
-    identifyGateEpBySkuFnsku,
-    identifyGateResolvedNameMap,
-  ]);
 
   const runIdentificationGateSearch = useCallback(
     async (rawCode: string) => {
@@ -5368,6 +5444,69 @@ function OperatorMobileScanPageContent() {
     };
   }, [flowPhase, itemScanPackageId, orgId, sessionStoreId]);
 
+  /**
+   * Direct Item Scan resume path: hydrate preview linkage for saved slip rows even when
+   * operator skips Box Info. This mirrors Box Info "Detected Items" deterministic identifier
+   * preview (FNSKU/UPC only) so product linkage labels are present on first Item Scan render.
+   */
+  useEffect(() => {
+    if (flowPhase !== "items") return;
+    const pid = String(itemScanPackageId ?? "").trim();
+    if (!pid || !isUuidString(pid)) return;
+    if (itemInspectionSlipLinesLoading) return;
+    if (itemInspectionSlipLines.length === 0) return;
+    const oid = (orgId ?? "").trim();
+    const sid = String(sessionStoreId ?? "").trim();
+    if (!oid || !sid || !isUuidString(sid)) return;
+
+    const existingCarryoverRows =
+      itemScanSlipCarryover?.packageId === pid
+        ? itemScanSlipCarryover.rows
+        : itemScanSlipCarryoverRef.current?.packageId === pid
+          ? itemScanSlipCarryoverRef.current.rows
+          : [];
+    if (existingCarryoverRows.length > 0) return;
+
+    const allDbCatalogLinked = itemInspectionSlipLines.every((r) => dbSlipRowHasCatalogLinkage(r));
+    if (allDbCatalogLinked) return;
+
+    const hasDeterministicIdentifiers = itemInspectionSlipLines.some(
+      (r) => Boolean(String(r.fnsku ?? "").trim()) || Boolean(String(r.upc ?? "").trim()),
+    );
+    if (!hasDeterministicIdentifiers) return;
+
+    let cancelled = false;
+    void (async () => {
+      const res = await previewOperatorSlipLinesIdentifiersLinkageAction({
+        requestedOrganizationId: oid,
+        storeId: sid,
+        lines: itemInspectionSlipLines.map((line) => ({
+          upc: line.upc,
+          fnsku: line.fnsku,
+          printed_asin: null,
+        })),
+      });
+      if (cancelled || !res.ok) return;
+      const mergedRows = itemInspectionSlipLines.map((row, i) =>
+        mergeSlipRowWithStrongerPreviewLinkage(row, res.linkages[i]),
+      );
+      const payload: ItemScanSlipCarryoverPayload = { packageId: pid, rows: mergedRows };
+      itemScanSlipCarryoverRef.current = payload;
+      setItemScanSlipCarryover(payload);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    flowPhase,
+    itemScanPackageId,
+    itemInspectionSlipLinesLoading,
+    itemInspectionSlipLines,
+    orgId,
+    sessionStoreId,
+    itemScanSlipCarryover,
+  ]);
+
   useEffect(() => {
     if (flowPhase !== "items") {
       setItemScanExpectationSnapshotLines([]);
@@ -5627,26 +5766,6 @@ function OperatorMobileScanPageContent() {
     const t = window.setTimeout(() => setScanActionToast(null), ms);
     return () => window.clearTimeout(t);
   }, [scanActionToast]);
-
-  useEffect(() => {
-    if (!identifyGateOcrMenuOpen) return;
-    const onDown = (e: MouseEvent | TouchEvent) => {
-      const node = identifyGateOcrMenuRef.current;
-      const t = e.target as Node | null;
-      if (node && t && !node.contains(t)) setIdentifyGateOcrMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIdentifyGateOcrMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("touchstart", onDown, { passive: true });
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("touchstart", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [identifyGateOcrMenuOpen]);
 
   useEffect(() => {
     if (!scanSuccessFlash) return;
@@ -7863,7 +7982,7 @@ function OperatorMobileScanPageContent() {
       if (opts?.packageRow) {
         hydrateSavedPackageRowIntoBoxIntake(opts.packageRow, { directBox: false });
         resumedItemScan = Boolean(
-          await maybeResumeItemScanAfterPackageRowRef.current?.(opts.packageRow),
+          await maybeResumeItemScanAfterPackageRowRef.current?.(opts.packageRow, { directBox: false }),
         );
         if (!resumedItemScan) nextPhase = "package_scan";
       } else {
@@ -7877,7 +7996,9 @@ function OperatorMobileScanPageContent() {
           if (pkgRes.ok && pkgRes.packages.length > 0) {
             const pkg0 = pkgRes.packages[0] as unknown as Record<string, unknown>;
             hydrateSavedPackageRowIntoBoxIntake(pkg0, { directBox: false });
-            resumedItemScan = Boolean(await maybeResumeItemScanAfterPackageRowRef.current?.(pkg0));
+            resumedItemScan = Boolean(
+              await maybeResumeItemScanAfterPackageRowRef.current?.(pkg0, { directBox: false }),
+            );
             if (!resumedItemScan && hasShip) nextPhase = "package_scan";
           }
         }
@@ -8000,7 +8121,10 @@ function OperatorMobileScanPageContent() {
         await hydrateBoxSlipVisionFromSavedPackage(pkgId, row);
       }
 
-      setFlowPhase("package_scan");
+      const resumedItemScan = Boolean(
+        await maybeResumeItemScanAfterPackageRowRef.current?.(row, { directBox: true }),
+      );
+      if (!resumedItemScan) setFlowPhase("package_scan");
       setIsIdentified(true);
       setPalletDocHydrationNonce((n) => n + 1);
       captureBoxIntakeFieldsBaseline();
@@ -8935,7 +9059,12 @@ function OperatorMobileScanPageContent() {
               String(byId.pallet.tracking_number ?? "").trim() || effectiveTracking,
             );
             if (pkgRow) hydrateSavedPackageRowIntoBoxIntake(pkgRow, { directBox: false });
-            setFlowPhase("package_scan");
+            const resumedItemScanFromPallet = pkgRow
+              ? Boolean(
+                  await maybeResumeItemScanAfterPackageRowRef.current?.(pkgRow, { directBox: false }),
+                )
+              : false;
+            if (!resumedItemScanFromPallet) setFlowPhase("package_scan");
             setPalletDocHydrationNonce((n) => n + 1);
             resumedPalletPackage = true;
           }
@@ -10366,24 +10495,33 @@ function OperatorMobileScanPageContent() {
   );
 
   const maybeResumeItemScanAfterPackageRow = useCallback(
-    async (row: Record<string, unknown>): Promise<boolean> => {
+    async (
+      row: Record<string, unknown>,
+      opts?: { directBox?: boolean },
+    ): Promise<boolean> => {
       const pkgId = String(row.id ?? "").trim();
       if (!pkgId || !isUuidString(pkgId)) return false;
+      let mergedRow = row;
       let pickerRow = operatorPackageListRowFromRecord(row);
-      const needsCounts =
-        pickerRow.expected_item_count == null &&
-        pickerRow.actual_item_count == null &&
-        isSupabaseConfigured();
-      if (needsCounts) {
+      const palletId = String(row.pallet_id ?? "").trim();
+      const directBox =
+        opts?.directBox ?? !(palletId && isUuidString(palletId));
+
+      const needsSupplementalFetch =
+        isSupabaseConfigured() &&
+        (mergedRow.manifest_data == null ||
+          (pickerRow.expected_item_count == null && pickerRow.actual_item_count == null));
+      if (needsSupplementalFetch) {
         try {
           const { data } = await supabase
             .from("packages")
             .select(
-              "expected_item_count, actual_item_count, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls",
+              "expected_item_count, actual_item_count, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, manifest_data, carrier_name, id_slip_contents, pallet_id",
             )
             .eq("id", pkgId)
             .maybeSingle();
           if (data && typeof data === "object") {
+            mergedRow = { ...mergedRow, ...(data as Record<string, unknown>) };
             pickerRow = {
               ...pickerRow,
               ...operatorPackageListRowFromRecord(data as Record<string, unknown>),
@@ -10391,10 +10529,11 @@ function OperatorMobileScanPageContent() {
             };
           }
         } catch {
-          /* counts optional for resume heuristic */
+          /* resume heuristic fields optional */
         }
       }
-      if (!operatorPackageShouldResumeItemScan(pickerRow)) return false;
+
+      if (!shouldResumePackageToItemScan({ row: mergedRow, pickerRow, directBox })) return false;
       resumeItemScanForPackage(pickerRow);
       setIntakeToast("Resuming item scan where you left off.");
       return true;
@@ -12071,14 +12210,14 @@ function OperatorMobileScanPageContent() {
                         identifyGateOcrReading ? "Analyzing image" : "Type tracking or slip code"
                       }
                       placeholder="Type barcode manually"
-                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[36px] w-full rounded-xl border py-1 pl-3 pr-[4.75rem] font-mono text-[13px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="operator-shipment-entry-gate__input scanner-input-glass min-h-[36px] w-full rounded-xl border py-1 pl-3 pr-[5.75rem] font-mono text-[13px] outline-none transition placeholder:text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                       style={{ color: TEXT_PRIMARY }}
                     />
                   ) : (
                     <button
                       type="button"
                       onClick={() => startManualEntryMode(gateManualInputRef)}
-                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[36px] w-full items-center rounded-xl border py-1 pl-3 pr-[4.75rem] text-left font-mono text-[13px] outline-none transition"
+                      className="operator-shipment-entry-gate__input scanner-input-glass flex min-h-[36px] w-full items-center rounded-xl border py-1 pl-3 pr-[5.75rem] text-left font-mono text-[13px] outline-none transition"
                       style={{ color: MUTED_LABEL }}
                     >
                       <span className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between min-[380px]:gap-3">
@@ -12090,8 +12229,8 @@ function OperatorMobileScanPageContent() {
                       </span>
                     </button>
                   )}
-                  <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-1">
-                    <div className="relative" ref={identifyGateOcrMenuRef}>
+                  <div className="absolute right-1.5 top-1/2 z-[1] flex -translate-y-1/2 items-center gap-1.5">
+                    <div className="relative">
                       <button
                         type="button"
                         disabled={busy || identifyGateOcrReading}
@@ -12104,59 +12243,6 @@ function OperatorMobileScanPageContent() {
                       >
                         <Camera className="h-5 w-5" strokeWidth={2.25} aria-hidden />
                       </button>
-                      {identifyGateOcrMenuOpen ? (
-                        <>
-                          <button
-                            type="button"
-                            className="fixed inset-0 z-[149] cursor-default bg-black/35"
-                            aria-label="Close photo menu"
-                            onClick={() => setIdentifyGateOcrMenuOpen(false)}
-                          />
-                          <div
-                            className="scanner-ocr-action-sheet fixed bottom-20 left-1/2 z-[150] w-[calc(100vw-1.5rem)] max-w-[406px] -translate-x-1/2 overflow-hidden rounded-2xl py-2"
-                            role="menu"
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] font-bold transition sm:min-h-[3.5rem] sm:text-[16px]"
-                              onClick={() => {
-                                setIdentifyGateOcrMenuOpen(false);
-                                identifyGateCameraCaptureRef.current?.click();
-                              }}
-                            >
-                              <span className="text-xl leading-none" aria-hidden>
-                                📸
-                              </span>
-                              Take Photo
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center gap-3 border-t px-4 py-3.5 text-left text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                              style={{ borderColor: "var(--scanner-border)" }}
-                              onClick={() => {
-                                setIdentifyGateOcrMenuOpen(false);
-                                identifyGateCameraUploadRef.current?.click();
-                              }}
-                            >
-                              <span className="text-xl leading-none" aria-hidden>
-                                📁
-                              </span>
-                              Upload Photo
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="flex min-h-[3.25rem] w-full items-center justify-center border-t px-4 py-3.5 text-center text-[15px] font-bold transition dark:border-white/10 sm:min-h-[3.5rem] sm:text-[16px]"
-                              style={{ borderColor: "var(--scanner-border)" }}
-                              onClick={() => setIdentifyGateOcrMenuOpen(false)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </>
-                      ) : null}
                     </div>
                     <button
                       type="button"
@@ -12431,42 +12517,13 @@ function OperatorMobileScanPageContent() {
                     </div>
                   ) : null}
 
-                  {identifyGateInventoryVisual !== "manual_new" ? (
-                    <dl className="mt-4 space-y-2.5 text-[13px]">
-                      <div className="flex justify-between gap-3">
-                        <dt style={{ color: MUTED_LABEL }}>Product name</dt>
-                        <dd className="max-w-[65%] text-right font-semibold text-white">{identifyGateProductDisplay}</dd>
-                      </div>
-                      {identifyGateViewHints?.carrier?.trim() ? (
-                        <div className="flex justify-between gap-3">
-                          <dt style={{ color: MUTED_LABEL }}>Carrier</dt>
-                          <dd className="max-w-[65%] text-right font-semibold text-white">{identifyGateViewHints.carrier}</dd>
-                        </div>
-                      ) : null}
-                      <div className="flex justify-between gap-3">
-                        <dt style={{ color: MUTED_LABEL }}>Total expected qty</dt>
-                        <dd
-                          className={`operator-shipment-entry-gate__expected-qty font-mono text-[16px] font-black tabular-nums ${
-                            identifyGateInventoryVisual === "unexpected" ? "text-violet-200 ring-1 ring-violet-400/50 rounded-lg px-2 py-0.5" : ""
-                          }`}
-                          style={identifyGateInventoryVisual === "unexpected" ? undefined : { color: TEAL_STEP }}
-                        >
-                          {identifyGateInventoryVisual === "unexpected"
-                            ? 0
-                            : identifyGateInventoryAgg && identifyGateInventoryAgg.totalExpected > 0
-                              ? identifyGateInventoryAgg.totalExpected
-                              : identifyGateSummary.totalExpectedQty}
-                        </dd>
-                      </div>
-                      {identifyGateInventoryAgg ? (
-                        <div className="flex justify-between gap-3">
-                          <dt style={{ color: MUTED_LABEL }}>Total scanned (view)</dt>
-                          <dd className="font-mono text-[15px] font-black tabular-nums text-white">
-                            {identifyGateInventoryAgg.totalScanned}
-                          </dd>
-                        </div>
-                      ) : null}
-                    </dl>
+                  {identifyGateInventoryVisual !== "manual_new" && identifyGateViewHints?.carrier?.trim() ? (
+                    <div className="mt-3 flex items-center gap-2 text-[11px] leading-snug">
+                      <span style={{ color: MUTED_LABEL }}>Carrier</span>
+                      <span className="inline-flex max-w-[80%] truncate rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-semibold text-white/90">
+                        {identifyGateViewHints.carrier}
+                      </span>
+                    </div>
                   ) : null}
 
                   {identifyGatePhase === "matched" &&
@@ -15659,6 +15716,21 @@ function OperatorMobileScanPageContent() {
       ) : null}
 
       <ScannerBottomNav active="scan" alertCount={2} />
+
+      <ScannerPhotoActionSheet
+        open={identifyGateOcrMenuOpen}
+        onClose={() => setIdentifyGateOcrMenuOpen(false)}
+        onTakePhoto={() => {
+          setIdentifyGateOcrMenuOpen(false);
+          identifyGateCameraCaptureRef.current?.click();
+        }}
+        onUploadPhoto={() => {
+          setIdentifyGateOcrMenuOpen(false);
+          identifyGateCameraUploadRef.current?.click();
+        }}
+        disabled={busy || identifyGateOcrReading}
+        title="Photo options"
+      />
 
       {candidatePicker ? (
         <div

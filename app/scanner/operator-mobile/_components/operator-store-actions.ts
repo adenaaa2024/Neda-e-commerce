@@ -25,7 +25,7 @@ import {
   OPERATOR_MOBILE_VOID_BOX,
 } from "@/lib/operator-mobile-permissions";
 import { softDeleteShipmentEntryBaselineReturnItems } from "@/lib/scanner/operator-active-scanned-counts";
-import { isTestReturnItemMarker } from "@/lib/scanner/return-items-test-data-guard";
+import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import { lookupShipmentEntryScanCode, type ShipmentEntryLookupResult } from "@/lib/scanner/shipment-entry-lookup";
 import {
@@ -755,7 +755,7 @@ export async function findOperatorPalletByIdAction(
 }
 
 const OPERATOR_SAVED_PACKAGE_RESUME_SELECT =
-  "id, package_code, tracking_number, pallet_id, slip_photo_urls, outside_photo_urls, inside_photo_urls, manifest_data, carrier_name, order_id, rma_number, notes, id_slip_contents, store_id";
+  "id, package_code, tracking_number, pallet_id, slip_photo_urls, outside_photo_urls, inside_photo_urls, manifest_data, carrier_name, order_id, rma_number, notes, id_slip_contents, expected_item_count, actual_item_count, store_id";
 
 export type OperatorSavedPackageResumeRow = {
   id: string;
@@ -771,6 +771,8 @@ export type OperatorSavedPackageResumeRow = {
   rma_number: string | null;
   notes: string | null;
   id_slip_contents: string | null;
+  expected_item_count?: number | null;
+  actual_item_count?: number | null;
   store_id: string | null;
 };
 
@@ -1913,7 +1915,7 @@ export async function listOperatorPackageItemsForPackageAction(
   const raw = Array.isArray(returnRes.data) ? returnRes.data : [];
   const realReturnRows = raw.filter((r: unknown) => {
     const row = r as Record<string, unknown>;
-    return !isTestReturnItemMarker({
+    return !shouldExcludeReturnItemFromScannerCounts({
       item_name: typeof row.item_name === "string" ? row.item_name : null,
       sku: typeof row.sku === "string" ? row.sku : null,
       fnsku: typeof row.fnsku === "string" ? row.fnsku : null,

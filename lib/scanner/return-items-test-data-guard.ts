@@ -1,5 +1,3 @@
-import { refFromSupabaseUrl } from "@/lib/staging-project-ref";
-
 /** Original / production Supabase project (operator data must not receive script markers). */
 export const RETURN_ITEMS_PRODUCTION_SUPABASE_REF = "kxsvedvpjldygtdbylsy";
 
@@ -34,7 +32,7 @@ function hasTestPrefix(value: string): boolean {
 }
 
 /** True when row fields match known script/parity smoke markers (conservative patterns only). */
-export function isTestReturnItemMarker(fields: ReturnItemMarkerFields): boolean {
+export function isReturnItemTestDataMarker(fields: ReturnItemMarkerFields): boolean {
   const name = normMarker(fields.item_name);
   if (hasTestPrefix(name)) return true;
   if (TEST_ITEM_NAME_EXACT.has(name)) return true;
@@ -51,37 +49,20 @@ export function isTestReturnItemMarker(fields: ReturnItemMarkerFields): boolean 
   return false;
 }
 
-export function isProductionSupabaseRef(ref: string | null | undefined): boolean {
-  return normMarker(ref) === RETURN_ITEMS_PRODUCTION_SUPABASE_REF;
+/** True when any marker-like field indicates known test/parity data. */
+export function hasReturnItemTestDataMarker(fields: ReturnItemMarkerFields): boolean {
+  return isReturnItemTestDataMarker(fields);
 }
 
-export function supabaseProjectRefFromEnv(): string | null {
-  const url =
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim() ||
-    (process.env.SUPABASE_URL ?? "").trim();
-  return refFromSupabaseUrl(url);
-}
-
-/** Production runtime: NODE_ENV=production or Supabase URL targets original ref. */
-export function isProductionAppRuntime(): boolean {
-  const nodeEnv = (process.env.NODE_ENV ?? "").trim().toLowerCase();
-  if (nodeEnv === "production") return true;
-  return isProductionSupabaseRef(supabaseProjectRefFromEnv());
-}
-
-/**
- * Block test/parity marker rows from persisting in production operator data.
- * No-op in non-production runtimes (staging/dev scripts may still insert marked rows on staging).
- */
-export function assertReturnItemInsertNotTestDataInProduction(fields: ReturnItemMarkerFields): void {
-  if (!isProductionAppRuntime()) return;
-  if (!isTestReturnItemMarker(fields)) return;
-  throw new Error(
-    "Test/parity return_items markers (e.g. box-slip-alloc-parity-*) are blocked in production.",
-  );
+/** Shared count/filter guard: exclude known test/parity rows from scanner totals. */
+export function shouldExcludeReturnItemFromScannerCounts(fields: ReturnItemMarkerFields): boolean {
+  return hasReturnItemTestDataMarker(fields);
 }
 
 /** Drop script/parity marker rows from scanned-unit aggregates (defensive; does not affect inserts). */
 export function filterReturnItemsExcludingTestMarkers<T extends ReturnItemMarkerFields>(rows: T[]): T[] {
-  return rows.filter((row) => !isTestReturnItemMarker(row));
+  return rows.filter((row) => !shouldExcludeReturnItemFromScannerCounts(row));
 }
+
+/** Backward-compatible alias for existing call sites. */
+export const isTestReturnItemMarker = isReturnItemTestDataMarker;

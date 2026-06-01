@@ -36,7 +36,7 @@ import {
 } from "../../lib/scanner-product-resolve";
 import { syncSlipContentsResolverForPackage } from "../../lib/slip-contents-resolver-write";
 import { promoteScannerReturnItemToClaimStructures } from "../../lib/scanner-operator-claim-promote";
-import { assertReturnItemInsertNotTestDataInProduction } from "../../lib/scanner/return-items-test-data-guard";
+import { assertCanInsertReturnItemAgainstTestMarkers } from "../../lib/scanner/return-items-test-data-server-guard";
 import {
   mapPackageWriteRow,
   mapPalletWriteRow,
@@ -992,7 +992,7 @@ export async function insertReturn(
     const normalizedSku = normalizeFreeTextIdentifier(payload.sku);
     const normalizedProductIdentifier = normalizeBarcodeIdentifier(payload.product_identifier);
 
-    assertReturnItemInsertNotTestDataInProduction({
+    assertCanInsertReturnItemAgainstTestMarkers({
       item_name: payload.item_name,
       sku: normalizedSku,
       fnsku: normalizedFnsku,
