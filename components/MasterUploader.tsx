@@ -9,6 +9,7 @@
  * camera vs file browse; no large inline buttons on the card.
  */
 import React, { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import Webcam from "react-webcam";
 import {
   Camera,
@@ -506,125 +507,129 @@ export function MasterUploader({
           </p>
         ) : null}
 
-        {sheetOpen ? (
-          <div
-            className="fixed inset-0 z-[220] flex flex-col justify-end bg-black/55 p-0 backdrop-blur-[2px]"
-            role="presentation"
-            onClick={closeSheet}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-label="Add photo"
-              className="mx-auto w-full max-w-lg rounded-t-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex justify-center pt-2 pb-1">
-                <div className="h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
-              </div>
-              {sheetStep === "menu" ? (
-                <>
-                  <p className="px-4 pb-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Add photo
-                  </p>
-                  <div className="flex flex-col gap-2 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-0">
-                    <button
-                      type="button"
-                      disabled={uploading}
-                      onClick={handleCompactTakePhoto}
-                      className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-left text-sm font-semibold text-slate-900 transition hover:bg-slate-100 active:scale-[0.99] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700/80"
-                    >
-                      <span className="text-lg" aria-hidden>
-                        📷
-                      </span>
-                      Take Photo (Camera)
-                    </button>
-                    <button
-                      type="button"
-                      disabled={uploading}
-                      onClick={handleCompactBrowse}
-                      className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-left text-sm font-semibold text-slate-900 transition hover:bg-slate-100 active:scale-[0.99] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700/80"
-                    >
-                      <span className="text-lg" aria-hidden>
-                        📁
-                      </span>
-                      Upload File (Browse)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={closeSheet}
-                      className="mt-1 w-full rounded-xl py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                    >
-                      Cancel
-                    </button>
+        {sheetOpen && typeof document !== "undefined"
+          ? createPortal(
+              <>
+                <div
+                  className="scanner-photo-action-sheet-backdrop"
+                  role="presentation"
+                  onClick={closeSheet}
+                />
+                {sheetStep === "menu" ? (
+                  <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Add photo"
+                    className="scanner-photo-action-sheet-panel scanner-ocr-action-sheet"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="scanner-photo-action-sheet-handle" aria-hidden />
+                    <p className="scanner-photo-action-sheet-title">Add photo</p>
+                    <div className="scanner-photo-action-sheet-options">
+                      <button
+                        type="button"
+                        disabled={uploading}
+                        className="scanner-photo-action-sheet-option"
+                        onClick={handleCompactTakePhoto}
+                      >
+                        <span className="scanner-photo-action-sheet-option-icon" aria-hidden>
+                          📷
+                        </span>
+                        Take photo
+                      </button>
+                      <button
+                        type="button"
+                        disabled={uploading}
+                        className="scanner-photo-action-sheet-option scanner-photo-action-sheet-option--border"
+                        onClick={handleCompactBrowse}
+                      >
+                        <span className="scanner-photo-action-sheet-option-icon" aria-hidden>
+                          📁
+                        </span>
+                        Upload photo
+                      </button>
+                      <button
+                        type="button"
+                        className="scanner-photo-action-sheet-option scanner-photo-action-sheet-option--cancel scanner-photo-action-sheet-option--border"
+                        onClick={closeSheet}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </>
-              ) : (
-                <div className="px-3 pb-4">
-                  <div className="relative overflow-hidden rounded-xl bg-slate-950">
-                    {webcamError ? (
-                      <div className="flex h-48 flex-col items-center justify-center gap-2 px-3">
-                        <VideoOff className="h-8 w-8 text-slate-500" />
-                        <p className="text-center text-xs text-slate-400">Camera unavailable</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSheetStep("menu");
-                            setWebcamActive(false);
-                            setWebcamError(false);
-                          }}
-                          className="text-xs text-sky-400 underline"
-                        >
-                          Back
-                        </button>
-                      </div>
-                    ) : (
-                      <Webcam
-                        ref={webcamRef}
-                        audio={false}
-                        screenshotFormat="image/jpeg"
-                        screenshotQuality={0.92}
-                        videoConstraints={{ facingMode, width: 1280, height: 720 }}
-                        onUserMediaError={() => setWebcamError(true)}
-                        className="w-full"
-                      />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSheetStep("menu");
-                        setWebcamActive(false);
-                        setWebcamError(false);
-                      }}
-                      className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
-                      aria-label="Close camera"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                ) : (
+                  <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Camera capture"
+                    className="scanner-photo-action-sheet-panel scanner-photo-action-sheet-panel--webcam"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="relative overflow-hidden rounded-xl bg-slate-950">
+                      {webcamError ? (
+                        <div className="flex h-48 flex-col items-center justify-center gap-2 px-3">
+                          <VideoOff className="h-8 w-8 text-slate-500" />
+                          <p className="text-center text-xs text-slate-400">Camera unavailable</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSheetStep("menu");
+                              setWebcamActive(false);
+                              setWebcamError(false);
+                            }}
+                            className="text-xs text-sky-400 underline"
+                          >
+                            Back
+                          </button>
+                        </div>
+                      ) : (
+                        <Webcam
+                          ref={webcamRef}
+                          audio={false}
+                          screenshotFormat="image/jpeg"
+                          screenshotQuality={0.92}
+                          videoConstraints={{ facingMode, width: 1280, height: 720 }}
+                          onUserMediaError={() => setWebcamError(true)}
+                          className="w-full"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSheetStep("menu");
+                          setWebcamActive(false);
+                          setWebcamError(false);
+                        }}
+                        className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
+                        aria-label="Close camera"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void captureFromWebcam()}
+                        disabled={webcamError || uploading}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-500 py-2.5 text-sm font-bold text-white transition hover:bg-sky-400 disabled:opacity-50"
+                      >
+                        <Camera className="h-4 w-4" /> Capture &amp; upload
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFacingMode((m) => (m === "environment" ? "user" : "environment"))}
+                        title="Flip camera"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                      >
+                        <FlipHorizontal className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void captureFromWebcam()}
-                      disabled={webcamError || uploading}
-                      className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-500 py-2.5 text-sm font-bold text-white transition hover:bg-sky-400 disabled:opacity-50"
-                    >
-                      <Camera className="h-4 w-4" /> Capture &amp; upload
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFacingMode((m) => (m === "environment" ? "user" : "environment"))}
-                      title="Flip camera"
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-                    >
-                      <FlipHorizontal className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : null}
+                )}
+              </>,
+              document.body,
+            )
+          : null}
       </div>
     );
   }

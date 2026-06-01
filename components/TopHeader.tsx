@@ -156,13 +156,13 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
     /* App chrome: z-50 — above in-page sticky bars; modals usually z-90+ */
     <div className="sticky top-0 z-50 shrink-0">
       {isViewingAsAnotherUser && viewAsDisplayName ? (
-        <div className="border-b border-amber-300/80 bg-amber-50 px-3 py-1.5 text-center text-[11px] font-medium text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/50 dark:text-amber-100">
+        <div className="border-b border-primary/25 bg-primary/10 px-3 py-1.5 text-center text-[11px] font-medium text-foreground">
           Viewing as <strong className="font-semibold">{viewAsDisplayName}</strong> — sidebar and pages match
           their role. API and saves still use <strong className="font-semibold">your</strong> account.
         </div>
       ) : null}
       <header
-        className="flex h-14 w-full min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-3 sm:gap-3 md:px-4"
+        className="flex h-14 w-full min-w-0 items-center justify-between gap-2 border-b border-border bg-card/95 px-3 backdrop-blur-sm sm:gap-3 md:px-4"
         role="banner"
       >
       {/* Hamburger — mobile only */}
@@ -170,7 +170,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
         type="button"
         onClick={onMenuClick}
         aria-label="Open navigation menu"
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition hover:bg-accent hover:text-accent-foreground md:hidden"
+        className="admin-chrome-control flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition md:hidden"
       >
         <Menu className="h-5 w-5" />
       </button>
@@ -179,7 +179,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
       <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex md:max-w-[min(52vw,28rem)] lg:max-w-[min(60vw,40rem)]">
         {perms.canSwitchOrganization && workspaceOrganizations.length > 0 ? (
           <div
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-muted/50 px-2 py-1 text-xs font-medium text-foreground shadow-sm"
+            className="admin-chrome-control flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-xs font-medium text-foreground"
             aria-label={`Workspace: ${organizationName}`}
           >
             <TenantMarkBesideName logoUrl={tenantLogoUrl} linkHome />
@@ -194,7 +194,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
         ) : (
           <Link
             href="/"
-            className="flex min-w-0 max-w-[14rem] shrink-0 items-center gap-2 truncate rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-left text-xs font-medium text-foreground shadow-sm transition hover:bg-muted/70 md:max-w-[20rem]"
+            className="admin-chrome-control flex min-w-0 max-w-[14rem] shrink-0 items-center gap-2 truncate rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-foreground transition md:max-w-[20rem]"
             title="Home / Dashboard"
             aria-label={`${organizationName} — go to home`}
           >
@@ -228,7 +228,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search ID, tracking, ASIN…"
-            className="h-9 w-full rounded-lg border border-border bg-muted py-2 pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground shadow-sm outline-none ring-0 transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500/40"
+            className="admin-chrome-input h-9 w-full rounded-lg py-2 pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground outline-none transition"
             aria-label="Global search"
           />
         </label>
@@ -236,7 +236,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
 
       {/* Effective workspace org (mobile). */}
       {perms.canSwitchOrganization && workspaceOrganizations.length > 0 ? (
-        <div className="mx-0 flex max-w-[min(42vw,12rem)] shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 md:hidden">
+        <div className="admin-chrome-control mx-0 flex max-w-[min(42vw,12rem)] shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 md:hidden">
           <TenantMarkBesideName logoUrl={tenantLogoUrl} compact linkHome />
           <WorkspaceOrganizationPicker
             options={workspaceOrganizations}
@@ -250,7 +250,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
       ) : (
         <Link
           href="/"
-          className="mx-0 flex max-w-[min(38vw,11rem)] shrink-0 items-center gap-1.5 truncate rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] font-medium text-foreground transition hover:bg-muted/55 md:hidden"
+          className="admin-chrome-control mx-0 flex max-w-[min(38vw,11rem)] shrink-0 items-center gap-1.5 truncate rounded-lg px-2 py-1 text-[11px] font-medium text-foreground transition md:hidden"
           title="Home / Dashboard"
           aria-label={`${organizationName} — go to home`}
         >
@@ -268,7 +268,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search…"
-            className="h-8 w-full rounded-lg border border-border bg-muted py-1.5 pl-8 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground outline-none ring-0 transition focus:border-sky-500 focus:ring-1 focus:ring-sky-500/40"
+            className="admin-chrome-input h-8 w-full rounded-lg py-1.5 pl-8 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground outline-none transition"
             aria-label="Global search"
           />
         </label>
@@ -279,7 +279,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
 
         {showDevBadge ? (
           <span
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-orange-300 bg-orange-50 text-[9px] font-bold leading-none tracking-tight text-orange-700 dark:border-orange-600/60 dark:bg-orange-950/40 dark:text-orange-300"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-[9px] font-bold leading-none tracking-tight text-primary"
             title={
               shouldShowActorDevShellBadge(actorCanonicalRoleKey)
                 ? "Developer / platform account"
@@ -295,7 +295,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
         <button
           type="button"
           aria-label="Notifications"
-          className="relative hidden h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground transition hover:bg-accent hover:text-accent-foreground sm:flex"
+          className="admin-chrome-control relative hidden h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition sm:flex"
         >
           <Bell className="h-4 w-4" />
           <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
@@ -309,15 +309,15 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
             aria-haspopup="menu"
             aria-label={`Account menu for ${actorName}`}
             onClick={() => setProfileMenuOpen((o) => !o)}
-            className="flex items-center gap-2 rounded-full border border-border bg-card px-2 py-1.5 text-xs shadow-sm transition hover:bg-accent"
+            className="admin-chrome-control flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-sky-500 to-sky-600 text-[11px] font-semibold text-white">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/25 bg-gradient-to-br from-primary/90 to-primary text-[11px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
               {profileInitial}
             </div>
             <span className="hidden max-w-[14rem] truncate text-xs font-medium text-foreground sm:inline">
               {actorName}
             </span>
-            <span className="hidden rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground sm:inline">
+            <span className="hidden rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground sm:inline">
               {canonicalRoleLabel}
             </span>
             <ChevronDown className="hidden h-3 w-3 shrink-0 text-muted-foreground sm:block" />
@@ -356,7 +356,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
       </div>
     </header>
       {showViewAs ? (
-        <div className="border-b border-border bg-muted/25 px-2 py-1.5 md:hidden">
+        <div className="border-b border-border bg-muted/35 px-2 py-1.5 md:hidden">
           <ViewAsUserPicker
             actorName={actorName}
             actorUserId={actorUserId}

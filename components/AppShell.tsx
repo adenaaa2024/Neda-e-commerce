@@ -79,11 +79,11 @@ const SIDEBAR_MIN_PX = Math.round(SIDEBAR_EXPANDED_DEFAULT_PX * 0.7);
 const SIDEBAR_MAX_PX = Math.round(SIDEBAR_EXPANDED_DEFAULT_PX * 1.6);
 
 const CLS = {
-  linkActive: "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300",
-  linkIdle:   "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-  linkDis:    "pointer-events-none text-muted-foreground/40",
-  linkBase:   "group relative flex min-h-[40px] w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all",
-  section:    "mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60",
+  linkActive: "admin-nav-link--active",
+  linkIdle:   "admin-nav-link--idle",
+  linkDis:    "pointer-events-none text-muted-foreground/50",
+  linkBase:   "group relative flex min-h-[40px] w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
+  section:    "admin-nav-section",
 };
 
 // ─── AppShell root ────────────────────────────────────────────────────────────
@@ -253,8 +253,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         {Icon && (
           <Icon className={[
             child ? "h-4 w-4 shrink-0" : "h-5 w-5 shrink-0",
-            active && !disabled ? "text-sky-600 dark:text-sky-400" : "",
-            disabled             ? "opacity-40"                     : "",
+            active && !disabled ? "text-primary" : "",
+            disabled             ? "opacity-50"                     : "",
           ].join(" ")} />
         )}
 
@@ -262,11 +262,11 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           <>
             <span className="flex-1 truncate">{item.label}</span>
             {badge && (
-              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+              <span className="shrink-0 rounded-full border border-border bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
                 {badge}
               </span>
             )}
-            {active && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500 dark:bg-sky-400" />}
+            {active && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
           </>
         )}
 
@@ -316,7 +316,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         >
           <Icon className={[
             "h-5 w-5 shrink-0",
-            childActive ? "text-sky-600 dark:text-sky-400" : "",
+            childActive ? "text-primary" : "",
           ].join(" ")} />
 
           {showText && (
@@ -486,9 +486,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         role="dialog"
         aria-modal="true"
         aria-label="Navigation"
-        className="fixed left-0 top-0 z-[210] flex h-full w-[280px] max-w-[85vw] flex-col border-r border-sidebar-border bg-sidebar shadow-2xl animate-drawer-slide-in-left"
+        className="fixed left-0 top-0 z-[210] flex h-full w-[280px] max-w-[85vw] flex-col border-r border-sidebar-border bg-sidebar shadow-2xl animate-drawer-slide-in-left admin-sidebar"
       >
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
+        <div className="admin-sidebar-brand flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
           <Link
             href="/"
             onClick={closeMenu}
@@ -497,17 +497,17 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           >
             <LogoMark />
             <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-sidebar-foreground">
+              <p className="truncate text-sm font-bold tracking-tight text-sidebar-foreground">
                 {platformNameLoading && !platformAppName ? "…" : platformAppName || "·"}
               </p>
-              <p className="truncate text-[10px] text-muted-foreground">{PLATFORM_TAGLINE}</p>
+              <p className="truncate text-[10px] font-medium text-muted-foreground">{PLATFORM_TAGLINE}</p>
             </div>
           </Link>
           <button
             type="button"
             onClick={closeMenu}
             aria-label="Close menu"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+            className="admin-chrome-control flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition"
           >
             <X className="h-4 w-4" />
           </button>
@@ -553,8 +553,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           {/* Desktop sidebar */}
           <aside
             className={[
-              "sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden",
-              "border-r border-sidebar-border bg-sidebar",
+              "admin-sidebar sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden",
+              "border-r border-sidebar-border",
               "md:flex",
               collapsed ? "w-16" : "relative",
               !collapsed && !sidebarResizing ? "transition-[width] duration-200 ease-out" : "",
@@ -566,7 +566,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             <Link
               href="/"
               className={[
-                "flex h-14 shrink-0 items-center border-b border-sidebar-border px-4 min-w-0 overflow-hidden outline-none ring-sidebar-ring transition hover:bg-sidebar-accent/25 focus-visible:ring-2",
+                "admin-sidebar-brand flex h-14 shrink-0 items-center border-b border-sidebar-border px-4 min-w-0 overflow-hidden outline-none ring-sidebar-ring transition hover:bg-sidebar-accent/40 focus-visible:ring-2",
                 collapsed ? "justify-center" : "gap-2.5",
               ].join(" ")}
               title="Home / Dashboard"
@@ -574,10 +574,10 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
               <LogoMark />
               {!collapsed && (
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold text-sidebar-foreground">
+                  <p className="truncate text-sm font-bold tracking-tight text-sidebar-foreground">
                     {platformNameLoading && !platformAppName ? "…" : platformAppName || "·"}
                   </p>
-                  <p className="truncate text-[10px] text-muted-foreground">{PLATFORM_TAGLINE}</p>
+                  <p className="truncate text-[10px] font-medium text-muted-foreground">{PLATFORM_TAGLINE}</p>
                 </div>
               )}
             </Link>
@@ -673,7 +673,7 @@ function TechDebugNavButton({
       {showText && (
         <>
           <span className="flex-1 truncate text-left">Tech Debug</span>
-          <span className="shrink-0 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+          <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
             SA
           </span>
         </>
