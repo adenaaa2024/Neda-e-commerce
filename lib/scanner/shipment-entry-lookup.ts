@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchExpectedPackageDetailRowsForParent,
   fetchExpectedPackagesForTracking,
+  isLikelyShipmentTrackingCode,
   mockExpectedPackageDetailRows,
   type FetchExpectedPackagesOptions,
 } from "@/lib/scanner/operator-tracking-expectations";
@@ -249,9 +250,14 @@ async function resolveShipmentEntryBarcode(
   organizationId: string,
   storeId: string | null,
   code: string,
+  opts?: FetchExpectedPackagesOptions,
 ): Promise<OperatorResolveResult> {
   for (const only of SHIPMENT_ENTRY_RESOLVE_ORDER) {
-    const r = await resolveOperatorBarcode(supabase, organizationId, code, { only, storeId });
+    const r = await resolveOperatorBarcode(supabase, organizationId, code, {
+      only,
+      storeId,
+      fetchOptions: opts,
+    });
     if (r.kind !== "unknown") return r;
   }
   return { kind: "unknown", code };
@@ -563,7 +569,7 @@ export async function lookupShipmentEntryScanCode(
     inventory_matched_field = null;
   }
 
-  const barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code);
+  const barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code, opts);
 
   if (!inventory_rows.length && barcode.kind === "tracking") {
     const epRows = await fetchExpectedPackagesForTracking(supabase, orgId, sid, normalized_code, undefined, opts);
@@ -596,7 +602,10 @@ export async function lookupShipmentEntryScanCode(
     }
   }
 
-  if (!inventory_rows.length) {
+  if (
+    !inventory_rows.length &&
+    !(opts?.skipExpensiveFallback && isLikelyShipmentTrackingCode(normalized_code))
+  ) {
     const fb = await inventoryRowsFromExpectedPackagesFallback(supabase, orgId, sid, normalized_code);
     if (fb.rows.length) {
       inventory_rows = fb.rows;

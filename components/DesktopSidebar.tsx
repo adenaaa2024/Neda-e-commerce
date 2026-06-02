@@ -4,13 +4,11 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  FileText,
   FileUp,
   LayoutDashboard,
   Package,
   RotateCcw,
   ShieldAlert,
-  Inbox,
   Store,
   Settings,
 } from "lucide-react";
@@ -22,9 +20,7 @@ const NAV_SECTIONS = [
     items: [
       { label: "Dashboard",           icon: LayoutDashboard, href: "/"                  },
       { label: "Returns Processing",  icon: RotateCcw,       href: "/returns"           },
-      { label: "Claim Engine",        icon: ShieldAlert,     href: "/claim-engine"  },
-      { label: "Claim Inbox",         icon: Inbox,           href: "/claim-engine/inbox" },
-      { label: "Report history",      icon: FileText,        href: "/claim-engine/report-history" },
+      { label: "Claims",              icon: ShieldAlert,     href: "/claim-engine/inbox" },
       { label: "Product Information Management", icon: Package, href: "/dashboard/products" },
     ],
   },
@@ -67,11 +63,14 @@ export function DesktopSidebar() {
             {group.items.map((item) => {
               const path = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
               const active =
-                item.href === "/claim-engine"
-                  ? path === "/claim-engine"
-                  : item.href === "/claim-engine/inbox"
-                    ? path === "/claim-engine/inbox" || path.startsWith("/claim-engine/inbox/")
-                    : path === item.href;
+                item.href === "/claim-engine/inbox"
+                  ? path === "/claim-engine/inbox" ||
+                    path.startsWith("/claim-engine/inbox/") ||
+                    path === "/claim-engine" ||
+                    path.startsWith("/claim-engine/") ||
+                    path === "/returns/claims" ||
+                    path.startsWith("/returns/claims/")
+                  : path === item.href;
               const disabled = (item as { disabled?: boolean }).disabled;
               return (
                 <Link

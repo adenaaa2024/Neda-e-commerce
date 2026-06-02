@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft, BadgeCheck, BarChart3, Building2, CheckCircle2, CreditCard, Cpu, Crown,
   FileSpreadsheet, Globe, HardDrive, ImageIcon, KeyRound, Loader2, Package, PackageX, Pencil, Plus, Printer,
@@ -62,6 +63,7 @@ import { useBranding } from "../../components/BrandingContext";
 import { isAdminRole, useUserRole } from "../../components/UserRoleContext";
 import { WorkspaceOrganizationPicker } from "../../components/WorkspaceOrganizationPicker";
 import { useRbacPermissions } from "../../hooks/useRbacPermissions";
+import { CLAIMS_SETTINGS_TAB } from "../../lib/claims-hub-routes";
 import { FALLBACK_ORGANIZATION_ID } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
 import { DatabaseTag } from "../../components/DatabaseTag";
@@ -311,7 +313,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "returns_processing", label: "Returns Processing",  icon: <RotateCcw   className="h-4 w-4" />, proOnly: true },
       { id: "inventory_fefo",     label: "Inventory & FEFO",    icon: <Package     className="h-4 w-4" />, proOnly: true },
-      { id: "claim_engine",       label: "Claim Engine",        icon: <ShieldCheck className="h-4 w-4" />, proOnly: true },
+      { id: "claim_engine",       label: "Claims",              icon: <ShieldCheck className="h-4 w-4" />, proOnly: true },
       { id: "reports_analytics",  label: "Reports & Analytics", icon: <BarChart3   className="h-4 w-4" />, proOnly: true },
     ],
   },
@@ -466,8 +468,14 @@ export default function SettingsPage() {
     };
   }, [organizationId]);
 
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [mounted,   setMounted]   = useState(false);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === CLAIMS_SETTINGS_TAB) setActiveTab("claim_engine");
+  }, [searchParams]);
 
   // ── General Preferences ────────────────────────────────────────────────────
   const [defaultStoreId,  setDefaultStoreId]  = useState<string>("");

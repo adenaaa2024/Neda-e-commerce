@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
+import {
+  CLAIMS_SETTINGS_HREF,
+  isClaimsSettingsRoute,
+  normalizeAppPath,
+} from "@/lib/claims-hub-routes";
 import { CLAIM_ENGINE_HUB_NAV_CLASS, claimEngineSubTabClass } from "./claim-engine-ui";
 
 type HubLink = {
   href: string;
   label: string;
   tip: string;
-  isActive: (path: string, tab: string | null) => boolean;
+  isActive: (path: string, tab: string | null, settingsTab?: string | null) => boolean;
 };
 
 const LINKS: HubLink[] = [
@@ -21,7 +26,7 @@ const LINKS: HubLink[] = [
   },
   {
     href: "/returns/claims",
-    label: "Draft pool",
+    label: "Draft Pool",
     tip: "Physical-scan return items eligible for claim cases. Select and group here.",
     isActive: (p) => p === "/returns/claims" || p.startsWith("/returns/claims/"),
   },
@@ -39,7 +44,7 @@ const LINKS: HubLink[] = [
   },
   {
     href: "/claim-engine",
-    label: "Submission queue",
+    label: "Submission Queue",
     tip: "PDF-ready packages awaiting marketplace filing.",
     isActive: (p, tab) => p === "/claim-engine" && (!tab || tab === "submission_queue"),
   },
@@ -61,15 +66,18 @@ const LINKS: HubLink[] = [
     tip: "PDF export history and claim report archive.",
     isActive: (p) => p === "/claim-engine/report-history",
   },
+  {
+    href: CLAIMS_SETTINGS_HREF,
+    label: "Settings",
+    tip: "Claim policy, agent config, evidence defaults, and module scope.",
+    isActive: (p, _tab, settingsTab) => isClaimsSettingsRoute(p, settingsTab),
+  },
 ];
 
-function normalizePath(pathname: string): string {
-  return pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
-}
-
 export function ClaimEngineHubNav({ className = "" }: { className?: string }) {
-  const pathname = normalizePath(usePathname());
+  const pathname = normalizeAppPath(usePathname());
   const tab = useSearchParams().get("tab");
+  const settingsTab = useSearchParams().get("tab");
 
   return (
     <nav
@@ -77,7 +85,7 @@ export function ClaimEngineHubNav({ className = "" }: { className?: string }) {
       aria-label="Claims workflow"
     >
       {LINKS.map((item) => {
-        const active = item.isActive(pathname, tab);
+        const active = item.isActive(pathname, tab, settingsTab);
         return (
           <Link
             key={item.href}

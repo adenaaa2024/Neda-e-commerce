@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "../components/providers/ThemeProvider";
@@ -73,7 +74,9 @@ export default function RootLayout({
              * and a hamburger-triggered drawer on mobile.
              * Every page route is wrapped here — the sidebar NEVER disappears.
              */}
-            <AppShell>{children}</AppShell>
+            <Suspense fallback={<div className="min-h-screen bg-slate-50 dark:bg-slate-950" />}>
+              <AppShell>{children}</AppShell>
+            </Suspense>
           </DebugModeProvider>
         </ThemeProvider>
       </body>

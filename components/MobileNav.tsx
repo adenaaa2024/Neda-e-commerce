@@ -4,13 +4,11 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
-  FileText,
   FileUp,
   LayoutDashboard,
   Package,
   RotateCcw,
   ShieldAlert,
-  Inbox,
   Settings,
   Store,
   Menu,
@@ -24,9 +22,7 @@ const navLinks = [
     items: [
       { label: "Dashboard", icon: LayoutDashboard, href: "/" },
       { label: "Returns Processing", icon: RotateCcw, href: "/returns" },
-      { label: "Claim Engine", icon: ShieldAlert, href: "/claim-engine" },
-      { label: "Claim Inbox", icon: Inbox, href: "/claim-engine/inbox" },
-      { label: "Report history", icon: FileText, href: "/claim-engine/report-history" },
+      { label: "Claims", icon: ShieldAlert, href: "/claim-engine/inbox" },
       { label: "Product Information Management", icon: Package, href: "/dashboard/products" },
     ],
   },

@@ -10,6 +10,11 @@ import { getClaimInboxListSelect } from "../../../../lib/claim-inbox-schema";
 import { assertStoreBelongsToOrganization } from "../../../../lib/claim-org-scope";
 import { buildProductLinkageDisplayContracts } from "../../../../lib/product-linkage-display-enrich";
 import type { ProductLinkageDisplayContract } from "../../../../lib/product-linkage-display-contract";
+import {
+  isValidIntakeSourceFilter,
+  sourceTablesForIntakeFilter,
+  type IntakeSourceFilter,
+} from "../../../../lib/claim-intake-source-filter";
 import { supabaseServer } from "../../../../lib/supabase-server";
 import { isUuidString } from "../../../../lib/uuid";
 
@@ -72,7 +77,18 @@ function buildBaseQuery(organizationId: string, url: URL, listSelect: string) {
     if (!isUuidString(storeId)) return { ok: false as const, error: "store_id must be a UUID when provided." };
     q = q.eq("store_id", storeId);
   }
-  if (sourceTable) q = q.eq("source_table", sourceTable);
+  const intakeSourceRaw = String(url.searchParams.get("intake_source") ?? "").trim();
+  if (intakeSourceRaw && isValidIntakeSourceFilter(intakeSourceRaw)) {
+    const tables = sourceTablesForIntakeFilter(intakeSourceRaw as IntakeSourceFilter);
+    if (tables === "physical_only") {
+      return { ok: true as const, q, storeId: storeId || null, physical_only: true as const };
+    }
+    if (Array.isArray(tables) && tables.length > 0) {
+      q = q.in("source_table", tables);
+    }
+  } else if (sourceTable) {
+    q = q.eq("source_table", sourceTable);
+  }
   if (evidenceStatus) q = q.eq("evidence_status", evidenceStatus);
   if (claimFamily) q = q.eq("claim_family", claimFamily);
   if (claimReason) q = q.eq("claim_reason", claimReason);
@@ -119,6 +135,12 @@ export async function GET(req: Request) {
 
   try {
     const listSelect = await getClaimInboxListSelect(supabaseServer);
+    const builtProbe = buildBaseQuery(organizationId, url, listSelect);
+    if (!builtProbe.ok) return NextResponse.json({ error: builtProbe.error }, { status: 400 });
+    if ("physical_only" in builtProbe && builtProbe.physical_only) {
+      return NextResponse.json({ items: [], next_cursor: null, intake_source: "physical_return" });
+    }
+
     if (queue) {
       const startOffset = decoded?.m === "s" ? decoded.offset : 0;
       const collected: Record<string, unknown>[] = [];
@@ -129,6 +151,7 @@ export async function GET(req: Request) {
       while (collected.length < pageSize && scanned < MAX_SCAN_ROWS) {
         const built = buildBaseQuery(organizationId, url, listSelect);
         if (!built.ok) return NextResponse.json({ error: built.error }, { status: 400 });
+        if ("physical_only" in built && built.physical_only) break;
         const { data, error } = await built.q.range(scan, scan + SCAN_BATCH - 1);
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         const batch = ((data ?? []) as unknown) as unknown as Record<string, unknown>[];

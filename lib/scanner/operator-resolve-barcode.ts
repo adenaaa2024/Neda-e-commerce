@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpectedPackagesForTracking } from "./operator-tracking-expectations";
+import {
+  fetchExpectedPackagesForTracking,
+  type FetchExpectedPackagesOptions,
+} from "./operator-tracking-expectations";
 import { findPalletByTrackingNormalized } from "./operator-pallet-tracking";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
@@ -25,6 +28,8 @@ export type ResolveOptions = {
   only?: OperatorResolveKind;
   /** Required for tracking resolution against `expected_packages` (scoped by store). */
   storeId?: string | null;
+  /** Forwarded to `fetchExpectedPackagesForTracking` (fast not-found skip for tracking codes). */
+  fetchOptions?: FetchExpectedPackagesOptions;
 };
 
 function norm(s: string) {
@@ -166,7 +171,14 @@ export async function resolveOperatorBarcode(
 
   const runTracking = async (): Promise<OperatorResolveResult | null> => {
     if (!storeId) return null;
-    const rows = await fetchExpectedPackagesForTracking(supabase, organizationId, storeId, code);
+    const rows = await fetchExpectedPackagesForTracking(
+      supabase,
+      organizationId,
+      storeId,
+      code,
+      undefined,
+      options?.fetchOptions,
+    );
     if (rows?.length) return { kind: "tracking", row: rows[0] as Record<string, unknown> };
     return null;
   };

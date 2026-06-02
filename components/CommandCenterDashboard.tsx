@@ -187,7 +187,7 @@ export function CommandCenterDashboard({
           value={formatUsd(command.readyClaimsValueUsd)}
           hint="Sum of estimated_value on ready_for_claim items."
           icon={Send}
-          href="/claim-engine"
+          href="/claim-engine/inbox"
         />
         <KpiCard
           label="Missing evidence"
@@ -404,14 +404,14 @@ export function CommandCenterDashboard({
       <section className="admin-panel-card p-5 sm:p-6">
         <p className="text-sm font-semibold tracking-tight text-foreground">Next steps</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Process inbound returns in Returns Processing. File and track marketplace claims in the Claim Engine.
+          Process inbound returns in Returns Processing. File and track marketplace claims in Claims.
         </p>
         <div className="mt-4 flex flex-wrap gap-2.5">
           <Link href="/returns" className="admin-btn-primary">
             Returns Processing
           </Link>
-          <Link href="/claim-engine" className="admin-btn-secondary">
-            Claim Engine
+          <Link href="/claim-engine/inbox" className="admin-btn-secondary">
+            Claims
           </Link>
           <Link href="/dashboard/products" className="admin-btn-quiet">
             Product Information
