@@ -1192,7 +1192,6 @@ export async function insertReturn(
       fnsku: normalizedFnsku,
       product_identifier: normalizedProductIdentifier,
       notes: payload.notes,
-      raw_return_data: null,
     });
 
     // Post-migration columns — only written once their migrations are applied
