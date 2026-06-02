@@ -17,10 +17,24 @@ import {
 import { Boxes, Clock, RotateCcw, User } from "lucide-react";
 import type { ReturnsAnalyticsPayload } from "../app/returns/returns-action-types";
 
+/** MENORIX gold / bronze / neutral — semantic red/green only at end of rotation. */
 const PIE_COLORS = [
-  "#0ea5e9", "#8b5cf6", "#f59e0b", "#10b981", "#f43f5e", "#64748b",
-  "#06b6d4", "#d946ef", "#84cc16", "#f97316", "#6366f1", "#14b8a6",
+  "#b08a3c",
+  "#8a681f",
+  "#c9a96e",
+  "#a67c52",
+  "#737b86",
+  "#5c6370",
+  "#d6b76e",
+  "#9a7b4f",
+  "#d14343",
+  "#2d8f5f",
+  "#ece7dc",
+  "#323c48",
 ];
+
+const CHART_PRIMARY = "#b08a3c";
+const CHART_PRIMARY_DARK = "#d6b76e";
 
 function fmtConditionLabel(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -45,7 +59,7 @@ export function DashboardAnalytics({ data }: { data: ReturnsAnalyticsPayload | n
 
   if (!data) {
     return (
-      <section className="rounded-2xl border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
+      <section className="admin-panel-card px-4 py-8 text-center text-sm text-muted-foreground">
         Returns analytics will appear when return data is available.
       </section>
     );
@@ -59,24 +73,24 @@ export function DashboardAnalytics({ data }: { data: ReturnsAnalyticsPayload | n
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/60">
+        <div className="admin-panel-card p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <RotateCcw className="h-4 w-4 text-sky-500" />
+            <RotateCcw className="h-4 w-4 text-primary" />
             Total returns
           </div>
           <p className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{data.totalReturns}</p>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/60">
+        <div className="admin-panel-card p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <Clock className="h-4 w-4 text-amber-500" />
+            <Clock className="h-4 w-4 text-primary" />
             Processing time
           </div>
           <p className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{fmtProcessingHours(data.avgProcessingHours)}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">Created → last update</p>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/60">
+        <div className="admin-panel-card p-4">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <Boxes className="h-4 w-4 text-violet-500" />
+            <Boxes className="h-4 w-4 text-primary" />
             Total pallets
           </div>
           <p className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{data.totalPallets}</p>
@@ -84,7 +98,7 @@ export function DashboardAnalytics({ data }: { data: ReturnsAnalyticsPayload | n
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="min-h-[280px] rounded-2xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/60">
+        <div className="admin-panel-card min-h-[280px] p-4">
           <p className="mb-2 text-xs font-semibold text-foreground">Returns by condition</p>
           {pieData.length === 0 ? (
             <p className="py-12 text-center text-xs text-muted-foreground">No condition data yet.</p>
@@ -116,7 +130,7 @@ export function DashboardAnalytics({ data }: { data: ReturnsAnalyticsPayload | n
           )}
         </div>
 
-        <div className="min-h-[280px] rounded-2xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/60">
+        <div className="admin-panel-card min-h-[280px] p-4">
           <p className="mb-2 text-xs font-semibold text-foreground">Returns by carrier</p>
           {barData.length === 0 ? (
             <p className="py-12 text-center text-xs text-muted-foreground">Link items to packages with carriers to see this chart.</p>
@@ -130,7 +144,7 @@ export function DashboardAnalytics({ data }: { data: ReturnsAnalyticsPayload | n
                   <Tooltip
                     contentStyle={{ borderRadius: "12px", border: "1px solid hsl(var(--border))", fontSize: "12px" }}
                   />
-                  <Bar dataKey="count" fill="#0ea5e9" radius={[6, 6, 0, 0]} name="Returns" />
+                  <Bar dataKey="count" fill={CHART_PRIMARY} radius={[6, 6, 0, 0]} name="Returns" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -140,9 +154,9 @@ export function DashboardAnalytics({ data }: { data: ReturnsAnalyticsPayload | n
 
       {/* Operator Performance Widget */}
       {(data.operatorStats?.length ?? 0) > 0 && (
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/60">
+        <div className="admin-panel-card p-4">
           <div className="mb-4 flex items-center gap-2">
-            <User className="h-4 w-4 text-violet-500" />
+            <User className="h-4 w-4 text-primary" />
             <p className="text-xs font-semibold text-foreground">Operator Performance</p>
             <span className="ml-auto text-[10px] text-muted-foreground">Items processed per operator</span>
           </div>
@@ -153,7 +167,7 @@ export function DashboardAnalytics({ data }: { data: ReturnsAnalyticsPayload | n
                 <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
                 <YAxis type="category" dataKey="operator" tick={{ fontSize: 10 }} width={90} />
                 <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid hsl(var(--border))", fontSize: "12px" }} />
-                <Bar dataKey="count" fill="#8b5cf6" radius={[0, 6, 6, 0]} name="Items" />
+                <Bar dataKey="count" fill={CHART_PRIMARY_DARK} radius={[0, 6, 6, 0]} name="Items" />
               </BarChart>
             </ResponsiveContainer>
           </div>

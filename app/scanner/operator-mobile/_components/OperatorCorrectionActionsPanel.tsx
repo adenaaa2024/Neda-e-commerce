@@ -4,20 +4,24 @@ type OperatorCorrectionActionsPanelProps = {
   showReset: boolean;
   showMoveBox: boolean;
   showVoidBox: boolean;
+  showVoidPallet?: boolean;
   onReset: () => void;
   onMoveBox: () => void;
   onVoidBox: () => void;
+  onVoidPallet?: () => void;
 };
 
 export function OperatorCorrectionActionsPanel({
   showReset,
   showMoveBox,
   showVoidBox,
+  showVoidPallet = false,
   onReset,
   onMoveBox,
   onVoidBox,
+  onVoidPallet,
 }: OperatorCorrectionActionsPanelProps) {
-  if (!showReset && !showMoveBox && !showVoidBox) return null;
+  if (!showReset && !showMoveBox && !showVoidBox && !showVoidPallet) return null;
 
   return (
     <div
@@ -41,8 +45,12 @@ export function OperatorCorrectionActionsPanel({
             Reset Current Entry
           </button>
         ) : null}
-        {showMoveBox || showVoidBox ? (
-          <div className={`grid gap-1.5 ${showMoveBox && showVoidBox ? "grid-cols-2" : "grid-cols-1"}`}>
+        {showMoveBox || showVoidBox || showVoidPallet ? (
+          <div
+            className={`grid gap-1.5 ${
+              [showMoveBox, showVoidBox, showVoidPallet].filter(Boolean).length >= 2 ? "grid-cols-2" : "grid-cols-1"
+            }`}
+          >
             {showMoveBox ? (
               <button
                 type="button"
@@ -69,6 +77,20 @@ export function OperatorCorrectionActionsPanel({
                 }}
               >
                 Void Box
+              </button>
+            ) : null}
+            {showVoidPallet && onVoidPallet ? (
+              <button
+                type="button"
+                onClick={onVoidPallet}
+                className="h-8 min-h-[36px] w-full rounded-lg border px-2 text-[10px] font-bold uppercase tracking-wide transition active:scale-[0.98]"
+                style={{
+                  borderColor: "rgba(248,113,113,0.45)",
+                  backgroundColor: "rgba(127,29,29,0.25)",
+                  color: "#fecaca",
+                }}
+              >
+                Void Pallet
               </button>
             ) : null}
           </div>

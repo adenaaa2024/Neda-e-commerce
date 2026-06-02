@@ -14,7 +14,7 @@ export function LogoMark({ className }: { className?: string }) {
   return (
     <div
       className={[
-        "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-primary/30 bg-gradient-to-br from-primary/15 to-card shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]",
+        "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-primary/35 bg-gradient-to-br from-primary/18 to-card shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]",
         className ?? "",
       ].filter(Boolean).join(" ")}
     >

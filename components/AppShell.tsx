@@ -528,7 +528,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     return (
       <GlobalSearchProvider>
         <MobileMenuCtx.Provider value={{ openMobileMenu: () => setMobileOpen(true) }}>
-          <div className="min-h-screen bg-background">{children}</div>
+          <div className="menorix-admin-shell min-h-screen bg-background">{children}</div>
         </MobileMenuCtx.Provider>
       </GlobalSearchProvider>
     );
@@ -549,7 +549,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   return (
     <GlobalSearchProvider>
       <MobileMenuCtx.Provider value={{ openMobileMenu: () => setMobileOpen(true) }}>
-        <div className="flex min-h-screen bg-background">
+        <div className="menorix-admin-shell flex min-h-screen bg-background">
 
           {/* Desktop sidebar */}
           <aside

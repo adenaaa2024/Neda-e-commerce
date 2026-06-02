@@ -28,9 +28,9 @@ html {
   --foreground:             #16181b;
 
   /* Card / panel */
-  --card:                   #f8f6f1;
+  --card:                   #ffffff;
   --card-foreground:        #16181b;
-  --admin-card-strong:        #ece7dc;
+  --admin-card-strong:        #f8f6f1;
 
   /* Popover / dropdown */
   --popover:                #ffffff;
@@ -62,10 +62,10 @@ html {
   --ring:                   #b08a3c;
 
   /* Sidebar tokens */
-  --sidebar:                #ffffff;
+  --sidebar:                #fcfaf6;
   --sidebar-foreground:     #16181b;
   --sidebar-border:         #d8d1c2;
-  --sidebar-accent:         #f8f6f1;
+  --sidebar-accent:         #f4f2ed;
   --sidebar-accent-foreground: #16181b;
   --sidebar-ring:           #b08a3c;
 
@@ -185,192 +185,297 @@ html {
   .dark  { color-scheme: dark;  }
 }
 
-/* ── Admin dashboard shell (MENORIX luxury black/gold) ───────────────────────── */
+/* ── MENORIX admin shell — desktop ERP chrome (NOT operator-mobile scanner) ─── */
 
-.admin-sidebar {
+.menorix-admin-shell {
+  --menorix-bg:             #f4f2ed;
+  --menorix-surface:        #ffffff;
+  --menorix-card:           #f8f6f1;
+  --menorix-card-strong:    #ece7dc;
+  --menorix-border:         #d8d1c2;
+  --menorix-accent:         #8a681f;
+  --menorix-accent-bright:  #b08a3c;
+  --menorix-text:           #16181b;
+  --menorix-text-secondary: #4d5560;
+  --menorix-text-muted:     #737b86;
+
+  --background:             var(--menorix-bg);
+  --foreground:             var(--menorix-text);
+  --card:                   var(--menorix-card);
+  --card-foreground:        var(--menorix-text);
+  --popover:                var(--menorix-surface);
+  --popover-foreground:     var(--menorix-text);
+  --primary:                var(--menorix-accent);
+  --primary-foreground:     #faf6ed;
+  --secondary:              var(--menorix-card-strong);
+  --secondary-foreground:   var(--menorix-text);
+  --muted:                  var(--menorix-card-strong);
+  --muted-foreground:       var(--menorix-text-muted);
+  --accent:                 var(--menorix-card-strong);
+  --accent-foreground:      var(--menorix-text);
+  --border:                 var(--menorix-border);
+  --input:                  var(--menorix-border);
+  --ring:                   var(--menorix-accent-bright);
+  --sidebar:                #ece7dc;
+  --sidebar-foreground:     var(--menorix-text);
+  --sidebar-border:         var(--menorix-border);
+  --sidebar-accent:         #f8f6f1;
+  --sidebar-accent-foreground: var(--menorix-text);
+  --sidebar-ring:           var(--menorix-accent-bright);
+}
+
+.dark .menorix-admin-shell {
+  --menorix-bg:             #050607;
+  --menorix-surface:        #11161c;
+  --menorix-card:           #1a2129;
+  --menorix-card-strong:    #202832;
+  --menorix-border:         #323c48;
+  --menorix-accent:         #d6b76e;
+  --menorix-accent-bright:  #f1d58a;
+  --menorix-text:           #faf6ed;
+  --menorix-text-secondary: #b9c2cc;
+  --menorix-text-muted:     #87919d;
+
+  --background:             var(--menorix-bg);
+  --foreground:             var(--menorix-text);
+  --card:                   var(--menorix-card);
+  --card-foreground:        var(--menorix-text);
+  --popover:                var(--menorix-card);
+  --popover-foreground:     var(--menorix-text);
+  --primary:                var(--menorix-accent);
+  --primary-foreground:     #16181b;
+  --secondary:              var(--menorix-card-strong);
+  --secondary-foreground:   var(--menorix-text);
+  --muted:                  var(--menorix-card-strong);
+  --muted-foreground:       var(--menorix-text-muted);
+  --accent:                 var(--menorix-card-strong);
+  --accent-foreground:      var(--menorix-text);
+  --border:                 var(--menorix-border);
+  --input:                  var(--menorix-border);
+  --ring:                   var(--menorix-accent-bright);
+  --sidebar:                var(--menorix-surface);
+  --sidebar-foreground:     var(--menorix-text);
+  --sidebar-border:         var(--menorix-border);
+  --sidebar-accent:         var(--menorix-card);
+  --sidebar-accent-foreground: var(--menorix-text);
+  --sidebar-ring:           var(--menorix-accent-bright);
+}
+
+.menorix-admin-shell .admin-sidebar {
   background: linear-gradient(
     180deg,
     var(--sidebar) 0%,
-    color-mix(in srgb, var(--sidebar) 94%, var(--background)) 100%
+    color-mix(in srgb, var(--sidebar) 92%, var(--menorix-bg)) 100%
   );
+  box-shadow: inset -1px 0 0 var(--sidebar-border);
 }
 
-.admin-sidebar-brand {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sidebar) 88%, var(--admin-card-strong)) 0%,
-    var(--sidebar) 100%
-  );
+.menorix-admin-shell .admin-sidebar-brand {
+  background: color-mix(in srgb, var(--sidebar) 88%, var(--menorix-card-strong));
+  border-bottom-color: var(--sidebar-border) !important;
 }
 
-.admin-chrome-input {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--muted) 72%, var(--card));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
+.menorix-admin-shell .admin-topbar header {
+  background: color-mix(in srgb, var(--menorix-surface) 94%, var(--menorix-bg));
+  border-bottom-color: var(--border);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
 }
 
-.admin-chrome-input:focus,
-.admin-chrome-input:focus-visible {
+.dark .menorix-admin-shell .admin-topbar header {
+  background: color-mix(in srgb, var(--menorix-surface) 88%, var(--menorix-bg));
+}
+
+.menorix-admin-shell .admin-chrome-input {
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+}
+
+.menorix-admin-shell .admin-chrome-input:focus,
+.menorix-admin-shell .admin-chrome-input:focus-visible {
   border-color: var(--ring);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--ring) 45%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 28%, transparent);
   outline: none;
 }
 
-.admin-chrome-control {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--card) 88%, var(--muted));
-  box-shadow:
-    0 1px 2px color-mix(in srgb, var(--foreground) 6%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+.menorix-admin-shell .admin-chrome-control {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--menorix-surface) 90%, var(--menorix-card));
 }
 
-.admin-chrome-control:hover {
-  background: color-mix(in srgb, var(--accent) 65%, var(--card));
+.menorix-admin-shell .admin-chrome-control:hover {
+  background: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface));
+  border-color: color-mix(in srgb, var(--ring) 28%, var(--border));
 }
 
-.admin-stat-card {
+.menorix-admin-shell .admin-stat-card {
   position: relative;
   overflow: hidden;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--ring) 28%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--ring) 22%, var(--border));
   background: linear-gradient(
     165deg,
-    var(--admin-card-strong) 0%,
-    var(--card) 52%,
-    var(--admin-card-strong) 100%
+    color-mix(in srgb, var(--menorix-surface) 55%, var(--menorix-card)) 0%,
+    var(--menorix-card) 48%,
+    color-mix(in srgb, var(--menorix-card-strong) 35%, var(--menorix-card)) 100%
   );
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 10%, transparent),
-    inset 0 -2px 8px color-mix(in srgb, var(--background) 55%, transparent),
-    0 8px 22px -10px color-mix(in srgb, var(--background) 72%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
+    0 2px 8px color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
-.admin-stat-card::before {
+.menorix-admin-shell .admin-stat-card::before {
   content: "";
   position: absolute;
-  left: 0.5rem;
-  right: 0.5rem;
-  top: 0;
+  inset: 0 0 auto 0;
   height: 1px;
-  border-radius: 9999px;
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--ring) 55%, transparent) 32%,
-    color-mix(in srgb, var(--foreground) 18%, transparent) 50%,
-    color-mix(in srgb, var(--ring) 42%, transparent) 68%,
+    color-mix(in srgb, var(--ring) 45%, transparent) 50%,
     transparent
   );
   pointer-events: none;
 }
 
-.admin-stat-card__value {
+.menorix-admin-shell .admin-stat-card__value {
   color: var(--foreground);
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
 }
 
-.admin-stat-card__label {
-  color: color-mix(in srgb, var(--foreground) 72%, var(--muted-foreground));
+.menorix-admin-shell .admin-stat-card__label {
+  color: var(--menorix-text-secondary);
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.admin-stat-card__hint {
+.menorix-admin-shell .admin-stat-card__hint {
   color: var(--muted-foreground);
   font-size: 0.6875rem;
+  line-height: 1.45;
 }
 
-.admin-stat-card__icon {
+.menorix-admin-shell .admin-stat-card__icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--ring) 32%, var(--border));
-  background: linear-gradient(
-    165deg,
-    color-mix(in srgb, var(--admin-card-strong) 55%, var(--card)) 0%,
-    var(--card) 100%
-  );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 4px 10px -6px color-mix(in srgb, var(--background) 65%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--menorix-card));
   color: var(--primary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
-.admin-panel-card {
+.menorix-admin-shell .admin-panel-card {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: linear-gradient(
     180deg,
-    var(--card) 0%,
-    color-mix(in srgb, var(--card) 82%, var(--admin-card-strong)) 100%
+    color-mix(in srgb, var(--menorix-surface) 40%, var(--menorix-card)) 0%,
+    var(--menorix-card) 100%
   );
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 10px 28px -14px color-mix(in srgb, var(--background) 70%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent),
+    0 1px 3px color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
-.admin-btn-primary {
+.menorix-admin-shell .admin-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--menorix-surface) 90%, var(--menorix-bg));
+  padding: 0.875rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .menorix-admin-shell .admin-page-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+.menorix-admin-shell .admin-page-header h1 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .admin-page-header p {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .admin-btn-primary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--primary) 55%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--primary) 75%, var(--border));
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--primary) 92%, white) 0%,
+    color-mix(in srgb, var(--ring) 12%, var(--primary)) 0%,
     var(--primary) 100%
   );
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--primary-foreground);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 28%, transparent),
-    0 6px 16px -8px color-mix(in srgb, var(--primary) 55%, transparent);
-  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 
-.admin-btn-primary:hover {
-  border-color: color-mix(in srgb, var(--ring) 65%, var(--border));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 32%, transparent),
-    0 8px 20px -8px color-mix(in srgb, var(--primary) 62%, transparent);
+.menorix-admin-shell .admin-btn-primary:hover {
+  border-color: var(--ring);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ring) 22%, var(--primary)) 0%,
+    color-mix(in srgb, var(--ring) 8%, var(--primary)) 100%
+  );
 }
 
-.admin-btn-secondary {
+.menorix-admin-shell .admin-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menorix-admin-shell .admin-btn-secondary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--card) 90%, var(--muted));
+  background: var(--menorix-surface);
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--foreground);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.admin-btn-secondary:hover {
-  background: color-mix(in srgb, var(--accent) 70%, var(--card));
+.menorix-admin-shell .admin-btn-secondary:hover {
+  background: color-mix(in srgb, var(--accent) 65%, var(--menorix-surface));
   border-color: color-mix(in srgb, var(--ring) 28%, var(--border));
 }
 
-.admin-btn-quiet {
+.menorix-admin-shell .admin-btn-quiet {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border: 1px solid var(--border);
   background: transparent;
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
@@ -379,37 +484,127 @@ html {
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.admin-btn-quiet:hover {
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
-  border-color: var(--border);
+.menorix-admin-shell .admin-btn-quiet:hover {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  border-color: color-mix(in srgb, var(--ring) 22%, var(--border));
   color: var(--foreground);
 }
 
-.admin-nav-link--active {
-  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--sidebar-border));
+.menorix-admin-shell .admin-form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--menorix-text-secondary);
+}
+
+.menorix-admin-shell .admin-form-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+  padding: 0 1rem;
+  font-size: 1rem;
+  color: var(--foreground);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.menorix-admin-shell .admin-form-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .admin-form-input:focus,
+.menorix-admin-shell .admin-form-input:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 26%, transparent);
+  outline: none;
+}
+
+.menorix-admin-shell .admin-form-input--lg {
+  height: 3.5rem;
+}
+
+.menorix-admin-shell .admin-form-input--sm {
+  height: 2.5rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.menorix-admin-shell .admin-form-textarea {
+  width: 100%;
+  resize: none;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+  padding: 1rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .admin-form-textarea:focus,
+.menorix-admin-shell .admin-form-textarea:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 26%, transparent);
+  outline: none;
+}
+
+.menorix-admin-shell .admin-table-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.menorix-admin-shell .admin-modal-shell {
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+  box-shadow:
+    0 16px 48px color-mix(in srgb, var(--foreground) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.dark .menorix-admin-shell .admin-modal-shell {
+  background: var(--menorix-card);
+}
+
+.menorix-admin-shell .admin-callout {
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ring) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--menorix-card));
+  padding: 0.75rem 1rem;
+}
+
+.menorix-admin-shell .admin-nav-link--active {
+  border: 1px solid color-mix(in srgb, var(--primary) 38%, var(--sidebar-border));
   background: linear-gradient(
-    180deg,
+    90deg,
     color-mix(in srgb, var(--primary) 14%, var(--sidebar-accent)) 0%,
     color-mix(in srgb, var(--primary) 8%, var(--sidebar)) 100%
   );
   color: var(--sidebar-foreground);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 4px 12px -8px color-mix(in srgb, var(--background) 75%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ring) 18%, transparent);
 }
 
-.admin-nav-link--idle {
+.menorix-admin-shell .admin-nav-link--active svg {
+  color: var(--primary);
+}
+
+.menorix-admin-shell .admin-nav-link--idle {
   border: 1px solid transparent;
   color: var(--muted-foreground);
 }
 
-.admin-nav-link--idle:hover {
-  border-color: color-mix(in srgb, var(--sidebar-border) 70%, transparent);
+.menorix-admin-shell .admin-nav-link--idle:hover {
+  border-color: var(--sidebar-border);
   background: var(--sidebar-accent);
   color: var(--sidebar-accent-foreground);
 }
 
-.admin-nav-section {
+.menorix-admin-shell .admin-nav-section {
   margin-bottom: 0.25rem;
   padding-left: 0.75rem;
   padding-right: 0.75rem;
@@ -417,7 +612,175 @@ html {
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--muted-foreground) 88%, var(--sidebar-foreground));
+  color: color-mix(in srgb, var(--muted-foreground) 88%, var(--ring));
+}
+
+/* Admin-only uploader chrome (returns desktop — scanner uses default MasterUploader) */
+.menorix-admin-shell .admin-uploader {
+  overflow: hidden;
+  border-radius: 8px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--menorix-surface) !important;
+}
+
+.menorix-admin-shell .admin-uploader .border-slate-200,
+.menorix-admin-shell .admin-uploader .dark\:border-slate-800,
+.menorix-admin-shell .admin-uploader .border-slate-100 {
+  border-color: var(--border) !important;
+}
+
+.menorix-admin-shell .admin-uploader .bg-white,
+.menorix-admin-shell .admin-uploader .dark\:bg-slate-900 {
+  background-color: var(--menorix-surface) !important;
+}
+
+.menorix-admin-shell .admin-uploader .bg-slate-100,
+.menorix-admin-shell .admin-uploader .dark\:bg-slate-800,
+.menorix-admin-shell .admin-uploader .bg-slate-50,
+.menorix-admin-shell .admin-uploader .dark\:bg-slate-800\/60 {
+  background-color: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface)) !important;
+}
+
+.menorix-admin-shell .admin-uploader .text-slate-900,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-50,
+.menorix-admin-shell .admin-uploader .text-slate-700,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-200,
+.menorix-admin-shell .admin-uploader .text-slate-800,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-100 {
+  color: var(--foreground) !important;
+}
+
+.menorix-admin-shell .admin-uploader .text-slate-500,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-400,
+.menorix-admin-shell .admin-uploader .text-slate-400,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-500 {
+  color: var(--muted-foreground) !important;
+}
+
+.menorix-admin-shell .admin-uploader .text-sky-600,
+.menorix-admin-shell .admin-uploader .dark\:text-sky-400,
+.menorix-admin-shell .admin-uploader .text-sky-500 {
+  color: var(--primary) !important;
+}
+
+.menorix-admin-shell .admin-uploader .hover\:bg-slate-50:hover,
+.menorix-admin-shell .admin-uploader .dark\:hover\:bg-slate-800\/60:hover,
+.menorix-admin-shell .admin-uploader .hover\:bg-slate-100:hover {
+  background-color: color-mix(in srgb, var(--accent) 50%, var(--menorix-surface)) !important;
+}
+
+/* Legacy slate/sky utility remap — admin shell only (scanner excluded) */
+.menorix-admin-shell .border-slate-100,
+.menorix-admin-shell .border-slate-200 {
+  border-color: var(--border);
+}
+
+.dark .menorix-admin-shell .border-slate-600,
+.dark .menorix-admin-shell .border-slate-700,
+.dark .menorix-admin-shell .border-slate-800 {
+  border-color: var(--border);
+}
+
+.menorix-admin-shell .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.menorix-admin-shell .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border);
+}
+
+.dark .menorix-admin-shell .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border);
+}
+
+.menorix-admin-shell .bg-white,
+.menorix-admin-shell .bg-slate-50,
+.menorix-admin-shell .bg-slate-100 {
+  background-color: var(--menorix-surface);
+}
+
+.dark .menorix-admin-shell .bg-slate-900,
+.dark .menorix-admin-shell .bg-slate-950,
+.dark .menorix-admin-shell .bg-slate-950\/70,
+.dark .menorix-admin-shell .bg-slate-950\/80 {
+  background-color: var(--menorix-card);
+}
+
+.menorix-admin-shell .text-slate-900,
+.menorix-admin-shell .text-slate-800,
+.menorix-admin-shell .text-slate-700 {
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .text-slate-600,
+.menorix-admin-shell .text-slate-500,
+.menorix-admin-shell .text-slate-400 {
+  color: var(--muted-foreground);
+}
+
+.dark .menorix-admin-shell .text-slate-100,
+.dark .menorix-admin-shell .text-slate-200,
+.dark .menorix-admin-shell .text-slate-300 {
+  color: var(--foreground);
+}
+
+.dark .menorix-admin-shell .text-slate-400,
+.dark .menorix-admin-shell .text-slate-500 {
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .bg-sky-500,
+.menorix-admin-shell .bg-sky-600 {
+  background-color: var(--primary);
+}
+
+.menorix-admin-shell .hover\:bg-sky-600:hover,
+.menorix-admin-shell .hover\:bg-sky-500:hover {
+  background-color: color-mix(in srgb, var(--ring) 15%, var(--primary));
+}
+
+.menorix-admin-shell .text-sky-500,
+.menorix-admin-shell .text-sky-600,
+.menorix-admin-shell .text-sky-800 {
+  color: var(--primary);
+}
+
+.dark .menorix-admin-shell .text-sky-200,
+.dark .menorix-admin-shell .text-sky-300,
+.dark .menorix-admin-shell .text-sky-400 {
+  color: var(--primary);
+}
+
+.menorix-admin-shell .border-sky-200,
+.menorix-admin-shell .bg-sky-50 {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--menorix-card));
+}
+
+.dark .menorix-admin-shell .border-sky-700,
+.dark .menorix-admin-shell .border-sky-800,
+.dark .menorix-admin-shell .border-sky-900,
+.dark .menorix-admin-shell .bg-sky-950,
+.dark .menorix-admin-shell .bg-sky-950\/30,
+.dark .menorix-admin-shell .bg-sky-950\/40,
+.dark .menorix-admin-shell .bg-sky-950\/50 {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  background-color: color-mix(in srgb, var(--primary) 10%, var(--menorix-card));
+}
+
+.menorix-admin-shell .rounded-2xl.border.border-border,
+.menorix-admin-shell .rounded-2xl.border.border-border.bg-card {
+  border-radius: 8px;
+  border-color: var(--border);
+  background: var(--menorix-card);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.menorix-admin-shell .hover\:bg-slate-50:hover,
+.menorix-admin-shell .hover\:bg-slate-100:hover {
+  background-color: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface));
+}
+
+.dark .menorix-admin-shell .hover\:bg-slate-800:hover,
+.dark .menorix-admin-shell .hover\:bg-slate-900:hover {
+  background-color: color-mix(in srgb, var(--accent) 65%, var(--menorix-card));
 }
 
 /* ── Drawer / slide animations ────────────────────────────────────────────────── */
@@ -917,10 +1280,10 @@ html.dark .operator-shipment-entry-gate-scan-card.scanner-page-glass-card {
 
 html.light .operator-shipment-entry-gate-scan-card.scanner-page-glass-card {
   background-color: #ffffff !important;
-  border-color: var(--scanner-border);
+  border-color: rgba(138, 104, 31, 0.28) !important;
   box-shadow:
-    0 0 0 0.5px rgba(138, 104, 31, 0.18),
-    0 16px 40px -14px rgba(22, 24, 27, 0.12),
+    0 0 0 0.5px rgba(138, 104, 31, 0.22),
+    0 16px 40px -14px rgba(60, 45, 20, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
@@ -1029,6 +1392,20 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
     inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
 }
 
+html.light .operator-shipment-entry-gate__scan-preview {
+  border-color: rgba(138, 104, 31, 0.4) !important;
+  background: linear-gradient(180deg, #2a3038 0%, #1e242c 52%, #171b21 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 2px 14px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(138, 104, 31, 0.22),
+    0 6px 18px rgba(60, 45, 20, 0.12) !important;
+}
+
+html.light .operator-shipment-entry-gate__scan-zone--highlight {
+  box-shadow: 0 0 24px rgba(138, 104, 31, 0.2) !important;
+}
+
 .operator-shipment-entry-gate .operator-handheld-red-laser {
   height: 2px;
   background: linear-gradient(
@@ -1064,19 +1441,61 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
   box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.22) !important;
 }
 
+/* Shipment Entry scan row — compact right-side action cluster */
+.operator-shipment-entry-gate__action-cluster {
+  gap: 1px;
+  height: 32px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(214, 183, 110, 0.24);
+  background: rgba(17, 22, 28, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.operator-shipment-entry-gate__action-divider {
+  width: 1px;
+  height: 14px;
+  margin-inline: 1px;
+  background: rgba(214, 183, 110, 0.22);
+}
+
+.operator-shipment-entry-gate__tap-to-type {
+  color: #f1e8cc !important;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.operator-shipment-entry-gate__tap-to-type:hover {
+  background: rgba(214, 183, 110, 0.1);
+}
+
+.operator-shipment-entry-gate__tap-to-type:focus-visible {
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.32);
+}
+
 .operator-shipment-entry-gate__camera-btn,
 .operator-shipment-entry-gate__search-btn {
   border: 1px solid transparent;
+  height: 28px;
+  width: 28px;
+  min-height: 28px;
+  min-width: 28px;
+}
+
+.operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__camera-btn,
+.operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__search-btn {
+  border-color: transparent !important;
+  background: transparent !important;
 }
 
 .operator-shipment-entry-gate__camera-btn {
   color: #d6b76e !important;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45)) !important;
+  filter: none !important;
 }
 
 .operator-shipment-entry-gate__camera-btn:hover:not(:disabled) {
   background: rgba(214, 183, 110, 0.12) !important;
-  border-color: rgba(214, 183, 110, 0.28) !important;
+  border-color: rgba(214, 183, 110, 0.2) !important;
 }
 
 .operator-shipment-entry-gate__camera-btn:focus-visible {
@@ -1089,7 +1508,7 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
 
 .operator-shipment-entry-gate__search-btn:hover:not(:disabled) {
   background: rgba(214, 183, 110, 0.12) !important;
-  border-color: rgba(214, 183, 110, 0.28) !important;
+  border-color: rgba(214, 183, 110, 0.2) !important;
 }
 
 .operator-shipment-entry-gate__ocr-drop {
@@ -1225,7 +1644,26 @@ html.light .operator-shipment-entry-gate {
   --gate-over-headline: #92400e;
 }
 
-/* Light mode: search row icons */
+/* Light mode: search row action cluster */
+html.light .operator-shipment-entry-gate__action-cluster {
+  border-color: rgba(138, 104, 31, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.98);
+}
+
+html.light .operator-shipment-entry-gate__action-divider {
+  background: rgba(138, 104, 31, 0.2);
+}
+
+html.light .operator-shipment-entry-gate__tap-to-type {
+  color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-gate__tap-to-type:hover {
+  background: rgba(138, 104, 31, 0.08);
+  color: #524018 !important;
+}
+
 html.light .operator-shipment-entry-gate__camera-btn,
 html.light .operator-shipment-entry-gate__search-btn {
   color: #6f5424 !important;
@@ -1237,16 +1675,16 @@ html.light .operator-shipment-entry-gate__search-btn .lucide {
   stroke-width: 2.5;
 }
 
-html.light .operator-shipment-entry-gate__camera-btn,
-html.light .operator-shipment-entry-gate__search-btn {
-  border-color: rgba(138, 104, 31, 0.22) !important;
-  background: rgba(138, 104, 31, 0.06) !important;
+html.light .operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__camera-btn,
+html.light .operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__search-btn {
+  border-color: transparent !important;
+  background: transparent !important;
 }
 
 html.light .operator-shipment-entry-gate__camera-btn:hover:not(:disabled),
 html.light .operator-shipment-entry-gate__search-btn:hover:not(:disabled) {
-  background: rgba(138, 104, 31, 0.14) !important;
-  border-color: rgba(138, 104, 31, 0.36) !important;
+  background: rgba(138, 104, 31, 0.1) !important;
+  border-color: transparent !important;
   color: #524018 !important;
 }
 
@@ -1273,8 +1711,8 @@ html.light .operator-shipment-entry-gate__ocr-spinner {
 }
 
 html.light .operator-shipment-entry-gate__scan-icon {
-  color: #737b86 !important;
-  opacity: 0.9 !important;
+  color: #9aa3ae !important;
+  opacity: 0.88 !important;
 }
 
 html.light .operator-shipment-entry-gate__info-btn {
@@ -1886,75 +2324,25 @@ html.light .operator-pallet-step-screen .scanner-input-glass::placeholder {
   opacity: 1 !important;
 }
 
-/* Stepper + Edit All on Box Info phase */
-.operator-stepper-node--done {
-  border-color: rgba(52, 211, 153, 0.42) !important;
-  background: rgba(6, 78, 59, 0.32) !important;
-  color: #a7f3d0 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+html.dark [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell {
+  border-color: rgba(231, 196, 112, 0.38) !important;
 }
 
-html.light [data-receiving-phase="package_scan"] .operator-stepper-node--done {
-  border-color: rgba(15, 159, 110, 0.38) !important;
-  background: rgba(15, 159, 110, 0.1) !important;
-  color: #047857 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+html.light [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell {
+  border-color: rgba(138, 104, 31, 0.32) !important;
 }
 
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell {
-  background-color: rgba(26, 33, 41, 0.96) !important;
-  border-color: rgba(214, 183, 110, 0.34) !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+html.dark [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell .operator-stepper-node--locked {
+  color: #9ea8b4 !important;
 }
 
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell {
-  background-color: rgba(255, 255, 255, 0.96) !important;
-  border-color: rgba(138, 104, 31, 0.24) !important;
-  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
-}
-
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(214, 183, 110, 0.72) !important;
-  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(241, 213, 138, 0.24),
-    0 0 8px rgba(214, 183, 110, 0.16) !important;
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 6px rgba(138, 104, 31, 0.12) !important;
-}
-
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-}
-
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked {
-  color: #87919d !important;
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked {
-  color: #737b86 !important;
-  border-color: #d8d1c2 !important;
-  background: #f8f6f1 !important;
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked .lucide {
-  opacity: 0.82;
+html.light [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell .operator-stepper-node--locked .lucide {
+  opacity: 0.78;
 }
 
 .operator-stepper-label--active {
-  color: #f1d58a !important;
-  text-shadow: 0 0 12px rgba(214, 183, 110, 0.12);
+  color: #e8d19a !important;
+  text-shadow: none !important;
 }
 
 html.light .operator-stepper-label--active {
@@ -1971,8 +2359,8 @@ html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-lab
 }
 
 html.light [data-receiving-phase="package_scan"] .operator-stepper-label--active {
-  color: #7a5b1b !important;
-  font-weight: 800;
+  color: #8a681f !important;
+  font-weight: 700 !important;
 }
 
 .operator-stepper-label--done {
@@ -2141,6 +2529,54 @@ html.light .operator-shipment-entry-header [data-receiving-phase="scan"] .operat
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
 }
 
+/* Shipment Entry header — title row + back control */
+html.dark .operator-shipment-entry-title-row__bar {
+  border-bottom: 1px solid rgba(214, 183, 110, 0.22) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+html.light .operator-shipment-entry-title-row__bar {
+  border-bottom: 1px solid rgba(138, 104, 31, 0.2) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+html.dark .operator-shipment-entry-title-row--gate {
+  border-bottom: 1px solid rgba(214, 183, 110, 0.22) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+html.light .operator-shipment-entry-title-row--gate {
+  border-bottom: 1px solid rgba(138, 104, 31, 0.2) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-entry-title-row h1.operator-heading {
+  font-size: 0.9375rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  line-height: 1.25 !important;
+}
+
+html.dark .operator-shipment-entry-back-btn {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-shipment-entry-back-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.light .operator-shipment-entry-back-btn {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-back-btn:hover {
+  background: rgba(138, 104, 31, 0.08) !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-edit-all-slot {
+  min-width: 4.5rem;
+}
+
 /* Shipment Entry — unified top chrome (title, stepper, progress) */
 html.dark .operator-shipment-entry-identity-strip {
   border-color: rgba(50, 60, 72, 0.85) !important;
@@ -2172,116 +2608,269 @@ html.light .operator-shipment-entry-pallet-id-badge__label {
   color: #7a5b1b !important;
 }
 
-html.dark .operator-shipment-entry-stepper-shell,
-html.dark .operator-box-info-stepper-shell,
-html.dark .operator-pallet-stepper-shell {
-  background-color: rgba(26, 33, 41, 0.96) !important;
-  border: 1px solid rgba(214, 183, 110, 0.34) !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+html.dark .operator-shipment-entry-header .operator-shipment-entry-stepper-shell,
+html.dark .operator-shipment-entry-header .operator-box-info-stepper-shell,
+html.dark .operator-shipment-entry-header .operator-pallet-stepper-shell {
+  background: linear-gradient(180deg, #2c3642 0%, #222a33 52%, #1a2129 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.34) !important;
+  border-radius: 0.75rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -2px 5px rgba(0, 0, 0, 0.38),
+    0 4px 14px rgba(0, 0, 0, 0.26) !important;
 }
 
-html.light .operator-shipment-entry-stepper-shell,
-html.light .operator-box-info-stepper-shell,
-html.light .operator-pallet-stepper-shell {
-  background-color: rgba(255, 255, 255, 0.96) !important;
-  border: 1px solid rgba(138, 104, 31, 0.24) !important;
-  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+html.light .operator-shipment-entry-header .operator-shipment-entry-stepper-shell,
+html.light .operator-shipment-entry-header .operator-box-info-stepper-shell,
+html.light .operator-shipment-entry-header .operator-pallet-stepper-shell {
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f4 48%, #f2ece2 100%) !important;
+  border: 1px solid rgba(187, 174, 152, 0.78) !important;
+  border-radius: 0.75rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -2px 4px rgba(187, 174, 152, 0.22),
+    0 3px 12px rgba(60, 45, 20, 0.07) !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-entry-stepper-shell {
+  padding: 0.375rem 0.5rem 0.3125rem !important;
+  margin-top: 0.4375rem !important;
+  margin-bottom: 0.3125rem !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-track {
+  display: grid !important;
+  grid-template-columns: 1fr minmax(0.625rem, 1.5rem) 1fr minmax(0.625rem, 1.5rem) 1fr !important;
+  align-items: center !important;
+  gap: 0.375rem !important;
+  width: 100% !important;
+  padding-inline: 0.25rem !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-track .operator-stepper-node {
+  justify-self: center !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-track .operator-stepper-rail {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin-inline: 0 !important;
+  flex: none !important;
+}
+
+.operator-shipment-entry-header .operator-stepper-node {
+  height: 1.375rem !important;
+  width: 1.375rem !important;
+  min-height: 1.375rem !important;
+  min-width: 1.375rem !important;
+  border-width: 1.5px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.28) !important;
+}
+
+.operator-shipment-entry-header .operator-stepper-node .lucide {
+  height: 0.75rem !important;
+  width: 0.75rem !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-labels {
+  display: grid !important;
+  grid-template-columns: 1fr minmax(0.625rem, 1.5rem) 1fr minmax(0.625rem, 1.5rem) 1fr !important;
+  gap: 0.375rem !important;
+  margin-top: 0.3125rem !important;
+  padding-inline: 0.25rem !important;
+  font-size: 0.5625rem !important;
+  line-height: 1.15 !important;
+  letter-spacing: 0.07em !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-label {
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.operator-shipment-entry-header .operator-stepper-rail {
+  height: 0.1875rem !important;
+  min-height: 0.1875rem !important;
+  border-radius: 9999px !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--active,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--active,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(214, 183, 110, 0.72) !important;
-  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  border-color: rgba(231, 196, 112, 0.68) !important;
+  background: linear-gradient(180deg, rgba(231, 196, 112, 0.28) 0%, rgba(42, 52, 64, 0.98) 55%, rgba(30, 38, 48, 1) 100%) !important;
+  color: #faf6ed !important;
   box-shadow:
-    inset 0 1px 0 rgba(241, 213, 138, 0.24),
-    0 0 6px rgba(214, 183, 110, 0.12) !important;
+    inset 0 1px 0 rgba(244, 218, 147, 0.38),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.32) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--active,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--active,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  border-color: rgba(138, 104, 31, 0.55) !important;
+  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 52%, #ebe3d2 100%) !important;
+  color: #8a681f !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 4px rgba(138, 104, 31, 0.08) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -2px 3px rgba(187, 174, 152, 0.28) !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--done {
-  border-color: rgba(34, 197, 139, 0.38) !important;
-  background: rgba(18, 52, 42, 0.45) !important;
+  border-color: rgba(110, 231, 183, 0.42) !important;
+  background: linear-gradient(180deg, rgba(24, 52, 44, 0.95) 0%, rgba(18, 40, 34, 0.92) 100%) !important;
   color: #6ee7b7 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(167, 243, 208, 0.2),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.28) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--done {
-  border-color: rgba(15, 159, 110, 0.38) !important;
-  background: rgba(15, 159, 110, 0.1) !important;
-  color: #047857 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+  border-color: rgba(21, 128, 61, 0.42) !important;
+  background: linear-gradient(180deg, #ecfdf5 0%, #d8efe4 100%) !important;
+  color: #15803d !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(21, 128, 61, 0.12) !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--locked,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--locked,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #87919d !important;
-  border-color: rgba(50, 60, 72, 0.9) !important;
-  background: rgba(32, 40, 50, 0.85) !important;
+  color: #9ea8b4 !important;
+  border-color: rgba(70, 82, 96, 0.75) !important;
+  background: linear-gradient(180deg, rgba(36, 44, 54, 0.92) 0%, rgba(28, 35, 43, 0.96) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.22) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--locked,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--locked,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #4d5560 !important;
-  border-color: #cfc6b6 !important;
-  background: #f8f6f1 !important;
+  color: #66707a !important;
+  border-color: rgba(207, 198, 182, 0.85) !important;
+  background: linear-gradient(180deg, #faf8f4 0%, #f0ebe2 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(187, 174, 152, 0.18) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--locked .lucide {
-  opacity: 0.82;
+  opacity: 0.78;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
+  background: linear-gradient(
+    90deg,
+    rgba(50, 60, 72, 0.35) 0%,
+    rgba(214, 183, 110, 0.22) 18%,
+    rgba(231, 196, 112, 0.48) 50%,
+    rgba(214, 183, 110, 0.22) 82%,
+    rgba(50, 60, 72, 0.35) 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(138, 104, 31, 0.35) 50%, transparent);
+  background: linear-gradient(
+    90deg,
+    rgba(207, 198, 182, 0.45) 0%,
+    rgba(187, 174, 152, 0.35) 18%,
+    rgba(138, 104, 31, 0.42) 50%,
+    rgba(187, 174, 152, 0.35) 82%,
+    rgba(207, 198, 182, 0.45) 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -1px 0 rgba(187, 174, 152, 0.22) !important;
+}
+
+/* Rails after a completed step — slightly stronger metallic link (visual only) */
+html.dark .operator-shipment-entry-header .operator-stepper-node--done + .operator-stepper-rail {
+  background: linear-gradient(
+    90deg,
+    rgba(110, 231, 183, 0.18) 0%,
+    rgba(214, 183, 110, 0.32) 22%,
+    rgba(231, 196, 112, 0.58) 50%,
+    rgba(214, 183, 110, 0.32) 78%,
+    rgba(50, 60, 72, 0.3) 100%
+  ) !important;
+}
+
+html.light .operator-shipment-entry-header .operator-stepper-node--done + .operator-stepper-rail {
+  background: linear-gradient(
+    90deg,
+    rgba(21, 128, 61, 0.14) 0%,
+    rgba(187, 174, 152, 0.42) 22%,
+    rgba(138, 104, 31, 0.52) 50%,
+    rgba(187, 174, 152, 0.42) 78%,
+    rgba(207, 198, 182, 0.4) 100%
+  ) !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
-  color: #87919d;
+  color: #b9c2cc;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
-  color: #66707a;
+  color: #4d5560;
 }
 
-html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > span:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+  color: #9ea8b4 !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
   color: #66707a !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--done {
   color: #6ee7b7 !important;
+  font-weight: 700 !important;
   text-shadow: none !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--done {
-  color: #047857 !important;
+  color: #15803d !important;
+  font-weight: 700 !important;
   text-shadow: none !important;
 }
 
-html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
-  color: #7a5b1b !important;
-  font-weight: 800;
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
+  color: #f4da93 !important;
+  font-weight: 800 !important;
   text-shadow: none;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
+  color: #8a681f !important;
+  font-weight: 800 !important;
+  text-shadow: none;
+}
+
+.operator-shipment-entry-header .operator-shipment-box-progress__text,
+.operator-shipment-entry-progress .operator-shipment-box-progress__text {
+  font-size: 0.625rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.3 !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-box-progress__count,
+.operator-shipment-entry-header .operator-shipment-box-progress__total,
+.operator-shipment-entry-progress .operator-shipment-box-progress__count,
+.operator-shipment-entry-progress .operator-shipment-box-progress__total {
+  font-weight: 700 !important;
 }
 
 html.dark .operator-shipment-entry-progress,
@@ -2934,10 +3523,14 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
 
 .operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-labels {
   margin-top: 0.25rem !important;
-  gap: 0.5rem !important;
   padding-inline: 0.25rem !important;
   font-size: 0.4375rem !important;
-  letter-spacing: 0.04em !important;
+  letter-spacing: 0.05em !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-rail {
+  height: 0.1875rem !important;
+  min-height: 0.1875rem !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-entry-progress,
@@ -2986,12 +3579,34 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   width: 1.875rem !important;
 }
 
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__action-cluster {
+  height: 2rem !important;
+  padding: 2px !important;
+  border-radius: 0.5rem !important;
+}
+
 .operator-shipment-handheld-compact .operator-shipment-entry-gate__camera-btn,
 .operator-shipment-handheld-compact .operator-shipment-entry-gate__search-btn {
-  height: 2.75rem !important;
-  width: 2.75rem !important;
-  min-height: 2.75rem !important;
-  min-width: 2.75rem !important;
+  height: 1.75rem !important;
+  width: 1.75rem !important;
+  min-height: 1.75rem !important;
+  min-width: 1.75rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__camera-btn .lucide,
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__search-btn .lucide {
+  height: 0.875rem !important;
+  width: 0.875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__tap-to-type {
+  font-size: 0.5625rem !important;
+  padding-inline: 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__tap-to-type .lucide {
+  height: 0.625rem !important;
+  width: 0.625rem !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-entry-gate__input {
@@ -3257,8 +3872,18 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   font-size: 0.6875rem !important;
 }
 
+.operator-shipment-handheld-compact .operator-shipment-slip-ai-badge {
+  font-size: 0.4375rem !important;
+  padding: 0.0625rem 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-slip-meta__label {
+  font-size: 0.5rem !important;
+}
+
 .operator-shipment-handheld-compact .operator-shipment-slip-meta__value {
   font-size: 0.75rem !important;
+  font-weight: 600 !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-notes-label {
@@ -3490,47 +4115,53 @@ html.light .operator-shipment-slip-title {
 }
 
 html.dark .operator-shipment-slip-ai-badge {
-  border-color: rgba(214, 183, 110, 0.42) !important;
-  background: linear-gradient(165deg, rgba(214, 183, 110, 0.18) 0%, rgba(42, 52, 64, 0.92) 100%) !important;
-  color: #f1d58a !important;
-  font-size: 0.5625rem !important;
-  font-weight: 800 !important;
-  letter-spacing: 0.06em;
+  border: 1px solid rgba(214, 183, 110, 0.36) !important;
+  background: rgba(214, 183, 110, 0.1) !important;
+  color: #e8d19a !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  line-height: 1.2 !important;
+  padding: 0.125rem 0.4375rem !important;
 }
 
 html.light .operator-shipment-slip-ai-badge {
-  border-color: rgba(138, 104, 31, 0.4) !important;
-  background: linear-gradient(165deg, #ffffff 0%, #ece7dc 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  background: rgba(138, 104, 31, 0.06) !important;
   color: #8a681f !important;
-  font-weight: 800 !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  line-height: 1.2 !important;
+  padding: 0.125rem 0.4375rem !important;
 }
 
-html.light .operator-shipment-slip-meta--code {
-  border: 1px solid rgba(207, 198, 182, 0.65) !important;
-  background: #f8f6f1 !important;
+html.light .operator-box-info-screen .operator-shipment-slip-meta--code,
+html.light .operator-box-info-screen .operator-shipment-slip-meta--order {
+  border: none !important;
+  background: transparent !important;
   box-shadow: none !important;
 }
 
-html.light .operator-shipment-slip-meta--code .operator-shipment-slip-meta__label {
+html.light .operator-box-info-screen .operator-shipment-slip-meta__label {
+  font-size: 0.5625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-slip-meta--code .operator-shipment-slip-meta__label {
   color: #8a681f !important;
 }
 
-html.light .operator-shipment-slip-meta--code .operator-shipment-slip-meta__value {
-  color: #16181b !important;
-}
-
-html.light .operator-shipment-slip-meta--order {
-  border: 1px solid rgba(207, 198, 182, 0.65) !important;
-  background: #f8f6f1 !important;
-  box-shadow: none !important;
-}
-
-html.light .operator-shipment-slip-meta--order .operator-shipment-slip-meta__label {
+html.light .operator-box-info-screen .operator-shipment-slip-meta--order .operator-shipment-slip-meta__label {
   color: #4d5560 !important;
 }
 
-html.light .operator-shipment-slip-meta--order .operator-shipment-slip-meta__value {
+html.light .operator-box-info-screen .operator-shipment-slip-meta__value {
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
   color: #16181b !important;
+  line-height: 1.25 !important;
 }
 
 html.light .operator-shipment-slip-hint {
@@ -4569,31 +5200,31 @@ html.light .operator-item-scan-screen .operator-item-scan-actions--compact {
   padding-top: 0.375rem !important;
 }
 
-/* Item unit record modal (Shipment Entry item scan save/cancel) */
+/* Item unit record modal — Add / Scan Item (visual only, scoped) */
 html.dark .operator-item-unit-record-modal__shell {
   background: #1a2129 !important;
-  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  border: 1px solid rgba(214, 183, 110, 0.32) !important;
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    0 18px 44px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   color: #faf6ed !important;
 }
 
 html.light .operator-item-unit-record-modal__shell {
   background: #ffffff !important;
-  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  border: 1px solid #d8d1c2 !important;
   box-shadow:
-    0 18px 44px rgba(60, 45, 20, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+    0 16px 40px rgba(60, 45, 20, 0.12),
+    0 2px 8px rgba(22, 24, 27, 0.06) !important;
   color: #16181b !important;
 }
 
 html.dark .operator-item-unit-record-modal__header {
-  border-color: rgba(185, 194, 204, 0.2) !important;
+  border-color: rgba(214, 183, 110, 0.14) !important;
 }
 
 html.light .operator-item-unit-record-modal__header {
-  border-color: rgba(138, 104, 31, 0.18) !important;
+  border-color: rgba(216, 209, 194, 0.95) !important;
 }
 
 html.dark .operator-item-unit-record-modal__title {
@@ -4604,26 +5235,540 @@ html.light .operator-item-unit-record-modal__title {
   color: #16181b !important;
 }
 
-html.dark .operator-item-unit-record-modal__subtitle,
-html.dark .operator-item-unit-record-modal__muted {
+html.dark .operator-item-unit-record-modal__subtitle {
   color: #b9c2cc !important;
 }
 
-html.light .operator-item-unit-record-modal__subtitle,
+html.light .operator-item-unit-record-modal__subtitle {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-unit-record-modal__muted {
+  color: #87919d !important;
+}
+
 html.light .operator-item-unit-record-modal__muted {
-  color: #3f4852 !important;
+  color: #66707a !important;
+}
+
+html.dark .operator-item-unit-record-modal__hint-accent {
+  color: #7dd3fc !important;
+}
+
+html.light .operator-item-unit-record-modal__hint-accent {
+  color: #8a681f !important;
+  font-weight: 700;
+}
+
+html.dark .operator-item-unit-record-modal__heading {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__heading {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__section-label {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-unit-record-modal__section-label {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-unit-record-modal__divider {
+  border-color: rgba(214, 183, 110, 0.12) !important;
+}
+
+html.light .operator-item-unit-record-modal__divider {
+  border-color: rgba(216, 209, 194, 0.85) !important;
+}
+
+html.dark .operator-item-unit-record-modal__close-btn {
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-item-unit-record-modal__close-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__close-btn {
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__close-btn:hover:not(:disabled) {
+  background: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__link {
+  color: #7dd3fc !important;
+  text-decoration-color: rgba(125, 211, 252, 0.55) !important;
+}
+
+html.dark .operator-item-unit-record-modal__link:hover {
+  color: #bae6fd !important;
+}
+
+html.light .operator-item-unit-record-modal__link {
+  color: #1d6fa8 !important;
+  text-decoration-color: rgba(29, 111, 168, 0.45) !important;
+}
+
+html.light .operator-item-unit-record-modal__link:hover {
+  color: #155a87 !important;
+}
+
+html.dark .operator-item-unit-record-modal__barcode-input {
+  border-color: rgba(45, 212, 191, 0.38) !important;
+  background-color: #121820 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__barcode-input::placeholder {
+  color: #87919d !important;
+}
+
+html.dark .operator-item-unit-record-modal__barcode-input:focus {
+  border-color: rgba(45, 212, 191, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.28) !important;
+}
+
+html.light .operator-item-unit-record-modal__barcode-input {
+  border-color: rgba(138, 104, 31, 0.35) !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__barcode-input:focus {
+  border-color: rgba(138, 104, 31, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(138, 104, 31, 0.18) !important;
+}
+
+html.light .operator-item-unit-record-modal__barcode-input::placeholder {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-unit-record-modal__type-btn {
+  border-color: rgba(45, 212, 191, 0.45) !important;
+  background-color: rgba(18, 24, 32, 0.95) !important;
+  color: #a5f3fc !important;
+}
+
+html.dark .operator-item-unit-record-modal__type-btn--active {
+  background-color: rgba(45, 212, 191, 0.14) !important;
+}
+
+html.light .operator-item-unit-record-modal__type-btn {
+  border-color: rgba(138, 104, 31, 0.38) !important;
+  background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__type-btn--active {
+  border-color: rgba(138, 104, 31, 0.52) !important;
+  background-color: rgba(138, 104, 31, 0.1) !important;
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-unit-record-modal__field-input {
+  border-color: rgba(185, 194, 204, 0.22) !important;
+  background-color: #171c22 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__field-input:focus {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+}
+
+html.light .operator-item-unit-record-modal__field-input {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__field-input:focus {
+  border-color: rgba(138, 104, 31, 0.45) !important;
+}
+
+html.dark .operator-item-unit-record-modal__checkbox-label {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__checkbox-label {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__checkbox {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+  background-color: #171c22 !important;
+  accent-color: #d6b76e;
+}
+
+html.light .operator-item-unit-record-modal__checkbox {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  accent-color: #8a681f;
+}
+
+html.dark .operator-item-unit-record-modal__chip {
+  border-color: rgba(185, 194, 204, 0.22) !important;
+  background-color: transparent !important;
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-item-unit-record-modal__chip--selected {
+  border-color: rgba(214, 183, 110, 0.62) !important;
+  background-color: rgba(214, 183, 110, 0.14) !important;
+  color: #e8d19a !important;
+}
+
+html.light .operator-item-unit-record-modal__chip {
+  border-color: #d8d1c2 !important;
+  background-color: #ffffff !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__chip--selected {
+  border-color: rgba(138, 104, 31, 0.48) !important;
+  background-color: rgba(138, 104, 31, 0.1) !important;
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-unit-record-modal__dropzone {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+  background-color: rgba(18, 24, 32, 0.72) !important;
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-item-unit-record-modal__dropzone:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(214, 183, 110, 0.28) !important;
+}
+
+html.light .operator-item-unit-record-modal__dropzone {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__dropzone:hover:not(:disabled) {
+  background-color: #f0ece4 !important;
+  border-color: rgba(138, 104, 31, 0.32) !important;
+}
+
+html.dark .operator-item-unit-record-modal__evidence-btn {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background-color: rgba(26, 33, 41, 0.85) !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__evidence-btn:hover:not(:disabled) {
+  background-color: rgba(214, 183, 110, 0.1) !important;
+  border-color: rgba(214, 183, 110, 0.48) !important;
+}
+
+html.light .operator-item-unit-record-modal__evidence-btn {
+  border-color: rgba(138, 104, 31, 0.35) !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__evidence-btn:hover:not(:disabled) {
+  background-color: #f0ece4 !important;
+  border-color: rgba(138, 104, 31, 0.48) !important;
+}
+
+html.dark .operator-item-unit-record-modal__evidence-warn {
+  color: #fca5a5 !important;
+}
+
+html.light .operator-item-unit-record-modal__evidence-warn {
+  color: #b4232f !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-footer {
+  border-color: rgba(214, 183, 110, 0.12) !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-footer {
+  border-color: rgba(216, 209, 194, 0.85) !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-input {
+  border-color: rgba(185, 194, 204, 0.22) !important;
+  background-color: #171c22 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-input::placeholder {
+  color: #87919d !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-input:focus {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-input {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-input::placeholder {
+  color: #66707a !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-input:focus {
+  border-color: rgba(138, 104, 31, 0.45) !important;
 }
 
 html.dark .operator-item-unit-record-modal__local-error {
-  border: 1px solid rgba(239, 91, 91, 0.45) !important;
+  border: 1px solid rgba(239, 91, 91, 0.42) !important;
   background: rgba(239, 91, 91, 0.1) !important;
-  color: #ef5b5b !important;
+  color: #fca5a5 !important;
 }
 
 html.light .operator-item-unit-record-modal__local-error {
-  border: 1px solid rgba(239, 91, 91, 0.38) !important;
-  background: rgba(239, 91, 91, 0.08) !important;
+  border: 1px solid rgba(239, 91, 91, 0.35) !important;
+  background: rgba(239, 91, 91, 0.06) !important;
   color: #b4232f !important;
+}
+
+html.dark .operator-item-unit-record-modal__validation-summary {
+  border: 1px solid rgba(239, 91, 91, 0.38) !important;
+  background: rgba(239, 91, 91, 0.1) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__validation-summary {
+  border: 1px solid rgba(239, 91, 91, 0.32) !important;
+  background: rgba(239, 91, 91, 0.06) !important;
+  color: #5c1010 !important;
+}
+
+.operator-item-unit-record-modal__scroll {
+  scrollbar-width: thin;
+}
+
+html.dark .operator-item-unit-record-modal__scroll {
+  scrollbar-color: rgba(214, 183, 110, 0.35) rgba(26, 33, 41, 0.4);
+}
+
+html.light .operator-item-unit-record-modal__scroll {
+  scrollbar-color: rgba(138, 104, 31, 0.35) rgba(216, 209, 194, 0.5);
+}
+
+.operator-item-unit-record-modal__scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+html.dark .operator-item-unit-record-modal__scroll::-webkit-scrollbar-track {
+  background: rgba(26, 33, 41, 0.35);
+  border-radius: 999px;
+}
+
+html.dark .operator-item-unit-record-modal__scroll::-webkit-scrollbar-thumb {
+  background: rgba(214, 183, 110, 0.38);
+  border-radius: 999px;
+}
+
+html.light .operator-item-unit-record-modal__scroll::-webkit-scrollbar-track {
+  background: rgba(248, 246, 241, 0.9);
+  border-radius: 999px;
+}
+
+html.light .operator-item-unit-record-modal__scroll::-webkit-scrollbar-thumb {
+  background: rgba(138, 104, 31, 0.32);
+  border-radius: 999px;
+}
+
+html.light .operator-item-unit-record-modal__shell .operator-shipment-flow-modal__btn-secondary {
+  border: 1px solid #d8d1c2 !important;
+  background: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__shell .operator-shipment-flow-modal__btn-secondary:hover:not(:disabled) {
+  background: #ece7dc !important;
+  border-color: #bbae98 !important;
+  color: #16181b !important;
+}
+
+/* Item scan unit picker modal — Choose unit to edit (visual only, scoped) */
+html.dark .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__panel {
+  background: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.3) !important;
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__panel {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  box-shadow:
+    0 16px 40px rgba(60, 45, 20, 0.12),
+    0 2px 8px rgba(22, 24, 27, 0.06) !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-unit-picker__header {
+  border-color: rgba(214, 183, 110, 0.14) !important;
+}
+
+html.light .operator-item-scan-unit-picker__header {
+  border-color: rgba(138, 104, 31, 0.14) !important;
+}
+
+html.dark .operator-item-scan-unit-picker__title {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-unit-picker__title {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-unit-picker__product {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-scan-unit-picker__product {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__fnsku {
+  color: #87919d !important;
+}
+
+html.light .operator-item-scan-unit-picker__fnsku {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-scan-unit-picker__empty {
+  border-color: rgba(214, 183, 110, 0.28) !important;
+  background: rgba(214, 183, 110, 0.08) !important;
+  color: #e8d19a !important;
+}
+
+html.light .operator-item-scan-unit-picker__empty {
+  border-color: rgba(183, 121, 31, 0.28) !important;
+  background: rgba(183, 121, 31, 0.08) !important;
+  color: #6f5424 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-card {
+  background: #202832 !important;
+  border-color: rgba(214, 183, 110, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) {
+  border-color: rgba(214, 183, 110, 0.3) !important;
+  background: #242d38 !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-card {
+  background: #f8f6f1 !important;
+  border-color: rgba(138, 104, 31, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) {
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  background: #f3efe6 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-label {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-label {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background: rgba(214, 183, 110, 0.12) !important;
+  color: #e8d19a !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  background: rgba(138, 104, 31, 0.1) !important;
+  color: #6f5424 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(214, 183, 110, 0.48) !important;
+  background: rgba(214, 183, 110, 0.18) !important;
+  color: #f1d58a !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(138, 104, 31, 0.38) !important;
+  background: rgba(138, 104, 31, 0.16) !important;
+  color: #524018 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__summary {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-scan-unit-picker__summary {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__summary--muted,
+html.dark .operator-item-scan-unit-picker__audit {
+  color: #87919d !important;
+}
+
+html.light .operator-item-scan-unit-picker__summary--muted,
+html.light .operator-item-scan-unit-picker__audit {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-scan-unit-picker__footer {
+  border-color: rgba(214, 183, 110, 0.14) !important;
+}
+
+html.light .operator-item-scan-unit-picker__footer {
+  border-color: rgba(138, 104, 31, 0.14) !important;
+}
+
+html.dark .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #faf6ed !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(185, 194, 204, 0.4) !important;
+}
+
+html.light .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn {
+  border-color: rgba(138, 104, 31, 0.22) !important;
+  background: #f8f6f1 !important;
+  color: #4d5560 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+html.light .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn:hover:not(:disabled) {
+  background: #ece7dc !important;
+  border-color: rgba(138, 104, 31, 0.32) !important;
+  color: #16181b !important;
+}
+
+/* Scanner footers — primary on top when stacked (Zebra/narrow) */
+.operator-scanner-footer-actions {
+  width: 100%;
 }
 
 html.dark .operator-shipment-flow-modal__success-icon {
@@ -5315,117 +6460,13 @@ html.light .operator-pallet-actions .operator-pallet-btn-cancel:hover:not(:disab
   color: #8f1d29 !important;
 }
 
-/* Pallet step stepper — restrained done state, readable locked (light) */
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
-  background-color: rgba(26, 33, 41, 0.96) !important;
-  border-color: rgba(231, 196, 112, 0.4) !important;
-  box-shadow:
-    0 6px 20px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
-  background-color: rgba(255, 255, 255, 0.96) !important;
-  border-color: rgba(138, 104, 31, 0.3) !important;
-  box-shadow:
-    0 6px 18px rgba(60, 45, 20, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.94) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(231, 196, 112, 0.76) !important;
-  background: linear-gradient(180deg, rgba(231, 196, 112, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.26),
-    0 0 6px rgba(231, 196, 112, 0.12) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 4px rgba(231, 196, 112, 0.1) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.44) 50%, transparent);
-}
-
+/* Pallet step — stepper shell accent (Shipment Entry header only) */
 html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell {
-  border-color: rgba(231, 196, 112, 0.4) !important;
+  border-color: rgba(231, 196, 112, 0.42) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell {
-  border-color: rgba(138, 104, 31, 0.3) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-rail {
-  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.44) 50%, transparent);
-}
-
-html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-rail {
-  background: linear-gradient(90deg, transparent, rgba(138, 104, 31, 0.38) 50%, transparent);
-}
-
-html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(231, 196, 112, 0.76) !important;
-  background: linear-gradient(180deg, rgba(231, 196, 112, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.26),
-    0 0 6px rgba(231, 196, 112, 0.12) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 100%) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-stepper-node--done {
-  border-color: rgba(34, 197, 139, 0.38) !important;
-  background: rgba(18, 52, 42, 0.45) !important;
-  color: #6ee7b7 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-stepper-node--done {
-  border-color: rgba(15, 159, 110, 0.38) !important;
-  background: rgba(15, 159, 110, 0.1) !important;
-  color: #047857 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-stepper-label--done {
-  color: #6ee7b7 !important;
-  text-shadow: none !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-stepper-label--done {
-  color: #047857 !important;
-  text-shadow: none !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #87919d !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #4d5560 !important;
-  border-color: #cfc6b6 !important;
-  background: #f8f6f1 !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked .lucide {
-  opacity: 0.82;
-}
-
-html.light [data-receiving-phase="scan"] .operator-receiving-stepper-labels {
-  color: #66707a;
+  border-color: rgba(138, 104, 31, 0.36) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-shipment-box-progress {
@@ -5590,6 +6631,11 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
 
 .operator-item-scan-body {
   min-height: 0;
+  gap: 0.625rem;
+}
+
+.operator-item-scan-stats {
+  gap: 0.5rem;
 }
 
 .operator-item-scan-expected-panel {
@@ -5602,7 +6648,8 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  align-content: start;
 }
 
 /* In-flow spacer — keeps panel bottom border above the fixed action footer overlay */
@@ -5613,46 +6660,70 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   pointer-events: none;
 }
 
+.operator-item-scan-screen .operator-item-scan-top-chrome {
+  gap: 0.625rem;
+}
+
+.operator-item-scan-screen .operator-item-scan-expected-list-scroll.space-y-1\.5 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.375rem !important;
+}
+
+.operator-item-scan-screen .operator-item-scan-progress-track > div {
+  box-shadow: none !important;
+}
+
 /* Step 3 ITEM SCAN — Shipment Entry item inspection (visual polish only) */
 html.light .operator-item-scan-screen {
   background-color: #f4f2ed !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-stat {
-  background: linear-gradient(180deg, #242c36 0%, #1a2129 52%, #141a21 100%) !important;
-  border: 1px solid rgba(231, 196, 112, 0.42) !important;
+  background: linear-gradient(180deg, #2a3440 0%, #1e262f 46%, #161d25 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.36) !important;
+  border-radius: 0.75rem !important;
   box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.22),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.45),
-    0 6px 16px rgba(0, 0, 0, 0.32) !important;
+    inset 0 1px 0 rgba(244, 218, 147, 0.26),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.42),
+    0 4px 14px rgba(0, 0, 0, 0.28) !important;
+  padding-top: 0.4375rem !important;
+  padding-bottom: 0.5rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-stat {
-  background: linear-gradient(180deg, #ffffff 0%, #f8f6f1 48%, #f0ebe2 100%) !important;
-  border: 1px solid #bbae98 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f4 44%, #f2ece2 100%) !important;
+  border: 1px solid rgba(187, 174, 152, 0.72) !important;
+  border-radius: 0.75rem !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    inset 0 -1px 0 rgba(187, 174, 152, 0.35),
-    0 5px 14px rgba(60, 45, 20, 0.1) !important;
+    inset 0 -1px 0 rgba(187, 174, 152, 0.28),
+    0 3px 12px rgba(60, 45, 20, 0.08) !important;
+  padding-top: 0.4375rem !important;
+  padding-bottom: 0.5rem !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-stat__label {
-  color: #b9c2cc !important;
-  letter-spacing: 0.06em;
+  color: #9ea8b4 !important;
+  letter-spacing: 0.08em;
+  font-size: 0.5625rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-stat__label {
   color: #66707a !important;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  font-size: 0.5625rem !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-stat__value {
   color: #faf6ed !important;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  font-size: 1.375rem !important;
+  line-height: 1 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-stat__value {
   color: #16181b !important;
+  font-size: 1.375rem !important;
+  line-height: 1 !important;
   text-shadow: none;
 }
 
@@ -5695,31 +6766,47 @@ html.dark .operator-item-scan-screen .operator-item-scan-stat__value--neutral {
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-expected-panel.scanner-page-glass-card {
-  background: linear-gradient(180deg, #1e262f 0%, #1a2129 100%) !important;
-  border: 1px solid rgba(231, 196, 112, 0.34) !important;
+  background: linear-gradient(180deg, rgba(30, 38, 47, 0.98) 0%, rgba(22, 29, 37, 0.99) 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.28) !important;
+  border-radius: 0.875rem !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 10px 24px rgba(0, 0, 0, 0.28) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 18px rgba(0, 0, 0, 0.22) !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-expected-panel.scanner-page-glass-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8f6f1 100%) !important;
-  border: 1px solid #cfc6b6 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f4 100%) !important;
+  border: 1px solid rgba(207, 198, 182, 0.85) !important;
+  border-radius: 0.875rem !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 8px 20px rgba(60, 45, 20, 0.08) !important;
+    0 4px 16px rgba(60, 45, 20, 0.06) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__header {
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid rgba(231, 196, 112, 0.1);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__header {
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid rgba(207, 198, 182, 0.55);
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__title {
   color: #faf6ed !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.01em;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-expected-panel__title {
   color: #16181b !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.01em;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__eyebrow {
@@ -5779,12 +6866,105 @@ html.light .operator-item-scan-screen .operator-item-scan-expected-panel__counts
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-progress-track {
-  background-color: rgba(15, 23, 42, 0.85) !important;
+  background-color: rgba(12, 16, 22, 0.72) !important;
+  height: 0.3125rem !important;
+  margin-bottom: 0.5rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-progress-track {
   background-color: #e8e2d6 !important;
-  border: 1px solid rgba(207, 198, 182, 0.65);
+  border: none !important;
+  height: 0.3125rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+/* Slip rows — softer surfaces, clearer hierarchy */
+.operator-item-scan-screen .operator-item-scan-slip-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.625rem 0.4375rem !important;
+  border-radius: 0.625rem !important;
+  border-width: 1px !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row {
+  border-color: rgba(231, 196, 112, 0.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row {
+  border-color: rgba(207, 198, 182, 0.55) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="Awaiting"] {
+  background: rgba(26, 33, 41, 0.72) !important;
+  box-shadow: inset 3px 0 0 0 rgba(148, 163, 184, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="IN PROGRESS"] {
+  background: linear-gradient(135deg, rgba(26, 38, 34, 0.92) 0%, rgba(22, 33, 41, 0.88) 100%) !important;
+  border-color: rgba(110, 231, 183, 0.22) !important;
+  box-shadow: inset 3px 0 0 0 rgba(110, 231, 183, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="RECEIVED"] {
+  background: linear-gradient(135deg, rgba(24, 38, 32, 0.95) 0%, rgba(22, 33, 41, 0.9) 100%) !important;
+  border-color: rgba(110, 231, 183, 0.28) !important;
+  box-shadow: inset 3px 0 0 0 rgba(110, 231, 183, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="UNDER"] {
+  background: linear-gradient(135deg, rgba(42, 26, 28, 0.92) 0%, rgba(22, 33, 41, 0.88) 100%) !important;
+  border-color: rgba(252, 165, 165, 0.22) !important;
+  box-shadow: inset 3px 0 0 0 rgba(252, 165, 165, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="OVER"],
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="UNEXPECTED"] {
+  background: linear-gradient(135deg, rgba(38, 34, 24, 0.92) 0%, rgba(22, 33, 41, 0.88) 100%) !important;
+  border-color: rgba(244, 218, 147, 0.24) !important;
+  box-shadow: inset 3px 0 0 0 rgba(231, 196, 112, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-product-link,
+.operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-slip-row__title {
+  font-size: 0.8125rem !important;
+  font-weight: 800 !important;
+  line-height: 1.25 !important;
+  letter-spacing: 0.012em;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row > div[class*="data-linkage-chip"],
+.operator-item-scan-screen .operator-item-scan-slip-row > div:has([data-linkage-chip]) {
+  margin-top: -0.0625rem;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row > .mt-0\.5.flex,
+.operator-item-scan-screen .operator-item-scan-slip-row > div.mt-0\.5 {
+  margin-top: 0 !important;
+  padding-top: 0.3125rem;
+  border-top: 1px solid rgba(231, 196, 112, 0.1);
+  align-items: center;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row > .mt-0\.5.flex,
+html.light .operator-item-scan-screen .operator-item-scan-slip-row > div.mt-0\.5 {
+  border-top-color: rgba(207, 198, 182, 0.45);
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-slip-status {
+  min-width: 4.25rem;
+  text-align: center;
+  border-radius: 9999px !important;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row__qty {
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="Awaiting"] {
@@ -5938,6 +7118,16 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-status--awaiting 
   color: #4d5560 !important;
 }
 
+html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="RECEIVED"] {
+  color: #6ee7b7 !important;
+  background-color: rgba(16, 185, 129, 0.1) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="IN PROGRESS"] {
+  color: #6ee7b7 !important;
+  background-color: rgba(16, 185, 129, 0.08) !important;
+}
+
 html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="RECEIVED"] {
   color: #15803d !important;
 }
@@ -5955,23 +7145,114 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-
   color: #8a681f !important;
 }
 
-html.light .operator-item-scan-screen .operator-item-scan-empty-note {
-  border-color: #cfc6b6 !important;
-  background-color: #f8f6f1 !important;
-  color: #4d5560 !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-empty-note {
-  border-color: rgba(185, 194, 204, 0.22) !important;
-  background-color: rgba(32, 40, 50, 0.55) !important;
-  color: #b9c2cc !important;
+html.dark .operator-item-scan-screen .operator-item-scan-shipment-summary.scanner-page-glass-card {
+  background: rgba(22, 29, 37, 0.55) !important;
+  border: none !important;
+  border-top: 1px solid rgba(231, 196, 112, 0.12) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-top: 0.625rem !important;
+  margin-top: 0.375rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-shipment-summary.scanner-page-glass-card {
-  background: #ffffff !important;
-  border: 1px solid #cfc6b6 !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid rgba(207, 198, 182, 0.55) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-top: 0.625rem !important;
+  margin-top: 0.375rem !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-empty-note {
+  border: none !important;
+  border-left: 2px solid rgba(231, 196, 112, 0.28) !important;
+  background-color: rgba(26, 33, 41, 0.45) !important;
+  color: #b9c2cc !important;
+  border-radius: 0.5rem !important;
+  padding: 0.4375rem 0.625rem !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-empty-note {
+  border: none !important;
+  border-left: 2px solid rgba(187, 174, 152, 0.65) !important;
+  background-color: rgba(248, 246, 241, 0.85) !important;
+  color: #4d5560 !important;
+  border-radius: 0.5rem !important;
+  padding: 0.4375rem 0.625rem !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-actions,
+html.dark .operator-item-scan-screen .operator-item-scan-fixed-actions {
+  border-color: rgba(50, 60, 72, 0.65) !important;
+  border-top-width: 1px !important;
+  background: linear-gradient(180deg, rgba(22, 29, 37, 0.97) 0%, rgba(16, 21, 27, 0.98) 100%) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-actions,
+html.light .operator-item-scan-screen .operator-item-scan-fixed-actions {
+  border-color: rgba(207, 198, 182, 0.75) !important;
+  border-top-width: 1px !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 248, 244, 0.99) 100%) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 -4px 14px rgba(60, 45, 20, 0.06);
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-save-exit {
+  border: 1px solid rgba(231, 196, 112, 0.38) !important;
+  background: linear-gradient(180deg, #2a3440 0%, #1e262f 100%) !important;
+  color: #e8e2d6 !important;
+  font-weight: 700 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.18) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-save-exit:hover:not(:disabled) {
+  border-color: rgba(231, 196, 112, 0.52) !important;
+  color: #faf6ed !important;
+  filter: brightness(1.04);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-save-exit {
+  border: 1px solid rgba(187, 174, 152, 0.85) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f2ece2 100%) !important;
+  color: #4d5560 !important;
+  font-weight: 700 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 2px 8px rgba(60, 45, 20, 0.06) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-save-exit:hover:not(:disabled) {
+  border-color: rgba(138, 104, 31, 0.55) !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-add-btn.operator-neda-mechanical-scan-btn {
+  margin-top: 0.125rem;
+  margin-bottom: 0.125rem;
+  border-width: 1px !important;
+  border-color: rgba(231, 196, 112, 0.82) !important;
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.55),
+    0 0 18px rgba(214, 183, 110, 0.1) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-add-btn.operator-neda-mechanical-scan-btn {
+  margin-top: 0.125rem;
+  margin-bottom: 0.125rem;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.32),
+    0 0 0 1px rgba(214, 183, 110, 0.28),
+    0 8px 22px rgba(60, 45, 20, 0.24) !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-shipment-summary__title {
@@ -6002,21 +7283,6 @@ html.dark .operator-item-scan-screen .operator-item-scan-shipment-summary__list 
   border-color: #243241;
 }
 
-html.dark .operator-item-scan-screen .operator-item-scan-actions {
-  border-color: rgba(50, 60, 72, 0.85) !important;
-  background: linear-gradient(180deg, rgba(26, 33, 41, 0.96) 0%, rgba(20, 26, 33, 0.98) 100%) !important;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-}
-
-html.light .operator-item-scan-screen .operator-item-scan-actions {
-  border-color: #cfc6b6 !important;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 246, 241, 0.98) 100%) !important;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 -6px 20px rgba(60, 45, 20, 0.08);
-}
-
 html.dark .operator-item-scan-screen .operator-item-scan-btn-back {
   border-color: rgba(185, 194, 204, 0.38) !important;
   background: linear-gradient(180deg, #2a3440 0%, #1a2129 100%) !important;
@@ -6042,18 +7308,21 @@ html.light .operator-item-scan-screen .operator-item-scan-btn-back:hover:not(:di
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-btn-finalize--ok {
-  background: linear-gradient(180deg, #3d4a38 0%, #2a3830 48%, #1e2c26 100%) !important;
-  border: 2px solid rgba(231, 196, 112, 0.55) !important;
+  background: linear-gradient(180deg, #424d5a 0%, #2f3844 46%, #1a2129 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.58) !important;
   color: #faf6ed !important;
+  font-weight: 800 !important;
   box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.28),
+    inset 0 1px 0 rgba(244, 218, 147, 0.32),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.38),
     0 6px 18px rgba(0, 0, 0, 0.32) !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-btn-finalize--ok {
   background: linear-gradient(180deg, #3d4550 0%, #2a313a 48%, #171c22 100%) !important;
-  border: 2px solid rgba(138, 104, 31, 0.58) !important;
+  border: 1px solid rgba(138, 104, 31, 0.62) !important;
   color: #faf6ed !important;
+  font-weight: 800 !important;
   box-shadow:
     inset 0 1px 0 rgba(244, 218, 147, 0.35),
     0 6px 18px rgba(60, 45, 20, 0.18) !important;
@@ -6680,15 +7949,15 @@ html.light .operator-dashboard-metric-cell {
     inset 0 -2px 5px rgba(22, 24, 27, 0.05);
 }
 
-/* Master stepper — industrial gold active rail */
+/* Master stepper — fallback (Shipment Entry header overrides below) */
 .operator-stepper-rail {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(214, 183, 110, 0.45) 50%,
+    rgba(214, 183, 110, 0.38) 50%,
     transparent
   );
-  box-shadow: 0 0 8px var(--scanner-gold-glow);
+  box-shadow: none;
 }
 
 html.light .operator-stepper-rail {
@@ -6696,12 +7965,16 @@ html.light .operator-stepper-rail {
 }
 
 .operator-stepper-node--active {
-  border-color: rgba(214, 183, 110, 0.65) !important;
-  background: linear-gradient(180deg, rgba(214, 183, 110, 0.22) 0%, rgba(32, 40, 50, 0.95) 100%) !important;
+  border-color: rgba(214, 183, 110, 0.55) !important;
+  background: linear-gradient(180deg, rgba(214, 183, 110, 0.18) 0%, rgba(32, 40, 50, 0.95) 100%) !important;
   box-shadow:
-    0 0 16px var(--scanner-gold-glow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25) !important;
   color: var(--scanner-text) !important;
+}
+
+.operator-shipment-entry-header .operator-stepper-node--active {
+  filter: none !important;
 }
 
 .operator-stepper-node--locked {

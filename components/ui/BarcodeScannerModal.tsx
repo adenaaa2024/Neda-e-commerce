@@ -78,12 +78,12 @@ export function BarcodeScannerModal({ onDetected, onClose, title = "Scan Barcode
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-popover shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 dark:bg-sky-950/50">
-              <ScanLine className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+            <div className="admin-stat-card__icon !h-10 !w-10 !rounded-lg">
+              <ScanLine className="h-5 w-5" strokeWidth={2.25} />
             </div>
             <div>
               <p className="font-bold text-foreground">{title}</p>
@@ -92,7 +92,7 @@ export function BarcodeScannerModal({ onDetected, onClose, title = "Scan Barcode
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+            className="admin-chrome-control rounded-full p-2 text-muted-foreground transition hover:text-foreground"
           >
             <X className="h-5 w-5" />
           </button>
@@ -103,7 +103,7 @@ export function BarcodeScannerModal({ onDetected, onClose, title = "Scan Barcode
           <div id={containerId} className="overflow-hidden rounded-2xl" />
         </div>
 
-        <div className="border-t border-slate-200 px-6 py-3 dark:border-slate-700">
+        <div className="border-t border-border px-6 py-3">
           <p className="text-center text-xs text-muted-foreground">
             Detection is automatic — no button needed. A beep plays on success.
           </p>

@@ -226,8 +226,8 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-violet-200 bg-white p-6 shadow-sm dark:border-violet-900/40 dark:bg-slate-950">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Company feature flags</h2>
+      <section className="admin-panel-card p-6">
+        <h2 className="text-lg font-semibold text-foreground">Company feature flags</h2>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           Toggle debug overlays and AI OCR defaults per company. Persists to{" "}
           <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">organization_settings</code>.
@@ -250,8 +250,8 @@ export default function AdminSettingsPage() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Marketplaces</h2>
+      <section className="admin-panel-card p-6">
+        <h2 className="text-lg font-semibold text-foreground">Marketplaces</h2>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           Name, slug, and icon URL. Icons appear on the Returns list when linked by ID or matching slug.
         </p>

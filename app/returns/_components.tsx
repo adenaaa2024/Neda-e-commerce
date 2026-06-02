@@ -353,23 +353,23 @@ export const PALLET_STATUS_CFG: Record<PalletStatus, { label: string; cls: strin
 
 // ─── CSS constants ─────────────────────────────────────────────────────────────
 
-export const INPUT      = "h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base text-slate-900 placeholder:text-slate-400 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-500/60";
-export const LABEL      = "mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-300";
-export const INPUT_SM   = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
-export const BTN_PRIMARY = "flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 font-semibold text-white transition hover:bg-sky-600 active:scale-[0.98] disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
+export const INPUT      = "admin-form-input admin-form-input--lg";
+export const LABEL      = "admin-form-label";
+export const INPUT_SM   = "admin-form-input admin-form-input--sm";
+export const BTN_PRIMARY = "admin-btn-primary flex h-14 w-full active:scale-[0.98] disabled:opacity-50";
 /** Primary actions in drawer/modal footers — avoids `w-full` collapsing in flex layouts. */
-export const BTN_PRIMARY_INLINE = "inline-flex h-14 shrink-0 min-w-[12rem] items-center justify-center gap-2 rounded-2xl bg-sky-500 px-6 font-semibold text-white transition hover:bg-sky-600 active:scale-[0.98] disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
+export const BTN_PRIMARY_INLINE = "admin-btn-primary inline-flex h-14 shrink-0 min-w-[12rem] px-6 active:scale-[0.98] disabled:opacity-50";
 /** Modal / drawer footers — balanced h-10 primary + secondary (use with `flex flex-wrap items-center justify-end gap-2`). */
-export const BTN_FOOTER_PRIMARY = "inline-flex h-10 min-w-[5.5rem] shrink-0 items-center justify-center gap-2 rounded-md bg-sky-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
-export const BTN_FOOTER_GHOST = "inline-flex h-10 min-w-[5.5rem] shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800";
-export const BTN_GHOST   = "flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800";
+export const BTN_FOOTER_PRIMARY = "admin-btn-primary inline-flex h-10 min-w-[5.5rem] shrink-0 px-4 text-sm disabled:opacity-50";
+export const BTN_FOOTER_GHOST = "admin-btn-secondary inline-flex h-10 min-w-[5.5rem] shrink-0 px-4 text-sm font-medium";
+export const BTN_GHOST   = "admin-btn-quiet inline-flex h-10 items-center gap-1.5 px-3 text-sm";
 
 /** Create Package / Create Pallet — equal-width footer actions (sticky bar). */
 export const MODAL_FOOTER_GRID = "grid grid-cols-2 gap-3";
 export const MODAL_FOOTER_CANCEL =
-  "flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800";
+  "admin-btn-secondary flex h-12 w-full text-sm font-semibold shadow-sm";
 export const MODAL_FOOTER_SUBMIT =
-  "inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
+  "admin-btn-primary inline-flex h-12 w-full text-sm disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Checkbox column — fixed width + centered so TableHead matches TableCell */
 export const TH_CHK = "w-10 min-w-[2.5rem] px-0 py-3 text-center align-middle";
@@ -5014,6 +5014,7 @@ export function WizardStep2({
             <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Optional — outer box</p>
               <MasterUploader
+                className="admin-uploader"
                 label="Outer box (optional)"
                 hint="Exterior carton — saved on this return only (photo_evidence.urls)."
                 value={state.wizard_outer_box_url.trim() ? [state.wizard_outer_box_url.trim()] : []}
@@ -5035,6 +5036,7 @@ export function WizardStep2({
               <div className="space-y-4">
                 {!hasPkgOpenedOnly && (
                   <MasterUploader
+                    className="admin-uploader"
                     label="Opened box"
                     hint="Interior / opened carton — saved on this return (photo_evidence.urls)."
                     value={state.wizard_opened_box_url.trim() ? [state.wizard_opened_box_url.trim()] : []}
@@ -5045,6 +5047,7 @@ export function WizardStep2({
                 )}
                 {!hasPkgReturnLabel && (
                   <MasterUploader
+                    className="admin-uploader"
                     label="Return label"
                     hint="Return / RMA label on the carton — saved on this return (photo_evidence.urls)."
                     value={state.wizard_pkg_return_label_url.trim() ? [state.wizard_pkg_return_label_url.trim()] : []}
@@ -5062,6 +5065,7 @@ export function WizardStep2({
 
             {!isLooseItem && (
               <MasterUploader
+                className="admin-uploader"
                 label="Item photo"
                 hint="Overall shot of the product (optional). Stored in photo_evidence (item_url)."
                 value={state.photo_item_url.trim() ? [state.photo_item_url.trim()] : []}
@@ -5073,6 +5077,7 @@ export function WizardStep2({
 
             {showExpiryPhotoSlot && (
               <MasterUploader
+                className="admin-uploader"
                 label="Expiry label photo"
                 hint={ALL_PHOTO_CATEGORIES.expiry_label.hint}
                 value={state.photo_expiry_url.trim() ? [state.photo_expiry_url.trim()] : []}
@@ -5084,6 +5089,7 @@ export function WizardStep2({
 
             {isLooseItem && (
               <MasterUploader
+                className="admin-uploader"
                 label="Return label (optional)"
                 hint="RMA / return label for this item — stored on this return only (photo_evidence)."
                 value={state.photo_return_label_url.trim() ? [state.photo_return_label_url.trim()] : []}
@@ -5094,6 +5100,7 @@ export function WizardStep2({
             )}
 
             <MasterUploader
+              className="admin-uploader"
               label="Additional evidence (gallery)"
               hint="Optional — up to 3 images merged into photo_evidence.urls."
               value={state.evidence_gallery_urls}
@@ -6469,6 +6476,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                     </label>
                   </div>
                   <MasterUploader
+                    className="admin-uploader"
                     label=""
                     hint="Up to 3 images — stored in photo_evidence.label_urls."
                     value={labelUrls}
@@ -6497,6 +6505,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                     </label>
                   </div>
                   <MasterUploader
+                    className="admin-uploader"
                     label=""
                     hint="Up to 3 images — stored in photo_evidence.outer_box_urls."
                     value={outerUrls}
@@ -6525,6 +6534,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                     </label>
                   </div>
                   <MasterUploader
+                    className="admin-uploader"
                     label=""
                     hint="Up to 3 images — stored in photo_evidence.inside_content_urls."
                     value={insideUrls}
@@ -6535,6 +6545,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                   />
                 </div>
                 <MasterUploader
+                className="admin-uploader"
                   label="Box sealed (optional)"
                   hint="Up to 3 images — stored in photo_evidence.sealed_box_urls."
                   value={sealedUrls}
@@ -6545,6 +6556,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
               </div>
             ) : (
               <MasterUploader
+                className="admin-uploader"
                 label="Reference photos (optional)"
                 hint="Up to 3 images — stored in photo_evidence.urls."
                 value={extraEvidenceUrls}
@@ -6730,6 +6742,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
               <p className="text-sm font-bold text-amber-900 dark:text-amber-100">Pallet documentation</p>
             </div>
             <MasterUploader
+              className="admin-uploader"
               label="Pallet photo (optional)"
               hint="Up to 3 images — first is saved to photo_url (extras are not stored on the pallet row)."
               value={palletPhotoUrls}
@@ -6738,6 +6751,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
               maxFiles={3}
             />
             <MasterUploader
+              className="admin-uploader"
               label="Bill of Lading (optional)"
               hint="Up to 3 images — first is saved to bol_photo_url (extras are not stored on the pallet row)."
               value={bolUrls}

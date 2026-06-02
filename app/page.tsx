@@ -18,10 +18,10 @@ export default async function Page() {
 
   return (
     <>
-      <header className="flex h-14 flex-col gap-2 border-b border-border bg-card/90 px-4 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4 md:px-6">
+      <header className="admin-page-header h-auto min-h-14 sm:flex-row">
         <div className="flex flex-col">
-          <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-sm">Dashboard</h1>
-          <p className="text-xs text-muted-foreground">At-a-glance volume for returns, pallets, and packages.</p>
+          <h1>Dashboard</h1>
+          <p>At-a-glance volume for returns, pallets, and packages.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <div className="relative hidden w-72 items-center md:flex">
