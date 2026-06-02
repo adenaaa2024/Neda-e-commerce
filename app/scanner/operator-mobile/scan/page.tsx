@@ -13121,7 +13121,8 @@ function OperatorMobileScanPageContent() {
                           <span className="text-right tabular-nums">Expected</span>
                           <span className="text-right tabular-nums">Scanned</span>
                         </div>
-                        <div className="grid gap-1 p-1">
+                        <div className="operator-shipment-entry-gate__line-items-scroll">
+                          <div className="grid gap-1 p-1">
                           {identifyGateShipmentLines.map((row, idx) => {
                             const vis = shipmentLineStatusVisual(row);
                             const th = IDENTIFICATION_GATE_THEME[vis];
@@ -13208,6 +13209,7 @@ function OperatorMobileScanPageContent() {
                               </div>
                             );
                           })}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -13342,12 +13344,7 @@ function OperatorMobileScanPageContent() {
                       Boolean(completedShipmentModal)
                     }
                     onClick={() => void handleIdentificationGatePrimaryCta()}
-                    className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl transition disabled:cursor-not-allowed disabled:opacity-35 ${ZEBRA_COMPACT_BTN}`}
-                    style={{
-                      background: `linear-gradient(180deg, ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].chipBg} 0%, rgba(15,23,42,0.95) 100%)`,
-                      border: `1px solid ${IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].border}`,
-                      color: IDENTIFICATION_GATE_THEME[identifyGateInventoryVisual].headline,
-                    }}
+                    className="operator-shipment-entry-gate__primary-cta mt-5 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold leading-tight transition disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     {identifyGateInventoryVisual === "completed" ? (
                       <ThumbsUp className="h-5 w-5" strokeWidth={2.25} />

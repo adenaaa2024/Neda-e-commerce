@@ -225,3 +225,60 @@ export type ReturnsAnalyticsPayload = {
   carrierBars: { name: string; count: number }[];
   operatorStats: { operator: string; count: number }[];
 };
+
+export type CommandCenterTrendPoint = {
+  date: string;
+  count: number;
+};
+
+export type CommandCenterClaimFunnel = {
+  scanned: number;
+  eligible: number;
+  draft: number;
+  ready: number;
+  submitted: number;
+};
+
+export type CommandCenterActionItem = {
+  id: string;
+  type:
+    | "missing_evidence"
+    | "product_link"
+    | "stale_package"
+    | "open_pallet"
+    | "claim_ready"
+    | "package_hold";
+  label: string;
+  reference: string | null;
+  createdAt: string | null;
+  status: string;
+  href: string | null;
+};
+
+export type CommandCenterHealth = {
+  lastImportAt: string | null;
+  lastImportLabel: string | null;
+  productJobStatus: string | null;
+  productJobAt: string | null;
+  lastAuditAt: string | null;
+  lastAuditAction: string | null;
+  importErrorsHint: string | null;
+  scannerActivityHint: string | null;
+};
+
+export type CommandCenterPayload = {
+  snapshot: DashboardSnapshot;
+  openPallets: number;
+  openPackages: number;
+  expectedItems: number;
+  scannedItems: number;
+  missingEvidence: number;
+  needsProductLink: number;
+  productLinkResolved: number;
+  claimsDraft: number;
+  returnsTrend: CommandCenterTrendPoint[];
+  claimFunnel: CommandCenterClaimFunnel;
+  conditionSlices: { name: string; value: number }[];
+  actionQueue: CommandCenterActionItem[];
+  health: CommandCenterHealth;
+};
