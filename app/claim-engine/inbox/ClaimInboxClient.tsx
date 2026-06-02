@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
-import { ClaimImportPathBanner, ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { ClaimIntakeScopeBanner, ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { ClaimIntakeSourcesPanel } from "@/components/claim-engine/ClaimIntakeSourcesPanel";
+import { ClaimSourceBadge } from "@/components/claim-engine/ClaimSourceBadge";
 import {
   claimEngineSubTabClass,
   CLAIM_ENGINE_MAIN_CLASS,
@@ -133,15 +135,6 @@ function isLegacySourceBroken(row: {
     row.inbox_queue === "legacy_source_broken" ||
     row.lineage_warning_code === "stale_or_wrong_source_row_id" ||
     row.source_lineage_status === "legacy_source_broken"
-  );
-}
-
-function SourceTableBadge({ table }: { table: string | null }) {
-  if (!table) return <span className="text-muted-foreground">—</span>;
-  return (
-    <span className="inline-flex rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-      {table}
-    </span>
   );
 }
 
@@ -407,15 +400,18 @@ export function ClaimInboxClient({
     <>
       <main className={CLAIM_ENGINE_MAIN_CLASS}>
         <ClaimEnginePageShell
-          showHub={false}
-          title="Import / Amazon candidate inbox"
-          description="Review claim_candidates from imports, removals, and legacy generators. Read-only in v1 — not the warehouse physical-scan path."
+          showHub
+          showWorkflowExplainer
+          title="Claim intake"
+          description="All import- and generator-backed claim signals before draft normalization. Physical scans use the draft pool; this inbox reads claim_candidates only (read-only promote in v1)."
           aside={[
-            { href: "/returns/claims", label: "Physical-scan draft pool" },
+            { href: "/returns/claims", label: "Draft pool" },
+            { href: "/claim-engine/cases", label: "Cases" },
             { href: "/claim-engine", label: "Submission queue" },
           ]}
         >
-          <ClaimImportPathBanner />
+          <ClaimIntakeScopeBanner />
+          <ClaimIntakeSourcesPanel />
           {initialDraftId ? (
             <p className="text-xs text-muted-foreground">
               <Link
@@ -604,7 +600,7 @@ export function ClaimInboxClient({
                         onClick={() => openDetail(row.id)}
                       >
                         <td className="px-3 py-2 align-top">
-                          <SourceTableBadge table={row.source_table} />
+                          <ClaimSourceBadge source_table={row.source_table} />
                         </td>
                         <td className="max-w-[220px] px-3 py-2 align-top text-[11px] text-slate-700 dark:text-slate-200">
                           <div className="line-clamp-2">{whyClaimExists(row)}</div>
@@ -764,7 +760,7 @@ export function ClaimInboxClient({
                         <div className="flex justify-between gap-2">
                           <dt className="text-muted-foreground">Source table</dt>
                           <dd>
-                            <SourceTableBadge table={String(candidate.source_table)} />
+                            <ClaimSourceBadge source_table={String(candidate.source_table)} />
                           </dd>
                         </div>
                       ) : null}

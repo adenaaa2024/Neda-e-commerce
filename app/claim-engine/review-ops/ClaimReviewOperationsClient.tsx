@@ -637,12 +637,17 @@ export function ClaimReviewOperationsClient({
     <>
       <ClaimEnginePageShell
         title="Review"
-        description="Step 2 (optional): TRID/import claim_candidate_drafts with operator work items. Resolve product-link and evidence flags, then continue to Cases for physical-scan claims."
+        description="Operator review for import/TRID drafts: mixed groups, missing evidence, product links, policy holds, and duplicates. Physical scans use Draft pool → Case builder instead."
+        showWorkflowExplainer
         pathNote={
           <>
-            Not the same as Draft pool (warehouse scans). Import candidates:{" "}
-            <Link href="/claim-engine/inbox" className="font-medium text-violet-600 underline dark:text-violet-400">
-              Import inbox
+            Raw import signals:{" "}
+            <Link href="/claim-engine/inbox" className="font-medium text-slate-700 underline dark:text-slate-300">
+              Claim intake
+            </Link>
+            . Physical scans:{" "}
+            <Link href="/returns/claims" className="font-medium text-slate-700 underline dark:text-slate-300">
+              Draft pool
             </Link>
             .
           </>

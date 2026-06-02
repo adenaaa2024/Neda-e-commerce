@@ -74,8 +74,12 @@ export function ClaimCasesClient() {
   return (
     <ClaimEnginePageShell
       title="Cases"
-      description="An internal claim packet groups one or many return-item lines before marketplace submission. Build cases from the draft pool, then promote here to create a submission and PDF."
-      aside={[{ href: "/returns/claims", label: "Draft pool" }]}
+      description="Grouped internal claim packets (claim_cases + claim_lines) before marketplace submission. Build from the draft pool case builder, then promote here for PDF — no auto marketplace submit."
+      showWorkflowExplainer
+      aside={[
+        { href: "/returns/claims", label: "Draft pool" },
+        { href: "/claim-engine", label: "Submission queue" },
+      ]}
     >
       <div className="grid gap-4 sm:grid-cols-3">
         <div className={CLAIM_ENGINE_SECTION_CLASS}>

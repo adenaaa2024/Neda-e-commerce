@@ -13,8 +13,8 @@ export default async function ClaimReviewOperationsPage() {
   if (!isClaimDraftsReviewEnabled() || !isClaimReviewWorkflowEnabled()) {
     return (
       <ClaimEngineFeatureDisabled
-        title="Claim review operations"
-        description="Review manages TRID/import claim_candidate_drafts and operator work items (step 2 of the import path). This screen is disabled until both feature flags are enabled — the physical-scan path still works without it."
+        title="Review"
+        description="Operator review for import/TRID claim_candidate_drafts: mixed groups, missing evidence, product link gaps, policy holds, and duplicate candidates. Disabled until feature flags are on — intake and physical-scan draft pool still work."
         envVars={[
           {
             name: "ENABLE_CLAIM_DRAFTS_REVIEW",
@@ -25,7 +25,14 @@ export default async function ClaimReviewOperationsPage() {
             description: "Work-item queue, assignment, and bootstrap actions.",
           },
         ]}
-        alternateHref={{ href: "/claim-engine/inbox", label: "Open import / Amazon candidate inbox →" }}
+        previewSlices={[
+          "Mixed groups needing split before case creation",
+          "Missing evidence on import drafts",
+          "Missing product link (PIM resolution)",
+          "Policy / cutoff holds (claim_start_date, scan_go_live_date)",
+          "Duplicate candidates across sources",
+        ]}
+        alternateHref={{ href: "/claim-engine/inbox", label: "Open claim intake →" }}
       />
     );
   }
@@ -42,7 +49,7 @@ export default async function ClaimReviewOperationsPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-[1400px] p-4 text-sm text-slate-600 dark:text-slate-400">Loading review operations…</div>
+        <div className="mx-auto max-w-[1600px] p-4 text-sm text-slate-600 dark:text-slate-400">Loading review operations…</div>
       }
     >
       <ClaimReviewOperationsClient organizationId={organizationId} defaultStoreId={defaultStoreId} />

@@ -7,6 +7,8 @@ type ClaimEngineFeatureDisabledProps = {
   description: string;
   envVars: { name: string; description: string }[];
   alternateHref?: { href: string; label: string };
+  /** What would appear in this tab when enabled. */
+  previewSlices?: string[];
 };
 
 export function ClaimEngineFeatureDisabled({
@@ -14,13 +16,27 @@ export function ClaimEngineFeatureDisabled({
   description,
   envVars,
   alternateHref,
+  previewSlices,
 }: ClaimEngineFeatureDisabledProps) {
   return (
-    <ClaimEnginePageShell title={title} description={description}>
+    <ClaimEnginePageShell title={title} description={description} showWorkflowExplainer>
       <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/25 dark:text-amber-100">
         <p className="font-semibold">Feature disabled on this environment</p>
-        <p className="mt-1 text-xs">The physical-scan path (Draft pool → Cases → Submission queue) still works without these flags.</p>
+        <p className="mt-1 text-xs">
+          Unified pipeline: Intake → Draft pool → Review → Case builder → Cases → Submission queue → Active / Closed.
+          Physical scans do not require this tab.
+        </p>
       </div>
+      {previewSlices?.length ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">When enabled, you will see</p>
+          <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-700 dark:text-slate-300">
+            {previewSlices.map((s) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Required environment variables</p>
         <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
@@ -33,15 +49,19 @@ export function ClaimEngineFeatureDisabled({
         </ul>
         <p className="mt-4 text-sm text-muted-foreground">
           After enabling, redeploy or restart. Meanwhile:{" "}
-          <Link href="/returns/claims" className="font-medium text-sky-600 underline dark:text-sky-400">
+          <Link href="/claim-engine/inbox" className="font-medium text-slate-700 underline dark:text-slate-300">
+            Intake
+          </Link>
+          ,{" "}
+          <Link href="/returns/claims" className="font-medium text-slate-700 underline dark:text-slate-300">
             Draft pool
           </Link>
           ,{" "}
-          <Link href="/claim-engine/cases" className="font-medium text-sky-600 underline dark:text-sky-400">
+          <Link href="/claim-engine/cases" className="font-medium text-slate-700 underline dark:text-slate-300">
             Cases
           </Link>
           ,{" "}
-          <Link href="/claim-engine" className="font-medium text-sky-600 underline dark:text-sky-400">
+          <Link href="/claim-engine" className="font-medium text-slate-700 underline dark:text-slate-300">
             Submission queue
           </Link>
           .
@@ -49,7 +69,7 @@ export function ClaimEngineFeatureDisabled({
         {alternateHref ? (
           <Link
             href={alternateHref.href}
-            className="mt-4 inline-flex text-sm font-medium text-violet-700 hover:text-violet-600 dark:text-violet-300"
+            className="mt-4 inline-flex text-sm font-medium text-slate-700 hover:text-slate-900 dark:text-slate-300"
           >
             {alternateHref.label}
           </Link>

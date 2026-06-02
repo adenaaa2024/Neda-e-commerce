@@ -116,41 +116,29 @@ function providerLabel(raw: string | null): string {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pending:
-    "border-amber-700/60 bg-amber-950/50 text-amber-300",
+  pending: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
   recovered:
-    "border-emerald-700/60 bg-emerald-950/50 text-emerald-300",
-  suspicious:
-    "border-rose-700/60 bg-rose-950/50 text-rose-300",
-  cancelled:
-    "border-slate-600/60 bg-slate-900/50 text-slate-300",
+    "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
+  suspicious: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
+  cancelled: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
 };
 
 /** `claim_submissions.status` + legacy adapter labels for synced rows */
 const CLAIM_ROW_STATUS_STYLES: Record<string, string> = {
   ...STATUS_STYLES,
-  draft: "border-slate-600/60 bg-slate-900/50 text-slate-300",
-  ready_to_send: "border-sky-700/60 bg-sky-950/50 text-sky-200",
-  submitted: "border-amber-700/60 bg-amber-950/50 text-amber-300",
-  evidence_requested: "border-amber-600/60 bg-amber-950/40 text-amber-100",
-  investigating: "border-violet-600/60 bg-violet-950/40 text-violet-100",
+  draft: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  ready_to_send: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
+  submitted: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+  evidence_requested:
+    "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+  investigating:
+    "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200",
   accepted: STATUS_STYLES.recovered,
-  rejected: "border-rose-700/60 bg-rose-950/50 text-rose-300",
-  /** Added by Neda's migration — terminal system failure. */
-  failed: "border-rose-800/70 bg-rose-950/60 text-rose-200",
+  rejected: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
+  failed: "border-rose-300 bg-rose-100 text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200",
 };
 
-const SUBMISSION_STATUS_STYLES: Record<string, string> = {
-  draft: "border-slate-600/60 bg-slate-900/50 text-slate-300",
-  ready_to_send: "border-sky-700/60 bg-sky-950/50 text-sky-200",
-  submitted: "border-amber-700/60 bg-amber-950/50 text-amber-200",
-  evidence_requested: "border-amber-600/60 bg-amber-950/40 text-amber-100",
-  investigating: "border-violet-700/60 bg-violet-950/50 text-violet-200",
-  accepted: "border-emerald-700/60 bg-emerald-950/50 text-emerald-200",
-  rejected: "border-rose-700/60 bg-rose-950/50 text-rose-200",
-  /** Added by Neda's migration — terminal system failure, shown in queue and history. */
-  failed: "border-rose-800/70 bg-rose-950/60 text-rose-200",
-};
+const SUBMISSION_STATUS_STYLES: Record<string, string> = { ...CLAIM_ROW_STATUS_STYLES };
 
 /** UI buckets over existing `claim_submissions.status` — no schema changes. */
 const SUBMISSION_QUEUE_STATUSES = new Set(["draft", "ready_to_send"]);
@@ -715,10 +703,12 @@ export function ClaimEngineClient({
         <ClaimEnginePageShell
           title={TAB_COPY[claimEngineTab].title}
           description={TAB_COPY[claimEngineTab].description}
+          showWorkflowExplainer
           aside={[
-            { href: "/claim-engine/inbox", label: "Import inbox" },
-            { href: "/claim-engine/report-history", label: "Report history" },
+            { href: "/claim-engine/inbox", label: "Intake" },
             { href: "/returns/claims", label: "Draft pool" },
+            { href: "/claim-engine/cases", label: "Cases" },
+            { href: "/claim-engine/report-history", label: "Reports" },
           ]}
         >
           {claimEngineTab === "submission_queue" && (kpisError || kpis) ? (

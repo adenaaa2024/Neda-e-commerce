@@ -173,7 +173,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
           {
             kind: "leaf",
             id: "claim_inbox",
-            label: "Import inbox",
+            label: "Claim intake",
             path: "/claim-engine/inbox",
             featureKey: "claims.engine",
             permissionBase: "claims.engine",

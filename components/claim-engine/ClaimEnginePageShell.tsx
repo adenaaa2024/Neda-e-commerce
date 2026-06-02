@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { ClaimEngineHubNavShell } from "./ClaimEngineHubNavShell";
+import { ClaimWorkflowExplainer } from "./ClaimWorkflowExplainer";
 import { CLAIM_ENGINE_PAGE_CLASS } from "./claim-engine-ui";
 
 type AsideLink = { href: string; label: string };
@@ -13,6 +14,8 @@ export function ClaimEnginePageShell({
   aside,
   showHub = true,
   pathNote,
+  showWorkflowExplainer = false,
+  workflowExplainerCompact = true,
 }: {
   title: string;
   description: string;
@@ -21,6 +24,9 @@ export function ClaimEnginePageShell({
   showHub?: boolean;
   /** Short note under description (e.g. physical vs import path). */
   pathNote?: ReactNode;
+  /** Pipeline glossary (Intake → Draft → Cases → Submissions). */
+  showWorkflowExplainer?: boolean;
+  workflowExplainerCompact?: boolean;
 }) {
   const asideNode =
     Array.isArray(aside) ? (
@@ -50,32 +56,32 @@ export function ClaimEnginePageShell({
         </div>
         {asideNode ? <div className="shrink-0">{asideNode}</div> : null}
       </header>
+      {showWorkflowExplainer ? (
+        <ClaimWorkflowExplainer compact={workflowExplainerCompact} />
+      ) : null}
       {children}
     </div>
   );
 }
 
-/** Banner for Import / Amazon candidate inbox (not physical-scan workflow). */
-export function ClaimImportPathBanner() {
+/** Intake scope note — all sources, not import-only. */
+export function ClaimIntakeScopeBanner() {
   return (
-    <div className="rounded-xl border border-violet-200 bg-violet-50/80 px-4 py-3 text-sm text-violet-950 dark:border-violet-800/50 dark:bg-violet-950/30 dark:text-violet-100">
-      <p className="font-semibold">Import / Amazon candidate inbox</p>
-      <p className="mt-1 text-xs leading-relaxed text-violet-900/90 dark:text-violet-200/90">
-        This screen reviews <strong>claim_candidates</strong> from imports, removals, and legacy generators — not
-        warehouse physical scans. For scanner returns, use the workflow:{" "}
-        <Link href="/returns/claims" className="font-medium underline">
+    <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-100">
+      <p className="font-semibold">Claim intake inbox</p>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+        Raw signals from <strong className="text-foreground">claim_candidates</strong> (imports, removals, Amazon
+        returns reports, and generators). Physical warehouse scans are normalized in the{" "}
+        <Link href="/returns/claims" className="font-medium text-slate-900 underline dark:text-slate-100">
           Draft pool
-        </Link>{" "}
-        →{" "}
-        <Link href="/claim-engine/review-ops" className="font-medium underline">
-          Review
-        </Link>{" "}
-        →{" "}
-        <Link href="/claim-engine/cases" className="font-medium underline">
-          Cases
-        </Link>{" "}
-        → Submission queue.
+        </Link>
+        . Settlement, reimbursement, and inventory connectors are listed below when not yet live.
       </p>
     </div>
   );
+}
+
+/** @deprecated Use ClaimIntakeScopeBanner */
+export function ClaimImportPathBanner() {
+  return <ClaimIntakeScopeBanner />;
 }

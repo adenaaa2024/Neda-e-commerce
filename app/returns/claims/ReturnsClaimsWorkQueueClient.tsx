@@ -4,19 +4,24 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, FolderPlus, Loader2 } from "lucide-react";
 
+import { ClaimCaseBuilderPanel } from "@/components/claim-engine/ClaimCaseBuilderPanel";
 import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
 import { ClaimFlowBadge } from "@/components/claim-engine/ClaimFlowBadge";
+import { ClaimSourceBadge } from "@/components/claim-engine/ClaimSourceBadge";
 import {
+  CLAIM_ENGINE_BTN_PRIMARY,
   CLAIM_ENGINE_CARD_CLASS,
   CLAIM_ENGINE_FILTER_TAB_ACTIVE,
   CLAIM_ENGINE_FILTER_TAB_IDLE,
   CLAIM_ENGINE_INPUT_CLASS,
   CLAIM_ENGINE_SECTION_CLASS,
+  CLAIM_ENGINE_STICKY_ACTION_BAR_CLASS,
   CLAIM_ENGINE_TABLE_CLASS,
   CLAIM_ENGINE_TABLE_HEAD_CLASS,
   CLAIM_ENGINE_TABLE_ROW_CLASS,
 } from "@/components/claim-engine/claim-engine-ui";
+import { claimEligibilityReasonLabel } from "@/lib/claim-eligibility-policy";
 import { useUserRole } from "../../../components/UserRoleContext";
 import { claimFlowStageHint, type ClaimFlowStage } from "../../../lib/claim-flow-status-badges";
 import {
@@ -90,6 +95,7 @@ export function ReturnsClaimsWorkQueueClient() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [groupingDimension, setGroupingDimension] = useState<ManualGroupingDimension>("issue");
   const [creating, setCreating] = useState(false);
+  const [caseBuilderOpen, setCaseBuilderOpen] = useState(false);
   const [draftMessage, setDraftMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [references, setReferences] = useState<ListAmazonReturnsReferenceResult | null>(null);
 
@@ -178,11 +184,11 @@ export function ReturnsClaimsWorkQueueClient() {
 
   const clearSelection = () => setSelectedIds(new Set());
 
-  const createDraft = async () => {
+  const createDraft = async (ids: string[], dimension: ManualGroupingDimension = groupingDimension) => {
     setCreating(true);
     setDraftMessage(null);
-    const res = await createManualReturnsClaimDraft([...selectedIds], {
-      grouping_dimension: groupingDimension,
+    const res = await createManualReturnsClaimDraft(ids, {
+      grouping_dimension: dimension,
       actorProfileId: actorUserId,
       tenant: tenantQuery,
     });
@@ -192,19 +198,74 @@ export function ReturnsClaimsWorkQueueClient() {
         ok: true,
         text: `Draft case ${res.claim_case_id?.slice(0, 8)}… — ${res.attached_line_count} return_item line(s)${res.created_case ? " (new)" : " (existing)"}.`,
       });
+      setCaseBuilderOpen(false);
       void load();
       clearSelection();
     } else {
       setDraftMessage({ ok: false, text: res.error ?? "Failed to create draft." });
     }
+    return res;
+  };
+
+  const splitAndCreate = async (dimension: ManualGroupingDimension) => {
+    const groups = [...clusterRowsByManualDimension(selectedRows.map(rowToManualInput), dimension).values()];
+    setCreating(true);
+    let okCount = 0;
+    for (const group of groups) {
+      const ids = group.map((i) => i.return_item_id);
+      const res = await createManualReturnsClaimDraft(ids, {
+        grouping_dimension: dimension,
+        actorProfileId: actorUserId,
+        tenant: tenantQuery,
+      });
+      if (res.ok) okCount += 1;
+      else {
+        setDraftMessage({ ok: false, text: res.error ?? "Split create failed." });
+        setCreating(false);
+        return;
+      }
+    }
+    setCreating(false);
+    setCaseBuilderOpen(false);
+    setDraftMessage({ ok: true, text: `Created ${okCount} case(s) from split by ${dimension}.` });
+    void load();
+    clearSelection();
+  };
+
+  const openCaseBuilder = () => {
+    if (!selectedIds.size) return;
+    setCaseBuilderOpen(true);
+  };
+
+  const removeFromSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
   return (
     <ClaimEnginePageShell
       title="Draft pool"
-      description="Step 1 of the physical-scan path: warehouse return items with claimable scanner issues. Select rows and create an internal claim case — one case can include multiple return items."
-      aside={[{ href: "/returns", label: "Returns processing" }]}
+      description="Normalized claimable units from physical return scans. Select rows, open the case builder to review mixed-group warnings, then create claim_cases and claim_lines (no marketplace submit)."
+      showWorkflowExplainer
+      aside={[
+        { href: "/claim-engine/inbox", label: "Intake" },
+        { href: "/claim-engine/cases", label: "Cases" },
+      ]}
     >
+      <div id="case-builder" className="scroll-mt-24" />
+      <ClaimCaseBuilderPanel
+        open={caseBuilderOpen}
+        rows={selectedRows}
+        policy={result?.claim_policy}
+        creating={creating}
+        onClose={() => setCaseBuilderOpen(false)}
+        onConfirmMixed={() => void createDraft([...selectedIds])}
+        onSplitAndCreate={(d) => void splitAndCreate(d)}
+        onRemoveRow={removeFromSelection}
+      />
 
       {result && !result.returns_domain_enabled ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-100">
@@ -222,6 +283,14 @@ export function ReturnsClaimsWorkQueueClient() {
           <span>
             Claim start:{" "}
             <strong className="text-foreground">{result.policy_summary.claim_start_date ?? "not set"}</strong>
+          </span>
+          <span>
+            Window:{" "}
+            <strong className="text-foreground">{result.policy_summary.claim_eligibility_window_days ?? 90}d</strong>
+          </span>
+          <span>
+            Grouping:{" "}
+            <strong className="text-foreground">{result.claim_policy?.claim_grouping_policy ?? "single_item"}</strong>
           </span>
           <span>
             Queue rows: <strong className="text-foreground">{result.stats.queue_rows}</strong>
@@ -264,11 +333,11 @@ export function ReturnsClaimsWorkQueueClient() {
           <button
             type="button"
             disabled={!selectedIds.size || creating || !result?.returns_domain_enabled}
-            onClick={() => void createDraft()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40"
+            onClick={openCaseBuilder}
+            className={`${CLAIM_ENGINE_BTN_PRIMARY} inline-flex items-center gap-1.5 px-4 py-2 text-sm`}
           >
-            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
-            Create draft case
+            <FolderPlus className="h-4 w-4" />
+            Build claim case
           </button>
         </div>
         {suggestedGroups.length > 1 ? (
@@ -335,36 +404,93 @@ export function ReturnsClaimsWorkQueueClient() {
           action={{ href: "/returns", label: "Go to returns processing" }}
         />
       ) : (
-        <div className={CLAIM_ENGINE_CARD_CLASS}>
-          <table className={CLAIM_ENGINE_TABLE_CLASS}>
-            <thead className={CLAIM_ENGINE_TABLE_HEAD_CLASS}>
-              <tr>
-                <th className="w-10 px-3 py-3" />
-                <th className="px-4 py-3 font-semibold">Flow</th>
-                <th className="px-4 py-3 font-semibold">Queue</th>
-                <th className="px-4 py-3 font-semibold">Item</th>
-                <th className="px-4 py-3 font-semibold">Issue</th>
-                <th className="px-4 py-3 font-semibold">Product</th>
-                <th className="px-4 py-3 font-semibold">Scanned</th>
-                <th className="px-4 py-3 font-semibold">Claim line</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => (
-                <QueueRow
-                  key={row.return_item_id}
-                  row={row}
-                  selected={selectedIds.has(row.return_item_id)}
-                  canSelect={canSelectRow(row)}
-                  onToggle={() => toggleSelect(row.return_item_id)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className={`hidden md:block ${CLAIM_ENGINE_CARD_CLASS}`}>
+            <table className={CLAIM_ENGINE_TABLE_CLASS}>
+              <thead className={CLAIM_ENGINE_TABLE_HEAD_CLASS}>
+                <tr>
+                  <th className="w-10 px-3 py-3" />
+                  <th className="px-4 py-3 font-semibold">Source</th>
+                  <th className="px-4 py-3 font-semibold">Flow</th>
+                  <th className="px-4 py-3 font-semibold">Queue</th>
+                  <th className="px-4 py-3 font-semibold">Item</th>
+                  <th className="px-4 py-3 font-semibold">Issue</th>
+                  <th className="px-4 py-3 font-semibold">Product</th>
+                  <th className="px-4 py-3 font-semibold">Scanned</th>
+                  <th className="px-4 py-3 font-semibold">Claim line</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => (
+                  <QueueRow
+                    key={row.return_item_id}
+                    row={row}
+                    selected={selectedIds.has(row.return_item_id)}
+                    canSelect={canSelectRow(row)}
+                    onToggle={() => toggleSelect(row.return_item_id)}
+                    policyReason={
+                      result?.claim_policy
+                        ? evaluateManualDraftEligibility(row, result.claim_policy).reason
+                        : undefined
+                    }
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-3 md:hidden">
+            {filtered.map((row) => (
+              <QueueCard
+                key={row.return_item_id}
+                row={row}
+                selected={selectedIds.has(row.return_item_id)}
+                canSelect={canSelectRow(row)}
+                onToggle={() => toggleSelect(row.return_item_id)}
+              />
+            ))}
+          </div>
+        </>
       )}
+
+      {selectedIds.size > 0 ? (
+        <div className={`${CLAIM_ENGINE_STICKY_ACTION_BAR_CLASS} md:hidden`}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold">{selectedIds.size} selected</span>
+            <button
+              type="button"
+              disabled={creating || !result?.returns_domain_enabled}
+              onClick={openCaseBuilder}
+              className={`${CLAIM_ENGINE_BTN_PRIMARY} inline-flex items-center gap-1.5`}
+            >
+              <FolderPlus className="h-4 w-4" />
+              Build case
+            </button>
+          </div>
+        </div>
+      ) : null}
     </ClaimEnginePageShell>
   );
+}
+
+function policySettingHint(reason: string | undefined): string | null {
+  if (!reason || reason === "allowed") return null;
+  const known = [
+    "allowed",
+    "scan_not_live",
+    "import_pre_cutoff",
+    "outside_window",
+    "hold_package_open",
+    "hold_pallet_open",
+    "hold_order_incomplete",
+    "manual_review_required",
+    "missing_scanner_evidence",
+    "promote_disabled",
+    "module_scope_disabled",
+  ] as const;
+  if ((known as readonly string[]).includes(reason)) {
+    return claimEligibilityReasonLabel(reason as (typeof known)[number]);
+  }
+  return reason.replace(/_/g, " ");
 }
 
 function QueueRow({
@@ -372,11 +498,13 @@ function QueueRow({
   selected,
   canSelect,
   onToggle,
+  policyReason,
 }: {
   row: ReturnsClaimQueueRow;
   selected: boolean;
   canSelect: boolean;
   onToggle: () => void;
+  policyReason?: string;
 }) {
   const issueLabel =
     (row.scanner_issue_label && CLAIM_DEFECT_LABELS[row.scanner_issue_label]) ||
@@ -387,22 +515,29 @@ function QueueRow({
   const flowLabel = row.flow_stage_label ?? row.state_label;
   const flowHint = flowStage ? claimFlowStageHint(flowStage) : "";
 
+  const settingHint = policySettingHint(policyReason);
+
   return (
-    <tr className={selected ? "bg-violet-50/50 dark:bg-violet-950/20" : "hover:bg-muted/20"}>
+    <tr className={`${CLAIM_ENGINE_TABLE_ROW_CLASS} ${selected ? "bg-slate-50 dark:bg-slate-900/60" : "hover:bg-muted/20"}`}>
       <td className="px-3 py-3">
         <input
           type="checkbox"
           checked={selected}
           disabled={!canSelect}
           onChange={onToggle}
-          title={canSelect ? "Include in manual draft case" : flowHint || "Not eligible for manual draft"}
+          title={canSelect ? "Include in manual draft case" : settingHint ?? flowHint ?? "Not eligible for manual draft"}
           className="h-4 w-4 rounded border-border"
         />
       </td>
       <td className="px-4 py-3">
+        <ClaimSourceBadge source_table="return_items" />
+      </td>
+      <td className="px-4 py-3">
         {flowStage ? <ClaimFlowBadge stage={flowStage} /> : <span className="text-xs text-muted-foreground">{flowLabel}</span>}
       </td>
-      <td className="px-4 py-3 text-xs text-muted-foreground">{row.state_label}</td>
+      <td className="px-4 py-3 text-xs text-muted-foreground" title={settingHint ?? undefined}>
+        {row.state_label}
+      </td>
       <td className="px-4 py-3">
         <div className="font-medium text-foreground">
           {row.item_name?.trim() || row.lpn || row.return_item_id.slice(0, 8)}
@@ -432,5 +567,54 @@ function QueueRow({
         )}
       </td>
     </tr>
+  );
+}
+
+function QueueCard({
+  row,
+  selected,
+  canSelect,
+  onToggle,
+}: {
+  row: ReturnsClaimQueueRow;
+  selected: boolean;
+  canSelect: boolean;
+  onToggle: () => void;
+}) {
+  const flowStage = (row.flow_stage as ClaimFlowStage | null) ?? null;
+  const issueLabel =
+    (row.scanner_issue_label && CLAIM_DEFECT_LABELS[row.scanner_issue_label]) ||
+    row.scanner_issue_type ||
+    "—";
+
+  return (
+    <div
+      className={`rounded-xl border p-4 shadow-sm ${selected ? "border-slate-400 bg-slate-50 dark:border-slate-600 dark:bg-slate-900/60" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70"}`}
+    >
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={!canSelect}
+          onChange={onToggle}
+          className="mt-1 h-4 w-4 rounded border-border"
+        />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <ClaimSourceBadge source_table="return_items" />
+            {flowStage ? <ClaimFlowBadge stage={flowStage} /> : null}
+            <span className="text-xs text-muted-foreground">{row.state_label}</span>
+          </div>
+          <p className="font-medium text-foreground">
+            {row.item_name?.trim() || row.lpn || row.return_item_id.slice(0, 8)}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {row.sku || row.fnsku || "—"}
+            {row.order_id ? ` · ${row.order_id}` : ""}
+          </p>
+          <p className="text-xs">{issueLabel}</p>
+        </div>
+      </div>
+    </div>
   );
 }

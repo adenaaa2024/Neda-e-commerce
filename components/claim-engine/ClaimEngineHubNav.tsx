@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
-import { claimEngineSubTabClass } from "./claim-engine-ui";
+import { CLAIM_ENGINE_HUB_NAV_CLASS, claimEngineSubTabClass } from "./claim-engine-ui";
 
 type HubLink = {
   href: string;
@@ -13,6 +13,11 @@ type HubLink = {
 
 const LINKS: HubLink[] = [
   {
+    href: "/claim-engine/inbox",
+    label: "Intake",
+    isActive: (p) => p === "/claim-engine/inbox" || p.startsWith("/claim-engine/inbox/"),
+  },
+  {
     href: "/returns/claims",
     label: "Draft pool",
     isActive: (p) => p === "/returns/claims" || p.startsWith("/returns/claims/"),
@@ -21,6 +26,11 @@ const LINKS: HubLink[] = [
     href: "/claim-engine/review-ops",
     label: "Review",
     isActive: (p) => p === "/claim-engine/review-ops" || p.startsWith("/claim-engine/review-ops/"),
+  },
+  {
+    href: "/returns/claims#case-builder",
+    label: "Case builder",
+    isActive: () => false,
   },
   {
     href: "/claim-engine/cases",
@@ -42,6 +52,11 @@ const LINKS: HubLink[] = [
     label: "Closed",
     isActive: (p, tab) => p === "/claim-engine" && tab === "closed",
   },
+  {
+    href: "/claim-engine/report-history",
+    label: "Reports",
+    isActive: (p) => p === "/claim-engine/report-history",
+  },
 ];
 
 function normalizePath(pathname: string): string {
@@ -53,14 +68,11 @@ export function ClaimEngineHubNav({ className = "" }: { className?: string }) {
   const tab = useSearchParams().get("tab");
 
   return (
-    <nav
-      className={`flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80 ${className}`}
-      aria-label="Claims workflow"
-    >
+    <nav className={`${CLAIM_ENGINE_HUB_NAV_CLASS} ${className}`} aria-label="Claims workflow">
       {LINKS.map((item) => {
         const active = item.isActive(pathname, tab);
         return (
-          <Link key={item.href} href={item.href} className={claimEngineSubTabClass(active)}>
+          <Link key={item.href} href={item.href} className={`${claimEngineSubTabClass(active)} shrink-0 whitespace-nowrap`}>
             {item.label}
           </Link>
         );

@@ -1,6 +1,13 @@
 /** Shared layout + tab styling for claims workflow pages. */
 
-export const CLAIM_ENGINE_PAGE_CLASS = "mx-auto w-full max-w-[1400px] space-y-6 px-4 py-6 sm:px-6";
+export const CLAIM_ENGINE_PAGE_CLASS = "mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8";
+
+/** Horizontal workflow nav — scroll on narrow viewports. */
+export const CLAIM_ENGINE_HUB_NAV_CLASS =
+  "flex gap-1 overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200 bg-white p-1 scrollbar-thin dark:border-slate-800 dark:bg-slate-950/80 [-webkit-overflow-scrolling:touch]";
+
+export const CLAIM_ENGINE_STICKY_ACTION_BAR_CLASS =
+  "pointer-events-auto fixed bottom-0 left-0 right-0 z-[450] border-t border-slate-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95 sm:bottom-4 sm:left-1/2 sm:right-auto sm:w-[min(100vw-2rem,42rem)] sm:-translate-x-1/2 sm:rounded-2xl sm:border";
 
 export const CLAIM_ENGINE_MAIN_CLASS =
   "min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-950";

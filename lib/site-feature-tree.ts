@@ -45,7 +45,7 @@ export const SITE_FEATURE_TREE: SiteFeatureNode[] = [
       },
       {
         id: "ops.claim_inbox",
-        label: "Claim inbox",
+        label: "Claim intake",
         path: "/claim-engine/inbox",
         readKeys: ["claims.view"],
         writeKeys: ["claims.create"],
