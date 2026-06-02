@@ -2,7 +2,11 @@ import {
   evaluateClaimEligibilitySync,
   type EvaluateClaimEligibilityInput,
 } from "./claim-eligibility-policy";
-import type { ClaimWorkflowSettings } from "./claim-effective-settings-shared";
+import type {
+  ClaimWorkflowSettings,
+  EffectiveClaimSettingsSnapshot,
+} from "./claim-effective-settings-shared";
+import { evaluateMixedIssueGate, evaluateMixedProductGate } from "./claim-settings-gates";
 import type { ClaimEligibilityReason, ClaimEligibilityResult, ClaimPolicyV1 } from "./claim-policy-types";
 import { isClaimModuleDomainEnabled } from "./claim-module-scope";
 import {
@@ -272,7 +276,9 @@ export function evaluateManualDraftEligibility(
 export function validateManualGroupingSelection(
   rows: ManualGroupingReturnItemInput[],
   policy: ClaimPolicyV1,
-  context?: ManualDraftPolicyGateContext,
+  context?: ManualDraftPolicyGateContext & {
+    settings?: EffectiveClaimSettingsSnapshot | null;
+  },
 ): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   if (!rows.length) errors.push("Select at least one return item.");
@@ -282,6 +288,27 @@ export function validateManualGroupingSelection(
   }
   const orgs = new Set(rows.map((r) => r.organization_id));
   if (orgs.size > 1) errors.push("All items must belong to the same organization.");
+
+  const settings = context?.settings;
+  if (settings && rows.length > 1) {
+    const products = new Set(
+      rows
+        .map((r) => r.resolved_product_id ?? r.resolved_catalog_product_id ?? r.sku ?? "")
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean),
+    );
+    const mixedProduct = evaluateMixedProductGate(settings, products.size);
+    if (mixedProduct) errors.push(mixedProduct.display_hint);
+
+    const issues = new Set(
+      rows
+        .map((r) => pickPrimaryScannerIssueFromConditions(r.conditions)?.canonical ?? "")
+        .filter(Boolean),
+    );
+    const mixedIssue = evaluateMixedIssueGate(settings, issues.size);
+    if (mixedIssue) errors.push(mixedIssue.display_hint);
+  }
+
   for (const row of rows) {
     const gate = evaluateManualDraftPolicyGate(row, policy, context);
     if (!gate.allowed) {

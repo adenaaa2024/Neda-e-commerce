@@ -125,10 +125,11 @@ export function analyzeCaseBuilderWarnings(
 
   const missingEvidence = rows.filter((r) => r.queue_state === "missing_evidence");
   if (missingEvidence.length) {
+    const requireEv = workflow?.require_evidence !== false;
     warnings.push({
       code: "missing_evidence",
       message: `${missingEvidence.length} row(s) missing scanner evidence or operator note.`,
-      severity: "warn",
+      severity: requireEv ? "block" : "warn",
     });
   }
 

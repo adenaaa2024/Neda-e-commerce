@@ -9,6 +9,10 @@ import {
 import type { ClaimIntakeSourceKind } from "./claim-intake-sources";
 import { readPlatformAutomationApiFlags } from "./platform-automation-api-flags";
 import { buildStoreAutomationSettingsView } from "./platform-automation-run-status";
+import {
+  getEffectiveClaimSettings,
+  toEffectiveClaimSettingsSnapshot,
+} from "./claim-effective-settings";
 
 export type IntakeSourceConnectionStatus = {
   kind: ClaimIntakeSourceKind;
@@ -68,8 +72,12 @@ export async function buildClaimApiIntakeSettingsStatus(args: {
   missing_settings: string[];
   sp_api_credentials_configured: boolean;
   api_flags: ReturnType<typeof readPlatformAutomationApiFlags>;
+  claim_policy_effective: ReturnType<typeof toEffectiveClaimSettingsSnapshot>;
 }> {
   const flags = readPlatformAutomationApiFlags();
+  const effective = toEffectiveClaimSettingsSnapshot(
+    await getEffectiveClaimSettings(args.client, args.organizationId, args.storeId),
+  );
   const credsOk = await spApiCredentialsConfigured(args.client, args.organizationId, args.storeId);
   const openAiOk = await openAiConfigured(args.client, args.organizationId);
 
@@ -225,5 +233,11 @@ export async function buildClaimApiIntakeSettingsStatus(args: {
     sp_api_credentials_configured: credsOk,
   });
 
-  return { sources, missing_settings, sp_api_credentials_configured: credsOk, api_flags: flags };
+  return {
+    sources,
+    missing_settings,
+    sp_api_credentials_configured: credsOk,
+    api_flags: flags,
+    claim_policy_effective: effective,
+  };
 }

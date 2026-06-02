@@ -51,6 +51,7 @@ export async function GET(req: Request): Promise<Response> {
     sp_api_credentials_configured: status.sp_api_credentials_configured,
     api_flags: status.api_flags,
     sources: status.sources,
+    claim_policy_effective: status.claim_policy_effective,
     ui_status_wiring: {
       panel: "ClaimIntakeSourcesPanel + ClaimApiIntakeSettingsPanel",
       endpoint: "/api/claims/intake/settings-status",

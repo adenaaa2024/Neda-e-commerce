@@ -3,6 +3,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { loadClaimPolicy } from "../../lib/claim-eligibility-policy";
+import {
+  getEffectiveClaimSettings,
+  toEffectiveClaimSettingsSnapshot,
+} from "../../lib/claim-effective-settings";
 import { isClaimModuleDomainEnabled } from "../../lib/claim-module-scope";
 import { hasReturnPhotoEvidenceUrlSlots } from "../../lib/return-photo-evidence";
 import { buildReturnsClaimQueueRow, packageStatusIsClosed } from "../../lib/returns-claims-work-queue";
@@ -156,6 +160,12 @@ export async function createManualReturnsClaimDraft(
     }
 
     const dbRows = await loadReturnItemsForManualGrouping(ids, orgId);
+    const effectiveSettings = await getEffectiveClaimSettings(
+      supabaseServer,
+      orgId,
+      dbRows[0]?.store_id ?? null,
+    );
+    const settingsSnapshot = toEffectiveClaimSettingsSnapshot(effectiveSettings);
     if (dbRows.length !== ids.length) {
       return { ok: false, error: "One or more return items were not found or are not active." };
     }
@@ -194,6 +204,7 @@ export async function createManualReturnsClaimDraft(
 
     const primaryGate = evaluateManualDraftPolicyGate(inputs[0]!, policy, {
       packageClosedByReturnItemId,
+      workflow: effectiveSettings.workflow,
     });
     if (!primaryGate.allowed) {
       return { ok: false, error: `Policy gate failed: ${primaryGate.reason}` };

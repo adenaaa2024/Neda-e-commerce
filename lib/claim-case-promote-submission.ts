@@ -15,6 +15,7 @@ import {
   buildClaimSubmissionSourcePayloadForReturn,
   upsertClaimSubmissionForReturnItem,
 } from "@/app/returns/actions";
+import { evaluateClaimCaseSubmissionReadiness } from "@/lib/claim-case-submission-readiness";
 import { getEffectiveClaimSettings } from "@/lib/claim-effective-settings";
 import { getReturnPhotoEvidenceGalleryUrls, type ReturnPhotoEvidenceRow } from "@/lib/return-photo-evidence";
 import { isPhysicalReturnItemForClaims } from "@/lib/returns-claims-work-queue";
@@ -33,6 +34,11 @@ export type PromoteClaimCaseToSubmissionResult = {
   pdf_generated?: boolean;
   error?: string;
   skipped_reason?: string;
+  gate?: {
+    display_code: string;
+    display_label: string;
+    display_hint: string;
+  };
 };
 
 function collectHttpUrls(...groups: (readonly (string | null | undefined)[] | null | undefined)[]): string[] {
@@ -149,6 +155,20 @@ export async function promoteClaimCaseToSubmissionPackage(
   const client = options.client ?? supabaseServer;
 
   try {
+    const readiness = await evaluateClaimCaseSubmissionReadiness(client, cid, orgId);
+    if (!readiness.allowed) {
+      return {
+        ok: false,
+        skipped_reason: readiness.reason,
+        error: readiness.display_hint,
+        gate: {
+          display_code: readiness.display_code,
+          display_label: readiness.display_label,
+          display_hint: readiness.display_hint,
+        },
+      };
+    }
+
     const bundle = await loadCaseBundle(client, cid, orgId);
     if (!bundle) return { ok: false, skipped_reason: "claim_case_not_found" };
 
@@ -180,10 +200,6 @@ export async function promoteClaimCaseToSubmissionPackage(
 
     if (issue.canonical === "operator_other" && !String(ri.notes ?? "").trim()) {
       return { ok: false, skipped_reason: "missing_operator_note" };
-    }
-
-    if (!String(ri.resolved_product_id ?? "").trim()) {
-      return { ok: false, skipped_reason: "needs_product_resolution" };
     }
 
     const returnItemLines = (lines as { line_grain: string }[]).filter(

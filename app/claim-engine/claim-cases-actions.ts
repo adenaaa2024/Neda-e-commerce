@@ -1,8 +1,17 @@
 "use server";
 
+import { evaluateClaimCaseSubmissionReadiness } from "@/lib/claim-case-submission-readiness";
+import type { ClaimGateDisplayCode } from "@/lib/claim-settings-gates";
 import { supabaseServer } from "@/lib/supabase-server";
 import { resolveTenantListScope, type TenantQueryOpts } from "@/lib/server-tenant";
 import { isUuidString } from "@/lib/uuid";
+
+export type ClaimCaseSubmissionReadiness = {
+  allowed: boolean;
+  display_code: ClaimGateDisplayCode;
+  display_label: string;
+  display_hint: string;
+};
 
 export type ClaimCaseListRow = {
   id: string;
@@ -12,6 +21,7 @@ export type ClaimCaseListRow = {
   created_at: string;
   claim_submission_id: string | null;
   submission_report_url: string | null;
+  submission_readiness: ClaimCaseSubmissionReadiness;
 };
 
 export async function listClaimCasesForOrganization(
@@ -38,19 +48,34 @@ export async function listClaimCasesForOrganization(
     const { data, error } = await q;
     if (error) throw new Error(error.message);
 
-    const rows: ClaimCaseListRow[] = (data ?? []).map((r) => {
-      const meta = (r as { metadata?: Record<string, unknown> }).metadata ?? {};
-      const subId = String(meta.claim_submission_id ?? "").trim() || null;
-      return {
-        id: String((r as { id: string }).id),
-        status: String((r as { status: string }).status),
-        scanner_issue_type: (r as { scanner_issue_type: string | null }).scanner_issue_type,
-        primary_return_item_id: (r as { primary_return_item_id: string | null }).primary_return_item_id,
-        created_at: String((r as { created_at: string }).created_at),
-        claim_submission_id: subId && isUuidString(subId) ? subId : null,
-        submission_report_url: null,
-      };
-    });
+    const rows: ClaimCaseListRow[] = await Promise.all(
+      (data ?? []).map(async (r) => {
+        const meta = (r as { metadata?: Record<string, unknown> }).metadata ?? {};
+        const subId = String(meta.claim_submission_id ?? "").trim() || null;
+        const id = String((r as { id: string }).id);
+        const readiness = await evaluateClaimCaseSubmissionReadiness(
+          supabaseServer,
+          id,
+          scope.organizationId,
+        );
+        return {
+          id,
+          status: String((r as { status: string }).status),
+          scanner_issue_type: (r as { scanner_issue_type: string | null }).scanner_issue_type,
+          primary_return_item_id: (r as { primary_return_item_id: string | null })
+            .primary_return_item_id,
+          created_at: String((r as { created_at: string }).created_at),
+          claim_submission_id: subId && isUuidString(subId) ? subId : null,
+          submission_report_url: null,
+          submission_readiness: {
+            allowed: readiness.allowed,
+            display_code: readiness.display_code,
+            display_label: readiness.display_label,
+            display_hint: readiness.display_hint,
+          },
+        };
+      }),
+    );
 
     const subIds = rows.map((r) => r.claim_submission_id).filter((id): id is string => !!id);
     if (subIds.length) {

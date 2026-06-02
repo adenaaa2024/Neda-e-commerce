@@ -54,6 +54,14 @@ export function ClaimApiIntakeSettingsPanel(props: {
   const [err, setErr] = useState<string | null>(null);
   const [genMsg, setGenMsg] = useState<string | null>(null);
   const [genBusy, setGenBusy] = useState(false);
+  const [policySummary, setPolicySummary] = useState<{
+    claim_from_date: string | null;
+    claim_cutoff_date: string | null;
+    claim_window_days: number;
+    auto_create_drafts_on_scan: boolean;
+    create_case_when: string;
+    group_by: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!organizationId || !storeId) return;
@@ -68,10 +76,28 @@ export function ClaimApiIntakeSettingsPanel(props: {
         error?: string;
         sources?: IntakeSourceConnectionStatus[];
         missing_settings?: string[];
+        claim_policy_effective?: {
+          claim_from_date: string | null;
+          claim_cutoff_date: string | null;
+          claim_window_days: number;
+          auto_create_drafts_on_scan: boolean;
+          workflow: { create_case_when: string; group_by: string };
+        };
       };
       if (!res.ok || !j.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
       setSources(j.sources ?? []);
       setMissing(j.missing_settings ?? []);
+      const pe = j.claim_policy_effective;
+      if (pe) {
+        setPolicySummary({
+          claim_from_date: pe.claim_from_date,
+          claim_cutoff_date: pe.claim_cutoff_date,
+          claim_window_days: pe.claim_window_days,
+          auto_create_drafts_on_scan: pe.auto_create_drafts_on_scan,
+          create_case_when: pe.workflow.create_case_when,
+          group_by: pe.workflow.group_by,
+        });
+      }
       setLoaded(true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load");
@@ -153,6 +179,14 @@ export function ClaimApiIntakeSettingsPanel(props: {
             >
               {genBusy ? "Dry-run…" : "Dry-run generator"}
             </button>
+            {policySummary ? (
+              <p className="w-full text-[10px] text-muted-foreground">
+                Claim policy: window {policySummary.claim_window_days}d · go-live{" "}
+                {policySummary.claim_from_date ?? "—"} · start {policySummary.claim_cutoff_date ?? "—"} · auto drafts on
+                scan {policySummary.auto_create_drafts_on_scan ? "yes" : "no"} · case{" "}
+                {policySummary.create_case_when.replace(/_/g, " ")} · group {policySummary.group_by.replace(/_/g, " ")}
+              </p>
+            ) : null}
             <Link
               href="/platform/settings/automation"
               className="text-[10px] font-medium text-violet-700 underline dark:text-violet-300"

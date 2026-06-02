@@ -12,6 +12,7 @@ import {
   type EffectiveClaimSettingsSnapshot,
 } from "./claim-effective-settings-shared";
 import type { ClaimGroupingPolicy, ClaimHoldPolicyFlag, ClaimPolicyV1 } from "./claim-policy-types";
+import { evaluateAutoPromoteCaseGate, type AutoCaseCreationContext } from "./claim-settings-gates";
 
 export type {
   ClaimGroupBySetting,
@@ -205,29 +206,13 @@ export async function getEffectiveClaimSettings(
   });
 }
 
-export type AutoCaseCreationContext = {
-  packageClosed?: boolean | null;
-  palletClosed?: boolean | null;
-  removalOrderClosed?: boolean | null;
-};
+export type { AutoCaseCreationContext } from "./claim-settings-gates";
 
 /** Whether scanner auto-promote may insert claim_cases (draft lines may still be created). */
 export function isAutoClaimCaseCreationAllowed(
   settings: EffectiveClaimSettings,
   ctx: AutoCaseCreationContext,
 ): { allowed: boolean; reason?: string } {
-  const when = settings.workflow.create_case_when;
-  if (when === "manual_only") {
-    return { allowed: false, reason: "create_case_manual_only" };
-  }
-  if (when === "package_closed" && ctx.packageClosed !== true) {
-    return { allowed: false, reason: "create_case_awaiting_package_closed" };
-  }
-  if (when === "pallet_closed" && ctx.palletClosed !== true) {
-    return { allowed: false, reason: "create_case_awaiting_pallet_closed" };
-  }
-  if (when === "removal_order_closed" && ctx.removalOrderClosed !== true) {
-    return { allowed: false, reason: "create_case_awaiting_removal_order_closed" };
-  }
-  return { allowed: true };
+  const ev = evaluateAutoPromoteCaseGate(toEffectiveClaimSettingsSnapshot(settings), ctx);
+  return { allowed: ev.allowed, reason: ev.reason };
 }

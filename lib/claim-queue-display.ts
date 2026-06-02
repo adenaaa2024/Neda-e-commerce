@@ -15,7 +15,10 @@ export type ClaimQueueDisplayReason =
   | "ready_for_case"
   | "ready_for_submission"
   | "domain_disabled"
-  | "manual_review";
+  | "manual_review"
+  | "mixed_product_blocked"
+  | "mixed_issue_blocked"
+  | "create_case_manual_only";
 
 export const CLAIM_QUEUE_DISPLAY_LABELS: Record<ClaimQueueDisplayReason, string> = {
   eligible: "Eligible",
@@ -29,6 +32,9 @@ export const CLAIM_QUEUE_DISPLAY_LABELS: Record<ClaimQueueDisplayReason, string>
   ready_for_submission: "Ready for submission",
   domain_disabled: "Returns claims disabled",
   manual_review: "Manual review required",
+  mixed_product_blocked: "Mixed product blocked",
+  mixed_issue_blocked: "Mixed issue blocked",
+  create_case_manual_only: "Manual case only",
 };
 
 export function resolveClaimQueueDisplayReason(input: {
@@ -48,6 +54,14 @@ export function resolveClaimQueueDisplayReason(input: {
       code: "ready_for_submission",
       label: CLAIM_QUEUE_DISPLAY_LABELS.ready_for_submission,
       hint: "Submission queue — PDF and filing review in Claim Engine.",
+    };
+  }
+
+  if (settings.workflow.create_case_when === "manual_only" && !input.claim_submission_id) {
+    return {
+      code: "create_case_manual_only",
+      label: CLAIM_QUEUE_DISPLAY_LABELS.create_case_manual_only,
+      hint: "Auto case creation is off — use Case Builder to open a claim case.",
     };
   }
 

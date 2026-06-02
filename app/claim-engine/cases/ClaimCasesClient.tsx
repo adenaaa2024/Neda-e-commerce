@@ -64,7 +64,14 @@ export function ClaimCasesClient() {
       });
       void load();
     } else {
-      setMessage({ ok: false, text: res.error ?? res.skipped_reason ?? "Promote failed." });
+      setMessage({
+        ok: false,
+        text:
+          res.error ??
+          (res.gate ? `${res.gate.display_label}: ${res.gate.display_hint}` : null) ??
+          res.skipped_reason ??
+          "Promote failed.",
+      });
     }
   };
 
@@ -141,14 +148,26 @@ export function ClaimCasesClient() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {!row.claim_submission_id ? (
-                        <button
-                          type="button"
-                          disabled={busyId === row.id}
-                          onClick={() => void promote(row.id)}
-                          className={CLAIM_ENGINE_BTN_PRIMARY}
-                        >
-                          {busyId === row.id ? "Working…" : "Promote to submission"}
-                        </button>
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            type="button"
+                            disabled={busyId === row.id || !row.submission_readiness.allowed}
+                            title={row.submission_readiness.display_hint}
+                            onClick={() => void promote(row.id)}
+                            className={CLAIM_ENGINE_BTN_PRIMARY}
+                          >
+                            {busyId === row.id ? "Working…" : "Promote to submission"}
+                          </button>
+                          {!row.submission_readiness.allowed ? (
+                            <span className="max-w-[14rem] text-right text-[10px] text-amber-700 dark:text-amber-300">
+                              {row.submission_readiness.display_label}: {row.submission_readiness.display_hint}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-emerald-700 dark:text-emerald-300">
+                              {row.submission_readiness.display_label}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <Link
                           href="/claim-engine"
@@ -180,14 +199,22 @@ export function ClaimCasesClient() {
                 <p className="text-xs capitalize text-muted-foreground">{row.status}</p>
                 <div className="mt-3">
                   {!row.claim_submission_id ? (
-                    <button
-                      type="button"
-                      disabled={busyId === row.id}
-                      onClick={() => void promote(row.id)}
-                      className={`${CLAIM_ENGINE_BTN_PRIMARY} w-full justify-center`}
-                    >
-                      {busyId === row.id ? "Working…" : "Promote to submission"}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        disabled={busyId === row.id || !row.submission_readiness.allowed}
+                        title={row.submission_readiness.display_hint}
+                        onClick={() => void promote(row.id)}
+                        className={`${CLAIM_ENGINE_BTN_PRIMARY} w-full justify-center`}
+                      >
+                        {busyId === row.id ? "Working…" : "Promote to submission"}
+                      </button>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {row.submission_readiness.allowed
+                          ? row.submission_readiness.display_label
+                          : `${row.submission_readiness.display_label}: ${row.submission_readiness.display_hint}`}
+                      </p>
+                    </>
                   ) : (
                     <Link
                       href="/claim-engine"
