@@ -12,7 +12,7 @@
  */
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, MouseEvent } from "react";
 import {
@@ -150,16 +150,15 @@ type ClaimEngineTabId = "submission_queue" | "active" | "closed";
 const TAB_COPY: Record<ClaimEngineTabId, { title: string; description: string }> = {
   submission_queue: {
     title: "Submission queue",
-    description:
-      "Claims ready for PDF evidence and marketplace filing. Promote from Cases or build from returns — status draft / ready to send until filed.",
+    description: "PDF-ready packages awaiting marketplace filing. Status: draft or ready to send.",
   },
   active: {
     title: "Active",
-    description: "Filed claims awaiting marketplace response: submitted, evidence requested, or investigating.",
+    description: "Filed claims awaiting marketplace response.",
   },
   closed: {
     title: "Closed",
-    description: "Terminal outcomes — accepted, rejected, or failed — for audit and recovery reporting.",
+    description: "Resolved claims — accepted, rejected, or failed.",
   },
 };
 
@@ -228,6 +227,7 @@ export function ClaimEngineClient({
   kpis,
   kpisError,
   defaultClaimEvidence,
+  defaultTab = "submission_queue",
 }: {
   claims: ClaimRecord[];
   claimsError: string | null;
@@ -239,6 +239,7 @@ export function ClaimEngineClient({
   kpis: ClaimEngineKpis | null;
   kpisError: string | null;
   defaultClaimEvidence: Record<ClaimEvidenceKey, boolean>;
+  defaultTab?: string;
 }) {
   const router = useRouter();
   const { actorUserId } = useUserRole();
@@ -247,19 +248,19 @@ export function ClaimEngineClient({
   const [modalClaim, setModalClaim] = useState<ClaimRecord | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; kind: "success" | "error" | "warning" } | null>(null);
-  const searchParams = useSearchParams();
-  const tabFromUrl = searchParams.get("tab");
-  const initialTab: ClaimEngineTabId =
-    tabFromUrl === "active" || tabFromUrl === "closed" || tabFromUrl === "submission_queue"
-      ? tabFromUrl
+  const resolvedDefault: ClaimEngineTabId =
+    defaultTab === "active" || defaultTab === "closed" || defaultTab === "submission_queue"
+      ? defaultTab
       : "submission_queue";
-  const [claimEngineTab, setClaimEngineTab] = useState<ClaimEngineTabId>(initialTab);
+  const [claimEngineTab, setClaimEngineTab] = useState<ClaimEngineTabId>(resolvedDefault);
 
   useEffect(() => {
-    if (tabFromUrl === "active" || tabFromUrl === "closed" || tabFromUrl === "submission_queue") {
-      setClaimEngineTab(tabFromUrl);
-    }
-  }, [tabFromUrl]);
+    const t: ClaimEngineTabId =
+      defaultTab === "active" || defaultTab === "closed" || defaultTab === "submission_queue"
+        ? defaultTab
+        : "submission_queue";
+    setClaimEngineTab(t);
+  }, [defaultTab]);
   const [generateBusy, setGenerateBusy] = useState(false);
   const [bulkSubmitBusy, setBulkSubmitBusy] = useState(false);
   const [queueBusyId, setQueueBusyId] = useState<string | null>(null);
@@ -703,13 +704,6 @@ export function ClaimEngineClient({
         <ClaimEnginePageShell
           title={TAB_COPY[claimEngineTab].title}
           description={TAB_COPY[claimEngineTab].description}
-          showWorkflowExplainer
-          aside={[
-            { href: "/claim-engine/inbox", label: "Intake" },
-            { href: "/returns/claims", label: "Draft pool" },
-            { href: "/claim-engine/cases", label: "Cases" },
-            { href: "/claim-engine/report-history", label: "Reports" },
-          ]}
         >
           {claimEngineTab === "submission_queue" && (kpisError || kpis) ? (
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">

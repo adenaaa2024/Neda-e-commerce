@@ -275,6 +275,25 @@ async function fetchExpectedPackagesForTrackingWithSelect(
   const matchesExact = (row: { tracking_number?: string | null }) =>
     key ? trackingRowMatchesScanned(row, key) === "exact" : false;
 
+  // ── Fast path: exact equality on tracking_number uses idx_expected_packages_tracking ──
+  // Cost ~3.6 vs ILIKE Seq Scan cost ~1865. Fallback to ILIKE if no match.
+  if (scannedCode.length > 0) {
+    try {
+      const { data: exactData } = await supabase
+        .from("expected_packages")
+        .select(selectColumns)
+        .eq("organization_id", organizationId)
+        .eq("store_id", storeId)
+        .eq("tracking_number", scannedCode)
+        .limit(10);
+      const exactRows = asSafeRowArray(exactData);
+      const exactFiltered = exactRows.filter((r) => matchesExact(r as { tracking_number?: string | null }));
+      if (exactFiltered.length) return exactFiltered;
+    } catch {
+      // Fall through to ILIKE path on any exact-query error.
+    }
+  }
+
   const BASE_LIMIT = 800;
 
   let qb = supabase

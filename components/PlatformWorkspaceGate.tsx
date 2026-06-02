@@ -14,6 +14,11 @@ export function PlatformWorkspaceGate({ children }: { children: React.ReactNode 
   const router = useRouter();
   const pathname = usePathname();
   const { workspaceViewMode, workspaceViewModeReady, profileLoading } = useUserRole();
+  const [initialProfileReady, setInitialProfileReady] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!profileLoading) setInitialProfileReady(true);
+  }, [profileLoading]);
 
   useEffect(() => {
     if (profileLoading || !workspaceViewModeReady) return;
@@ -23,7 +28,8 @@ export function PlatformWorkspaceGate({ children }: { children: React.ReactNode 
     router.replace("/");
   }, [profileLoading, workspaceViewMode, workspaceViewModeReady, pathname, router]);
 
-  if (profileLoading || !workspaceViewModeReady) {
+  // Only show full spinner on first load — not on subsequent profileLoading fluctuations.
+  if (!initialProfileReady) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center gap-2 text-muted-foreground">
         <Loader2 className="h-6 w-6 shrink-0 animate-spin" aria-hidden />

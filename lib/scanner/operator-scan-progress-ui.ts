@@ -19,40 +19,45 @@ export const OPERATOR_SCAN_PROGRESS_LABEL: Record<OperatorScanProgressPhase, str
   error: "Error",
 };
 
+/**
+ * Flow chips — the ordered intermediate steps shown as done/active/pending.
+ * "ready" and "needs_review" are terminal states rendered explicitly in the strip,
+ * NOT in this list, so they never duplicate.
+ */
 export const OPERATOR_SCAN_PROGRESS_ORDER: OperatorScanProgressPhase[] = [
   "reading",
   "checking",
   "loading_expected_lines",
-  "ready",
 ];
+
+const FLOW_PHASES = ["reading", "checking", "loading_expected_lines"] as const;
+type FlowPhase = (typeof FLOW_PHASES)[number];
 
 export function operatorScanProgressChipState(
   chip: OperatorScanProgressPhase,
   active: OperatorScanProgressPhase,
 ): "done" | "active" | "pending" | "hidden" {
-  if (active === "idle" || active === "error") {
-    if (active === "error" && chip === "checking") return "active";
+  // Non-flow chips are always hidden in the loop; they are rendered explicitly.
+  const chipIdx = FLOW_PHASES.indexOf(chip as FlowPhase);
+  if (chipIdx < 0) return "hidden";
+
+  if (active === "idle") return "hidden";
+
+  if (active === "error") {
+    // Show "Checking shipment" as active so there's visible feedback during an error.
+    if (chip === "checking") return "active";
     return "hidden";
   }
-  if (active === "needs_review") {
-    if (chip === "loading_expected_lines") return "done";
-    if (chip === "ready") return "active";
-    return chip === "reading" || chip === "checking" ? "done" : "pending";
+
+  if (active === "needs_review" || active === "ready") {
+    // All flow steps completed — show as done.
+    return "done";
   }
-  if (active === "ready") {
-    const order = [...OPERATOR_SCAN_PROGRESS_ORDER, "ready" as const];
-    const ai = order.indexOf(chip as (typeof order)[number]);
-    const aa = order.indexOf("ready");
-    if (ai < 0) return "hidden";
-    return ai <= aa ? "done" : "pending";
-  }
-  const flow = ["reading", "checking", "loading_expected_lines"] as const;
-  const idx = flow.indexOf(chip as (typeof flow)[number]);
-  const activeIdx =
-    active === "reading" ? 0 : active === "checking" ? 1 : active === "loading_expected_lines" ? 2 : -1;
-  if (idx < 0) return "hidden";
-  if (idx < activeIdx) return "done";
-  if (idx === activeIdx) return "active";
+
+  const activeIdx = FLOW_PHASES.indexOf(active as FlowPhase);
+  if (activeIdx < 0) return "hidden";
+  if (chipIdx < activeIdx) return "done";
+  if (chipIdx === activeIdx) return "active";
   return "pending";
 }
 

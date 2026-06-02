@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { resolveOrganizationId } from "../../lib/organization";
 import { getOrganizationClaimEvidenceDefaults } from "../settings/organization-claim-evidence-actions";
 import { getCoreSettings } from "../settings/workspace-settings-actions";
@@ -10,7 +9,13 @@ import { listClaimSubmissions } from "./claim-submission-actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClaimEnginePage() {
+type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function ClaimEnginePage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const rawTab = typeof sp.tab === "string" ? sp.tab : undefined;
+  const defaultTab =
+    rawTab === "active" || rawTab === "closed" || rawTab === "submission_queue" ? rawTab : "submission_queue";
   const DEFAULT_ORGANIZATION_ID = resolveOrganizationId();
   const claimsRes = await listClaimRowsForClaimEngine(DEFAULT_ORGANIZATION_ID);
   const claims = claimsRes.ok ? claimsRes.data : [];
@@ -32,19 +37,18 @@ export default async function ClaimEnginePage() {
       : [];
 
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading claim engine…</div>}>
-      <ClaimEngineClient
-        claims={claims}
-        claimsError={claimsError}
-        coreSettings={coreSettings}
-        stores={stores}
-        organizationId={DEFAULT_ORGANIZATION_ID}
-        claimSubmissions={subRes.ok ? subRes.data : []}
-        submissionsError={subRes.ok ? null : subRes.error ?? null}
-        kpis={kpiRes.ok && kpiRes.data ? kpiRes.data : null}
-        kpisError={kpiRes.ok ? null : kpiRes.error ?? null}
-        defaultClaimEvidence={claimEvDefaults}
-      />
-    </Suspense>
+    <ClaimEngineClient
+      claims={claims}
+      claimsError={claimsError}
+      coreSettings={coreSettings}
+      stores={stores}
+      organizationId={DEFAULT_ORGANIZATION_ID}
+      claimSubmissions={subRes.ok ? subRes.data : []}
+      submissionsError={subRes.ok ? null : subRes.error ?? null}
+      kpis={kpiRes.ok && kpiRes.data ? kpiRes.data : null}
+      kpisError={kpiRes.ok ? null : kpiRes.error ?? null}
+      defaultClaimEvidence={claimEvDefaults}
+      defaultTab={defaultTab}
+    />
   );
 }

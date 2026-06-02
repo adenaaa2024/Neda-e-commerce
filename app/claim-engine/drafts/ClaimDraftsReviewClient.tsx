@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ClaimEngineHubNavShell } from "@/components/claim-engine/ClaimEngineHubNavShell";
+import { CLAIM_ENGINE_PAGE_CLASS } from "@/components/claim-engine/claim-engine-ui";
 import {
   CLAIM_DRAFT_LIFECYCLE_STATUSES,
   CLAIM_DRAFT_SOURCE_TABLES,
@@ -104,7 +106,8 @@ export function ClaimDraftsReviewClient({ organizationId }: { organizationId: st
   }, [loadFirst]);
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 p-4 text-slate-900 dark:text-slate-100">
+    <div className={CLAIM_ENGINE_PAGE_CLASS}>
+      <ClaimEngineHubNavShell />
       <header className="space-y-1 border-b border-slate-200 pb-4 dark:border-slate-700">
         <h1 className="text-xl font-semibold">Claim candidate drafts (V2 staging)</h1>
         <p className="text-sm text-slate-600 dark:text-slate-400">

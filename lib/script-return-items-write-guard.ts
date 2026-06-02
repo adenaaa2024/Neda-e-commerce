@@ -10,6 +10,9 @@ import {
 import {
   RETURN_ITEMS_PRODUCTION_SUPABASE_REF,
   RETURN_ITEMS_STAGING_SUPABASE_REF,
+  isBlockedSyntheticTestReturnItemInsert,
+  SYNTHETIC_TEST_MARKER_INSERT_ERROR,
+  type ReturnItemSyntheticInsertFields,
 } from "@/lib/scanner/return-items-test-data-guard";
 import {
   assertStagingSupabaseUrl,
@@ -110,5 +113,14 @@ export function assertReturnItemsInsertNotSyntheticBulkOrphan(
 ): void {
   if (isSyntheticBulkOrphanInsertBlocked(row)) {
     throw new Error(`BLOCKED: ${SYNTHETIC_BULK_ORPHAN_INSERT_ERROR}`);
+  }
+}
+
+/** Reject script/smoke/parity markers (null raw_return_data) before any persistent insert. */
+export function assertReturnItemsInsertNotSyntheticTestMarker(
+  fields: ReturnItemSyntheticInsertFields,
+): void {
+  if (isBlockedSyntheticTestReturnItemInsert(fields)) {
+    throw new Error(`BLOCKED: ${SYNTHETIC_TEST_MARKER_INSERT_ERROR}`);
   }
 }

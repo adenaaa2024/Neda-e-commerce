@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 
 import {
@@ -8,6 +9,11 @@ import {
   operatorScanProgressChipState,
   type OperatorScanProgressPhase,
 } from "@/lib/scanner/operator-scan-progress-ui";
+
+/** After this many ms in a non-terminal progress phase, show "Still checking…" copy. */
+const STUCK_HINT_TIMEOUT_MS = 8_000;
+
+const ACTIVE_PHASES: OperatorScanProgressPhase[] = ["reading", "checking", "loading_expected_lines"];
 
 const CHIP_CLASS = {
   done: "border-emerald-500/35 bg-emerald-500/10 text-emerald-100",
@@ -25,6 +31,21 @@ export function OperatorScanProgressStrip({
   errorMessage?: string | null;
   className?: string;
 }) {
+  const [stuckHint, setStuckHint] = useState(false);
+
+  useEffect(() => {
+    if (!ACTIVE_PHASES.includes(phase)) {
+      setStuckHint(false);
+      return;
+    }
+    setStuckHint(false);
+    const t = window.setTimeout(() => setStuckHint(true), STUCK_HINT_TIMEOUT_MS);
+    return () => {
+      window.clearTimeout(t);
+      setStuckHint(false);
+    };
+  }, [phase]);
+
   const label = OPERATOR_SCAN_PROGRESS_LABEL[phase];
   const showChips = phase !== "idle";
 
@@ -67,21 +88,32 @@ export function OperatorScanProgressStrip({
               <span
                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CHIP_CLASS.active}`}
               >
-                <AlertTriangle className="h-3 w-3" aria-hidden />
+                <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
                 {OPERATOR_SCAN_PROGRESS_LABEL.needs_review}
               </span>
             ) : null}
+            {/* "ready" is a terminal completed state — no spinner, shown once here only */}
             {phase === "ready" ? (
               <span
                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CHIP_CLASS.done}`}
               >
-                <CheckCircle2 className="h-3 w-3" aria-hidden />
+                <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
                 {OPERATOR_SCAN_PROGRESS_LABEL.ready}
               </span>
             ) : null}
           </div>
           {label && phase !== "ready" && phase !== "needs_review" ? (
             <p className="text-center text-[12px] font-semibold text-[#b9c2cc]">{label}…</p>
+          ) : null}
+          {phase === "needs_review" && !errorMessage?.trim() ? (
+            <p className="text-center text-[11px] font-medium text-[#d6b76e]/80">
+              No matching shipment found — retry, type the code manually, or review.
+            </p>
+          ) : null}
+          {stuckHint ? (
+            <p className="mt-1 text-center text-[11px] font-medium text-[#e8dcc0]/70">
+              Still checking — you can retry or review manually if this takes too long.
+            </p>
           ) : null}
         </div>
       ) : null}
