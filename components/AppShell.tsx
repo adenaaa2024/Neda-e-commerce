@@ -21,7 +21,7 @@ import React, {
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { DrawerWorkspaceBar } from "./DrawerWorkspaceBar";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronDown, PanelLeftClose, PanelLeftOpen, Wrench, X } from "lucide-react";
 import { TopHeader } from "./TopHeader";
 import { BrandingProvider } from "./BrandingContext";
@@ -32,6 +32,7 @@ import { GlobalSearchProvider } from "./GlobalSearchContext";
 import { UserRoleProvider } from "./UserRoleContext";
 import { TechDebugPanel } from "./TechDebugPanel";
 import { useRbacPermissions } from "../hooks/useRbacPermissions";
+import { isClaimsHubRoute, isClaimsSidebarActive } from "../lib/claims-hub-routes";
 import { MAIN_SIDEBAR, WMS_ONLY_NAV, isLeafVisibleByRbac, type SidebarGroup } from "../lib/sidebar-config";
 import { getSidebarIcon } from "../lib/sidebar-icons";
 
@@ -113,6 +114,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const sidebarDragRef = useRef<{ startX: number; startW: number } | null>(null);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const settingsTabParam = searchParams.get("tab");
   const isAuthRoute = pathname === "/login";
   /** Standalone mobile scanner UI — no ERP sidebar, top search, or workspace chrome. */
   const isOperatorMobileScanner = pathname.startsWith("/scanner/operator-mobile");
@@ -186,11 +189,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     if (href === "/") return path === "/";
     if (href === "/settings") return path === "/settings";
     if (href === "/platform/settings") return path === "/platform/settings";
-    if (href === "/claim-engine") {
-      return path === "/claim-engine" || path.startsWith("/claim-engine/investigation");
-    }
-    if (href === "/claim-engine/report-history") {
-      return path === "/claim-engine/report-history" || path.startsWith("/claim-engine/report-history/");
+    if (href === "/claim-engine/inbox") {
+      return isClaimsSidebarActive(path, settingsTabParam);
     }
     return path === href || path.startsWith(`${href}/`);
   }
@@ -205,6 +205,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           auto[key] = true;
         }
       }
+    }
+    if (isClaimsHubRoute(pathname) || isClaimsSidebarActive(pathname, settingsTabParam)) {
+      auto["nav-core-finance"] = true;
     }
     if (
       pathname.startsWith("/platform/settings")

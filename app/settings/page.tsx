@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft, BadgeCheck, BarChart3, Building2, CheckCircle2, CreditCard, Cpu, Crown,
   FileSpreadsheet, Globe, HardDrive, ImageIcon, KeyRound, Loader2, Package, PackageX, Pencil, Plus, Printer,
@@ -62,6 +63,7 @@ import { useBranding } from "../../components/BrandingContext";
 import { isAdminRole, useUserRole } from "../../components/UserRoleContext";
 import { WorkspaceOrganizationPicker } from "../../components/WorkspaceOrganizationPicker";
 import { useRbacPermissions } from "../../hooks/useRbacPermissions";
+import { CLAIMS_SETTINGS_TAB } from "../../lib/claims-hub-routes";
 import { FALLBACK_ORGANIZATION_ID } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
 import { DatabaseTag } from "../../components/DatabaseTag";
@@ -86,9 +88,16 @@ import {
   saveOrganizationClaimEvidenceDefaults,
 } from "./organization-claim-evidence-actions";
 import {
-  getOrganizationClaimPolicy,
+  getOrganizationClaimSettingsBundle,
   saveOrganizationClaimPolicy,
 } from "./organization-claim-policy-actions";
+import { getClaimEngineFeatureFlags } from "./claim-feature-flags-actions";
+import {
+  DEFAULT_CLAIM_WORKFLOW,
+  type ClaimGroupBySetting,
+  type ClaimWorkflowSettings,
+  type CreateCaseWhenSetting,
+} from "../../lib/claim-effective-settings-shared";
 import { CLAIM_MODULE_DOMAIN_OPTIONS } from "../../lib/claim-module-scope";
 import {
   DEFAULT_CLAIM_POLICY_V1,
@@ -311,7 +320,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "returns_processing", label: "Returns Processing",  icon: <RotateCcw   className="h-4 w-4" />, proOnly: true },
       { id: "inventory_fefo",     label: "Inventory & FEFO",    icon: <Package     className="h-4 w-4" />, proOnly: true },
-      { id: "claim_engine",       label: "Claim Engine",        icon: <ShieldCheck className="h-4 w-4" />, proOnly: true },
+      { id: "claim_engine",       label: "Claims",              icon: <ShieldCheck className="h-4 w-4" />, proOnly: true },
       { id: "reports_analytics",  label: "Reports & Analytics", icon: <BarChart3   className="h-4 w-4" />, proOnly: true },
     ],
   },
@@ -466,8 +475,14 @@ export default function SettingsPage() {
     };
   }, [organizationId]);
 
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [mounted,   setMounted]   = useState(false);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === CLAIMS_SETTINGS_TAB) setActiveTab("claim_engine");
+  }, [searchParams]);
 
   // ── General Preferences ────────────────────────────────────────────────────
   const [defaultStoreId,  setDefaultStoreId]  = useState<string>("");
@@ -545,6 +560,13 @@ export default function SettingsPage() {
   const [claimEvidenceSaving, setClaimEvidenceSaving] = useState(false);
 
   const [claimPolicyLocal, setClaimPolicyLocal] = useState<ClaimPolicyV1>(DEFAULT_CLAIM_POLICY_V1);
+  const [claimWorkflowLocal, setClaimWorkflowLocal] =
+    useState<ClaimWorkflowSettings>(DEFAULT_CLAIM_WORKFLOW);
+  const [autoCreateDraftsLocal, setAutoCreateDraftsLocal] = useState(true);
+  const [claimFeatureFlags, setClaimFeatureFlags] = useState<{
+    enable_claim_drafts_review: boolean;
+    enable_claim_review_workflow: boolean;
+  } | null>(null);
   const [claimPolicyLoading, setClaimPolicyLoading] = useState(false);
   const [claimPolicySaving, setClaimPolicySaving] = useState(false);
 
@@ -785,9 +807,14 @@ export default function SettingsPage() {
     if (!mounted || activeTab !== "claim_engine") return;
     let cancelled = false;
     setClaimPolicyLoading(true);
-    getOrganizationClaimPolicy(tenantCtx)
-      .then((policy) => {
-        if (!cancelled) setClaimPolicyLocal(policy);
+    Promise.all([getOrganizationClaimSettingsBundle(tenantCtx), getClaimEngineFeatureFlags()])
+      .then(([bundle, flags]) => {
+        if (!cancelled) {
+          setClaimPolicyLocal(bundle.policy);
+          setClaimWorkflowLocal(bundle.workflow);
+          setAutoCreateDraftsLocal(bundle.auto_create_drafts_on_scan);
+          setClaimFeatureFlags(flags);
+        }
       })
       .finally(() => {
         if (!cancelled) setClaimPolicyLoading(false);
@@ -1135,6 +1162,7 @@ export default function SettingsPage() {
     setClaimAgentSaving(true);
     const res = await saveClaimAgentConfig({
       auto_generate_pdf_reports: claimAgentLocal.auto_generate_pdf_reports ?? true,
+      scanner_auto_promote_on_save: claimAgentLocal.scanner_auto_promote_on_save ?? true,
       allow_agent_direct_submit: claimAgentLocal.allow_agent_direct_submit ?? false,
       max_auto_submit_amount_usd: maxUsd,
       autonomous_claim_submission_0_50_usd: claimAgentLocal.autonomous_claim_submission_0_50_usd ?? false,
@@ -1195,6 +1223,15 @@ export default function SettingsPage() {
         claim_grouping_policy: claimPolicyLocal.claim_grouping_policy,
         hold_until_package_closed: holdFlags.includes("hold_until_package_closed"),
         enabled_claim_domains: claimPolicyLocal.enabled_claim_domains,
+        auto_create_drafts_on_scan: autoCreateDraftsLocal,
+        auto_grouping_enabled: claimWorkflowLocal.auto_grouping_enabled,
+        group_by: claimWorkflowLocal.group_by,
+        create_case_when: claimWorkflowLocal.create_case_when,
+        allow_mixed_products: claimWorkflowLocal.allow_mixed_products,
+        allow_mixed_issue_types: claimWorkflowLocal.allow_mixed_issue_types,
+        require_product_link: claimWorkflowLocal.require_product_link,
+        require_operator_note: claimWorkflowLocal.require_operator_note,
+        require_evidence: claimWorkflowLocal.require_evidence,
       },
       tenantCtx,
     );
@@ -1204,7 +1241,11 @@ export default function SettingsPage() {
       return;
     }
     setClaimPolicyLocal(res.policy);
-    showToast("Claim cutoff policy saved.", true);
+    void getOrganizationClaimSettingsBundle(tenantCtx).then((bundle) => {
+      setClaimWorkflowLocal(bundle.workflow);
+      setAutoCreateDraftsLocal(bundle.auto_create_drafts_on_scan);
+    });
+    showToast("Claim settings saved.", true);
   }
 
   function handleSaveHardware(e: React.FormEvent) {
@@ -3108,9 +3149,145 @@ export default function SettingsPage() {
                       className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-violet-500 disabled:opacity-50"
                     >
                       {claimPolicySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      Save cutoff policy
+                      Save claim settings
                     </button>
                   </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Workflow &amp; grouping</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Controls draft pool eligibility, review holds, case builder mixing rules, and auto case creation.
+                      Stored in <code className="rounded bg-muted px-1 font-mono text-[10px]">claim_policy</code> JSON.
+                    </p>
+                  </div>
+                  {claimFeatureFlags ? (
+                    <p className="text-[10px] text-muted-foreground">
+                      Feature flags (env): drafts review{" "}
+                      <span className="font-mono">{claimFeatureFlags.enable_claim_drafts_review ? "on" : "off"}</span>
+                      {" · "}
+                      review workflow{" "}
+                      <span className="font-mono">{claimFeatureFlags.enable_claim_review_workflow ? "on" : "off"}</span>
+                    </p>
+                  ) : null}
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/10 p-3">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                      checked={autoCreateDraftsLocal}
+                      onChange={(e) => setAutoCreateDraftsLocal(e.target.checked)}
+                      disabled={claimPolicyLoading}
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold">Auto-create drafts on scan</span>
+                      <span className="text-xs text-muted-foreground">
+                        When off, scanner promote skips claim draft lines unless operator uses manual paths.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className={LABEL_CLS}>Group by</label>
+                      <select
+                        className={INPUT_CLS}
+                        value={claimWorkflowLocal.group_by}
+                        onChange={(e) =>
+                          setClaimWorkflowLocal((w) => ({
+                            ...w,
+                            group_by: e.target.value as ClaimGroupBySetting,
+                          }))
+                        }
+                        disabled={claimPolicyLoading}
+                      >
+                        {(
+                          [
+                            ["manual", "Manual"],
+                            ["pallet", "Pallet"],
+                            ["package", "Package"],
+                            ["order_id", "Order ID"],
+                            ["removal_order", "Removal order"],
+                            ["product", "Product"],
+                            ["issue_type", "Issue type"],
+                            ["date_window", "Date window"],
+                          ] as const
+                        ).map(([v, label]) => (
+                          <option key={v} value={v}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={LABEL_CLS}>Create case when</label>
+                      <select
+                        className={INPUT_CLS}
+                        value={claimWorkflowLocal.create_case_when}
+                        onChange={(e) =>
+                          setClaimWorkflowLocal((w) => ({
+                            ...w,
+                            create_case_when: e.target.value as CreateCaseWhenSetting,
+                          }))
+                        }
+                        disabled={claimPolicyLoading}
+                      >
+                        {(
+                          [
+                            ["immediately", "Immediately"],
+                            ["package_closed", "Package closed"],
+                            ["pallet_closed", "Pallet closed"],
+                            ["removal_order_closed", "Removal order closed"],
+                            ["manual_only", "Manual only"],
+                          ] as const
+                        ).map(([v, label]) => (
+                          <option key={v} value={v}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/10 p-3">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                      checked={claimWorkflowLocal.auto_grouping_enabled}
+                      onChange={(e) =>
+                        setClaimWorkflowLocal((w) => ({ ...w, auto_grouping_enabled: e.target.checked }))
+                      }
+                      disabled={claimPolicyLoading}
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold">Auto grouping enabled</span>
+                      <span className="text-xs text-muted-foreground">Phase 1: preference for future scan clustering.</span>
+                    </span>
+                  </label>
+                  <ul className="grid gap-2 sm:grid-cols-2">
+                    {(
+                      [
+                        ["allow_mixed_products", "Allow mixed products in one case"],
+                        ["allow_mixed_issue_types", "Allow mixed issue types in one case"],
+                        ["require_product_link", "Require product link"],
+                        ["require_operator_note", "Require operator note (operator_other)"],
+                        ["require_evidence", "Require scanner evidence"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <li key={key}>
+                        <label className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded accent-violet-600"
+                            checked={claimWorkflowLocal[key]}
+                            onChange={(e) =>
+                              setClaimWorkflowLocal((w) => ({ ...w, [key]: e.target.checked }))
+                            }
+                            disabled={claimPolicyLoading}
+                          />
+                          {label}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
                 <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
@@ -3377,6 +3554,26 @@ export default function SettingsPage() {
                           <span className="block text-sm font-semibold">Auto-generate PDF reports</span>
                           <span className="text-xs text-muted-foreground">
                             When enabled, daily claim PDFs are generated automatically for eligible submissions (default: on).
+                          </span>
+                        </span>
+                      </label>
+
+                      <label className="flex cursor-pointer items-start gap-3 border-t border-border pt-4">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 rounded accent-rose-600"
+                          checked={claimAgentLocal.scanner_auto_promote_on_save ?? true}
+                          onChange={(e) =>
+                            setClaimAgentLocal((p) => ({
+                              ...p,
+                              scanner_auto_promote_on_save: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold">Auto-create claim drafts on scan</span>
+                          <span className="text-xs text-muted-foreground">
+                            When enabled, eligible physical scans create claim cases/lines after save (policy-gated; default: on).
                           </span>
                         </span>
                       </label>

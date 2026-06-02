@@ -3,6 +3,18 @@
 import { Pencil } from "lucide-react";
 import type { OperatorPackageItemRow } from "@/app/scanner/operator-mobile/_components/operator-store-actions";
 import { auditUserDisplayLabel } from "@/lib/operator-audit-display";
+
+/** Extended row shape when audit/photo fields are present on hydrated return_items. */
+type ItemScanUnitRow = OperatorPackageItemRow & {
+  optional_item_photo_url?: string | null;
+  operator_notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  created_by?: string | null;
+  created_by_display?: string | null;
+  updated_by?: string | null;
+  updated_by_display?: string | null;
+};
 import {
   filterPackageItemDiscrepancyTags,
   ITEM_UNIT_SELLABLE_OK_TAG,
@@ -47,7 +59,7 @@ function titleCaseConditionTag(tag: ItemUnitDiscrepancyTagKey): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function unitConditionTags(unit: OperatorPackageItemRow): ItemUnitDiscrepancyTagKey[] {
+function unitConditionTags(unit: ItemScanUnitRow): ItemUnitDiscrepancyTagKey[] {
   const tags = filterPackageItemDiscrepancyTags(unit.discrepancy_tags);
   return normalizeItemUnitDiscrepancySelection(
     tags.length ? tags : [ITEM_UNIT_SELLABLE_OK_TAG],
@@ -72,7 +84,7 @@ export type ItemScanUnitSummaryLines = {
   line2: string;
 };
 
-export function itemScanUnitSummaryLines(unit: OperatorPackageItemRow): ItemScanUnitSummaryLines {
+export function itemScanUnitSummaryLines(unit: ItemScanUnitRow): ItemScanUnitSummaryLines {
   const selected = unitConditionTags(unit);
   const condition = selected.map(titleCaseConditionTag).join(", ");
   const hasExpired = selected.includes("expired");
@@ -108,7 +120,7 @@ export type ItemScanUnitAuditLines = {
   edited: string | null;
 };
 
-export function itemScanUnitAuditLines(unit: OperatorPackageItemRow): ItemScanUnitAuditLines {
+export function itemScanUnitAuditLines(unit: ItemScanUnitRow): ItemScanUnitAuditLines {
   const createdAt = formatItemScanAuditAt(unit.created_at);
   const createdBy = auditUserDisplayLabel(unit.created_by, unit.created_by_display);
   const created = createdAt
@@ -135,9 +147,9 @@ type ItemScanEditUnitPickerModalProps = {
   open: boolean;
   rowTitle: string;
   rowSubtitle: string | null;
-  units: OperatorPackageItemRow[];
+  units: ItemScanUnitRow[];
   busy: boolean;
-  onEditUnit: (unit: OperatorPackageItemRow) => void;
+  onEditUnit: (unit: ItemScanUnitRow) => void;
   onClose: () => void;
 };
 

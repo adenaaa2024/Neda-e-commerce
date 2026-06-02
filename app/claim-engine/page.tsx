@@ -9,7 +9,13 @@ import { listClaimSubmissions } from "./claim-submission-actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClaimEnginePage() {
+type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function ClaimEnginePage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const rawTab = typeof sp.tab === "string" ? sp.tab : undefined;
+  const defaultTab =
+    rawTab === "active" || rawTab === "closed" || rawTab === "submission_queue" ? rawTab : "submission_queue";
   const DEFAULT_ORGANIZATION_ID = resolveOrganizationId();
   const claimsRes = await listClaimRowsForClaimEngine(DEFAULT_ORGANIZATION_ID);
   const claims = claimsRes.ok ? claimsRes.data : [];
@@ -42,6 +48,7 @@ export default async function ClaimEnginePage() {
       kpis={kpiRes.ok && kpiRes.data ? kpiRes.data : null}
       kpisError={kpiRes.ok ? null : kpiRes.error ?? null}
       defaultClaimEvidence={claimEvDefaults}
+      defaultTab={defaultTab}
     />
   );
 }

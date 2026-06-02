@@ -12,7 +12,6 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, MouseEvent } from "react";
 import {
@@ -53,12 +52,16 @@ import {
   approveClaimSubmission,
   bulkSubmitClaimsToMarketplace,
   generateDailyClaimReports,
+  listClaimSubmissions,
   markClaimSubmissionManualSubmit,
   refreshClaimReportSignedUrl,
   type ClaimSubmissionListRow,
 } from "./claim-submission-actions";
 import { downloadBulkClaimsPdf, enrichBulkPagesWithDefaultEvidence } from "./claim-pdf-download";
 import { prepareClaimEnginePdfPages } from "./claim-pdf-batch-actions";
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
+import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { CLAIM_ENGINE_KPI_CARD_CLASS, CLAIM_ENGINE_MAIN_CLASS } from "@/components/claim-engine/claim-engine-ui";
 import { ClaimDetailModal } from "./ClaimDetailModal";
 import { ClaimGenerationModal } from "./ClaimGenerationModal";
 import { ClaimHistoryModal } from "./ClaimHistoryModal";
@@ -114,41 +117,29 @@ function providerLabel(raw: string | null): string {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pending:
-    "border-amber-700/60 bg-amber-950/50 text-amber-300",
+  pending: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
   recovered:
-    "border-emerald-700/60 bg-emerald-950/50 text-emerald-300",
-  suspicious:
-    "border-rose-700/60 bg-rose-950/50 text-rose-300",
-  cancelled:
-    "border-slate-600/60 bg-slate-900/50 text-slate-300",
+    "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
+  suspicious: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
+  cancelled: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
 };
 
 /** `claim_submissions.status` + legacy adapter labels for synced rows */
 const CLAIM_ROW_STATUS_STYLES: Record<string, string> = {
   ...STATUS_STYLES,
-  draft: "border-slate-600/60 bg-slate-900/50 text-slate-300",
-  ready_to_send: "border-sky-700/60 bg-sky-950/50 text-sky-200",
-  submitted: "border-amber-700/60 bg-amber-950/50 text-amber-300",
-  evidence_requested: "border-amber-600/60 bg-amber-950/40 text-amber-100",
-  investigating: "border-violet-600/60 bg-violet-950/40 text-violet-100",
+  draft: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  ready_to_send: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
+  submitted: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+  evidence_requested:
+    "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+  investigating:
+    "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200",
   accepted: STATUS_STYLES.recovered,
-  rejected: "border-rose-700/60 bg-rose-950/50 text-rose-300",
-  /** Added by Neda's migration — terminal system failure. */
-  failed: "border-rose-800/70 bg-rose-950/60 text-rose-200",
+  rejected: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
+  failed: "border-rose-300 bg-rose-100 text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200",
 };
 
-const SUBMISSION_STATUS_STYLES: Record<string, string> = {
-  draft: "border-slate-600/60 bg-slate-900/50 text-slate-300",
-  ready_to_send: "border-sky-700/60 bg-sky-950/50 text-sky-200",
-  submitted: "border-amber-700/60 bg-amber-950/50 text-amber-200",
-  evidence_requested: "border-amber-600/60 bg-amber-950/40 text-amber-100",
-  investigating: "border-violet-700/60 bg-violet-950/50 text-violet-200",
-  accepted: "border-emerald-700/60 bg-emerald-950/50 text-emerald-200",
-  rejected: "border-rose-700/60 bg-rose-950/50 text-rose-200",
-  /** Added by Neda's migration — terminal system failure, shown in queue and history. */
-  failed: "border-rose-800/70 bg-rose-950/60 text-rose-200",
-};
+const SUBMISSION_STATUS_STYLES: Record<string, string> = { ...CLAIM_ROW_STATUS_STYLES };
 
 /** UI buckets over existing `claim_submissions.status` — no schema changes. */
 const SUBMISSION_QUEUE_STATUSES = new Set(["draft", "ready_to_send"]);
@@ -156,6 +147,21 @@ const ACTIVE_CLAIM_STATUSES = new Set(["submitted", "evidence_requested", "inves
 const CLOSED_CLAIM_STATUSES = new Set(["accepted", "rejected", "failed"]);
 
 type ClaimEngineTabId = "submission_queue" | "active" | "closed";
+
+const TAB_COPY: Record<ClaimEngineTabId, { title: string; description: string }> = {
+  submission_queue: {
+    title: "Submission queue",
+    description: "PDF-ready packages awaiting marketplace filing. Status: draft or ready to send.",
+  },
+  active: {
+    title: "Active",
+    description: "Filed claims awaiting marketplace response.",
+  },
+  closed: {
+    title: "Closed",
+    description: "Resolved claims — accepted, rejected, or failed.",
+  },
+};
 
 function resolveStore(claim: ClaimRecord, stores: StoreRow[]): StoreRow | null {
   if (!claim.store_id) return null;
@@ -222,6 +228,7 @@ export function ClaimEngineClient({
   kpis,
   kpisError,
   defaultClaimEvidence,
+  defaultTab = "submission_queue",
 }: {
   claims: ClaimRecord[];
   claimsError: string | null;
@@ -233,15 +240,28 @@ export function ClaimEngineClient({
   kpis: ClaimEngineKpis | null;
   kpisError: string | null;
   defaultClaimEvidence: Record<ClaimEvidenceKey, boolean>;
+  defaultTab?: string;
 }) {
-  const router = useRouter();
   const { actorUserId } = useUserRole();
   const [claims, setClaims] = useState<ClaimRecord[]>(initialClaims);
+  const [submissions, setSubmissions] = useState<ClaimSubmissionListRow[]>(initialSubmissions);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modalClaim, setModalClaim] = useState<ClaimRecord | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; kind: "success" | "error" | "warning" } | null>(null);
-  const [claimEngineTab, setClaimEngineTab] = useState<ClaimEngineTabId>("submission_queue");
+  const resolvedDefault: ClaimEngineTabId =
+    defaultTab === "active" || defaultTab === "closed" || defaultTab === "submission_queue"
+      ? defaultTab
+      : "submission_queue";
+  const [claimEngineTab, setClaimEngineTab] = useState<ClaimEngineTabId>(resolvedDefault);
+
+  useEffect(() => {
+    const t: ClaimEngineTabId =
+      defaultTab === "active" || defaultTab === "closed" || defaultTab === "submission_queue"
+        ? defaultTab
+        : "submission_queue";
+    setClaimEngineTab(t);
+  }, [defaultTab]);
   const [generateBusy, setGenerateBusy] = useState(false);
   const [bulkSubmitBusy, setBulkSubmitBusy] = useState(false);
   const [queueBusyId, setQueueBusyId] = useState<string | null>(null);
@@ -262,14 +282,23 @@ export function ClaimEngineClient({
     setClaims(initialClaims);
   }, [initialClaims]);
 
+  useEffect(() => {
+    setSubmissions(initialSubmissions);
+  }, [initialSubmissions]);
+
+  const refreshSubmissions = useCallback(async () => {
+    const res = await listClaimSubmissions(organizationId);
+    if (res.ok) setSubmissions(res.data);
+  }, [organizationId]);
+
   const submissionQueueRows = useMemo(() => {
     const rank = (status: string) => (status === "ready_to_send" ? 0 : 1);
-    return [...initialSubmissions].sort((a, b) => {
+    return [...submissions].sort((a, b) => {
       const d = rank(a.status) - rank(b.status);
       if (d !== 0) return d;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-  }, [initialSubmissions]);
+  }, [submissions]);
 
   /** Pre–marketplace filing: draft / ready_to_send only (per product tab). */
   const submissionQueueFiltered = useMemo(
@@ -409,7 +438,7 @@ export function ClaimEngineClient({
     } else {
       showToast(`Successfully added ${res.generated} items to the queue`, "success");
     }
-    router.refresh();
+    await refreshSubmissions();
   }
 
   async function handlePreview(row: ClaimSubmissionListRow) {
@@ -439,7 +468,11 @@ export function ClaimEngineClient({
     setQueueBusyId(null);
     if (res.ok) {
       showToast("Marked as submitted.", "success");
-      router.refresh();
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === row.id ? { ...s, status: "submitted", submission_id: id.trim() } : s,
+        ),
+      );
     } else showToast(res.error ?? "Update failed", "error");
   }
 
@@ -450,7 +483,7 @@ export function ClaimEngineClient({
     setBulkSubmitBusy(false);
     if (res.ok && res.count != null) {
       showToast(`Submitted ${res.count} claim(s) to marketplace workflow.`, "success");
-      router.refresh();
+      await refreshSubmissions();
     } else showToast(res.error ?? "Bulk submit failed.", "error");
   }
 
@@ -522,7 +555,6 @@ export function ClaimEngineClient({
       );
       setSelectedIds(new Set());
       showToast("Claims cancelled", "success");
-      router.refresh();
     } else showToast(res.error ?? "Bulk cancel failed", "error");
   }
 
@@ -600,7 +632,6 @@ export function ClaimEngineClient({
         prev.map((c) => (c.id === claim.id ? { ...c, status: "accepted" } : c)),
       );
       showToast("Claim approved", "success");
-      router.refresh();
     } else showToast(res.error ?? "Approve failed", "error");
   }
 
@@ -681,144 +712,50 @@ export function ClaimEngineClient({
         readOnly={claimEngineTab === "closed"}
       />
 
-      <header className="flex h-16 flex-col gap-2 border-b border-slate-200 bg-white/80 px-4 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/70 sm:flex-row sm:items-center sm:justify-between sm:gap-4 md:px-6">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 text-sky-500" />
-            <h1 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-sm">Claim Engine</h1>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Enterprise claims: identifiers, PDF exports, and marketplace filing fields.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/claim-engine/inbox"
-            className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400"
-          >
-            Claim Inbox
-          </Link>
-          <Link
-            href="/claim-engine/report-history"
-            className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400"
-          >
-            Report history
-          </Link>
-          <Link href="/" className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400">
-            ← Dashboard
-          </Link>
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-gradient-to-br dark:from-slate-950 dark:via-slate-950 dark:to-slate-900">
-        <div className="mx-auto flex w-full max-w-[100vw] flex-col gap-6 px-4 py-6 sm:px-4 lg:px-8">
-          {(kpisError || kpis) && (
+      <main className={CLAIM_ENGINE_MAIN_CLASS}>
+        <ClaimEnginePageShell
+          title={TAB_COPY[claimEngineTab].title}
+          description={TAB_COPY[claimEngineTab].description}
+        >
+          {claimEngineTab === "submission_queue" && (kpisError || kpis) ? (
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               {kpisError ? (
-                <div className="col-span-full rounded-2xl border border-rose-700/50 bg-rose-950/30 px-4 py-3 text-xs text-rose-100">
+                <div className="col-span-full rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
                   KPI data: {kpisError}
                 </div>
               ) : kpis ? (
                 <>
-                  <div className="relative overflow-hidden rounded-2xl border border-sky-500/30 bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Total active claims</p>
-                        <p className="text-2xl font-semibold tracking-tight text-slate-50">{kpis.totalActiveClaims}</p>
-                      </div>
-                      <ClipboardList className="h-5 w-5 text-sky-400" />
-                    </div>
-                    <p className="mt-3 text-[11px] text-slate-400">Not accepted or denied</p>
+                  <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Active pipeline</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{kpis.totalActiveClaims}</p>
+                    <p className="mt-2 text-[11px] text-muted-foreground">Not accepted or denied</p>
                   </div>
-                  <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Total claim value</p>
-                        <p className="text-2xl font-semibold tracking-tight text-slate-50">
-                          {formatCurrency(kpis.totalClaimValueUsd)}
-                        </p>
-                      </div>
-                      <DollarSign className="h-5 w-5 text-emerald-400" />
-                    </div>
-                    <p className="mt-3 text-[11px] text-slate-400">Sum of claim_amount (active pipeline, USD)</p>
+                  <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Claim value</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                      {formatCurrency(kpis.totalClaimValueUsd)}
+                    </p>
                   </div>
-                  <div className="relative overflow-hidden rounded-2xl border border-teal-500/30 bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Projected recovery</p>
-                        <p className="text-2xl font-semibold tracking-tight text-slate-50">
-                          {formatCurrency(kpis.projectedRecoveryUsd)}
-                        </p>
-                      </div>
-                      <TrendingUp className="h-5 w-5 text-teal-400" />
-                    </div>
-                    <p className="mt-3 text-[11px] text-slate-400">Pending / draft / ready / submitted (USD)</p>
+                  <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Projected recovery</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                      {formatCurrency(kpis.projectedRecoveryUsd)}
+                    </p>
                   </div>
-                  <div className="relative overflow-hidden rounded-2xl border border-violet-500/30 bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Success rate</p>
-                        <p className="text-2xl font-semibold tracking-tight text-slate-50">
-                          {kpis.successRatePercent.toFixed(1)}%
-                        </p>
-                      </div>
-                      <Percent className="h-5 w-5 text-violet-400" />
-                    </div>
-                    <p className="mt-3 text-[11px] text-slate-400">Accepted ÷ (accepted + denied)</p>
+                  <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Success rate</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                      {kpis.successRatePercent.toFixed(1)}%
+                    </p>
                   </div>
-                  <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Pending evidence</p>
-                        <p className="text-2xl font-semibold tracking-tight text-slate-50">{kpis.pendingEvidenceCount}</p>
-                      </div>
-                      <AlertTriangle className="h-5 w-5 text-amber-400" />
-                    </div>
-                    <p className="mt-3 text-[11px] text-slate-400">Status: evidence requested</p>
+                  <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending evidence</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{kpis.pendingEvidenceCount}</p>
                   </div>
                 </>
               ) : null}
             </section>
-          )}
-
-          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={() => setClaimEngineTab("submission_queue")}
-              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                claimEngineTab === "submission_queue"
-                  ? "bg-sky-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              }`}
-            >
-              <Inbox className="h-3.5 w-3.5" />
-              Submission queue
-            </button>
-            <button
-              type="button"
-              onClick={() => setClaimEngineTab("active")}
-              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                claimEngineTab === "active"
-                  ? "bg-sky-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              }`}
-            >
-              <ShieldAlert className="h-3.5 w-3.5" />
-              Active claims
-            </button>
-            <button
-              type="button"
-              onClick={() => setClaimEngineTab("closed")}
-              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                claimEngineTab === "closed"
-                  ? "bg-sky-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              }`}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Closed claims
-            </button>
-          </div>
+          ) : null}
 
           {claimEngineTab === "submission_queue" ? (
             <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
@@ -908,9 +845,13 @@ export function ClaimEngineClient({
                 </div>
               ) : null}
               {submissionQueueFiltered.length === 0 ? (
-                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-                  No generated reports yet. Run <span className="font-semibold text-slate-700 dark:text-slate-300">Generate reports</span> to build PDFs for
-                  returns in <span className="font-semibold">ready for claim</span> status.
+                <div className="p-4">
+                  <ClaimEngineEmptyState
+                    title="Submission queue is empty"
+                    description="Promote claim cases from Cases to create draft or ready-to-send submissions. PDFs attach when workspace auto_generate_pdf_reports is enabled."
+                    action={{ href: "/claim-engine/cases", label: "Open cases" }}
+                    secondaryAction={{ href: "/returns/claims", label: "Draft pool" }}
+                  />
                 </div>
               ) : submissionQueueDisplay.length === 0 ? (
                 <div className="px-6 py-10 text-center text-sm text-muted-foreground">
@@ -1017,43 +958,26 @@ export function ClaimEngineClient({
           ) : claimEngineTab === "active" ? (
             <>
           {claimsError && (
-            <div className="rounded-2xl border border-rose-700/60 bg-rose-950/40 px-4 py-3 text-xs text-rose-100">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
               <span className="font-semibold">Data warning:</span> {claimsError}
             </div>
           )}
 
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="relative overflow-hidden rounded-2xl border bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80 border-sky-500/30">
-              <div className="relative flex items-start justify-between gap-3">
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Total Recovered</p>
-                  <p className="text-2xl font-semibold tracking-tight text-slate-50">{formatCurrency(totalRecoveredDisplay)}</p>
-                </div>
-                <TrendingUp className="h-5 w-5 text-sky-400" />
-              </div>
-              <p className="relative mt-3 text-[11px] text-slate-400">
-                Reimbursement when recorded, else accepted claim_amount (USD)
-              </p>
+            <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total recovered</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{formatCurrency(totalRecoveredDisplay)}</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">Reimbursement when recorded, else claim amount</p>
             </div>
-            <div className="relative overflow-hidden rounded-2xl border bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80 border-amber-500/30">
-              <div className="relative flex items-start justify-between gap-3">
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Pending Claims</p>
-                  <p className="text-2xl font-semibold tracking-tight text-slate-50">{pendingCount}</p>
-                </div>
-                <Clock className="h-5 w-5 text-amber-400" />
-              </div>
-              <p className="relative mt-3 text-[11px] text-slate-400">Awaiting action from marketplace sync</p>
+            <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{pendingCount}</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">Awaiting marketplace sync</p>
             </div>
-            <div className="relative overflow-hidden rounded-2xl border bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80 border-rose-500/30">
-              <div className="relative flex items-start justify-between gap-3">
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Suspicious</p>
-                  <p className="text-2xl font-semibold tracking-tight text-slate-50">{suspiciousCount}</p>
-                </div>
-                <AlertTriangle className="h-5 w-5 text-rose-400" />
-              </div>
-              <p className="relative mt-3 text-[11px] text-slate-400">Flagged by adapter rules</p>
+            <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Suspicious</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{suspiciousCount}</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">Flagged by adapter rules</p>
             </div>
           </section>
 
@@ -1120,20 +1044,13 @@ export function ClaimEngineClient({
             </div>
 
             {activeClaimsFiltered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">No active claims in this pipeline.</p>
-                <p className="max-w-xs text-xs text-slate-500">
-                  Active claims use statuses such as submitted, evidence requested, or investigating after a case is filed with the marketplace.
-                </p>
-                <Link
-                  href="/settings"
-                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:text-white"
-                >
-                  Adapter settings
-                </Link>
+              <div className="p-4">
+                <ClaimEngineEmptyState
+                  title="No active claims"
+                  description="Submissions move here after marketplace filing — statuses submitted, evidence requested, or investigating."
+                  action={{ href: "/claim-engine", label: "Submission queue" }}
+                  secondaryAction={{ href: "/settings", label: "Adapter settings" }}
+                />
               </div>
             ) : activeDisplayClaims.length === 0 ? (
               <div className="px-6 py-10 text-center text-sm text-muted-foreground">
@@ -1397,43 +1314,23 @@ export function ClaimEngineClient({
           ) : (
             <>
               {claimsError && (
-                <div className="rounded-2xl border border-rose-700/60 bg-rose-950/40 px-4 py-3 text-xs text-rose-100">
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
                   <span className="font-semibold">Data warning:</span> {claimsError}
                 </div>
               )}
 
               <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div className="relative overflow-hidden rounded-2xl border bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80 border-sky-500/30">
-                  <div className="relative flex items-start justify-between gap-3">
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Total Recovered</p>
-                      <p className="text-2xl font-semibold tracking-tight text-slate-50">{formatCurrency(totalRecoveredDisplay)}</p>
-                    </div>
-                    <TrendingUp className="h-5 w-5 text-sky-400" />
-                  </div>
-                  <p className="relative mt-3 text-[11px] text-slate-400">
-                    Reimbursement when recorded, else accepted claim_amount (USD)
-                  </p>
+                <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total recovered</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{formatCurrency(totalRecoveredDisplay)}</p>
                 </div>
-                <div className="relative overflow-hidden rounded-2xl border bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80 border-amber-500/30">
-                  <div className="relative flex items-start justify-between gap-3">
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Pending Claims</p>
-                      <p className="text-2xl font-semibold tracking-tight text-slate-50">{pendingCount}</p>
-                    </div>
-                    <Clock className="h-5 w-5 text-amber-400" />
-                  </div>
-                  <p className="relative mt-3 text-[11px] text-slate-400">Awaiting action from marketplace sync</p>
+                <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Closed count</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{closedDisplayClaims.length}</p>
                 </div>
-                <div className="relative overflow-hidden rounded-2xl border bg-slate-950/70 px-4 py-4 shadow-sm ring-1 ring-inset ring-slate-800/80 border-rose-500/30">
-                  <div className="relative flex items-start justify-between gap-3">
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Suspicious</p>
-                      <p className="text-2xl font-semibold tracking-tight text-slate-50">{suspiciousCount}</p>
-                    </div>
-                    <AlertTriangle className="h-5 w-5 text-rose-400" />
-                  </div>
-                  <p className="relative mt-3 text-[11px] text-slate-400">Flagged by adapter rules</p>
+                <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Suspicious</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{suspiciousCount}</p>
                 </div>
               </section>
 
@@ -1462,8 +1359,13 @@ export function ClaimEngineClient({
                 </div>
 
                 {closedClaimsFiltered.length === 0 ? (
-                  <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-                    No closed claims yet. Resolved submissions (accepted, denied, failed) appear here.
+                  <div className="p-4">
+                    <ClaimEngineEmptyState
+                      title="No closed claims"
+                      description="Terminal outcomes — accepted, rejected, or failed — appear here after marketplace resolution."
+                      action={{ href: "/claim-engine?tab=active", label: "View active" }}
+                      secondaryAction={{ href: "/claim-engine/report-history", label: "Report history" }}
+                    />
                   </div>
                 ) : closedDisplayClaims.length === 0 ? (
                   <div className="px-6 py-10 text-center text-sm text-muted-foreground">
@@ -1683,7 +1585,7 @@ export function ClaimEngineClient({
               </section>
             </>
           )}
-        </div>
+        </ClaimEnginePageShell>
       </main>
     </>
   );

@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchExpectedPackageDetailRowsForParent,
   fetchExpectedPackagesForTracking,
+  isLikelyShipmentTrackingCode,
   mockExpectedPackageDetailRows,
+  type FetchExpectedPackagesOptions,
 } from "@/lib/scanner/operator-tracking-expectations";
 import {
   mockResolveOperatorBarcode,
@@ -248,9 +250,14 @@ async function resolveShipmentEntryBarcode(
   organizationId: string,
   storeId: string | null,
   code: string,
+  opts?: FetchExpectedPackagesOptions,
 ): Promise<OperatorResolveResult> {
   for (const only of SHIPMENT_ENTRY_RESOLVE_ORDER) {
-    const r = await resolveOperatorBarcode(supabase, organizationId, code, { only, storeId });
+    const r = await resolveOperatorBarcode(supabase, organizationId, code, {
+      only,
+      storeId,
+      fetchOptions: opts,
+    });
     if (r.kind !== "unknown") return r;
   }
   return { kind: "unknown", code };
@@ -510,12 +517,15 @@ function deriveMatchMetadata(
 /**
  * Canonical Shipment Entry gate lookup: inventory view + packages/pallets/expected_packages.
  * Never resolves product/SKU identifiers (no `products` / item tier).
+ * @param opts.skipExpensiveFallback When true, skips the ILIKE/14k-row scan in fetchExpectedPackagesForTracking
+ *   for likely tracking-format codes — caller must offer a "Deep search" action.
  */
 export async function lookupShipmentEntryScanCode(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
   rawCode: string,
+  opts?: FetchExpectedPackagesOptions,
 ): Promise<ShipmentEntryLookupResult> {
   const normalized_code = normalizeShipmentEntryScanCode(rawCode);
   const orgId = organizationId.trim();
@@ -559,10 +569,10 @@ export async function lookupShipmentEntryScanCode(
     inventory_matched_field = null;
   }
 
-  const barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code);
+  const barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code, opts);
 
   if (!inventory_rows.length && barcode.kind === "tracking") {
-    const epRows = await fetchExpectedPackagesForTracking(supabase, orgId, sid, normalized_code);
+    const epRows = await fetchExpectedPackagesForTracking(supabase, orgId, sid, normalized_code, undefined, opts);
     if (epRows.length) {
       inventory_rows = epRows.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>, orgId, sid));
       inventory_matched_field = "tracking_number";
@@ -592,7 +602,10 @@ export async function lookupShipmentEntryScanCode(
     }
   }
 
-  if (!inventory_rows.length) {
+  if (
+    !inventory_rows.length &&
+    !(opts?.skipExpensiveFallback && isLikelyShipmentTrackingCode(normalized_code))
+  ) {
     const fb = await inventoryRowsFromExpectedPackagesFallback(supabase, orgId, sid, normalized_code);
     if (fb.rows.length) {
       inventory_rows = fb.rows;

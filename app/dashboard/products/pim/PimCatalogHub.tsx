@@ -9,8 +9,6 @@ import {
   Fingerprint,
   FolderTree,
   LayoutGrid,
-  Loader2,
-  Package,
   Plus,
   RefreshCw,
   Search,
@@ -34,6 +32,8 @@ import { ProductDetailDrawer } from "./ProductDetailDrawer";
 import { ManualProductForm } from "./ManualProductForm";
 import { PimHelpNote } from "./PimHelpNote";
 import { PimCatalogEnrichmentJobPanel } from "./PimCatalogEnrichmentJobPanel";
+import { ProductDataUpdatePanel } from "./ProductDataUpdatePanel";
+import { buildProductDataUpdatePanelProps } from "./mapProductDataUpdatePanelProps";
 import { usePimCatalogEnrichmentJob } from "./usePimCatalogEnrichmentJob";
 import type { ProductEnrichmentJobUiStatus } from "@/lib/jobs/product-enrichment-job-status";
 import type { PimCatalogEnrichmentRequestBody } from "@/lib/pim-catalog-enrichment-batch-request";
@@ -723,13 +723,14 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   });
 
   useEffect(() => {
-    if (enrichmentJob.jobRunning) setJobPanelDismissed(false);
-  }, [enrichmentJob.jobRunning]);
+    if (enrichmentJob.jobRunning || enrichmentJob.jobPausedAwaitingUser) setJobPanelDismissed(false);
+  }, [enrichmentJob.jobRunning, enrichmentJob.jobPausedAwaitingUser]);
 
   const enrichmentJobActive =
     Boolean(enrichmentJob.jobStatus || enrichmentJob.jobErr) &&
     !jobPanelDismissed &&
     (enrichmentJob.jobRunning ||
+      enrichmentJob.jobPausedAwaitingUser ||
       enrichmentJob.jobStatus?.status === "completed" ||
       enrichmentJob.jobStatus?.status === "cancelled" ||
       enrichmentJob.jobStatus?.status === "failed" ||
@@ -766,6 +767,67 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
       }
     },
     [browserLoopDev, enrichAdminDebug, enrichmentJob, oid, runEnrichmentBatches, storeId],
+  );
+
+  const productDataUpdatePanelProps = useMemo(
+    () =>
+      buildProductDataUpdatePanelProps({
+        jobStatus: enrichmentJob.jobStatus,
+        jobRunning: enrichmentJob.jobRunning,
+        jobBusy: enrichmentJob.jobBusy,
+        jobErr: enrichmentJob.jobErr,
+        lastRunAt: enrichLastRunAt,
+        amazonSpConfigured,
+        storeReady: Boolean(oid && storeId),
+        hasFailedProducts: enrichRetryIds.length > 0,
+        onStartApply: () => {
+          if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
+          setJobPanelDismissed(false);
+          setEnrichDebugRows([]);
+          void runProductDataUpdate(
+            { organization_id: oid, store_id: storeId, include_enrichment_debug: enrichAdminDebug },
+            true,
+          );
+        },
+        onResume: () => {
+          if (!oid || !storeId) return;
+          setJobPanelDismissed(false);
+          void enrichmentJob.resumeBackendJob({
+            organization_id: oid,
+            store_id: storeId,
+            include_enrichment_debug: enrichAdminDebug,
+          });
+        },
+        onCancel: () => void enrichmentJob.cancelBackendJob(),
+        onRetryFailed: () => {
+          if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
+          setEnrichErr(null);
+          void runProductDataUpdate(
+            {
+              organization_id: oid,
+              store_id: storeId,
+              retry_failed_only: true,
+              product_ids: enrichRetryIds,
+              include_enrichment_debug: enrichAdminDebug,
+            },
+            false,
+          );
+        },
+        onRefreshStatus: () => {
+          if (enrichmentJob.jobId) void enrichmentJob.refreshJobStatus(enrichmentJob.jobId);
+        },
+      }),
+    [
+      amazonSpConfigured,
+      enrichAdminDebug,
+      enrichLastRunAt,
+      enrichRetryIds,
+      enrichmentJob,
+      oid,
+      productUpdateStarting,
+      runProductDataUpdate,
+      storeId,
+    ],
   );
 
   const vendorOptions = useMemo(
@@ -884,38 +946,12 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
           </div>
         ) : null}
 
+        {storeId ? (
+          <ProductDataUpdatePanel {...productDataUpdatePanelProps} />
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-muted/10 p-2">
-          <div className="flex select-none items-center gap-1.5">
-            <button
-              type="button"
-              disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.jobRunning}
-              title={
-                !amazonSpConfigured
-                  ? "Connect Amazon SP-API (Settings → Marketplaces & Stores)."
-                  : "Fetch catalog data from Amazon for products with an ASIN. Runs as a background job — you can navigate away."
-              }
-              onClick={() => {
-                if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
-                setEnrichDebugRows([]);
-                void runProductDataUpdate(
-                  { organization_id: oid, store_id: storeId, include_enrichment_debug: enrichAdminDebug },
-                  true,
-                );
-              }}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {productUpdateStarting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Package className="h-4 w-4" aria-hidden />}
-              Product Data Update
-            </button>
-            <PimHelpNote label="Product Data Update">
-              <div className="space-y-2">
-                <div>
-                  Batch Amazon catalog fetch for every product with an ASIN. Runs in the background — status persists if you leave this page.
-                </div>
-                <div>Cancel stops between batches. Resume continues from the last cursor.</div>
-              </div>
-            </PimHelpNote>
-          </div>
+          {/* Retry/repair shortcuts — the main Start/Resume/Cancel is in the Product Update panel above */}
           {enrichRetryIds.length > 0 && !enrichmentJob.jobRunning ? (
             <button
               type="button"
@@ -1005,7 +1041,10 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
           status={enrichmentJob.jobStatus}
           busy={enrichmentJob.jobBusy}
           error={enrichmentJob.jobErr}
-          canResume={Boolean(enrichmentJob.jobStatus?.can_resume)}
+          pausedAwaitingUser={enrichmentJob.jobPausedAwaitingUser}
+          canResume={
+            Boolean(enrichmentJob.jobStatus?.can_resume) || enrichmentJob.jobPausedAwaitingUser
+          }
           onCancel={() => void enrichmentJob.cancelBackendJob()}
           onDismiss={() => setJobPanelDismissed(true)}
           onResume={() => {

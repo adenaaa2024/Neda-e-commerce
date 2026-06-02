@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpectedPackagesForTracking } from "./operator-tracking-expectations";
-import { findPalletInOrgByScanCode } from "./operator-pallet-tracking";
+import {
+  fetchExpectedPackagesForTracking,
+  type FetchExpectedPackagesOptions,
+} from "./operator-tracking-expectations";
+import { findPalletByTrackingNormalized } from "./operator-pallet-tracking";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
 /**
@@ -25,6 +28,8 @@ export type ResolveOptions = {
   only?: OperatorResolveKind;
   /** Required for tracking resolution against `expected_packages` (scoped by store). */
   storeId?: string | null;
+  /** Forwarded to `fetchExpectedPackagesForTracking` (fast not-found skip for tracking codes). */
+  fetchOptions?: FetchExpectedPackagesOptions;
 };
 
 function norm(s: string) {
@@ -166,7 +171,14 @@ export async function resolveOperatorBarcode(
 
   const runTracking = async (): Promise<OperatorResolveResult | null> => {
     if (!storeId) return null;
-    const rows = await fetchExpectedPackagesForTracking(supabase, organizationId, storeId, code);
+    const rows = await fetchExpectedPackagesForTracking(
+      supabase,
+      organizationId,
+      storeId,
+      code,
+      undefined,
+      options?.fetchOptions,
+    );
     if (rows?.length) return { kind: "tracking", row: rows[0] as Record<string, unknown> };
     return null;
   };
@@ -198,7 +210,23 @@ export async function resolveOperatorBarcode(
   };
 
   const runPallet = async (): Promise<OperatorResolveResult | null> => {
-    const row = await findPalletInOrgByScanCode(supabase, organizationId, code);
+    const { data, error } = await supabase
+      .from("pallets")
+      .select(
+        "id, organization_id, pallet_number, status, item_count, tracking_number, carrier_name, order_id",
+      )
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .ilike("pallet_number", code)
+      .limit(1);
+    if (error) throw error;
+    if (data?.length) return { kind: "pallet", row: data[0] as Record<string, unknown> };
+    return null;
+  };
+
+  /** Receiving pallet already created for this carrier tracking (off-manifest or prior session). */
+  const runPalletByInboundTracking = async (): Promise<OperatorResolveResult | null> => {
+    const row = await findPalletByTrackingNormalized(supabase, organizationId, code);
     if (!row) return null;
     return {
       kind: "pallet",
@@ -241,17 +269,20 @@ export async function resolveOperatorBarcode(
   };
 
   if (only === "tracking") {
-    return (await runTracking()) ?? (await runPallet()) ?? { kind: "unknown", code };
+    return (await runTracking()) ?? (await runPalletByInboundTracking()) ?? { kind: "unknown", code };
   }
   if (only === "package") return (await runPackage()) ?? { kind: "unknown", code };
   if (only === "slip") return (await runSlip()) ?? { kind: "unknown", code };
-  if (only === "pallet") return (await runPallet()) ?? { kind: "unknown", code };
+  if (only === "pallet") {
+    return (await runPalletByInboundTracking()) ?? (await runPallet()) ?? { kind: "unknown", code };
+  }
   if (only === "item") return (await runItem()) ?? { kind: "unknown", code };
 
   return (await runTracking())
     ?? (await runPackage())
-    ?? (await runPallet())
+    ?? (await runPalletByInboundTracking())
     ?? (await runSlip())
+    ?? (await runPallet())
     ?? (await runItem())
     ?? { kind: "unknown", code };
 }

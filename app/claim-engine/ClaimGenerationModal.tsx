@@ -141,7 +141,7 @@ export function ClaimGenerationModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="admin-modal-shell flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden"
+        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950"
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
           <div>

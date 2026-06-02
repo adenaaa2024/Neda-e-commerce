@@ -56,8 +56,21 @@ export function usePimCatalogEnrichmentJob(args: {
   const [actionBusy, setActionBusy] = useState(false);
   const [jobErr, setJobErr] = useState<string | null>(null);
   const pollAbortRef = useRef<AbortController | null>(null);
+  /** True only after explicit Start/Resume in this session — never from mount/localStorage discovery. */
+  const autoTickEnabledRef = useRef(false);
+  const [autoTickEnabled, setAutoTickEnabled] = useState(false);
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
+
+  const enableAutoTick = useCallback(() => {
+    autoTickEnabledRef.current = true;
+    setAutoTickEnabled(true);
+  }, []);
+
+  const disableAutoTick = useCallback(() => {
+    autoTickEnabledRef.current = false;
+    setAutoTickEnabled(false);
+  }, []);
 
   const refreshJobStatus = useCallback(async (id: string) => {
     const res = await fetchProductEnrichmentJobStatus(id);
@@ -89,8 +102,9 @@ export function usePimCatalogEnrichmentJob(args: {
   const clearJob = useCallback(() => {
     setJobId(null);
     setJobStatus(null);
+    disableAutoTick();
     if (storageKey) clearPimEnrichmentJobStorage(storageKey);
-  }, [storageKey]);
+  }, [disableAutoTick, storageKey]);
 
   const stopPolling = useCallback(() => {
     pollAbortRef.current?.abort();
@@ -116,7 +130,7 @@ export function usePimCatalogEnrichmentJob(args: {
               break;
             }
 
-            if (st.needs_tick) {
+            if (st.needs_tick && autoTickEnabledRef.current) {
               const tick = await tickProductEnrichmentJob(id);
               if (ac.signal.aborted) break;
               if (!tick.ok) {
@@ -161,6 +175,7 @@ export function usePimCatalogEnrichmentJob(args: {
           return { ok: false as const, error: enq.error };
         }
         attachJob(enq.job_id, payload);
+        enableAutoTick();
         await refreshJobStatus(enq.job_id);
         await tickProductEnrichmentJob(enq.job_id);
         await refreshJobStatus(enq.job_id);
@@ -175,12 +190,13 @@ export function usePimCatalogEnrichmentJob(args: {
         setActionBusy(false);
       }
     },
-    [attachJob, oid, refreshJobStatus, startPolling, storeId],
+    [attachJob, enableAutoTick, oid, refreshJobStatus, startPolling, storeId],
   );
 
   const cancelBackendJob = useCallback(async () => {
     if (!jobId) return;
     stopPolling();
+    disableAutoTick();
     setActionBusy(true);
     try {
       await cancelProductEnrichmentJob(jobId);
@@ -189,7 +205,7 @@ export function usePimCatalogEnrichmentJob(args: {
     } finally {
       setActionBusy(false);
     }
-  }, [jobId, refreshJobStatus, stopPolling]);
+  }, [disableAutoTick, jobId, refreshJobStatus, stopPolling]);
 
   const resumeBackendJob = useCallback(
     async (basePayload: PimCatalogEnrichmentRequestBody) => {
@@ -243,13 +259,19 @@ export function usePimCatalogEnrichmentJob(args: {
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  const jobRunning = Boolean(jobStatus?.running || jobStatus?.needs_tick) && !isTerminalStatus(jobStatus);
+  const jobAdvancing =
+    Boolean(jobStatus?.running || (jobStatus?.needs_tick && autoTickEnabled)) && !isTerminalStatus(jobStatus);
+
+  const jobPausedAwaitingUser =
+    Boolean(jobStatus?.needs_tick && !autoTickEnabled && jobId) && !isTerminalStatus(jobStatus);
 
   return {
     jobId,
     jobStatus,
     jobBusy: actionBusy,
-    jobRunning,
+    jobRunning: jobAdvancing,
+    autoTickEnabled,
+    jobPausedAwaitingUser,
     jobErr,
     startBackendJob,
     cancelBackendJob,

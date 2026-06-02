@@ -21,7 +21,13 @@ import {
   type ScannerClaimSource,
 } from "@/lib/scanner-claim-issue-pick";
 import { supabaseServer } from "@/lib/supabase-server";
-import { evaluateScannerClaimPromoteGuard } from "@/lib/scanner-claim-promote-guard";
+import { evaluateScannerClaimPromoteAllowedForOrg } from "@/lib/scanner-claim-promote-guard";
+import {
+  getEffectiveClaimSettings,
+  isAutoClaimCaseCreationAllowed,
+} from "@/lib/claim-effective-settings";
+import { packageStatusIsClosed } from "@/lib/returns-claims-work-queue";
+import { returnHasResolvedProduct } from "@/lib/returns-claims-work-queue";
 import { isUuidString } from "@/lib/uuid";
 
 export {
@@ -208,21 +214,32 @@ export async function promoteScannerReturnItemToClaimStructures(
     client?: SupabaseClient;
   },
 ): Promise<PromoteScannerClaimResult> {
-  const guard = evaluateScannerClaimPromoteGuard();
-  if (!guard.allowed) {
-    return { promoted: false, skipped_reason: guard.skipped_reason ?? "promote_disabled" };
-  }
+  const client = options?.client ?? supabaseServer;
 
   const rid = String(returnItemId ?? "").trim();
   if (!isUuidString(rid)) {
     return { promoted: false, skipped_reason: "invalid_return_item_id" };
   }
 
-  const client = options?.client ?? supabaseServer;
   const row = await loadReturnItemForPromote(client, rid, options?.organizationId);
   if (!row) {
     return { promoted: false, skipped_reason: "return_item_not_found" };
   }
+
+  const guard = await evaluateScannerClaimPromoteAllowedForOrg(
+    client,
+    row.organization_id,
+    row.store_id,
+  );
+  if (!guard.allowed) {
+    return { promoted: false, skipped_reason: guard.skipped_reason ?? "promote_disabled" };
+  }
+
+  const effectiveSettings = await getEffectiveClaimSettings(
+    client,
+    row.organization_id,
+    row.store_id,
+  );
 
   if (!isPhysicalReturnItemForClaims(row)) {
     return {
@@ -238,7 +255,23 @@ export async function promoteScannerReturnItemToClaimStructures(
     return { promoted: false, skipped_reason: "not_claimable" };
   }
 
+  const wf = effectiveSettings.workflow;
+  if (
+    wf.require_product_link !== false &&
+    !returnHasResolvedProduct(row) &&
+    !effectiveSettings.policy.allow_manual_override
+  ) {
+    return { promoted: false, skipped_reason: "needs_product_resolution" };
+  }
+
   const { canonical, claimSource, tag: sourceTag } = issue;
+  if (
+    wf.require_operator_note !== false &&
+    canonical === "operator_other" &&
+    !String(row.notes ?? "").trim()
+  ) {
+    return { promoted: false, skipped_reason: "missing_operator_note" };
+  }
   const hasPhoto = hasReturnPhotoEvidenceUrlSlots(row.photo_evidence);
 
   const eligibilityClaimSource =
@@ -284,6 +317,18 @@ export async function promoteScannerReturnItemToClaimStructures(
     .eq("idempotency_key", caseKey)
     .maybeSingle();
 
+  let packageClosed: boolean | null = null;
+  if (row.package_id) {
+    const { data: pkg } = await client
+      .from("packages")
+      .select("status")
+      .eq("id", row.package_id)
+      .maybeSingle();
+    packageClosed = packageStatusIsClosed((pkg as { status?: string } | null)?.status);
+  }
+
+  const autoCase = isAutoClaimCaseCreationAllowed(effectiveSettings, { packageClosed });
+
   if (existingCase?.id) {
     claimCaseId = existingCase.id;
     await client
@@ -302,7 +347,7 @@ export async function promoteScannerReturnItemToClaimStructures(
         updated_at: new Date().toISOString(),
       })
       .eq("id", existingCase.id);
-  } else {
+  } else if (autoCase.allowed) {
     const { data: insertedCase, error: caseErr } = await client
       .from("claim_cases")
       .insert({

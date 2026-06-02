@@ -4,6 +4,25 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
+import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { ClaimApiIntakeSettingsPanel } from "@/components/claim-engine/ClaimApiIntakeSettingsPanel";
+import {
+  ClaimIntakePhysicalReturnsSection,
+  type PhysicalReturnPreviewRow,
+} from "@/components/claim-engine/ClaimIntakePhysicalReturnsSection";
+import { ClaimSourceBadge } from "@/components/claim-engine/ClaimSourceBadge";
+import {
+  INTAKE_SOURCE_FILTER_TABS,
+  intakeFilterShowsClaimCandidates,
+  intakeFilterShowsDraftCandidates,
+  intakeFilterShowsPhysicalSection,
+  type IntakeSourceFilter,
+} from "@/lib/claim-intake-source-filter";
+import {
+  claimEngineSubTabClass,
+  CLAIM_ENGINE_MAIN_CLASS,
+} from "@/components/claim-engine/claim-engine-ui";
 import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
 import { ClaimReferenceCandidatesPanel } from "@/components/claims/ClaimReferenceCandidatesPanel";
 import { ProductLinkageDisplayBlock } from "@/components/product-linkage/ProductLinkageDisplayBlock";
@@ -66,7 +85,22 @@ const QUEUE_TABS: { id: InboxQueueTab; label: string }[] = [
   { id: "ineligible_pre_cutoff", label: "Pre-cutoff" },
 ];
 
-const SOURCE_TABLE_OPTIONS = ["", "amazon_returns", "amazon_removals", "amazon_removal_shipments", "return_items", "returns"];
+type InboxDraftItem = {
+  id: string;
+  record_type: "claim_candidate_draft";
+  source_table: string | null;
+  source_row_id: string | null;
+  claim_family: string | null;
+  claim_reason: string | null;
+  evidence_status: string | null;
+  lifecycle_status: string | null;
+  confidence_score: unknown;
+  sku: string | null;
+  fnsku: string | null;
+  asin: string | null;
+  resolved_product_id: string | null;
+  created_at: string | null;
+};
 
 const LEGACY_SOURCE_BROKEN_COPY =
   "This claim candidate points to an older Amazon removal source row that no longer exists in the current operational table. The system cannot safely auto-repair the source link. Review or regenerate from current source data instead.";
@@ -125,13 +159,48 @@ function isLegacySourceBroken(row: {
   );
 }
 
-function SourceTableBadge({ table }: { table: string | null }) {
-  if (!table) return <span className="text-muted-foreground">—</span>;
-  return (
-    <span className="inline-flex rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-      {table}
-    </span>
-  );
+function emptyDescriptionForIntakeFilter(
+  filter: IntakeSourceFilter,
+  physicalCount: number,
+  draftCount: number,
+): string {
+  switch (filter) {
+    case "physical_return":
+      return physicalCount > 0
+        ? "Physical scans are listed above from the draft pool."
+        : "Scan a return in the warehouse app to add rows to the draft pool.";
+    case "amazon_return":
+      return "Import Amazon return reports from Settings → Imports.";
+    case "removal":
+      return "Run removal order/shipment sync from Automation or imports.";
+    case "reimbursement":
+      return draftCount > 0
+        ? "Draft reimbursement rows appear above. Run the intake generator to promote when ready."
+        : "Import reimbursements, then use Dry-run generator in API connections.";
+    case "settlement":
+      return draftCount > 0
+        ? "Draft settlement rows appear above (claimable lines only)."
+        : "Import settlements, then use Dry-run generator in API connections.";
+    case "manual":
+      return "Manual drafts live in Returns → Draft pool and claim_cases.";
+    default:
+      return physicalCount > 0
+        ? "No claim_candidates for this queue filter. Physical scans may still appear above."
+        : "Run imports or generators to populate claim_candidates.";
+  }
+}
+
+function emptyActionForIntakeFilter(filter: IntakeSourceFilter): { href: string; label: string } {
+  switch (filter) {
+    case "physical_return":
+    case "manual":
+      return { href: "/scanner/operator-mobile/scan", label: "Open scanner" };
+    case "reimbursement":
+    case "settlement":
+      return { href: "/platform/settings/automation", label: "Automation" };
+    default:
+      return { href: "/settings/imports", label: "Open imports" };
+  }
 }
 
 function DisabledAction({ label }: { label: string }) {
@@ -182,7 +251,14 @@ export function ClaimInboxClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [filterSourceTable, setFilterSourceTable] = useState("");
+  const [intakeSourceFilter, setIntakeSourceFilter] = useState<IntakeSourceFilter>("all");
+  const [physicalRows, setPhysicalRows] = useState<PhysicalReturnPreviewRow[]>([]);
+  const [physicalTotal, setPhysicalTotal] = useState(0);
+  const [physicalLoading, setPhysicalLoading] = useState(false);
+  const [physicalError, setPhysicalError] = useState<string | null>(null);
+  const [draftItems, setDraftItems] = useState<InboxDraftItem[]>([]);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const [filterEvidenceStatus, setFilterEvidenceStatus] = useState("");
   const [filterClaimFamily, setFilterClaimFamily] = useState("");
   const [filterClaimReason, setFilterClaimReason] = useState("");
@@ -279,7 +355,7 @@ export function ClaimInboxClient({
     });
     if (selectedStoreId) params.set("store_id", selectedStoreId);
     if (queueTab !== "all") params.set("queue", queueTab);
-    if (filterSourceTable) params.set("source_table", filterSourceTable);
+    if (intakeSourceFilter !== "all") params.set("intake_source", intakeSourceFilter);
     if (filterEvidenceStatus) params.set("evidence_status", filterEvidenceStatus);
     if (filterClaimFamily.trim()) params.set("claim_family", filterClaimFamily.trim());
     if (filterClaimReason.trim()) params.set("claim_reason", filterClaimReason.trim());
@@ -315,7 +391,7 @@ export function ClaimInboxClient({
     queueTab,
     page,
     scanCursor,
-    filterSourceTable,
+    intakeSourceFilter,
     filterEvidenceStatus,
     filterClaimFamily,
     filterClaimReason,
@@ -324,9 +400,80 @@ export function ClaimInboxClient({
     hasVirtualCoverage,
   ]);
 
+  const fetchPhysicalReturns = useCallback(async () => {
+    if (!storesReady || !intakeFilterShowsPhysicalSection(intakeSourceFilter)) {
+      setPhysicalRows([]);
+      setPhysicalTotal(0);
+      return;
+    }
+    setPhysicalLoading(true);
+    setPhysicalError(null);
+    try {
+      const params = new URLSearchParams({ organization_id: organizationId, limit: "50" });
+      if (selectedStoreId) params.set("store_id", selectedStoreId);
+      const res = await fetch(`/api/claims/intake/physical-returns?${params.toString()}`, { credentials: "include" });
+      const j = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        rows?: PhysicalReturnPreviewRow[];
+        stats?: { total_after_store_filter?: number };
+      };
+      if (!res.ok || !j.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+      setPhysicalRows(j.rows ?? []);
+      setPhysicalTotal(j.stats?.total_after_store_filter ?? j.rows?.length ?? 0);
+    } catch (e) {
+      setPhysicalError(e instanceof Error ? e.message : "Failed to load physical returns");
+      setPhysicalRows([]);
+      setPhysicalTotal(0);
+    } finally {
+      setPhysicalLoading(false);
+    }
+  }, [organizationId, selectedStoreId, storesReady, intakeSourceFilter]);
+
+  const fetchDraftCandidates = useCallback(async () => {
+    if (!storesReady || !intakeFilterShowsDraftCandidates(intakeSourceFilter)) {
+      setDraftItems([]);
+      return;
+    }
+    setDraftLoading(true);
+    setDraftError(null);
+    try {
+      const params = new URLSearchParams({
+        organization_id: organizationId,
+        intake_source: intakeSourceFilter,
+        limit: "25",
+      });
+      if (selectedStoreId) params.set("store_id", selectedStoreId);
+      const res = await fetch(`/api/claims/intake/draft-candidates?${params.toString()}`, { credentials: "include" });
+      const j = (await res.json()) as { ok?: boolean; error?: string; items?: InboxDraftItem[] };
+      if (!res.ok || !j.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+      setDraftItems(j.items ?? []);
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : "Failed to load draft candidates");
+      setDraftItems([]);
+    } finally {
+      setDraftLoading(false);
+    }
+  }, [organizationId, selectedStoreId, storesReady, intakeSourceFilter]);
+
   useEffect(() => {
-    void fetchList();
-  }, [fetchList]);
+    if (intakeFilterShowsClaimCandidates(intakeSourceFilter)) {
+      void fetchList();
+    } else {
+      setItems([]);
+      setNextCursor(null);
+      setLoading(false);
+      setError(null);
+    }
+  }, [fetchList, intakeSourceFilter]);
+
+  useEffect(() => {
+    void fetchPhysicalReturns();
+  }, [fetchPhysicalReturns]);
+
+  useEffect(() => {
+    void fetchDraftCandidates();
+  }, [fetchDraftCandidates]);
 
   const resetPagination = () => {
     setPage(1);
@@ -394,38 +541,23 @@ export function ClaimInboxClient({
 
   return (
     <>
-      <header className="flex h-16 flex-col gap-2 border-b border-slate-200 bg-white/80 px-4 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/70 sm:flex-row sm:items-center sm:justify-between sm:gap-4 md:px-6">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <Inbox className="h-4 w-4 text-sky-500" />
-            <h1 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-sm">
-              Claim Inbox
-            </h1>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Read-only claim candidates — queues, identifiers, and lineage. No marketplace actions in v1.
-          </p>
+      <main className={CLAIM_ENGINE_MAIN_CLASS}>
+        <ClaimEnginePageShell
+          showHub
+          title="Intake"
+          description="One inbox for imports, removals, reimbursements, settlements, and physical scans (draft pool)."
+        >
+          <ClaimApiIntakeSettingsPanel organizationId={organizationId} storeId={selectedStoreId} defaultCollapsed />
           {initialDraftId ? (
-            <Link
-              href={`/claim-engine/evidence?draft_id=${encodeURIComponent(initialDraftId)}`}
-              className="mt-0.5 inline-flex text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-300"
-            >
-              Persisted evidence — draft {initialDraftId.slice(0, 8)}…
-            </Link>
+            <p className="text-xs text-muted-foreground">
+              <Link
+                href={`/claim-engine/evidence?draft_id=${encodeURIComponent(initialDraftId)}`}
+                className="font-medium text-emerald-700 underline dark:text-emerald-300"
+              >
+                Open persisted evidence for draft {initialDraftId.slice(0, 8)}…
+              </Link>
+            </p>
           ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Link href="/claim-engine" className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400">
-            Claim Engine
-          </Link>
-          <Link href="/" className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400">
-            Dashboard
-          </Link>
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-950">
-        <div className="mx-auto flex w-full max-w-[100vw] flex-col gap-4 px-4 py-6 sm:px-4 lg:px-8">
           {storesLoading || !storesReady ? (
             <div className="rounded-xl border border-slate-200 bg-white px-3 py-6 text-center text-sm text-muted-foreground dark:border-slate-800 dark:bg-slate-950">
               Loading store access…
@@ -486,23 +618,6 @@ export function ClaimInboxClient({
                   </select>
                 </label>
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-              Source table
-              <select
-                value={filterSourceTable}
-                onChange={(e) => {
-                  setFilterSourceTable(e.target.value);
-                  resetPagination();
-                }}
-                className="min-w-[10rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-              >
-                {SOURCE_TABLE_OPTIONS.map((v) => (
-                  <option key={v || "any"} value={v}>
-                    {v ? v.replace(/_/g, " ") : "Any"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
               Evidence status
               <input
                 value={filterEvidenceStatus}
@@ -532,7 +647,23 @@ export function ClaimInboxClient({
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80">
+            {INTAKE_SOURCE_FILTER_TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => {
+                  setIntakeSourceFilter(t.id);
+                  resetPagination();
+                }}
+                className={claimEngineSubTabClass(intakeSourceFilter === t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80">
             {QUEUE_TABS.map((t) => (
               <button
                 key={t.id}
@@ -541,16 +672,67 @@ export function ClaimInboxClient({
                   setQueueTab(t.id);
                   resetPagination();
                 }}
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                  queueTab === t.id
-                    ? "bg-sky-600 text-white shadow-sm"
-                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                }`}
+                className={claimEngineSubTabClass(queueTab === t.id)}
               >
                 {t.label}
               </button>
             ))}
           </div>
+
+          {intakeFilterShowsPhysicalSection(intakeSourceFilter) ? (
+            <ClaimIntakePhysicalReturnsSection
+              loading={physicalLoading}
+              error={physicalError}
+              rows={physicalRows}
+              totalCount={physicalTotal}
+              compact={intakeSourceFilter === "all"}
+            />
+          ) : null}
+
+          {intakeFilterShowsDraftCandidates(intakeSourceFilter) &&
+          (draftLoading || draftError || draftItems.length > 0) ? (
+            <div className="overflow-x-auto rounded-lg border border-teal-200/70 bg-teal-50/20 dark:border-teal-900/50 dark:bg-teal-950/10">
+              <div className="border-b border-teal-200/60 px-3 py-2 text-xs font-medium dark:border-teal-900/50">
+                Draft-stage candidates (reimbursement / settlement)
+              </div>
+              {draftLoading ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-teal-600" />
+                </div>
+              ) : draftError ? (
+                <p className="px-3 py-2 text-xs text-rose-600">{draftError}</p>
+              ) : (
+                <table className="min-w-[720px] w-full border-collapse text-left text-[11px]">
+                  <thead className="border-b border-teal-200/50 text-[10px] font-semibold uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-1.5">Source</th>
+                      <th className="px-3 py-1.5">Reason</th>
+                      <th className="px-3 py-1.5">Lifecycle</th>
+                      <th className="px-3 py-1.5">Identifiers</th>
+                      <th className="px-3 py-1.5">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draftItems.map((d) => (
+                      <tr key={d.id} className="border-b border-teal-100/80 dark:border-teal-900/30">
+                        <td className="px-3 py-1.5">
+                          <ClaimSourceBadge source_table={d.source_table} />
+                        </td>
+                        <td className="px-3 py-1.5 text-muted-foreground">
+                          {[d.claim_family, d.claim_reason].filter(Boolean).join(" · ") || "—"}
+                        </td>
+                        <td className="px-3 py-1.5">{d.lifecycle_status ?? "—"}</td>
+                        <td className="px-3 py-1.5 font-mono text-[10px]">
+                          {[d.sku, d.fnsku, d.asin].filter(Boolean).join(" · ") || "—"}
+                        </td>
+                        <td className="px-3 py-1.5 text-muted-foreground">{formatWhen(d.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ) : null}
 
           {error ? (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
@@ -558,6 +740,7 @@ export function ClaimInboxClient({
             </div>
           ) : null}
 
+          {intakeFilterShowsClaimCandidates(intakeSourceFilter) ? (
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <table className="min-w-[960px] w-full border-collapse text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/80">
@@ -582,8 +765,13 @@ export function ClaimInboxClient({
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
-                      No candidates in this view.
+                    <td colSpan={9} className="p-0">
+                      <ClaimEngineEmptyState
+                        title="No claim candidates"
+                        description={emptyDescriptionForIntakeFilter(intakeSourceFilter, physicalTotal, draftItems.length)}
+                        action={emptyActionForIntakeFilter(intakeSourceFilter)}
+                        secondaryAction={{ href: "/returns/claims", label: "Draft pool" }}
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -597,7 +785,7 @@ export function ClaimInboxClient({
                         onClick={() => openDetail(row.id)}
                       >
                         <td className="px-3 py-2 align-top">
-                          <SourceTableBadge table={row.source_table} />
+                          <ClaimSourceBadge source_table={row.source_table} />
                         </td>
                         <td className="max-w-[220px] px-3 py-2 align-top text-[11px] text-slate-700 dark:text-slate-200">
                           <div className="line-clamp-2">{whyClaimExists(row)}</div>
@@ -672,39 +860,46 @@ export function ClaimInboxClient({
               </tbody>
             </table>
           </div>
+          ) : null}
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] text-muted-foreground">{queueTab === "all" ? `Page ${page}` : "Scan mode (forward only)"}</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={loading || (queueTab === "all" ? page <= 1 : true)}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-slate-700"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                disabled={loading || !nextCursor}
-                onClick={() => {
-                  if (queueTab === "all") setPage((p) => p + 1);
-                  else setScanCursor(nextCursor);
-                }}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-slate-700"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-          {queueTab !== "all" ? (
-            <p className="text-[10px] text-muted-foreground">
-              Filtered queues use server scan cursors (forward pagination only in v1).
-            </p>
+          {intakeFilterShowsClaimCandidates(intakeSourceFilter) ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  {queueTab === "all" ? `Page ${page}` : "Scan mode (forward only)"}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={loading || (queueTab === "all" ? page <= 1 : true)}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-slate-700"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading || !nextCursor}
+                    onClick={() => {
+                      if (queueTab === "all") setPage((p) => p + 1);
+                      else setScanCursor(nextCursor);
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-slate-700"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+              {queueTab !== "all" ? (
+                <p className="text-[10px] text-muted-foreground">
+                  Filtered queues use server scan cursors (forward pagination only in v1).
+                </p>
+              ) : null}
+            </>
           ) : null}
             </>
           )}
-        </div>
+        </ClaimEnginePageShell>
       </main>
 
       {detailId ? (
@@ -757,7 +952,7 @@ export function ClaimInboxClient({
                         <div className="flex justify-between gap-2">
                           <dt className="text-muted-foreground">Source table</dt>
                           <dd>
-                            <SourceTableBadge table={String(candidate.source_table)} />
+                            <ClaimSourceBadge source_table={String(candidate.source_table)} />
                           </dd>
                         </div>
                       ) : null}

@@ -118,9 +118,7 @@ export async function countActiveReturnItemsForIdentifierScan(
 
   const { data: items, error } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select(
-      "id, package_id, pallet_id, expected_item_id, notes, item_name, sku, fnsku, product_identifier",
-    )
+    .select("id, package_id, pallet_id, expected_item_id, notes, item_name, sku, fnsku, product_identifier")
     .eq("organization_id", orgId)
     .eq("store_id", sid)
     .eq(field, v)

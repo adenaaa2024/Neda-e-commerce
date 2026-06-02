@@ -50,7 +50,7 @@ export function submissionCrmBadgeLabel(status: string): {
     case "draft":
       return {
         label: "Pending Marketplace Action",
-        className: "border-primary/40 bg-primary/10 text-foreground dark:border-primary/50 dark:bg-primary/15",
+        className: "border-sky-500/60 bg-sky-950/60 text-sky-200",
       };
     default:
       return {
@@ -122,11 +122,11 @@ export function ClaimInvestigationClient({
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-6 md:px-8">
-        <section className="admin-panel-card mb-6 p-4">
-          <div className="flex items-start gap-2 border-b border-border pb-3">
-            <Shield className="mt-0.5 h-4 w-4 text-primary" />
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+          <div className="flex items-start gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
+            <Shield className="mt-0.5 h-4 w-4 text-sky-500" />
             <div>
-              <p className="text-xs font-semibold text-foreground">Submission details</p>
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-50">Submission details</p>
               <p className="text-[11px] text-muted-foreground">Identifiers, case ID, and generated evidence.</p>
             </div>
           </div>
@@ -158,7 +158,7 @@ export function ClaimInvestigationClient({
                 href={previewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent"
+                className="mt-2 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
               >
                 <FileText className="h-4 w-4" />
                 Open evidence PDF
@@ -167,9 +167,9 @@ export function ClaimInvestigationClient({
           </div>
         </section>
 
-        <section className="admin-panel-card overflow-hidden">
-          <div className="border-b border-border px-4 py-3">
-            <p className="text-xs font-semibold text-foreground">Conversation</p>
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <p className="text-xs font-semibold text-slate-900 dark:text-slate-50">Conversation</p>
             <p className="text-[11px] text-muted-foreground">
               Marketplace messages and agent replies from <code className="text-[10px]">claim_history_logs</code>.
             </p>
@@ -196,10 +196,10 @@ export function ClaimInvestigationClient({
                     className={`flex w-full ${isLeft ? "justify-start" : "justify-end"}`}
                   >
                     <div
-                      className={`max-w-[92%] rounded-lg border px-3 py-2.5 text-sm shadow-sm sm:max-w-[85%] ${
+                      className={`max-w-[92%] rounded-2xl border px-3 py-2.5 text-sm shadow-sm sm:max-w-[85%] ${
                         isLeft
-                          ? "border-border bg-muted/60 text-foreground"
-                          : "border-primary/30 bg-primary/10 text-foreground"
+                          ? "border-slate-200 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                          : "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/50 dark:text-sky-50"
                       }`}
                     >
                       <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

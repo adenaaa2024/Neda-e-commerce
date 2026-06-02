@@ -1,6 +1,12 @@
 "use server";
 
 import { loadClaimPolicy, normalizeClaimPolicy } from "../../lib/claim-eligibility-policy";
+import {
+  getEffectiveClaimSettings,
+  toEffectiveClaimSettingsSnapshot,
+} from "../../lib/claim-effective-settings";
+import type { EffectiveClaimSettingsSnapshot } from "../../lib/claim-effective-settings-shared";
+import { resolveClaimQueueDisplayReason } from "../../lib/claim-queue-display";
 import type { ClaimPolicyV1 } from "../../lib/claim-policy-types";
 import { isClaimModuleDomainEnabled } from "../../lib/claim-module-scope";
 import {
@@ -14,11 +20,99 @@ import {
   type ReturnsClaimQueueSourceRow,
 } from "../../lib/returns-claims-work-queue";
 import type { ReturnPhotoEvidenceRow } from "../../lib/return-photo-evidence";
+import {
+  CLAIM_FLOW_STAGE_LABELS,
+  deriveClaimFlowStage,
+  type ClaimFlowStage,
+} from "../../lib/claim-flow-status-badges";
 import { resolveTenantListScope, type TenantQueryOpts } from "../../lib/server-tenant";
 import { supabaseServer } from "../../lib/supabase-server";
+import { isUuidString } from "../../lib/uuid";
 import { RETURN_ITEMS_TABLE, RETURN_LIST_SELECT } from "./returns-constants";
 
 const QUEUE_SCAN_LIMIT = 500;
+
+async function enrichQueueRowsWithClaimFlow(
+  rows: ReturnsClaimQueueRow[],
+  organizationId: string,
+  settingsSnapshot: EffectiveClaimSettingsSnapshot,
+): Promise<ReturnsClaimQueueRow[]> {
+  const returnIds = rows.map((r) => r.return_item_id).filter((id) => isUuidString(id));
+  if (!returnIds.length) return rows;
+
+  const caseByReturn = new Map<string, { caseId: string; status: string; submissionId: string | null }>();
+  const { data: cases } = await supabaseServer
+    .from("claim_cases")
+    .select("id, primary_return_item_id, status, metadata")
+    .eq("organization_id", organizationId)
+    .in("primary_return_item_id", returnIds);
+
+  for (const c of cases ?? []) {
+    const rid = String((c as { primary_return_item_id: string | null }).primary_return_item_id ?? "").trim();
+    if (!rid) continue;
+    const meta = ((c as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+    const subRaw = String(meta.claim_submission_id ?? "").trim();
+    caseByReturn.set(rid, {
+      caseId: String((c as { id: string }).id),
+      status: String((c as { status: string }).status ?? ""),
+      submissionId: isUuidString(subRaw) ? subRaw : null,
+    });
+  }
+
+  const subByReturn = new Map<string, { id: string; hasPdf: boolean }>();
+  const { data: subs } = await supabaseServer
+    .from("claim_submissions")
+    .select("id, return_id, report_url")
+    .eq("organization_id", organizationId)
+    .in("return_id", returnIds);
+
+  for (const s of subs ?? []) {
+    const rid = String((s as { return_id: string | null }).return_id ?? "").trim();
+    if (!rid) continue;
+    subByReturn.set(rid, {
+      id: String((s as { id: string }).id),
+      hasPdf: !!String((s as { report_url: string | null }).report_url ?? "").trim(),
+    });
+  }
+
+  return rows.map((row) => {
+    const caseInfo = caseByReturn.get(row.return_item_id);
+    const subFromReturn = subByReturn.get(row.return_item_id);
+    const claim_case_id = caseInfo?.caseId ?? null;
+    const claim_submission_id = caseInfo?.submissionId ?? subFromReturn?.id ?? null;
+    const submission_has_pdf = subFromReturn?.hasPdf ?? false;
+    const flow_stage: ClaimFlowStage = deriveClaimFlowStage({
+      queue_state: row.queue_state,
+      claim_case_id,
+      claim_case_status: caseInfo?.status ?? null,
+      claim_submission_id,
+      submission_has_pdf,
+    });
+    const hasOperatorNote = Boolean(String(row.notes ?? "").trim());
+    const display = resolveClaimQueueDisplayReason({
+      queue_state: row.queue_state,
+      eligibility_reason: row.eligibility_reason,
+      has_resolved_product: !!(row.resolved_product_id || row.resolved_catalog_product_id),
+      has_scanner_evidence: row.has_scanner_evidence,
+      has_operator_note: hasOperatorNote,
+      settings: settingsSnapshot,
+      flow_stage,
+      claim_submission_id,
+    });
+    return {
+      ...row,
+      claim_case_id,
+      claim_submission_id,
+      submission_has_pdf,
+      flow_stage,
+      flow_stage_label: CLAIM_FLOW_STAGE_LABELS[flow_stage],
+      eligibility_display_code: display.code,
+      eligibility_display_label: display.label,
+      eligibility_display_hint: display.hint,
+      state_label: display.label,
+    };
+  });
+}
 
 type ReturnItemRow = {
   id: string;
@@ -65,6 +159,7 @@ export type ListReturnsClaimsWorkQueueResult = {
   };
   /** Full policy for client-side draft gate (serialized). */
   claim_policy: ClaimPolicyV1;
+  effective_claim_settings: EffectiveClaimSettingsSnapshot | null;
   stats: {
     scanned_return_items: number;
     claimable_conditions_count: number;
@@ -111,6 +206,13 @@ export async function listReturnsClaimsWorkQueue(
       ? await loadClaimPolicy(supabaseServer, policyOrgId)
       : await loadClaimPolicy(supabaseServer, "00000000-0000-0000-0000-000000000001");
 
+    const effectiveSettings = policyOrgId
+      ? await getEffectiveClaimSettings(supabaseServer, policyOrgId)
+      : null;
+    const settingsSnapshot = effectiveSettings
+      ? toEffectiveClaimSettingsSnapshot(effectiveSettings)
+      : null;
+
     const returnsEnabled = isClaimModuleDomainEnabled(policy, "returns");
     const policy_summary = {
       scan_go_live_date: policy.scan_go_live_date,
@@ -118,6 +220,9 @@ export async function listReturnsClaimsWorkQueue(
       claim_eligibility_window_days: policy.claim_eligibility_window_days,
       returns_enabled: returnsEnabled,
       allow_manual_override: policy.allow_manual_override === true,
+      auto_create_drafts_on_scan: settingsSnapshot?.auto_create_drafts_on_scan ?? false,
+      create_case_when: settingsSnapshot?.workflow.create_case_when ?? "package_closed",
+      auto_generate_pdf_reports: settingsSnapshot?.auto_generate_pdf_reports ?? true,
     };
     if (!returnsEnabled) {
       return {
@@ -126,6 +231,7 @@ export async function listReturnsClaimsWorkQueue(
         returns_domain_enabled: false,
         policy_summary,
         claim_policy: policy,
+        effective_claim_settings: settingsSnapshot,
         stats: emptyStats,
       };
     }
@@ -165,6 +271,7 @@ export async function listReturnsClaimsWorkQueue(
         returns_domain_enabled: true,
         policy_summary,
         claim_policy: policy,
+        effective_claim_settings: settingsSnapshot,
         stats: {
           ...emptyStats,
           scanned_return_items: scanned.length,
@@ -217,6 +324,12 @@ export async function listReturnsClaimsWorkQueue(
         ? await loadClaimPolicy(supabaseServer, scope.organizationId)
         : policy;
 
+    const rowSettings =
+      scope.mode === "single"
+        ? await getEffectiveClaimSettings(supabaseServer, scope.organizationId)
+        : effectiveSettings;
+    const rowWorkflow = rowSettings?.workflow ?? settingsSnapshot?.workflow ?? null;
+
     const rows: ReturnsClaimQueueRow[] = claimable.map((r) => {
       const source: ReturnsClaimQueueSourceRow = {
         return_item_id: r.id,
@@ -251,7 +364,7 @@ export async function listReturnsClaimsWorkQueue(
       const packageClosed = r.package_id
         ? (packageClosedById.get(r.package_id) ?? null)
         : null;
-      return buildReturnsClaimQueueRow(source, effectivePolicy, packageClosed);
+      return buildReturnsClaimQueueRow(source, effectivePolicy, packageClosed, rowWorkflow);
     });
 
     rows.sort((a, b) => {
@@ -269,12 +382,19 @@ export async function listReturnsClaimsWorkQueue(
       return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
     });
 
+    const rowSnapshot = rowSettings ? toEffectiveClaimSettingsSnapshot(rowSettings) : settingsSnapshot;
+    const enrichedRows =
+      scope.mode === "single" && rowSnapshot
+        ? await enrichQueueRowsWithClaimFlow(rows, scope.organizationId, rowSnapshot)
+        : rows;
+
     return {
       ok: true,
-      rows,
+      rows: enrichedRows,
       returns_domain_enabled: true,
       policy_summary,
       claim_policy: effectivePolicy,
+      effective_claim_settings: rowSnapshot ?? settingsSnapshot,
       stats: {
         scanned_return_items: scanned.length,
         claimable_conditions_count: withClaimableConditions.length,
@@ -300,6 +420,7 @@ export async function listReturnsClaimsWorkQueue(
         allow_manual_override: false,
       },
       claim_policy: normalizeClaimPolicy(null),
+      effective_claim_settings: null,
       stats: emptyStats,
     };
   }

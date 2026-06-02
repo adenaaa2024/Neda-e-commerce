@@ -266,6 +266,7 @@ export type CommandCenterHealth = {
   scannerActivityHint: string | null;
 };
 
+/** Rich command center payload for Neda-style dashboard UI. */
 export type CommandCenterPayload = {
   snapshot: DashboardSnapshot;
   openPallets: number;
@@ -281,4 +282,36 @@ export type CommandCenterPayload = {
   conditionSlices: { name: string; value: number }[];
   actionQueue: CommandCenterActionItem[];
   health: CommandCenterHealth;
+};
+
+/** Legacy command center snapshot (mapper from dashboard snapshot). */
+export type CommandCenterSnapshot = {
+  returnsToday: number;
+  openPackageCount: number;
+  openPalletCount: number;
+  expectedItemsTotal: number;
+  scannedItemsTotal: number;
+  readyClaimsValueUsd: number;
+  missingEvidenceCount: number;
+  needsProductLinkCount: number;
+  returnsTrend7d: { date: string; count: number }[];
+  returnsTrend30d: { date: string; count: number }[];
+  productLinkage: { resolved: number; unresolved: number };
+  claimFunnel: { stage: string; count: number }[];
+  actionQueue: {
+    id: string;
+    kind: string;
+    title: string;
+    detail: string;
+    href?: string | null;
+    createdAt: string | null;
+  }[];
+  health: {
+    lastSyncAt: string | null;
+    lastProductUpdateAt: string | null;
+    apiAutomationStatus: string;
+    importErrorsCount: number;
+  };
+  claimsReadyToSend: number;
+  returnsEstimatedValueUsd: number;
 };

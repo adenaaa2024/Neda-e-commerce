@@ -82,9 +82,9 @@ import type {
   ReturnRecord,
   ReturnsAnalyticsPayload,
   ReturnUpdatePayload,
+  CommandCenterActionItem,
   CommandCenterPayload,
   CommandCenterTrendPoint,
-  CommandCenterActionItem,
 } from "./returns-action-types";
 
 const DEFAULT_ORG = resolveOrganizationId();
@@ -427,8 +427,8 @@ export async function resolveClaimSubmissionStoreId(
   return DEFAULT_TRANSITION_STORE_ID;
 }
 
-/** Queues a `claim_submissions` row for the Python agent (`ready_to_send`). */
-async function upsertClaimSubmissionForReadyReturn(opts: {
+/** Queues a `claim_submissions` row for the Python agent (`ready_to_send`). Idempotent per return_id. */
+export async function upsertClaimSubmissionForReturnItem(opts: {
   organizationId: string;
   returnId: string;
   storeId: string | null | undefined;
@@ -436,35 +436,38 @@ async function upsertClaimSubmissionForReadyReturn(opts: {
   sourcePayload: Record<string, unknown>;
   /** Used to resolve store_id when null (package → default store). */
   returnHint?: { store_id?: string | null; package_id?: string | null };
-}): Promise<{ error: { message: string } | null }> {
+  status?: "ready_to_send";
+}): Promise<{ ok: boolean; submissionId?: string; created?: boolean; error?: string }> {
   const orgRow = opts.organizationId.trim();
   const organizationId = isUuidString(orgRow) ? orgRow : resolveOrganizationId();
   const rid = opts.returnId.trim();
   if (!isUuidString(rid)) {
-    return { error: { message: "Invalid return id for claim_submissions (expected UUID)." } };
+    return { ok: false, error: "Invalid return id for claim_submissions (expected UUID)." };
   }
   const storeId = await resolveClaimSubmissionStoreId(
     organizationId,
     opts.storeId,
     opts.returnHint,
   );
-  const row = {
-    organization_id: organizationId,
-    [CLAIM_SUBMISSION_RETURN_ID_COLUMN]: rid,
-    store_id: storeId,
-    status: "ready_to_send" as const,
-    claim_amount: opts.claimAmount,
-    report_url: null as string | null,
-    source_payload: opts.sourcePayload,
-    updated_at: new Date().toISOString(),
-  };
+  const status = opts.status ?? "ready_to_send";
   const { data: existing, error: selErr } = await supabaseServer
     .from(CLAIM_SUBMISSIONS_TABLE)
     .select("id")
     .eq(CLAIM_SUBMISSION_RETURN_ID_COLUMN, rid)
     .maybeSingle();
-  if (selErr) return { error: { message: selErr.message } };
+  if (selErr) return { ok: false, error: selErr.message };
+  const row = {
+    organization_id: organizationId,
+    [CLAIM_SUBMISSION_RETURN_ID_COLUMN]: rid,
+    store_id: storeId,
+    status,
+    claim_amount: opts.claimAmount,
+    report_url: null as string | null,
+    source_payload: opts.sourcePayload,
+    updated_at: new Date().toISOString(),
+  };
   if (existing && typeof (existing as { id?: string }).id === "string") {
+    const submissionId = (existing as { id: string }).id;
     const { error } = await supabaseServer
       .from(CLAIM_SUBMISSIONS_TABLE)
       .update({
@@ -472,15 +475,34 @@ async function upsertClaimSubmissionForReadyReturn(opts: {
         store_id: row.store_id,
         status: row.status,
         claim_amount: row.claim_amount,
-        report_url: row.report_url,
         source_payload: row.source_payload,
         updated_at: row.updated_at,
       })
-      .eq("id", (existing as { id: string }).id);
-    return { error: error ? { message: error.message } : null };
+      .eq("id", submissionId);
+    return error
+      ? { ok: false, error: error.message }
+      : { ok: true, submissionId, created: false };
   }
-  const { error } = await supabaseServer.from(CLAIM_SUBMISSIONS_TABLE).insert(row);
-  return { error: error ? { message: error.message } : null };
+  const { data: inserted, error } = await supabaseServer
+    .from(CLAIM_SUBMISSIONS_TABLE)
+    .insert(row)
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, submissionId: (inserted as { id: string }).id, created: true };
+}
+
+/** @deprecated Internal alias — use upsertClaimSubmissionForReturnItem */
+async function upsertClaimSubmissionForReadyReturn(opts: {
+  organizationId: string;
+  returnId: string;
+  storeId: string | null | undefined;
+  claimAmount: number;
+  sourcePayload: Record<string, unknown>;
+  returnHint?: { store_id?: string | null; package_id?: string | null };
+}): Promise<{ error: { message: string } | null }> {
+  const res = await upsertClaimSubmissionForReturnItem(opts);
+  return { error: res.ok ? null : { message: res.error ?? "upsert failed" } };
 }
 
 // ─── Internal audit helpers ───────────────────────────────────────────────────
@@ -1197,6 +1219,9 @@ export async function insertReturn(
     insertRow.resolved_catalog_product_id = resCols.resolved_catalog_product_id;
     insertRow.identifier_resolution_status = resCols.identifier_resolution_status;
     insertRow.identifier_resolution_confidence = resCols.identifier_resolution_confidence;
+    if (resCols.resolved_product_id) {
+      insertRow.product_id = resCols.resolved_product_id;
+    }
 
     if (
       isSyntheticBulkOrphanInsertBlocked({
@@ -1467,6 +1492,7 @@ export async function updateReturn(
       resolved_catalog_product_id: resCols.resolved_catalog_product_id,
       identifier_resolution_status: resCols.identifier_resolution_status,
       identifier_resolution_confidence: resCols.identifier_resolution_confidence,
+      ...(resCols.resolved_product_id ? { product_id: resCols.resolved_product_id } : {}),
     });
 
     const scope = await resolveTenantListScope({ actorProfileId });
