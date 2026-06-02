@@ -74,27 +74,16 @@ export function ClaimCasesClient() {
   return (
     <ClaimEnginePageShell
       title="Cases"
-      description="Grouped internal claim packets (claim_cases + claim_lines) before marketplace submission. Build from the draft pool case builder, then promote here for PDF — no auto marketplace submit."
-      showWorkflowExplainer
-      aside={[
-        { href: "/returns/claims", label: "Draft pool" },
-        { href: "/claim-engine", label: "Submission queue" },
-      ]}
+      description="Internal claim packets before marketplace submission. Promote to Submission queue to generate the PDF evidence package."
     >
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className={CLAIM_ENGINE_SECTION_CLASS}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">What is a case?</p>
-          <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-            Workflow container for operator evidence — not yet filed with Amazon. Lines stay tied to physical scans.
-          </p>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className={CLAIM_ENGINE_SECTION_CLASS}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ready to promote</p>
           <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{readyCount}</p>
           <p className="mt-1 text-xs text-muted-foreground">Open cases without a submission</p>
         </div>
         <div className={CLAIM_ENGINE_SECTION_CLASS}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Linked to queue</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">In submission queue</p>
           <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{linkedCount}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             <Link href="/claim-engine" className="font-medium text-sky-600 underline dark:text-sky-400">

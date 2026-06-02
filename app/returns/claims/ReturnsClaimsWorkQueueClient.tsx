@@ -248,12 +248,7 @@ export function ReturnsClaimsWorkQueueClient() {
   return (
     <ClaimEnginePageShell
       title="Draft pool"
-      description="Normalized claimable units from physical return scans. Select rows, open the case builder to review mixed-group warnings, then create claim_cases and claim_lines (no marketplace submit)."
-      showWorkflowExplainer
-      aside={[
-        { href: "/claim-engine/inbox", label: "Intake" },
-        { href: "/claim-engine/cases", label: "Cases" },
-      ]}
+      description="Physical-scan return items eligible for claims. Select items and use the case builder to group them into claim cases."
     >
       <div id="case-builder" className="scroll-mt-24" />
       <ClaimCaseBuilderPanel

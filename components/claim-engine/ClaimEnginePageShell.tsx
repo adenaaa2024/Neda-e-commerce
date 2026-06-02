@@ -14,6 +14,7 @@ export function ClaimEnginePageShell({
   aside,
   showHub = true,
   pathNote,
+  /** @deprecated Workflow steps are now in the hub nav tooltips. Pass false (default) to keep pages clean. */
   showWorkflowExplainer = false,
   workflowExplainerCompact = true,
 }: {

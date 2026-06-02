@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
-import { ClaimIntakeScopeBanner, ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
 import { ClaimIntakeSourcesPanel } from "@/components/claim-engine/ClaimIntakeSourcesPanel";
 import { ClaimSourceBadge } from "@/components/claim-engine/ClaimSourceBadge";
 import {
@@ -401,16 +401,9 @@ export function ClaimInboxClient({
       <main className={CLAIM_ENGINE_MAIN_CLASS}>
         <ClaimEnginePageShell
           showHub
-          showWorkflowExplainer
-          title="Claim intake"
-          description="All import- and generator-backed claim signals before draft normalization. Physical scans use the draft pool; this inbox reads claim_candidates only (read-only promote in v1)."
-          aside={[
-            { href: "/returns/claims", label: "Draft pool" },
-            { href: "/claim-engine/cases", label: "Cases" },
-            { href: "/claim-engine", label: "Submission queue" },
-          ]}
+          title="Intake"
+          description="Raw signals from imports, removals, and Amazon reports. Read-only in v1 — physical-scan returns enter via Draft pool."
         >
-          <ClaimIntakeScopeBanner />
           <ClaimIntakeSourcesPanel />
           {initialDraftId ? (
             <p className="text-xs text-muted-foreground">
