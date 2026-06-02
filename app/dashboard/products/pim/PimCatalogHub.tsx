@@ -725,13 +725,14 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   });
 
   useEffect(() => {
-    if (enrichmentJob.jobRunning) setJobPanelDismissed(false);
-  }, [enrichmentJob.jobRunning]);
+    if (enrichmentJob.jobRunning || enrichmentJob.jobPausedAwaitingUser) setJobPanelDismissed(false);
+  }, [enrichmentJob.jobRunning, enrichmentJob.jobPausedAwaitingUser]);
 
   const enrichmentJobActive =
     Boolean(enrichmentJob.jobStatus || enrichmentJob.jobErr) &&
     !jobPanelDismissed &&
     (enrichmentJob.jobRunning ||
+      enrichmentJob.jobPausedAwaitingUser ||
       enrichmentJob.jobStatus?.status === "completed" ||
       enrichmentJob.jobStatus?.status === "cancelled" ||
       enrichmentJob.jobStatus?.status === "failed" ||
@@ -1072,7 +1073,10 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
           status={enrichmentJob.jobStatus}
           busy={enrichmentJob.jobBusy}
           error={enrichmentJob.jobErr}
-          canResume={Boolean(enrichmentJob.jobStatus?.can_resume)}
+          pausedAwaitingUser={enrichmentJob.jobPausedAwaitingUser}
+          canResume={
+            Boolean(enrichmentJob.jobStatus?.can_resume) || enrichmentJob.jobPausedAwaitingUser
+          }
           onCancel={() => void enrichmentJob.cancelBackendJob()}
           onDismiss={() => setJobPanelDismissed(true)}
           onResume={() => {

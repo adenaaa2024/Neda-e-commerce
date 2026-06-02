@@ -12,6 +12,7 @@ export function PimCatalogEnrichmentJobPanel({
   onResume,
   onDismiss,
   canResume,
+  pausedAwaitingUser,
 }: {
   status: ProductEnrichmentJobUiStatus | null;
   busy: boolean;
@@ -20,6 +21,8 @@ export function PimCatalogEnrichmentJobPanel({
   onResume: () => void;
   onDismiss?: () => void;
   canResume: boolean;
+  /** Job exists but will not advance until user taps Resume or Start. */
+  pausedAwaitingUser?: boolean;
 }) {
   if (!status && !error) return null;
 
@@ -50,7 +53,11 @@ export function PimCatalogEnrichmentJobPanel({
         <div className="min-w-0 space-y-0.5">
           <p className="text-xs font-semibold text-foreground">Product Data Update</p>
           <p className="text-[11px] text-muted-foreground">
-            Runs in the background — you can leave this page anytime.
+            {pausedAwaitingUser
+              ? "No background update is running unless you start or resume it."
+              : running
+                ? "Runs in the background after you start or resume — you can leave this page anytime."
+                : "No background update is running unless you start or resume it."}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
