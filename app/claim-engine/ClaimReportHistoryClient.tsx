@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileDown, Loader2 } from "lucide-react";
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
 import {
   CLAIM_ENGINE_BTN_PRIMARY,
@@ -175,8 +176,8 @@ export function ClaimReportHistoryClient({
   return (
     <main className={CLAIM_ENGINE_MAIN_CLASS}>
       <ClaimEnginePageShell
-        title="Reports / PDF history"
-        description="PDFs stored on claim_submissions after case promote or queue generation. Refreshes every 12s while this page is open."
+        title="Reports"
+        description="PDF export history on claim_submissions. Refreshes every 12s while this page is open."
         aside={[{ href: "/claim-engine", label: "Submission queue" }]}
       >
         {loadError ? (
@@ -239,11 +240,18 @@ export function ClaimReportHistoryClient({
           <div className="overflow-x-auto md:hidden">
             <div className="space-y-3 p-4">
               {filteredRows.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  {rows.length === 0
-                    ? "No claim reports generated yet."
-                    : "No reports for this claim type in the selected range."}
-                </p>
+                rows.length === 0 ? (
+                  <ClaimEngineEmptyState
+                    title="No PDF reports yet"
+                    description="Reports appear after promoting a case to the submission queue with PDF generation enabled, or from the submission queue build action."
+                    action={{ href: "/claim-engine/cases", label: "Promote from cases" }}
+                    secondaryAction={{ href: "/claim-engine", label: "Submission queue" }}
+                  />
+                ) : (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    No reports for this claim type in the selected range.
+                  </p>
+                )
               ) : (
                 filteredRows.map((row) => (
                   <div
@@ -300,14 +308,18 @@ export function ClaimReportHistoryClient({
                 <tbody>
                   {filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                      <td colSpan={6} className="p-0">
                         {rows.length === 0 ? (
-                          <>
-                            No claim reports generated yet. Once the AI Agent finishes a task, the PDF will appear
-                            here.
-                          </>
+                          <ClaimEngineEmptyState
+                            title="No PDF reports yet"
+                            description="Promote cases to generate PDFs on submissions, or build from the submission queue."
+                            action={{ href: "/claim-engine/cases", label: "Cases" }}
+                            secondaryAction={{ href: "/claim-engine", label: "Submission queue" }}
+                          />
                         ) : (
-                          <>No reports for this claim type in the selected range.</>
+                          <p className="px-4 py-12 text-center text-sm text-muted-foreground">
+                            No reports for this claim type in the selected range.
+                          </p>
                         )}
                       </td>
                     </tr>

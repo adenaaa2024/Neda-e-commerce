@@ -116,7 +116,8 @@ export function ClaimCasesClient() {
           action={{ href: "/returns/claims", label: "Open draft pool" }}
         />
       ) : (
-        <div className={CLAIM_ENGINE_CARD_CLASS}>
+        <>
+        <div className={`hidden md:block ${CLAIM_ENGINE_CARD_CLASS}`}>
           <table className={CLAIM_ENGINE_TABLE_CLASS}>
             <thead className={CLAIM_ENGINE_TABLE_HEAD_CLASS}>
               <tr>
@@ -163,6 +164,44 @@ export function ClaimCasesClient() {
             </tbody>
           </table>
         </div>
+        <div className="space-y-3 md:hidden">
+          {rows.map((row) => {
+            const stage = caseFlowStage(row);
+            return (
+              <div
+                key={row.id}
+                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{row.id.slice(0, 8)}…</span>
+                  <ClaimFlowBadge stage={stage} />
+                </div>
+                <p className="mt-2 text-sm">{row.scanner_issue_type ?? "—"}</p>
+                <p className="text-xs capitalize text-muted-foreground">{row.status}</p>
+                <div className="mt-3">
+                  {!row.claim_submission_id ? (
+                    <button
+                      type="button"
+                      disabled={busyId === row.id}
+                      onClick={() => void promote(row.id)}
+                      className={`${CLAIM_ENGINE_BTN_PRIMARY} w-full justify-center`}
+                    >
+                      {busyId === row.id ? "Working…" : "Promote to submission"}
+                    </button>
+                  ) : (
+                    <Link
+                      href="/claim-engine"
+                      className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400"
+                    >
+                      In submission queue
+                    </Link>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        </>
       )}
     </ClaimEnginePageShell>
   );

@@ -88,6 +88,8 @@
     "test:product-enrichment-job-ui-finalize": "tsx scripts/test-product-enrichment-job-ui-finalize.ts",
     "test:automation-api-center-manual-run-wiring": "tsx scripts/test-automation-api-center-manual-run-wiring.ts",
     "test:superadmin-automation-settings-finalize": "tsx scripts/test-superadmin-automation-settings-finalize.ts",
+    "test:claim-intake-generators-phase1": "tsx scripts/test-claim-intake-generators-phase1.ts",
+    "audit:phase1-api-config-claim-intake": "tsx scripts/phase1-api-config-claim-intake-integration-audit.ts",
     "test:automation-settings-orchestrator-wiring-dryrun": "tsx scripts/test-automation-settings-orchestrator-wiring-dryrun.ts",
     "test:product-linkage-display-contract": "tsx scripts/test-product-linkage-display-contract.ts",
     "test:product-linkage-display-ui": "tsx scripts/test-product-linkage-display-ui.ts",

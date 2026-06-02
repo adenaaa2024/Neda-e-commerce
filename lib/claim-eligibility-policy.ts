@@ -5,6 +5,7 @@ import {
   parseEnabledClaimDomains,
   resolveClaimModuleDomain,
 } from "./claim-module-scope";
+import type { ClaimWorkflowSettings } from "./claim-effective-settings-shared";
 import {
   DEFAULT_CLAIM_POLICY_V1,
   type ClaimEligibilityClaimSource,
@@ -151,6 +152,8 @@ export type EvaluateClaimEligibilityInput = {
   sourceTable?: string | null;
   /** When set, overrides resolveClaimModuleDomain(claimSource, sourceTable). */
   moduleDomain?: ClaimModuleDomain;
+  /** Optional workflow gates from getEffectiveClaimSettings (require_evidence). */
+  workflow?: Pick<ClaimWorkflowSettings, "require_evidence"> | null;
 };
 
 /** Pure eligibility evaluation — no DB I/O. */
@@ -188,7 +191,10 @@ export function evaluateClaimEligibilitySync(input: EvaluateClaimEligibilityInpu
     return { allowed: false, reason: "outside_window", ...base };
   }
 
-  if (input.claimSource !== "import_candidate" && !input.hasScannerEvidence) {
+  const evidenceRequired =
+    input.workflow?.require_evidence !== false &&
+    input.claimSource !== "import_candidate";
+  if (evidenceRequired && !input.hasScannerEvidence) {
     return { allowed: false, reason: "missing_scanner_evidence", ...base };
   }
 

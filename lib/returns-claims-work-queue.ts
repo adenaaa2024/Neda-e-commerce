@@ -2,6 +2,7 @@ import {
   evaluateClaimEligibilitySync,
   type EvaluateClaimEligibilityInput,
 } from "./claim-eligibility-policy";
+import type { ClaimWorkflowSettings } from "./claim-effective-settings-shared";
 import type { ClaimEligibilityReason, ClaimPolicyV1 } from "./claim-policy-types";
 import { isClaimModuleDomainEnabled } from "./claim-module-scope";
 import {
@@ -84,6 +85,9 @@ export type ReturnsClaimQueueRow = ReturnsClaimQueueSourceRow & {
   submission_has_pdf?: boolean;
   flow_stage?: string | null;
   flow_stage_label?: string | null;
+  eligibility_display_code?: string | null;
+  eligibility_display_label?: string | null;
+  eligibility_display_hint?: string | null;
 };
 
 export const RETURNS_CLAIM_QUEUE_STATE_LABELS: Record<ReturnsClaimQueueState, string> = {
@@ -148,6 +152,11 @@ export type DeriveQueueStateInput = {
   eligibility: { allowed: boolean; reason: ClaimEligibilityReason };
   hasResolvedProduct: boolean;
   hasScannerEvidence: boolean;
+  hasOperatorNote?: boolean;
+  workflow?: Pick<
+    ClaimWorkflowSettings,
+    "require_product_link" | "require_operator_note" | "require_evidence"
+  > | null;
 };
 
 export function deriveReturnsClaimQueueState(input: DeriveQueueStateInput): ReturnsClaimQueueState {
@@ -155,6 +164,7 @@ export function deriveReturnsClaimQueueState(input: DeriveQueueStateInput): Retu
     return "domain_disabled";
   }
   const reason = input.eligibility.reason;
+  const wf = input.workflow;
   if (reason === "module_scope_disabled") return "domain_disabled";
   if (
     reason === "scan_not_live" ||
@@ -164,21 +174,37 @@ export function deriveReturnsClaimQueueState(input: DeriveQueueStateInput): Retu
     return "pre_cutoff";
   }
   if (reason === "hold_package_open") return "held_until_package_closed";
-  if (!input.hasResolvedProduct) return "needs_product_resolution";
-  if (reason === "missing_scanner_evidence" || !input.hasScannerEvidence) {
+  if (reason === "hold_pallet_open" || reason === "hold_order_incomplete") {
+    return "held_until_package_closed";
+  }
+  if (reason === "manual_review_required") return "missing_evidence";
+  const requireProduct = wf?.require_product_link !== false;
+  if (requireProduct && !input.hasResolvedProduct && !input.policy.allow_manual_override) {
+    return "needs_product_resolution";
+  }
+  const requireEvidence = wf?.require_evidence !== false;
+  if (requireEvidence && (reason === "missing_scanner_evidence" || !input.hasScannerEvidence)) {
+    return "missing_evidence";
+  }
+  if (wf?.require_operator_note && input.hasOperatorNote === false) {
     return "missing_evidence";
   }
   if (input.eligibility.allowed) return "eligible";
-  if (reason === "hold_pallet_open" || reason === "manual_review_required") {
-    return "missing_evidence";
-  }
   return "pre_cutoff";
+}
+
+function hasOperatorNote(notes: string | null | undefined): boolean {
+  return Boolean(String(notes ?? "").trim());
 }
 
 export function buildReturnsClaimQueueRow(
   source: ReturnsClaimQueueSourceRow,
   policy: ClaimPolicyV1,
   packageClosed: boolean | null,
+  workflow?: Pick<
+    ClaimWorkflowSettings,
+    "require_product_link" | "require_operator_note" | "require_evidence"
+  > | null,
 ): ReturnsClaimQueueRow {
   const issue = pickPrimaryScannerIssueFromConditions(source.conditions);
   const hasScannerEvidence = returnHasScannerPhotoEvidence(source.photo_evidence);
@@ -194,6 +220,7 @@ export function buildReturnsClaimQueueRow(
     hasScannerEvidence,
     packageClosed,
     moduleDomain: "returns",
+    workflow: workflow ? { require_evidence: workflow.require_evidence } : null,
   } satisfies EvaluateClaimEligibilityInput);
 
   const queue_state = deriveReturnsClaimQueueState({
@@ -201,6 +228,8 @@ export function buildReturnsClaimQueueRow(
     eligibility,
     hasResolvedProduct,
     hasScannerEvidence,
+    hasOperatorNote: hasOperatorNote(source.notes),
+    workflow,
   });
 
   return {

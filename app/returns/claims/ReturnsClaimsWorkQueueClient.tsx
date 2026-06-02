@@ -130,9 +130,11 @@ export function ReturnsClaimsWorkQueueClient() {
   const canSelectRow = useCallback(
     (row: ReturnsClaimQueueRow) => {
       if (!result?.returns_domain_enabled || !result.claim_policy) return false;
-      return evaluateManualDraftEligibility(row, result.claim_policy).allowed;
+      return evaluateManualDraftEligibility(row, result.claim_policy, {
+        workflow: result.effective_claim_settings?.workflow,
+      }).allowed;
     },
-    [result?.returns_domain_enabled, result?.claim_policy],
+    [result?.returns_domain_enabled, result?.claim_policy, result?.effective_claim_settings],
   );
 
   const selectedRows = useMemo(
@@ -260,6 +262,7 @@ export function ReturnsClaimsWorkQueueClient() {
         open={caseBuilderOpen}
         rows={selectedRows}
         policy={result?.claim_policy}
+        effectiveSettings={result?.effective_claim_settings}
         creating={creating}
         onClose={() => setCaseBuilderOpen(false)}
         onConfirmMixed={() => void createDraft([...selectedIds])}
@@ -397,11 +400,17 @@ export function ReturnsClaimsWorkQueueClient() {
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           {result.error}
         </div>
+      ) : rows.length === 0 ? (
+        <ClaimEngineEmptyState
+          title="Draft pool is empty"
+          description="Physical return scans with a claimable scanner issue appear here. Check claim go-live date, product link, and evidence in Settings."
+          action={{ href: "/scanner/operator-mobile/scan", label: "Open scanner" }}
+          secondaryAction={{ href: "/settings", label: "Claim settings" }}
+        />
       ) : filtered.length === 0 ? (
         <ClaimEngineEmptyState
           title="No scans in this filter"
-          description="Eligible physical scans appear here after go-live date, product resolution, and evidence gates. Import/backfill lines never show in this pool."
-          action={{ href: "/returns", label: "Go to returns processing" }}
+          description='Select the "All" tab above to see held, pre-cutoff, or missing-evidence rows.'
         />
       ) : (
         <>
@@ -436,7 +445,9 @@ export function ReturnsClaimsWorkQueueClient() {
                     onToggle={() => toggleSelect(row.return_item_id)}
                     policyReason={
                       result?.claim_policy
-                        ? evaluateManualDraftEligibility(row, result.claim_policy).reason
+                        ? evaluateManualDraftEligibility(row, result.claim_policy, {
+                            workflow: result.effective_claim_settings?.workflow,
+                          }).reason
                         : undefined
                     }
                   />
@@ -519,9 +530,11 @@ function QueueRow({
   const productOk = !!(row.resolved_product_id || row.resolved_catalog_product_id);
   const flowStage = (row.flow_stage as ClaimFlowStage | null) ?? null;
   const flowLabel = row.flow_stage_label ?? row.state_label;
-  const flowHint = flowStage ? claimFlowStageHint(flowStage) : "";
+  const flowHint =
+    row.eligibility_display_hint?.trim() ||
+    (flowStage ? claimFlowStageHint(flowStage) : "");
 
-  const settingHint = policySettingHint(policyReason);
+  const settingHint = policySettingHint(policyReason) ?? row.eligibility_display_label ?? null;
 
   return (
     <tr className={`${CLAIM_ENGINE_TABLE_ROW_CLASS} ${selected ? "bg-slate-50 dark:bg-slate-900/60" : "hover:bg-muted/20"}`}>

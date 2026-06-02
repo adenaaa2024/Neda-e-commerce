@@ -7,6 +7,7 @@ import {
   splitSelectionByDimension,
   type CaseBuilderWarning,
 } from "@/lib/claim-case-builder-warnings";
+import type { EffectiveClaimSettingsSnapshot } from "@/lib/claim-effective-settings-shared";
 import type { ClaimPolicyV1 } from "@/lib/claim-policy-types";
 import type { ManualGroupingDimension } from "@/lib/returns-manual-claim-grouping";
 import type { ReturnsClaimQueueRow } from "@/lib/returns-claims-work-queue";
@@ -34,6 +35,7 @@ export function ClaimCaseBuilderPanel({
   open,
   rows,
   policy,
+  effectiveSettings,
   creating,
   onClose,
   onConfirmMixed,
@@ -43,6 +45,7 @@ export function ClaimCaseBuilderPanel({
   open: boolean;
   rows: ReturnsClaimQueueRow[];
   policy: ClaimPolicyV1 | null | undefined;
+  effectiveSettings?: EffectiveClaimSettingsSnapshot | null;
   creating: boolean;
   onClose: () => void;
   onConfirmMixed: () => void;
@@ -51,7 +54,7 @@ export function ClaimCaseBuilderPanel({
 }) {
   if (!open) return null;
 
-  const { warnings, blocking } = analyzeCaseBuilderWarnings(rows, policy);
+  const { warnings, blocking } = analyzeCaseBuilderWarnings(rows, policy, effectiveSettings, policy);
   const splitPreview = splitSelectionByDimension(rows, "product");
 
   return (

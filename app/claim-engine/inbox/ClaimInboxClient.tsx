@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { ClaimApiIntakeSettingsPanel } from "@/components/claim-engine/ClaimApiIntakeSettingsPanel";
 import { ClaimIntakeSourcesPanel } from "@/components/claim-engine/ClaimIntakeSourcesPanel";
 import { ClaimSourceBadge } from "@/components/claim-engine/ClaimSourceBadge";
 import {
@@ -405,6 +407,7 @@ export function ClaimInboxClient({
           description="Raw signals from imports, removals, and Amazon reports. Read-only in v1 — physical-scan returns enter via Draft pool."
         >
           <ClaimIntakeSourcesPanel />
+          <ClaimApiIntakeSettingsPanel organizationId={organizationId} storeId={selectedStoreId} />
           {initialDraftId ? (
             <p className="text-xs text-muted-foreground">
               <Link
@@ -567,19 +570,23 @@ export function ClaimInboxClient({
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
-                      <p>No candidates in this view.</p>
-                      {filterSourceTable === "returns" ? (
-                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                          The legacy label &quot;returns&quot; does not match stored{" "}
-                          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">source_table</code> values — use{" "}
-                          <strong>Returns (amazon_returns)</strong> instead.
-                        </p>
-                      ) : filterSourceTable ? (
-                        <p className="mt-2 text-xs">
-                          No rows with source_table = <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">{filterSourceTable}</code>.
-                        </p>
-                      ) : null}
+                    <td colSpan={9} className="p-0">
+                      <ClaimEngineEmptyState
+                        title="No claim candidates in this view"
+                        description={
+                          filterSourceTable
+                            ? `No claim_candidates with source_table "${filterSourceTable}". Run imports or sync from Settings, or open Draft pool for physical scans.`
+                            : "Run Amazon returns/removal imports or reimbursement generators to populate claim_candidates. Physical warehouse scans use the Draft pool until unified intake ships."
+                        }
+                        action={{ href: "/settings/imports", label: "Open imports" }}
+                        secondaryAction={{ href: "/returns/claims", label: "Draft pool (physical scans)" }}
+                      >
+                        {filterSourceTable === "returns" ? (
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            Filter &quot;returns&quot; is legacy — choose <strong>Returns (amazon_returns)</strong> in Source table.
+                          </p>
+                        ) : null}
+                      </ClaimEngineEmptyState>
                     </td>
                   </tr>
                 ) : (

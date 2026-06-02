@@ -2,6 +2,7 @@ import {
   evaluateClaimEligibilitySync,
   type EvaluateClaimEligibilityInput,
 } from "./claim-eligibility-policy";
+import type { ClaimWorkflowSettings } from "./claim-effective-settings-shared";
 import type { ClaimEligibilityReason, ClaimEligibilityResult, ClaimPolicyV1 } from "./claim-policy-types";
 import { isClaimModuleDomainEnabled } from "./claim-module-scope";
 import {
@@ -45,6 +46,10 @@ export type ManualGroupingReturnItemInput = ReturnItemPhysicalAnchorRow & {
 export type ManualDraftPolicyGateContext = {
   packageClosedByReturnItemId?: Record<string, boolean | null>;
   evaluationDate?: string | Date;
+  workflow?: Pick<
+    ClaimWorkflowSettings,
+    "require_product_link" | "require_operator_note" | "require_evidence"
+  >;
 };
 
 export type ManualDraftPolicyGateResult = {
@@ -117,6 +122,7 @@ export function evaluateManualDraftPolicyGate(
   const packageClosed =
     context?.packageClosedByReturnItemId?.[row.return_item_id] ?? null;
 
+  const wf = context?.workflow;
   const eligibility = evaluateClaimEligibilitySync({
     policy,
     claimSource,
@@ -125,6 +131,7 @@ export function evaluateManualDraftPolicyGate(
     evaluationDate: context?.evaluationDate,
     packageClosed,
     moduleDomain: "returns",
+    workflow: wf ? { require_evidence: wf.require_evidence } : null,
   } satisfies EvaluateClaimEligibilityInput);
 
   if (!isPhysicalReturnItemForClaims(row)) {
@@ -133,11 +140,20 @@ export function evaluateManualDraftPolicyGate(
   if (!issue) {
     return { allowed: false, reason: "not_claimable", eligibility };
   }
-  if (!returnHasResolvedProduct(row) && !canCreateDraftFromUnresolvedProduct(policy)) {
+  const requireProduct = wf?.require_product_link !== false;
+  if (
+    requireProduct &&
+    !returnHasResolvedProduct(row) &&
+    !canCreateDraftFromUnresolvedProduct(policy)
+  ) {
     return { allowed: false, reason: "needs_product_resolution", eligibility };
   }
-  if (issue.canonical === "operator_other" && !hasOperatorNote(row.notes)) {
+  const requireNote = wf?.require_operator_note !== false;
+  if (requireNote && issue.canonical === "operator_other" && !hasOperatorNote(row.notes)) {
     return { allowed: false, reason: "missing_operator_note", eligibility };
+  }
+  if (wf?.require_evidence !== false && !hasScannerEvidenceForRow(row)) {
+    return { allowed: false, reason: "missing_scanner_evidence", eligibility };
   }
   if (!eligibility.allowed) {
     return { allowed: false, reason: eligibility.reason, eligibility };
@@ -208,6 +224,7 @@ export function evaluateManualDraftEligibility(
     | "package_closed"
   >,
   policy: ClaimPolicyV1,
+  context?: Pick<ManualDraftPolicyGateContext, "workflow">,
 ): ManualDraftEligibilityResult {
   const gate = evaluateManualDraftPolicyGate(
     {
@@ -226,6 +243,7 @@ export function evaluateManualDraftEligibility(
     policy,
     {
       packageClosedByReturnItemId: { [row.return_item_id]: row.package_closed ?? null },
+      workflow: context?.workflow,
     },
   );
   const queue_state = row.queue_state;

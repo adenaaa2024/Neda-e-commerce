@@ -1,5 +1,7 @@
 import { claimEligibilityReasonLabel, toUtcDateString } from "./claim-eligibility-policy";
-import type { ClaimEligibilityReason, ClaimPolicyV1 } from "./claim-policy-types";
+import type { EffectiveClaimSettingsSnapshot } from "./claim-effective-settings-shared";
+import type { ClaimPolicyV1 } from "./claim-policy-types";
+import type { ClaimEligibilityReason } from "./claim-policy-types";
 import { evaluateManualDraftEligibility } from "./returns-manual-claim-grouping";
 import type { ReturnsClaimQueueRow } from "./returns-claims-work-queue";
 import {
@@ -53,7 +55,11 @@ function uniqueNonEmpty(values: (string | null | undefined)[]): string[] {
 export function analyzeCaseBuilderWarnings(
   rows: ReturnsClaimQueueRow[],
   policy: ClaimPolicyV1 | null | undefined,
+  settings?: EffectiveClaimSettingsSnapshot | null,
+  policyOverride?: ClaimPolicyV1 | null,
 ): { warnings: CaseBuilderWarning[]; blocking: boolean } {
+  const workflow = settings?.workflow;
+  const effectivePolicy = policyOverride ?? policy;
   const warnings: CaseBuilderWarning[] = [];
   if (!rows.length) {
     return { warnings: [{ code: "mixed_product", message: "Select at least one eligible row.", severity: "block" }], blocking: true };
@@ -63,10 +69,13 @@ export function analyzeCaseBuilderWarnings(
     rows.map((r) => r.resolved_product_id ?? r.resolved_catalog_product_id ?? r.sku ?? ""),
   );
   if (products.length > 1) {
+    const allowMixed =
+      workflow?.allow_mixed_products === true ||
+      settings?.allow_manual_override === true;
     warnings.push({
       code: "mixed_product",
       message: `${products.length} different products in selection.`,
-      severity: "warn",
+      severity: allowMixed ? "warn" : "block",
     });
   }
 
@@ -77,10 +86,11 @@ export function analyzeCaseBuilderWarnings(
     }),
   );
   if (issues.length > 1) {
+    const allowMixed = workflow?.allow_mixed_issue_types === true;
     warnings.push({
       code: "mixed_issue",
       message: `${issues.length} different issue types — consider splitting by issue.`,
-      severity: "warn",
+      severity: allowMixed ? "warn" : "block",
     });
   }
 
@@ -105,10 +115,11 @@ export function analyzeCaseBuilderWarnings(
 
   const missingProduct = rows.filter((r) => !(r.resolved_product_id || r.resolved_catalog_product_id));
   if (missingProduct.length) {
+    const requireLink = workflow?.require_product_link !== false;
     warnings.push({
       code: "missing_product_link",
       message: `${missingProduct.length} row(s) without resolved product link.`,
-      severity: policy?.allow_manual_override ? "warn" : "block",
+      severity: !requireLink || effectivePolicy?.allow_manual_override ? "warn" : "block",
     });
   }
 
@@ -127,9 +138,11 @@ export function analyzeCaseBuilderWarnings(
     severity: "info",
   });
 
-  if (policy) {
+  if (effectivePolicy) {
     for (const row of rows) {
-      const gate = evaluateManualDraftEligibility(row, policy);
+      const gate = evaluateManualDraftEligibility(row, effectivePolicy, {
+        workflow: workflow ?? undefined,
+      });
       if (!gate.allowed && gate.reason) {
         const reasonLabel =
           typeof gate.reason === "string" &&

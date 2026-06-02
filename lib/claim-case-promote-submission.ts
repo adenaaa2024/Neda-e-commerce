@@ -15,7 +15,7 @@ import {
   buildClaimSubmissionSourcePayloadForReturn,
   upsertClaimSubmissionForReturnItem,
 } from "@/app/returns/actions";
-import { loadGlobalClaimAgentConfig } from "@/lib/claim-filing-handoff";
+import { getEffectiveClaimSettings } from "@/lib/claim-effective-settings";
 import { getReturnPhotoEvidenceGalleryUrls, type ReturnPhotoEvidenceRow } from "@/lib/return-photo-evidence";
 import { isPhysicalReturnItemForClaims } from "@/lib/returns-claims-work-queue";
 import { pickPrimaryScannerIssueFromConditions } from "@/lib/scanner-claim-issue-pick";
@@ -256,8 +256,8 @@ export async function promoteClaimCaseToSubmissionPackage(
     let reportUrl: string | null = null;
     let pdfGenerated = false;
 
-    const agentConfig = await loadGlobalClaimAgentConfig(client);
-    const shouldPdf = options.generatePdf ?? agentConfig.auto_generate_pdf_reports !== false;
+    const effectiveSettings = await getEffectiveClaimSettings(client, orgId, ri.store_id);
+    const shouldPdf = options.generatePdf ?? effectiveSettings.auto_generate_pdf_reports;
 
     if (shouldPdf) {
       try {

@@ -59,6 +59,7 @@ import {
 } from "./claim-submission-actions";
 import { downloadBulkClaimsPdf, enrichBulkPagesWithDefaultEvidence } from "./claim-pdf-download";
 import { prepareClaimEnginePdfPages } from "./claim-pdf-batch-actions";
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
 import { CLAIM_ENGINE_KPI_CARD_CLASS, CLAIM_ENGINE_MAIN_CLASS } from "@/components/claim-engine/claim-engine-ui";
 import { ClaimDetailModal } from "./ClaimDetailModal";
@@ -844,9 +845,13 @@ export function ClaimEngineClient({
                 </div>
               ) : null}
               {submissionQueueFiltered.length === 0 ? (
-                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-                  No generated reports yet. Run <span className="font-semibold text-slate-700 dark:text-slate-300">Generate reports</span> to build PDFs for
-                  returns in <span className="font-semibold">ready for claim</span> status.
+                <div className="p-4">
+                  <ClaimEngineEmptyState
+                    title="Submission queue is empty"
+                    description="Promote claim cases from Cases to create draft or ready-to-send submissions. PDFs attach when workspace auto_generate_pdf_reports is enabled."
+                    action={{ href: "/claim-engine/cases", label: "Open cases" }}
+                    secondaryAction={{ href: "/returns/claims", label: "Draft pool" }}
+                  />
                 </div>
               ) : submissionQueueDisplay.length === 0 ? (
                 <div className="px-6 py-10 text-center text-sm text-muted-foreground">
@@ -1039,20 +1044,13 @@ export function ClaimEngineClient({
             </div>
 
             {activeClaimsFiltered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">No active claims in this pipeline.</p>
-                <p className="max-w-xs text-xs text-slate-500">
-                  Active claims use statuses such as submitted, evidence requested, or investigating after a case is filed with the marketplace.
-                </p>
-                <Link
-                  href="/settings"
-                  className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:text-white"
-                >
-                  Adapter settings
-                </Link>
+              <div className="p-4">
+                <ClaimEngineEmptyState
+                  title="No active claims"
+                  description="Submissions move here after marketplace filing — statuses submitted, evidence requested, or investigating."
+                  action={{ href: "/claim-engine", label: "Submission queue" }}
+                  secondaryAction={{ href: "/settings", label: "Adapter settings" }}
+                />
               </div>
             ) : activeDisplayClaims.length === 0 ? (
               <div className="px-6 py-10 text-center text-sm text-muted-foreground">
@@ -1361,8 +1359,13 @@ export function ClaimEngineClient({
                 </div>
 
                 {closedClaimsFiltered.length === 0 ? (
-                  <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-                    No closed claims yet. Resolved submissions (accepted, denied, failed) appear here.
+                  <div className="p-4">
+                    <ClaimEngineEmptyState
+                      title="No closed claims"
+                      description="Terminal outcomes — accepted, rejected, or failed — appear here after marketplace resolution."
+                      action={{ href: "/claim-engine?tab=active", label: "View active" }}
+                      secondaryAction={{ href: "/claim-engine/report-history", label: "Report history" }}
+                    />
                   </div>
                 ) : closedDisplayClaims.length === 0 ? (
                   <div className="px-6 py-10 text-center text-sm text-muted-foreground">

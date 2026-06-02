@@ -1,39 +1,16 @@
-import { ClaimEngineFeatureDisabled } from "@/components/claim-engine/ClaimEngineFeatureDisabled";
 import { isClaimDraftsReviewEnabled } from "../../../lib/claim-drafts-api";
 import { isClaimReviewWorkflowEnabled } from "../../../lib/claim-review-workflow";
 import { resolveOrganizationId } from "../../../lib/organization";
 import { supabaseServer } from "../../../lib/supabase-server";
 import { isUuidString } from "../../../lib/uuid";
 import { ClaimReviewOperationsClient } from "./ClaimReviewOperationsClient";
+import { ClaimReviewReadOnlyPage } from "./ClaimReviewReadOnlyPage";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClaimReviewOperationsPage() {
   if (!isClaimDraftsReviewEnabled() || !isClaimReviewWorkflowEnabled()) {
-    return (
-      <ClaimEngineFeatureDisabled
-        title="Review"
-        description="Operator review for import/TRID claim_candidate_drafts: mixed groups, missing evidence, product link gaps, policy holds, and duplicate candidates. Disabled until feature flags are on — intake and physical-scan draft pool still work."
-        envVars={[
-          {
-            name: "ENABLE_CLAIM_DRAFTS_REVIEW",
-            description: "Read claim_candidate_drafts and draft review APIs.",
-          },
-          {
-            name: "ENABLE_CLAIM_REVIEW_WORKFLOW",
-            description: "Work-item queue, assignment, and bootstrap actions.",
-          },
-        ]}
-        previewSlices={[
-          "Mixed groups needing split before case creation",
-          "Missing evidence on import drafts",
-          "Missing product link (PIM resolution)",
-          "Policy / cutoff holds (claim_start_date, scan_go_live_date)",
-          "Duplicate candidates across sources",
-        ]}
-        alternateHref={{ href: "/claim-engine/inbox", label: "Open claim intake →" }}
-      />
-    );
+    return <ClaimReviewReadOnlyPage />;
   }
 
   const organizationId = resolveOrganizationId();

@@ -8,6 +8,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getEffectiveClaimSettings } from "./claim-effective-settings";
 import { loadGlobalClaimAgentConfig } from "./claim-filing-handoff";
 import { refFromSupabaseUrl } from "./staging-project-ref";
 
@@ -90,8 +91,30 @@ export async function evaluateScannerClaimPromoteAllowed(
     return { allowed: false, skipped_reason: envGuard.skipped_reason ?? "ref_not_allowed", ref };
   }
 
-  const config = await loadGlobalClaimAgentConfig(client);
-  if (config.scanner_auto_promote_on_save === false) {
+  const agent = await loadGlobalClaimAgentConfig(client);
+  if (agent.scanner_auto_promote_on_save === false) {
+    return { allowed: false, skipped_reason: "promote_disabled_settings", ref };
+  }
+
+  return { allowed: true, ref };
+}
+
+/** Org-scoped promote gate (settings resolver + env). */
+export async function evaluateScannerClaimPromoteAllowedForOrg(
+  client: SupabaseClient,
+  organizationId: string,
+  storeId?: string | null,
+): Promise<ScannerClaimPromoteGuardResult> {
+  const envGuard = evaluateScannerClaimPromoteGuard();
+  if (envGuard.allowed) return envGuard;
+
+  const ref = envGuard.ref ?? supabaseProjectRefFromRuntimeEnv();
+  if (!refAllowsScannerPromote(ref)) {
+    return { allowed: false, skipped_reason: envGuard.skipped_reason ?? "ref_not_allowed", ref };
+  }
+
+  const settings = await getEffectiveClaimSettings(client, organizationId, storeId);
+  if (!settings.auto_create_drafts_on_scan) {
     return { allowed: false, skipped_reason: "promote_disabled_settings", ref };
   }
 
@@ -117,6 +140,10 @@ export function isExpectedScannerClaimPromoteSkipReason(reason: string | undefin
     reason === "missing_scanner_evidence" ||
     reason === "missing_operator_note" ||
     reason === "needs_product_resolution" ||
-    reason === "promote_disabled_settings"
+    reason === "promote_disabled_settings" ||
+    reason === "create_case_manual_only" ||
+    reason === "create_case_awaiting_package_closed" ||
+    reason === "create_case_awaiting_pallet_closed" ||
+    reason === "create_case_awaiting_removal_order_closed"
   );
 }

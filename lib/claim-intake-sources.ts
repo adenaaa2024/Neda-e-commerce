@@ -45,16 +45,16 @@ export const CLAIM_INTAKE_SOURCES: ClaimIntakeSourceDef[] = [
   {
     kind: "reimbursement",
     label: "Reimbursement",
-    status: "planned",
-    detail: "TRID reference edges exist; no unified intake row generator yet.",
-    backend: "claim_reimbursements (reference only)",
+    status: "partial",
+    detail: "Import via Reports API → amazon_reimbursements → claim_candidate_drafts generator (explicit dry-run/apply).",
+    backend: "amazon_reimbursements / claim_candidate_drafts",
   },
   {
     kind: "settlement",
     label: "Settlement",
-    status: "planned",
-    detail: "Finance settlements are not wired into claim_candidates or draft pool.",
-    backend: "settlements module",
+    status: "partial",
+    detail: "Claimable settlement lines only → claim_candidate_drafts (isSettlementRowClaimableIntake filter).",
+    backend: "amazon_settlements / claim_candidate_drafts",
   },
   {
     kind: "inventory",
