@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 /* Reduce layout shift when modals hide the scrollbar (dashboard sidebar alignment). */
 html {
@@ -28,9 +28,9 @@ html {
   --foreground:             #16181b;
 
   /* Card / panel */
-  --card:                   #f8f6f1;
+  --card:                   #ffffff;
   --card-foreground:        #16181b;
-  --admin-card-strong:        #ece7dc;
+  --admin-card-strong:        #f8f6f1;
 
   /* Popover / dropdown */
   --popover:                #ffffff;
@@ -46,7 +46,7 @@ html {
 
   /* Muted (inputs, subtle backgrounds) */
   --muted:                  #ece7dc;
-  --muted-foreground:       #737b86;
+  --muted-foreground:       #5c6370;
 
   /* Hover / selected accent */
   --accent:                 #ece7dc;
@@ -62,10 +62,10 @@ html {
   --ring:                   #b08a3c;
 
   /* Sidebar tokens */
-  --sidebar:                #ffffff;
+  --sidebar:                #fcfaf6;
   --sidebar-foreground:     #16181b;
   --sidebar-border:         #d8d1c2;
-  --sidebar-accent:         #f8f6f1;
+  --sidebar-accent:         #f4f2ed;
   --sidebar-accent-foreground: #16181b;
   --sidebar-ring:           #b08a3c;
 
@@ -92,7 +92,7 @@ html {
   --secondary-foreground:   #faf6ed;
 
   --muted:                  #202832;
-  --muted-foreground:       #87919d;
+  --muted-foreground:       #9aa5b0;
 
   --accent:                 #202832;
   --accent-foreground:      #faf6ed;
@@ -185,192 +185,297 @@ html {
   .dark  { color-scheme: dark;  }
 }
 
-/* ── Admin dashboard shell (MENORIX luxury black/gold) ───────────────────────── */
+/* ── MENORIX admin shell — desktop ERP chrome (NOT operator-mobile scanner) ─── */
 
-.admin-sidebar {
+.menorix-admin-shell {
+  --menorix-bg:             #f4f2ed;
+  --menorix-surface:        #ffffff;
+  --menorix-card:           #f8f6f1;
+  --menorix-card-strong:    #ece7dc;
+  --menorix-border:         #d8d1c2;
+  --menorix-accent:         #8a681f;
+  --menorix-accent-bright:  #b08a3c;
+  --menorix-text:           #16181b;
+  --menorix-text-secondary: #4d5560;
+  --menorix-text-muted:     #737b86;
+
+  --background:             var(--menorix-bg);
+  --foreground:             var(--menorix-text);
+  --card:                   var(--menorix-card);
+  --card-foreground:        var(--menorix-text);
+  --popover:                var(--menorix-surface);
+  --popover-foreground:     var(--menorix-text);
+  --primary:                var(--menorix-accent);
+  --primary-foreground:     #faf6ed;
+  --secondary:              var(--menorix-card-strong);
+  --secondary-foreground:   var(--menorix-text);
+  --muted:                  var(--menorix-card-strong);
+  --muted-foreground:       var(--menorix-text-muted);
+  --accent:                 var(--menorix-card-strong);
+  --accent-foreground:      var(--menorix-text);
+  --border:                 var(--menorix-border);
+  --input:                  var(--menorix-border);
+  --ring:                   var(--menorix-accent-bright);
+  --sidebar:                #ece7dc;
+  --sidebar-foreground:     var(--menorix-text);
+  --sidebar-border:         var(--menorix-border);
+  --sidebar-accent:         #f8f6f1;
+  --sidebar-accent-foreground: var(--menorix-text);
+  --sidebar-ring:           var(--menorix-accent-bright);
+}
+
+.dark .menorix-admin-shell {
+  --menorix-bg:             #050607;
+  --menorix-surface:        #11161c;
+  --menorix-card:           #1a2129;
+  --menorix-card-strong:    #202832;
+  --menorix-border:         #323c48;
+  --menorix-accent:         #d6b76e;
+  --menorix-accent-bright:  #f1d58a;
+  --menorix-text:           #faf6ed;
+  --menorix-text-secondary: #b9c2cc;
+  --menorix-text-muted:     #87919d;
+
+  --background:             var(--menorix-bg);
+  --foreground:             var(--menorix-text);
+  --card:                   var(--menorix-card);
+  --card-foreground:        var(--menorix-text);
+  --popover:                var(--menorix-card);
+  --popover-foreground:     var(--menorix-text);
+  --primary:                var(--menorix-accent);
+  --primary-foreground:     #16181b;
+  --secondary:              var(--menorix-card-strong);
+  --secondary-foreground:   var(--menorix-text);
+  --muted:                  var(--menorix-card-strong);
+  --muted-foreground:       var(--menorix-text-muted);
+  --accent:                 var(--menorix-card-strong);
+  --accent-foreground:      var(--menorix-text);
+  --border:                 var(--menorix-border);
+  --input:                  var(--menorix-border);
+  --ring:                   var(--menorix-accent-bright);
+  --sidebar:                var(--menorix-surface);
+  --sidebar-foreground:     var(--menorix-text);
+  --sidebar-border:         var(--menorix-border);
+  --sidebar-accent:         var(--menorix-card);
+  --sidebar-accent-foreground: var(--menorix-text);
+  --sidebar-ring:           var(--menorix-accent-bright);
+}
+
+.menorix-admin-shell .admin-sidebar {
   background: linear-gradient(
     180deg,
     var(--sidebar) 0%,
-    color-mix(in srgb, var(--sidebar) 94%, var(--background)) 100%
+    color-mix(in srgb, var(--sidebar) 92%, var(--menorix-bg)) 100%
   );
+  box-shadow: inset -1px 0 0 var(--sidebar-border);
 }
 
-.admin-sidebar-brand {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--sidebar) 88%, var(--admin-card-strong)) 0%,
-    var(--sidebar) 100%
-  );
+.menorix-admin-shell .admin-sidebar-brand {
+  background: color-mix(in srgb, var(--sidebar) 88%, var(--menorix-card-strong));
+  border-bottom-color: var(--sidebar-border) !important;
 }
 
-.admin-chrome-input {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--muted) 72%, var(--card));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
+.menorix-admin-shell .admin-topbar header {
+  background: color-mix(in srgb, var(--menorix-surface) 94%, var(--menorix-bg));
+  border-bottom-color: var(--border);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
 }
 
-.admin-chrome-input:focus,
-.admin-chrome-input:focus-visible {
+.dark .menorix-admin-shell .admin-topbar header {
+  background: color-mix(in srgb, var(--menorix-surface) 88%, var(--menorix-bg));
+}
+
+.menorix-admin-shell .admin-chrome-input {
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+}
+
+.menorix-admin-shell .admin-chrome-input:focus,
+.menorix-admin-shell .admin-chrome-input:focus-visible {
   border-color: var(--ring);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--ring) 45%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 28%, transparent);
   outline: none;
 }
 
-.admin-chrome-control {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--card) 88%, var(--muted));
-  box-shadow:
-    0 1px 2px color-mix(in srgb, var(--foreground) 6%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+.menorix-admin-shell .admin-chrome-control {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--menorix-surface) 90%, var(--menorix-card));
 }
 
-.admin-chrome-control:hover {
-  background: color-mix(in srgb, var(--accent) 65%, var(--card));
+.menorix-admin-shell .admin-chrome-control:hover {
+  background: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface));
+  border-color: color-mix(in srgb, var(--ring) 28%, var(--border));
 }
 
-.admin-stat-card {
+.menorix-admin-shell .admin-stat-card {
   position: relative;
   overflow: hidden;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--ring) 28%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--ring) 22%, var(--border));
   background: linear-gradient(
     165deg,
-    var(--admin-card-strong) 0%,
-    var(--card) 52%,
-    var(--admin-card-strong) 100%
+    color-mix(in srgb, var(--menorix-surface) 55%, var(--menorix-card)) 0%,
+    var(--menorix-card) 48%,
+    color-mix(in srgb, var(--menorix-card-strong) 35%, var(--menorix-card)) 100%
   );
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 10%, transparent),
-    inset 0 -2px 8px color-mix(in srgb, var(--background) 55%, transparent),
-    0 8px 22px -10px color-mix(in srgb, var(--background) 72%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
+    0 2px 8px color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
-.admin-stat-card::before {
+.menorix-admin-shell .admin-stat-card::before {
   content: "";
   position: absolute;
-  left: 0.5rem;
-  right: 0.5rem;
-  top: 0;
+  inset: 0 0 auto 0;
   height: 1px;
-  border-radius: 9999px;
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--ring) 55%, transparent) 32%,
-    color-mix(in srgb, var(--foreground) 18%, transparent) 50%,
-    color-mix(in srgb, var(--ring) 42%, transparent) 68%,
+    color-mix(in srgb, var(--ring) 45%, transparent) 50%,
     transparent
   );
   pointer-events: none;
 }
 
-.admin-stat-card__value {
+.menorix-admin-shell .admin-stat-card__value {
   color: var(--foreground);
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
 }
 
-.admin-stat-card__label {
-  color: color-mix(in srgb, var(--foreground) 72%, var(--muted-foreground));
+.menorix-admin-shell .admin-stat-card__label {
+  color: var(--menorix-text-secondary);
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.admin-stat-card__hint {
+.menorix-admin-shell .admin-stat-card__hint {
   color: var(--muted-foreground);
   font-size: 0.6875rem;
+  line-height: 1.45;
 }
 
-.admin-stat-card__icon {
+.menorix-admin-shell .admin-stat-card__icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--ring) 32%, var(--border));
-  background: linear-gradient(
-    165deg,
-    color-mix(in srgb, var(--admin-card-strong) 55%, var(--card)) 0%,
-    var(--card) 100%
-  );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 4px 10px -6px color-mix(in srgb, var(--background) 65%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--menorix-card));
   color: var(--primary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
-.admin-panel-card {
+.menorix-admin-shell .admin-panel-card {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: linear-gradient(
     180deg,
-    var(--card) 0%,
-    color-mix(in srgb, var(--card) 82%, var(--admin-card-strong)) 100%
+    color-mix(in srgb, var(--menorix-surface) 40%, var(--menorix-card)) 0%,
+    var(--menorix-card) 100%
   );
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 10px 28px -14px color-mix(in srgb, var(--background) 70%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent),
+    0 1px 3px color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
-.admin-btn-primary {
+.menorix-admin-shell .admin-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--menorix-surface) 90%, var(--menorix-bg));
+  padding: 0.875rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .menorix-admin-shell .admin-page-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+.menorix-admin-shell .admin-page-header h1 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .admin-page-header p {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .admin-btn-primary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--primary) 55%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--primary) 75%, var(--border));
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--primary) 92%, white) 0%,
+    color-mix(in srgb, var(--ring) 12%, var(--primary)) 0%,
     var(--primary) 100%
   );
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--primary-foreground);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 28%, transparent),
-    0 6px 16px -8px color-mix(in srgb, var(--primary) 55%, transparent);
-  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 
-.admin-btn-primary:hover {
-  border-color: color-mix(in srgb, var(--ring) 65%, var(--border));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 32%, transparent),
-    0 8px 20px -8px color-mix(in srgb, var(--primary) 62%, transparent);
+.menorix-admin-shell .admin-btn-primary:hover {
+  border-color: var(--ring);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ring) 22%, var(--primary)) 0%,
+    color-mix(in srgb, var(--ring) 8%, var(--primary)) 100%
+  );
 }
 
-.admin-btn-secondary {
+.menorix-admin-shell .admin-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menorix-admin-shell .admin-btn-secondary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--card) 90%, var(--muted));
+  background: var(--menorix-surface);
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--foreground);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.admin-btn-secondary:hover {
-  background: color-mix(in srgb, var(--accent) 70%, var(--card));
+.menorix-admin-shell .admin-btn-secondary:hover {
+  background: color-mix(in srgb, var(--accent) 65%, var(--menorix-surface));
   border-color: color-mix(in srgb, var(--ring) 28%, var(--border));
 }
 
-.admin-btn-quiet {
+.menorix-admin-shell .admin-btn-quiet {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border: 1px solid var(--border);
   background: transparent;
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
@@ -379,37 +484,1078 @@ html {
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.admin-btn-quiet:hover {
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
-  border-color: var(--border);
+.menorix-admin-shell .admin-btn-quiet:hover {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  border-color: color-mix(in srgb, var(--ring) 22%, var(--border));
   color: var(--foreground);
 }
 
-.admin-nav-link--active {
-  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--sidebar-border));
+.menorix-admin-shell .admin-form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--menorix-text-secondary);
+}
+
+.menorix-admin-shell .admin-form-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+  padding: 0 1rem;
+  font-size: 1rem;
+  color: var(--foreground);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.menorix-admin-shell .admin-form-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .admin-form-input:focus,
+.menorix-admin-shell .admin-form-input:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 26%, transparent);
+  outline: none;
+}
+
+.menorix-admin-shell .admin-form-input--lg {
+  height: 3.5rem;
+}
+
+.menorix-admin-shell .admin-form-input--sm {
+  height: 2.5rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.menorix-admin-shell .admin-form-textarea {
+  width: 100%;
+  resize: none;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+  padding: 1rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .admin-form-textarea:focus,
+.menorix-admin-shell .admin-form-textarea:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 26%, transparent);
+  outline: none;
+}
+
+.menorix-admin-shell .admin-table-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.menorix-admin-shell .admin-modal-shell {
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--menorix-surface);
+  box-shadow:
+    0 16px 48px color-mix(in srgb, var(--foreground) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.dark .menorix-admin-shell .admin-modal-shell {
+  background: var(--menorix-card);
+}
+
+.menorix-admin-shell .admin-callout {
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ring) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--menorix-card));
+  padding: 0.75rem 1rem;
+}
+
+.menorix-admin-shell .admin-nav-link--active {
+  border: 1px solid color-mix(in srgb, var(--primary) 38%, var(--sidebar-border));
   background: linear-gradient(
-    180deg,
+    90deg,
     color-mix(in srgb, var(--primary) 14%, var(--sidebar-accent)) 0%,
     color-mix(in srgb, var(--primary) 8%, var(--sidebar)) 100%
   );
   color: var(--sidebar-foreground);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 4px 12px -8px color-mix(in srgb, var(--background) 75%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ring) 18%, transparent);
 }
 
-.admin-nav-link--idle {
+.menorix-admin-shell .admin-nav-link--active svg {
+  color: var(--primary);
+}
+
+.menorix-admin-shell .admin-nav-link--idle {
   border: 1px solid transparent;
-  color: var(--muted-foreground);
+  color: var(--menorix-text-secondary);
 }
 
-.admin-nav-link--idle:hover {
-  border-color: color-mix(in srgb, var(--sidebar-border) 70%, transparent);
+.menorix-admin-shell .admin-nav-link--idle svg {
+  color: color-mix(in srgb, var(--menorix-text-secondary) 88%, var(--primary));
+}
+
+.menorix-admin-shell .admin-nav-link--idle:hover {
+  border-color: var(--sidebar-border);
   background: var(--sidebar-accent);
   color: var(--sidebar-accent-foreground);
 }
 
-.admin-nav-section {
+.menorix-admin-shell .admin-nav-link--idle:hover svg {
+  color: var(--primary);
+}
+/* ── Command Center dashboard (desktop admin — not operator-mobile) ─────────── */
+
+.menorix-admin-shell .command-center-main {
+  background:
+    radial-gradient(ellipse 90% 50% at 12% 0%, color-mix(in srgb, var(--primary) 7%, transparent) 0%, transparent 45%),
+    radial-gradient(ellipse 70% 40% at 88% 8%, color-mix(in srgb, var(--ring) 4%, transparent) 0%, transparent 40%),
+    linear-gradient(180deg, color-mix(in srgb, var(--menorix-bg) 92%, var(--menorix-card)) 0%, var(--background) 100%);
+}
+
+.dark .menorix-admin-shell .command-center-main {
+  background:
+    radial-gradient(ellipse 80% 45% at 15% -5%, color-mix(in srgb, var(--primary) 9%, transparent) 0%, transparent 42%),
+    radial-gradient(ellipse 60% 35% at 95% 5%, color-mix(in srgb, var(--ring) 5%, transparent) 0%, transparent 38%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #0c0e11 88%, var(--menorix-surface)) 0%,
+      color-mix(in srgb, var(--menorix-bg) 94%, #08090b) 35%,
+      var(--background) 100%
+    );
+}
+
+.menorix-admin-shell .command-center-header {
+  border-bottom-color: color-mix(in srgb, var(--ring) 22%, var(--border));
+  background: color-mix(in srgb, var(--menorix-surface) 88%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ring) 12%, transparent);
+}
+
+.menorix-admin-shell .command-center {
+  --cc-lower-block-height: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+/* Premium panel shell */
+.menorix-admin-shell .cc-panel {
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ring) 16%, var(--border));
+  background: linear-gradient(
+    168deg,
+    color-mix(in srgb, var(--menorix-surface) 72%, var(--menorix-card)) 0%,
+    var(--menorix-card) 55%,
+    color-mix(in srgb, var(--menorix-card-strong) 28%, var(--menorix-card)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
+    0 1px 2px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.menorix-admin-shell .cc-panel::before {
+  content: "";
+  display: block;
+  height: 2px;
+  margin: -1px -1px 0;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--ring) 55%, transparent) 35%,
+    color-mix(in srgb, var(--primary) 70%, var(--ring)) 50%,
+    color-mix(in srgb, var(--ring) 55%, transparent) 65%,
+    transparent 100%
+  );
+  opacity: 0.85;
+}
+
+.menorix-admin-shell .cc-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem 0;
+}
+
+.menorix-admin-shell .cc-panel__header--compact {
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem 0.25rem;
+}
+
+.menorix-admin-shell .cc-panel__title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .cc-panel__subtitle {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  margin-top: 0.125rem;
+}
+
+/* A — Executive strip */
+.menorix-admin-shell .cc-executive-strip {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.625rem;
+  align-items: stretch;
+}
+
+@media (min-width: 640px) {
+  .menorix-admin-shell .cc-executive-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .menorix-admin-shell .cc-executive-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.menorix-admin-shell .cc-exec-link,
+.menorix-admin-shell .cc-exec-wrap {
+  text-decoration: none;
+  color: inherit;
+  min-height: 7.5rem;
+}
+
+.menorix-admin-shell .cc-exec-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 7.5rem;
+  padding: 0.75rem 0.875rem 0.875rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ring) 20%, var(--border));
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--menorix-surface) 65%, var(--menorix-card)) 0%,
+    var(--menorix-card) 50%,
+    color-mix(in srgb, var(--menorix-card-strong) 40%, var(--menorix-card)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
+    0 1px 4px color-mix(in srgb, var(--foreground) 4%, transparent);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.menorix-admin-shell .cc-exec-link:hover .cc-exec-card {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
+    0 2px 8px color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.menorix-admin-shell .cc-exec-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ring) 40%, transparent) 50%, transparent);
+}
+
+.menorix-admin-shell .cc-exec-alert-pill {
+  margin-left: auto;
+  margin-right: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #c97a2e 35%, var(--border));
+  background: color-mix(in srgb, #c97a2e 10%, var(--menorix-card));
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, #c97a2e 88%, var(--foreground));
+}
+
+.menorix-admin-shell .cc-exec-card__chevron {
+  margin-left: 0;
+  flex-shrink: 0;
+}
+
+.menorix-admin-shell .cc-exec-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.625rem;
+}
+
+.menorix-admin-shell .cc-exec-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--menorix-card));
+  color: var(--primary);
+}
+
+.menorix-admin-shell .cc-exec-card__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--menorix-text-secondary);
+}
+
+.menorix-admin-shell .cc-exec-metrics {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem 0.75rem;
+}
+
+.menorix-admin-shell .cc-exec-metric__label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .cc-exec-metric__value {
+  margin-top: 0.125rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .cc-exec-metric__value--emph {
+  color: color-mix(in srgb, var(--primary) 88%, var(--foreground));
+}
+
+.menorix-admin-shell .cc-exec-metric__value--warn {
+  color: color-mix(in srgb, #c97a2e 90%, var(--foreground));
+}
+
+.menorix-admin-shell .cc-exec-footnote {
+  margin-top: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .cc-exec-footnote--placeholder {
+  visibility: hidden;
+}
+
+/* B — Insight row (4 compact cards under summary) */
+.menorix-admin-shell .cc-insight-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .menorix-admin-shell .cc-insight-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .menorix-admin-shell .cc-insight-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.menorix-admin-shell .cc-insight-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 10.25rem;
+  max-height: 12.5rem;
+  padding: 0.5rem 0.625rem 0.625rem;
+}
+
+.menorix-admin-shell .cc-insight-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: -0.125rem;
+}
+
+.menorix-admin-shell .cc-chart-box--insight {
+  flex: 1;
+  min-height: 6.75rem;
+  max-height: 7.5rem;
+  width: 100%;
+}
+
+.menorix-admin-shell .cc-scan-compact--insight {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 6.75rem;
+}
+
+.menorix-admin-shell .cc-insight-card .cc-sparse {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 6.75rem;
+  padding: 0.5rem 0.25rem;
+  text-align: center;
+}
+
+/* Body grid — queue + rail (12-col) */
+.menorix-admin-shell .cc-body-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .menorix-admin-shell .cc-body-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 0.625rem;
+    align-items: stretch;
+  }
+
+  .menorix-admin-shell .cc-body-main {
+    grid-column: span 8;
+  }
+
+  .menorix-admin-shell .cc-body-rail {
+    grid-column: span 4;
+  }
+
+  .menorix-admin-shell .cc-queue-panel,
+  .menorix-admin-shell .cc-body-rail {
+    height: var(--cc-lower-block-height);
+    min-height: var(--cc-lower-block-height);
+    max-height: var(--cc-lower-block-height);
+  }
+}
+
+@media (min-width: 1280px) {
+  .menorix-admin-shell .command-center {
+    --cc-lower-block-height: 30rem;
+  }
+}
+
+/* Action queue — fixed block with internal list scroll on desktop */
+.menorix-admin-shell .cc-queue-panel {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  min-height: 0;
+}
+
+.menorix-admin-shell .cc-queue-header {
+  flex-shrink: 0;
+}
+
+.menorix-admin-shell .cc-queue-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0 0.75rem;
+  overflow-x: hidden;
+}
+
+@media (min-width: 1024px) {
+  .menorix-admin-shell .cc-queue-body {
+    overflow-y: auto;
+  }
+}
+
+.menorix-admin-shell .cc-queue-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.menorix-admin-shell .cc-queue-header__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--primary) 14%, var(--menorix-card));
+  color: var(--primary);
+}
+
+.menorix-admin-shell .cc-queue-count {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ring) 22%, var(--border));
+  background: color-mix(in srgb, var(--menorix-card-strong) 50%, transparent);
+  color: var(--menorix-text-secondary);
+}
+
+.menorix-admin-shell .cc-queue-empty {
+  margin: 0.375rem 0 0.5rem;
+  padding: 1rem 0.75rem;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--ring) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 4%, var(--menorix-card));
+  text-align: center;
+}
+
+.menorix-admin-shell .cc-queue-list {
+  margin: 0.375rem 0 0.5rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--menorix-surface) 35%, var(--menorix-card));
+}
+
+.menorix-admin-shell .cc-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.menorix-admin-shell .cc-queue-row:last-child {
+  border-bottom: none;
+}
+
+.menorix-admin-shell .cc-queue-row:hover {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+
+.menorix-admin-shell .cc-queue-row__top {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.menorix-admin-shell .cc-queue-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--foreground);
+  margin-top: 0.0625rem;
+  line-height: 1.25;
+}
+
+.menorix-admin-shell .cc-queue-meta {
+  font-size: 0.625rem;
+  color: var(--muted-foreground);
+  margin-top: 0.125rem;
+}
+
+.menorix-admin-shell .cc-queue-meta__dot {
+  margin: 0 0.25rem;
+  opacity: 0.5;
+}
+
+.menorix-admin-shell .cc-queue-ref {
+  font-size: 0.625rem;
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .cc-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.menorix-admin-shell .cc-chip--gold {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--menorix-card));
+  color: var(--primary);
+}
+
+.menorix-admin-shell .cc-chip--warn {
+  border-color: color-mix(in srgb, #c97a2e 40%, var(--border));
+  background: color-mix(in srgb, #c97a2e 10%, var(--menorix-card));
+  color: color-mix(in srgb, #c97a2e 90%, var(--foreground));
+}
+
+.menorix-admin-shell .cc-chip--claim {
+  border-color: color-mix(in srgb, var(--ring) 40%, var(--border));
+  background: color-mix(in srgb, var(--ring) 12%, var(--menorix-card));
+  color: var(--primary);
+}
+
+.menorix-admin-shell .cc-chip--muted {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .cc-btn-review {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  padding: 0.3rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--menorix-surface));
+  color: var(--primary);
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+
+.menorix-admin-shell .cc-btn-review:hover {
+  background: color-mix(in srgb, var(--primary) 16%, var(--menorix-surface));
+}
+
+.menorix-admin-shell .cc-btn-review--disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.menorix-admin-shell .cc-queue-view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.menorix-admin-shell .cc-queue-view-all:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.menorix-admin-shell .cc-queue-footer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+/* Right rail */
+.menorix-admin-shell .cc-rail {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.menorix-admin-shell .cc-rail--compact {
+  gap: 0.5rem;
+}
+
+@media (min-width: 1024px) {
+  .menorix-admin-shell .cc-body-rail.cc-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+  }
+
+  .menorix-admin-shell .cc-body-rail .cc-rail-card {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 0;
+    overflow: hidden;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .menorix-admin-shell .cc-body-rail.cc-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.menorix-admin-shell .cc-rail-card {
+  padding-bottom: 0.5rem;
+}
+
+.menorix-admin-shell .cc-rail-card__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0.375rem;
+}
+
+.menorix-admin-shell .cc-rail-card__body--center {
+  justify-content: center;
+}
+
+.menorix-admin-shell .cc-rail-card__body .cc-rail-link {
+  margin-top: auto;
+}
+
+.menorix-admin-shell .cc-rail-card--compact .cc-panel__header--compact {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem 0.125rem;
+}
+
+.menorix-admin-shell .cc-rail-empty {
+  margin: 0 0.75rem 0.375rem;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+/* Subtle scroll — command center queue */
+.menorix-admin-shell .cc-scroll-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--primary) 35%, transparent) transparent;
+}
+
+.menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar {
+  width: 6px;
+}
+
+.menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+html.light .menorix-admin-shell .cc-scroll-subtle {
+  scrollbar-color: color-mix(in srgb, var(--primary) 28%, transparent) transparent;
+}
+
+html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--primary) 25%, var(--border));
+}
+
+.menorix-admin-shell .cc-health-list {
+  padding: 0.125rem 0.75rem 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  flex: 1;
+  justify-content: center;
+}
+
+.menorix-admin-shell .cc-health-list--compact {
+  gap: 0.3125rem;
+}
+
+.menorix-admin-shell .cc-health-row {
+  display: flex;
+  gap: 0.375rem;
+  font-size: 0.625rem;
+}
+
+.menorix-admin-shell .cc-health-row dt {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .cc-health-row dd {
+  color: var(--muted-foreground);
+  line-height: 1.35;
+}
+
+.menorix-admin-shell .cc-health-warn {
+  margin: 0 0.875rem 0.25rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  color: var(--destructive);
+}
+
+.menorix-admin-shell .cc-linkage-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.125rem 0.75rem 0.25rem;
+}
+
+.menorix-admin-shell .cc-linkage-compact--sm {
+  gap: 0.5rem;
+  padding: 0.125rem 0.75rem 0;
+}
+
+.menorix-admin-shell .cc-linkage-ring {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.menorix-admin-shell .cc-linkage-ring--sm {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.menorix-admin-shell .cc-linkage-ring__inner {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  background: var(--menorix-card);
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .cc-linkage-ring--sm .cc-linkage-ring__inner {
+  width: 1.875rem;
+  height: 1.875rem;
+  font-size: 0.625rem;
+}
+
+.menorix-admin-shell .cc-linkage-stats {
+  font-size: 0.625rem;
+  line-height: 1.45;
+}
+
+.menorix-admin-shell .cc-rail-card--compact .cc-rail-link {
+  margin: 0.25rem 0.75rem 0.375rem;
+  font-size: 0.625rem;
+}
+
+.menorix-admin-shell .cc-rail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0.25rem 0.75rem 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.menorix-admin-shell .cc-rail-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.menorix-admin-shell .cc-claims-ready-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.125rem 0.875rem 0;
+  color: color-mix(in srgb, var(--primary) 90%, var(--foreground));
+}
+
+.menorix-admin-shell .cc-claims-ready-value--sm {
+  font-size: 1.375rem;
+  padding: 0 0.75rem;
+}
+
+.menorix-admin-shell .cc-claims-ready-label {
+  font-size: 0.625rem;
+  font-family: var(--font-mono);
+  color: var(--muted-foreground);
+  padding: 0 0.875rem;
+}
+
+.menorix-admin-shell .cc-rail-card--compact .cc-claims-ready-label {
+  padding: 0 0.75rem;
+}
+
+.menorix-admin-shell .cc-claims-mini {
+  margin: 0.5rem 0.875rem 0;
+  padding: 0.375rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 0.6875rem;
+}
+
+.menorix-admin-shell .cc-claims-mini--compact {
+  margin: 0.25rem 0.75rem 0;
+  padding: 0.25rem 0;
+  font-size: 0.625rem;
+}
+
+.menorix-admin-shell .cc-claims-mini li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .cc-claims-mini--compact li {
+  padding: 0.125rem 0;
+}
+
+/* Mini metrics bar */
+.menorix-admin-shell .cc-mini-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  background: color-mix(in srgb, var(--menorix-card-strong) 35%, var(--menorix-card));
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .cc-mini-bar__sep {
+  width: 1px;
+  height: 0.875rem;
+  background: var(--border);
+}
+
+.menorix-admin-shell .cc-chart-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .cc-chart-sub {
+  font-size: 0.625rem;
+  color: var(--muted-foreground);
+  margin-bottom: 0.375rem;
+}
+
+.menorix-admin-shell .cc-chart-box {
+  width: 100%;
+  min-width: 0;
+}
+
+.menorix-admin-shell .cc-chart-box--line {
+  height: 7.5rem;
+}
+
+.menorix-admin-shell .cc-chart-box--bar {
+  height: 7rem;
+}
+
+.menorix-admin-shell .cc-scan-compact {
+  padding-top: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.menorix-admin-shell .cc-progress-sm {
+  height: 0.375rem;
+}
+
+.menorix-admin-shell .cc-sparse__title {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .cc-sparse__detail {
+  margin-top: 0.25rem;
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+/* Conditions — insight row card */
+.menorix-admin-shell .cc-conditions-insight .cc-chart-sub {
+  margin-bottom: 0.25rem;
+}
+
+.menorix-admin-shell .cc-conditions-insight__list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+  overflow: hidden;
+}
+
+.menorix-admin-shell .cc-conditions-insight__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.375rem;
+  font-size: 0.5625rem;
+  line-height: 1.2;
+}
+
+.menorix-admin-shell .cc-conditions-insight__label {
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .cc-conditions-insight__value {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
+.menorix-admin-shell .cc-conditions-insight__track {
+  height: 0.1875rem;
+  margin-top: 0.0625rem;
+}
+
+.menorix-admin-shell .cc-conditions-insight__fill {
+  min-width: 2px;
+}
+
+.menorix-admin-shell .cc-conditions-insight__more {
+  margin-top: 0.125rem;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-align: right;
+}
+
+.menorix-admin-shell .command-center-progress-track {
+  background: color-mix(in srgb, var(--muted) 70%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.menorix-admin-shell .command-center-progress-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--primary) 85%, #6b5220) 0%,
+    var(--primary) 50%,
+    color-mix(in srgb, var(--ring) 90%, var(--primary)) 100%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent);
+}
+
+.menorix-admin-shell .admin-nav-section {
   margin-bottom: 0.25rem;
   padding-left: 0.75rem;
   padding-right: 0.75rem;
@@ -417,7 +1563,175 @@ html {
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--muted-foreground) 88%, var(--sidebar-foreground));
+  color: color-mix(in srgb, var(--muted-foreground) 88%, var(--ring));
+}
+
+/* Admin-only uploader chrome (returns desktop — scanner uses default MasterUploader) */
+.menorix-admin-shell .admin-uploader {
+  overflow: hidden;
+  border-radius: 8px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--menorix-surface) !important;
+}
+
+.menorix-admin-shell .admin-uploader .border-slate-200,
+.menorix-admin-shell .admin-uploader .dark\:border-slate-800,
+.menorix-admin-shell .admin-uploader .border-slate-100 {
+  border-color: var(--border) !important;
+}
+
+.menorix-admin-shell .admin-uploader .bg-white,
+.menorix-admin-shell .admin-uploader .dark\:bg-slate-900 {
+  background-color: var(--menorix-surface) !important;
+}
+
+.menorix-admin-shell .admin-uploader .bg-slate-100,
+.menorix-admin-shell .admin-uploader .dark\:bg-slate-800,
+.menorix-admin-shell .admin-uploader .bg-slate-50,
+.menorix-admin-shell .admin-uploader .dark\:bg-slate-800\/60 {
+  background-color: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface)) !important;
+}
+
+.menorix-admin-shell .admin-uploader .text-slate-900,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-50,
+.menorix-admin-shell .admin-uploader .text-slate-700,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-200,
+.menorix-admin-shell .admin-uploader .text-slate-800,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-100 {
+  color: var(--foreground) !important;
+}
+
+.menorix-admin-shell .admin-uploader .text-slate-500,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-400,
+.menorix-admin-shell .admin-uploader .text-slate-400,
+.menorix-admin-shell .admin-uploader .dark\:text-slate-500 {
+  color: var(--muted-foreground) !important;
+}
+
+.menorix-admin-shell .admin-uploader .text-sky-600,
+.menorix-admin-shell .admin-uploader .dark\:text-sky-400,
+.menorix-admin-shell .admin-uploader .text-sky-500 {
+  color: var(--primary) !important;
+}
+
+.menorix-admin-shell .admin-uploader .hover\:bg-slate-50:hover,
+.menorix-admin-shell .admin-uploader .dark\:hover\:bg-slate-800\/60:hover,
+.menorix-admin-shell .admin-uploader .hover\:bg-slate-100:hover {
+  background-color: color-mix(in srgb, var(--accent) 50%, var(--menorix-surface)) !important;
+}
+
+/* Legacy slate/sky utility remap — admin shell only (scanner excluded) */
+.menorix-admin-shell .border-slate-100,
+.menorix-admin-shell .border-slate-200 {
+  border-color: var(--border);
+}
+
+.dark .menorix-admin-shell .border-slate-600,
+.dark .menorix-admin-shell .border-slate-700,
+.dark .menorix-admin-shell .border-slate-800 {
+  border-color: var(--border);
+}
+
+.menorix-admin-shell .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.menorix-admin-shell .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border);
+}
+
+.dark .menorix-admin-shell .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border);
+}
+
+.menorix-admin-shell .bg-white,
+.menorix-admin-shell .bg-slate-50,
+.menorix-admin-shell .bg-slate-100 {
+  background-color: var(--menorix-surface);
+}
+
+.dark .menorix-admin-shell .bg-slate-900,
+.dark .menorix-admin-shell .bg-slate-950,
+.dark .menorix-admin-shell .bg-slate-950\/70,
+.dark .menorix-admin-shell .bg-slate-950\/80 {
+  background-color: var(--menorix-card);
+}
+
+.menorix-admin-shell .text-slate-900,
+.menorix-admin-shell .text-slate-800,
+.menorix-admin-shell .text-slate-700 {
+  color: var(--foreground);
+}
+
+.menorix-admin-shell .text-slate-600,
+.menorix-admin-shell .text-slate-500,
+.menorix-admin-shell .text-slate-400 {
+  color: var(--muted-foreground);
+}
+
+.dark .menorix-admin-shell .text-slate-100,
+.dark .menorix-admin-shell .text-slate-200,
+.dark .menorix-admin-shell .text-slate-300 {
+  color: var(--foreground);
+}
+
+.dark .menorix-admin-shell .text-slate-400,
+.dark .menorix-admin-shell .text-slate-500 {
+  color: var(--muted-foreground);
+}
+
+.menorix-admin-shell .bg-sky-500,
+.menorix-admin-shell .bg-sky-600 {
+  background-color: var(--primary);
+}
+
+.menorix-admin-shell .hover\:bg-sky-600:hover,
+.menorix-admin-shell .hover\:bg-sky-500:hover {
+  background-color: color-mix(in srgb, var(--ring) 15%, var(--primary));
+}
+
+.menorix-admin-shell .text-sky-500,
+.menorix-admin-shell .text-sky-600,
+.menorix-admin-shell .text-sky-800 {
+  color: var(--primary);
+}
+
+.dark .menorix-admin-shell .text-sky-200,
+.dark .menorix-admin-shell .text-sky-300,
+.dark .menorix-admin-shell .text-sky-400 {
+  color: var(--primary);
+}
+
+.menorix-admin-shell .border-sky-200,
+.menorix-admin-shell .bg-sky-50 {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+  background-color: color-mix(in srgb, var(--primary) 8%, var(--menorix-card));
+}
+
+.dark .menorix-admin-shell .border-sky-700,
+.dark .menorix-admin-shell .border-sky-800,
+.dark .menorix-admin-shell .border-sky-900,
+.dark .menorix-admin-shell .bg-sky-950,
+.dark .menorix-admin-shell .bg-sky-950\/30,
+.dark .menorix-admin-shell .bg-sky-950\/40,
+.dark .menorix-admin-shell .bg-sky-950\/50 {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  background-color: color-mix(in srgb, var(--primary) 10%, var(--menorix-card));
+}
+
+.menorix-admin-shell .rounded-2xl.border.border-border,
+.menorix-admin-shell .rounded-2xl.border.border-border.bg-card {
+  border-radius: 8px;
+  border-color: var(--border);
+  background: var(--menorix-card);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.menorix-admin-shell .hover\:bg-slate-50:hover,
+.menorix-admin-shell .hover\:bg-slate-100:hover {
+  background-color: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface));
+}
+
+.dark .menorix-admin-shell .hover\:bg-slate-800:hover,
+.dark .menorix-admin-shell .hover\:bg-slate-900:hover {
+  background-color: color-mix(in srgb, var(--accent) 65%, var(--menorix-card));
 }
 
 /* ── Drawer / slide animations ────────────────────────────────────────────────── */
@@ -7285,4 +8599,9 @@ html.light .operator-home-page .operator-home-recent-action-btn:hover {
     height: 2rem;
     width: 2rem;
   }
+}
+
+/* Scanner footers — primary on top when stacked (Zebra/narrow) */
+.operator-scanner-footer-actions {
+  width: 100%;
 }

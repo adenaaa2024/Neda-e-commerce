@@ -3,47 +3,60 @@
 import { Loader2 } from "lucide-react";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 
-type OperatorVoidBoxModalProps = {
+type OperatorVoidPalletModalProps = {
   open: boolean;
-  packageLabel: string;
+  palletLabel: string;
+  packageCount: number;
   busy: boolean;
   error: string | null;
   onClose: () => void;
   onConfirm: () => void;
 };
 
-export function OperatorVoidBoxModal({
+export function OperatorVoidPalletModal({
   open,
-  packageLabel,
+  palletLabel,
+  packageCount,
   busy,
   error,
   onClose,
   onConfirm,
-}: OperatorVoidBoxModalProps) {
+}: OperatorVoidPalletModalProps) {
   if (!open) return null;
+
+  const hasLinkedPackages = packageCount > 0;
 
   return (
     <div
       className="operator-shipment-flow-modal fixed inset-0 z-[142] flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="operator-void-box-title"
+      aria-labelledby="operator-void-pallet-title"
     >
       <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
         <p
-          id="operator-void-box-title"
+          id="operator-void-pallet-title"
           className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
         >
-          Void this box?
+          Void pallet?
         </p>
         <p className="operator-shipment-flow-modal__body mt-3 text-center text-[12px] font-semibold leading-relaxed">
-          Box{" "}
-          <span className="font-mono font-bold">{packageLabel || "—"}</span>
+          Pallet{" "}
+          <span className="font-mono font-bold">{palletLabel || "—"}</span>
         </p>
         <p className="operator-shipment-flow-modal__body mt-2 text-center text-[12px] font-medium leading-relaxed opacity-90">
-          Saved items on this box will be voided and expected quantities restored. Use only if this
-          carton was scanned by mistake.
+          This will remove this pallet from active receiving. Packages/items linked to it may be released or
+          remain according to existing void rules.
         </p>
+        {hasLinkedPackages ? (
+          <p
+            className="operator-shipment-flow-modal__alert mt-3 rounded-xl px-3 py-2.5 text-center text-[11px] font-semibold leading-snug"
+            role="status"
+          >
+            This pallet has {packageCount} active box{packageCount === 1 ? "" : "es"} on record. Voiding will
+            soft-remove the pallet and linked packages per existing void rules.
+          </p>
+        ) : null}
         {error ? (
           <p className="mt-3 text-center text-[12px] font-semibold text-red-300" role="alert">
             {error}
@@ -59,7 +72,7 @@ export function OperatorVoidBoxModal({
               onClick={onConfirm}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              Void Box
+              Void Pallet
             </button>
           }
           secondary={

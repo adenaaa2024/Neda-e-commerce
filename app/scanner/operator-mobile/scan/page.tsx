@@ -191,6 +191,7 @@ import {
 } from "@/lib/scanner/operator-scan-progress-ui";
 import { BoxSlipVisionProgress } from "@/components/scanner/BoxSlipVisionProgress";
 import { OperatorScanProgressStrip } from "@/components/scanner/OperatorScanProgressStrip";
+import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 
 /** Frozen copy of slip line fields persisted to DB — never merge ad-hoc UI edits into item rows. */
 function clonePersistBoxSlipVisionLines(lines: BoxSlipVisionLine[]): BoxSlipVisionLine[] {
@@ -15623,31 +15624,36 @@ function OperatorMobileScanPageContent() {
             <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
               You will return to the search screen.
             </p>
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-secondary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                onClick={() => {
-                  setCancelShipmentConfirmOpen(false);
-                  modalOpenRef.current = false;
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-danger h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                onClick={() => {
-                  setCancelShipmentConfirmOpen(false);
-                  modalOpenRef.current = false;
-                  void abandonUnsavedPalletShipmentEdits().finally(() => {
-                    router.push(SCANNER_OPERATOR_HOME_PATH);
-                  });
-                }}
-              >
-                Discard
-              </button>
-            </div>
+            <OperatorScannerFooterActions
+              className="mt-6"
+              secondary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    setCancelShipmentConfirmOpen(false);
+                    modalOpenRef.current = false;
+                  }}
+                >
+                  Cancel
+                </button>
+              }
+              primary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-danger h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    setCancelShipmentConfirmOpen(false);
+                    modalOpenRef.current = false;
+                    void abandonUnsavedPalletShipmentEdits().finally(() => {
+                      router.push(SCANNER_OPERATOR_HOME_PATH);
+                    });
+                  }}
+                >
+                  Discard
+                </button>
+              }
+            />
           </div>
         </div>
       ) : null}
@@ -15678,42 +15684,47 @@ function OperatorMobileScanPageContent() {
                 Use this when counts or slip lines do not match what is on the carton.
               </p>
             ) : null}
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-secondary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                onClick={() => {
-                  setPackageFinalizeConfirmKind(null);
-                  modalOpenRef.current = false;
-                }}
-              >
-                Go Back
-              </button>
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-primary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={boxSaveBusy}
-                onClick={() => {
-                  const kind = packageFinalizeConfirmKind;
-                  setPackageFinalizeConfirmKind(null);
-                  modalOpenRef.current = false;
-                  if (!kind) return;
-                  if (packageScanOrderIdConflictHighlight) {
-                    setPendingConflictPackageSaveKind(kind);
-                    setPackageSaveOrderConflictGateOpen(true);
-                    modalOpenRef.current = true;
-                    return;
-                  }
-                  dispatchPackageFinalizeSave(kind);
-                }}
-              >
-                {packageFinalizeConfirmKind === "discrepancy"
-                  ? "Save with discrepancy"
-                  : packageFinalizeConfirmKind === "save_hub"
-                    ? "Save & exit to hub"
-                    : "Save & continue"}
-              </button>
-            </div>
+            <OperatorScannerFooterActions
+              className="mt-6"
+              secondary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    setPackageFinalizeConfirmKind(null);
+                    modalOpenRef.current = false;
+                  }}
+                >
+                  Go Back
+                </button>
+              }
+              primary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-primary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={boxSaveBusy}
+                  onClick={() => {
+                    const kind = packageFinalizeConfirmKind;
+                    setPackageFinalizeConfirmKind(null);
+                    modalOpenRef.current = false;
+                    if (!kind) return;
+                    if (packageScanOrderIdConflictHighlight) {
+                      setPendingConflictPackageSaveKind(kind);
+                      setPackageSaveOrderConflictGateOpen(true);
+                      modalOpenRef.current = true;
+                      return;
+                    }
+                    dispatchPackageFinalizeSave(kind);
+                  }}
+                >
+                  {packageFinalizeConfirmKind === "discrepancy"
+                    ? "Save with discrepancy"
+                    : packageFinalizeConfirmKind === "save_hub"
+                      ? "Save & exit to hub"
+                      : "Save & continue"}
+                </button>
+              }
+            />
           </div>
         </div>
       ) : null}
@@ -15865,39 +15876,44 @@ function OperatorMobileScanPageContent() {
             <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
               You will lose edits on this open box session.
             </p>
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-secondary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                onClick={() => {
-                  setPackageSessionCancelConfirmOpen(false);
-                  modalOpenRef.current = false;
-                }}
-              >
-                Go Back
-              </button>
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-danger h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                onClick={() => {
-                  setPackageSessionCancelConfirmOpen(false);
-                  modalOpenRef.current = false;
-                  const scrollToHub = !directBox && Boolean(activePallet?.id?.trim());
-                  performBoxIntakeBackNavigation();
-                  if (scrollToHub) {
-                    window.requestAnimationFrame(() => {
+            <OperatorScannerFooterActions
+              className="mt-6"
+              secondary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    setPackageSessionCancelConfirmOpen(false);
+                    modalOpenRef.current = false;
+                  }}
+                >
+                  Go Back
+                </button>
+              }
+              primary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-danger h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    setPackageSessionCancelConfirmOpen(false);
+                    modalOpenRef.current = false;
+                    const scrollToHub = !directBox && Boolean(activePallet?.id?.trim());
+                    performBoxIntakeBackNavigation();
+                    if (scrollToHub) {
                       window.requestAnimationFrame(() => {
-                        document
-                          .getElementById("operator-saved-boxes-hub")
-                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        window.requestAnimationFrame(() => {
+                          document
+                            .getElementById("operator-saved-boxes-hub")
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        });
                       });
-                    });
-                  }
-                }}
-              >
-                Discard & Back
-              </button>
-            </div>
+                    }
+                  }}
+                >
+                  Discard & Back
+                </button>
+              }
+            />
           </div>
         </div>
       ) : null}
@@ -15939,41 +15955,46 @@ function OperatorMobileScanPageContent() {
                 <span className="font-mono font-bold">{itemsPhaseLiveTotalScanned}</span>. Continue anyway?
               </p>
             ) : null}
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className={`rounded-xl border border-[var(--scanner-border)] bg-[var(--scanner-card)] text-[var(--scanner-text)] transition active:scale-[0.98] ${ZEBRA_COMPACT_BTN}`}
-                onClick={() => {
-                  setItemsBoxFinalizeModalOpen(false);
-                  modalOpenRef.current = false;
-                  scheduleFocusScanner();
-                }}
-              >
-                Go Back
-              </button>
-              <button
-                type="button"
-                disabled={busy || itemsFinalizeBusy}
-                className={`flex w-full items-center justify-center gap-2 rounded-xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
-                  isItemsQtyDiscrepancy
-                    ? "border-amber-500/50 bg-amber-100 text-amber-950"
-                    : "border-[#C8A96A]/55 bg-gradient-to-b from-[#3d4550] to-[#171c22] text-[#faf6ed]"
-                }`}
-                onClick={() => void confirmItemsPhaseFinalizeToHub()}
-              >
-                {isItemsQtyDiscrepancy ? (
-                  <>
-                    <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
-                    {itemsFinalizeBusy ? "Saving…" : "Confirm save"}
-                  </>
-                ) : (
-                  <>
-                    <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
-                    {itemsFinalizeBusy ? "Working…" : "Confirm save"}
-                  </>
-                )}
-              </button>
-            </div>
+            <OperatorScannerFooterActions
+              className="mt-6"
+              secondary={
+                <button
+                  type="button"
+                  className={`h-11 w-full rounded-xl border border-[var(--scanner-border)] bg-[var(--scanner-card)] text-[var(--scanner-text)] transition active:scale-[0.98] ${ZEBRA_COMPACT_BTN}`}
+                  onClick={() => {
+                    setItemsBoxFinalizeModalOpen(false);
+                    modalOpenRef.current = false;
+                    scheduleFocusScanner();
+                  }}
+                >
+                  Go Back
+                </button>
+              }
+              primary={
+                <button
+                  type="button"
+                  disabled={busy || itemsFinalizeBusy}
+                  className={`flex h-11 w-full items-center justify-center gap-2 rounded-xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
+                    isItemsQtyDiscrepancy
+                      ? "border-amber-500/50 bg-amber-100 text-amber-950"
+                      : "border-[#C8A96A]/55 bg-gradient-to-b from-[#3d4550] to-[#171c22] text-[#faf6ed]"
+                  }`}
+                  onClick={() => void confirmItemsPhaseFinalizeToHub()}
+                >
+                  {isItemsQtyDiscrepancy ? (
+                    <>
+                      <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
+                      {itemsFinalizeBusy ? "Saving…" : "Confirm save"}
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
+                      {itemsFinalizeBusy ? "Working…" : "Confirm save"}
+                    </>
+                  )}
+                </button>
+              }
+            />
           </div>
         </div>
       ) : null}

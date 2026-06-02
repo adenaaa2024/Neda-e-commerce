@@ -154,7 +154,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
 
   return (
     /* App chrome: z-50 — above in-page sticky bars; modals usually z-90+ */
-    <div className="sticky top-0 z-50 shrink-0">
+    <div className="admin-topbar sticky top-0 z-50 shrink-0">
       {isViewingAsAnotherUser && viewAsDisplayName ? (
         <div className="border-b border-primary/25 bg-primary/10 px-3 py-1.5 text-center text-[11px] font-medium text-foreground">
           Viewing as <strong className="font-semibold">{viewAsDisplayName}</strong> — sidebar and pages match
@@ -162,7 +162,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
         </div>
       ) : null}
       <header
-        className="flex h-14 w-full min-w-0 items-center justify-between gap-2 border-b border-border bg-card/95 px-3 backdrop-blur-sm sm:gap-3 md:px-4"
+        className="flex h-14 w-full min-w-0 items-center justify-between gap-2 border-b border-border bg-card/95 px-3 backdrop-blur-sm sm:gap-3 md:bg-card md:px-4 md:backdrop-blur-none"
         role="banner"
       >
       {/* Hamburger — mobile only */}
@@ -311,7 +311,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
             onClick={() => setProfileMenuOpen((o) => !o)}
             className="admin-chrome-control flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/25 bg-gradient-to-br from-primary/90 to-primary text-[11px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/30 bg-gradient-to-br from-primary to-primary/85 text-[11px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
               {profileInitial}
             </div>
             <span className="hidden max-w-[14rem] truncate text-xs font-medium text-foreground sm:inline">

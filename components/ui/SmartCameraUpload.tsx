@@ -54,6 +54,8 @@ export interface SmartCameraUploadProps {
   iconColor?: string;
   /** Lucide icon component for the header */
   icon?: React.ElementType;
+  /** Optional wrapper class merged onto the root card. */
+  className?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,9 +75,10 @@ export function SmartCameraUpload({
   files,
   onChange,
   maxPhotos = 5,
-  accentClass = "border-slate-300 dark:border-slate-700",
-  iconColor = "text-slate-500 dark:text-slate-400",
+  accentClass = "border-border",
+  iconColor = "text-muted-foreground",
   icon: Icon = Camera,
+  className = "",
 }: SmartCameraUploadProps) {
   // Default true → safe SSR render; updated after hydration
   const [isMobile, setIsMobile] = useState(true);
@@ -147,8 +150,9 @@ export function SmartCameraUpload({
   return (
     <div
       className={[
-        "overflow-hidden rounded-2xl border-2 bg-white transition dark:bg-slate-900",
+        "admin-uploader overflow-hidden rounded-lg border-2 bg-card transition",
         isComplete ? "border-emerald-400 dark:border-emerald-600/60" : accentClass,
+        className,
       ].join(" ")}
     >
       {/* ── Zone header ── */}
@@ -214,7 +218,7 @@ export function SmartCameraUpload({
                     <button
                       type="button"
                       onClick={closeWebcam}
-                      className="mt-1 text-xs text-sky-400 underline"
+                      className="mt-1 text-xs text-primary underline"
                     >
                       Use file upload instead
                     </button>
