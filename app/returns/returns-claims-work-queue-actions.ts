@@ -33,10 +33,10 @@ async function enrichQueueRowsWithClaimFlow(
   const returnIds = rows.map((r) => r.return_item_id).filter((id) => isUuidString(id));
   if (!returnIds.length) return rows;
 
-  const caseByReturn = new Map<string, { caseId: string; submissionId: string | null }>();
+  const caseByReturn = new Map<string, { caseId: string; status: string; submissionId: string | null }>();
   const { data: cases } = await supabaseServer
     .from("claim_cases")
-    .select("id, primary_return_item_id, metadata")
+    .select("id, primary_return_item_id, status, metadata")
     .eq("organization_id", organizationId)
     .in("primary_return_item_id", returnIds);
 
@@ -47,6 +47,7 @@ async function enrichQueueRowsWithClaimFlow(
     const subRaw = String(meta.claim_submission_id ?? "").trim();
     caseByReturn.set(rid, {
       caseId: String((c as { id: string }).id),
+      status: String((c as { status: string }).status ?? ""),
       submissionId: isUuidString(subRaw) ? subRaw : null,
     });
   }
@@ -76,6 +77,7 @@ async function enrichQueueRowsWithClaimFlow(
     const flow_stage: ClaimFlowStage = deriveClaimFlowStage({
       queue_state: row.queue_state,
       claim_case_id,
+      claim_case_status: caseInfo?.status ?? null,
       claim_submission_id,
       submission_has_pdf,
     });

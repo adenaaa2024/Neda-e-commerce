@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { ClaimEngineFeatureDisabled } from "@/components/claim-engine/ClaimEngineFeatureDisabled";
 import { isClaimDraftsReviewEnabled } from "../../../lib/claim-drafts-api";
 import { isClaimReviewWorkflowEnabled } from "../../../lib/claim-review-workflow";
 import { resolveOrganizationId } from "../../../lib/organization";
@@ -11,15 +12,21 @@ export const dynamic = "force-dynamic";
 export default async function ClaimReviewOperationsPage() {
   if (!isClaimDraftsReviewEnabled() || !isClaimReviewWorkflowEnabled()) {
     return (
-      <div className="mx-auto max-w-2xl space-y-3 p-6 text-slate-900 dark:text-slate-100">
-        <h1 className="text-lg font-semibold">Claim review operations</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
-          Enable{" "}
-          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">ENABLE_CLAIM_DRAFTS_REVIEW=true</code> and{" "}
-          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">ENABLE_CLAIM_REVIEW_WORKFLOW=true</code>{" "}
-          to use this screen.
-        </p>
-      </div>
+      <ClaimEngineFeatureDisabled
+        title="Claim review operations"
+        description="Review manages TRID/import claim_candidate_drafts and operator work items (step 2 of the import path). This screen is disabled until both feature flags are enabled — the physical-scan path still works without it."
+        envVars={[
+          {
+            name: "ENABLE_CLAIM_DRAFTS_REVIEW",
+            description: "Read claim_candidate_drafts and draft review APIs.",
+          },
+          {
+            name: "ENABLE_CLAIM_REVIEW_WORKFLOW",
+            description: "Work-item queue, assignment, and bootstrap actions.",
+          },
+        ]}
+        alternateHref={{ href: "/claim-engine/inbox", label: "Open import / Amazon candidate inbox →" }}
+      />
     );
   }
 

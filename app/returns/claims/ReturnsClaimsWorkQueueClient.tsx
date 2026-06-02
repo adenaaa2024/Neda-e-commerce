@@ -4,13 +4,21 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, FolderPlus, Loader2 } from "lucide-react";
 
-import { ClaimEngineHubNav } from "@/components/claim-engine/ClaimEngineHubNav";
-import { useUserRole } from "../../../components/UserRoleContext";
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
+import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { ClaimFlowBadge } from "@/components/claim-engine/ClaimFlowBadge";
 import {
-  CLAIM_FLOW_STAGE_BADGE_CLASS,
-  claimFlowStageHint,
-  type ClaimFlowStage,
-} from "../../../lib/claim-flow-status-badges";
+  CLAIM_ENGINE_CARD_CLASS,
+  CLAIM_ENGINE_FILTER_TAB_ACTIVE,
+  CLAIM_ENGINE_FILTER_TAB_IDLE,
+  CLAIM_ENGINE_INPUT_CLASS,
+  CLAIM_ENGINE_SECTION_CLASS,
+  CLAIM_ENGINE_TABLE_CLASS,
+  CLAIM_ENGINE_TABLE_HEAD_CLASS,
+  CLAIM_ENGINE_TABLE_ROW_CLASS,
+} from "@/components/claim-engine/claim-engine-ui";
+import { useUserRole } from "../../../components/UserRoleContext";
+import { claimFlowStageHint, type ClaimFlowStage } from "../../../lib/claim-flow-status-badges";
 import {
   clusterRowsByManualDimension,
   evaluateManualDraftEligibility,
@@ -192,23 +200,11 @@ export function ReturnsClaimsWorkQueueClient() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
-      <ClaimEngineHubNav />
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Draft pool</h1>
-          <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
-            Physical-scan return items staged for claim cases. Select eligible rows → create a claim case → promote from{" "}
-            <Link href="/claim-engine/cases" className="font-medium text-sky-600 underline dark:text-sky-400">
-              Cases
-            </Link>{" "}
-            to the submission queue. No marketplace auto-submit.
-          </p>
-        </div>
-        <Link href="/returns" className="text-sm font-medium text-muted-foreground hover:text-foreground">
-          Returns processing
-        </Link>
-      </header>
+    <ClaimEnginePageShell
+      title="Draft pool"
+      description="Step 1 of the physical-scan path: warehouse return items with claimable scanner issues. Select rows and create an internal claim case — one case can include multiple return items."
+      aside={[{ href: "/returns", label: "Returns processing" }]}
+    >
 
       {result && !result.returns_domain_enabled ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-100">
@@ -236,13 +232,13 @@ export function ReturnsClaimsWorkQueueClient() {
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className={CLAIM_ENGINE_SECTION_CLASS}>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Manual grouping</span>
           <select
             value={groupingDimension}
             onChange={(e) => setGroupingDimension(e.target.value as ManualGroupingDimension)}
-            className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+            className={CLAIM_ENGINE_INPUT_CLASS}
           >
             {GROUPING_OPTIONS.map((o) => (
               <option key={o.id} value={o.id}>
@@ -314,12 +310,7 @@ export function ReturnsClaimsWorkQueueClient() {
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
-            className={[
-              "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
-              activeTab === tab.id
-                ? "bg-violet-600 text-white"
-                : "bg-muted text-muted-foreground hover:bg-muted/80",
-            ].join(" ")}
+            className={activeTab === tab.id ? CLAIM_ENGINE_FILTER_TAB_ACTIVE : CLAIM_ENGINE_FILTER_TAB_IDLE}
           >
             {tab.label}
             <span className="ml-1 opacity-80">({tabCounts[tab.id] ?? 0})</span>
@@ -338,13 +329,15 @@ export function ReturnsClaimsWorkQueueClient() {
           {result.error}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">
-          No return-item scanner claims match this filter. Historical backfill lines never appear here.
-        </div>
+        <ClaimEngineEmptyState
+          title="No scans in this filter"
+          description="Eligible physical scans appear here after go-live date, product resolution, and evidence gates. Import/backfill lines never show in this pool."
+          action={{ href: "/returns", label: "Go to returns processing" }}
+        />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+        <div className={CLAIM_ENGINE_CARD_CLASS}>
+          <table className={CLAIM_ENGINE_TABLE_CLASS}>
+            <thead className={CLAIM_ENGINE_TABLE_HEAD_CLASS}>
               <tr>
                 <th className="w-10 px-3 py-3" />
                 <th className="px-4 py-3 font-semibold">Flow</th>
@@ -356,7 +349,7 @@ export function ReturnsClaimsWorkQueueClient() {
                 <th className="px-4 py-3 font-semibold">Claim line</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody>
               {filtered.map((row) => (
                 <QueueRow
                   key={row.return_item_id}
@@ -370,7 +363,7 @@ export function ReturnsClaimsWorkQueueClient() {
           </table>
         </div>
       )}
-    </div>
+    </ClaimEnginePageShell>
   );
 }
 
@@ -407,17 +400,7 @@ function QueueRow({
         />
       </td>
       <td className="px-4 py-3">
-        <span
-          title={flowHint}
-          className={[
-            "inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold",
-            flowStage
-              ? CLAIM_FLOW_STAGE_BADGE_CLASS[flowStage]
-              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
-          ].join(" ")}
-        >
-          {flowLabel}
-        </span>
+        {flowStage ? <ClaimFlowBadge stage={flowStage} /> : <span className="text-xs text-muted-foreground">{flowLabel}</span>}
       </td>
       <td className="px-4 py-3 text-xs text-muted-foreground">{row.state_label}</td>
       <td className="px-4 py-3">

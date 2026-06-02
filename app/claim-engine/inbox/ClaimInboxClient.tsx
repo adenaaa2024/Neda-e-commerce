@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Loader2, ShieldAlert, X } from "lucide-react";
 
+import { ClaimImportPathBanner, ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import {
+  claimEngineSubTabClass,
+  CLAIM_ENGINE_MAIN_CLASS,
+} from "@/components/claim-engine/claim-engine-ui";
 import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
 import { ClaimReferenceCandidatesPanel } from "@/components/claims/ClaimReferenceCandidatesPanel";
 import { ProductLinkageDisplayBlock } from "@/components/product-linkage/ProductLinkageDisplayBlock";
@@ -66,7 +71,13 @@ const QUEUE_TABS: { id: InboxQueueTab; label: string }[] = [
   { id: "ineligible_pre_cutoff", label: "Pre-cutoff" },
 ];
 
-const SOURCE_TABLE_OPTIONS = ["", "amazon_returns", "amazon_removals", "amazon_removal_shipments", "return_items", "returns"];
+const SOURCE_TABLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Any source" },
+  { value: "amazon_returns", label: "Returns (amazon_returns)" },
+  { value: "return_items", label: "Return items (physical scans)" },
+  { value: "amazon_removals", label: "Amazon removals" },
+  { value: "amazon_removal_shipments", label: "Removal shipments" },
+];
 
 const LEGACY_SOURCE_BROKEN_COPY =
   "This claim candidate points to an older Amazon removal source row that no longer exists in the current operational table. The system cannot safely auto-repair the source link. Review or regenerate from current source data instead.";
@@ -394,38 +405,27 @@ export function ClaimInboxClient({
 
   return (
     <>
-      <header className="flex h-16 flex-col gap-2 border-b border-slate-200 bg-white/80 px-4 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/70 sm:flex-row sm:items-center sm:justify-between sm:gap-4 md:px-6">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <Inbox className="h-4 w-4 text-sky-500" />
-            <h1 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-sm">
-              Claim Inbox
-            </h1>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Read-only claim candidates — queues, identifiers, and lineage. No marketplace actions in v1.
-          </p>
+      <main className={CLAIM_ENGINE_MAIN_CLASS}>
+        <ClaimEnginePageShell
+          showHub={false}
+          title="Import / Amazon candidate inbox"
+          description="Review claim_candidates from imports, removals, and legacy generators. Read-only in v1 — not the warehouse physical-scan path."
+          aside={[
+            { href: "/returns/claims", label: "Physical-scan draft pool" },
+            { href: "/claim-engine", label: "Submission queue" },
+          ]}
+        >
+          <ClaimImportPathBanner />
           {initialDraftId ? (
-            <Link
-              href={`/claim-engine/evidence?draft_id=${encodeURIComponent(initialDraftId)}`}
-              className="mt-0.5 inline-flex text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-300"
-            >
-              Persisted evidence — draft {initialDraftId.slice(0, 8)}…
-            </Link>
+            <p className="text-xs text-muted-foreground">
+              <Link
+                href={`/claim-engine/evidence?draft_id=${encodeURIComponent(initialDraftId)}`}
+                className="font-medium text-emerald-700 underline dark:text-emerald-300"
+              >
+                Open persisted evidence for draft {initialDraftId.slice(0, 8)}…
+              </Link>
+            </p>
           ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Link href="/claim-engine" className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400">
-            Claim Engine
-          </Link>
-          <Link href="/" className="text-xs font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400">
-            Dashboard
-          </Link>
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-950">
-        <div className="mx-auto flex w-full max-w-[100vw] flex-col gap-4 px-4 py-6 sm:px-4 lg:px-8">
           {storesLoading || !storesReady ? (
             <div className="rounded-xl border border-slate-200 bg-white px-3 py-6 text-center text-sm text-muted-foreground dark:border-slate-800 dark:bg-slate-950">
               Loading store access…
@@ -495,9 +495,9 @@ export function ClaimInboxClient({
                 }}
                 className="min-w-[10rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               >
-                {SOURCE_TABLE_OPTIONS.map((v) => (
-                  <option key={v || "any"} value={v}>
-                    {v ? v.replace(/_/g, " ") : "Any"}
+                {SOURCE_TABLE_OPTIONS.map((opt) => (
+                  <option key={opt.value || "any"} value={opt.value}>
+                    {opt.label}
                   </option>
                 ))}
               </select>
@@ -532,7 +532,7 @@ export function ClaimInboxClient({
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80">
             {QUEUE_TABS.map((t) => (
               <button
                 key={t.id}
@@ -541,11 +541,7 @@ export function ClaimInboxClient({
                   setQueueTab(t.id);
                   resetPagination();
                 }}
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                  queueTab === t.id
-                    ? "bg-sky-600 text-white shadow-sm"
-                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                }`}
+                className={claimEngineSubTabClass(queueTab === t.id)}
               >
                 {t.label}
               </button>
@@ -583,7 +579,18 @@ export function ClaimInboxClient({
                 ) : items.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
-                      No candidates in this view.
+                      <p>No candidates in this view.</p>
+                      {filterSourceTable === "returns" ? (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                          The legacy label &quot;returns&quot; does not match stored{" "}
+                          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">source_table</code> values — use{" "}
+                          <strong>Returns (amazon_returns)</strong> instead.
+                        </p>
+                      ) : filterSourceTable ? (
+                        <p className="mt-2 text-xs">
+                          No rows with source_table = <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">{filterSourceTable}</code>.
+                        </p>
+                      ) : null}
                     </td>
                   </tr>
                 ) : (
@@ -704,7 +711,7 @@ export function ClaimInboxClient({
           ) : null}
             </>
           )}
-        </div>
+        </ClaimEnginePageShell>
       </main>
 
       {detailId ? (

@@ -4,20 +4,27 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-import { ClaimEngineHubNav } from "@/components/claim-engine/ClaimEngineHubNav";
-import { useUserRole } from "@/components/UserRoleContext";
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
+import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import { ClaimFlowBadge } from "@/components/claim-engine/ClaimFlowBadge";
 import {
-  CLAIM_FLOW_STAGE_BADGE_CLASS,
-  CLAIM_FLOW_STAGE_LABELS,
-  type ClaimFlowStage,
-} from "@/lib/claim-flow-status-badges";
+  CLAIM_ENGINE_BTN_PRIMARY,
+  CLAIM_ENGINE_CARD_CLASS,
+  CLAIM_ENGINE_SECTION_CLASS,
+  CLAIM_ENGINE_TABLE_CLASS,
+  CLAIM_ENGINE_TABLE_HEAD_CLASS,
+  CLAIM_ENGINE_TABLE_ROW_CLASS,
+} from "@/components/claim-engine/claim-engine-ui";
+import { useUserRole } from "@/components/UserRoleContext";
+import type { ClaimFlowStage } from "@/lib/claim-flow-status-badges";
 import { listClaimCasesForOrganization, type ClaimCaseListRow } from "../claim-cases-actions";
 import { promoteClaimCaseToSubmission } from "../claim-case-promote-actions";
 
 function caseFlowStage(row: ClaimCaseListRow): ClaimFlowStage {
   if (row.submission_report_url) return "pdf_ready";
   if (row.claim_submission_id) return "ready_for_submission";
-  return "case_created";
+  const st = String(row.status ?? "").trim().toLowerCase();
+  return st === "open" ? "case_ready" : "case_built";
 }
 
 export function ClaimCasesClient() {
@@ -61,16 +68,37 @@ export function ClaimCasesClient() {
     }
   };
 
+  const readyCount = rows.filter((r) => !r.claim_submission_id).length;
+  const linkedCount = rows.filter((r) => r.claim_submission_id).length;
+
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
-      <ClaimEngineHubNav />
-      <header className="space-y-1">
-        <h1 className="text-xl font-bold tracking-tight">Claim cases</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Operator claim cases from physical scans. Promote a case to the submission queue to generate the PDF
-          evidence package — no marketplace auto-submit.
-        </p>
-      </header>
+    <ClaimEnginePageShell
+      title="Cases"
+      description="An internal claim packet groups one or many return-item lines before marketplace submission. Build cases from the draft pool, then promote here to create a submission and PDF."
+      aside={[{ href: "/returns/claims", label: "Draft pool" }]}
+    >
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className={CLAIM_ENGINE_SECTION_CLASS}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">What is a case?</p>
+          <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
+            Workflow container for operator evidence — not yet filed with Amazon. Lines stay tied to physical scans.
+          </p>
+        </div>
+        <div className={CLAIM_ENGINE_SECTION_CLASS}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ready to promote</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{readyCount}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Open cases without a submission</p>
+        </div>
+        <div className={CLAIM_ENGINE_SECTION_CLASS}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Linked to queue</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{linkedCount}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            <Link href="/claim-engine" className="font-medium text-sky-600 underline dark:text-sky-400">
+              View submission queue
+            </Link>
+          </p>
+        </div>
+      </div>
 
       {message ? (
         <div
@@ -89,56 +117,50 @@ export function ClaimCasesClient() {
           <Loader2 className="h-4 w-4 animate-spin" /> Loading cases…
         </p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No claim cases yet. Create drafts from the{" "}
-          <Link href="/returns/claims" className="font-medium text-violet-600 underline dark:text-violet-400">
-            draft pool
-          </Link>
-          .
-        </p>
+        <ClaimEngineEmptyState
+          title="No claim cases yet"
+          description="Select physical scans in the draft pool and use Create draft case. Each case can bundle multiple return items with the same issue or grouping."
+          action={{ href: "/returns/claims", label: "Open draft pool" }}
+        />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+        <div className={CLAIM_ENGINE_CARD_CLASS}>
+          <table className={CLAIM_ENGINE_TABLE_CLASS}>
+            <thead className={CLAIM_ENGINE_TABLE_HEAD_CLASS}>
               <tr>
-                <th className="px-3 py-2">Case</th>
-                <th className="px-3 py-2">Issue</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Flow</th>
-                <th className="px-3 py-2 text-right">Action</th>
+                <th className="px-4 py-3">Case</th>
+                <th className="px-4 py-3">Issue</th>
+                <th className="px-4 py-3">Workflow</th>
+                <th className="px-4 py-3">Flow</th>
+                <th className="px-4 py-3 text-right">Next step</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const stage = caseFlowStage(row);
                 return (
-                  <tr key={row.id} className="border-b border-border/60 last:border-0">
-                    <td className="px-3 py-2 font-mono text-xs">{row.id.slice(0, 8)}…</td>
-                    <td className="px-3 py-2">{row.scanner_issue_type ?? "—"}</td>
-                    <td className="px-3 py-2 capitalize">{row.status}</td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${CLAIM_FLOW_STAGE_BADGE_CLASS[stage]}`}
-                      >
-                        {CLAIM_FLOW_STAGE_LABELS[stage]}
-                      </span>
+                  <tr key={row.id} className={CLAIM_ENGINE_TABLE_ROW_CLASS}>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{row.id.slice(0, 8)}…</td>
+                    <td className="px-4 py-3 text-sm">{row.scanner_issue_type ?? "—"}</td>
+                    <td className="px-4 py-3 text-sm capitalize text-muted-foreground">{row.status}</td>
+                    <td className="px-4 py-3">
+                      <ClaimFlowBadge stage={stage} />
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-4 py-3 text-right">
                       {!row.claim_submission_id ? (
                         <button
                           type="button"
                           disabled={busyId === row.id}
                           onClick={() => void promote(row.id)}
-                          className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                          className={CLAIM_ENGINE_BTN_PRIMARY}
                         >
-                          {busyId === row.id ? "…" : "Create submission + PDF"}
+                          {busyId === row.id ? "Working…" : "Promote to submission"}
                         </button>
                       ) : (
                         <Link
                           href="/claim-engine"
                           className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400"
                         >
-                          View in queue
+                          In submission queue
                         </Link>
                       )}
                     </td>
@@ -149,6 +171,6 @@ export function ClaimCasesClient() {
           </table>
         </div>
       )}
-    </div>
+    </ClaimEnginePageShell>
   );
 }

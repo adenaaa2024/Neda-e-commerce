@@ -5,7 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-import { ClaimEngineHubNav } from "@/components/claim-engine/ClaimEngineHubNav";
+import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
+import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
+import {
+  CLAIM_ENGINE_INPUT_CLASS,
+  CLAIM_ENGINE_SECTION_CLASS,
+  claimEngineSubTabClass,
+} from "@/components/claim-engine/claim-engine-ui";
 
 type AllowedStoreRow = {
   store_id: string;
@@ -629,21 +635,20 @@ export function ClaimReviewOperationsClient({
 
   return (
     <>
-      <div className="mx-auto max-w-[1400px] space-y-6 p-4 text-slate-900 dark:text-slate-100">
-      <ClaimEngineHubNav />
-      <header className="space-y-1 border-b border-slate-200 pb-4 dark:border-slate-700">
-        <h1 className="text-xl font-semibold">Review</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
-          V2 draft work items: bootstrap missing rows, resolve product-link and evidence flags, then hand off to claim
-          cases. Legacy draft staging remains at{" "}
-          <Link href="/claim-engine/drafts" className="font-medium text-sky-600 underline dark:text-sky-400">
-            /claim-engine/drafts
-          </Link>{" "}
-          (not in main nav). No marketplace submit.
-        </p>
-      </header>
-
-      <section className="space-y-2 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+      <ClaimEnginePageShell
+        title="Review"
+        description="Step 2 (optional): TRID/import claim_candidate_drafts with operator work items. Resolve product-link and evidence flags, then continue to Cases for physical-scan claims."
+        pathNote={
+          <>
+            Not the same as Draft pool (warehouse scans). Import candidates:{" "}
+            <Link href="/claim-engine/inbox" className="font-medium text-violet-600 underline dark:text-violet-400">
+              Import inbox
+            </Link>
+            .
+          </>
+        }
+      >
+      <section className={CLAIM_ENGINE_SECTION_CLASS}>
         <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Store</h2>
         {storesLoading ? (
           <p className="flex items-center gap-2 text-sm text-slate-500">
@@ -653,7 +658,7 @@ export function ClaimReviewOperationsClient({
           <p className="text-sm text-red-600">{storesError}</p>
         ) : (
           <select
-            className="max-w-md rounded border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+            className={`max-w-md ${CLAIM_ENGINE_INPUT_CLASS}`}
             value={storeId ?? ""}
             onChange={(e) => setSelectedStoreId(e.target.value || null)}
           >
@@ -666,9 +671,17 @@ export function ClaimReviewOperationsClient({
         )}
       </section>
 
+      {!storeId && !storesLoading ? (
+        <ClaimEngineEmptyState
+          title="Select a store"
+          description="Choose a store above to load review work items, verification counts, and bootstrap actions. If the list is empty, ask an admin for store access."
+          action={{ href: "/returns/claims", label: "Continue with physical-scan draft pool" }}
+        />
+      ) : null}
+
       {storeId && (
         <>
-          <section className="space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+          <section className={CLAIM_ENGINE_SECTION_CLASS}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Verification</h2>
               <button
@@ -694,7 +707,7 @@ export function ClaimReviewOperationsClient({
             )}
           </section>
 
-          <section className="space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+          <section className={CLAIM_ENGINE_SECTION_CLASS}>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Bootstrap work items from drafts</h2>
             <div className="flex flex-wrap gap-2">
               <button
@@ -726,7 +739,7 @@ export function ClaimReviewOperationsClient({
             )}
           </section>
 
-          <section className="space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+          <section className={CLAIM_ENGINE_SECTION_CLASS}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Dashboard</h2>
               <button
@@ -750,12 +763,12 @@ export function ClaimReviewOperationsClient({
                 <span>Escalation: {num(summary, ["escalation_open"])}</span>
               </div>
             )}
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80">
               {TABS.map((t) => (
                 <button
                   key={t.id}
                   type="button"
-                  className={`rounded px-2 py-1 text-xs ${tab === t.id ? "bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900" : "border border-slate-200 dark:border-slate-600"}`}
+                  className={claimEngineSubTabClass(tab === t.id)}
                   onClick={() => setTab(t.id)}
                 >
                   {t.label}
@@ -773,13 +786,14 @@ export function ClaimReviewOperationsClient({
             ) : listError ? (
               <p className="text-sm text-red-600">{listError}</p>
             ) : items.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
-                <p className="font-medium text-slate-800 dark:text-slate-100">No work items in “{tabLabel}”</p>
-                <p className="mt-2 text-xs leading-relaxed">
-                  {REVIEW_EMPTY_HINTS[tab] ??
-                    "This queue slice is empty for the selected store. Try another tab, refresh verification counts, or bootstrap work items from eligible drafts."}
-                </p>
-              </div>
+              <ClaimEngineEmptyState
+                title={`No work items in “${tabLabel}”`}
+                description={
+                  REVIEW_EMPTY_HINTS[tab] ??
+                  "This queue slice is empty for the selected store. Try another tab, refresh verification counts, or bootstrap work items from eligible drafts."
+                }
+                action={{ href: "/returns/claims", label: "Open draft pool (physical scans)" }}
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-left text-xs">
@@ -841,7 +855,7 @@ export function ClaimReviewOperationsClient({
             )}
           </section>
 
-          <section className="space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+          <section className={CLAIM_ENGINE_SECTION_CLASS}>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Guarded bulk actions</h2>
             <p className="text-xs text-slate-500">Select rows above (max 40). Preview first, then execute with confirmation.</p>
             <div className="flex flex-wrap gap-2 text-xs">
@@ -927,7 +941,7 @@ export function ClaimReviewOperationsClient({
           </section>
         </>
       )}
-      </div>
+      </ClaimEnginePageShell>
 
       {drawerWorkId && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/40" role="presentation">

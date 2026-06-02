@@ -1,44 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
-const LINKS: { href: string; label: string; match?: (path: string) => boolean }[] = [
+import { claimEngineSubTabClass } from "./claim-engine-ui";
+
+type HubLink = {
+  href: string;
+  label: string;
+  isActive: (path: string, tab: string | null) => boolean;
+};
+
+const LINKS: HubLink[] = [
   {
     href: "/returns/claims",
     label: "Draft pool",
-    match: (p) => p === "/returns/claims" || p.startsWith("/returns/claims/"),
+    isActive: (p) => p === "/returns/claims" || p.startsWith("/returns/claims/"),
   },
   {
     href: "/claim-engine/review-ops",
     label: "Review",
-    match: (p) => p === "/claim-engine/review-ops" || p.startsWith("/claim-engine/review-ops/"),
+    isActive: (p) => p === "/claim-engine/review-ops" || p.startsWith("/claim-engine/review-ops/"),
   },
   {
     href: "/claim-engine/cases",
     label: "Cases",
-    match: (p) => p === "/claim-engine/cases" || p.startsWith("/claim-engine/cases/"),
+    isActive: (p) => p === "/claim-engine/cases" || p.startsWith("/claim-engine/cases/"),
   },
   {
     href: "/claim-engine",
     label: "Submission queue",
-    match: (p) => p === "/claim-engine" && !p.includes("tab="),
+    isActive: (p, tab) => p === "/claim-engine" && (!tab || tab === "submission_queue"),
   },
   {
     href: "/claim-engine?tab=active",
     label: "Active",
-    match: (p) => p.includes("tab=active"),
+    isActive: (p, tab) => p === "/claim-engine" && tab === "active",
   },
   {
     href: "/claim-engine?tab=closed",
     label: "Closed",
-    match: (p) => p.includes("tab=closed"),
+    isActive: (p, tab) => p === "/claim-engine" && tab === "closed",
   },
 ];
 
+function normalizePath(pathname: string): string {
+  return pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
+}
+
 export function ClaimEngineHubNav({ className = "" }: { className?: string }) {
-  const pathname = usePathname();
-  const path = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
+  const pathname = normalizePath(usePathname());
+  const tab = useSearchParams().get("tab");
 
   return (
     <nav
@@ -46,17 +58,9 @@ export function ClaimEngineHubNav({ className = "" }: { className?: string }) {
       aria-label="Claims workflow"
     >
       {LINKS.map((item) => {
-        const active = item.match ? item.match(path) : path === item.href;
+        const active = item.isActive(pathname, tab);
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-              active
-                ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            }`}
-          >
+          <Link key={item.href} href={item.href} className={claimEngineSubTabClass(active)}>
             {item.label}
           </Link>
         );
