@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft, Loader2, Pencil, Plus, Save, Tag, Trash2, UserRound, X,
+  ArrowLeft, KeyRound, Loader2, Pencil, Plus, Save, Tag, Trash2, UserRound, X,
 } from "lucide-react";
 import { useUserRole } from "../../../components/UserRoleContext";
 import { useRbacPermissions } from "../../../hooks/useRbacPermissions";
@@ -39,6 +39,7 @@ const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium transition hover:bg-accent";
 
 type Toast = { msg: string; ok: boolean } | null;
+const MIN_RESET_PASSWORD_LENGTH = 8;
 
 function humanizeRoleKey(k: string | null | undefined): string {
   const s = (k ?? "").trim().toLowerCase();
@@ -107,6 +108,11 @@ export default function PlatformUsersPage() {
     Pick<UserGroupAssignment, "group_id" | "key" | "name">[]
   >([]);
   const editLoadSeq = useRef(0);
+  const [resetTarget, setResetTarget] = useState<ProfileRow | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   const showToast = useCallback((msg: string, ok: boolean) => {
     setToast({ msg, ok });
@@ -316,6 +322,21 @@ export default function PlatformUsersPage() {
     setGroupPickId("");
     setGroupsForEdit([]);
     setModalOpen(true);
+  }
+
+  function openResetPassword(row: ProfileRow) {
+    setResetTarget(row);
+    setNewPassword("");
+    setConfirmPassword("");
+    setResetOpen(true);
+  }
+
+  function closeResetPassword() {
+    setResetOpen(false);
+    setResetTarget(null);
+    setNewPassword("");
+    setConfirmPassword("");
+    setResettingPassword(false);
   }
 
   function syncOrgTypeFromCompanyPicker(companyId: string, row: ProfileRow | null) {
@@ -541,6 +562,42 @@ export default function PlatformUsersPage() {
       showToast(err instanceof Error ? err.message : "Remove failed.", false);
     } finally {
       setGroupBusy(false);
+    }
+  }
+
+  async function handleResetPasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resetTarget) return;
+
+    if (newPassword !== confirmPassword) {
+      showToast("New password and confirm password must match.", false);
+      return;
+    }
+    if (newPassword.length < MIN_RESET_PASSWORD_LENGTH) {
+      showToast(`Password must be at least ${MIN_RESET_PASSWORD_LENGTH} characters.`, false);
+      return;
+    }
+
+    setResettingPassword(true);
+    try {
+      const response = await fetch("/api/admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: resetTarget.id,
+          newPassword,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Password reset failed.");
+      }
+      showToast(`Password reset for ${resetTarget.email || "user"}.`, true);
+      closeResetPassword();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Password reset failed.", false);
+    } finally {
+      setResettingPassword(false);
     }
   }
 
@@ -780,15 +837,26 @@ export default function PlatformUsersPage() {
                       {formatCreatedAt(row.created_at)}
                     </td>
                     <td className="px-1 py-2 align-middle text-right sm:px-2">
-                      <button
-                        type="button"
-                        className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        onClick={() => openEdit(row)}
-                        aria-label="Edit"
-                        title="Edit user"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      <div className="flex justify-end gap-0">
+                        <button
+                          type="button"
+                          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={() => openResetPassword(row)}
+                          aria-label="Reset password"
+                          title="Reset password"
+                        >
+                          <KeyRound className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={() => openEdit(row)}
+                          aria-label="Edit"
+                          title="Edit user"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1084,6 +1152,75 @@ export default function PlatformUsersPage() {
                     {isEditMode ? "Save changes" : "Create user"}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {resetOpen && resetTarget && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="platform-reset-password-modal-title"
+            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 id="platform-reset-password-modal-title" className="text-lg font-bold">
+                Reset password
+              </h2>
+              <button
+                type="button"
+                onClick={closeResetPassword}
+                className="rounded-md p-1 hover:bg-accent"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Set a new password for{" "}
+              <span className="font-medium text-foreground">{resetTarget.email || resetTarget.id}</span>.
+            </p>
+            <form onSubmit={(e) => void handleResetPasswordSubmit(e)} className="space-y-4">
+              <div>
+                <label className={LABEL} htmlFor="platformNewPassword">New password</label>
+                <input
+                  id="platformNewPassword"
+                  type="password"
+                  className={INPUT}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  minLength={MIN_RESET_PASSWORD_LENGTH}
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="platformConfirmPassword">Confirm password</label>
+                <input
+                  id="platformConfirmPassword"
+                  type="password"
+                  className={INPUT}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  minLength={MIN_RESET_PASSWORD_LENGTH}
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Minimum length: {MIN_RESET_PASSWORD_LENGTH} characters.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" className={BTN_SECONDARY} onClick={closeResetPassword}>
+                  Cancel
+                </button>
+                <button type="submit" className={BTN_PRIMARY} disabled={resettingPassword}>
+                  {resettingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                  Reset password
+                </button>
               </div>
             </form>
           </div>
