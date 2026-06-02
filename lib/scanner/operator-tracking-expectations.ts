@@ -257,12 +257,43 @@ function expectedPackageSelectFallback(selectColumns: string): string | null {
   return null;
 }
 
+/**
+ * Returns true when the code looks like a carrier tracking number (UPS/FedEx/USPS/long alphanumeric).
+ * Item barcodes (EAN-13, UPC-12, short GS1) are typically ≤14 chars and all-numeric.
+ * When skipExpensiveFallback is requested, this classification avoids the 14k-row ILIKE scan
+ * for codes that the indexed exact path already rejected.
+ */
+function isLikelyShipmentTrackingCode(code: string): boolean {
+  const c = String(code ?? "").trim();
+  if (c.length < 8) return false;
+  // UPS: 1Z + 16 alphanumeric chars
+  if (/^1Z[A-Z0-9]{14,}/i.test(c)) return true;
+  // FedEx: 12–22 digit numeric
+  if (/^\d{12,22}$/.test(c)) return true;
+  // USPS IMpb/service indicators
+  if (/^(94|92|93|95|89|91|82)\d{16,}/i.test(c)) return true;
+  // Long mixed alphanumeric (≥15 chars, only letters+digits) — likely tracking, not item barcode
+  if (c.length >= 15 && /^[A-Z0-9]+$/i.test(c)) return true;
+  return false;
+}
+
+export type FetchExpectedPackagesOptions = {
+  /**
+   * When true and the exact indexed lookup returns no rows, skip the expensive
+   * ILIKE / 14 000-row fallback scan for codes that match shipment tracking formats.
+   * The caller should surface "No exact match — run deep search for unusual formatting."
+   * Defaults to false (existing full-scan behavior preserved).
+   */
+  skipExpensiveFallback?: boolean;
+};
+
 async function fetchExpectedPackagesForTrackingWithSelect(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
   trackingNumber: string,
   selectColumns: string,
+  options?: FetchExpectedPackagesOptions,
 ): Promise<Record<string, unknown>[]> {
   const scannedCode = String(trackingNumber ?? "").trim();
   if (!scannedCode) return [];
@@ -275,23 +306,43 @@ async function fetchExpectedPackagesForTrackingWithSelect(
   const matchesExact = (row: { tracking_number?: string | null }) =>
     key ? trackingRowMatchesScanned(row, key) === "exact" : false;
 
-  // ── Fast path: exact equality on tracking_number uses idx_expected_packages_tracking ──
-  // Cost ~3.6 vs ILIKE Seq Scan cost ~1865. Fallback to ILIKE if no match.
+  // ── Fast path: exact equality on tracking_number — uses idx_expected_packages_tracking (cost ~3.6/page) ──
+  // A single tracking can have up to ~792 expected lines, so we paginate fully — never truncate.
+  // If no exact match, fall through to ILIKE path. Raw scannedCode used (not lowercased) because
+  // DB stores tracking in original case and TypeScript normalizes to lowercase for comparison.
   if (scannedCode.length > 0) {
     try {
-      const { data: exactData } = await supabase
-        .from("expected_packages")
-        .select(selectColumns)
-        .eq("organization_id", organizationId)
-        .eq("store_id", storeId)
-        .eq("tracking_number", scannedCode)
-        .limit(10);
-      const exactRows = asSafeRowArray(exactData);
+      const EXACT_PAGE = 1000;
+      const exactRows: Record<string, unknown>[] = [];
+      for (let from = 0; ; from += EXACT_PAGE) {
+        const { data: exactPage, error: exactPageErr } = await supabase
+          .from("expected_packages")
+          .select(selectColumns)
+          .eq("organization_id", organizationId)
+          .eq("store_id", storeId)
+          .eq("tracking_number", scannedCode)
+          .order("id", { ascending: true })
+          .range(from, from + EXACT_PAGE - 1);
+        if (exactPageErr) throw exactPageErr;
+        const pageRows = asSafeRowArray(exactPage);
+        exactRows.push(...pageRows);
+        if (pageRows.length < EXACT_PAGE) break;
+      }
       const exactFiltered = exactRows.filter((r) => matchesExact(r as { tracking_number?: string | null }));
       if (exactFiltered.length) return exactFiltered;
     } catch {
       // Fall through to ILIKE path on any exact-query error.
     }
+  }
+
+  // ── Fast not-found path for shipment tracking codes ────────────────────────
+  // When the caller sets skipExpensiveFallback and the code looks like a carrier
+  // tracking number, skip the expensive ILIKE / 14 000-row scan — the indexed
+  // exact match already rejected it.  The caller should show "No exact shipment
+  // match" copy and offer a manual "Deep search" action that calls this function
+  // again without skipExpensiveFallback.
+  if (options?.skipExpensiveFallback && isLikelyShipmentTrackingCode(scannedCode)) {
+    return [];
   }
 
   const BASE_LIMIT = 800;
@@ -350,6 +401,7 @@ export async function fetchExpectedPackagesForTracking(
   storeId: string,
   trackingNumber: string,
   selectColumns: string = EP_SELECT,
+  options?: FetchExpectedPackagesOptions,
 ): Promise<Record<string, unknown>[]> {
   try {
     return await fetchExpectedPackagesForTrackingWithSelect(
@@ -358,6 +410,7 @@ export async function fetchExpectedPackagesForTracking(
       storeId,
       trackingNumber,
       selectColumns,
+      options,
     );
   } catch (err) {
     const fallback = expectedPackageSelectFallback(selectColumns);
@@ -372,6 +425,7 @@ export async function fetchExpectedPackagesForTracking(
       storeId,
       trackingNumber,
       fallback,
+      options,
     );
   }
 }
