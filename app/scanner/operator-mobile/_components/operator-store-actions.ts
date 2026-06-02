@@ -3045,6 +3045,7 @@ export async function lookupShipmentEntryScanCodeAction(
   requestedOrganizationId: string,
   storeId: string,
   code: string,
+  opts?: { skipExpensiveFallback?: boolean },
 ): Promise<{ ok: true; lookup: ShipmentEntryLookupResult } | { ok: false; error: string }> {
   const sessionUserId = await getSessionUserIdFromCookies();
   if (!sessionUserId || !isUuidString(sessionUserId)) {
@@ -3059,7 +3060,7 @@ export async function lookupShipmentEntryScanCodeAction(
     return { ok: false, error: "Store is required." };
   }
   try {
-    const lookup = await lookupShipmentEntryScanCode(supabaseServer, organizationId, sid, code);
+    const lookup = await lookupShipmentEntryScanCode(supabaseServer, organizationId, sid, code, opts);
     return { ok: true, lookup };
   } catch (e) {
     const msg = formatSupabaseActionError(e, "Lookup failed.");

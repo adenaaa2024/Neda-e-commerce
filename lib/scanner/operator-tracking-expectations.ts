@@ -263,7 +263,7 @@ function expectedPackageSelectFallback(selectColumns: string): string | null {
  * When skipExpensiveFallback is requested, this classification avoids the 14k-row ILIKE scan
  * for codes that the indexed exact path already rejected.
  */
-function isLikelyShipmentTrackingCode(code: string): boolean {
+export function isLikelyShipmentTrackingCode(code: string): boolean {
   const c = String(code ?? "").trim();
   if (c.length < 8) return false;
   // UPS: 1Z + 16 alphanumeric chars

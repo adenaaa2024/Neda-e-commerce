@@ -3,6 +3,7 @@ import {
   fetchExpectedPackageDetailRowsForParent,
   fetchExpectedPackagesForTracking,
   mockExpectedPackageDetailRows,
+  type FetchExpectedPackagesOptions,
 } from "@/lib/scanner/operator-tracking-expectations";
 import {
   mockResolveOperatorBarcode,
@@ -510,12 +511,15 @@ function deriveMatchMetadata(
 /**
  * Canonical Shipment Entry gate lookup: inventory view + packages/pallets/expected_packages.
  * Never resolves product/SKU identifiers (no `products` / item tier).
+ * @param opts.skipExpensiveFallback When true, skips the ILIKE/14k-row scan in fetchExpectedPackagesForTracking
+ *   for likely tracking-format codes — caller must offer a "Deep search" action.
  */
 export async function lookupShipmentEntryScanCode(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
   rawCode: string,
+  opts?: FetchExpectedPackagesOptions,
 ): Promise<ShipmentEntryLookupResult> {
   const normalized_code = normalizeShipmentEntryScanCode(rawCode);
   const orgId = organizationId.trim();
@@ -562,7 +566,7 @@ export async function lookupShipmentEntryScanCode(
   const barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code);
 
   if (!inventory_rows.length && barcode.kind === "tracking") {
-    const epRows = await fetchExpectedPackagesForTracking(supabase, orgId, sid, normalized_code);
+    const epRows = await fetchExpectedPackagesForTracking(supabase, orgId, sid, normalized_code, undefined, opts);
     if (epRows.length) {
       inventory_rows = epRows.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>, orgId, sid));
       inventory_matched_field = "tracking_number";

@@ -58,6 +58,7 @@ import {
 import {
   fetchExpectedPackageDetailRowsByIds,
   fetchExpectedPackageDetailRowsForParent,
+  isLikelyShipmentTrackingCode,
   loadPalletExpectationSnapshot,
   loadTrackingExpectationSnapshot,
   mockExpectedPackageDetailRows,
@@ -4459,6 +4460,11 @@ function OperatorMobileScanPageContent() {
   const [identifyGateSelectedPhotoOcrCandidate, setIdentifyGateSelectedPhotoOcrCandidate] = useState<string | null>(null);
   const [identifyGateOcrReading, setIdentifyGateOcrReading] = useState(false);
   const [scanProgressPhase, setScanProgressPhase] = useState<OperatorScanProgressPhase>("idle");
+  /**
+   * When set, an indexed fast-path search found no match for this tracking code.
+   * Shows "Deep search" button — which reruns without the expensive fallback skip.
+   */
+  const [deepSearchAvailableFor, setDeepSearchAvailableFor] = useState<string | null>(null);
   const [boxSlipVisionProgressPhase, setBoxSlipVisionProgressPhase] =
     useState<BoxSlipVisionProgressPhase>("idle");
   const [boxSlipVisionSlowHint, setBoxSlipVisionSlowHint] = useState(false);
@@ -4706,10 +4712,11 @@ function OperatorMobileScanPageContent() {
   }, [identifyGateBatchProductNames, identifyGateRows, identifyGateExpectationLines, identifyGateShipmentLines]);
 
   const runIdentificationGateSearch = useCallback(
-    async (rawCode: string) => {
+    async (rawCode: string, runOpts?: { fullSearch?: boolean }) => {
       const trimmed = rawCode.trim();
       if (!trimmed) return;
       setModernPalletWorkspace(false);
+      setDeepSearchAvailableFor(null);
       clearPreviousLookupResult({
         phase: "searching",
         enteredCode: trimmed,
@@ -4717,6 +4724,9 @@ function OperatorMobileScanPageContent() {
       });
       setBusy(true);
       setScanProgressPhase("checking");
+      // Fast not-found: for likely tracking-format codes, skip the expensive 14k ILIKE scan.
+      // The caller sets runOpts.fullSearch = true to bypass and run the full deep search.
+      const useSkipFallback = !runOpts?.fullSearch && isLikelyShipmentTrackingCode(trimmed);
       try {
         if (!isSupabaseConfigured()) {
           const demoLookup = mockLookupShipmentEntryScanCode(trimmed);
@@ -4784,7 +4794,7 @@ function OperatorMobileScanPageContent() {
         try {
           if (isSupabaseConfigured()) {
             const gateRes = await withIdentifyGateLookupTimeout(
-              lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed),
+              lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed, { skipExpensiveFallback: useSkipFallback }),
             );
             if (!gateRes.ok) {
               throw new Error(gateRes.error);
@@ -4792,7 +4802,7 @@ function OperatorMobileScanPageContent() {
             gateLookup = gateRes.lookup;
           } else {
             gateLookup = await withIdentifyGateLookupTimeout(
-              lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed),
+              lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed, { skipExpensiveFallback: useSkipFallback }),
             );
           }
         } catch (err) {
@@ -4850,6 +4860,10 @@ function OperatorMobileScanPageContent() {
         }
 
         if (vis === "manual_new" && isShipmentEntryOffManifest(gateLookup)) {
+          // When we used the fast-skip path and got no match, offer Deep search.
+          if (useSkipFallback) {
+            setDeepSearchAvailableFor(trimmed);
+          }
           setIdentifyGateError(null);
           setIdentifyGatePhase("new");
           setIdentifyGateInventoryAgg(agg);
@@ -5057,6 +5071,16 @@ function OperatorMobileScanPageContent() {
     },
     [orgId, sessionStoreId, kioskStoreLocked, operatorStores.length, scheduleFocusScanner, clearPreviousLookupResult],
   );
+
+  /**
+   * Reruns the full lookup (with ILIKE deep scan) for a code that previously had a fast no-match.
+   * Only callable when deepSearchAvailableFor is set.
+   */
+  const handleDeepSearch = useCallback(() => {
+    const code = deepSearchAvailableFor;
+    if (!code) return;
+    void runIdentificationGateSearch(code, { fullSearch: true });
+  }, [deepSearchAvailableFor, runIdentificationGateSearch]);
 
   useEffect(() => {
     if (identifyGatePhase !== "matched") return;
@@ -12566,6 +12590,31 @@ function OperatorMobileScanPageContent() {
                   errorMessage={identifyGateError}
                 />
               </div>
+              {deepSearchAvailableFor && !busy ? (
+                <div
+                  className="mt-3 rounded-xl border px-3 py-2.5 text-center"
+                  style={{ borderColor: "rgba(214,183,110,0.28)", backgroundColor: "rgba(214,183,110,0.06)" }}
+                >
+                  <p
+                    className="mb-2 text-[11px] font-semibold leading-snug"
+                    style={{ color: "#e8dcc0" }}
+                  >
+                    No exact shipment match. Run deep search for unusual formatting.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDeepSearch}
+                    className="rounded-xl border px-4 py-2 text-[12px] font-bold transition active:translate-y-px"
+                    style={{
+                      borderColor: "rgba(214,183,110,0.45)",
+                      backgroundColor: "rgba(214,183,110,0.12)",
+                      color: "#faf6ed",
+                    }}
+                  >
+                    Deep search
+                  </button>
+                </div>
+              ) : null}
               {identifyGateSlowHint && busy && scanProgressPhase !== "idle" ? (
                 <p
                   className="mt-4 rounded-xl border px-3 py-2 text-center text-[12px] font-semibold leading-snug"
