@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { ClaimEngineHubNav } from "@/components/claim-engine/ClaimEngineHubNav";
+
 type AllowedStoreRow = {
   store_id: string;
   name: string;
@@ -20,6 +22,17 @@ type ReviewTab =
   | "escalation"
   | "needs_product_link"
   | "needs_evidence";
+
+const REVIEW_EMPTY_HINTS: Partial<Record<ReviewTab, string>> = {
+  needs_product_link:
+    "No drafts in this slice. Missing product link means the draft has no resolved catalog product — fix FNSKU/ASIN/SKU resolution on the source return or removal row before promoting.",
+  needs_evidence:
+    "No drafts in this slice. Missing evidence means required scanner photos or reference edges are absent — add photos on the return scan or enrich TRID edges from the draft drawer.",
+  unassigned:
+    "No unassigned work items. Run bootstrap (below) to create work items from eligible drafts, or switch to Assigned to me.",
+  quarantine:
+    "No quarantined items. Quarantine is used when a draft needs human hold before promotion.",
+};
 
 const TABS: { id: ReviewTab; label: string; slice: string }[] = [
   { id: "mine", label: "Assigned to me", slice: "" },
@@ -617,16 +630,16 @@ export function ClaimReviewOperationsClient({
   return (
     <>
       <div className="mx-auto max-w-[1400px] space-y-6 p-4 text-slate-900 dark:text-slate-100">
+      <ClaimEngineHubNav />
       <header className="space-y-1 border-b border-slate-200 pb-4 dark:border-slate-700">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-xl font-semibold">Claim review operations</h1>
-          <Link href="/claim-engine/drafts" className="text-sm text-blue-600 underline dark:text-blue-400">
-            Drafts staging
-          </Link>
-        </div>
+        <h1 className="text-xl font-semibold">Review</h1>
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          Human-gated bootstrap, bulk actions, and row-level review drawer. No marketplace submission; no promotion to
-          legacy claim_candidates.
+          V2 draft work items: bootstrap missing rows, resolve product-link and evidence flags, then hand off to claim
+          cases. Legacy draft staging remains at{" "}
+          <Link href="/claim-engine/drafts" className="font-medium text-sky-600 underline dark:text-sky-400">
+            /claim-engine/drafts
+          </Link>{" "}
+          (not in main nav). No marketplace submit.
         </p>
       </header>
 
@@ -759,6 +772,14 @@ export function ClaimReviewOperationsClient({
               </p>
             ) : listError ? (
               <p className="text-sm text-red-600">{listError}</p>
+            ) : items.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
+                <p className="font-medium text-slate-800 dark:text-slate-100">No work items in “{tabLabel}”</p>
+                <p className="mt-2 text-xs leading-relaxed">
+                  {REVIEW_EMPTY_HINTS[tab] ??
+                    "This queue slice is empty for the selected store. Try another tab, refresh verification counts, or bootstrap work items from eligible drafts."}
+                </p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-left text-xs">

@@ -12,7 +12,7 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, MouseEvent } from "react";
 import {
@@ -59,6 +59,7 @@ import {
 } from "./claim-submission-actions";
 import { downloadBulkClaimsPdf, enrichBulkPagesWithDefaultEvidence } from "./claim-pdf-download";
 import { prepareClaimEnginePdfPages } from "./claim-pdf-batch-actions";
+import { ClaimEngineHubNav } from "@/components/claim-engine/ClaimEngineHubNav";
 import { ClaimDetailModal } from "./ClaimDetailModal";
 import { ClaimGenerationModal } from "./ClaimGenerationModal";
 import { ClaimHistoryModal } from "./ClaimHistoryModal";
@@ -241,7 +242,19 @@ export function ClaimEngineClient({
   const [modalClaim, setModalClaim] = useState<ClaimRecord | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; kind: "success" | "error" | "warning" } | null>(null);
-  const [claimEngineTab, setClaimEngineTab] = useState<ClaimEngineTabId>("submission_queue");
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+  const initialTab: ClaimEngineTabId =
+    tabFromUrl === "active" || tabFromUrl === "closed" || tabFromUrl === "submission_queue"
+      ? tabFromUrl
+      : "submission_queue";
+  const [claimEngineTab, setClaimEngineTab] = useState<ClaimEngineTabId>(initialTab);
+
+  useEffect(() => {
+    if (tabFromUrl === "active" || tabFromUrl === "closed" || tabFromUrl === "submission_queue") {
+      setClaimEngineTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
   const [generateBusy, setGenerateBusy] = useState(false);
   const [bulkSubmitBusy, setBulkSubmitBusy] = useState(false);
   const [queueBusyId, setQueueBusyId] = useState<string | null>(null);
@@ -712,6 +725,7 @@ export function ClaimEngineClient({
 
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-gradient-to-br dark:from-slate-950 dark:via-slate-950 dark:to-slate-900">
         <div className="mx-auto flex w-full max-w-[100vw] flex-col gap-6 px-4 py-6 sm:px-4 lg:px-8">
+          <ClaimEngineHubNav />
           {(kpisError || kpis) && (
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               {kpisError ? (
@@ -782,42 +796,30 @@ export function ClaimEngineClient({
           )}
 
           <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={() => setClaimEngineTab("submission_queue")}
-              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                claimEngineTab === "submission_queue"
-                  ? "bg-sky-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              }`}
-            >
-              <Inbox className="h-3.5 w-3.5" />
-              Submission queue
-            </button>
-            <button
-              type="button"
-              onClick={() => setClaimEngineTab("active")}
-              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                claimEngineTab === "active"
-                  ? "bg-sky-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              }`}
-            >
-              <ShieldAlert className="h-3.5 w-3.5" />
-              Active claims
-            </button>
-            <button
-              type="button"
-              onClick={() => setClaimEngineTab("closed")}
-              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                claimEngineTab === "closed"
-                  ? "bg-sky-600 text-white shadow-sm"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-              }`}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Closed claims
-            </button>
+            {(
+              [
+                { id: "submission_queue" as const, label: "Submission queue" },
+                { id: "active" as const, label: "Active" },
+                { id: "closed" as const, label: "Closed" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => {
+                  setClaimEngineTab(t.id);
+                  const q = t.id === "submission_queue" ? "" : `?tab=${t.id}`;
+                  router.replace(`/claim-engine${q}`, { scroll: false });
+                }}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                  claimEngineTab === t.id
+                    ? "bg-sky-600 text-white shadow-sm"
+                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
           {claimEngineTab === "submission_queue" ? (

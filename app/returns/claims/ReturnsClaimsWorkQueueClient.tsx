@@ -2,20 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  FolderPlus,
-  ImageOff,
-  Link2,
-  Loader2,
-  Package,
-  RotateCcw,
-  ShieldAlert,
-} from "lucide-react";
+import { AlertTriangle, FolderPlus, Loader2 } from "lucide-react";
 
+import { ClaimEngineHubNav } from "@/components/claim-engine/ClaimEngineHubNav";
 import { useUserRole } from "../../../components/UserRoleContext";
+import {
+  CLAIM_FLOW_STAGE_BADGE_CLASS,
+  claimFlowStageHint,
+  type ClaimFlowStage,
+} from "../../../lib/claim-flow-status-badges";
 import {
   clusterRowsByManualDimension,
   evaluateManualDraftEligibility,
@@ -49,32 +44,6 @@ const GROUPING_OPTIONS: { id: ManualGroupingDimension; label: string }[] = [
   { id: "package", label: "Package" },
   { id: "pallet", label: "Pallet" },
 ];
-
-const STATE_BADGE: Record<ReturnsClaimQueueState, string> = {
-  eligible: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
-  pre_cutoff: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
-  missing_evidence: "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
-  needs_product_resolution: "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200",
-  held_until_package_closed: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
-  domain_disabled: "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
-};
-
-function StateIcon({ state }: { state: ReturnsClaimQueueState }) {
-  switch (state) {
-    case "eligible":
-      return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
-    case "missing_evidence":
-      return <ImageOff className="h-4 w-4 text-amber-600" />;
-    case "needs_product_resolution":
-      return <Link2 className="h-4 w-4 text-violet-600" />;
-    case "held_until_package_closed":
-      return <Package className="h-4 w-4 text-sky-600" />;
-    case "pre_cutoff":
-      return <Clock className="h-4 w-4 text-slate-500" />;
-    default:
-      return <ShieldAlert className="h-4 w-4 text-rose-600" />;
-  }
-}
 
 function formatWhen(iso: string | null): string {
   if (!iso) return "—";
@@ -224,28 +193,22 @@ export function ReturnsClaimsWorkQueueClient() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-100 dark:bg-rose-950/50">
-            <RotateCcw className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">Returns Claims Queue</h1>
-            <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
-              Phase 1 returns-first: live physical scans only. Select items → create a manual draft claim case.
-              Historical <code className="rounded bg-muted px-1 font-mono text-[10px]">import_source</code> /{" "}
-              <code className="rounded bg-muted px-1 font-mono text-[10px]">expected_group</code> lines are read-only
-              context — never grouped here. No auto-promote or marketplace submit.
-            </p>
-          </div>
+      <ClaimEngineHubNav />
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Draft pool</h1>
+          <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
+            Physical-scan return items staged for claim cases. Select eligible rows → create a claim case → promote from{" "}
+            <Link href="/claim-engine/cases" className="font-medium text-sky-600 underline dark:text-sky-400">
+              Cases
+            </Link>{" "}
+            to the submission queue. No marketplace auto-submit.
+          </p>
         </div>
-        <Link
-          href="/returns"
-          className="text-sm font-medium text-violet-600 hover:text-violet-500 dark:text-violet-400"
-        >
-          ← Returns processing
+        <Link href="/returns" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+          Returns processing
         </Link>
-      </div>
+      </header>
 
       {result && !result.returns_domain_enabled ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-100">
@@ -384,7 +347,8 @@ export function ReturnsClaimsWorkQueueClient() {
             <thead className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="w-10 px-3 py-3" />
-                <th className="px-4 py-3 font-semibold">State</th>
+                <th className="px-4 py-3 font-semibold">Flow</th>
+                <th className="px-4 py-3 font-semibold">Queue</th>
                 <th className="px-4 py-3 font-semibold">Item</th>
                 <th className="px-4 py-3 font-semibold">Issue</th>
                 <th className="px-4 py-3 font-semibold">Product</th>
@@ -426,6 +390,9 @@ function QueueRow({
     row.scanner_issue_type ||
     "—";
   const productOk = !!(row.resolved_product_id || row.resolved_catalog_product_id);
+  const flowStage = (row.flow_stage as ClaimFlowStage | null) ?? null;
+  const flowLabel = row.flow_stage_label ?? row.state_label;
+  const flowHint = flowStage ? claimFlowStageHint(flowStage) : "";
 
   return (
     <tr className={selected ? "bg-violet-50/50 dark:bg-violet-950/20" : "hover:bg-muted/20"}>
@@ -435,21 +402,24 @@ function QueueRow({
           checked={selected}
           disabled={!canSelect}
           onChange={onToggle}
-          title={canSelect ? "Include in manual draft case" : "Not eligible for manual draft"}
+          title={canSelect ? "Include in manual draft case" : flowHint || "Not eligible for manual draft"}
           className="h-4 w-4 rounded border-border"
         />
       </td>
       <td className="px-4 py-3">
         <span
+          title={flowHint}
           className={[
-            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-            STATE_BADGE[row.queue_state as ReturnsClaimQueueState],
+            "inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold",
+            flowStage
+              ? CLAIM_FLOW_STAGE_BADGE_CLASS[flowStage]
+              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
           ].join(" ")}
         >
-          <StateIcon state={row.queue_state} />
-          {row.state_label}
+          {flowLabel}
         </span>
       </td>
+      <td className="px-4 py-3 text-xs text-muted-foreground">{row.state_label}</td>
       <td className="px-4 py-3">
         <div className="font-medium text-foreground">
           {row.item_name?.trim() || row.lpn || row.return_item_id.slice(0, 8)}

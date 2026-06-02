@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { resolveOrganizationId } from "../../lib/organization";
 import { getOrganizationClaimEvidenceDefaults } from "../settings/organization-claim-evidence-actions";
 import { getCoreSettings } from "../settings/workspace-settings-actions";
@@ -31,17 +32,19 @@ export default async function ClaimEnginePage() {
       : [];
 
   return (
-    <ClaimEngineClient
-      claims={claims}
-      claimsError={claimsError}
-      coreSettings={coreSettings}
-      stores={stores}
-      organizationId={DEFAULT_ORGANIZATION_ID}
-      claimSubmissions={subRes.ok ? subRes.data : []}
-      submissionsError={subRes.ok ? null : subRes.error ?? null}
-      kpis={kpiRes.ok && kpiRes.data ? kpiRes.data : null}
-      kpisError={kpiRes.ok ? null : kpiRes.error ?? null}
-      defaultClaimEvidence={claimEvDefaults}
-    />
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading claim engine…</div>}>
+      <ClaimEngineClient
+        claims={claims}
+        claimsError={claimsError}
+        coreSettings={coreSettings}
+        stores={stores}
+        organizationId={DEFAULT_ORGANIZATION_ID}
+        claimSubmissions={subRes.ok ? subRes.data : []}
+        submissionsError={subRes.ok ? null : subRes.error ?? null}
+        kpis={kpiRes.ok && kpiRes.data ? kpiRes.data : null}
+        kpisError={kpiRes.ok ? null : kpiRes.error ?? null}
+        defaultClaimEvidence={claimEvDefaults}
+      />
+    </Suspense>
   );
 }

@@ -78,6 +78,12 @@ export type ReturnsClaimQueueRow = ReturnsClaimQueueSourceRow & {
   scanner_issue_label: string | null;
   has_scanner_evidence: boolean;
   package_closed: boolean | null;
+  /** Populated by listReturnsClaimsWorkQueue when org scope is single. */
+  claim_case_id?: string | null;
+  claim_submission_id?: string | null;
+  submission_has_pdf?: boolean;
+  flow_stage?: string | null;
+  flow_stage_label?: string | null;
 };
 
 export const RETURNS_CLAIM_QUEUE_STATE_LABELS: Record<ReturnsClaimQueueState, string> = {

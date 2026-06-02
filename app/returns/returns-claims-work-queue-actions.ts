@@ -14,11 +14,81 @@ import {
   type ReturnsClaimQueueSourceRow,
 } from "../../lib/returns-claims-work-queue";
 import type { ReturnPhotoEvidenceRow } from "../../lib/return-photo-evidence";
+import {
+  CLAIM_FLOW_STAGE_LABELS,
+  deriveClaimFlowStage,
+  type ClaimFlowStage,
+} from "../../lib/claim-flow-status-badges";
 import { resolveTenantListScope, type TenantQueryOpts } from "../../lib/server-tenant";
 import { supabaseServer } from "../../lib/supabase-server";
+import { isUuidString } from "../../lib/uuid";
 import { RETURN_ITEMS_TABLE, RETURN_LIST_SELECT } from "./returns-constants";
 
 const QUEUE_SCAN_LIMIT = 500;
+
+async function enrichQueueRowsWithClaimFlow(
+  rows: ReturnsClaimQueueRow[],
+  organizationId: string,
+): Promise<ReturnsClaimQueueRow[]> {
+  const returnIds = rows.map((r) => r.return_item_id).filter((id) => isUuidString(id));
+  if (!returnIds.length) return rows;
+
+  const caseByReturn = new Map<string, { caseId: string; submissionId: string | null }>();
+  const { data: cases } = await supabaseServer
+    .from("claim_cases")
+    .select("id, primary_return_item_id, metadata")
+    .eq("organization_id", organizationId)
+    .in("primary_return_item_id", returnIds);
+
+  for (const c of cases ?? []) {
+    const rid = String((c as { primary_return_item_id: string | null }).primary_return_item_id ?? "").trim();
+    if (!rid) continue;
+    const meta = ((c as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
+    const subRaw = String(meta.claim_submission_id ?? "").trim();
+    caseByReturn.set(rid, {
+      caseId: String((c as { id: string }).id),
+      submissionId: isUuidString(subRaw) ? subRaw : null,
+    });
+  }
+
+  const subByReturn = new Map<string, { id: string; hasPdf: boolean }>();
+  const { data: subs } = await supabaseServer
+    .from("claim_submissions")
+    .select("id, return_id, report_url")
+    .eq("organization_id", organizationId)
+    .in("return_id", returnIds);
+
+  for (const s of subs ?? []) {
+    const rid = String((s as { return_id: string | null }).return_id ?? "").trim();
+    if (!rid) continue;
+    subByReturn.set(rid, {
+      id: String((s as { id: string }).id),
+      hasPdf: !!String((s as { report_url: string | null }).report_url ?? "").trim(),
+    });
+  }
+
+  return rows.map((row) => {
+    const caseInfo = caseByReturn.get(row.return_item_id);
+    const subFromReturn = subByReturn.get(row.return_item_id);
+    const claim_case_id = caseInfo?.caseId ?? null;
+    const claim_submission_id = caseInfo?.submissionId ?? subFromReturn?.id ?? null;
+    const submission_has_pdf = subFromReturn?.hasPdf ?? false;
+    const flow_stage: ClaimFlowStage = deriveClaimFlowStage({
+      queue_state: row.queue_state,
+      claim_case_id,
+      claim_submission_id,
+      submission_has_pdf,
+    });
+    return {
+      ...row,
+      claim_case_id,
+      claim_submission_id,
+      submission_has_pdf,
+      flow_stage,
+      flow_stage_label: CLAIM_FLOW_STAGE_LABELS[flow_stage],
+    };
+  });
+}
 
 type ReturnItemRow = {
   id: string;
@@ -269,9 +339,14 @@ export async function listReturnsClaimsWorkQueue(
       return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
     });
 
+    const enrichedRows =
+      scope.mode === "single"
+        ? await enrichQueueRowsWithClaimFlow(rows, scope.organizationId)
+        : rows;
+
     return {
       ok: true,
-      rows,
+      rows: enrichedRows,
       returns_domain_enabled: true,
       policy_summary,
       claim_policy: effectivePolicy,
