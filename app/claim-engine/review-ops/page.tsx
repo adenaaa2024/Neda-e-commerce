@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { ClaimEngineFeatureDisabled } from "@/components/claim-engine/ClaimEngineFeatureDisabled";
 import { isClaimDraftsReviewEnabled } from "../../../lib/claim-drafts-api";
 import { isClaimReviewWorkflowEnabled } from "../../../lib/claim-review-workflow";
@@ -47,12 +46,6 @@ export default async function ClaimReviewOperationsPage() {
   const defaultStoreId = typeof rawDefault === "string" && isUuidString(rawDefault) ? rawDefault : null;
 
   return (
-    <Suspense
-      fallback={
-        <div className="mx-auto max-w-[1600px] p-4 text-sm text-slate-600 dark:text-slate-400">Loading review operations…</div>
-      }
-    >
-      <ClaimReviewOperationsClient organizationId={organizationId} defaultStoreId={defaultStoreId} />
-    </Suspense>
+    <ClaimReviewOperationsClient organizationId={organizationId} defaultStoreId={defaultStoreId} />
   );
 }

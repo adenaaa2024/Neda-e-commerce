@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
@@ -75,6 +75,32 @@ function readWorkItemIdFromLocation(): string {
 }
 
 export function ClaimReviewOperationsClient({
+  organizationId,
+  defaultStoreId,
+}: {
+  organizationId: string;
+  defaultStoreId: string | null;
+}) {
+  return (
+    <ClaimEnginePageShell
+      title="Review"
+      description="Import/TRID draft review — product links, evidence flags, and grouping holds."
+    >
+      <Suspense
+        fallback={
+          <section className={`${CLAIM_ENGINE_SECTION_CLASS} text-sm text-slate-500 dark:text-slate-400`}>
+            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden />
+            Loading work queue…
+          </section>
+        }
+      >
+        <ClaimReviewOperationsBody organizationId={organizationId} defaultStoreId={defaultStoreId} />
+      </Suspense>
+    </ClaimEnginePageShell>
+  );
+}
+
+function ClaimReviewOperationsBody({
   organizationId,
   defaultStoreId,
 }: {
@@ -634,10 +660,6 @@ export function ClaimReviewOperationsClient({
 
   return (
     <>
-      <ClaimEnginePageShell
-        title="Review"
-        description="Import/TRID draft review — product links, evidence flags, and grouping holds."
-      >
       <section className={CLAIM_ENGINE_SECTION_CLASS}>
         <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Store</h2>
         {storesLoading ? (
@@ -931,7 +953,6 @@ export function ClaimReviewOperationsClient({
           </section>
         </>
       )}
-      </ClaimEnginePageShell>
 
       {drawerWorkId && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/40" role="presentation">

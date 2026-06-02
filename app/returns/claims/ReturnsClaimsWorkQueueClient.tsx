@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FolderPlus, Loader2 } from "lucide-react";
 
 import { ClaimCaseBuilderPanel } from "@/components/claim-engine/ClaimCaseBuilderPanel";
@@ -90,7 +90,9 @@ function rowToManualInput(row: ReturnsClaimQueueRow) {
 export function ReturnsClaimsWorkQueueClient() {
   const { actorUserId, organizationId, role } = useUserRole();
   const [activeTab, setActiveTab] = useState<"all" | ReturnsClaimQueueState>("all");
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [result, setResult] = useState<ListReturnsClaimsWorkQueueResult | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [groupingDimension, setGroupingDimension] = useState<ManualGroupingDimension>("issue");
@@ -108,10 +110,13 @@ export function ReturnsClaimsWorkQueueClient() {
   );
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedOnceRef.current) setInitialLoading(true);
+    else setRefreshing(true);
     const res = await listReturnsClaimsWorkQueue(tenantQuery);
     setResult(res);
-    setLoading(false);
+    setInitialLoading(false);
+    setRefreshing(false);
+    hasLoadedOnceRef.current = true;
   }, [tenantQuery]);
 
   useEffect(() => {
@@ -382,7 +387,7 @@ export function ReturnsClaimsWorkQueueClient() {
         ))}
       </div>
 
-      {loading ? (
+      {initialLoading && rows.length === 0 ? (
         <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           Loading queue…
@@ -400,6 +405,12 @@ export function ReturnsClaimsWorkQueueClient() {
         />
       ) : (
         <>
+          {refreshing ? (
+            <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Refreshing queue…
+            </div>
+          ) : null}
           <div className={`hidden md:block ${CLAIM_ENGINE_CARD_CLASS}`}>
             <table className={CLAIM_ENGINE_TABLE_CLASS}>
               <thead className={CLAIM_ENGINE_TABLE_HEAD_CLASS}>

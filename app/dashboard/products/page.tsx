@@ -528,7 +528,8 @@ export default function ProductInformationManagementPage() {
           </nav>
         </header>
 
-        {activeTab === "catalog" ? (
+        {/* Keep catalog hub mounted so list scroll, filters, and selection survive tab switches. */}
+        <div className={activeTab !== "catalog" ? "hidden" : ""}>
           <Suspense
             fallback={
               <section className="rounded-2xl border border-border/60 bg-card/70 p-8 text-sm text-muted-foreground shadow-xl">
@@ -538,7 +539,7 @@ export default function ProductInformationManagementPage() {
           >
             <PimCatalogHub organizationId={organizationId} />
           </Suspense>
-        ) : null}
+        </div>
         {/* Keep import panel mounted so file + preview state survive tab switches within PIM. */}
         <div className={activeTab !== "import" ? "hidden" : ""}>
           <Suspense

@@ -12,7 +12,6 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, MouseEvent } from "react";
 import {
@@ -53,6 +52,7 @@ import {
   approveClaimSubmission,
   bulkSubmitClaimsToMarketplace,
   generateDailyClaimReports,
+  listClaimSubmissions,
   markClaimSubmissionManualSubmit,
   refreshClaimReportSignedUrl,
   type ClaimSubmissionListRow,
@@ -241,9 +241,9 @@ export function ClaimEngineClient({
   defaultClaimEvidence: Record<ClaimEvidenceKey, boolean>;
   defaultTab?: string;
 }) {
-  const router = useRouter();
   const { actorUserId } = useUserRole();
   const [claims, setClaims] = useState<ClaimRecord[]>(initialClaims);
+  const [submissions, setSubmissions] = useState<ClaimSubmissionListRow[]>(initialSubmissions);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modalClaim, setModalClaim] = useState<ClaimRecord | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -281,14 +281,23 @@ export function ClaimEngineClient({
     setClaims(initialClaims);
   }, [initialClaims]);
 
+  useEffect(() => {
+    setSubmissions(initialSubmissions);
+  }, [initialSubmissions]);
+
+  const refreshSubmissions = useCallback(async () => {
+    const res = await listClaimSubmissions(organizationId);
+    if (res.ok) setSubmissions(res.data);
+  }, [organizationId]);
+
   const submissionQueueRows = useMemo(() => {
     const rank = (status: string) => (status === "ready_to_send" ? 0 : 1);
-    return [...initialSubmissions].sort((a, b) => {
+    return [...submissions].sort((a, b) => {
       const d = rank(a.status) - rank(b.status);
       if (d !== 0) return d;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-  }, [initialSubmissions]);
+  }, [submissions]);
 
   /** Pre–marketplace filing: draft / ready_to_send only (per product tab). */
   const submissionQueueFiltered = useMemo(
@@ -428,7 +437,7 @@ export function ClaimEngineClient({
     } else {
       showToast(`Successfully added ${res.generated} items to the queue`, "success");
     }
-    router.refresh();
+    await refreshSubmissions();
   }
 
   async function handlePreview(row: ClaimSubmissionListRow) {
@@ -458,7 +467,11 @@ export function ClaimEngineClient({
     setQueueBusyId(null);
     if (res.ok) {
       showToast("Marked as submitted.", "success");
-      router.refresh();
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === row.id ? { ...s, status: "submitted", submission_id: id.trim() } : s,
+        ),
+      );
     } else showToast(res.error ?? "Update failed", "error");
   }
 
@@ -469,7 +482,7 @@ export function ClaimEngineClient({
     setBulkSubmitBusy(false);
     if (res.ok && res.count != null) {
       showToast(`Submitted ${res.count} claim(s) to marketplace workflow.`, "success");
-      router.refresh();
+      await refreshSubmissions();
     } else showToast(res.error ?? "Bulk submit failed.", "error");
   }
 
@@ -541,7 +554,6 @@ export function ClaimEngineClient({
       );
       setSelectedIds(new Set());
       showToast("Claims cancelled", "success");
-      router.refresh();
     } else showToast(res.error ?? "Bulk cancel failed", "error");
   }
 
@@ -619,7 +631,6 @@ export function ClaimEngineClient({
         prev.map((c) => (c.id === claim.id ? { ...c, status: "accepted" } : c)),
       );
       showToast("Claim approved", "success");
-      router.refresh();
     } else showToast(res.error ?? "Approve failed", "error");
   }
 

@@ -5,7 +5,7 @@
  * Data loads via server actions in `./actions` (application layer), not inline in UI.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Boxes, Package2, ScanLine, Store } from "lucide-react";
 import { DatabaseTag } from "../../components/DatabaseTag";
 import { useGlobalSearch } from "../../components/GlobalSearchContext";
@@ -48,7 +48,9 @@ export default function ReturnsPage() {
   const [returns,      setReturns]      = useState<ReturnRecord[]>([]);
   const [packages,     setPackages]     = useState<PackageRecord[]>([]);
   const [pallets,      setPallets]      = useState<PalletRecord[]>([]);
-  const [loading,      setLoading]      = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing,     setRefreshing]     = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [fetchErrors,  setFetchErrors]  = useState<string[]>([]);
   const [orgSettings,  setOrgSettings]  = useState<OrgSettings>(DEFAULT_ORG_SETTINGS);
   const [fefoSettings, setFefoSettings] = useState<InventoryModuleConfig>(DEFAULT_FEFO);
@@ -201,7 +203,8 @@ export default function ReturnsPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setLoading(true);
+      if (!hasLoadedOnceRef.current) setInitialLoading(true);
+      else setRefreshing(true);
       setFetchErrors([]);
       try {
         const settingsOrg = userOrgId ?? resolveOrganizationId();
@@ -231,7 +234,11 @@ export default function ReturnsPage() {
           setFetchErrors([`Failed to load: ${e instanceof Error ? e.message : String(e)}`]);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setInitialLoading(false);
+          setRefreshing(false);
+          hasLoadedOnceRef.current = true;
+        }
       }
     }
     void load();
@@ -477,12 +484,18 @@ export default function ReturnsPage() {
 
       {/* Main Content */}
       <main className="flex-1 p-4 sm:p-6">
-        {loading ? (
+        {initialLoading && returns.length === 0 && packages.length === 0 && pallets.length === 0 ? (
           <div className="flex items-center justify-center py-24">
             <div className="flex flex-col items-center gap-3"><div className="h-10 w-10 animate-spin rounded-full border-4 border-sky-200 border-t-sky-500" /><p className="text-sm text-slate-400">Loading…</p></div>
           </div>
         ) : (
           <>
+            {refreshing ? (
+              <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-sky-500" />
+                Refreshing…
+              </div>
+            ) : null}
             {activeTab === "items" && (
               <div className="relative min-h-0">
                 <DatabaseTag table="items" />
