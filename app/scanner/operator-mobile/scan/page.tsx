@@ -184,6 +184,12 @@ import {
   fetchStoreDisplayNameForOrganization,
   formatUnauthorizedTrackingInStoreMessage,
 } from "@/lib/scanner/operator-store-display";
+import {
+  type BoxSlipVisionProgressPhase,
+  type OperatorScanProgressPhase,
+} from "@/lib/scanner/operator-scan-progress-ui";
+import { BoxSlipVisionProgress } from "@/components/scanner/BoxSlipVisionProgress";
+import { OperatorScanProgressStrip } from "@/components/scanner/OperatorScanProgressStrip";
 
 /** Frozen copy of slip line fields persisted to DB — never merge ad-hoc UI edits into item rows. */
 function clonePersistBoxSlipVisionLines(lines: BoxSlipVisionLine[]): BoxSlipVisionLine[] {
@@ -4452,6 +4458,10 @@ function OperatorMobileScanPageContent() {
   const [identifyGatePhotoOcrCandidates, setIdentifyGatePhotoOcrCandidates] = useState<string[]>([]);
   const [identifyGateSelectedPhotoOcrCandidate, setIdentifyGateSelectedPhotoOcrCandidate] = useState<string | null>(null);
   const [identifyGateOcrReading, setIdentifyGateOcrReading] = useState(false);
+  const [scanProgressPhase, setScanProgressPhase] = useState<OperatorScanProgressPhase>("idle");
+  const [boxSlipVisionProgressPhase, setBoxSlipVisionProgressPhase] =
+    useState<BoxSlipVisionProgressPhase>("idle");
+  const [boxSlipVisionSlowHint, setBoxSlipVisionSlowHint] = useState(false);
   const [identifyGateOcrProgressPct, setIdentifyGateOcrProgressPct] = useState(0);
   const [identifyGateOcrMenuOpen, setIdentifyGateOcrMenuOpen] = useState(false);
   const [identifyGateOcrDropHighlight, setIdentifyGateOcrDropHighlight] = useState(false);
@@ -4562,9 +4572,44 @@ function OperatorMobileScanPageContent() {
         setDirectBox(false);
       }
       setIdentifyGatePhase(options?.phase ?? "idle");
+      if (options?.phase === "searching") {
+        setScanProgressPhase("checking");
+      } else if (!options?.phase || options.phase === "idle") {
+        setScanProgressPhase("idle");
+      }
     },
     [],
   );
+
+  useEffect(() => {
+    if (flowPhase !== "scan" || isIdentified) return;
+    if (identifyGateOcrReading) {
+      setScanProgressPhase("reading");
+      return;
+    }
+    if (identifyGatePhase === "searching" && busy) {
+      setScanProgressPhase((prev) =>
+        prev === "reading" || prev === "loading_expected_lines" ? prev : "checking",
+      );
+      return;
+    }
+    if (identifyGatePhase === "matched") setScanProgressPhase("ready");
+    else if (identifyGatePhase === "new") setScanProgressPhase("needs_review");
+    else if (identifyGatePhase === "idle" && identifyGateError) setScanProgressPhase("error");
+    else if (identifyGatePhase === "idle" && !busy) setScanProgressPhase("idle");
+  }, [flowPhase, isIdentified, identifyGateOcrReading, identifyGatePhase, busy, identifyGateError]);
+
+  useEffect(() => {
+    if (
+      boxSlipVisionProgressPhase !== "reading_slip" &&
+      boxSlipVisionProgressPhase !== "preparing_image"
+    ) {
+      setBoxSlipVisionSlowHint(false);
+      return;
+    }
+    const t = window.setTimeout(() => setBoxSlipVisionSlowHint(true), 20_000);
+    return () => window.clearTimeout(t);
+  }, [boxSlipVisionProgressPhase]);
 
   const closeItemUnitModal = useCallback(
     (cancelled: boolean) => {
@@ -4671,6 +4716,7 @@ function OperatorMobileScanPageContent() {
         clearResolvedContext: true,
       });
       setBusy(true);
+      setScanProgressPhase("checking");
       try {
         if (!isSupabaseConfigured()) {
           const demoLookup = mockLookupShipmentEntryScanCode(trimmed);
@@ -4716,6 +4762,7 @@ function OperatorMobileScanPageContent() {
                 ),
           );
           setIdentifyGatePhase("matched");
+          setScanProgressPhase("ready");
           playOperatorSuccessBeep();
           setIdentifyGateGlowFlash(true);
           return;
@@ -4729,6 +4776,7 @@ function OperatorMobileScanPageContent() {
                 : "Select or configure a store.",
           );
           setIdentifyGatePhase("idle");
+          setScanProgressPhase("error");
           return;
         }
 
@@ -4815,6 +4863,8 @@ function OperatorMobileScanPageContent() {
           setIdentifyGateMatchField(null);
           return;
         }
+
+        setScanProgressPhase("loading_expected_lines");
 
         const ids = [...new Set(invRows.map((r) => r.expected_package_id).filter(Boolean))];
         let detailRows: Record<string, unknown>[] = [];
@@ -4951,6 +5001,7 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
         setIdentifyGateShipmentLines(shipmentLines);
         setIdentifyGatePhase("matched");
+        setScanProgressPhase("ready");
         if (!invRows.length && !shipmentLines.length && !scopedSafe.length) {
           setIdentifyGateSlowHint(
             (prev) =>
@@ -4992,6 +5043,7 @@ function OperatorMobileScanPageContent() {
         console.error(e);
         setIdentifyGateError(e instanceof Error ? e.message : "Lookup failed.");
         setIdentifyGatePhase("idle");
+        setScanProgressPhase("error");
         setIdentifyGateInventoryAgg(null);
         setIdentifyGateInventoryVisual(null);
         setIdentifyGateViewHints(null);
@@ -6216,6 +6268,8 @@ function OperatorMobileScanPageContent() {
   const runBoxSlipVisionOnPhotoUrl = useCallback(
     async (photoUrl: string) => {
       setBoxSlipVisionBusy(true);
+      setBoxSlipVisionProgressPhase("preparing_image");
+      setBoxSlipVisionSlowHint(false);
       setBoxSlipOrderId("");
       setBoxSlipConflictingOrderId("");
       setBoxSlipInvalidFormatBlocksSave(false);
@@ -6223,13 +6277,16 @@ function OperatorMobileScanPageContent() {
         const apiKey = getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage();
         if (!apiKey && !orgId?.trim()) {
           setSyncErrorToast("Organization context missing — cannot run packing slip vision.");
+          setBoxSlipVisionProgressPhase("error");
           return;
         }
         const blob = await fetchBlobFromObjectUrl(photoUrl);
         if (!blob?.type.startsWith("image/")) {
           setSyncErrorToast("Packing slip image could not be read.");
+          setBoxSlipVisionProgressPhase("error");
           return;
         }
+        setBoxSlipVisionProgressPhase("reading_slip");
         const buf = await blob.arrayBuffer();
         const bytes = new Uint8Array(buf);
         let binary = "";
@@ -6247,10 +6304,12 @@ function OperatorMobileScanPageContent() {
           headers,
           body: JSON.stringify({ imageBase64, mimeType, organizationId: orgId }),
         });
+        setBoxSlipVisionProgressPhase("validating_result");
         const json = (await res.json()) as { error?: string; message?: string; slip?: BoxSlipVisionExtract };
         if (!res.ok) {
           if (json.error === INVALID_SLIP_FORMAT) {
             setBoxSlipInvalidFormatBlocksSave(true);
+            setBoxSlipVisionProgressPhase("error");
             setBoxSlipCode("");
             setBoxSlipRma("");
             clearPalletOrderIdIfAutoFilledFromRa();
@@ -6262,11 +6321,13 @@ function OperatorMobileScanPageContent() {
             );
             return;
           }
+          setBoxSlipVisionProgressPhase("error");
           throw new Error(json.error ?? `BOX slip vision failed (${res.status})`);
         }
         if (!json.slip) throw new Error("Invalid BOX slip vision response.");
         if (!isStructuredBoxSlipExtractValid(json.slip)) {
           setBoxSlipInvalidFormatBlocksSave(true);
+          setBoxSlipVisionProgressPhase("error");
           setBoxSlipCode("");
           setBoxSlipRma("");
           clearPalletOrderIdIfAutoFilledFromRa();
@@ -6278,6 +6339,7 @@ function OperatorMobileScanPageContent() {
           return;
         }
         setBoxSlipInvalidFormatBlocksSave(false);
+        setBoxSlipVisionProgressPhase("ready_to_save");
         const sid = (
           json.slip.id_slip_contents ??
           (json.slip as { slip_code?: string | null }).slip_code ??
@@ -6427,6 +6489,7 @@ function OperatorMobileScanPageContent() {
           }
         }
       } catch (e) {
+        setBoxSlipVisionProgressPhase("error");
         setSyncErrorToast(e instanceof Error ? e.message : "BOX slip vision failed.");
       } finally {
         setBoxSlipVisionBusy(false);
@@ -6465,6 +6528,7 @@ function OperatorMobileScanPageContent() {
       setSlipBoxPhotoUrls(urls);
 
       if (slipPrimaryCleared || slipPrimaryReplaced || nextHttps.length === 0) {
+        setBoxSlipVisionProgressPhase("idle");
         setBoxSlipInvalidFormatBlocksSave(false);
         setBoxSlipCode("");
         setBoxSlipRma("");
@@ -7581,6 +7645,7 @@ function OperatorMobileScanPageContent() {
       if (busy) return;
       if (!hasReceivableBoxForItems(itemScanPackageId, activeBoxSession)) {
         setItemReceiveError("Select or scan a box before inspecting items.");
+        setScanProgressPhase("error");
         return;
       }
       const trimmed = code.trim();
@@ -7588,6 +7653,7 @@ function OperatorMobileScanPageContent() {
       setItemBarcodeMiss(null);
       setItemOverscanWarning(null);
       if (!trimmed) return;
+      setScanProgressPhase("loading_expected_lines");
 
       const slipRowsForMatch: SlipBarcodeMatchRow[] = itemInspectionSlipLines
         .filter((r) => Boolean(r.fnsku?.trim() || r.upc?.trim()))
@@ -7607,6 +7673,7 @@ function OperatorMobileScanPageContent() {
         if (outcome.kind === "none") {
           modalOpenRef.current = true;
           setUnexpectedPackageItemModal({ barcode: trimmed });
+          setScanProgressPhase("needs_review");
           return;
         }
         if (outcome.kind === "ambiguous") {
@@ -7616,6 +7683,7 @@ function OperatorMobileScanPageContent() {
             tier: outcome.tier,
             candidates: outcome.candidates,
           });
+          setScanProgressPhase("needs_review");
           return;
         }
 
@@ -7628,6 +7696,7 @@ function OperatorMobileScanPageContent() {
             [outcome.slip.fnsku, outcome.slip.upc].filter(Boolean).join(" · ") ||
             null,
         });
+        setScanProgressPhase("needs_review");
         return;
       }
 
@@ -7636,16 +7705,19 @@ function OperatorMobileScanPageContent() {
         setItemBarcodeMiss(
           `No packing slip lines with UPC/FNSKU for this box, and no shipment expected lines loaded for "${trimmed}".`,
         );
+        setScanProgressPhase("error");
         return;
       }
       const outcome = resolveItemBarcodeAgainstExpectedRows(trimmed, detailSafe);
       if (outcome.kind === "none") {
         setItemBarcodeMiss(`No expected match for "${trimmed}".`);
+        setScanProgressPhase("error");
         return;
       }
       if (outcome.kind === "ambiguous") {
         modalOpenRef.current = true;
         setCandidatePicker({ barcode: outcome.barcode, tier: outcome.tier, candidates: outcome.candidates });
+        setScanProgressPhase("needs_review");
         return;
       }
       queueItemUnitModal({
@@ -7656,6 +7728,7 @@ function OperatorMobileScanPageContent() {
         title: "Record scanned unit",
         subtitle: epPackageRowPrimaryLabel(outcome.row as Record<string, unknown>),
       });
+      setScanProgressPhase("needs_review");
       scheduleFocusScanner();
       return;
     },
@@ -8572,17 +8645,21 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateSelectedPhotoOcrCandidate(null);
       }
       if (flowPhase === "package_scan") {
+        setScanProgressPhase("checking");
         try {
           const ok = await handleBoxIntakeScan(code);
+          setScanProgressPhase(ok ? "ready" : "error");
           if (ok && options?.clearPackageBuffer) {
             setCurrentPackageTrackingId(null);
           }
         } catch (e) {
           setBoxIntakeError(e instanceof Error ? e.message : "Box scan failed.");
+          setScanProgressPhase("error");
         }
         return;
       }
       if (flowPhase === "items") {
+        setScanProgressPhase("checking");
         await handleItemBarcodeScan(code);
         return;
       }
@@ -12094,6 +12171,12 @@ function OperatorMobileScanPageContent() {
             </p>
           ) : null}
 
+          {scanProgressPhase !== "idle" ? (
+            <OperatorScanProgressStrip phase={scanProgressPhase} className="mb-1" />
+          ) : (
+            <div className="min-h-[2.75rem]" aria-hidden />
+          )}
+
           <div className="operator-item-scan-stats mb-1 grid w-full grid-cols-3 gap-2" aria-label="Item scan summary counts">
             <div className="operator-item-scan-stat operator-item-scan-stat--expected rounded-xl border px-2 py-2 text-center sm:px-2.5 sm:py-2">
               <p className="operator-item-scan-stat__label text-[9px] font-bold uppercase tracking-wide">Total expected</p>
@@ -12374,13 +12457,17 @@ function OperatorMobileScanPageContent() {
                       role="status"
                       aria-live="polite"
                     >
-                      <Loader2
-                        className="operator-shipment-entry-gate__ocr-spinner h-7 w-7 animate-spin"
-                        strokeWidth={2}
-                      />
-                      <span className="operator-shipment-entry-gate__ocr-reading text-center text-[12px] font-bold tracking-wide">
-                        Reading code... {identifyGateOcrProgressPct}%
-                      </span>
+                      <div className="flex w-full max-w-[240px] flex-col gap-2">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800/80">
+                          <div
+                            className="h-full rounded-full bg-[#d6b76e] transition-[width] duration-300"
+                            style={{ width: `${Math.min(100, identifyGateOcrProgressPct)}%` }}
+                          />
+                        </div>
+                        <span className="operator-shipment-entry-gate__ocr-reading text-center text-[11px] font-bold tracking-wide text-[#faf6ed]">
+                          Reading code · {identifyGateOcrProgressPct}%
+                        </span>
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -12473,12 +12560,13 @@ function OperatorMobileScanPageContent() {
                   </button>
                 </div>
               ) : null}
-              {identifyGatePhase === "searching" ? (
-                <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold" style={{ color: "#B9C2CC" }}>
-                  <Loader2 className="operator-shipment-entry-gate__searching-spinner h-5 w-5 animate-spin" strokeWidth={2} />
-                  Searching inventory status…
-                </p>
-              ) : identifyGateSlowHint && busy ? (
+              <div className="mt-3">
+                <OperatorScanProgressStrip
+                  phase={scanProgressPhase}
+                  errorMessage={identifyGateError}
+                />
+              </div>
+              {identifyGateSlowHint && busy && scanProgressPhase !== "idle" ? (
                 <p
                   className="mt-4 rounded-xl border px-3 py-2 text-center text-[12px] font-semibold leading-snug"
                   style={{
@@ -13916,6 +14004,11 @@ function OperatorMobileScanPageContent() {
                         </button>
                       )}
                     </div>
+                    {scanProgressPhase !== "idle" ? (
+                      <OperatorScanProgressStrip phase={scanProgressPhase} className="mt-2" />
+                    ) : (
+                      <div className="mt-2 min-h-[2.75rem]" aria-hidden />
+                    )}
                   </div>
                   ) : null}
 
@@ -14375,12 +14468,6 @@ function OperatorMobileScanPageContent() {
                         .filter(Boolean)
                         .join(" ")}
                     >
-                      {boxSlipVisionBusy ? (
-                        <div className="operator-shipment-docs-overlay absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-[inherit] backdrop-blur-[1px]">
-                          <Loader2 className="h-5 w-5 animate-spin text-slate-200" strokeWidth={2.25} />
-                          <span className="font-bold uppercase tracking-wide">GPT · slip</span>
-                        </div>
-                      ) : null}
                       <MasterUploader
                         variant="compact"
                         compactDensity="dense"
@@ -14409,12 +14496,20 @@ function OperatorMobileScanPageContent() {
                         viewLocked={savedBoxIntakeViewLocked}
                         className="operator-shipment-docs-uploader"
                       />
-                      {boxSlipInvalidFormatBlocksSave ? (
-                        <p className="mt-1.5 px-0.5 text-left text-[11px] font-semibold leading-snug text-amber-200/95">
-                          INVALID_SLIP_FORMAT — replace this photo with a clear packing slip (slip id, item lines, and
-                          barcodes). Save stays disabled until the slip is valid.
-                        </p>
-                      ) : null}
+                      <BoxSlipVisionProgress
+                        phase={
+                          boxSlipInvalidFormatBlocksSave
+                            ? "error"
+                            : boxSlipVisionBusy
+                              ? boxSlipVisionProgressPhase
+                              : boxSlipVisionProgressPhase === "ready_to_save"
+                                ? "ready_to_save"
+                                : "idle"
+                        }
+                        slowHint={boxSlipVisionSlowHint}
+                        invalidFormat={boxSlipInvalidFormatBlocksSave}
+                        className="mt-2"
+                      />
                     </div>
                     <div
                       className={[
@@ -14645,9 +14740,14 @@ function OperatorMobileScanPageContent() {
                           </table>
                         </div>
                       ) : boxSlipVisionBusy ? (
-                        <p className="operator-shipment-slip-hint font-medium leading-snug">
-                          Extracting line items from the packing slip…
-                        </p>
+                        <div className="space-y-2" aria-hidden>
+                          {[0, 1, 2].map((i) => (
+                            <div key={`slip-line-skel-${i}`} className="animate-pulse rounded-lg border border-slate-700/40 bg-slate-900/50 px-2 py-2">
+                              <div className="mb-1 h-2.5 w-4/5 rounded bg-slate-700/80" />
+                              <div className="h-2 w-1/3 rounded bg-slate-800/90" />
+                            </div>
+                          ))}
+                        </div>
                       ) : (
                         <p className="operator-shipment-slip-hint font-medium leading-snug">
                           No line items yet — add a packing slip photo above and run detection, or open a saved box.
@@ -14973,8 +15073,7 @@ function OperatorMobileScanPageContent() {
                     unit.
                   </p>
                   {packageItemsHydrating || itemScanExpectationLoading ? (
-                    <p className="operator-item-scan-expected-panel__loading mt-1 flex items-center gap-1 text-[9px] font-semibold">
-                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                    <p className="operator-item-scan-expected-panel__loading mt-1 text-[9px] font-semibold text-slate-400">
                       {itemScanExpectationLoading && !packageItemsHydrating
                         ? "Loading expected lines…"
                         : "Updating counts…"}
