@@ -11,6 +11,7 @@ import * as path from "node:path";
 const SCRIPTS_DIR = path.join(process.cwd(), "scripts");
 const GUARD_FN = "assertScriptReturnItemsWriteAllowed";
 const GUARD_FN_2 = "assertReturnItemsInsertNotSyntheticBulkOrphan";
+const PG_INSERT_FN = "insertReturnItemViaPg";
 
 /** Legacy staging smokes — must not add new entries without review. */
 const ALLOWLIST = new Set([
@@ -63,10 +64,18 @@ function main(): void {
       text.includes(GUARD_FN_2) ||
       text.includes("insertReturn(");
 
-    if (!hasGuard) {
+    const usesSupabaseInsert = INSERT_PATTERNS.some((re) => re.test(text));
+    const usesPgHarness = text.includes(PG_INSERT_FN) && text.includes('pgClient.query("BEGIN")');
+
+    if (!hasGuard && !ALLOWLIST.has(base)) {
       violations.push({
         file: path.relative(process.cwd(), filePath),
         reason: `return_items .insert without ${GUARD_FN} or allowlist`,
+      });
+    } else if (usesSupabaseInsert && !usesPgHarness) {
+      violations.push({
+        file: path.relative(process.cwd(), filePath),
+        reason: `return_items must use ${PG_INSERT_FN} inside pg BEGIN/ROLLBACK (Supabase .insert leaks rows)`,
       });
     }
   }

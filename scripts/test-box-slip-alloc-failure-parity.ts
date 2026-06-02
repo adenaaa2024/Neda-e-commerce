@@ -13,7 +13,12 @@ import { join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import pg from "pg";
 
-import { RETURN_ITEMS_TABLE } from "../app/returns/returns-constants";
+import { assertScriptReturnItemsWriteAllowed } from "../lib/script-return-items-write-guard";
+import {
+  deleteScriptSessionReturnItemsViaPg,
+  insertReturnItemViaPg,
+  newScriptReturnItemsSessionId,
+} from "../lib/scanner/return-items-script-pg";
 import { loadEnvLocalIntoProcess } from "../lib/staging-project-ref";
 import {
   allocateExpectedItemsForReturnItemIds,
@@ -76,6 +81,9 @@ function staticParityChecks(): void {
 }
 
 async function integrationTests(sb: SupabaseClient): Promise<void> {
+  assertScriptReturnItemsWriteAllowed();
+  const sessionId = newScriptReturnItemsSessionId();
+
   const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim();
   assert.ok(dbUrl, "STAGING_DIRECT_POSTGRES_URL required for integration tests");
 
@@ -150,22 +158,17 @@ async function integrationTests(sb: SupabaseClient): Promise<void> {
 
   await pgClient.query("BEGIN");
   try {
-    const { data: ins, error: insErr } = await sb
-      .from(RETURN_ITEMS_TABLE)
-      .insert({
+    const returnItemId = await insertReturnItemViaPg(
+      pgClient,
+      {
         organization_id: orgId,
         store_id: storeId,
         package_id: packageId,
-        marketplace: "amazon",
-        item_name: "box-slip-alloc-parity-success",
-        conditions: ["sellable_ok"],
-        status: "received",
-        notes: "test-box-slip-alloc-failure-parity",
-      })
-      .select("id, expected_item_id")
-      .single();
-    assert.ok(!insErr && ins?.id, insErr?.message ?? "insert failed");
-    const returnItemId = String(ins.id);
+        item_name: "fixture-alloc-success",
+        notes: "box-slip-alloc-failure-parity",
+      },
+      sessionId,
+    );
 
     const alloc = await allocateExpectedItemsForReturnItemIds(sb, {
       returnItemIds: [returnItemId],
@@ -190,22 +193,17 @@ async function integrationTests(sb: SupabaseClient): Promise<void> {
       "successful allocation decrements root remainder",
     );
 
-    const { data: insFail, error: insFailErr } = await sb
-      .from(RETURN_ITEMS_TABLE)
-      .insert({
+    const failId = await insertReturnItemViaPg(
+      pgClient,
+      {
         organization_id: orgId,
         store_id: storeId,
         package_id: packageId,
-        marketplace: "amazon",
-        item_name: "box-slip-alloc-parity-failure",
-        conditions: ["sellable_ok"],
-        status: "received",
-        notes: "test-box-slip-alloc-failure-parity-fail",
-      })
-      .select("id")
-      .single();
-    assert.ok(!insFailErr && insFail?.id, insFailErr?.message ?? "failure-path insert failed");
-    const failId = String(insFail.id);
+        item_name: "fixture-alloc-fail",
+        notes: "box-slip-alloc-failure-parity-fail",
+      },
+      sessionId,
+    );
 
     const allocFail = await allocateExpectedItemsForReturnItemIds(sb, {
       returnItemIds: [failId],
@@ -226,7 +224,7 @@ async function integrationTests(sb: SupabaseClient): Promise<void> {
       "expected remainder unchanged when second allocation fails after first unit consumed (still 0)",
     );
 
-    await sb.from(RETURN_ITEMS_TABLE).delete().eq("id", failId);
+    await pgClient.query(`DELETE FROM return_items WHERE id = $1::uuid`, [failId]);
 
     const stillThere = await pgClient.query(`SELECT id FROM return_items WHERE id = $1::uuid`, [failId]);
     assert.equal(stillThere.rowCount, 0, "rollback delete leaves no inconsistent package return_item");
@@ -238,6 +236,7 @@ async function integrationTests(sb: SupabaseClient): Promise<void> {
     );
     assert.equal(rowOrphanCheck.rowCount, 0, "no active package-anchored row after rollback");
   } finally {
+    await deleteScriptSessionReturnItemsViaPg(pgClient, sessionId);
     await pgClient.query("ROLLBACK");
   }
 

@@ -13,10 +13,16 @@ import {
   isSyntheticBulkOrphanInsertBlocked,
   SYNTHETIC_BULK_ORPHAN_INSERT_ERROR,
 } from "../lib/return-item-physical-scan";
+import {
+  isBlockedSyntheticTestReturnItemInsert,
+  isReturnItemTestDataMarker,
+  SYNTHETIC_TEST_MARKER_INSERT_ERROR,
+} from "../lib/scanner/return-items-test-data-guard";
 import { loadEnvLocalIntoProcess } from "../lib/staging-project-ref";
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
-const MIGRATION = "20260601143000_return_items_block_synthetic_bulk_orphan_insert.sql";
+const MIGRATION_BULK = "20260601143000_return_items_block_synthetic_bulk_orphan_insert.sql";
+const MIGRATION_MARKER = "20260628120000_return_items_block_synthetic_test_marker_insert.sql";
 
 function unitTests(): void {
   assert.equal(
@@ -56,13 +62,48 @@ function unitTests(): void {
     false,
   );
 
-  const mig = fs.readFileSync(path.join(process.cwd(), "supabase/migrations", MIGRATION), "utf8");
-  assert.match(mig, /trg_return_items_block_synthetic_bulk_orphan_insert/);
-  assert.match(mig, /BEFORE INSERT ON public\.return_items/);
+  assert.equal(
+    isBlockedSyntheticTestReturnItemInsert({
+      item_name: "box-slip-alloc-parity-success",
+      raw_return_data: null,
+    }),
+    true,
+  );
+  assert.equal(
+    isBlockedSyntheticTestReturnItemInsert({
+      item_name: "v2-delete-release-test",
+      raw_return_data: null,
+    }),
+    true,
+  );
+  assert.equal(
+    isBlockedSyntheticTestReturnItemInsert({
+      item_name: "fixture-alloc-success",
+      raw_return_data: null,
+    }),
+    false,
+  );
+  assert.equal(
+    isBlockedSyntheticTestReturnItemInsert({
+      item_name: "box-slip-alloc-parity-success",
+      raw_return_data: { ocr: true },
+    }),
+    false,
+  );
+  assert.ok(isReturnItemTestDataMarker({ item_name: "neda-item-level-smoke-abc" }));
+
+  const migBulk = fs.readFileSync(path.join(process.cwd(), "supabase/migrations", MIGRATION_BULK), "utf8");
+  assert.match(migBulk, /trg_return_items_block_synthetic_bulk_orphan_insert/);
+
+  const migMarker = fs.readFileSync(path.join(process.cwd(), "supabase/migrations", MIGRATION_MARKER), "utf8");
+  assert.match(migMarker, /trg_return_items_block_synthetic_test_marker_insert/);
+  assert.match(migMarker, /return_items_row_has_test_marker/);
 
   const actions = fs.readFileSync(path.join(process.cwd(), "app/returns/actions.ts"), "utf8");
   assert.match(actions, /isSyntheticBulkOrphanInsertBlocked/);
   assert.match(actions, /SYNTHETIC_BULK_ORPHAN_INSERT_ERROR/);
+  assert.match(actions, /assertCanInsertReturnItemAgainstTestMarkers/);
+  assert.ok(SYNTHETIC_TEST_MARKER_INSERT_ERROR.includes("return_items_insert_blocked"));
 }
 
 async function stagingDbTests(): Promise<Record<string, unknown>> {
@@ -78,9 +119,15 @@ async function stagingDbTests(): Promise<Record<string, unknown>> {
     JOIN pg_class c ON c.oid = t.tgrelid
     WHERE c.relname = 'return_items'
       AND NOT t.tgisinternal
-      AND tgname = 'trg_return_items_block_synthetic_bulk_orphan_insert'
+      AND tgname IN (
+        'trg_return_items_block_synthetic_bulk_orphan_insert',
+        'trg_return_items_block_synthetic_test_marker_insert'
+      )
   `);
   const triggerPresent = trig.rows.length > 0;
+  const markerTriggerPresent = trig.rows.some(
+    (r: { tgname: string }) => r.tgname === "trg_return_items_block_synthetic_test_marker_insert",
+  );
 
   const orgId = "00000000-0000-0000-0000-000000000001";
   const storeId = "509ee1f6-622c-46a5-8110-7b889ba46c2c";
@@ -91,8 +138,10 @@ async function stagingDbTests(): Promise<Record<string, unknown>> {
   const epId = String(epRes.rows[0]?.id ?? "");
 
   let syntheticBlocked = false;
+  let markerBlocked = false;
   let physicalAllowed = false;
   let syntheticMsg = "";
+  let markerMsg = "";
   let physicalError = "";
 
   const pkgRes = await client.query(
@@ -126,6 +175,26 @@ async function stagingDbTests(): Promise<Record<string, unknown>> {
       }
     }
 
+    await client.query("SAVEPOINT marker_test");
+    try {
+      await client.query(
+        `INSERT INTO return_items (
+          organization_id, store_id, marketplace, item_name, conditions, status, package_id
+        ) VALUES (
+          $1::uuid, $2::uuid, 'amazon', 'box-slip-alloc-parity-marker-guard', ARRAY['sellable_ok']::text[], 'received',
+          $3::uuid
+        )`,
+        [orgId, storeId, pkgId || null],
+      );
+      await client.query("ROLLBACK TO SAVEPOINT marker_test");
+    } catch (e) {
+      markerMsg = e instanceof Error ? e.message : String(e);
+      markerBlocked =
+        markerMsg.includes("synthetic test/smoke/parity marker") ||
+        markerMsg.includes("test/synthetic return_items");
+      await client.query("ROLLBACK TO SAVEPOINT marker_test");
+    }
+
     if (pkgId && orgId) {
       try {
         const ins = await client.query(
@@ -133,7 +202,7 @@ async function stagingDbTests(): Promise<Record<string, unknown>> {
             organization_id, store_id, marketplace, item_name, conditions, status,
             package_id
           ) VALUES (
-            $1::uuid, $2::uuid, 'amazon', 'guard-test-physical', ARRAY['sellable_ok']::text[], 'received',
+            $1::uuid, $2::uuid, 'amazon', 'fixture-guard-physical', ARRAY['sellable_ok']::text[], 'received',
             $3::uuid
           ) RETURNING id::text`,
           [orgId, storeId, pkgId],
@@ -185,6 +254,9 @@ async function stagingDbTests(): Promise<Record<string, unknown>> {
 
   return {
     trigger_present: triggerPresent,
+    marker_trigger_present: markerTriggerPresent,
+    marker_trigger_blocked: markerBlocked,
+    marker_msg: markerMsg.slice(0, 200),
     synthetic_blocked: syntheticBlocked,
     synthetic_msg: syntheticMsg.slice(0, 200),
     physical_allowed: physicalAllowed,
@@ -202,6 +274,8 @@ async function main(): Promise<void> {
   const ok =
     staging.skipped ||
     (staging.trigger_present === true &&
+      (staging.marker_trigger_blocked === true ||
+        staging.marker_trigger_present === true) &&
       staging.synthetic_blocked === true &&
       staging.service_role_insert_blocked === true &&
       (staging.physical_allowed === true || staging.scanner_path_allowed === true));

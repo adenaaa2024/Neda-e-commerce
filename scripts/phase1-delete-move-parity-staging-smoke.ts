@@ -8,7 +8,12 @@ import { join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import pg from "pg";
 
-import { RETURN_ITEMS_TABLE } from "../app/returns/returns-constants";
+import { assertScriptReturnItemsWriteAllowed } from "../lib/script-return-items-write-guard";
+import {
+  deleteScriptSessionReturnItemsViaPg,
+  insertReturnItemViaPg,
+  newScriptReturnItemsSessionId,
+} from "../lib/scanner/return-items-script-pg";
 import { loadEnvLocalIntoProcess } from "../lib/staging-project-ref";
 import {
   allocateExpectedItemsForReturnItemIds,
@@ -66,6 +71,9 @@ async function probeV2DeleteRpc(sb: SupabaseClient): Promise<boolean> {
 }
 
 async function integrationSmoke(sb: SupabaseClient): Promise<Record<string, string>> {
+  assertScriptReturnItemsWriteAllowed();
+  const sessionId = newScriptReturnItemsSessionId();
+
   const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim();
   assert.ok(dbUrl, "STAGING_DIRECT_POSTGRES_URL required for staging smoke");
 
@@ -116,25 +124,20 @@ async function integrationSmoke(sb: SupabaseClient): Promise<Record<string, stri
     const sku = String(ep.sku ?? "").trim();
     const fnsku = String(ep.fnsku ?? "").trim();
 
-    const { data: ins, error: insErr } = await sb
-      .from(RETURN_ITEMS_TABLE)
-      .insert({
+    const returnItemId = await insertReturnItemViaPg(
+      pgClient,
+      {
         organization_id: orgId,
         store_id: storeId,
-        marketplace: "amazon",
-        item_name: "phase1-delete-move-parity-smoke",
-        conditions: ["sellable_ok"],
-        status: "received",
         package_id: packageId,
-        pallet_id: pkgRow.old_pallet_id ?? null,
+        pallet_id: pkgRow.old_pallet_id ? String(pkgRow.old_pallet_id) : null,
         sku: sku || null,
         fnsku: fnsku || null,
-        notes: "phase1-delete-move-parity-staging-smoke",
-      })
-      .select("id")
-      .single();
-    assert.ok(!insErr && ins?.id, insErr?.message ?? "insert failed");
-    const returnItemId = String(ins.id);
+        item_name: "fixture-delete-move-run",
+        notes: "phase1-delete-move-parity-staging",
+      },
+      sessionId,
+    );
 
     const scopeKey = buildReceiveScopeKey({
       organizationId: orgId,
@@ -204,6 +207,7 @@ async function integrationSmoke(sb: SupabaseClient): Promise<Record<string, stri
     assert.equal(riDeleted.rows[0]?.soft, true, "return_item must be soft-deleted");
     results.admin_delete_soft_void = "pass";
   } finally {
+    await deleteScriptSessionReturnItemsViaPg(pgClient, sessionId);
     await pgClient.query("ROLLBACK");
   }
 

@@ -8,7 +8,12 @@ import { join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import pg from "pg";
 
-import { RETURN_ITEMS_TABLE } from "../app/returns/returns-constants";
+import { assertScriptReturnItemsWriteAllowed } from "../lib/script-return-items-write-guard";
+import {
+  deleteScriptSessionReturnItemsViaPg,
+  insertReturnItemViaPg,
+  newScriptReturnItemsSessionId,
+} from "../lib/scanner/return-items-script-pg";
 import { loadEnvLocalIntoProcess } from "../lib/staging-project-ref";
 import {
   allocateExpectedItemsForReturnItemIds,
@@ -104,24 +109,19 @@ async function integrationTests(sb: SupabaseClient): Promise<Record<string, stri
     );
     const parentBeforeAlloc = Number(parentBeforeAllocRes.rows[0]?.expected_scan_quantity ?? 0);
 
-    const { data: ins, error: insErr } = await sb
-      .from(RETURN_ITEMS_TABLE)
-      .insert({
+    const returnItemId = await insertReturnItemViaPg(
+      pgClient,
+      {
         organization_id: orgId,
         store_id: storeId,
-        marketplace: "amazon",
-        item_name: "v2-delete-release-test",
-        conditions: ["sellable_ok"],
-        status: "received",
-        order_id: ep.order_id,
+        order_id: ep.order_id ? String(ep.order_id) : null,
         sku: sku || null,
         fnsku: fnsku || null,
-        notes: "test-delete-undo-v2-app-wiring",
-      })
-      .select("id")
-      .single();
-    assert.ok(!insErr && ins?.id, insErr?.message ?? "insert failed");
-    const returnItemId = String(ins.id);
+        item_name: "fixture-delete-release",
+        notes: "delete-undo-v2-app-wiring",
+      },
+      sessionId,
+    );
 
     const scopeKey = buildReceiveScopeKey({
       organizationId: orgId,
@@ -157,22 +157,17 @@ async function integrationTests(sb: SupabaseClient): Promise<Record<string, stri
     assert.equal(Number(afterDelete.rows[0]?.expected_scan_quantity ?? 0), parentBeforeAlloc);
     results.delete_return_item_releases_expected = "pass";
 
-    const { data: ins2 } = await sb
-      .from(RETURN_ITEMS_TABLE)
-      .insert({
+    const returnItemId2 = await insertReturnItemViaPg(
+      pgClient,
+      {
         organization_id: orgId,
         store_id: storeId,
-        marketplace: "amazon",
-        item_name: "v2-undo-preview-test",
-        conditions: ["sellable_ok"],
-        status: "received",
         sku: sku || null,
         fnsku: fnsku || null,
-      })
-      .select("id")
-      .single();
-    const returnItemId2 = String(ins2?.id ?? "");
-    assert.ok(returnItemId2, "second insert failed");
+        item_name: "fixture-undo-preview",
+      },
+      sessionId,
+    );
 
     const del2 = await deleteReturnItemWithExpectedReleaseV2(sb, {
       organizationId: orgId,
@@ -204,23 +199,19 @@ async function integrationTests(sb: SupabaseClient): Promise<Record<string, stri
       const packageId = String(pkgRow.package_id);
       const pkgStoreId = String(pkgRow.store_id ?? storeId);
 
-      const { data: ins3 } = await sb
-        .from(RETURN_ITEMS_TABLE)
-        .insert({
+      const childId = await insertReturnItemViaPg(
+        pgClient,
+        {
           organization_id: orgId,
           store_id: pkgStoreId,
-          marketplace: "amazon",
-          item_name: "v2-package-child-test",
-          conditions: ["sellable_ok"],
-          status: "received",
           package_id: packageId,
-          pallet_id: pkgRow.pallet_id ?? null,
+          pallet_id: pkgRow.pallet_id ? String(pkgRow.pallet_id) : null,
           sku: sku || null,
           fnsku: fnsku || null,
-        })
-        .select("id")
-        .single();
-      const childId = String(ins3?.id ?? "");
+          item_name: "fixture-package-child",
+        },
+        sessionId,
+      );
       if (childId) {
         await allocateExpectedItemsForReturnItemIds(sb, {
           returnItemIds: [childId],
@@ -266,22 +257,18 @@ async function integrationTests(sb: SupabaseClient): Promise<Record<string, stri
       );
       const altPkgId = String(altPkgRes.rows[0]?.id ?? "");
       if (altPkgId) {
-        const { data: ins4 } = await sb
-          .from(RETURN_ITEMS_TABLE)
-          .insert({
+        const moveRiId = await insertReturnItemViaPg(
+          pgClient,
+          {
             organization_id: orgId,
             store_id: pkgStoreId,
-            marketplace: "amazon",
-            item_name: "v2-move-test",
-            conditions: ["sellable_ok"],
-            status: "received",
             package_id: packageId,
             sku: sku || null,
             fnsku: fnsku || null,
-          })
-          .select("id, expected_item_id")
-          .single();
-        const moveRiId = String(ins4?.id ?? "");
+            item_name: "fixture-move-parent",
+          },
+          sessionId,
+        );
         if (moveRiId) {
           await allocateExpectedItemsForReturnItemIds(sb, {
             returnItemIds: [moveRiId],
@@ -336,6 +323,7 @@ async function integrationTests(sb: SupabaseClient): Promise<Record<string, stri
       results.move_preserves_allocation = "skipped_no_package";
     }
   } finally {
+    await deleteScriptSessionReturnItemsViaPg(pgClient, sessionId);
     await pgClient.query("ROLLBACK");
   }
 
