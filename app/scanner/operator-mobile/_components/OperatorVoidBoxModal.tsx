@@ -40,8 +40,7 @@ export function OperatorVoidBoxModal({
           <span className="font-mono font-bold">{packageLabel || "—"}</span>
         </p>
         <p className="operator-shipment-flow-modal__body mt-2 text-center text-[12px] font-medium leading-relaxed opacity-90">
-          Saved items on this box will be voided and expected quantities restored. Use only if this
-          carton was scanned by mistake.
+          Use this only if this box was scanned by mistake and has no saved items.
         </p>
         {error ? (
           <p className="mt-3 text-center text-[12px] font-semibold text-red-300" role="alert">
