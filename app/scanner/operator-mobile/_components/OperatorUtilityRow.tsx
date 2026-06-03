@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Moon, RotateCcw, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { LogoMark } from "@/components/LogoMark";
@@ -22,6 +23,7 @@ import { usePlatformBranding } from "@/components/PlatformBrandingContext";
  * Each control is small (h-7 / w-7) so the row stays ~26 px tall.
  */
 export function OperatorUtilityRow({ className }: { className?: string }) {
+  const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -32,8 +34,7 @@ export function OperatorUtilityRow({ className }: { className?: string }) {
   const { platformAppName, loading: platformLoading } = usePlatformBranding();
 
   const handleRefresh = () => {
-    if (typeof window === "undefined") return;
-    window.location.reload();
+    router.refresh();
   };
 
   const btn =

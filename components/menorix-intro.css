@@ -76,7 +76,7 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   }
 }
 
-/* Ground line — continuous bar + center gem; light sweep clipped inside track */
+/* Ground line — one gold; gem is the same fill as the track center */
 .menorix-intro-court,
 .menorix-intro-court--under-text {
   position: relative;
@@ -85,9 +85,8 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   height: 3px;
   flex-shrink: 0;
   overflow: visible;
-  --mx-court-gold: color-mix(in srgb, var(--primary) 54%, transparent);
-  --mx-court-gold-soft: color-mix(in srgb, var(--primary) 38%, transparent);
-  --mx-court-line-opacity: 0.46;
+  --mx-court-gold: color-mix(in srgb, var(--primary) 82%, transparent);
+  --mx-court-gold-edge: color-mix(in srgb, var(--primary) 58%, transparent);
   opacity: 0;
   animation: menorix-court-in 420ms ease forwards;
   animation-delay: 200ms;
@@ -119,13 +118,13 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    var(--mx-court-gold-soft) 12%,
-    var(--mx-court-gold) 22%,
-    var(--mx-court-gold) 78%,
-    var(--mx-court-gold-soft) 88%,
+    var(--mx-court-gold-edge) 10%,
+    var(--mx-court-gold) 20%,
+    var(--mx-court-gold) 80%,
+    var(--mx-court-gold-edge) 90%,
     transparent 100%
   );
-  box-shadow: 0 0 7px color-mix(in srgb, var(--primary) 12%, transparent);
+  box-shadow: none;
 }
 
 /* Light pulse — strictly inside the 3px track */
@@ -148,7 +147,7 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   animation-delay: 1.35s;
 }
 
-/* Center gem — same gold as track; waist flush on the line */
+/* Gem — identical fill to track center; no facet layer */
 .menorix-intro-court__gem {
   position: absolute;
   left: 50%;
@@ -160,44 +159,12 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
   background: var(--mx-court-gold);
   box-shadow: none;
-  animation: menorix-court-gem-flash 5.6s ease-in-out infinite;
-  animation-delay: 1.35s;
-}
-
-/* Subtle facet — same hue as line, not a separate palette */
-.menorix-intro-court__gem::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  clip-path: inherit;
-  background: linear-gradient(
-    165deg,
-    color-mix(in srgb, var(--mx-court-gold) 88%, #fff) 0%,
-    var(--mx-court-gold) 46%,
-    var(--mx-court-gold) 54%,
-    color-mix(in srgb, var(--mx-court-gold) 92%, #000) 100%
-  );
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-/* Waist band — same 3px gold as track so line + gem read as one piece */
-.menorix-intro-court__gem::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 3px;
-  transform: translateY(-50%);
-  background: var(--mx-court-gold);
-  border-radius: 999px;
-  pointer-events: none;
+  filter: none;
 }
 
 @keyframes menorix-court-in {
   to {
-    opacity: var(--mx-court-line-opacity, 0.46);
+    opacity: 1;
   }
 }
 
@@ -207,10 +174,10 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
     left: -24%;
   }
   58% {
-    opacity: 0.75;
+    opacity: 0.55;
   }
   72% {
-    opacity: 0.45;
+    opacity: 0.32;
     left: 92%;
   }
   80% {
@@ -219,30 +186,16 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   }
 }
 
-@keyframes menorix-court-gem-flash {
-  0%, 56%, 100% {
-    filter: brightness(1);
-  }
-  68% {
-    filter: brightness(1.14);
-  }
-  76% {
-    filter: brightness(1.05);
-  }
-}
-
 html.light .menorix-intro-court,
 html.light .menorix-intro-court--under-text {
-  --mx-court-gold: color-mix(in srgb, var(--primary) 50%, transparent);
-  --mx-court-gold-soft: color-mix(in srgb, var(--primary) 34%, transparent);
-  --mx-court-line-opacity: 0.42;
+  --mx-court-gold: color-mix(in srgb, var(--primary) 78%, transparent);
+  --mx-court-gold-edge: color-mix(in srgb, var(--primary) 52%, transparent);
 }
 
 html.dark .menorix-intro-court,
 html.dark .menorix-intro-court--under-text {
-  --mx-court-gold: color-mix(in srgb, var(--primary) 56%, transparent);
-  --mx-court-gold-soft: color-mix(in srgb, var(--primary) 40%, transparent);
-  --mx-court-line-opacity: 0.52;
+  --mx-court-gold: color-mix(in srgb, var(--primary) 84%, transparent);
+  --mx-court-gold-edge: color-mix(in srgb, var(--primary) 60%, transparent);
 }
 
 .menorix-intro-brand-stack {

@@ -8,8 +8,8 @@ import { AppShell } from "../components/AppShell";
 import { PwaStandaloneScannerRedirect } from "../components/PwaStandaloneScannerRedirect";
 import { getPlatformAppNameForMetadata } from "../lib/platform-settings-read";
 
-/** Global Menorix PWA — whole-app install (not operator-scoped). */
-const PWA_THEME_COLOR = "#0f172a";
+/** Global Menorix PWA — matches operator-mobile scanner canvas. */
+const PWA_THEME_COLOR = "#050607";
 
 const inter = Inter({
   variable: "--font-inter",

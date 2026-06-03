@@ -25,6 +25,10 @@ const APP_APPLE_ICON = join(process.cwd(), "app", "apple-icon.png");
 
 /** Matches official Menorix logo artboard (white), not ERP dark shell. */
 const ICON_BG = { r: 255, g: 255, b: 255, alpha: 1 as const };
+/** PWA splash / home-screen — same as operator-mobile canvas (#050607). */
+const PWA_ICON_BG = { r: 5, g: 6, b: 7, alpha: 1 as const };
+
+const ICON_512_MASKABLE = join(process.cwd(), "public", "icons", "icon-512-maskable.png");
 
 function loadEnvLocal() {
   const p = join(process.cwd(), ".env.local");
@@ -126,11 +130,17 @@ async function resolveSourceBuffer(): Promise<{ buf: Buffer; from: "platform_set
   return { buf, from: "platform_settings" };
 }
 
-async function writeSquareIcon(input: Buffer, outPath: string, size: number, paddingRatio = 0.06) {
+async function writeSquareIcon(
+  input: Buffer,
+  outPath: string,
+  size: number,
+  paddingRatio = 0.06,
+  background: { r: number; g: number; b: number; alpha: number } = ICON_BG,
+) {
   const pad = Math.round(size * paddingRatio);
   const inner = size - pad * 2;
   const resized = await sharp(input)
-    .resize(inner, inner, { fit: "contain", background: ICON_BG })
+    .resize(inner, inner, { fit: "contain", background })
     .png()
     .toBuffer();
   await sharp({
@@ -138,7 +148,7 @@ async function writeSquareIcon(input: Buffer, outPath: string, size: number, pad
       width: size,
       height: size,
       channels: 4,
-      background: ICON_BG,
+      background,
     },
   })
     .composite([{ input: resized, gravity: "center" }])
@@ -153,9 +163,10 @@ async function main() {
   const meta = await sharp(buf).metadata();
   console.log(`[pwa-icons] source=${from}, ${meta.width}x${meta.height}, format=${meta.format}`);
 
-  await writeSquareIcon(buf, ICON_192, 192);
-  await writeSquareIcon(buf, ICON_512, 512);
-  await writeSquareIcon(buf, APPLE_TOUCH, 180, 0.08);
+  await writeSquareIcon(buf, ICON_192, 192, 0.1, PWA_ICON_BG);
+  await writeSquareIcon(buf, ICON_512, 512, 0.1, PWA_ICON_BG);
+  await writeSquareIcon(buf, ICON_512_MASKABLE, 512, 0.24, PWA_ICON_BG);
+  await writeSquareIcon(buf, APPLE_TOUCH, 180, 0.1, PWA_ICON_BG);
 
   await sharp(buf)
     .resize(48, 48, { fit: "contain", background: ICON_BG })

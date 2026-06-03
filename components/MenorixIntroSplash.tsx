@@ -62,6 +62,8 @@ type MenorixIntroSplashProps = {
   variant?: MenorixIntroVariant;
   /** Click anywhere on intro to skip straight to content */
   skippable?: boolean;
+  /** Fires when intro completes or user skips */
+  onFinished?: () => void;
 };
 
 function buildSparkles(count: number) {
@@ -278,6 +280,7 @@ export function MenorixIntroSplash({
   durationMs = 6200,
   variant = "login",
   skippable = variant === "login" || variant === "scanner",
+  onFinished,
 }: MenorixIntroSplashProps) {
   const [showIntro, setShowIntro] = useState(true);
   const [contentVisible, setContentVisible] = useState(false);
@@ -285,7 +288,8 @@ export function MenorixIntroSplash({
   const skip = useCallback(() => {
     setShowIntro(false);
     setContentVisible(true);
-  }, []);
+    onFinished?.();
+  }, [onFinished]);
 
   useEffect(() => {
     if (!showIntro) return;
