@@ -1558,6 +1558,11 @@ html {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem 0.75rem;
+  min-width: 0;
+}
+
+.menorix-admin-shell .cc-exec-metric {
+  min-width: 0;
 }
 
 .menorix-admin-shell .cc-exec-metric__label {
@@ -1570,12 +1575,14 @@ html {
 
 .menorix-admin-shell .cc-exec-metric__value {
   margin-top: 0.125rem;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.2;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--foreground);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .menorix-admin-shell .cc-exec-metric__value--emph {
@@ -1927,6 +1934,11 @@ html {
     padding-bottom: 0;
     overflow: hidden;
   }
+
+  .menorix-admin-shell .cc-body-rail .cc-rail-card__body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 }
 
 @media (min-width: 640px) and (max-width: 1023px) {
@@ -1948,11 +1960,13 @@ html {
 }
 
 .menorix-admin-shell .cc-rail-card__body--center {
-  justify-content: center;
+  justify-content: flex-start;
+  padding-top: 0.125rem;
 }
 
 .menorix-admin-shell .cc-rail-card__body .cc-rail-link {
   margin-top: auto;
+  flex-shrink: 0;
 }
 
 .menorix-admin-shell .cc-rail-card--compact .cc-panel__header--compact {
@@ -1999,8 +2013,9 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
-  flex: 1;
-  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  justify-content: flex-start;
 }
 
 .menorix-admin-shell .cc-health-list--compact {
@@ -2011,6 +2026,12 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   display: flex;
   gap: 0.375rem;
   font-size: 0.625rem;
+  min-width: 0;
+}
+
+.menorix-admin-shell .cc-health-row > div {
+  flex: 1;
+  min-width: 0;
 }
 
 .menorix-admin-shell .cc-health-row dt {
@@ -2021,6 +2042,8 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 .menorix-admin-shell .cc-health-row dd {
   color: var(--muted-foreground);
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .menorix-admin-shell .cc-health-warn {
@@ -2041,8 +2064,9 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 }
 
 .menorix-admin-shell .cc-linkage-compact--rail {
-  gap: 0.75rem;
-  padding: 0.375rem 0.625rem 0.5rem;
+  gap: 0.625rem;
+  padding: 0.25rem 0.625rem 0.375rem;
+  flex-shrink: 0;
 }
 
 .menorix-admin-shell .cc-linkage-stats {
@@ -2051,14 +2075,14 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 }
 
 .menorix-admin-shell .cc-linkage-ring--rail {
-  width: 4.75rem;
-  height: 4.75rem;
+  width: 3.75rem;
+  height: 3.75rem;
 }
 
 .menorix-admin-shell .cc-linkage-ring--rail .cc-linkage-ring__inner {
-  width: 3.55rem;
-  height: 3.55rem;
-  font-size: 0.875rem;
+  width: 2.85rem;
+  height: 2.85rem;
+  font-size: 0.75rem;
 }
 .menorix-admin-shell .cc-linkage-ring {
   width: 3rem;
@@ -2129,10 +2153,10 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 }
 
 .menorix-admin-shell .cc-claims-ready-value--sm {
-  font-size: 1.375rem;
-  padding: 0.375rem 0.75rem 0;
-  margin-top: 0.375rem;
-  line-height: 1.15;
+  font-size: 1.125rem;
+  padding: 0.25rem 0.75rem 0;
+  margin-top: 0.125rem;
+  line-height: 1.2;
 }
 
 .menorix-admin-shell .cc-claims-ready-label {

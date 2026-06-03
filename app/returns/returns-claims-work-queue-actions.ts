@@ -41,21 +41,75 @@ async function enrichQueueRowsWithClaimFlow(
   if (!returnIds.length) return rows;
 
   const caseByReturn = new Map<string, { caseId: string; status: string; submissionId: string | null }>();
-  const { data: cases } = await supabaseServer
-    .from("claim_cases")
-    .select("id, primary_return_item_id, status, metadata")
+  const { data: lineLinks, error: lineLinksErr } = await supabaseServer
+    .from("claim_lines")
+    .select("return_item_id, claim_case_id")
     .eq("organization_id", organizationId)
-    .in("primary_return_item_id", returnIds);
+    .eq("line_grain", "return_item")
+    .in("return_item_id", returnIds)
+    .not("claim_case_id", "is", null);
 
-  for (const c of cases ?? []) {
-    const rid = String((c as { primary_return_item_id: string | null }).primary_return_item_id ?? "").trim();
-    if (!rid) continue;
-    const meta = ((c as { metadata?: Record<string, unknown> }).metadata ?? {}) as Record<string, unknown>;
-    const subRaw = String(meta.claim_submission_id ?? "").trim();
+  if (lineLinksErr) {
+    const msg = lineLinksErr.message.toLowerCase();
+    if (!msg.includes("claim_lines") && !msg.includes("schema")) {
+      throw new Error(lineLinksErr.message);
+    }
+  }
+
+  const caseIds = [
+    ...new Set(
+      (lineLinks ?? [])
+        .map((row) => String((row as { claim_case_id: string | null }).claim_case_id ?? "").trim())
+        .filter((id) => isUuidString(id)),
+    ),
+  ];
+
+  const caseMetaById = new Map<string, { status: string; submissionId: string | null }>();
+  if (caseIds.length) {
+    const loadCases = async (select: string) => {
+      return supabaseServer
+        .from("claim_cases")
+        .select(select)
+        .eq("organization_id", organizationId)
+        .in("id", caseIds);
+    };
+
+    let casesRes = await loadCases("id, status, metadata");
+    if (casesRes.error) {
+      const msg = casesRes.error.message.toLowerCase();
+      if (msg.includes("column") || msg.includes("schema cache")) {
+        casesRes = await loadCases("id, case_status");
+      } else if (!msg.includes("claim_cases") && !msg.includes("schema")) {
+        throw new Error(casesRes.error.message);
+      }
+    }
+
+    if (!casesRes.error) {
+      for (const raw of casesRes.data ?? []) {
+        const c = raw as unknown as Record<string, unknown>;
+        const id = String(c.id ?? "");
+        if (!id) continue;
+        const legacyStatus = String(c.case_status ?? "").trim();
+        const status = String(c.status ?? "").trim() || legacyStatus;
+        const meta = (c.metadata ?? {}) as Record<string, unknown>;
+        const subRaw = String(meta.claim_submission_id ?? "").trim();
+        caseMetaById.set(id, {
+          status,
+          submissionId: isUuidString(subRaw) ? subRaw : null,
+        });
+      }
+    }
+  }
+
+  for (const row of lineLinks ?? []) {
+    const rid = String((row as { return_item_id: string | null }).return_item_id ?? "").trim();
+    const caseId = String((row as { claim_case_id: string | null }).claim_case_id ?? "").trim();
+    if (!rid || !caseId || caseByReturn.has(rid)) continue;
+    const meta = caseMetaById.get(caseId);
     caseByReturn.set(rid, {
-      caseId: String((c as { id: string }).id),
-      status: String((c as { status: string }).status ?? ""),
-      submissionId: isUuidString(subRaw) ? subRaw : null,
+      caseId,
+      status: meta?.status ?? "",
+      submissionId: meta?.submissionId ?? null,
     });
   }
 

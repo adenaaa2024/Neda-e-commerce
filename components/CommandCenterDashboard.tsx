@@ -553,7 +553,7 @@ function CommandCenterDashboardLoaded({
             <Server className="h-3.5 w-3.5 text-primary" aria-hidden />
             <h3 className="cc-panel__title">Health &amp; sync</h3>
           </header>
-          <div className="cc-rail-card__body">
+          <div className="cc-rail-card__body cc-scroll-subtle">
             <dl className="cc-health-list cc-health-list--compact">
               <div className="cc-health-row">
                 <Upload className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
@@ -607,7 +607,7 @@ function CommandCenterDashboardLoaded({
             <Link2 className="h-3.5 w-3.5 text-primary" aria-hidden />
             <h3 className="cc-panel__title">Product linkage</h3>
           </header>
-          <div className="cc-rail-card__body cc-rail-card__body--center">
+          <div className="cc-rail-card__body cc-rail-card__body--center cc-scroll-subtle">
             {linkTotal <= 0 ? (
               <p className="cc-rail-empty">No linkage in scope yet.</p>
             ) : (
@@ -646,7 +646,7 @@ function CommandCenterDashboardLoaded({
             <Send className="h-3.5 w-3.5 text-primary" aria-hidden />
             <h3 className="cc-panel__title">Claims ready</h3>
           </header>
-          <div className="cc-rail-card__body cc-rail-card__body--center">
+          <div className="cc-rail-card__body cc-rail-card__body--center cc-scroll-subtle">
             <p className="cc-claims-ready-value cc-claims-ready-value--sm tabular-nums">
               <MetricValue value={String(snap.claimsReadyToSend)} />
             </p>
