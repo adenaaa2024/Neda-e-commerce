@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ScanLine, X } from "lucide-react";
+import { isStandaloneDisplay } from "@/lib/pwa-standalone";
 import { SCANNER_OPERATOR_SCAN_PATH } from "./ScannerBottomNav";
 
 const DISMISS_KEY = "operatorMobile:pwaHintDismissed";
@@ -15,12 +16,6 @@ function isMobileClient(): boolean {
     navigator.userAgent,
   );
   return coarse || ua;
-}
-
-function isStandaloneDisplay(): boolean {
-  if (typeof window === "undefined") return false;
-  if (window.matchMedia("(display-mode: standalone)").matches) return true;
-  return Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 }
 
 /**

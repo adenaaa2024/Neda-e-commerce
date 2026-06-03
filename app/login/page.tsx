@@ -8,6 +8,7 @@ import { MenorixIntroSplash } from "@/components/MenorixIntroSplash";
 import { MenorixWordmark } from "@/components/MenorixWordmark";
 import { PlatformBrandingProvider } from "@/components/PlatformBrandingContext";
 import { LogoMark } from "@/components/LogoMark";
+import { isStandaloneDisplay, SCANNER_PWA_ENTRY_PATH } from "@/lib/pwa-standalone";
 
 async function tryOfferSavePassword(email: string, password: string): Promise<void> {
   if (typeof globalThis === "undefined" || !globalThis.isSecureContext) return;
@@ -45,7 +46,7 @@ export default function LoginPage() {
         return;
       }
       await tryOfferSavePassword(email, password);
-      router.push("/");
+      router.push(isStandaloneDisplay() ? SCANNER_PWA_ENTRY_PATH : "/");
       router.refresh();
     } catch (error) {
       console.error("[login] submit exception:", error);

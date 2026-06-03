@@ -27,6 +27,7 @@ import { TopHeader } from "./TopHeader";
 import { BrandingProvider } from "./BrandingContext";
 import { PlatformBrandingProvider, usePlatformBranding } from "./PlatformBrandingContext";
 import { LogoMark } from "./LogoMark";
+import { PlatformAppWordmark } from "./PlatformAppWordmark";
 import { PLATFORM_TAGLINE } from "../lib/platform-branding";
 import { GlobalSearchProvider } from "./GlobalSearchContext";
 import { UserRoleProvider } from "./UserRoleContext";
@@ -530,9 +531,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           >
             <LogoMark />
             <div className="min-w-0">
-              <p className="truncate text-sm font-bold tracking-tight text-sidebar-foreground">
-                {platformNameLoading && !platformAppName ? "…" : platformAppName || "·"}
-              </p>
+              <PlatformAppWordmark
+                name={platformAppName}
+                loading={platformNameLoading}
+                size="sidebar"
+                className="max-w-full"
+                fallbackClassName="block truncate text-sm font-bold tracking-tight text-sidebar-foreground"
+              />
               <p className="truncate text-[10px] font-medium text-muted-foreground">{PLATFORM_TAGLINE}</p>
             </div>
           </Link>
@@ -607,9 +612,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
               <LogoMark />
               {!collapsed && (
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold tracking-tight text-sidebar-foreground">
-                    {platformNameLoading && !platformAppName ? "…" : platformAppName || "·"}
-                  </p>
+                  <PlatformAppWordmark
+                    name={platformAppName}
+                    loading={platformNameLoading}
+                    size="sidebar"
+                    className="max-w-full"
+                    fallbackClassName="block truncate text-sm font-bold tracking-tight text-sidebar-foreground"
+                  />
                   <p className="truncate text-[10px] font-medium text-muted-foreground">{PLATFORM_TAGLINE}</p>
                 </div>
               )}

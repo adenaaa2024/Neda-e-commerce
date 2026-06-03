@@ -76,35 +76,31 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   }
 }
 
-/* Ground line — letters land here */
+/* Ground line — continuous bar + center gem; light sweep clipped inside track */
+.menorix-intro-court,
+.menorix-intro-court--under-text {
+  position: relative;
+  z-index: 2;
+  width: min(420px, 72vw);
+  height: 3px;
+  flex-shrink: 0;
+  overflow: visible;
+  --mx-court-gold: color-mix(in srgb, var(--primary) 54%, transparent);
+  --mx-court-gold-soft: color-mix(in srgb, var(--primary) 38%, transparent);
+  --mx-court-line-opacity: 0.46;
+  opacity: 0;
+  animation: menorix-court-in 420ms ease forwards;
+  animation-delay: 200ms;
+}
+
 .menorix-intro-court {
   position: absolute;
   left: 50%;
   bottom: 28%;
-  z-index: 1;
-  width: min(420px, 72vw);
-  height: 3px;
   transform: translateX(-50%);
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--primary) 55%, transparent) 20%,
-    color-mix(in srgb, var(--primary) 80%, transparent) 50%,
-    color-mix(in srgb, var(--primary) 55%, transparent) 80%,
-    transparent
-  );
-  box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 40%, transparent);
-  opacity: 0;
-  animation: menorix-court-in 400ms ease forwards;
-  animation-delay: 200ms;
+  z-index: 1;
 }
 
-@keyframes menorix-court-in {
-  to { opacity: 1; }
-}
-
-/* Login — court line sits in flow directly under acronym words */
 .menorix-intro-court--under-text {
   position: relative;
   left: auto;
@@ -112,11 +108,141 @@ html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
   transform: none;
   margin-top: 1rem;
   margin-bottom: 0;
-  flex-shrink: 0;
-  z-index: 2;
+}
+
+/* Full-width line — no gap at center; runs under gem waist */
+.menorix-intro-court__track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--mx-court-gold-soft) 12%,
+    var(--mx-court-gold) 22%,
+    var(--mx-court-gold) 78%,
+    var(--mx-court-gold-soft) 88%,
+    transparent 100%
+  );
+  box-shadow: 0 0 7px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+/* Light pulse — strictly inside the 3px track */
+.menorix-intro-court__sweep {
+  position: absolute;
+  top: 0;
+  left: -24%;
+  width: 16%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, #fff 48%, var(--primary)) 50%,
+    transparent 100%
+  );
   opacity: 0;
-  animation: menorix-court-in 400ms ease forwards;
-  animation-delay: 200ms;
+  pointer-events: none;
+  animation: menorix-court-light-sweep 5.6s ease-in-out infinite;
+  animation-delay: 1.35s;
+}
+
+/* Center gem — same gold as track; waist flush on the line */
+.menorix-intro-court__gem {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: 12px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  background: var(--mx-court-gold);
+  box-shadow: none;
+  animation: menorix-court-gem-flash 5.6s ease-in-out infinite;
+  animation-delay: 1.35s;
+}
+
+/* Subtle facet — same hue as line, not a separate palette */
+.menorix-intro-court__gem::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  clip-path: inherit;
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--mx-court-gold) 88%, #fff) 0%,
+    var(--mx-court-gold) 46%,
+    var(--mx-court-gold) 54%,
+    color-mix(in srgb, var(--mx-court-gold) 92%, #000) 100%
+  );
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Waist band — same 3px gold as track so line + gem read as one piece */
+.menorix-intro-court__gem::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  background: var(--mx-court-gold);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+@keyframes menorix-court-in {
+  to {
+    opacity: var(--mx-court-line-opacity, 0.46);
+  }
+}
+
+@keyframes menorix-court-light-sweep {
+  0%, 52%, 100% {
+    opacity: 0;
+    left: -24%;
+  }
+  58% {
+    opacity: 0.75;
+  }
+  72% {
+    opacity: 0.45;
+    left: 92%;
+  }
+  80% {
+    opacity: 0;
+    left: 92%;
+  }
+}
+
+@keyframes menorix-court-gem-flash {
+  0%, 56%, 100% {
+    filter: brightness(1);
+  }
+  68% {
+    filter: brightness(1.14);
+  }
+  76% {
+    filter: brightness(1.05);
+  }
+}
+
+html.light .menorix-intro-court,
+html.light .menorix-intro-court--under-text {
+  --mx-court-gold: color-mix(in srgb, var(--primary) 50%, transparent);
+  --mx-court-gold-soft: color-mix(in srgb, var(--primary) 34%, transparent);
+  --mx-court-line-opacity: 0.42;
+}
+
+html.dark .menorix-intro-court,
+html.dark .menorix-intro-court--under-text {
+  --mx-court-gold: color-mix(in srgb, var(--primary) 56%, transparent);
+  --mx-court-gold-soft: color-mix(in srgb, var(--primary) 40%, transparent);
+  --mx-court-line-opacity: 0.52;
 }
 
 .menorix-intro-brand-stack {
@@ -686,6 +812,85 @@ html.dark .menorix-intro-letter--login {
   opacity: 1;
 }
 
+/* Mobile — fit intro splash on small screens (logo ~20% smaller; text tighter) */
+@media (max-width: 640px) {
+  .menorix-intro-logo--login {
+    width: 11rem !important;
+    height: 11rem !important;
+    border-radius: 22px !important;
+  }
+
+  .menorix-intro-logo--login img {
+    padding: 0.5rem !important;
+  }
+
+  .menorix-intro-brand-stack--login {
+    gap: 0.6rem;
+    max-width: min(calc(100vw - 1.25rem), 22rem);
+    transform: translateY(-0.5vh);
+    padding-bottom: 0;
+  }
+
+  .menorix-intro-overlay--login {
+    padding-bottom: 1.5vh;
+    justify-content: center;
+  }
+
+  .menorix-intro-brand-stack--login .menorix-intro-letters {
+    gap: 0.3rem;
+  }
+
+  .menorix-intro-letter--login {
+    width: 2.4rem;
+    height: 2.95rem;
+    font-size: 1.32rem;
+    border-radius: 9px;
+  }
+
+  .menorix-intro-acronym-sentence {
+    gap: 0.18rem 0.5rem;
+    margin-top: 0.2rem;
+    padding: 0 0.35rem;
+    max-width: 100%;
+    font-size: 0.76rem;
+    line-height: 1.12;
+  }
+
+  .menorix-intro-acronym-word--plain {
+    font-size: 0.7rem;
+  }
+
+  .menorix-intro-acronym-word__accent {
+    font-size: 1.22em;
+  }
+
+  .menorix-intro-court--under-text {
+    margin-top: 0.45rem;
+    width: min(260px, 66vw);
+  }
+
+  .menorix-intro-court__gem {
+    width: 10px;
+    height: 12px;
+  }
+
+  .menorix-intro-logo--scanner {
+    width: 5.2rem !important;
+    height: 5.2rem !important;
+    border-radius: 14px !important;
+  }
+
+  .menorix-intro-letter--scanner {
+    width: 1.65rem;
+    height: 2rem;
+    font-size: 0.85rem;
+  }
+
+  .menorix-intro-letters {
+    gap: 0.18rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .menorix-intro-overlay,
   .menorix-intro-letter,
@@ -695,6 +900,8 @@ html.dark .menorix-intro-letter--login {
   .menorix-intro-sparkle,
   .menorix-intro-particle,
   .menorix-intro-content,
+  .menorix-intro-court__sweep,
+  .menorix-intro-court__gem,
   .login-page__logo,
   .login-page__logo--live,
   .menorix-wordmark--live,

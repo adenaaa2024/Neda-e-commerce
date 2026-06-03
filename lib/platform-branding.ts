@@ -20,3 +20,9 @@ export function monogramFromAppName(raw: string): string {
   if (t.length === 1) return `${t}${t}`.toUpperCase();
   return "";
 }
+
+/** True when shell chrome should render the stylized Menorix wordmark (E bars + gold X). */
+export function isMenorixPlatformName(raw: string): boolean {
+  const t = raw.replace(/\s+/g, "").trim().toLowerCase();
+  return !t || t === "menorix";
+}

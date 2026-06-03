@@ -86,6 +86,22 @@ function buildParticles(count: number) {
   }));
 }
 
+function IntroCourtGemLine({ underText = false }: { underText?: boolean }) {
+  return (
+    <div
+      className={["menorix-intro-court", underText ? "menorix-intro-court--under-text" : ""]
+        .filter(Boolean)
+        .join(" ")}
+      aria-hidden
+    >
+      <span className="menorix-intro-court__track">
+        <span className="menorix-intro-court__sweep" aria-hidden />
+      </span>
+      <span className="menorix-intro-court__gem" aria-hidden />
+    </div>
+  );
+}
+
 function IntroOverlay({
   durationMs,
   variant,
@@ -103,11 +119,11 @@ function IntroOverlay({
   const isLogin = variant === "login";
 
   const sparkles = useMemo(
-    () => buildSparkles(isScanner ? 12 : isLogin ? 32 : 18),
+    () => buildSparkles(isScanner ? 18 : isLogin ? 32 : 18),
     [isLogin, isScanner],
   );
   const particles = useMemo(
-    () => buildParticles(isScanner ? 0 : isLogin ? 40 : 22),
+    () => buildParticles(isScanner ? 14 : isLogin ? 40 : 22),
     [isLogin, isScanner],
   );
 
@@ -153,24 +169,22 @@ function IntroOverlay({
       onClick={skippable ? finish : undefined}
       aria-label={skippable ? "Skip intro" : undefined}
     >
-      {!isScanner && !isLogin ? <div className="menorix-intro-court" aria-hidden /> : null}
+      {!isScanner && !isLogin ? <IntroCourtGemLine /> : null}
 
-      {!isScanner ? (
-        <div className="menorix-intro-sparkles" aria-hidden>
-          {sparkles.map((s) => (
-            <span
-              key={s.id}
-              className="menorix-intro-sparkle"
-              style={{
-                left: s.left,
-                top: s.top,
-                ["--mx-sparkle-size" as string]: `${s.size}px`,
-                ["--mx-sparkle-delay" as string]: `${s.delay}ms`,
-              }}
-            />
-          ))}
-        </div>
-      ) : null}
+      <div className="menorix-intro-sparkles" aria-hidden>
+        {sparkles.map((s) => (
+          <span
+            key={s.id}
+            className="menorix-intro-sparkle"
+            style={{
+              left: s.left,
+              top: s.top,
+              ["--mx-sparkle-size" as string]: `${s.size}px`,
+              ["--mx-sparkle-delay" as string]: `${s.delay}ms`,
+            }}
+          />
+        ))}
+      </div>
 
       {isLogin || isScanner ? (
         <div
@@ -217,7 +231,7 @@ function IntroOverlay({
               ))}
             </div>
           ) : null}
-          {isLogin ? <div className="menorix-intro-court menorix-intro-court--under-text" aria-hidden /> : null}
+          {isLogin ? <IntroCourtGemLine underText /> : null}
         </div>
       ) : (
         <div className="menorix-intro-letters" aria-label="Menorix">
@@ -237,7 +251,7 @@ function IntroOverlay({
         </div>
       )}
 
-      {!isScanner && particles.length > 0 ? (
+      {particles.length > 0 ? (
         <div className="menorix-intro-powder" aria-hidden>
           {particles.map((p) => (
             <span

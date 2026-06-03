@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Moon, RotateCcw, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { LogoMark } from "@/components/LogoMark";
+import { PlatformAppWordmark } from "@/components/PlatformAppWordmark";
 import { usePlatformBranding } from "@/components/PlatformBrandingContext";
 
 /**
@@ -29,7 +30,6 @@ export function OperatorUtilityRow({ className }: { className?: string }) {
   const isDark = mounted ? resolvedTheme === "dark" : true;
 
   const { platformAppName, loading: platformLoading } = usePlatformBranding();
-  const platformLabel = platformLoading ? "" : platformAppName.trim();
 
   const handleRefresh = () => {
     if (typeof window === "undefined") return;
@@ -47,15 +47,13 @@ export function OperatorUtilityRow({ className }: { className?: string }) {
           so the SaaS provider stays the dominant identity in the header. */}
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <LogoMark className="h-6 w-6 shrink-0" />
-        {platformLabel ? (
-          <span
-            className="operator-heading min-w-0 truncate text-[14px] font-bold tracking-tight"
-            style={{ color: "var(--scanner-text)" }}
-            title={platformLabel}
-          >
-            {platformLabel}
-          </span>
-        ) : null}
+        <PlatformAppWordmark
+          name={platformAppName}
+          loading={platformLoading}
+          size="mobile-header"
+          className="min-w-0 max-w-[calc(100%-2rem)] shrink"
+          fallbackClassName="operator-heading min-w-0 truncate text-[14px] font-bold tracking-tight"
+        />
       </div>
 
       {/* Right: Refresh + Theme toggle. */}

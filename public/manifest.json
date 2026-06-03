@@ -2,11 +2,11 @@
   "name": "Menorix",
   "short_name": "Menorix",
   "description": "B2B Returns & Recovery Platform",
-  "start_url": "/",
+  "start_url": "/scanner/operator-mobile/scan",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
+  "background_color": "#050607",
   "theme_color": "#0f172a",
   "icons": [
     {

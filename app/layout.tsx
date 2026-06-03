@@ -5,6 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "../components/providers/ThemeProvider";
 import { DebugModeProvider } from "../components/DebugModeContext";
 import { AppShell } from "../components/AppShell";
+import { PwaStandaloneScannerRedirect } from "../components/PwaStandaloneScannerRedirect";
 import { getPlatformAppNameForMetadata } from "../lib/platform-settings-read";
 
 /** Global Menorix PWA — whole-app install (not operator-scoped). */
@@ -75,6 +76,7 @@ export default function RootLayout({
              * Every page route is wrapped here — the sidebar NEVER disappears.
              */}
             <Suspense fallback={null}>
+              <PwaStandaloneScannerRedirect />
               <AppShell>{children}</AppShell>
             </Suspense>
           </DebugModeProvider>
