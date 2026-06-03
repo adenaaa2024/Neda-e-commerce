@@ -6,6 +6,7 @@ import { OperatorPwaInstallHint } from "./_components/OperatorPwaInstallHint";
 import { OperatorUtilityRow } from "./_components/OperatorUtilityRow";
 
 import { OperatorMobileIntroShell } from "./_components/OperatorMobileIntroShell";
+import { OperatorMobileSessionRouteGuard } from "./_components/OperatorMobileSessionRouteGuard";
 
 const operatorDisplay = Oswald({
   variable: "--font-operator-display",
@@ -26,6 +27,7 @@ const operatorDisplay = Oswald({
 export default function OperatorMobileLayout({ children }: { children: ReactNode }) {
   return (
     <OperatorMobileIntroShell>
+      <OperatorMobileSessionRouteGuard />
     <div
       dir="ltr"
       lang="en"

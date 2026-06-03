@@ -3,7 +3,7 @@
   "name": "Menorix Scanner",
   "short_name": "Scanner",
   "description": "Warehouse mobile scanner — Menorix returns intake",
-  "start_url": "/scanner/operator-mobile/scan?source=pwa",
+  "start_url": "/scanner/operator-mobile?source=pwa",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],

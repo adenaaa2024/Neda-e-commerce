@@ -11,8 +11,8 @@ import {
 const PUBLIC_PREFIXES = ["/login", "/auth/"];
 
 /**
- * Installed PWA should open the warehouse scanner — not the ERP dashboard.
- * Handles legacy installs whose cached manifest still uses start_url "/".
+ * Installed PWA should open the warehouse scanner home — not scan or the ERP dashboard.
+ * Handles legacy installs whose cached manifest still uses start_url "/" or "/scan".
  */
 export function PwaStandaloneScannerRedirect() {
   const pathname = usePathname();

@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { Bell, Home, ListTodo, Menu, ScanLine } from "lucide-react";
+import {
+  SCANNER_OPERATOR_HOME_PATH,
+  SCANNER_OPERATOR_SCAN_PATH,
+} from "@/lib/pwa-standalone";
 import { operatorHapticTap } from "../_lib/operator-haptics";
 
 /** Warehouse receiving home (dashboard). */
-export const SCANNER_OPERATOR_HOME_PATH = "/scanner/operator-mobile";
-/** Active scan / pallet flow. */
-export const SCANNER_OPERATOR_SCAN_PATH = "/scanner/operator-mobile/scan";
+export { SCANNER_OPERATOR_HOME_PATH, SCANNER_OPERATOR_SCAN_PATH };
 
 /** @deprecated Use SCANNER_OPERATOR_SCAN_PATH for the scan tab; kept for older imports. */
 export const SCANNER_OPERATOR_MOBILE_PATH = SCANNER_OPERATOR_SCAN_PATH;
