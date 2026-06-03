@@ -158,6 +158,60 @@ export type ItemUnitRecordModalInitialState = {
   operatorNotes: string;
 };
 
+function normEvidenceUrls(urls: readonly string[]): string[] {
+  return urls.map((u) => String(u ?? "").trim()).filter(Boolean);
+}
+
+/** True when operator changed modal fields away from the snapshot taken when the modal opened. */
+export function itemUnitRecordModalHasUnsavedDraft(input: {
+  barcode: string;
+  initialBarcode: string;
+  initialState: ItemUnitRecordModalInitialState | null;
+  selectedTags: ItemUnitDiscrepancyTagKey[];
+  expiryDate: string;
+  lotNumber: string;
+  noExpiryChecked: boolean;
+  evidenceUrls: readonly string[];
+  optionalItemPhotoUrl: string | null;
+  operatorNotes: string;
+  manualBarcodeEntry: boolean;
+}): boolean {
+  if (input.manualBarcodeEntry) return true;
+  if (input.barcode.trim() !== input.initialBarcode.trim()) return true;
+
+  const baselineTags = input.initialState?.selectedTags?.length
+    ? normalizeItemUnitDiscrepancySelection(input.initialState.selectedTags)
+    : [ITEM_UNIT_SELLABLE_OK_TAG];
+  const currentTags = normalizeItemUnitDiscrepancySelection(input.selectedTags);
+  if (JSON.stringify(currentTags) !== JSON.stringify(baselineTags)) return true;
+
+  const baselineExpiry = input.initialState?.expiryDate ?? "";
+  if (input.expiryDate.trim() !== baselineExpiry.trim()) return true;
+
+  const baselineLot = input.initialState?.lotNumber ?? "";
+  if (input.lotNumber.trim() !== baselineLot.trim()) return true;
+
+  const baselineNoExpiry = input.initialState?.noExpiryChecked ?? false;
+  if (input.noExpiryChecked !== baselineNoExpiry) return true;
+
+  const baselineEvidence = normEvidenceUrls(input.initialState?.evidenceUrls ?? []);
+  const currentEvidence = normEvidenceUrls(input.evidenceUrls);
+  if (
+    baselineEvidence.length !== currentEvidence.length ||
+    baselineEvidence.some((u, i) => u !== currentEvidence[i])
+  ) {
+    return true;
+  }
+
+  const baselineOptional = (input.initialState?.optionalItemPhotoUrl ?? "").trim();
+  if ((input.optionalItemPhotoUrl ?? "").trim() !== baselineOptional) return true;
+
+  const baselineNotes = (input.initialState?.operatorNotes ?? "").trim();
+  if (input.operatorNotes.trim() !== baselineNotes) return true;
+
+  return false;
+}
+
 type ItemUnitRecordModalProps = {
   open: boolean;
   mode?: "create" | "edit";
@@ -179,6 +233,8 @@ type ItemUnitRecordModalProps = {
   busy: boolean;
   onClose: () => void;
   onSave: (payload: ItemUnitRecordSavePayload) => Promise<ItemUnitRecordSaveResult>;
+  /** Fires when open draft diverges from the modal open snapshot (for scanner back-navigation). */
+  onUnsavedDraftChange?: (dirty: boolean) => void;
 };
 
 export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
@@ -200,6 +256,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     busy,
     onClose,
     onSave,
+    onUnsavedDraftChange,
   } = props;
 
   const isEditMode = mode === "edit";
@@ -367,6 +424,47 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       evidenceUrls.length,
     ],
   );
+
+  const unsavedDraft = useMemo(
+    () =>
+      open
+        ? itemUnitRecordModalHasUnsavedDraft({
+            barcode,
+            initialBarcode,
+            initialState,
+            selectedTags,
+            expiryDate,
+            lotNumber,
+            noExpiryChecked,
+            evidenceUrls,
+            optionalItemPhotoUrl,
+            operatorNotes,
+            manualBarcodeEntry,
+          })
+        : false,
+    [
+      open,
+      barcode,
+      initialBarcode,
+      initialState,
+      selectedTags,
+      expiryDate,
+      lotNumber,
+      noExpiryChecked,
+      evidenceUrls,
+      optionalItemPhotoUrl,
+      operatorNotes,
+      manualBarcodeEntry,
+    ],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      onUnsavedDraftChange?.(false);
+      return;
+    }
+    onUnsavedDraftChange?.(unsavedDraft);
+  }, [open, unsavedDraft, onUnsavedDraftChange]);
 
   useEffect(() => {
     setValidationIssues((prev) => {

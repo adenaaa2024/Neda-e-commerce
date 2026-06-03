@@ -4062,7 +4062,9 @@ function OperatorMobileScanPageContent() {
   const lastPalletIdForViewLockResetRef = useRef<string | null>(null);
   /** Shipment tracking string to restore after a failed duplicate check while editing the header field. */
   const palletTrackingEditBaselineRef = useRef("");
+  const palletShipmentFieldsBaselineRef = useRef({ orderId: "", carrier: "" });
   const parentPalletCarrierDefaultRef = useRef("");
+  const itemUnitModalDraftDirtyRef = useRef(false);
   const [slipExtractMissing, setSlipExtractMissing] = useState<{ carrier: boolean; orderId: boolean } | null>(null);
   /** Up to three URLs — persisted in `pallets.shipping_label_urls`. */
   const [shippingLabelPhotoUrls, setShippingLabelPhotoUrls] = useState<string[]>([]);
@@ -4737,12 +4739,17 @@ function OperatorMobileScanPageContent() {
     (cancelled: boolean) => {
       if (busy) return;
       modalOpenRef.current = false;
+      itemUnitModalDraftDirtyRef.current = false;
       setItemUnitModal(null);
       if (cancelled) showScanActionToast("neutral", "Action cancelled.");
       scheduleFocusScanner();
     },
     [busy, scheduleFocusScanner, showScanActionToast],
   );
+
+  const handleItemUnitModalUnsavedDraftChange = useCallback((dirty: boolean) => {
+    itemUnitModalDraftDirtyRef.current = dirty;
+  }, []);
 
   useEffect(() => {
     scheduleFocusScanner();
@@ -6302,7 +6309,13 @@ function OperatorMobileScanPageContent() {
     o.pallet = [...palletPhotoUrlsRef.current];
     o.bol = [...bolPhotoUrlsRef.current];
     palletNotesBaselineRef.current = palletNotes.trim();
-  }, [palletNotes]);
+    palletShipmentFieldsBaselineRef.current = {
+      orderId: palletOrderIdRef.current.trim(),
+      carrier: palletCarrierRef.current.trim(),
+    };
+    palletTrackingEditBaselineRef.current =
+      (currentPalletTrackingId ?? "").trim() || (activePallet?.pallet_number ?? "").trim();
+  }, [palletNotes, currentPalletTrackingId, activePallet?.pallet_number]);
 
   const captureBoxEvidenceBaseline = useCallback(() => {
     const o = evidenceBaselineRef.current;
@@ -7624,6 +7637,7 @@ function OperatorMobileScanPageContent() {
       setItemDraft(null);
       setCandidatePicker(null);
 
+      itemUnitModalDraftDirtyRef.current = false;
       modalOpenRef.current = true;
       setItemUnitModal({
         mode: "create",
@@ -7661,6 +7675,7 @@ function OperatorMobileScanPageContent() {
       setItemReceiveError(null);
       setItemBarcodeMiss(null);
       setItemScanEditPick(null);
+      itemUnitModalDraftDirtyRef.current = false;
       modalOpenRef.current = true;
       setItemUnitModal({
         mode: "edit",
@@ -10774,11 +10789,15 @@ function OperatorMobileScanPageContent() {
     }
   }, [flowPhase, parentIdentified, activePallet?.id]);
 
-  /** Snapshot header tracking when Edit All enables pallet tracking edits (duplicate-check revert). */
+  /** Snapshot header tracking + shipment fields when Edit All enables pallet edits (duplicate-check revert). */
   useEffect(() => {
     if (!trackingIdEditable || flowPhase !== "scan") return;
     palletTrackingEditBaselineRef.current =
       (currentPalletTrackingId ?? "").trim() || (activePallet?.pallet_number ?? "").trim();
+    palletShipmentFieldsBaselineRef.current = {
+      orderId: palletOrderIdRef.current.trim(),
+      carrier: palletCarrierRef.current.trim(),
+    };
   }, [trackingIdEditable, flowPhase, currentPalletTrackingId, activePallet?.pallet_number]);
 
   const handlePalletHeaderTrackingBlur = useCallback(
@@ -11140,61 +11159,158 @@ function OperatorMobileScanPageContent() {
     scheduleFocusScanner,
   ]);
 
-  const hasUnsavedPalletShipmentEdits = useCallback(() => {
-    if (!isIdentified || flowPhase !== "scan") return false;
+  const hasUnsavedLegacyItemInspectionDraft = useCallback(() => {
+    if (!itemDraft) return false;
+    if (inspectionCondition !== "good") return true;
+    if (itemNotes.trim()) return true;
+    if (itemExpiryDate.trim()) return true;
+    if (itemBatch.trim()) return true;
+    if (itemQtyStepper !== 1) return true;
+    if (itemPhotoFrontUrl || itemPhotoBarcodeUrl || itemPhotoDamageUrl) return true;
+    return false;
+  }, [
+    itemDraft,
+    inspectionCondition,
+    itemNotes,
+    itemExpiryDate,
+    itemBatch,
+    itemQtyStepper,
+    itemPhotoFrontUrl,
+    itemPhotoBarcodeUrl,
+    itemPhotoDamageUrl,
+  ]);
+
+  const hasUnsavedPalletShipmentEdits = useCallback((): { dirty: boolean; reason?: string } => {
+    if (!isIdentified || flowPhase !== "scan") return { dirty: false };
     const b = evidenceBaselineRef.current;
-    if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) return true;
-    if (operatorEvidenceUrlArraysChanged(palletPhotoUrlsRef.current, b.pallet)) return true;
-    if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) return true;
-    if (palletNotes.trim() !== palletNotesBaselineRef.current) return true;
+    if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) {
+      return { dirty: true, reason: "shipping_label_photos" };
+    }
+    if (operatorEvidenceUrlArraysChanged(palletPhotoUrlsRef.current, b.pallet)) {
+      return { dirty: true, reason: "pallet_photos" };
+    }
+    if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) {
+      return { dirty: true, reason: "bol_photos" };
+    }
+    if (palletNotes.trim() !== palletNotesBaselineRef.current) {
+      return { dirty: true, reason: "pallet_notes" };
+    }
     if (editAllMode) {
       const cur = (currentPalletTrackingId ?? "").trim();
       const base = palletTrackingEditBaselineRef.current.trim();
-      if (cur !== base) return true;
+      if (cur !== base) return { dirty: true, reason: "tracking" };
+      const shipBase = palletShipmentFieldsBaselineRef.current;
+      if (palletOrderIdRef.current.trim() !== shipBase.orderId) {
+        return { dirty: true, reason: "order_id" };
+      }
+      if (palletCarrierRef.current.trim() !== shipBase.carrier) {
+        return { dirty: true, reason: "carrier" };
+      }
     }
-    return false;
+    return { dirty: false };
   }, [isIdentified, flowPhase, palletNotes, editAllMode, currentPalletTrackingId]);
 
-  const hasUnsavedBoxIntakeEdits = useCallback(() => {
-    if (flowPhase !== "package_scan") return false;
-    const sessionPackageId = (activeBoxSession?.packageId ?? "").trim();
-    if (activeBoxSession && !isUuidString(sessionPackageId)) return true;
+  const hasUnsavedBoxIntakeEdits = useCallback((): { dirty: boolean; reason?: string } => {
+    if (flowPhase !== "package_scan") return { dirty: false };
+    if (!activeBoxSession) return { dirty: false };
+    const sessionPackageId = (activeBoxSession.packageId ?? "").trim();
+    if (!isUuidString(sessionPackageId)) return { dirty: true, reason: "new_box_session" };
     const b = evidenceBaselineRef.current;
-    if (operatorEvidenceUrlArraysChanged(slipBoxPhotoUrlsRef.current, b.slip)) return true;
-    if (operatorEvidenceUrlArraysChanged(outsideBoxPhotoUrlsRef.current, b.outside)) return true;
-    if (operatorEvidenceUrlArraysChanged(insideBoxPhotoUrlsRef.current, b.inside)) return true;
+    if (operatorEvidenceUrlArraysChanged(slipBoxPhotoUrlsRef.current, b.slip)) {
+      return { dirty: true, reason: "slip_photos" };
+    }
+    if (operatorEvidenceUrlArraysChanged(outsideBoxPhotoUrlsRef.current, b.outside)) {
+      return { dirty: true, reason: "outside_photos" };
+    }
+    if (operatorEvidenceUrlArraysChanged(insideBoxPhotoUrlsRef.current, b.inside)) {
+      return { dirty: true, reason: "inside_photos" };
+    }
     if (directBox) {
-      if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) return true;
-      if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) return true;
+      if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) {
+        return { dirty: true, reason: "shipping_label_photos" };
+      }
+      if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) {
+        return { dirty: true, reason: "bol_photos" };
+      }
     }
-    if (boxNotesRef.current.trim() !== boxNotesBaselineRef.current) return true;
+    if (boxNotesRef.current.trim() !== boxNotesBaselineRef.current) {
+      return { dirty: true, reason: "box_notes" };
+    }
     const fieldBaseline = boxIntakeFieldsBaselineRef.current;
-    if (boxSlipCodeRef.current.trim() !== fieldBaseline.slipCode) return true;
-    if (boxSlipRmaRef.current.trim() !== fieldBaseline.rma) return true;
-    if (palletOrderIdRef.current.trim() !== fieldBaseline.orderId) return true;
-    if (palletCarrierRef.current.trim() !== fieldBaseline.carrier) return true;
-    if (
-      JSON.stringify(boxSlipVisionLines) !== JSON.stringify(boxSlipVisionLinesPersistRef.current)
-    ) {
-      return true;
+    if (boxSlipCodeRef.current.trim() !== fieldBaseline.slipCode) {
+      return { dirty: true, reason: "slip_code" };
     }
-    return false;
+    if (boxSlipRmaRef.current.trim() !== fieldBaseline.rma) {
+      return { dirty: true, reason: "rma" };
+    }
+    if (palletOrderIdRef.current.trim() !== fieldBaseline.orderId) {
+      return { dirty: true, reason: "order_id" };
+    }
+    if (palletCarrierRef.current.trim() !== fieldBaseline.carrier) {
+      return { dirty: true, reason: "carrier" };
+    }
+    const visionCurrent = clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+    const visionBaseline = boxSlipVisionLinesPersistRef.current;
+    if (JSON.stringify(visionCurrent) !== JSON.stringify(visionBaseline)) {
+      return { dirty: true, reason: "slip_vision_lines" };
+    }
+    return { dirty: false };
   }, [flowPhase, activeBoxSession, directBox, boxSlipVisionLines]);
 
-  const hasUnsavedItemScanModalDraft = useCallback(
-    () =>
-      Boolean(
-        itemUnitModal ||
-          candidatePicker ||
-          slipLineCandidatePicker ||
-          unexpectedPackageItemModal ||
-          manualOpen,
-      ),
-    [itemUnitModal, candidatePicker, slipLineCandidatePicker, unexpectedPackageItemModal, manualOpen],
-  );
+  const hasUnsavedIdentifyGateEdits = useCallback((): { dirty: boolean; reason?: string } => {
+    if (identifyGatePhase === "idle") return { dirty: false };
+    if (identifyGatePhase === "searching" || identifyGateDeepSearchRunning) {
+      return { dirty: true, reason: "gate_search_in_progress" };
+    }
+    if (scanLine.trim()) return { dirty: true, reason: "scan_line" };
+    if (manualOpen && scanLine.trim()) return { dirty: true, reason: "manual_entry" };
+    if (identifyGatePhysicalBoxStr.trim() && (identifyGatePhase === "matched" || identifyGatePhase === "new")) {
+      return { dirty: true, reason: "gate_box_count" };
+    }
+    if (identifyGatePhotoOcrCandidates.length > 0 || identifyGateSelectedPhotoOcrCandidate) {
+      return { dirty: true, reason: "gate_photo_ocr" };
+    }
+    return { dirty: false };
+  }, [
+    identifyGatePhase,
+    identifyGateDeepSearchRunning,
+    scanLine,
+    manualOpen,
+    identifyGatePhysicalBoxStr,
+    identifyGatePhotoOcrCandidates.length,
+    identifyGateSelectedPhotoOcrCandidate,
+  ]);
+
+  const hasUnsavedItemScanModalDraft = useCallback((): { dirty: boolean; reason?: string } => {
+    if (itemUnitModal && itemUnitModalDraftDirtyRef.current) {
+      return { dirty: true, reason: "item_unit_modal" };
+    }
+    if (unexpectedPackageItemModal) {
+      return { dirty: true, reason: "unexpected_item_modal" };
+    }
+    if (candidatePicker || slipLineCandidatePicker) {
+      return { dirty: true, reason: "item_line_picker" };
+    }
+    if (manualOpen && scanLine.trim()) {
+      return { dirty: true, reason: "manual_entry" };
+    }
+    if (hasUnsavedLegacyItemInspectionDraft()) {
+      return { dirty: true, reason: "legacy_item_draft" };
+    }
+    return { dirty: false };
+  }, [
+    itemUnitModal,
+    unexpectedPackageItemModal,
+    candidatePicker,
+    slipLineCandidatePicker,
+    manualOpen,
+    scanLine,
+    hasUnsavedLegacyItemInspectionDraft,
+  ]);
 
   const dismissItemScanModalDrafts = useCallback(() => {
     modalOpenRef.current = false;
+    itemUnitModalDraftDirtyRef.current = false;
     setItemUnitModal(null);
     setCandidatePicker(null);
     setSlipLineCandidatePicker(null);
@@ -11341,6 +11457,8 @@ function OperatorMobileScanPageContent() {
     }
 
     setFlowPhase("package_scan");
+    captureBoxEvidenceBaseline();
+    captureBoxIntakeFieldsBaseline();
     scheduleFocusScanner();
   }, [
     dismissItemScanModalDrafts,
@@ -11349,21 +11467,28 @@ function OperatorMobileScanPageContent() {
     itemScanPackageLabel,
     palletPackagePickerList,
     hydrateBoxSlipVisionFromSavedPackage,
+    captureBoxEvidenceBaseline,
+    captureBoxIntakeFieldsBaseline,
     scheduleFocusScanner,
   ]);
 
   const handleScannerBack = useCallback(() => {
-    const logScannerBack = (phase: string, dirty: unknown, action: string) => {
+    const logScannerBack = (phase: string, dirty: boolean, action: string, reason?: string) => {
       if (!SCANNER_BACK_DEBUG) return;
-      console.log(`[scanner-back] phase=${phase}`);
-      console.log(`[scanner-back] dirty=${JSON.stringify(dirty)}`);
-      console.log(`[scanner-back] action=${action}`);
+      console.log(
+        `[scanner-back] phase=${phase} dirty=${dirty}${reason ? ` reason=${reason}` : ""} action=${action}`,
+      );
     };
 
     if (identifyGatePhase !== "idle") {
-      logScannerBack("identify-gate", identifyGatePhase, "resetIdentifyGateForm");
-      resetIdentifyGateForm();
-      scheduleFocusScanner();
+      const gate = hasUnsavedIdentifyGateEdits();
+      const action = () => {
+        resetIdentifyGateForm();
+        scheduleFocusScanner();
+      };
+      logScannerBack("identify-gate", gate.dirty, gate.dirty ? "confirm-reset" : "reset", gate.reason);
+      if (gate.dirty) requestScannerLeaveConfirm(action);
+      else action();
       return;
     }
 
@@ -11372,8 +11497,13 @@ function OperatorMobileScanPageContent() {
         returnFromItemsPhaseToBoxInfo();
       };
       const modalDraft = hasUnsavedItemScanModalDraft();
-      logScannerBack("items", { modalDraft }, modalDraft ? "confirm-box-info" : "box-info");
-      if (modalDraft) {
+      logScannerBack(
+        "items",
+        modalDraft.dirty,
+        modalDraft.dirty ? "confirm-box-info" : "box-info",
+        modalDraft.reason,
+      );
+      if (modalDraft.dirty) {
         requestScannerLeaveConfirm(proceed);
         return;
       }
@@ -11382,13 +11512,18 @@ function OperatorMobileScanPageContent() {
     }
 
     if (flowPhase === "package_scan") {
-      const dirty = hasUnsavedBoxIntakeEdits();
+      const box = hasUnsavedBoxIntakeEdits();
       const isDirect = directBox || !(activePallet?.id?.trim());
 
       if (activeBoxSession) {
         const action = () => performBoxIntakeBackNavigation();
-        logScannerBack("package_scan/session", { dirty, isDirect }, dirty ? "confirm-leave" : "leave");
-        if (dirty) requestScannerLeaveConfirm(action);
+        logScannerBack(
+          "package_scan/session",
+          box.dirty,
+          box.dirty ? "confirm-leave" : "leave",
+          box.reason,
+        );
+        if (box.dirty) requestScannerLeaveConfirm(action);
         else action();
         return;
       }
@@ -11405,14 +11540,12 @@ function OperatorMobileScanPageContent() {
           closeActiveBoxPackageSession();
           scheduleFocusScanner();
         };
-        const pickerDirty =
-          dirty ||
-          Boolean(palletPackagePickerQuery.trim()) ||
-          Boolean((currentPackageTrackingId ?? "").trim());
+        const pickerDirty = Boolean(palletPackagePickerQuery.trim());
         logScannerBack(
           "package_scan/picker",
-          { dirty: pickerDirty, isDirect },
+          pickerDirty,
           pickerDirty ? "confirm-dismiss" : "dismiss",
+          pickerDirty ? "picker_query" : undefined,
         );
         if (pickerDirty) requestScannerLeaveConfirm(dismissPicker);
         else dismissPicker();
@@ -11420,16 +11553,21 @@ function OperatorMobileScanPageContent() {
       }
 
       const action = () => performBoxIntakeBackNavigation();
-      logScannerBack("package_scan/hub", { dirty, isDirect }, dirty ? "confirm-leave" : "leave");
-      if (dirty) requestScannerLeaveConfirm(action);
+      logScannerBack("package_scan/hub", box.dirty, box.dirty ? "confirm-leave" : "leave", box.reason);
+      if (box.dirty) requestScannerLeaveConfirm(action);
       else action();
       return;
     }
 
     if (flowPhase === "scan" && isIdentified) {
-      const dirty = hasUnsavedPalletShipmentEdits();
-      logScannerBack("scan/identified", { dirty }, dirty ? "confirm-router-back" : "router-back");
-      if (dirty) {
+      const pallet = hasUnsavedPalletShipmentEdits();
+      logScannerBack(
+        "scan/identified",
+        pallet.dirty,
+        pallet.dirty ? "confirm-router-back" : "router-back",
+        pallet.reason,
+      );
+      if (pallet.dirty) {
         requestScannerLeaveConfirm(() => {
           void abandonUnsavedPalletShipmentEdits().finally(() => {
             router.back();
@@ -11446,38 +11584,48 @@ function OperatorMobileScanPageContent() {
         Boolean(activePallet?.id?.trim()) ||
         Boolean(activeBoxSession) ||
         Boolean((itemScanPackageId ?? "").trim());
-      const initialDirty =
-        Boolean(scanLine.trim()) || manualOpen || hasUnsavedPalletShipmentEdits();
+      const gate = hasUnsavedIdentifyGateEdits();
+      const initialDirty = gate.dirty || Boolean(scanLine.trim());
       logScannerBack(
         "scan/initial",
-        { hasReceivingContext, initialDirty },
+        initialDirty,
         !hasReceivingContext && !initialDirty ? "router-back" : "clear-or-router-back",
+        gate.reason,
       );
       if (!hasReceivingContext && !initialDirty) {
         router.back();
         return;
       }
-      if (scanLine.trim() || manualOpen) {
-        resetIdentifyGateForm();
+      if (manualOpen && !initialDirty) {
         setManualOpen(false);
         manualEntryModeRef.current = false;
         setManualEntryMode(false);
         scheduleFocusScanner();
         return;
       }
+      if (initialDirty) {
+        requestScannerLeaveConfirm(() => {
+          resetIdentifyGateForm();
+          setManualOpen(false);
+          manualEntryModeRef.current = false;
+          setManualEntryMode(false);
+          scheduleFocusScanner();
+        });
+        return;
+      }
       router.back();
       return;
     }
 
-    logScannerBack(String(flowPhase), null, "router-back-fallback");
+    logScannerBack(String(flowPhase), false, "router-back-fallback");
     router.back();
   }, [
     identifyGatePhase,
+    hasUnsavedIdentifyGateEdits,
     resetIdentifyGateForm,
     scheduleFocusScanner,
     flowPhase,
     hasUnsavedItemScanModalDraft,
-    dismissItemScanModalDrafts,
     returnFromItemsPhaseToBoxInfo,
     requestScannerLeaveConfirm,
     hasUnsavedBoxIntakeEdits,
@@ -11487,7 +11635,6 @@ function OperatorMobileScanPageContent() {
     performBoxIntakeBackNavigation,
     packageCodeCardOpen,
     palletPackagePickerQuery,
-    currentPackageTrackingId,
     closeActiveBoxPackageSession,
     resetToInitialShipmentEntry,
     isIdentified,
@@ -12080,8 +12227,8 @@ function OperatorMobileScanPageContent() {
 
   return (
     <div
-      className={`operator-shipment-handheld-compact flex min-h-0 min-w-0 flex-1 flex-col text-[14px] font-medium leading-snug [&_button]:touch-manipulation [&_button]:transition-transform [&_button]:duration-150 [&_button]:ease-out [&_button]:active:scale-95 ${
-        itemsChromeStickyLayout ? "operator-item-scan-screen overflow-hidden" : "overflow-visible"
+      className={`operator-shipment-handheld-compact flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-[14px] font-medium leading-snug [&_button]:touch-manipulation [&_button]:transition-transform [&_button]:duration-150 [&_button]:ease-out [&_button]:active:scale-95 ${
+        itemsChromeStickyLayout ? "operator-item-scan-screen" : ""
       }${!isIdentified ? " operator-shipment-entry-gate-page" : ""}`}
       style={{ backgroundColor: BG, color: TEXT_PRIMARY }}
     >
@@ -12668,7 +12815,7 @@ function OperatorMobileScanPageContent() {
             ? "operator-item-scan-main flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain"
             : !isIdentified
               ? `operator-shipment-entry-gate-main flex-1 overflow-y-auto overscroll-contain ${mainScrollClass} ${HANDHELD_GATE_COMPACT}`
-              : `flex-1 overflow-y-auto overscroll-contain pb-3 ${mainScrollClass} ${HANDHELD_COMPACT}`
+              : `operator-shipment-identified-main flex-1 overflow-y-auto overscroll-contain pb-3 ${mainScrollClass} ${HANDHELD_COMPACT}`
         }`}
       >
         {!isIdentified ? (
@@ -13063,7 +13210,7 @@ function OperatorMobileScanPageContent() {
               <section
                 key={`identify-gate-results-${identifyGatePhase}-${identifyGateInventoryVisual}`}
                 data-gate-visual={identifyGateInventoryVisual}
-                className={`operator-shipment-entry-gate__results animate-scanner-results-enter relative z-0 mb-0 w-full max-w-full overflow-hidden rounded-lg border px-4 py-4 sm:px-5 sm:py-5 border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)] ${glassCard}${
+                className={`operator-shipment-entry-gate__results animate-scanner-results-enter relative z-0 mb-0 w-full max-w-full overflow-x-hidden rounded-lg border px-4 py-4 sm:px-5 sm:py-5 border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)] ${glassCard}${
                   identifyGateGlowFlash ? " operator-shipment-entry-gate__results--glow-flash" : ""
                 }`}
               >
@@ -16687,6 +16834,7 @@ function OperatorMobileScanPageContent() {
         busy={busy}
         onClose={() => closeItemUnitModal(true)}
         onSave={saveItemUnitModal}
+        onUnsavedDraftChange={handleItemUnitModalUnsavedDraftChange}
       />
 
       {unexpectedPackageItemModal ? (

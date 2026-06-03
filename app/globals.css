@@ -3194,14 +3194,24 @@ html.light .operator-mobile-app-shell .operator-shipment-entry-gate .scanner-ocr
 .operator-shipment-entry-gate-page > .operator-shipment-entry-gate-main {
   flex: 1 1 0%;
   min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   /* Content aligns to top; ~14px inset above in-column nav comes from pb-3.5 on main. */
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
 }
 
-.operator-shipment-entry-gate-page > .operator-shipment-entry-gate-main > .operator-shipment-entry-gate {
-  flex: 0 0 auto;
+/* Shipment Entry gate + identified pallet/box phases — scroll inside main, not the app shell */
+.operator-shipment-handheld-compact > main.operator-shipment-entry-gate-main,
+.operator-shipment-handheld-compact > main.operator-shipment-identified-main {
+  flex: 1 1 0%;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 .operator-shipment-entry-gate {
