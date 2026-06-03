@@ -8,9 +8,15 @@ import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmpt
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
 import { ClaimFlowBadge } from "@/components/claim-engine/ClaimFlowBadge";
 import {
+  CLAIM_ENGINE_BANNER_ERROR_CLASS,
+  CLAIM_ENGINE_BANNER_SUCCESS_CLASS,
   CLAIM_ENGINE_BTN_PRIMARY,
   CLAIM_ENGINE_CARD_CLASS,
-  CLAIM_ENGINE_SECTION_CLASS,
+  CLAIM_ENGINE_KPI_CARD_CLASS,
+  CLAIM_ENGINE_KPI_HINT_CLASS,
+  CLAIM_ENGINE_KPI_LABEL_CLASS,
+  CLAIM_ENGINE_KPI_VALUE_CLASS,
+  CLAIM_ENGINE_MAIN_CLASS,
   CLAIM_ENGINE_TABLE_CLASS,
   CLAIM_ENGINE_TABLE_HEAD_CLASS,
   CLAIM_ENGINE_TABLE_ROW_CLASS,
@@ -79,21 +85,22 @@ export function ClaimCasesClient() {
   const linkedCount = rows.filter((r) => r.claim_submission_id).length;
 
   return (
+    <main className={CLAIM_ENGINE_MAIN_CLASS}>
     <ClaimEnginePageShell
       title="Cases"
       description="Internal claim packets before marketplace submission. Promote to Submission queue to generate the PDF evidence package."
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className={CLAIM_ENGINE_SECTION_CLASS}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ready to promote</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{readyCount}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Open cases without a submission</p>
+        <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+          <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Ready to promote</p>
+          <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{readyCount}</p>
+          <p className={CLAIM_ENGINE_KPI_HINT_CLASS}>Open cases without a submission</p>
         </div>
-        <div className={CLAIM_ENGINE_SECTION_CLASS}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">In submission queue</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{linkedCount}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            <Link href="/claim-engine" className="font-medium text-sky-600 underline dark:text-sky-400">
+        <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
+          <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>In submission queue</p>
+          <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{linkedCount}</p>
+          <p className={CLAIM_ENGINE_KPI_HINT_CLASS}>
+            <Link href="/claim-engine" className="claim-engine-link">
               View submission queue
             </Link>
           </p>
@@ -101,19 +108,13 @@ export function ClaimCasesClient() {
       </div>
 
       {message ? (
-        <div
-          className={`rounded-lg border px-3 py-2 text-sm ${
-            message.ok
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30"
-              : "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/30"
-          }`}
-        >
+        <div className={message.ok ? CLAIM_ENGINE_BANNER_SUCCESS_CLASS : CLAIM_ENGINE_BANNER_ERROR_CLASS}>
           {message.text}
         </div>
       ) : null}
 
       {loading ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <p className="claim-engine-loading flex items-center gap-2 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading cases…
         </p>
       ) : rows.length === 0 ? (
@@ -171,7 +172,7 @@ export function ClaimCasesClient() {
                       ) : (
                         <Link
                           href="/claim-engine"
-                          className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400"
+                          className="claim-engine-link text-xs"
                         >
                           In submission queue
                         </Link>
@@ -218,7 +219,7 @@ export function ClaimCasesClient() {
                   ) : (
                     <Link
                       href="/claim-engine"
-                      className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400"
+                      className="claim-engine-link text-xs"
                     >
                       In submission queue
                     </Link>
@@ -231,5 +232,6 @@ export function ClaimCasesClient() {
         </>
       )}
     </ClaimEnginePageShell>
+    </main>
   );
 }

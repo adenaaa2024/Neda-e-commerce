@@ -376,21 +376,21 @@ export default function ReturnsPage() {
         }
         return undefined;
       })(),
-      accent: "text-sky-600 border-sky-500 dark:text-sky-400 dark:border-sky-400",
+      accent: "text-[#8A681F] border-[#8A681F] dark:text-[#D6B76E] dark:border-[#D6B76E]",
     },
-    { id: "packages", label: "Packages", icon: Package2,  count: filteredPackages.length, accent: "text-violet-600 border-violet-500 dark:text-violet-400 dark:border-violet-400" },
-    { id: "pallets",  label: "Pallets",  icon: Boxes,     count: pallets.length,  accent: "text-slate-700 border-slate-600 dark:text-slate-300 dark:border-slate-400" },
+    { id: "packages", label: "Packages", icon: Package2,  count: filteredPackages.length, accent: "text-[#B08A3C] border-[#B08A3C] dark:text-[#F1D58A] dark:border-[#F1D58A]" },
+    { id: "pallets",  label: "Pallets",  icon: Boxes,     count: pallets.length,  accent: "text-[#4C5661] border-[#4C5661] dark:text-[#B8C1CB] dark:border-[#B8C1CB]" },
   ];
 
   return (
-    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col bg-[#F3EFE6] text-[#171A1E] dark:bg-[#0B0E12] dark:text-[#F7F3EA]">
       {/* Top Bar */}
       {/* Page title row — global TopHeader (theme/profile) is rendered by AppShell above */}
       {/* z below app TopHeader (z-50) so global chrome popovers aren’t covered */}
-      <header className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-border bg-card/90 px-4 py-3 backdrop-blur-sm">
+      <header className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-[rgba(138,104,31,0.18)] bg-[#F8F6F1]/95 px-4 py-3 backdrop-blur-sm dark:border-[rgba(214,183,110,0.18)] dark:bg-[#151A20]/95">
         <div className="min-w-0 flex-1">
-          <h1 className="font-bold text-foreground">Returns & Logistics</h1>
-          <p className="text-xs text-slate-400">FBA Reimbursement ERP · tenant-scoped data</p>
+          <h1 className="font-bold text-[#171A1E] dark:text-[#F7F3EA]">Returns & Logistics</h1>
+          <p className="text-xs text-[#737C86] dark:text-[#7E8894]">FBA Reimbursement ERP · tenant-scoped data</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Super-admin: company filter + "create as" picker */}
@@ -401,7 +401,7 @@ export default function ReturnsPage() {
                 <select
                   value={superAdminListFilter}
                   onChange={(e) => setSuperAdminListFilter(e.target.value)}
-                  className="h-9 min-w-[150px] rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground"
+                  className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
                 >
                   <option value="">All companies</option>
                   {companyOptions.map((o) => (
@@ -414,7 +414,7 @@ export default function ReturnsPage() {
                 <select
                   value={superAdminCreateOrg}
                   onChange={(e) => setSuperAdminCreateOrg(e.target.value)}
-                  className="h-9 min-w-[150px] rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground"
+                  className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
                 >
                   {companyOptions.map((o) => (
                     <option key={o.organization_id} value={o.organization_id}>{o.display_name}</option>
@@ -432,7 +432,7 @@ export default function ReturnsPage() {
               <select
                 value={storeFilter}
                 onChange={(e) => setStoreFilter(e.target.value)}
-                className="h-9 min-w-[150px] rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground"
+                className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
                 aria-label="Filter by store / marketplace"
               >
                 <option value="">All stores</option>
@@ -448,18 +448,18 @@ export default function ReturnsPage() {
       </header>
 
       {/* Tab Bar */}
-      <div className="sticky top-[57px] z-10 border-b border-border bg-card">
+      <div className="sticky top-[57px] z-10 border-b border-[rgba(138,104,31,0.18)] bg-[#F8F6F1] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#151A20]">
         <nav className="flex gap-0 overflow-x-auto px-4" role="tablist">
           {tabs.map((t) => {
             const Icon = t.icon; const active = activeTab === t.id;
             return (
               <button key={t.id} role="tab" aria-selected={active} onClick={() => setActiveTab(t.id)}
-                className={`flex items-center gap-2 border-b-2 px-5 py-4 text-sm font-semibold transition whitespace-nowrap ${active ? t.accent : "border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"}`}>
+                className={`flex items-center gap-2 border-b-2 px-5 py-4 text-sm font-semibold transition whitespace-nowrap ${active ? t.accent : "border-transparent text-[#737C86] hover:text-[#4C5661] dark:text-[#7E8894] dark:hover:text-[#B8C1CB]"}`}>
                 <Icon className="h-4 w-4" />
                 {t.label}
                 <span
                   title={t.countTitle}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? "bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? "bg-[#EFE6D2] text-[#8A681F] dark:bg-[#2A2418] dark:text-[#F1D58A]" : "bg-[#EEE8DC] text-[#737C86] dark:bg-[#232C35] dark:text-[#7E8894]"}`}
                 >{t.count}</span>
               </button>
             );
@@ -469,14 +469,14 @@ export default function ReturnsPage() {
 
       {/* Fetch error banner — shown when any list query fails */}
       {fetchErrors.length > 0 && (
-        <div className="border-b border-red-200 bg-red-50 px-4 py-3 dark:border-red-700/50 dark:bg-red-950/30">
-          <p className="mb-1 text-sm font-semibold text-red-700 dark:text-red-400">Data failed to load — check your browser console and server logs for details.</p>
+        <div className="border-b border-[rgba(138,104,31,0.24)] bg-[#F3E5DE] px-4 py-3 dark:border-[rgba(214,183,110,0.24)] dark:bg-[#302025]">
+          <p className="mb-1 text-sm font-semibold text-[#6C3E34] dark:text-[#D7B2A8]">Data failed to load — check your browser console and server logs for details.</p>
           <ul className="list-inside list-disc space-y-0.5">
             {fetchErrors.map((e, i) => (
-              <li key={i} className="text-xs text-red-600 dark:text-red-300">{e}</li>
+              <li key={i} className="text-xs text-[#6C3E34] dark:text-[#D7B2A8]">{e}</li>
             ))}
           </ul>
-          <p className="mt-1.5 text-xs text-red-500 dark:text-red-400">
+          <p className="mt-1.5 text-xs text-[#737C86] dark:text-[#7E8894]">
             Common cause: a database migration has not been applied yet. Run the pending SQL migration files in Supabase → SQL Editor.
           </p>
         </div>
@@ -486,7 +486,7 @@ export default function ReturnsPage() {
       <main className="flex-1 p-4 sm:p-6">
         {initialLoading && returns.length === 0 && packages.length === 0 && pallets.length === 0 ? (
           <div className="flex items-center justify-center py-24">
-            <div className="flex flex-col items-center gap-3"><div className="h-10 w-10 animate-spin rounded-full border-4 border-sky-200 border-t-sky-500" /><p className="text-sm text-slate-400">Loading…</p></div>
+            <div className="flex flex-col items-center gap-3"><div className="h-10 w-10 animate-spin rounded-full border-4 border-[#D9CBB1] border-t-[#8A681F] dark:border-[#2E3740] dark:border-t-[#D6B76E]" /><p className="text-sm text-[#737C86] dark:text-[#7E8894]">Loading…</p></div>
           </div>
         ) : (
           <>

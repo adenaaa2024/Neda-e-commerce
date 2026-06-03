@@ -226,7 +226,65 @@ export type ReturnsAnalyticsPayload = {
   operatorStats: { operator: string; count: number }[];
 };
 
-/** Command center KPIs + charts — consumed by `CommandCenterDashboard`. */
+export type CommandCenterTrendPoint = {
+  date: string;
+  count: number;
+};
+
+export type CommandCenterClaimFunnel = {
+  scanned: number;
+  eligible: number;
+  draft: number;
+  ready: number;
+  submitted: number;
+};
+
+export type CommandCenterActionItem = {
+  id: string;
+  type:
+    | "missing_evidence"
+    | "product_link"
+    | "stale_package"
+    | "open_pallet"
+    | "claim_ready"
+    | "package_hold";
+  label: string;
+  reference: string | null;
+  createdAt: string | null;
+  status: string;
+  href: string | null;
+};
+
+export type CommandCenterHealth = {
+  lastImportAt: string | null;
+  lastImportLabel: string | null;
+  productJobStatus: string | null;
+  productJobAt: string | null;
+  lastAuditAt: string | null;
+  lastAuditAction: string | null;
+  importErrorsHint: string | null;
+  scannerActivityHint: string | null;
+};
+
+/** Rich command center payload for Neda-style dashboard UI. */
+export type CommandCenterPayload = {
+  snapshot: DashboardSnapshot;
+  openPallets: number;
+  openPackages: number;
+  expectedItems: number;
+  scannedItems: number;
+  missingEvidence: number;
+  needsProductLink: number;
+  productLinkResolved: number;
+  claimsDraft: number;
+  returnsTrend: CommandCenterTrendPoint[];
+  claimFunnel: CommandCenterClaimFunnel;
+  conditionSlices: { name: string; value: number }[];
+  actionQueue: CommandCenterActionItem[];
+  health: CommandCenterHealth;
+};
+
+/** Legacy command center snapshot (mapper from dashboard snapshot). */
 export type CommandCenterSnapshot = {
   returnsToday: number;
   openPackageCount: number;

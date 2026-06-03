@@ -12,8 +12,8 @@ import {
 import type { OperatorStoreOption } from "@/lib/scanner/operator-session";
 import {
   findPalletByIdForOperator,
-  findPalletByTrackingNormalized,
   findPalletByTrackingOrNumber,
+  findPalletInOrgByScanCode,
   type OperatorPalletTrackingRow,
 } from "@/lib/scanner/operator-pallet-tracking";
 import {
@@ -38,12 +38,19 @@ import {
   allocateExpectedItemsForReturnItemIds,
   buildReceiveScopeKey,
   fetchPackageReceiveContext,
+  humanizeExpectedAllocationError,
   moveExpectedItemsForPackageScope,
   releaseExpectedItemsForPackage,
+  resolveAllocatableExpectedPackageHint,
+  softVoidPalletWithExpectedRelease,
   syncReturnItemsPalletForPackage,
 } from "@/lib/scanner/receive-expected-with-split";
 import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
-import { resolveAuditActorForSession, resolveDisplayLabelForUserId } from "@/lib/server-audit-actor";
+import {
+  resolveAuditActorForSession,
+  resolveDisplayLabelForUserId,
+  resolveDisplayLabelsForUserIds,
+} from "@/lib/server-audit-actor";
 import { sanitizePublicMediaUrlStrings } from "@/lib/entity-photo-evidence";
 import { insertIntakeBoxPackage } from "@/lib/scanner/operator-box-intake";
 import { insertUnknownPackageForTrackingCode } from "@/lib/scanner/operator-unknown-package";
@@ -64,8 +71,14 @@ import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import {
   mergeReturnPhotoEvidence,
   getReturnPhotoEvidenceGalleryUrls,
+  getReturnPhotoEvidenceUrls,
   type ReturnPhotoEvidenceRow,
 } from "@/lib/return-photo-evidence";
+import {
+  ITEM_UNIT_SELLABLE_OK_TAG,
+  normalizeItemUnitDiscrepancySelection,
+  type ItemUnitDiscrepancyTagKey,
+} from "@/lib/scanner/item-unit-discrepancy-tags";
 import {
   resolveItemBarcodeAgainstSlipRows,
   type SlipBarcodeMatchRow,
@@ -182,6 +195,29 @@ export type OperatorPackageListRow = {
   created_by_display?: string | null;
   updated_by_display?: string | null;
 };
+
+async function enrichOperatorPackageItemRowsWithAuditLabels(
+  rows: OperatorPackageItemRow[],
+): Promise<OperatorPackageItemRow[]> {
+  const labelById = await resolveDisplayLabelsForUserIds(
+    rows.flatMap((r) => [r.created_by, r.updated_by]),
+  );
+  return rows.map((r) => {
+    const cb = String(r.created_by ?? "").trim();
+    const ub = String(r.updated_by ?? "").trim();
+    const created_by_display = isUuidString(cb)
+      ? (labelById.get(cb) ?? null)
+      : cb
+        ? cb
+        : null;
+    const updated_by_display = isUuidString(ub)
+      ? (labelById.get(ub) ?? null)
+      : ub
+        ? ub
+        : null;
+    return { ...r, created_by_display, updated_by_display };
+  });
+}
 
 async function enrichOperatorPackageRowsWithProfileLabels(
   rows: OperatorPackageListRow[],
@@ -639,7 +675,7 @@ export async function commitOperatorPalletShipmentStepAction(
   const trackingNorm =
     trackingCell.length > 0 ? normalizeTrackingKey(trackingCell) || trackingCell : "";
   if (trackingNorm.length > 0) {
-    const hit = await findPalletByTrackingNormalized(supabaseServer, organizationId, trackingNorm);
+    const hit = await findPalletInOrgByScanCode(supabaseServer, organizationId, trackingNorm);
     const hitId = String(hit?.id ?? "").trim();
     if (hit && hitId && hitId !== palletId) {
       const targetStoreId = String(ex.store_id ?? "").trim();
@@ -944,7 +980,7 @@ export async function findOperatorPalletByTrackingNumberAction(
   }
 
   try {
-    const pallet = await findPalletByTrackingNormalized(supabaseServer, organizationId, raw);
+    const pallet = await findPalletInOrgByScanCode(supabaseServer, organizationId, raw);
     const active = String(activeStoreId ?? "").trim();
     if (pallet && active && isUuidString(active)) {
       const ps = String(pallet.store_id ?? "").trim();
@@ -1010,7 +1046,10 @@ export async function createOperatorPalletAction(
   const operator_package_count =
     typeof pkgCount === "number" && Number.isFinite(pkgCount) ? pkgCount : null;
 
-  const existing = await findPalletByTrackingNormalized(supabaseServer, organizationId, tracking_number);
+  let existing = await findPalletInOrgByScanCode(supabaseServer, organizationId, palletNumber);
+  if (!existing && tracking_number !== palletNumber) {
+    existing = await findPalletInOrgByScanCode(supabaseServer, organizationId, tracking_number);
+  }
   if (existing) {
     return palletDupResultFromExisting(existing, storeId, organizationId);
   }
@@ -1034,7 +1073,10 @@ export async function createOperatorPalletAction(
 
   if (error) {
     if (error.code === "23505") {
-      const dup = await findPalletByTrackingNormalized(supabaseServer, organizationId, tracking_number);
+      let dup = await findPalletInOrgByScanCode(supabaseServer, organizationId, palletNumber);
+      if (!dup) {
+        dup = await findPalletInOrgByScanCode(supabaseServer, organizationId, tracking_number);
+      }
       if (dup) {
         return palletDupResultFromExisting(dup, storeId, organizationId);
       }
@@ -1827,6 +1869,15 @@ export type OperatorPackageItemRow = {
   expiry_date: string | null;
   lot_number: string | null;
   evidence_urls: string[] | null;
+  optional_item_photo_url: string | null;
+  operator_notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  /** Resolved via profiles / auth email in {@link listOperatorPackageItemsForPackageAction}. */
+  created_by_display: string | null;
+  updated_by_display: string | null;
   product_linkage: ProductLinkageDisplayContract;
 };
 
@@ -1895,7 +1946,11 @@ export async function listOperatorPackageItemsForPackageAction(
     : [];
 
   const returnItemSelectAttempts = [
-    `id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, created_at, ${RETURN_SCANNER_LINKAGE_SELECT}`,
+    `id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, notes, created_at, updated_at, created_by, updated_by, ${RETURN_SCANNER_LINKAGE_SELECT}`,
+    "id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, notes, created_at, updated_at, created_by, updated_by",
+    "id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, notes, created_at, created_by, updated_by",
+    `id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, notes, created_at, ${RETURN_SCANNER_LINKAGE_SELECT}`,
+    "id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, notes, created_at",
     "id, fnsku, sku, product_identifier, item_name, conditions, expiration_date, batch_number, photo_evidence, created_at",
   ];
 
@@ -1936,6 +1991,12 @@ export async function listOperatorPackageItemsForPackageAction(
     expiry_date: string | null;
     lot_number: string | null;
     evidence_urls: string[] | null;
+    optional_item_photo_url: string | null;
+    operator_notes: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    created_by: string | null;
+    updated_by: string | null;
     resolved_product_id: string | null;
     identifier_resolution_status: string | null;
     identifier_resolution_confidence: number | null;
@@ -1956,6 +2017,9 @@ export async function listOperatorPackageItemsForPackageAction(
       ? row.conditions.map((x) => String(x ?? "").trim()).filter(Boolean)
       : null;
     const pe = (row.photo_evidence ?? null) as ReturnPhotoEvidenceRow;
+    const urlSlots = getReturnPhotoEvidenceUrls(pe);
+    const optionalItem =
+      urlSlots.item_url && /^https?:\/\//i.test(urlSlots.item_url) ? urlSlots.item_url : null;
     const ev = getReturnPhotoEvidenceGalleryUrls(pe);
     const exp =
       row.expiration_date === null || row.expiration_date === undefined
@@ -1976,6 +2040,17 @@ export async function listOperatorPackageItemsForPackageAction(
       expiry_date: exp,
       lot_number: lot?.length ? lot : null,
       evidence_urls: ev.length ? ev : null,
+      optional_item_photo_url: optionalItem,
+      operator_notes:
+        typeof row.notes === "string" && row.notes.trim() ? row.notes.trim().slice(0, 2000) : null,
+      created_at:
+        typeof row.created_at === "string" && row.created_at.trim() ? row.created_at.trim() : null,
+      updated_at:
+        typeof row.updated_at === "string" && row.updated_at.trim() ? row.updated_at.trim() : null,
+      created_by:
+        typeof row.created_by === "string" && row.created_by.trim() ? row.created_by.trim() : null,
+      updated_by:
+        typeof row.updated_by === "string" && row.updated_by.trim() ? row.updated_by.trim() : null,
       resolved_product_id: resolvedRaw,
       identifier_resolution_status:
         typeof row.identifier_resolution_status === "string" ? row.identifier_resolution_status : null,
@@ -2032,6 +2107,8 @@ export async function listOperatorPackageItemsForPackageAction(
     return {
       ...rest,
       slip_content_id,
+      created_by_display: null,
+      updated_by_display: null,
       product_linkage: buildProductLinkageDisplayContract(
         {
           resolved_product_id,
@@ -2048,7 +2125,9 @@ export async function listOperatorPackageItemsForPackageAction(
     };
   });
 
-  return { ok: true, rows: rows.filter((r) => r.id) };
+  const filtered = rows.filter((r) => r.id);
+  const enriched = await enrichOperatorPackageItemRowsWithAuditLabels(filtered);
+  return { ok: true, rows: enriched };
 }
 
 export type InsertOperatorPackageItemInput = {
@@ -2070,6 +2149,8 @@ export type InsertOperatorPackageItemInput = {
   traceabilityRequired?: boolean;
   /** Operator prose note (`return_items.notes`). */
   operatorNotes?: string | null;
+  /** Client/server hint — parent `expected_packages.id` with remaining qty (Item Scan slip row). */
+  expectedPackageHintId?: string | null;
   /** Loose item (no box) — writes `return_items` without `package_id`. */
   looseItem?: boolean;
   /** Step 2 fallback — return label on packaging (loose flow). */
@@ -2142,6 +2223,13 @@ async function finalizeOperatorPackageItemLinkage(
     looseItem: boolean;
     slipLinkage: SlipLinkageInheritRow | null;
     scanIds: { asin?: string | null; fnsku?: string | null; sku?: string | null; upc?: string | null };
+    slipContentId?: string | null;
+    slipExpectedQuantity?: number | null;
+    expectedPackageHintId?: string | null;
+    packageSlipCode?: string | null;
+    packageTrackingNumber?: string | null;
+    orderId?: string | null;
+    disposition?: string | null;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const rid = String(returnItemId ?? "").trim();
@@ -2182,9 +2270,49 @@ async function finalizeOperatorPackageItemLinkage(
       packageId: params.packageId,
       slipCode: pkgCtx.slipCode,
     });
+    const allocFnsku = String(params.scanIds.fnsku ?? "").trim();
+    const allocSku = String(params.scanIds.sku ?? params.scanIds.upc ?? "").trim();
+    const slipCode = params.packageSlipCode ?? pkgCtx.slipCode;
+    const trackingNumber = params.packageTrackingNumber ?? pkgCtx.trackingNumber;
+
+    let expectedHint = String(params.expectedPackageHintId ?? "").trim();
+    if (!expectedHint || !isUuidString(expectedHint)) {
+      try {
+        expectedHint =
+          (await resolveAllocatableExpectedPackageHint(supabaseServer, {
+            organizationId: params.organizationId,
+            storeId: params.storeId,
+            fnsku: allocFnsku,
+            sku: allocSku,
+            upc: params.scanIds.upc,
+            orderId: params.orderId,
+            disposition: params.disposition,
+            packageSlipCode: slipCode,
+            packageTrackingNumber: trackingNumber,
+            preferredHintId: params.expectedPackageHintId,
+          })) ?? "";
+      } catch (e) {
+        return {
+          ok: false,
+          error: humanizeExpectedAllocationError(
+            e instanceof Error ? e.message : "Expected row lookup failed.",
+            { fnsku: allocFnsku, sku: allocSku, slipCode, trackingNumber },
+          ),
+        };
+      }
+    }
+
+    const slipId = String(params.slipContentId ?? "").trim();
+    const slipExpected = Math.max(0, Math.floor(Number(params.slipExpectedQuantity ?? 0)));
+    if (!expectedHint && slipId && isUuidString(slipId) && slipExpected > 0) {
+      return { ok: true };
+    }
+
     const alloc = await allocateExpectedItemsForReturnItemIds(supabaseServer, {
       returnItemIds: [rid],
       receiveScopeKey,
+      expectedPackageHintId: expectedHint && isUuidString(expectedHint) ? expectedHint : null,
+      errorContext: { fnsku: allocFnsku, sku: allocSku, slipCode, trackingNumber },
     });
     if (!alloc.ok) {
       return { ok: false, error: alloc.error };
@@ -2556,6 +2684,10 @@ export async function insertOperatorPackageItemAction(
   const slipHint = String(input.slipContentId ?? "").trim();
   let slipDescription: string | null = null;
   let slipLinkageInherit: SlipLinkageInheritRow | null = null;
+  let slipFnsku: string | null = null;
+  let slipUpc: string | null = null;
+  let slipExpectedQuantity: number | null = null;
+  let slipOrderId: string | null = null;
   if (slipHint && isUuidString(slipHint)) {
     if (looseItem) {
       return { ok: false, message: "Slip line cannot be used for a loose item scan." };
@@ -2588,6 +2720,10 @@ export async function insertOperatorPackageItemAction(
     }
     slipDescription =
       typeof slipRow.description === "string" ? slipRow.description.trim() : null;
+    slipFnsku = typeof slipRow.fnsku === "string" ? slipRow.fnsku.trim() || null : null;
+    slipUpc = typeof slipRow.upc === "string" ? slipRow.upc.trim() || null : null;
+    slipExpectedQuantity = Math.max(0, Math.floor(Number(slipRow.quantity ?? 0)));
+    slipOrderId = typeof slipRow.order_id === "string" ? slipRow.order_id.trim() || null : null;
     const slipResolved =
       typeof slipRow.resolved_product_id === "string" && isUuidString(slipRow.resolved_product_id.trim())
         ? slipRow.resolved_product_id.trim()
@@ -2628,13 +2764,8 @@ export async function insertOperatorPackageItemAction(
   const lot = lotRaw ? lotRaw.slice(0, 500) : null;
 
   const traceabilityRequired = Boolean(input.traceabilityRequired);
-  if (traceabilityRequired || tags.includes("expired")) {
-    if (!exp) {
-      return { ok: false, message: "Expiration date is required for this item." };
-    }
-    if (!lot) {
-      return { ok: false, message: "Batch / lot # is required for this item." };
-    }
+  if (traceabilityRequired && !exp) {
+    return { ok: false, message: "Expiration date is required for this item." };
   }
 
   if (!storeIdResolved || !isUuidString(storeIdResolved)) {
@@ -2652,22 +2783,70 @@ export async function insertOperatorPackageItemAction(
   const operatorNotes = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
 
   const scanIds = buildOperatorBarcodeResolverFields(barcode);
+  const persistFnsku = (scanIds.fnsku ?? slipFnsku ?? "").trim().slice(0, 500) || undefined;
+  const persistSku = (scanIds.sku ?? slipUpc ?? "").trim().slice(0, 500) || undefined;
+  const persistUpc = (scanIds.upc ?? slipUpc ?? "").trim().slice(0, 500) || undefined;
 
-  const ins = await insertReturn({
+  let packageSlipCode: string | null = null;
+  let packageTrackingNumber: string | null = null;
+  if (!looseItem && pkgId) {
+    const pkgCtx = await fetchPackageReceiveContext(supabaseServer, pkgId);
+    packageSlipCode = pkgCtx.slipCode;
+    packageTrackingNumber = pkgCtx.trackingNumber;
+  }
+
+  let expectedPackageHintId = String(input.expectedPackageHintId ?? "").trim();
+  if (!looseItem && pkgId && (!expectedPackageHintId || !isUuidString(expectedPackageHintId))) {
+    try {
+      const resolved = await resolveAllocatableExpectedPackageHint(supabaseServer, {
+        organizationId,
+        storeId: storeIdResolved,
+        fnsku: persistFnsku ?? slipFnsku,
+        sku: persistSku ?? slipUpc,
+        upc: persistUpc,
+        orderId: slipOrderId,
+        packageSlipCode,
+        packageTrackingNumber,
+        preferredHintId: input.expectedPackageHintId,
+      });
+      if (resolved) expectedPackageHintId = resolved;
+    } catch (e) {
+      return {
+        ok: false,
+        message: humanizeExpectedAllocationError(
+          e instanceof Error ? e.message : "Expected row lookup failed.",
+          {
+            fnsku: persistFnsku ?? slipFnsku,
+            sku: persistSku ?? slipUpc,
+            slipCode: packageSlipCode,
+            trackingNumber: packageTrackingNumber,
+          },
+        ),
+      };
+    }
+  }
+
+  const insertReturnBase = {
     organization_id: organizationId,
     store_id: storeIdResolved,
-    package_id: looseItem ? undefined : pkgId ?? undefined,
-    marketplace: "amazon",
+    marketplace: "amazon" as const,
     item_name: itemName,
     conditions: [...tags],
     notes: operatorNotes ?? undefined,
     expiration_date: exp ?? undefined,
     batch_number: lot ?? undefined,
     photo_evidence,
-    fnsku: scanIds.fnsku?.slice(0, 500),
-    sku: scanIds.sku?.slice(0, 500),
+    actor_profile_id: sessionUserId,
+  };
+
+  const ins = await insertReturn({
+    ...insertReturnBase,
+    package_id: looseItem ? undefined : pkgId ?? undefined,
+    fnsku: persistFnsku,
+    sku: persistSku,
     asin: scanIds.asin?.slice(0, 500),
-    product_identifier: scanIds.upc?.slice(0, 500),
+    product_identifier: persistUpc,
+    order_id: slipOrderId ?? undefined,
   });
 
   if (!ins.ok || !ins.data?.id) {
@@ -2677,19 +2856,28 @@ export async function insertOperatorPackageItemAction(
   const primaryId = ins.data.id;
   const insertedIds: string[] = [primaryId];
 
-  const finalizePrimary = await finalizeOperatorPackageItemLinkage(primaryId, {
+  const finalizeLinkageParams = {
     organizationId,
     storeId: storeIdResolved,
     packageId: looseItem ? null : pkgId,
     looseItem,
     slipLinkage: slipLinkageInherit,
+    slipContentId: slipHint && isUuidString(slipHint) ? slipHint : null,
+    slipExpectedQuantity,
+    expectedPackageHintId: isUuidString(expectedPackageHintId) ? expectedPackageHintId : null,
+    packageSlipCode,
+    packageTrackingNumber,
+    orderId: slipOrderId,
+    disposition: null as string | null,
     scanIds: {
       asin: scanIds.asin ?? null,
-      fnsku: scanIds.fnsku ?? null,
-      sku: scanIds.sku ?? null,
-      upc: scanIds.upc ?? null,
+      fnsku: persistFnsku ?? null,
+      sku: persistSku ?? null,
+      upc: persistUpc ?? null,
     },
-  });
+  };
+
+  const finalizePrimary = await finalizeOperatorPackageItemLinkage(primaryId, finalizeLinkageParams);
   if (!finalizePrimary.ok) {
     await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
     return { ok: false, message: finalizePrimary.error };
@@ -2699,16 +2887,8 @@ export async function insertOperatorPackageItemAction(
   if (quantity > 1) {
     for (let i = 1; i < quantity; i++) {
       const extra = await insertReturn({
-        organization_id: organizationId,
-        store_id: storeIdResolved,
+        ...insertReturnBase,
         package_id: looseItem ? undefined : pkgId ?? undefined,
-        marketplace: "amazon",
-        item_name: itemName,
-        conditions: [...tags],
-        notes: operatorNotes ?? undefined,
-        expiration_date: exp ?? undefined,
-        batch_number: lot ?? undefined,
-        photo_evidence,
         fnsku: scanIds.fnsku?.slice(0, 500),
         sku: scanIds.sku?.slice(0, 500),
         asin: scanIds.asin?.slice(0, 500),
@@ -2719,19 +2899,7 @@ export async function insertOperatorPackageItemAction(
         return { ok: false, message: extra.error ?? "Failed to save item scan." };
       }
       insertedIds.push(extra.data.id);
-      const finalizeExtra = await finalizeOperatorPackageItemLinkage(extra.data.id, {
-        organizationId,
-        storeId: storeIdResolved,
-        packageId: looseItem ? null : pkgId,
-        looseItem,
-        slipLinkage: slipLinkageInherit,
-        scanIds: {
-          asin: scanIds.asin ?? null,
-          fnsku: scanIds.fnsku ?? null,
-          sku: scanIds.sku ?? null,
-          upc: scanIds.upc ?? null,
-        },
-      });
+      const finalizeExtra = await finalizeOperatorPackageItemLinkage(extra.data.id, finalizeLinkageParams);
       if (!finalizeExtra.ok) {
         await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
         return { ok: false, message: finalizeExtra.error };
@@ -3038,6 +3206,184 @@ export async function voidOperatorIntakeBoxPackageAction(
   }
 
   return { ok: true, packageId, palletId, wasDirectBox };
+}
+
+export type VoidOperatorIntakePalletInput = {
+  palletId: string;
+  requestedOrganizationId: string;
+  storeId?: string | null;
+};
+
+export type VoidOperatorIntakePalletResult =
+  | { ok: true; palletId: string; packagesVoided: number; itemsVoided: number }
+  | { ok: false; message: string };
+
+/**
+ * Soft-voids a pallet (`deleted_at`) and cascades packages/return_items per existing void rules.
+ */
+export async function voidOperatorIntakePalletAction(
+  input: VoidOperatorIntakePalletInput,
+): Promise<VoidOperatorIntakePalletResult> {
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_VOID_BOX);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const palletId = String(input.palletId ?? "").trim();
+  if (!isUuidString(palletId)) {
+    return { ok: false, message: "Invalid pallet id." };
+  }
+
+  const storeScope = String(input.storeId ?? "").trim();
+
+  const { data: palRow, error: palErr } = await supabaseServer
+    .from("pallets")
+    .select("id, organization_id, store_id, pallet_number, tracking_number")
+    .eq("id", palletId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (palErr) return { ok: false, message: palErr.message };
+  if (!palRow) {
+    return { ok: false, message: "Pallet not found for this organization." };
+  }
+  const palStore = String((palRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (
+    storeScope &&
+    isUuidString(storeScope) &&
+    palStore &&
+    isUuidString(palStore) &&
+    palStore !== storeScope
+  ) {
+    return { ok: false, message: "This pallet belongs to another store — select the correct store." };
+  }
+
+  const actor = await resolveAuditActorForSession();
+  const voided = await softVoidPalletWithExpectedRelease(supabaseServer, {
+    palletId,
+    organizationId,
+    updatedBy: actor.userId && isUuidString(actor.userId) ? actor.userId : null,
+  });
+  if (!voided.ok) return { ok: false, message: voided.error };
+
+  return {
+    ok: true,
+    palletId,
+    packagesVoided: voided.packagesVoided,
+    itemsVoided: voided.itemsVoided,
+  };
+}
+
+export type UpdateOperatorPackageItemInput = {
+  requestedOrganizationId: string;
+  returnItemId: string;
+  storeId?: string | null;
+  discrepancyTags: ItemUnitDiscrepancyTagKey[];
+  expiryDate?: string | null;
+  lotNumber?: string | null;
+  evidenceUrls?: string[] | null;
+  optionalItemPhotoUrl?: string | null;
+  traceabilityRequired?: boolean;
+  operatorNotes?: string | null;
+};
+
+export type UpdateOperatorPackageItemResult =
+  | { ok: true; id: string; product_linkage: ProductLinkageDisplayContract }
+  | { ok: false; message: string };
+
+/**
+ * Updates editable fields on an existing scanned `return_items` row — no insert, no re-allocation.
+ */
+export async function updateOperatorPackageItemAction(
+  input: UpdateOperatorPackageItemInput,
+): Promise<UpdateOperatorPackageItemResult> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const returnItemId = String(input.returnItemId ?? "").trim();
+  if (!isUuidString(returnItemId)) {
+    return { ok: false, message: "Invalid return item id." };
+  }
+
+  const { data: row, error: loadErr } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .select("id, organization_id, store_id, package_id")
+    .eq("id", returnItemId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (loadErr) return { ok: false, message: loadErr.message };
+  if (!row) return { ok: false, message: "Scanned item not found." };
+
+  const scope = String(input.storeId ?? "").trim();
+  const rowStore = String((row as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && rowStore && isUuidString(rowStore) && rowStore !== scope) {
+    return { ok: false, message: "This item belongs to another store — select the correct store." };
+  }
+
+  const tags = normalizeItemUnitDiscrepancySelection(
+    filterPackageItemDiscrepancyTags(input.discrepancyTags),
+  );
+  if (tags.length === 0) {
+    return { ok: false, message: "Select at least one condition for this unit." };
+  }
+
+  const evidence = normalizeEvidenceUrls(input.evidenceUrls);
+  if (packageItemRequiresEvidencePhotos(tags) && evidence.length === 0) {
+    return { ok: false, message: "Add at least one evidence photo for the selected issue(s)." };
+  }
+
+  const exp = normalizeOptionalDate(input.expiryDate ?? null);
+  const lotRaw = String(input.lotNumber ?? "").trim();
+  const lot = lotRaw ? lotRaw.slice(0, 500) : null;
+  const traceabilityRequired = Boolean(input.traceabilityRequired);
+  if (traceabilityRequired && !exp) {
+    return { ok: false, message: "Expiration date is required for this item." };
+  }
+
+  const optionalItemUrl = String(input.optionalItemPhotoUrl ?? "").trim();
+  const urlSlots: Partial<Record<"item_url", string>> = {};
+  if (optionalItemUrl && /^https?:\/\//i.test(optionalItemUrl)) urlSlots.item_url = optionalItemUrl;
+  const photo_evidence = mergeReturnPhotoEvidence(null, urlSlots, { galleryUrls: evidence });
+
+  const operatorNotes = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
+
+  const actor = await resolveAuditActorForSession();
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    conditions: [...tags],
+    expiration_date: exp,
+    batch_number: lot,
+    photo_evidence,
+    notes: operatorNotes,
+    updated_at: now,
+  };
+  if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+  const { error: upErr } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .update(patch)
+    .eq("id", returnItemId)
+    .eq("organization_id", organizationId);
+  if (upErr) return { ok: false, message: upErr.message };
+
+  const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, returnItemId, organizationId);
+  const product_linkage =
+    linkage ??
+    buildProductLinkageDisplayContract(
+      { item_name: "Scanned unit" },
+      new Map(),
+    );
+
+  return { ok: true, id: returnItemId, product_linkage };
 }
 
 /** Service-role Shipment Entry gate lookup — excludes voided package scans reliably. */

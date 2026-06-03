@@ -67,6 +67,7 @@ import { CLAIMS_SETTINGS_TAB } from "../../lib/claims-hub-routes";
 import { FALLBACK_ORGANIZATION_ID } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
 import { DatabaseTag } from "../../components/DatabaseTag";
+import { ClaimEngineHubNavShell } from "../../components/claim-engine/ClaimEngineHubNavShell";
 import type { AdapterProviderKey } from "../../lib/adapters";
 import {
   listMarketplaces, listStores, insertStore, insertMarketplace,
@@ -2972,32 +2973,30 @@ export default function SettingsPage() {
 
           {/* ══════════════ CLAIM ENGINE (Placeholder) ══════════════ */}
           {activeTab === "claim_engine" && (
-            <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 dark:bg-rose-950/50">
-                  <ShieldCheck className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold">Claim Engine Settings</h2>
-                  <p className="text-xs text-muted-foreground">Configure automated claim rules and escalation logic.</p>
-                </div>
-              </div>
+            <div className="claim-engine-view claim-engine-settings-panel -mx-4 space-y-6 px-4 py-2 sm:-mx-6 sm:px-6">
+              <ClaimEngineHubNavShell className="claim-engine-hub-nav" />
+              <header className="claim-engine-page-header border-b pb-4">
+                <h2 className="text-xl font-bold tracking-tight">Settings</h2>
+                <p className="max-w-3xl text-sm">
+                  Configure automated claim rules, evidence defaults, module scope, and agent sync.
+                </p>
+              </header>
 
               {mockPlan === "Free Tier" && (
-                <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-6 py-5 dark:border-amber-600/50 dark:bg-amber-950/20">
+                <div className="claim-engine-banner claim-engine-banner--warning px-6 py-5">
                   <div className="flex items-start gap-4">
                     <Crown className="mt-0.5 h-6 w-6 shrink-0 text-amber-500" />
                     <div>
-                      <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                      <p className="text-sm font-bold">
                         Pro Feature — Upgrade to Unlock Claim Automation
                       </p>
-                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                      <p className="mt-1 text-xs opacity-90">
                         The Claim Engine module is available on Pro and Enterprise plans.
                       </p>
                       <button
                         type="button"
                         onClick={() => setActiveTab("billing")}
-                        className="mt-3 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-600"
+                        className="claim-engine-btn claim-engine-btn--primary mt-3 inline-flex items-center gap-2 px-4 py-2 text-sm"
                       >
                         <Zap className="h-3.5 w-3.5" />
                         Upgrade Plan
@@ -3014,7 +3013,7 @@ export default function SettingsPage() {
                   mockPlan === "Free Tier" ? "opacity-50 pointer-events-none select-none" : "",
                 ].join(" ")}
               >
-                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                <div className="claim-engine-settings-card p-6 space-y-4">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-950/50">
                       <ShieldCheck className="h-5 w-5 text-violet-600 dark:text-violet-400" />
@@ -3030,14 +3029,14 @@ export default function SettingsPage() {
                   </div>
 
                   {!claimPolicyLocal.scan_go_live_date && !claimPolicyLocal.claim_start_date ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">
+                    <div className="claim-engine-banner claim-engine-banner--warning px-4 py-3 text-xs">
                       Auto-claims are <span className="font-semibold">blocked</span> until scan and/or claim start dates are set.
                       Keep <code className="font-mono">CLAIM_SCANNER_AUTO_PROMOTE_ENABLED</code> off until configured.
                     </div>
                   ) : null}
 
                   {claimPolicyLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="claim-engine-loading flex items-center gap-2 text-sm">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Loading…
                     </div>
@@ -3154,7 +3153,143 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                <div className="claim-engine-settings-card p-6 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Workflow &amp; grouping</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Controls draft pool eligibility, review holds, case builder mixing rules, and auto case creation.
+                      Stored in <code className="rounded bg-muted px-1 font-mono text-[10px]">claim_policy</code> JSON.
+                    </p>
+                  </div>
+                  {claimFeatureFlags ? (
+                    <p className="text-[10px] text-muted-foreground">
+                      Feature flags (env): drafts review{" "}
+                      <span className="font-mono">{claimFeatureFlags.enable_claim_drafts_review ? "on" : "off"}</span>
+                      {" · "}
+                      review workflow{" "}
+                      <span className="font-mono">{claimFeatureFlags.enable_claim_review_workflow ? "on" : "off"}</span>
+                    </p>
+                  ) : null}
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/10 p-3">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                      checked={autoCreateDraftsLocal}
+                      onChange={(e) => setAutoCreateDraftsLocal(e.target.checked)}
+                      disabled={claimPolicyLoading}
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold">Auto-create drafts on scan</span>
+                      <span className="text-xs text-muted-foreground">
+                        When off, scanner promote skips claim draft lines unless operator uses manual paths.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className={LABEL_CLS}>Group by</label>
+                      <select
+                        className={INPUT_CLS}
+                        value={claimWorkflowLocal.group_by}
+                        onChange={(e) =>
+                          setClaimWorkflowLocal((w) => ({
+                            ...w,
+                            group_by: e.target.value as ClaimGroupBySetting,
+                          }))
+                        }
+                        disabled={claimPolicyLoading}
+                      >
+                        {(
+                          [
+                            ["manual", "Manual"],
+                            ["pallet", "Pallet"],
+                            ["package", "Package"],
+                            ["order_id", "Order ID"],
+                            ["removal_order", "Removal order"],
+                            ["product", "Product"],
+                            ["issue_type", "Issue type"],
+                            ["date_window", "Date window"],
+                          ] as const
+                        ).map(([v, label]) => (
+                          <option key={v} value={v}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={LABEL_CLS}>Create case when</label>
+                      <select
+                        className={INPUT_CLS}
+                        value={claimWorkflowLocal.create_case_when}
+                        onChange={(e) =>
+                          setClaimWorkflowLocal((w) => ({
+                            ...w,
+                            create_case_when: e.target.value as CreateCaseWhenSetting,
+                          }))
+                        }
+                        disabled={claimPolicyLoading}
+                      >
+                        {(
+                          [
+                            ["immediately", "Immediately"],
+                            ["package_closed", "Package closed"],
+                            ["pallet_closed", "Pallet closed"],
+                            ["removal_order_closed", "Removal order closed"],
+                            ["manual_only", "Manual only"],
+                          ] as const
+                        ).map(([v, label]) => (
+                          <option key={v} value={v}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/10 p-3">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded accent-violet-600"
+                      checked={claimWorkflowLocal.auto_grouping_enabled}
+                      onChange={(e) =>
+                        setClaimWorkflowLocal((w) => ({ ...w, auto_grouping_enabled: e.target.checked }))
+                      }
+                      disabled={claimPolicyLoading}
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold">Auto grouping enabled</span>
+                      <span className="text-xs text-muted-foreground">Phase 1: preference for future scan clustering.</span>
+                    </span>
+                  </label>
+                  <ul className="grid gap-2 sm:grid-cols-2">
+                    {(
+                      [
+                        ["allow_mixed_products", "Allow mixed products in one case"],
+                        ["allow_mixed_issue_types", "Allow mixed issue types in one case"],
+                        ["require_product_link", "Require product link"],
+                        ["require_operator_note", "Require operator note (operator_other)"],
+                        ["require_evidence", "Require scanner evidence"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <li key={key}>
+                        <label className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded accent-violet-600"
+                            checked={claimWorkflowLocal[key]}
+                            onChange={(e) =>
+                              setClaimWorkflowLocal((w) => ({ ...w, [key]: e.target.checked }))
+                            }
+                            disabled={claimPolicyLoading}
+                          />
+                          {label}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="claim-engine-settings-card p-6 space-y-4">
                   <div>
                     <h3 className="text-sm font-bold text-foreground">Workflow &amp; grouping</h3>
                     <p className="mt-0.5 text-xs text-muted-foreground">
@@ -3356,7 +3491,7 @@ export default function SettingsPage() {
                   mockPlan === "Free Tier" ? "opacity-50 pointer-events-none select-none" : "",
                 ].join(" ")}
               >
-                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+                <div className="claim-engine-settings-card p-6 space-y-4">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-950/50">
                       <ImageIcon className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -3411,7 +3546,7 @@ export default function SettingsPage() {
                   mockPlan === "Free Tier" ? "opacity-50 pointer-events-none select-none" : "",
                 ].join(" ")}
               >
-                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-5">
+                <div className="claim-engine-settings-card p-6 space-y-5">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 dark:bg-sky-950/50">
                       <Truck className="h-5 w-5 text-sky-600 dark:text-sky-400" />
@@ -3517,7 +3652,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-6">
+                <div className="claim-engine-settings-card p-6 space-y-6">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-950/50">

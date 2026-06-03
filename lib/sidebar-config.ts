@@ -32,7 +32,11 @@ export type SidebarIconName =
   | "Database"
   | "FileUp"
   | "ScanLine"
-  | "Inbox";
+  | "Inbox"
+  | "LayoutDashboard"
+  | "Wrench"
+  | "Store"
+  | "Zap";
 
 export type SidebarLeaf = {
   kind: "leaf";
@@ -304,6 +308,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             path: "/settings",
             featureKey: "settings.stores",
             permissionBase: "settings.stores",
+            icon: "Store",
             rbac: "canSeeSettings",
             order: 1,
           },
@@ -314,6 +319,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             path: "/users",
             featureKey: "settings.users",
             permissionBase: "settings.users",
+            icon: "Users",
             rbac: "canSeeUsers",
             order: 2,
           },
@@ -323,7 +329,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
         kind: "group",
         id: "platform",
         label: "Platform Settings",
-        icon: "Settings",
+        icon: "Wrench",
         moduleKey: "platform",
         order: 40,
         children: [
@@ -334,6 +340,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             path: "/platform/settings",
             featureKey: "platform.branding",
             permissionBase: "platform.branding",
+            icon: "Palette",
             rbac: "canSeePlatformAdmin",
             order: 1,
           },
@@ -344,6 +351,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             path: "/platform/settings/automation",
             featureKey: "platform.branding",
             permissionBase: "platform.branding",
+            icon: "Zap",
             rbac: "canSeePlatformAdmin",
             order: 2,
           },
@@ -354,6 +362,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             path: "/platform/organizations",
             featureKey: "platform.organizations",
             permissionBase: "platform.organizations",
+            icon: "Building2",
             rbac: "canSeePlatformAdmin",
             order: 3,
           },
@@ -364,6 +373,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             path: "/platform/users",
             featureKey: "platform.users",
             permissionBase: "platform.users",
+            icon: "Users",
             rbac: "canSeePlatformUserDirectory",
             order: 4,
           },
@@ -374,6 +384,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             path: "/platform/access",
             featureKey: "platform.access",
             permissionBase: "platform.access",
+            icon: "Shield",
             rbac: "canSeePlatformAccess",
             order: 5,
           },
@@ -382,6 +393,19 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
     ],
   },
 ];
+
+/** Home / Command Center — top of main nav (not synced to access catalog). */
+export const DASHBOARD_NAV_LEAF: SidebarLeaf = {
+  kind: "leaf",
+  id: "dashboard",
+  label: "Dashboard",
+  path: "/",
+  icon: "LayoutDashboard",
+  featureKey: "dashboard.command_center",
+  permissionBase: "operations.dashboard",
+  rbac: "always",
+  order: 0,
+};
 
 export const WMS_ONLY_NAV: { section: "wms"; label: string; order: number; leaves: SidebarLeaf[] } = {
   section: "wms",

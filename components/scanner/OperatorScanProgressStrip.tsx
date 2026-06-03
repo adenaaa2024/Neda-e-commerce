@@ -15,13 +15,6 @@ const STUCK_HINT_TIMEOUT_MS = 8_000;
 
 const ACTIVE_PHASES: OperatorScanProgressPhase[] = ["reading", "checking", "loading_expected_lines"];
 
-const CHIP_CLASS = {
-  done: "border-emerald-500/35 bg-emerald-500/10 text-emerald-100",
-  active: "border-[#d6b76e]/55 bg-[#d6b76e]/12 text-[#faf6ed]",
-  pending: "border-slate-600/50 bg-slate-900/40 text-slate-500",
-  hidden: "hidden",
-} as const;
-
 export function OperatorScanProgressStrip({
   phase,
   errorMessage,
@@ -51,13 +44,13 @@ export function OperatorScanProgressStrip({
 
   return (
     <div
-      className={`min-h-[2.75rem] ${className}`}
+      className={`operator-scan-progress-strip min-h-[2.75rem] ${className}`}
       role={showChips ? "status" : undefined}
       aria-live="polite"
       aria-label={label || undefined}
     >
       {phase === "error" ? (
-        <div className="flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-950/35 px-3 py-2 text-[12px] font-semibold text-rose-100">
+        <div className="operator-scan-progress-strip__error flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-950/35 px-3 py-2 text-[12px] font-semibold text-rose-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>{errorMessage?.trim() || "Lookup failed — try again or enter manually."}</span>
         </div>
@@ -71,7 +64,7 @@ export function OperatorScanProgressStrip({
               return (
                 <span
                   key={chip}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CHIP_CLASS[st]}`}
+                  className={`operator-scan-progress-chip operator-scan-progress-chip--${st} inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide`}
                 >
                   {st === "active" ? (
                     <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
@@ -85,33 +78,30 @@ export function OperatorScanProgressStrip({
               );
             })}
             {phase === "needs_review" ? (
-              <span
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CHIP_CLASS.active}`}
-              >
+              <span className="operator-scan-progress-chip operator-scan-progress-chip--active inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                 <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
                 {OPERATOR_SCAN_PROGRESS_LABEL.needs_review}
               </span>
             ) : null}
-            {/* "ready" is a terminal completed state — no spinner, shown once here only */}
             {phase === "ready" ? (
-              <span
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CHIP_CLASS.done}`}
-              >
+              <span className="operator-scan-progress-chip operator-scan-progress-chip--done inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                 <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
                 {OPERATOR_SCAN_PROGRESS_LABEL.ready}
               </span>
             ) : null}
           </div>
           {label && phase !== "ready" && phase !== "needs_review" ? (
-            <p className="text-center text-[12px] font-semibold text-[#b9c2cc]">{label}…</p>
+            <p className="operator-scan-progress-strip__phase-label text-center text-[12px] font-semibold">
+              {label}…
+            </p>
           ) : null}
           {phase === "needs_review" && !errorMessage?.trim() ? (
-            <p className="text-center text-[11px] font-medium text-[#d6b76e]/80">
+            <p className="operator-scan-progress-strip__review-hint text-center text-[11px] font-medium">
               No matching shipment found — retry, type the code manually, or review.
             </p>
           ) : null}
           {stuckHint ? (
-            <p className="mt-1 text-center text-[11px] font-medium text-[#e8dcc0]/70">
+            <p className="operator-scan-progress-strip__stuck-hint mt-1 text-center text-[11px] font-medium">
               Still checking — you can retry or review manually if this takes too long.
             </p>
           ) : null}

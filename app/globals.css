@@ -1,4 +1,5 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
+@import "./claim-engine/claim-engine-theme.css";
 
 /* Reduce layout shift when modals hide the scrollbar (dashboard sidebar alignment). */
 html {
@@ -222,6 +223,14 @@ html {
   --sidebar-accent:         #f8f6f1;
   --sidebar-accent-foreground: var(--menorix-text);
   --sidebar-ring:           var(--menorix-accent-bright);
+  --sidebar-nav-label:      #1a1e24;
+  --sidebar-nav-icon:       #2c323a;
+  --sidebar-nav-label-hover: #12151a;
+  --sidebar-nav-icon-hover:  #1a1e24;
+  --mx-hover-spring:        cubic-bezier(0.34, 1.28, 0.64, 1);
+  --mx-hover-duration:      220ms;
+  --mx-hover-lift:          -2px;
+  --mx-hover-shift:         3px;
 }
 
 .dark .menorix-admin-shell {
@@ -259,6 +268,10 @@ html {
   --sidebar-accent:         var(--menorix-card);
   --sidebar-accent-foreground: var(--menorix-text);
   --sidebar-ring:           var(--menorix-accent-bright);
+  --sidebar-nav-label:      #fffef9;
+  --sidebar-nav-icon:       #f7f3ea;
+  --sidebar-nav-label-hover: #ffffff;
+  --sidebar-nav-icon-hover:  #fffef9;
 }
 
 .menorix-admin-shell .admin-sidebar {
@@ -300,11 +313,30 @@ html {
 .menorix-admin-shell .admin-chrome-control {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--menorix-surface) 90%, var(--menorix-card));
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-chrome-control svg {
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), color 0.2s ease;
 }
 
 .menorix-admin-shell .admin-chrome-control:hover {
+  transform: translateY(var(--mx-hover-lift));
   background: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface));
   border-color: color-mix(in srgb, var(--ring) 28%, var(--border));
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 28%, var(--border));
+  filter: none;
+  backdrop-filter: none;
+}
+
+.menorix-admin-shell .admin-chrome-control:hover svg {
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+  opacity: 1;
+  filter: none;
 }
 
 .menorix-admin-shell .admin-stat-card {
@@ -383,6 +415,24 @@ html {
     0 1px 3px color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
+.menorix-admin-shell .admin-page-content {
+  width: 100%;
+  max-width: min(1880px, calc(100vw - 1.5rem));
+  margin-inline: auto;
+  padding-inline: clamp(0.625rem, 1.1vw, 1.5rem);
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .menorix-admin-shell .admin-page-content {
+    max-width: min(1880px, calc(100vw - 15.5rem));
+  }
+}
+
+.menorix-admin-shell :is(.max-w-6xl, .max-w-7xl) {
+  max-width: min(1760px, calc(100vw - 14rem)) !important;
+}
+
 .menorix-admin-shell .admin-page-header {
   display: flex;
   flex-direction: column;
@@ -432,10 +482,13 @@ html {
   font-weight: 600;
   color: var(--primary-foreground);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
-  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .menorix-admin-shell .admin-btn-primary:hover {
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
   border-color: var(--ring);
   background: linear-gradient(
     180deg,
@@ -593,24 +646,646 @@ html {
   color: var(--primary);
 }
 
+/* Accordion parent while a child route is active — label only, no full pill */
+.menorix-admin-shell .admin-nav-link--group-open {
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--sidebar-nav-label);
+  font-weight: 600;
+}
+
+.menorix-admin-shell .admin-nav-link--group-open svg {
+  color: var(--primary);
+}
+
+/* Sidebar + nav links — floating hover (admin shell only; not operator-mobile) */
+.menorix-admin-shell .admin-sidebar {
+  --sidebar-nav-inset: 5px;
+}
+
+.menorix-admin-shell .admin-sidebar .admin-nav-link {
+  box-sizing: border-box;
+  width: calc(100% - (var(--sidebar-nav-inset) * 2));
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.menorix-admin-shell .admin-sidebar .admin-nav-link--child {
+  width: calc(100% - (var(--sidebar-nav-inset) * 2 + 6px));
+  padding-left: 2rem;
+  padding-right: 0.5rem;
+}
+
+.menorix-admin-shell .admin-nav-link {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+  filter: none;
+  backdrop-filter: none;
+}
+
+.menorix-admin-shell .admin-nav-link svg {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    color 0.2s ease;
+  filter: none;
+}
+
+.menorix-admin-shell .admin-nav-link--idle:hover,
+.menorix-admin-shell .admin-nav-link--group-open:hover {
+  transform: translateX(var(--mx-hover-shift)) translateY(var(--mx-hover-lift));
+  border-color: color-mix(in srgb, var(--primary) 36%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--primary) 14%, var(--sidebar));
+  color: var(--sidebar-nav-label-hover);
+  font-weight: 600;
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 32%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-nav-link--idle:hover svg,
+.menorix-admin-shell .admin-nav-link--group-open:hover svg {
+  color: var(--primary);
+  opacity: 1;
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell .admin-nav-link--active:hover,
+.menorix-admin-shell .admin-nav-link--child-active.admin-nav-link--active:hover {
+  transform: translateX(calc(var(--mx-hover-shift) + 1px)) translateY(var(--mx-hover-lift));
+  color: var(--sidebar-nav-label-hover);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 40%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-nav-link--active:hover svg,
+.menorix-admin-shell .admin-nav-link--child-active.admin-nav-link--active:hover svg {
+  color: var(--primary);
+  opacity: 1;
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell .admin-nav-link:hover [class*="opacity-"] {
+  opacity: 1 !important;
+}
+
+@keyframes mx-icon-shock {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  28% {
+    transform: scale(1.24) rotate(-18deg);
+  }
+  52% {
+    transform: scale(1.14) rotate(16deg);
+  }
+  76% {
+    transform: scale(1.2) rotate(-10deg);
+  }
+  100% {
+    transform: scale(1.16) rotate(-6deg);
+  }
+}
+
+@keyframes mx-icon-pop {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  30% {
+    transform: scale(1.2) rotate(-14deg);
+  }
+  55% {
+    transform: scale(1.12) rotate(12deg);
+  }
+  78% {
+    transform: scale(1.16) rotate(-8deg);
+  }
+  100% {
+    transform: scale(1.14) rotate(-5deg);
+  }
+}
+
+/* Shared float hover — buttons & link-controls (never operator-mobile / scanner) */
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link) {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link):hover {
+  transform: translateY(calc(var(--mx-hover-lift) - 1px));
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 26%, var(--border));
+}
+
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link):hover svg {
+  opacity: 1;
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link) svg {
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), color 0.2s ease;
+  filter: none;
+}
+
+.menorix-admin-shell .admin-btn-primary,
+.menorix-admin-shell .admin-btn-secondary,
+.menorix-admin-shell .admin-btn-quiet {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Table rows + list rows + cards — subtle water float (no fade) */
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row,
+  .admin-stat-card,
+  .admin-panel-card,
+  .cc-panel,
+  .claim-engine-table-card,
+  .claim-engine-mobile-card,
+  .claim-engine-kpi
+) {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row
+):hover {
+  transform: translateY(-2px);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  background-color: color-mix(in srgb, var(--primary) 11%, var(--menorix-card)) !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row
+):hover td,
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row
+):hover .text-muted-foreground {
+  opacity: 1 !important;
+  color: var(--foreground) !important;
+}
+
+.menorix-admin-shell :is(
+  .admin-stat-card,
+  .admin-panel-card,
+  .cc-panel,
+  .claim-engine-table-card,
+  .claim-engine-mobile-card,
+  .claim-engine-kpi
+):hover {
+  transform: translateY(-2px);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 22%, var(--border));
+}
+
+.menorix-admin-shell tbody tr:hover svg,
+.menorix-admin-shell .cc-queue-row:hover svg {
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+/* Never dim or blur interactive elements on hover */
+.menorix-admin-shell :is(
+  .admin-nav-link,
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  tbody tr,
+  .cc-queue-row,
+  .admin-stat-card,
+  .cc-panel,
+  .claim-engine-table-card
+):hover {
+  opacity: 1;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.menorix-admin-shell :is(
+  .admin-nav-link,
+  button,
+  a,
+  tbody tr,
+  .cc-queue-row
+):hover svg {
+  filter: none !important;
+}
+
+/* ── Crisp hover extensions (no blur/fade on any interactive surface) ── */
+.menorix-admin-shell :is(
+  .admin-sidebar-brand,
+  .admin-sidebar-collapse-btn,
+  .admin-sidebar-resize-handle,
+  .admin-dropdown-item,
+  .mx-hover-field,
+  .mx-hover-control,
+  .claim-engine-select,
+  .claim-engine-search-input,
+  select,
+  input[type="search"],
+  input[type="text"],
+  input[type="email"],
+  textarea
+) {
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  backface-visibility: hidden;
+}
+
+.menorix-admin-shell .admin-sidebar-brand {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-sidebar-brand:hover {
+  transform: translateY(-3px) translateX(2px);
+  background: color-mix(in srgb, var(--primary) 12%, var(--sidebar));
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--sidebar-border));
+  opacity: 1;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 32%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-sidebar-brand:hover > div:first-child,
+.menorix-admin-shell .admin-sidebar-brand:hover svg {
+  animation: mx-icon-shock 400ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell .admin-sidebar-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--sidebar-nav-icon);
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-sidebar-collapse-btn:hover {
+  transform: translateY(-3px) scale(1.06);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--primary) 14%, var(--sidebar));
+  color: var(--primary);
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 30%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-sidebar-collapse-btn:hover svg {
+  animation: mx-icon-shock 400ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+}
+
+.menorix-admin-shell .admin-sidebar-resize-handle {
+  transition: background 0.15s ease;
+}
+
+.menorix-admin-shell .admin-sidebar-resize-handle:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  filter: none !important;
+}
+
+.menorix-admin-shell .admin-sidebar-resize-handle:hover span {
+  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
+  transform-origin: center;
+  filter: none !important;
+}
+
+.menorix-admin-shell .admin-dropdown-item {
+  color: var(--foreground);
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-dropdown-item:hover:not(:disabled) {
+  transform: translateX(3px) translateY(-2px);
+  background: color-mix(in srgb, var(--primary) 12%, var(--accent));
+  color: var(--foreground);
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 26%, var(--border));
+}
+
+.menorix-admin-shell .admin-dropdown-item:hover:not(:disabled) svg {
+  color: var(--primary);
+  opacity: 1 !important;
+  filter: none !important;
+  animation: mx-icon-shock 360ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell :is(
+  .admin-form-input,
+  .admin-chrome-input,
+  .claim-engine-select,
+  .claim-engine-search-input,
+  select,
+  input[type="search"]
+):not(:disabled):hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 22%, var(--border));
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell .cc-queue-header:hover .cc-queue-header__badge svg,
+.menorix-admin-shell .cc-panel__header:hover > svg:first-child,
+.menorix-admin-shell .cc-panel__header--compact:hover > svg:first-child {
+  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell .cc-queue-panel:hover {
+  transform: translateY(-2px);
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 22%, var(--border));
+}
+
+.menorix-admin-shell .cc-queue-header {
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring);
+}
+
+.menorix-admin-shell .cc-queue-header:hover {
+  transform: translateY(-1px);
+}
+
+.menorix-admin-shell .cc-drag-slot {
+  transition:
+    transform 420ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    box-shadow 420ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    outline-color 0.2s ease;
+  cursor: grab;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell .cc-drag-slot:active {
+  cursor: grabbing;
+}
+
+.menorix-admin-shell .cc-drag-slot--dragging {
+  opacity: 1 !important;
+  transform: scale(1.05) rotate(-1deg) translateY(-5px);
+  z-index: 30;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 4px 0 0 color-mix(in srgb, var(--primary) 32%, var(--border));
+}
+
+.menorix-admin-shell .cc-drag-slot--over {
+  transform: scale(0.95) translateY(3px);
+  outline: 2px dashed color-mix(in srgb, var(--primary) 55%, var(--border));
+  outline-offset: 4px;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell .cc-drag-slot--swapped {
+  animation: cc-drag-swap-pop 540ms cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+
+@keyframes cc-drag-swap-pop {
+  0% {
+    transform: scale(0.92);
+  }
+  42% {
+    transform: scale(1.05) translateY(-3px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
+}
+
+.menorix-admin-shell .cc-drag-handle {
+  opacity: 0.55;
+  filter: none !important;
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), opacity 0.15s ease;
+}
+
+.menorix-admin-shell .cc-drag-slot:hover .cc-drag-handle,
+.menorix-admin-shell .cc-drag-slot--dragging .cc-drag-handle {
+  opacity: 1;
+}
+
+.menorix-admin-shell .cc-drag-handle:hover svg {
+  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+}
+
+.menorix-admin-shell .cc-progress-animate {
+  animation: cc-progress-grow 1.85s cubic-bezier(0.34, 1.08, 0.64, 1) forwards;
+  transform-origin: left center;
+  filter: none !important;
+}
+
+@keyframes cc-progress-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.menorix-admin-shell .cc-exec-metric__value--counting {
+  display: inline-block;
+}
+
+/* Block accidental opacity/filter transitions that read as blur on hover */
+.menorix-admin-shell :is(button, a, tr, .cc-panel, .admin-nav-link, input, select):not([data-no-hover-lift]) {
+  transition-property: transform, box-shadow, background, background-color, border-color, color;
+}
+
+.menorix-admin-shell :is(button, a, tr, .cc-panel, .admin-nav-link, input, select):not([data-no-hover-lift]):hover {
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell .login-page :is(.mx-hover-field, .mx-hover-control):hover {
+  filter: none !important;
+  backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+/* Hard block — no blur/fade/glass on ANY hover inside admin shell */
+.menorix-admin-shell :hover {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell :is(a, button, input, select, textarea, tr, td, th, .cc-panel, .admin-nav-link, .cc-drag-slot, .cc-queue-row, .admin-stat-card, label, span, div, svg):hover {
+  filter: none !important;
+  -webkit-filter: none !important;
+  opacity: inherit;
+}
+
+.menorix-admin-shell :is(a, button, input, select, textarea, tr, .cc-panel, .admin-nav-link, .cc-drag-slot, .cc-queue-row):hover {
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell :is(a, button, input, select, textarea, tr, .cc-panel, .admin-nav-link):not([data-no-hover-lift]) {
+  transition-property: transform, box-shadow, background, background-color, border-color, color !important;
+}
+
+/* Nested child — inset pill so parent vs active child are visually distinct */
+.menorix-admin-shell .admin-nav-link--child-active.admin-nav-link--active {
+  min-height: 2.125rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  border-radius: 8px;
+}
+
 .menorix-admin-shell .admin-nav-link--idle {
   border: 1px solid transparent;
-  color: var(--menorix-text-secondary);
+  color: var(--sidebar-nav-label);
 }
 
 .menorix-admin-shell .admin-nav-link--idle svg {
-  color: color-mix(in srgb, var(--menorix-text-secondary) 88%, var(--primary));
+  color: var(--sidebar-nav-icon);
 }
 
-.menorix-admin-shell .admin-nav-link--idle:hover {
-  border-color: var(--sidebar-border);
-  background: var(--sidebar-accent);
-  color: var(--sidebar-accent-foreground);
+@media (prefers-reduced-motion: reduce) {
+  .menorix-admin-shell .admin-nav-link,
+  .menorix-admin-shell .admin-nav-link svg,
+  .menorix-admin-shell button,
+  .menorix-admin-shell a.admin-btn-primary,
+  .menorix-admin-shell a.admin-btn-secondary,
+  .menorix-admin-shell a.admin-btn-quiet,
+  .menorix-admin-shell a.cc-btn-review,
+  .menorix-admin-shell a.cc-rail-link,
+  .menorix-admin-shell a.cc-queue-view-all,
+  .menorix-admin-shell [role="button"],
+  .menorix-admin-shell .admin-btn-primary,
+  .menorix-admin-shell .admin-btn-secondary,
+  .menorix-admin-shell .admin-btn-quiet,
+  .menorix-admin-shell .admin-chrome-control,
+  .menorix-admin-shell .admin-chrome-control svg,
+  .menorix-admin-shell tbody tr,
+  .menorix-admin-shell .cc-queue-row,
+  .menorix-admin-shell .admin-stat-card,
+  .menorix-admin-shell .cc-panel {
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
+    animation: none !important;
+  }
 }
 
-.menorix-admin-shell .admin-nav-link--idle:hover svg {
-  color: var(--primary);
-}
 /* ── Command Center dashboard (desktop admin — not operator-mobile) ─────────── */
 
 .menorix-admin-shell .command-center-main {
@@ -726,11 +1401,17 @@ html {
   }
 }
 
+.menorix-admin-shell .cc-drag-slot:hover {
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
 .menorix-admin-shell .cc-exec-link,
 .menorix-admin-shell .cc-exec-wrap {
   text-decoration: none;
   color: inherit;
   min-height: 7.5rem;
+  display: block;
 }
 
 .menorix-admin-shell .cc-exec-card {
@@ -751,14 +1432,23 @@ html {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
     0 1px 4px color-mix(in srgb, var(--foreground) 4%, transparent);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    transform var(--mx-hover-duration) var(--mx-hover-spring);
 }
 
 .menorix-admin-shell .cc-exec-link:hover .cc-exec-card {
-  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 2px 8px color-mix(in srgb, var(--foreground) 6%, transparent);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 24%, var(--border));
+}
+
+.menorix-admin-shell .cc-exec-link:hover .cc-exec-card__icon {
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
 }
 
 .menorix-admin-shell .cc-exec-card::before {
@@ -806,6 +1496,7 @@ html {
   border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
   background: color-mix(in srgb, var(--primary) 10%, var(--menorix-card));
   color: var(--primary);
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), color 0.2s ease;
 }
 
 .menorix-admin-shell .cc-exec-card__title {
@@ -942,11 +1633,13 @@ html {
     align-items: stretch;
   }
 
-  .menorix-admin-shell .cc-body-main {
+  .menorix-admin-shell .cc-body-main,
+  .menorix-admin-shell .cc-drag-slot.cc-body-main {
     grid-column: span 8;
   }
 
-  .menorix-admin-shell .cc-body-rail {
+  .menorix-admin-shell .cc-body-rail,
+  .menorix-admin-shell .cc-drag-slot.cc-body-rail {
     grid-column: span 4;
   }
 
@@ -1049,10 +1742,6 @@ html {
   border-bottom: none;
 }
 
-.menorix-admin-shell .cc-queue-row:hover {
-  background: color-mix(in srgb, var(--primary) 5%, transparent);
-}
-
 .menorix-admin-shell .cc-queue-row__top {
   display: flex;
   align-items: center;
@@ -1133,11 +1822,11 @@ html {
   background: color-mix(in srgb, var(--primary) 8%, var(--menorix-surface));
   color: var(--primary);
   text-decoration: none;
-  transition: background 0.12s ease;
 }
 
 .menorix-admin-shell .cc-btn-review:hover {
   background: color-mix(in srgb, var(--primary) 16%, var(--menorix-surface));
+  color: var(--primary);
 }
 
 .menorix-admin-shell .cc-btn-review--disabled {
@@ -1156,8 +1845,8 @@ html {
 }
 
 .menorix-admin-shell .cc-queue-view-all:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  color: var(--primary);
+  text-decoration: none;
 }
 
 .menorix-admin-shell .cc-queue-footer__actions {
@@ -1224,7 +1913,7 @@ html {
 
 .menorix-admin-shell .cc-rail-card--compact .cc-panel__header--compact {
   flex-shrink: 0;
-  padding: 0.5rem 0.75rem 0.125rem;
+  padding: 0.5rem 0.75rem 0.5rem;
 }
 
 .menorix-admin-shell .cc-rail-empty {
@@ -1307,11 +1996,26 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   padding: 0.125rem 0.75rem 0.25rem;
 }
 
-.menorix-admin-shell .cc-linkage-compact--sm {
-  gap: 0.5rem;
-  padding: 0.125rem 0.75rem 0;
+.menorix-admin-shell .cc-linkage-compact--rail {
+  gap: 0.75rem;
+  padding: 0.375rem 0.625rem 0.5rem;
 }
 
+.menorix-admin-shell .cc-linkage-stats {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.menorix-admin-shell .cc-linkage-ring--rail {
+  width: 4.75rem;
+  height: 4.75rem;
+}
+
+.menorix-admin-shell .cc-linkage-ring--rail .cc-linkage-ring__inner {
+  width: 3.55rem;
+  height: 3.55rem;
+  font-size: 0.875rem;
+}
 .menorix-admin-shell .cc-linkage-ring {
   width: 3rem;
   height: 3rem;
@@ -1325,6 +2029,11 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 .menorix-admin-shell .cc-linkage-ring--sm {
   width: 2.5rem;
   height: 2.5rem;
+}
+
+.menorix-admin-shell .cc-linkage-compact--sm {
+  gap: 0.5rem;
+  padding: 0.125rem 0.75rem 0;
 }
 
 .menorix-admin-shell .cc-linkage-ring__inner {
@@ -1344,11 +2053,6 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   width: 1.875rem;
   height: 1.875rem;
   font-size: 0.625rem;
-}
-
-.menorix-admin-shell .cc-linkage-stats {
-  font-size: 0.625rem;
-  line-height: 1.45;
 }
 
 .menorix-admin-shell .cc-rail-card--compact .cc-rail-link {
@@ -1382,7 +2086,9 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 
 .menorix-admin-shell .cc-claims-ready-value--sm {
   font-size: 1.375rem;
-  padding: 0 0.75rem;
+  padding: 0.375rem 0.75rem 0;
+  margin-top: 0.375rem;
+  line-height: 1.15;
 }
 
 .menorix-admin-shell .cc-claims-ready-label {
@@ -1393,7 +2099,8 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 }
 
 .menorix-admin-shell .cc-rail-card--compact .cc-claims-ready-label {
-  padding: 0 0.75rem;
+  padding: 0.25rem 0.75rem 0;
+  margin-top: 0.125rem;
 }
 
 .menorix-admin-shell .cc-claims-mini {
@@ -1865,6 +2572,206 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   outline-offset: 2px;
 }
 
+/* ── Admin shell — mobile UX (all ERP pages; NOT operator-mobile / scanner) ─── */
+@media (max-width: 767px) {
+  .menorix-admin-shell .admin-page-content {
+    max-width: 100%;
+    padding-inline: 0.625rem;
+  }
+
+  .menorix-admin-shell .admin-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+  }
+
+  .menorix-admin-shell .admin-page-header h1 {
+    font-size: 1rem;
+  }
+
+  .menorix-admin-shell .admin-page-header p {
+    font-size: 0.6875rem;
+  }
+
+  .menorix-admin-shell .admin-page-header > div:last-child,
+  .menorix-admin-shell .admin-page-header .flex-wrap {
+    width: 100%;
+  }
+
+  .menorix-admin-shell :is(.admin-btn-primary, .admin-btn-secondary, .admin-btn-quiet) {
+    min-height: 2.75rem;
+    padding-inline: 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  .menorix-admin-shell :is(.admin-form-input, .admin-chrome-input, .admin-form-textarea, select, .claim-engine-select) {
+    min-height: 2.75rem;
+    font-size: 1rem;
+    width: 100%;
+  }
+
+  .menorix-admin-shell label:has(select),
+  .menorix-admin-shell label:has(input) {
+    flex-direction: column;
+    align-items: stretch !important;
+    width: 100%;
+    gap: 0.375rem;
+  }
+
+  .menorix-admin-shell label:has(select) select,
+  .menorix-admin-shell label:has(select) .admin-chrome-control {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .menorix-admin-shell .admin-table-wrap,
+  .menorix-admin-shell .claim-engine-table-card,
+  .menorix-admin-shell .admin-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+  }
+
+  .menorix-admin-shell .admin-table-wrap::after,
+  .menorix-admin-shell .claim-engine-table-card::after {
+    content: "";
+    pointer-events: none;
+    position: sticky;
+    right: 0;
+    top: 0;
+    float: right;
+    width: 1.25rem;
+    height: 100%;
+    margin-left: -1.25rem;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--menorix-card) 88%, transparent));
+  }
+
+  .menorix-admin-shell table {
+    font-size: 0.75rem;
+  }
+
+  .menorix-admin-shell table th,
+  .menorix-admin-shell table td {
+    padding: 0.5rem 0.625rem;
+    white-space: nowrap;
+  }
+
+  .menorix-admin-shell .admin-panel-card,
+  .menorix-admin-shell .admin-stat-card,
+  .menorix-admin-shell .cc-panel,
+  .menorix-admin-shell .claim-engine-table-card,
+  .menorix-admin-shell .claim-engine-kpi,
+  .menorix-admin-shell .claim-engine-mobile-card {
+    border-radius: 10px;
+    padding: 0.75rem;
+  }
+
+  .menorix-admin-shell .claim-engine-view .flex-wrap,
+  .menorix-admin-shell .claim-engine-view [class*="gap-2"]:has(select),
+  .menorix-admin-shell .claim-engine-view [class*="gap-3"]:has(select) {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .menorix-admin-shell .claim-engine-view select.claim-engine-select {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .menorix-admin-shell .command-center-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.625rem;
+  }
+
+  .menorix-admin-shell .command-center-header .relative.w-72 {
+    width: 100%;
+  }
+
+  .menorix-admin-shell .cc-layout-toolbar {
+    display: none;
+  }
+
+  .menorix-admin-shell .cc-drag-slot--exec-span-2,
+  .menorix-admin-shell .cc-drag-slot--insight-span-2,
+  .menorix-admin-shell .cc-drag-slot--body-span-4,
+  .menorix-admin-shell .cc-drag-slot--body-span-6,
+  .menorix-admin-shell .cc-drag-slot--body-span-8,
+  .menorix-admin-shell .cc-drag-slot--body-span-12 {
+    grid-column: 1 / -1;
+  }
+
+  .menorix-admin-shell .cc-exec-card {
+    min-height: 6.5rem;
+    padding: 0.625rem 0.75rem;
+  }
+
+  .menorix-admin-shell .cc-exec-metric__value {
+    font-size: 1.125rem;
+  }
+
+  .menorix-admin-shell .cc-insight-card {
+    min-height: 11rem;
+    max-height: none;
+  }
+
+  .menorix-admin-shell .cc-chart-box--insight {
+    min-height: 8.5rem;
+    max-height: none;
+  }
+
+  .menorix-admin-shell .cc-queue-panel,
+  .menorix-admin-shell .cc-body-rail {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .menorix-admin-shell .cc-queue-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .menorix-admin-shell .cc-btn-review {
+    width: 100%;
+    justify-content: center;
+    min-height: 2.5rem;
+  }
+
+  .menorix-admin-shell .cc-queue-footer__actions {
+    flex-direction: column;
+  }
+
+  .menorix-admin-shell .cc-queue-footer__actions :is(a, button) {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .menorix-admin-shell .max-w-6xl,
+  .menorix-admin-shell .max-w-7xl {
+    max-width: 100% !important;
+    padding-inline: 0.625rem;
+  }
+
+  .menorix-admin-shell .admin-modal-shell {
+    margin-inline: 0.25rem;
+    max-width: calc(100vw - 0.5rem);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .menorix-admin-shell .admin-page-content {
+    max-width: min(100%, calc(100vw - 1.25rem));
+    padding-inline: 0.75rem;
+  }
+
+  .menorix-admin-shell .cc-insight-card {
+    max-height: none;
+  }
+}
+
 /* ── Operator mobile: Luxury Industrial tokens (dark / light dual mode) ── */
 
 html.dark .operator-mobile-canvas {
@@ -2231,15 +3138,43 @@ html.dark .operator-shipment-entry-gate-scan-card.scanner-page-glass-card {
 
 html.light .operator-shipment-entry-gate-scan-card.scanner-page-glass-card {
   background-color: #ffffff !important;
-  border-color: var(--scanner-border);
+  border-color: rgba(138, 104, 31, 0.28) !important;
   box-shadow:
-    0 0 0 0.5px rgba(138, 104, 31, 0.18),
-    0 16px 40px -14px rgba(22, 24, 27, 0.12),
+    0 0 0 0.5px rgba(138, 104, 31, 0.22),
+    0 16px 40px -14px rgba(60, 45, 20, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 html.light .operator-shipment-entry-gate-scan-card p.mt-4.font-semibold {
   color: #737b86 !important;
+}
+
+html.light .operator-shipment-entry-gate__searching-label {
+  color: #524018 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__phase-label {
+  color: #524018 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__stuck-hint {
+  color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__review-hint {
+  color: #8a681f !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-chip--pending {
+  background: #f3efe6 !important;
+  border: 1px solid #cfc6b6 !important;
+  color: #737b86 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-chip--active {
+  background: rgba(138, 104, 31, 0.12) !important;
+  border: 1px solid rgba(138, 104, 31, 0.42) !important;
+  color: #524018 !important;
 }
 
 html.light .operator-shipment-entry-gate-page {
@@ -2343,6 +3278,20 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
     inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
 }
 
+html.light .operator-shipment-entry-gate__scan-preview {
+  border-color: rgba(138, 104, 31, 0.4) !important;
+  background: linear-gradient(180deg, #2a3038 0%, #1e242c 52%, #171b21 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 2px 14px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(138, 104, 31, 0.22),
+    0 6px 18px rgba(60, 45, 20, 0.12) !important;
+}
+
+html.light .operator-shipment-entry-gate__scan-zone--highlight {
+  box-shadow: 0 0 24px rgba(138, 104, 31, 0.2) !important;
+}
+
 .operator-shipment-entry-gate .operator-handheld-red-laser {
   height: 2px;
   background: linear-gradient(
@@ -2378,19 +3327,61 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
   box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.22) !important;
 }
 
+/* Shipment Entry scan row — compact right-side action cluster */
+.operator-shipment-entry-gate__action-cluster {
+  gap: 1px;
+  height: 32px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(214, 183, 110, 0.24);
+  background: rgba(17, 22, 28, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.operator-shipment-entry-gate__action-divider {
+  width: 1px;
+  height: 14px;
+  margin-inline: 1px;
+  background: rgba(214, 183, 110, 0.22);
+}
+
+.operator-shipment-entry-gate__tap-to-type {
+  color: #f1e8cc !important;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.operator-shipment-entry-gate__tap-to-type:hover {
+  background: rgba(214, 183, 110, 0.1);
+}
+
+.operator-shipment-entry-gate__tap-to-type:focus-visible {
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.32);
+}
+
 .operator-shipment-entry-gate__camera-btn,
 .operator-shipment-entry-gate__search-btn {
   border: 1px solid transparent;
+  height: 28px;
+  width: 28px;
+  min-height: 28px;
+  min-width: 28px;
+}
+
+.operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__camera-btn,
+.operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__search-btn {
+  border-color: transparent !important;
+  background: transparent !important;
 }
 
 .operator-shipment-entry-gate__camera-btn {
   color: #d6b76e !important;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45)) !important;
+  filter: none !important;
 }
 
 .operator-shipment-entry-gate__camera-btn:hover:not(:disabled) {
   background: rgba(214, 183, 110, 0.12) !important;
-  border-color: rgba(214, 183, 110, 0.28) !important;
+  border-color: rgba(214, 183, 110, 0.2) !important;
 }
 
 .operator-shipment-entry-gate__camera-btn:focus-visible {
@@ -2403,7 +3394,7 @@ html.light .operator-shipment-entry-gate__barcode-plate .lucide {
 
 .operator-shipment-entry-gate__search-btn:hover:not(:disabled) {
   background: rgba(214, 183, 110, 0.12) !important;
-  border-color: rgba(214, 183, 110, 0.28) !important;
+  border-color: rgba(214, 183, 110, 0.2) !important;
 }
 
 .operator-shipment-entry-gate__ocr-drop {
@@ -2539,7 +3530,26 @@ html.light .operator-shipment-entry-gate {
   --gate-over-headline: #92400e;
 }
 
-/* Light mode: search row icons */
+/* Light mode: search row action cluster */
+html.light .operator-shipment-entry-gate__action-cluster {
+  border-color: rgba(138, 104, 31, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.98);
+}
+
+html.light .operator-shipment-entry-gate__action-divider {
+  background: rgba(138, 104, 31, 0.2);
+}
+
+html.light .operator-shipment-entry-gate__tap-to-type {
+  color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-gate__tap-to-type:hover {
+  background: rgba(138, 104, 31, 0.08);
+  color: #524018 !important;
+}
+
 html.light .operator-shipment-entry-gate__camera-btn,
 html.light .operator-shipment-entry-gate__search-btn {
   color: #6f5424 !important;
@@ -2551,16 +3561,16 @@ html.light .operator-shipment-entry-gate__search-btn .lucide {
   stroke-width: 2.5;
 }
 
-html.light .operator-shipment-entry-gate__camera-btn,
-html.light .operator-shipment-entry-gate__search-btn {
-  border-color: rgba(138, 104, 31, 0.22) !important;
-  background: rgba(138, 104, 31, 0.06) !important;
+html.light .operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__camera-btn,
+html.light .operator-shipment-entry-gate__action-cluster .operator-shipment-entry-gate__search-btn {
+  border-color: transparent !important;
+  background: transparent !important;
 }
 
 html.light .operator-shipment-entry-gate__camera-btn:hover:not(:disabled),
 html.light .operator-shipment-entry-gate__search-btn:hover:not(:disabled) {
-  background: rgba(138, 104, 31, 0.14) !important;
-  border-color: rgba(138, 104, 31, 0.36) !important;
+  background: rgba(138, 104, 31, 0.1) !important;
+  border-color: transparent !important;
   color: #524018 !important;
 }
 
@@ -2587,8 +3597,8 @@ html.light .operator-shipment-entry-gate__ocr-spinner {
 }
 
 html.light .operator-shipment-entry-gate__scan-icon {
-  color: #737b86 !important;
-  opacity: 0.9 !important;
+  color: #9aa3ae !important;
+  opacity: 0.88 !important;
 }
 
 html.light .operator-shipment-entry-gate__info-btn {
@@ -2652,10 +3662,10 @@ html.dark .operator-shipment-entry-gate__results.operator-shipment-entry-gate__r
 
 html.light .operator-shipment-entry-gate__results.scanner-page-glass-card {
   background-color: #ffffff !important;
-  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  border: 1px solid #cfc6b6 !important;
   box-shadow:
     0 12px 28px rgba(60, 45, 20, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
 }
 
 html.light .operator-shipment-entry-gate__results.operator-shipment-entry-gate__results--glow-flash {
@@ -2671,11 +3681,11 @@ html.light .operator-shipment-entry-gate__results .text-white\/90 {
 }
 
 html.light .operator-shipment-entry-gate__results .text-sky-100 {
-  color: #1d4ed8 !important;
+  color: #16181b !important;
 }
 
 html.light .operator-shipment-entry-gate__results .text-slate-500 {
-  color: #737b86 !important;
+  color: #66707a !important;
 }
 
 html.light .operator-shipment-entry-gate__results .text-slate-400 {
@@ -2686,9 +3696,32 @@ html.light .operator-shipment-entry-gate__results .text-slate-300 {
   color: #4d5560 !important;
 }
 
+html.light .operator-shipment-entry-gate__results .text-neutral-500 {
+  color: #66707a !important;
+}
+
+html.light .operator-shipment-entry-gate__results .text-neutral-400,
+html.light .operator-shipment-entry-gate__results .text-neutral-600 {
+  color: #4d5560 !important;
+}
+
 html.light .operator-shipment-entry-gate__code-summary {
-  border-color: #d8d1c2 !important;
+  border-color: #cfc6b6 !important;
   background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__code-summary .font-semibold {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__code-summary .font-mono.text-sky-100,
+html.light .operator-shipment-entry-gate__code-summary .font-mono.font-semibold.text-white {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-gate__code-summary [style*="--scanner-muted"] {
+  color: #66707a !important;
 }
 
 html.light .operator-shipment-entry-gate__alert--unexpected {
@@ -2704,9 +3737,13 @@ html.light .operator-shipment-entry-gate__alert--over {
 }
 
 html.light .operator-shipment-entry-gate__progress-track {
-  background-color: #ddd6c8 !important;
-  --tw-ring-color: #d8d1c2;
-  box-shadow: inset 0 0 0 1px #d8d1c2;
+  background-color: #ece7dc !important;
+  --tw-ring-color: #cfc6b6;
+  box-shadow: inset 0 0 0 1px #cfc6b6;
+}
+
+html.light .operator-shipment-entry-gate__results [style*="--scanner-muted"] {
+  color: #66707a !important;
 }
 
 html.light .operator-shipment-entry-gate__results[data-gate-visual="in_progress"]
@@ -2734,21 +3771,115 @@ html.light .operator-shipment-entry-gate__results[data-gate-visual="over_scanned
 }
 
 html.light .operator-shipment-entry-gate__line-items {
-  --tw-ring-color: #d8d1c2;
-  box-shadow: inset 0 0 0 1px #d8d1c2;
+  --tw-ring-color: #cfc6b6;
+  background-color: #ffffff !important;
+  box-shadow: inset 0 0 0 1px #cfc6b6;
+}
+
+/* Shipment Entry result — scrollable line-items body (only when list is long) */
+.operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items-scroll--long {
+  max-height: clamp(260px, 38vh, 360px);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 183, 110, 0.35) transparent;
+}
+
+.operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items-scroll--long::-webkit-scrollbar {
+  width: 5px;
+}
+
+.operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items-scroll--long::-webkit-scrollbar-thumb {
+  background: rgba(214, 183, 110, 0.35);
+  border-radius: 999px;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items-scroll--long {
+  scrollbar-color: rgba(138, 104, 31, 0.28) transparent;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items-scroll--long::-webkit-scrollbar-thumb {
+  background: rgba(138, 104, 31, 0.28);
+}
+
+html.light .operator-shipment-entry-gate__line-items > div.border-b {
+  border-color: #bbae98 !important;
+  background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__line-items .text-neutral-500 {
+  color: #66707a !important;
+}
+
+html.light .operator-shipment-entry-gate__line-items .text-neutral-600 {
+  color: #4d5560 !important;
 }
 
 html.light .operator-shipment-entry-gate__line-items thead tr {
-  background-color: #ece7dc !important;
-  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  border-color: #bbae98 !important;
   color: #4d5560 !important;
 }
 
 html.light .operator-shipment-entry-gate__line-items tbody tr {
-  border-color: #e8e2d6 !important;
+  border-color: #bbae98 !important;
 }
 
 html.light .operator-shipment-entry-gate__line-items tbody td {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-gate__line-item-card {
+  background-color: #f8f6f1 !important;
+  box-shadow: inset 0 -1px 0 #bbae98;
+}
+
+html.light .operator-shipment-entry-gate__line-item-card:last-child {
+  box-shadow: none;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__product-link,
+html.light .operator-shipment-entry-gate__results .operator-item-scan-product-link {
+  color: #16181b !important;
+  text-decoration-color: rgba(122, 91, 27, 0.38) !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__product-link:hover,
+html.light .operator-shipment-entry-gate__results .operator-item-scan-product-link:hover {
+  color: #7a5b1b !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .font-mono {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .font-mono .text-neutral-500 {
+  color: #66707a !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .font-mono .break-words {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .font-mono .tabular-nums {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-card .truncate {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .truncate {
+  color: #4d5560 !important;
+}
+
+html.light .operator-shipment-entry-gate__results span.rounded-full.border-white\/10 {
+  border-color: #cfc6b6 !important;
+  background-color: #f8f6f1 !important;
   color: #16181b !important;
 }
 
@@ -2766,11 +3897,272 @@ html.light .operator-shipment-entry-gate__line-items .bg-black\/25 {
 html.light .operator-shipment-entry-gate__results .border-white\/5,
 html.light .operator-shipment-entry-gate__line-items .border-white\/5,
 html.light .operator-shipment-entry-gate__line-items .border-white\/10 {
-  border-color: #e8e2d6 !important;
+  border-color: #bbae98 !important;
 }
 
 html.light .operator-shipment-entry-gate__results ul.ring-white\/10 li {
-  border-color: #e8e2d6 !important;
+  border-color: #bbae98 !important;
+}
+
+html.light .operator-shipment-entry-gate__results [class*="border-[rgba(185,194,204"] {
+  border-color: #bbae98 !important;
+}
+
+html.light .operator-shipment-entry-gate__results [class*="border-[rgba(214,183,110"] {
+  border-color: #cfc6b6 !important;
+}
+
+html.light .operator-shipment-entry-gate__results [class*="bg-[rgba(255,255,255,0.025)]"] {
+  background-color: #f8f6f1 !important;
+}
+
+/* Line-item status badges (inline theme tokens → readable light surfaces) */
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-item-status-badge[data-line-status="new"] {
+  border-color: rgba(47, 128, 237, 0.42) !important;
+  background-color: rgba(47, 128, 237, 0.1) !important;
+  color: #1d4ed8 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-item-status-badge[data-line-status="in_progress"] {
+  border-color: rgba(138, 104, 31, 0.48) !important;
+  background-color: rgba(138, 104, 31, 0.12) !important;
+  color: #7a5b1b !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-item-status-badge[data-line-status="completed"] {
+  border-color: rgba(15, 143, 99, 0.38) !important;
+  background-color: rgba(15, 159, 110, 0.12) !important;
+  color: #0b6f4d !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-item-status-badge[data-line-status="unexpected"] {
+  border-color: rgba(107, 33, 168, 0.42) !important;
+  background-color: #ede9fe !important;
+  color: #5b21b6 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-item-status-badge[data-line-status="over_scanned"] {
+  border-color: rgba(183, 121, 31, 0.48) !important;
+  background-color: rgba(183, 121, 31, 0.12) !important;
+  color: #92400e !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-item-status-badge[data-line-status="manual_new"] {
+  border-color: rgba(47, 128, 237, 0.42) !important;
+  background-color: rgba(47, 128, 237, 0.1) !important;
+  color: #1d4ed8 !important;
+}
+
+/* Top result status badge */
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="completed"] {
+  border-color: rgba(15, 143, 99, 0.38) !important;
+  background-color: rgba(15, 159, 110, 0.12) !important;
+  color: #0b6f4d !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="in_progress"] {
+  border-color: rgba(138, 104, 31, 0.48) !important;
+  background-color: rgba(138, 104, 31, 0.12) !important;
+  color: #7a5b1b !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="new"] {
+  background: #f4ead6 !important;
+  border: 1px solid #b08a3c !important;
+  color: #7a5b1b !important;
+  border-radius: 4px !important;
+  padding: 2px 7px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_new"] {
+  border-color: rgba(47, 128, 237, 0.42) !important;
+  background-color: rgba(47, 128, 237, 0.1) !important;
+  color: #1d4ed8 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="unexpected"] {
+  border-color: rgba(107, 33, 168, 0.42) !important;
+  background-color: #ede9fe !important;
+  color: #5b21b6 !important;
+}
+
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="over_scanned"] {
+  border-color: rgba(183, 121, 31, 0.48) !important;
+  background-color: rgba(183, 121, 31, 0.12) !important;
+  color: #92400e !important;
+}
+
+/* Product linkage chips inside result / line-item rows */
+html.light .operator-shipment-entry-gate__results [data-linkage-chip="resolved"] {
+  border-color: rgba(15, 143, 99, 0.38) !important;
+  background-color: rgba(15, 159, 110, 0.12) !important;
+  color: #0b6f4d !important;
+}
+
+html.light .operator-shipment-entry-gate__results [data-linkage-chip="ambiguous"],
+html.light .operator-shipment-entry-gate__results [data-linkage-chip="unmapped"] {
+  border-color: rgba(183, 121, 31, 0.48) !important;
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+html.light .operator-shipment-entry-gate__results [data-linkage-chip="mismatch"] {
+  border-color: rgba(209, 67, 67, 0.45) !important;
+  background-color: #fee2e2 !important;
+  color: #b42318 !important;
+}
+
+html.light .operator-shipment-entry-gate__results [data-linkage-chip="manual_override"] {
+  border-color: rgba(107, 33, 168, 0.38) !important;
+  background-color: #ede9fe !important;
+  color: #5b21b6 !important;
+}
+
+html.light .operator-shipment-entry-gate__results [data-linkage-chip="unresolved"] {
+  border-color: #cfc6b6 !important;
+  background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+/* Shipment Entry result — line items dark mode readability */
+html.dark .operator-shipment-entry-gate__line-items {
+  border-color: rgba(214, 183, 110, 0.24) !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items > div.border-b {
+  border-color: rgba(214, 183, 110, 0.12) !important;
+  color: #b8c1cb !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__product-link {
+  color: #f7f3ea !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__product-link:hover {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .text-neutral-500 {
+  color: #7e8894 !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .text-neutral-600 {
+  color: #7e8894 !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .font-mono {
+  color: #b8c1cb !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .font-mono .text-neutral-500 {
+  color: #7e8894 !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .font-mono .break-words {
+  color: #b8c1cb !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .font-mono .tabular-nums {
+  color: #f7f3ea !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-card {
+  box-shadow: inset 0 -1px 0 rgba(214, 183, 110, 0.12);
+}
+
+html.dark .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-card:last-child {
+  box-shadow: none;
+}
+
+html.dark .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-card .truncate {
+  color: #b8c1cb !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items [data-linkage-chip="resolved"] {
+  border-color: rgba(34, 197, 139, 0.38) !important;
+  background-color: rgba(34, 197, 139, 0.12) !important;
+  color: #22c58b !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items [data-linkage-chip="ambiguous"],
+html.dark .operator-shipment-entry-gate__line-items [data-linkage-chip="unmapped"] {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background-color: rgba(214, 183, 110, 0.1) !important;
+  color: #d6b76e !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items [data-linkage-chip="mismatch"] {
+  border-color: rgba(248, 113, 113, 0.42) !important;
+  background-color: rgba(248, 113, 113, 0.12) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items [data-linkage-chip="manual_override"] {
+  border-color: rgba(167, 139, 250, 0.42) !important;
+  background-color: rgba(167, 139, 250, 0.12) !important;
+  color: #c4b5fd !important;
+}
+
+html.dark .operator-shipment-entry-gate__line-items [data-linkage-chip="unresolved"] {
+  border-color: rgba(214, 183, 110, 0.12) !important;
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  color: #b8c1cb !important;
+}
+
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-status-badge[data-line-status="new"] {
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  background-color: rgba(96, 165, 250, 0.14) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-status-badge[data-line-status="in_progress"] {
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  background-color: rgba(214, 183, 110, 0.14) !important;
+  color: #d6b76e !important;
+}
+
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-status-badge[data-line-status="completed"] {
+  border-color: rgba(34, 197, 139, 0.38) !important;
+  background-color: rgba(34, 197, 139, 0.14) !important;
+  color: #22c58b !important;
+}
+
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-status-badge[data-line-status="unexpected"] {
+  border-color: rgba(167, 139, 250, 0.45) !important;
+  background-color: rgba(167, 139, 250, 0.14) !important;
+  color: #c4b5fd !important;
+}
+
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-status-badge[data-line-status="over_scanned"] {
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  background-color: rgba(251, 191, 36, 0.14) !important;
+  color: #fcd34d !important;
+}
+
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-status-badge[data-line-status="manual_new"] {
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  background-color: rgba(96, 165, 250, 0.14) !important;
+  color: #93c5fd !important;
+}
+
+html.light .operator-shipment-entry-gate__line-items [data-linkage-chip="resolved"] {
+  border-color: rgba(15, 143, 99, 0.38) !important;
+  background-color: rgba(15, 159, 110, 0.12) !important;
+  color: #0b6f4d !important;
+}
+
+html.light .operator-shipment-entry-gate__results .font-mono.text-sky-400,
+html.light .operator-shipment-entry-gate__results a.font-mono.text-sky-400 {
+  color: #1d4ed8 !important;
+  text-decoration-color: rgba(29, 78, 216, 0.35) !important;
+}
+
+html.light .operator-shipment-entry-gate__results .font-mono.text-slate-400,
+html.light .operator-shipment-entry-gate__results .text-slate-400.text-\[9px\] {
+  color: #66707a !important;
 }
 
 html.light .operator-shipment-entry-gate__results .text-violet-200 {
@@ -2792,11 +4184,16 @@ html.light .operator-shipment-entry-gate__results .border-slate-600\/80 {
 }
 
 /* Shipment Entry — action controls polish (results panel) */
-.operator-shipment-entry-gate__primary-cta:not(:disabled) {
+.operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta {
   letter-spacing: 0.02em;
+  cursor: pointer;
 }
 
-html.dark .operator-shipment-entry-gate__primary-cta:not(:disabled) {
+.operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta:disabled {
+  cursor: not-allowed;
+}
+
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta:not(:disabled) {
   background: linear-gradient(180deg, #4a5562 0%, #353f4c 38%, #252b33 100%) !important;
   border: 2px solid rgba(214, 183, 110, 0.58) !important;
   color: #faf6ed !important;
@@ -2808,7 +4205,7 @@ html.dark .operator-shipment-entry-gate__primary-cta:not(:disabled) {
     0 0 0 0.5px rgba(214, 183, 110, 0.24) !important;
 }
 
-html.dark .operator-shipment-entry-gate__primary-cta:hover:not(:disabled) {
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta:hover:not(:disabled) {
   background: linear-gradient(180deg, #566273 0%, #3f4a58 38%, #2f3844 100%) !important;
   filter: none;
   box-shadow:
@@ -2818,7 +4215,7 @@ html.dark .operator-shipment-entry-gate__primary-cta:hover:not(:disabled) {
     0 0 0 0.5px rgba(214, 183, 110, 0.32) !important;
 }
 
-html.dark .operator-shipment-entry-gate__primary-cta:active:not(:disabled) {
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta:active:not(:disabled) {
   transform: translateY(1px);
   box-shadow:
     inset 0 1px 0 rgba(241, 213, 138, 0.22),
@@ -2826,7 +4223,7 @@ html.dark .operator-shipment-entry-gate__primary-cta:active:not(:disabled) {
     0 6px 18px rgba(0, 0, 0, 0.38) !important;
 }
 
-html.light .operator-shipment-entry-gate__primary-cta:not(:disabled) {
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta:not(:disabled) {
   background: linear-gradient(180deg, #4d5560 0%, #353d47 48%, #252b33 100%) !important;
   border: 2px solid rgba(138, 104, 31, 0.55) !important;
   color: #faf6ed !important;
@@ -2838,16 +4235,27 @@ html.light .operator-shipment-entry-gate__primary-cta:not(:disabled) {
     0 0 0 0.5px rgba(138, 104, 31, 0.22) !important;
 }
 
-html.light .operator-shipment-entry-gate__primary-cta:hover:not(:disabled) {
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta:hover:not(:disabled) {
   background: linear-gradient(180deg, #5a6470 0%, #3f4854 48%, #2f3844 100%) !important;
   filter: none;
 }
 
-html.light .operator-shipment-entry-gate__primary-cta:active:not(:disabled) {
+html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__primary-cta:active:not(:disabled) {
   transform: translateY(1px);
 }
 
 /* OFF MANIFEST / manual_new status badge */
+html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="new"] {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border: 1px solid rgba(214, 183, 110, 0.4) !important;
+  color: #f1d58a !important;
+  border-radius: 4px !important;
+  padding: 2px 7px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  box-shadow: inset 0 1px 0 rgba(241, 213, 138, 0.14) !important;
+}
+
 html.dark .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_new"] {
   border: 1px solid rgba(214, 183, 110, 0.58) !important;
   background: linear-gradient(165deg, #3a4450 0%, #252b33 100%) !important;
@@ -2899,6 +4307,68 @@ html.light .operator-shipment-entry-gate__entity-btn--idle {
   border: 1px solid #d8d1c2 !important;
   background: #f8f6f1 !important;
   color: #4d5560 !important;
+}
+
+/* Shipment Entry — progress strip chips (scoped; item-scan strip unchanged) */
+.operator-shipment-entry-gate .operator-scan-progress-chip {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.dark .operator-shipment-entry-gate .operator-scan-progress-strip__phase-label {
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-shipment-entry-gate .operator-scan-progress-strip__stuck-hint {
+  color: rgba(232, 220, 192, 0.72) !important;
+}
+
+html.dark .operator-shipment-entry-gate .operator-scan-progress-strip__review-hint {
+  color: rgba(214, 183, 110, 0.82) !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__error {
+  border-color: rgba(220, 38, 38, 0.35) !important;
+  background: rgba(254, 226, 226, 0.85) !important;
+  color: #991b1b !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-chip--done {
+  background: rgba(15, 143, 99, 0.1) !important;
+  border: 1px solid rgba(15, 143, 99, 0.3) !important;
+  color: #0b6f4d !important;
+}
+
+html.dark .operator-shipment-entry-gate .operator-scan-progress-chip--pending,
+html.dark .operator-shipment-entry-gate .operator-scan-progress-chip--active {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(214, 183, 110, 0.16) !important;
+  color: #b8c1cb !important;
+}
+
+html.dark .operator-shipment-entry-gate .operator-scan-progress-chip--done {
+  background: rgba(34, 197, 139, 0.12) !important;
+  border: 1px solid rgba(34, 197, 139, 0.28) !important;
+  color: #22c58b !important;
+}
+
+/* Shipment Entry result — summary sentence (expected / no scan) */
+.operator-shipment-entry-gate__results .operator-shipment-entry-gate__summary-line--expected-no-scan {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+/* Shipment Entry result — line item EXPECTED / SCANNED label-value pairs */
+.operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-qty {
+  gap: 0.25rem;
+}
+
+.operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-qty > span:last-child {
+  font-weight: 600;
 }
 
 /* Box count stepper */
@@ -3200,75 +4670,25 @@ html.light .operator-pallet-step-screen .scanner-input-glass::placeholder {
   opacity: 1 !important;
 }
 
-/* Stepper + Edit All on Box Info phase */
-.operator-stepper-node--done {
-  border-color: rgba(52, 211, 153, 0.42) !important;
-  background: rgba(6, 78, 59, 0.32) !important;
-  color: #a7f3d0 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+html.dark [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell {
+  border-color: rgba(231, 196, 112, 0.38) !important;
 }
 
-html.light [data-receiving-phase="package_scan"] .operator-stepper-node--done {
-  border-color: rgba(15, 159, 110, 0.38) !important;
-  background: rgba(15, 159, 110, 0.1) !important;
-  color: #047857 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+html.light [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell {
+  border-color: rgba(138, 104, 31, 0.32) !important;
 }
 
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell {
-  background-color: rgba(26, 33, 41, 0.96) !important;
-  border-color: rgba(214, 183, 110, 0.34) !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+html.dark [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell .operator-stepper-node--locked {
+  color: #9ea8b4 !important;
 }
 
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell {
-  background-color: rgba(255, 255, 255, 0.96) !important;
-  border-color: rgba(138, 104, 31, 0.24) !important;
-  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
-}
-
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(214, 183, 110, 0.72) !important;
-  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(241, 213, 138, 0.24),
-    0 0 8px rgba(214, 183, 110, 0.16) !important;
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 6px rgba(138, 104, 31, 0.12) !important;
-}
-
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-}
-
-html.dark [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked {
-  color: #87919d !important;
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked {
-  color: #737b86 !important;
-  border-color: #d8d1c2 !important;
-  background: #f8f6f1 !important;
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-box-info-stepper-shell .operator-stepper-node--locked .lucide {
-  opacity: 0.82;
+html.light [data-receiving-phase="package_scan"] .operator-shipment-entry-header .operator-box-info-stepper-shell .operator-stepper-node--locked .lucide {
+  opacity: 0.78;
 }
 
 .operator-stepper-label--active {
-  color: #f1d58a !important;
-  text-shadow: 0 0 12px rgba(214, 183, 110, 0.12);
+  color: #e8d19a !important;
+  text-shadow: none !important;
 }
 
 html.light .operator-stepper-label--active {
@@ -3285,8 +4705,8 @@ html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-lab
 }
 
 html.light [data-receiving-phase="package_scan"] .operator-stepper-label--active {
-  color: #7a5b1b !important;
-  font-weight: 800;
+  color: #8a681f !important;
+  font-weight: 700 !important;
 }
 
 .operator-stepper-label--done {
@@ -3455,6 +4875,54 @@ html.light .operator-shipment-entry-header [data-receiving-phase="scan"] .operat
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
 }
 
+/* Shipment Entry header — title row + back control */
+html.dark .operator-shipment-entry-title-row__bar {
+  border-bottom: 1px solid rgba(214, 183, 110, 0.22) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+html.light .operator-shipment-entry-title-row__bar {
+  border-bottom: 1px solid rgba(138, 104, 31, 0.2) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+html.dark .operator-shipment-entry-title-row--gate {
+  border-bottom: 1px solid rgba(214, 183, 110, 0.22) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+html.light .operator-shipment-entry-title-row--gate {
+  border-bottom: 1px solid rgba(138, 104, 31, 0.2) !important;
+  padding-bottom: 0.25rem !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-entry-title-row h1.operator-heading {
+  font-size: 0.9375rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  line-height: 1.25 !important;
+}
+
+html.dark .operator-shipment-entry-back-btn {
+  color: #faf6ed !important;
+}
+
+html.dark .operator-shipment-entry-back-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.light .operator-shipment-entry-back-btn {
+  color: #16181b !important;
+}
+
+html.light .operator-shipment-entry-back-btn:hover {
+  background: rgba(138, 104, 31, 0.08) !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-edit-all-slot {
+  min-width: 4.5rem;
+}
+
 /* Shipment Entry — unified top chrome (title, stepper, progress) */
 html.dark .operator-shipment-entry-identity-strip {
   border-color: rgba(50, 60, 72, 0.85) !important;
@@ -3486,116 +4954,269 @@ html.light .operator-shipment-entry-pallet-id-badge__label {
   color: #7a5b1b !important;
 }
 
-html.dark .operator-shipment-entry-stepper-shell,
-html.dark .operator-box-info-stepper-shell,
-html.dark .operator-pallet-stepper-shell {
-  background-color: rgba(26, 33, 41, 0.96) !important;
-  border: 1px solid rgba(214, 183, 110, 0.34) !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+html.dark .operator-shipment-entry-header .operator-shipment-entry-stepper-shell,
+html.dark .operator-shipment-entry-header .operator-box-info-stepper-shell,
+html.dark .operator-shipment-entry-header .operator-pallet-stepper-shell {
+  background: linear-gradient(180deg, #2c3642 0%, #222a33 52%, #1a2129 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.34) !important;
+  border-radius: 0.75rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -2px 5px rgba(0, 0, 0, 0.38),
+    0 4px 14px rgba(0, 0, 0, 0.26) !important;
 }
 
-html.light .operator-shipment-entry-stepper-shell,
-html.light .operator-box-info-stepper-shell,
-html.light .operator-pallet-stepper-shell {
-  background-color: rgba(255, 255, 255, 0.96) !important;
-  border: 1px solid rgba(138, 104, 31, 0.24) !important;
-  box-shadow: 0 4px 16px rgba(60, 45, 20, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+html.light .operator-shipment-entry-header .operator-shipment-entry-stepper-shell,
+html.light .operator-shipment-entry-header .operator-box-info-stepper-shell,
+html.light .operator-shipment-entry-header .operator-pallet-stepper-shell {
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f4 48%, #f2ece2 100%) !important;
+  border: 1px solid rgba(187, 174, 152, 0.78) !important;
+  border-radius: 0.75rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -2px 4px rgba(187, 174, 152, 0.22),
+    0 3px 12px rgba(60, 45, 20, 0.07) !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-entry-stepper-shell {
+  padding: 0.375rem 0.5rem 0.3125rem !important;
+  margin-top: 0.4375rem !important;
+  margin-bottom: 0.3125rem !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-track {
+  display: grid !important;
+  grid-template-columns: 1fr minmax(0.625rem, 1.5rem) 1fr minmax(0.625rem, 1.5rem) 1fr !important;
+  align-items: center !important;
+  gap: 0.375rem !important;
+  width: 100% !important;
+  padding-inline: 0.25rem !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-track .operator-stepper-node {
+  justify-self: center !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-track .operator-stepper-rail {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin-inline: 0 !important;
+  flex: none !important;
+}
+
+.operator-shipment-entry-header .operator-stepper-node {
+  height: 1.375rem !important;
+  width: 1.375rem !important;
+  min-height: 1.375rem !important;
+  min-width: 1.375rem !important;
+  border-width: 1.5px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.28) !important;
+}
+
+.operator-shipment-entry-header .operator-stepper-node .lucide {
+  height: 0.75rem !important;
+  width: 0.75rem !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-labels {
+  display: grid !important;
+  grid-template-columns: 1fr minmax(0.625rem, 1.5rem) 1fr minmax(0.625rem, 1.5rem) 1fr !important;
+  gap: 0.375rem !important;
+  margin-top: 0.3125rem !important;
+  padding-inline: 0.25rem !important;
+  font-size: 0.5625rem !important;
+  line-height: 1.15 !important;
+  letter-spacing: 0.07em !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-label {
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.operator-shipment-entry-header .operator-stepper-rail {
+  height: 0.1875rem !important;
+  min-height: 0.1875rem !important;
+  border-radius: 9999px !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--active,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--active,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(214, 183, 110, 0.72) !important;
-  background: linear-gradient(180deg, rgba(214, 183, 110, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
+  border-color: rgba(231, 196, 112, 0.68) !important;
+  background: linear-gradient(180deg, rgba(231, 196, 112, 0.28) 0%, rgba(42, 52, 64, 0.98) 55%, rgba(30, 38, 48, 1) 100%) !important;
+  color: #faf6ed !important;
   box-shadow:
-    inset 0 1px 0 rgba(241, 213, 138, 0.24),
-    0 0 6px rgba(214, 183, 110, 0.12) !important;
+    inset 0 1px 0 rgba(244, 218, 147, 0.38),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.32) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--active,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--active,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #f8f6f1 0%, #ece7dc 100%) !important;
+  border-color: rgba(138, 104, 31, 0.55) !important;
+  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 52%, #ebe3d2 100%) !important;
+  color: #8a681f !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 4px rgba(138, 104, 31, 0.08) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -2px 3px rgba(187, 174, 152, 0.28) !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--done {
-  border-color: rgba(34, 197, 139, 0.38) !important;
-  background: rgba(18, 52, 42, 0.45) !important;
+  border-color: rgba(110, 231, 183, 0.42) !important;
+  background: linear-gradient(180deg, rgba(24, 52, 44, 0.95) 0%, rgba(18, 40, 34, 0.92) 100%) !important;
   color: #6ee7b7 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(167, 243, 208, 0.2),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.28) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--done {
-  border-color: rgba(15, 159, 110, 0.38) !important;
-  background: rgba(15, 159, 110, 0.1) !important;
-  color: #047857 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+  border-color: rgba(21, 128, 61, 0.42) !important;
+  background: linear-gradient(180deg, #ecfdf5 0%, #d8efe4 100%) !important;
+  color: #15803d !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(21, 128, 61, 0.12) !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--locked,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--locked,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #87919d !important;
-  border-color: rgba(50, 60, 72, 0.9) !important;
-  background: rgba(32, 40, 50, 0.85) !important;
+  color: #9ea8b4 !important;
+  border-color: rgba(70, 82, 96, 0.75) !important;
+  background: linear-gradient(180deg, rgba(36, 44, 54, 0.92) 0%, rgba(28, 35, 43, 0.96) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.22) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--locked,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-node--locked,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #4d5560 !important;
-  border-color: #cfc6b6 !important;
-  background: #f8f6f1 !important;
+  color: #66707a !important;
+  border-color: rgba(207, 198, 182, 0.85) !important;
+  background: linear-gradient(180deg, #faf8f4 0%, #f0ebe2 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(187, 174, 152, 0.18) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-node--locked .lucide {
-  opacity: 0.82;
+  opacity: 0.78;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.38) 50%, transparent);
+  background: linear-gradient(
+    90deg,
+    rgba(50, 60, 72, 0.35) 0%,
+    rgba(214, 183, 110, 0.22) 18%,
+    rgba(231, 196, 112, 0.48) 50%,
+    rgba(214, 183, 110, 0.22) 82%,
+    rgba(50, 60, 72, 0.35) 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35) !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(138, 104, 31, 0.35) 50%, transparent);
+  background: linear-gradient(
+    90deg,
+    rgba(207, 198, 182, 0.45) 0%,
+    rgba(187, 174, 152, 0.35) 18%,
+    rgba(138, 104, 31, 0.42) 50%,
+    rgba(187, 174, 152, 0.35) 82%,
+    rgba(207, 198, 182, 0.45) 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -1px 0 rgba(187, 174, 152, 0.22) !important;
+}
+
+/* Rails after a completed step — slightly stronger metallic link (visual only) */
+html.dark .operator-shipment-entry-header .operator-stepper-node--done + .operator-stepper-rail {
+  background: linear-gradient(
+    90deg,
+    rgba(110, 231, 183, 0.18) 0%,
+    rgba(214, 183, 110, 0.32) 22%,
+    rgba(231, 196, 112, 0.58) 50%,
+    rgba(214, 183, 110, 0.32) 78%,
+    rgba(50, 60, 72, 0.3) 100%
+  ) !important;
+}
+
+html.light .operator-shipment-entry-header .operator-stepper-node--done + .operator-stepper-rail {
+  background: linear-gradient(
+    90deg,
+    rgba(21, 128, 61, 0.14) 0%,
+    rgba(187, 174, 152, 0.42) 22%,
+    rgba(138, 104, 31, 0.52) 50%,
+    rgba(187, 174, 152, 0.42) 78%,
+    rgba(207, 198, 182, 0.4) 100%
+  ) !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
-  color: #87919d;
+  color: #b9c2cc;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
-  color: #66707a;
+  color: #4d5560;
 }
 
-html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > span:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+  color: #9ea8b4 !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
   color: #66707a !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--done {
   color: #6ee7b7 !important;
+  font-weight: 700 !important;
   text-shadow: none !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--done {
-  color: #047857 !important;
+  color: #15803d !important;
+  font-weight: 700 !important;
   text-shadow: none !important;
 }
 
-html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
-  color: #7a5b1b !important;
-  font-weight: 800;
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
+  color: #f4da93 !important;
+  font-weight: 800 !important;
   text-shadow: none;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
+  color: #8a681f !important;
+  font-weight: 800 !important;
+  text-shadow: none;
+}
+
+.operator-shipment-entry-header .operator-shipment-box-progress__text,
+.operator-shipment-entry-progress .operator-shipment-box-progress__text {
+  font-size: 0.625rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.3 !important;
+}
+
+.operator-shipment-entry-header .operator-shipment-box-progress__count,
+.operator-shipment-entry-header .operator-shipment-box-progress__total,
+.operator-shipment-entry-progress .operator-shipment-box-progress__count,
+.operator-shipment-entry-progress .operator-shipment-box-progress__total {
+  font-weight: 700 !important;
 }
 
 html.dark .operator-shipment-entry-progress,
@@ -4248,10 +5869,14 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
 
 .operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-labels {
   margin-top: 0.25rem !important;
-  gap: 0.5rem !important;
   padding-inline: 0.25rem !important;
   font-size: 0.4375rem !important;
-  letter-spacing: 0.04em !important;
+  letter-spacing: 0.05em !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-rail {
+  height: 0.1875rem !important;
+  min-height: 0.1875rem !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-entry-progress,
@@ -4300,12 +5925,34 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   width: 1.875rem !important;
 }
 
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__action-cluster {
+  height: 2rem !important;
+  padding: 2px !important;
+  border-radius: 0.5rem !important;
+}
+
 .operator-shipment-handheld-compact .operator-shipment-entry-gate__camera-btn,
 .operator-shipment-handheld-compact .operator-shipment-entry-gate__search-btn {
-  height: 2.75rem !important;
-  width: 2.75rem !important;
-  min-height: 2.75rem !important;
-  min-width: 2.75rem !important;
+  height: 1.75rem !important;
+  width: 1.75rem !important;
+  min-height: 1.75rem !important;
+  min-width: 1.75rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__camera-btn .lucide,
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__search-btn .lucide {
+  height: 0.875rem !important;
+  width: 0.875rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__tap-to-type {
+  font-size: 0.5625rem !important;
+  padding-inline: 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-gate__tap-to-type .lucide {
+  height: 0.625rem !important;
+  width: 0.625rem !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-entry-gate__input {
@@ -4571,8 +6218,18 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   font-size: 0.6875rem !important;
 }
 
+.operator-shipment-handheld-compact .operator-shipment-slip-ai-badge {
+  font-size: 0.4375rem !important;
+  padding: 0.0625rem 0.375rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-slip-meta__label {
+  font-size: 0.5rem !important;
+}
+
 .operator-shipment-handheld-compact .operator-shipment-slip-meta__value {
   font-size: 0.75rem !important;
+  font-weight: 600 !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-notes-label {
@@ -4804,47 +6461,53 @@ html.light .operator-shipment-slip-title {
 }
 
 html.dark .operator-shipment-slip-ai-badge {
-  border-color: rgba(214, 183, 110, 0.42) !important;
-  background: linear-gradient(165deg, rgba(214, 183, 110, 0.18) 0%, rgba(42, 52, 64, 0.92) 100%) !important;
-  color: #f1d58a !important;
-  font-size: 0.5625rem !important;
-  font-weight: 800 !important;
-  letter-spacing: 0.06em;
+  border: 1px solid rgba(214, 183, 110, 0.36) !important;
+  background: rgba(214, 183, 110, 0.1) !important;
+  color: #e8d19a !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  line-height: 1.2 !important;
+  padding: 0.125rem 0.4375rem !important;
 }
 
 html.light .operator-shipment-slip-ai-badge {
-  border-color: rgba(138, 104, 31, 0.4) !important;
-  background: linear-gradient(165deg, #ffffff 0%, #ece7dc 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  background: rgba(138, 104, 31, 0.06) !important;
   color: #8a681f !important;
-  font-weight: 800 !important;
+  font-size: 0.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  line-height: 1.2 !important;
+  padding: 0.125rem 0.4375rem !important;
 }
 
-html.light .operator-shipment-slip-meta--code {
-  border: 1px solid rgba(207, 198, 182, 0.65) !important;
-  background: #f8f6f1 !important;
+html.light .operator-box-info-screen .operator-shipment-slip-meta--code,
+html.light .operator-box-info-screen .operator-shipment-slip-meta--order {
+  border: none !important;
+  background: transparent !important;
   box-shadow: none !important;
 }
 
-html.light .operator-shipment-slip-meta--code .operator-shipment-slip-meta__label {
+html.light .operator-box-info-screen .operator-shipment-slip-meta__label {
+  font-size: 0.5625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+}
+
+html.light .operator-box-info-screen .operator-shipment-slip-meta--code .operator-shipment-slip-meta__label {
   color: #8a681f !important;
 }
 
-html.light .operator-shipment-slip-meta--code .operator-shipment-slip-meta__value {
-  color: #16181b !important;
-}
-
-html.light .operator-shipment-slip-meta--order {
-  border: 1px solid rgba(207, 198, 182, 0.65) !important;
-  background: #f8f6f1 !important;
-  box-shadow: none !important;
-}
-
-html.light .operator-shipment-slip-meta--order .operator-shipment-slip-meta__label {
+html.light .operator-box-info-screen .operator-shipment-slip-meta--order .operator-shipment-slip-meta__label {
   color: #4d5560 !important;
 }
 
-html.light .operator-shipment-slip-meta--order .operator-shipment-slip-meta__value {
+html.light .operator-box-info-screen .operator-shipment-slip-meta__value {
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
   color: #16181b !important;
+  line-height: 1.25 !important;
 }
 
 html.light .operator-shipment-slip-hint {
@@ -5883,31 +7546,31 @@ html.light .operator-item-scan-screen .operator-item-scan-actions--compact {
   padding-top: 0.375rem !important;
 }
 
-/* Item unit record modal (Shipment Entry item scan save/cancel) */
+/* Item unit record modal — Add / Scan Item (visual only, scoped) */
 html.dark .operator-item-unit-record-modal__shell {
   background: #1a2129 !important;
-  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  border: 1px solid rgba(214, 183, 110, 0.32) !important;
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    0 18px 44px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   color: #faf6ed !important;
 }
 
 html.light .operator-item-unit-record-modal__shell {
   background: #ffffff !important;
-  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  border: 1px solid #d8d1c2 !important;
   box-shadow:
-    0 18px 44px rgba(60, 45, 20, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+    0 16px 40px rgba(60, 45, 20, 0.12),
+    0 2px 8px rgba(22, 24, 27, 0.06) !important;
   color: #16181b !important;
 }
 
 html.dark .operator-item-unit-record-modal__header {
-  border-color: rgba(185, 194, 204, 0.2) !important;
+  border-color: rgba(214, 183, 110, 0.14) !important;
 }
 
 html.light .operator-item-unit-record-modal__header {
-  border-color: rgba(138, 104, 31, 0.18) !important;
+  border-color: rgba(216, 209, 194, 0.95) !important;
 }
 
 html.dark .operator-item-unit-record-modal__title {
@@ -5918,26 +7581,540 @@ html.light .operator-item-unit-record-modal__title {
   color: #16181b !important;
 }
 
-html.dark .operator-item-unit-record-modal__subtitle,
-html.dark .operator-item-unit-record-modal__muted {
+html.dark .operator-item-unit-record-modal__subtitle {
   color: #b9c2cc !important;
 }
 
-html.light .operator-item-unit-record-modal__subtitle,
+html.light .operator-item-unit-record-modal__subtitle {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-unit-record-modal__muted {
+  color: #87919d !important;
+}
+
 html.light .operator-item-unit-record-modal__muted {
-  color: #3f4852 !important;
+  color: #66707a !important;
+}
+
+html.dark .operator-item-unit-record-modal__hint-accent {
+  color: #7dd3fc !important;
+}
+
+html.light .operator-item-unit-record-modal__hint-accent {
+  color: #8a681f !important;
+  font-weight: 700;
+}
+
+html.dark .operator-item-unit-record-modal__heading {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__heading {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__section-label {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-unit-record-modal__section-label {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-unit-record-modal__divider {
+  border-color: rgba(214, 183, 110, 0.12) !important;
+}
+
+html.light .operator-item-unit-record-modal__divider {
+  border-color: rgba(216, 209, 194, 0.85) !important;
+}
+
+html.dark .operator-item-unit-record-modal__close-btn {
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-item-unit-record-modal__close-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__close-btn {
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__close-btn:hover:not(:disabled) {
+  background: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__link {
+  color: #7dd3fc !important;
+  text-decoration-color: rgba(125, 211, 252, 0.55) !important;
+}
+
+html.dark .operator-item-unit-record-modal__link:hover {
+  color: #bae6fd !important;
+}
+
+html.light .operator-item-unit-record-modal__link {
+  color: #1d6fa8 !important;
+  text-decoration-color: rgba(29, 111, 168, 0.45) !important;
+}
+
+html.light .operator-item-unit-record-modal__link:hover {
+  color: #155a87 !important;
+}
+
+html.dark .operator-item-unit-record-modal__barcode-input {
+  border-color: rgba(45, 212, 191, 0.38) !important;
+  background-color: #121820 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__barcode-input::placeholder {
+  color: #87919d !important;
+}
+
+html.dark .operator-item-unit-record-modal__barcode-input:focus {
+  border-color: rgba(45, 212, 191, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.28) !important;
+}
+
+html.light .operator-item-unit-record-modal__barcode-input {
+  border-color: rgba(138, 104, 31, 0.35) !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__barcode-input:focus {
+  border-color: rgba(138, 104, 31, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(138, 104, 31, 0.18) !important;
+}
+
+html.light .operator-item-unit-record-modal__barcode-input::placeholder {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-unit-record-modal__type-btn {
+  border-color: rgba(45, 212, 191, 0.45) !important;
+  background-color: rgba(18, 24, 32, 0.95) !important;
+  color: #a5f3fc !important;
+}
+
+html.dark .operator-item-unit-record-modal__type-btn--active {
+  background-color: rgba(45, 212, 191, 0.14) !important;
+}
+
+html.light .operator-item-unit-record-modal__type-btn {
+  border-color: rgba(138, 104, 31, 0.38) !important;
+  background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__type-btn--active {
+  border-color: rgba(138, 104, 31, 0.52) !important;
+  background-color: rgba(138, 104, 31, 0.1) !important;
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-unit-record-modal__field-input {
+  border-color: rgba(185, 194, 204, 0.22) !important;
+  background-color: #171c22 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__field-input:focus {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+}
+
+html.light .operator-item-unit-record-modal__field-input {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__field-input:focus {
+  border-color: rgba(138, 104, 31, 0.45) !important;
+}
+
+html.dark .operator-item-unit-record-modal__checkbox-label {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__checkbox-label {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-unit-record-modal__checkbox {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+  background-color: #171c22 !important;
+  accent-color: #d6b76e;
+}
+
+html.light .operator-item-unit-record-modal__checkbox {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  accent-color: #8a681f;
+}
+
+html.dark .operator-item-unit-record-modal__chip {
+  border-color: rgba(185, 194, 204, 0.22) !important;
+  background-color: transparent !important;
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-item-unit-record-modal__chip--selected {
+  border-color: rgba(214, 183, 110, 0.62) !important;
+  background-color: rgba(214, 183, 110, 0.14) !important;
+  color: #e8d19a !important;
+}
+
+html.light .operator-item-unit-record-modal__chip {
+  border-color: #d8d1c2 !important;
+  background-color: #ffffff !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__chip--selected {
+  border-color: rgba(138, 104, 31, 0.48) !important;
+  background-color: rgba(138, 104, 31, 0.1) !important;
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-unit-record-modal__dropzone {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+  background-color: rgba(18, 24, 32, 0.72) !important;
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-item-unit-record-modal__dropzone:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(214, 183, 110, 0.28) !important;
+}
+
+html.light .operator-item-unit-record-modal__dropzone {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__dropzone:hover:not(:disabled) {
+  background-color: #f0ece4 !important;
+  border-color: rgba(138, 104, 31, 0.32) !important;
+}
+
+html.dark .operator-item-unit-record-modal__evidence-btn {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background-color: rgba(26, 33, 41, 0.85) !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__evidence-btn:hover:not(:disabled) {
+  background-color: rgba(214, 183, 110, 0.1) !important;
+  border-color: rgba(214, 183, 110, 0.48) !important;
+}
+
+html.light .operator-item-unit-record-modal__evidence-btn {
+  border-color: rgba(138, 104, 31, 0.35) !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__evidence-btn:hover:not(:disabled) {
+  background-color: #f0ece4 !important;
+  border-color: rgba(138, 104, 31, 0.48) !important;
+}
+
+html.dark .operator-item-unit-record-modal__evidence-warn {
+  color: #fca5a5 !important;
+}
+
+html.light .operator-item-unit-record-modal__evidence-warn {
+  color: #b4232f !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-footer {
+  border-color: rgba(214, 183, 110, 0.12) !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-footer {
+  border-color: rgba(216, 209, 194, 0.85) !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-input {
+  border-color: rgba(185, 194, 204, 0.22) !important;
+  background-color: #171c22 !important;
+  color: #faf6ed !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-input::placeholder {
+  color: #87919d !important;
+}
+
+html.dark .operator-item-unit-record-modal__notes-input:focus {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-input {
+  border-color: #d8d1c2 !important;
+  background-color: #f8f6f1 !important;
+  color: #16181b !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-input::placeholder {
+  color: #66707a !important;
+}
+
+html.light .operator-item-unit-record-modal__notes-input:focus {
+  border-color: rgba(138, 104, 31, 0.45) !important;
 }
 
 html.dark .operator-item-unit-record-modal__local-error {
-  border: 1px solid rgba(239, 91, 91, 0.45) !important;
+  border: 1px solid rgba(239, 91, 91, 0.42) !important;
   background: rgba(239, 91, 91, 0.1) !important;
-  color: #ef5b5b !important;
+  color: #fca5a5 !important;
 }
 
 html.light .operator-item-unit-record-modal__local-error {
-  border: 1px solid rgba(239, 91, 91, 0.38) !important;
-  background: rgba(239, 91, 91, 0.08) !important;
+  border: 1px solid rgba(239, 91, 91, 0.35) !important;
+  background: rgba(239, 91, 91, 0.06) !important;
   color: #b4232f !important;
+}
+
+html.dark .operator-item-unit-record-modal__validation-summary {
+  border: 1px solid rgba(239, 91, 91, 0.38) !important;
+  background: rgba(239, 91, 91, 0.1) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-unit-record-modal__validation-summary {
+  border: 1px solid rgba(239, 91, 91, 0.32) !important;
+  background: rgba(239, 91, 91, 0.06) !important;
+  color: #5c1010 !important;
+}
+
+.operator-item-unit-record-modal__scroll {
+  scrollbar-width: thin;
+}
+
+html.dark .operator-item-unit-record-modal__scroll {
+  scrollbar-color: rgba(214, 183, 110, 0.35) rgba(26, 33, 41, 0.4);
+}
+
+html.light .operator-item-unit-record-modal__scroll {
+  scrollbar-color: rgba(138, 104, 31, 0.35) rgba(216, 209, 194, 0.5);
+}
+
+.operator-item-unit-record-modal__scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+html.dark .operator-item-unit-record-modal__scroll::-webkit-scrollbar-track {
+  background: rgba(26, 33, 41, 0.35);
+  border-radius: 999px;
+}
+
+html.dark .operator-item-unit-record-modal__scroll::-webkit-scrollbar-thumb {
+  background: rgba(214, 183, 110, 0.38);
+  border-radius: 999px;
+}
+
+html.light .operator-item-unit-record-modal__scroll::-webkit-scrollbar-track {
+  background: rgba(248, 246, 241, 0.9);
+  border-radius: 999px;
+}
+
+html.light .operator-item-unit-record-modal__scroll::-webkit-scrollbar-thumb {
+  background: rgba(138, 104, 31, 0.32);
+  border-radius: 999px;
+}
+
+html.light .operator-item-unit-record-modal__shell .operator-shipment-flow-modal__btn-secondary {
+  border: 1px solid #d8d1c2 !important;
+  background: #f8f6f1 !important;
+  color: #4d5560 !important;
+}
+
+html.light .operator-item-unit-record-modal__shell .operator-shipment-flow-modal__btn-secondary:hover:not(:disabled) {
+  background: #ece7dc !important;
+  border-color: #bbae98 !important;
+  color: #16181b !important;
+}
+
+/* Item scan unit picker modal — Choose unit to edit (visual only, scoped) */
+html.dark .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__panel {
+  background: #1a2129 !important;
+  border: 1px solid rgba(214, 183, 110, 0.3) !important;
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__panel {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  box-shadow:
+    0 16px 40px rgba(60, 45, 20, 0.12),
+    0 2px 8px rgba(22, 24, 27, 0.06) !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-unit-picker__header {
+  border-color: rgba(214, 183, 110, 0.14) !important;
+}
+
+html.light .operator-item-scan-unit-picker__header {
+  border-color: rgba(138, 104, 31, 0.14) !important;
+}
+
+html.dark .operator-item-scan-unit-picker__title {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-unit-picker__title {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-unit-picker__product {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-scan-unit-picker__product {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__fnsku {
+  color: #87919d !important;
+}
+
+html.light .operator-item-scan-unit-picker__fnsku {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-scan-unit-picker__empty {
+  border-color: rgba(214, 183, 110, 0.28) !important;
+  background: rgba(214, 183, 110, 0.08) !important;
+  color: #e8d19a !important;
+}
+
+html.light .operator-item-scan-unit-picker__empty {
+  border-color: rgba(183, 121, 31, 0.28) !important;
+  background: rgba(183, 121, 31, 0.08) !important;
+  color: #6f5424 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-card {
+  background: #202832 !important;
+  border-color: rgba(214, 183, 110, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) {
+  border-color: rgba(214, 183, 110, 0.3) !important;
+  background: #242d38 !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-card {
+  background: #f8f6f1 !important;
+  border-color: rgba(138, 104, 31, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) {
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  background: #f3efe6 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-label {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-label {
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(214, 183, 110, 0.38) !important;
+  background: rgba(214, 183, 110, 0.12) !important;
+  color: #e8d19a !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.light .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  background: rgba(138, 104, 31, 0.1) !important;
+  color: #6f5424 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(214, 183, 110, 0.48) !important;
+  background: rgba(214, 183, 110, 0.18) !important;
+  color: #f1d58a !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) .operator-item-scan-unit-picker__edit-btn {
+  border-color: rgba(138, 104, 31, 0.38) !important;
+  background: rgba(138, 104, 31, 0.16) !important;
+  color: #524018 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__summary {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-scan-unit-picker__summary {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__summary--muted,
+html.dark .operator-item-scan-unit-picker__audit {
+  color: #87919d !important;
+}
+
+html.light .operator-item-scan-unit-picker__summary--muted,
+html.light .operator-item-scan-unit-picker__audit {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-scan-unit-picker__footer {
+  border-color: rgba(214, 183, 110, 0.14) !important;
+}
+
+html.light .operator-item-scan-unit-picker__footer {
+  border-color: rgba(138, 104, 31, 0.14) !important;
+}
+
+html.dark .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #faf6ed !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(185, 194, 204, 0.4) !important;
+}
+
+html.light .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn {
+  border-color: rgba(138, 104, 31, 0.22) !important;
+  background: #f8f6f1 !important;
+  color: #4d5560 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+html.light .operator-item-scan-unit-picker-modal .operator-item-scan-unit-picker__close-btn:hover:not(:disabled) {
+  background: #ece7dc !important;
+  border-color: rgba(138, 104, 31, 0.32) !important;
+  color: #16181b !important;
+}
+
+/* Scanner footers — primary on top when stacked (Zebra/narrow) */
+.operator-scanner-footer-actions {
+  width: 100%;
 }
 
 html.dark .operator-shipment-flow-modal__success-icon {
@@ -6629,117 +8806,13 @@ html.light .operator-pallet-actions .operator-pallet-btn-cancel:hover:not(:disab
   color: #8f1d29 !important;
 }
 
-/* Pallet step stepper — restrained done state, readable locked (light) */
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
-  background-color: rgba(26, 33, 41, 0.96) !important;
-  border-color: rgba(231, 196, 112, 0.4) !important;
-  box-shadow:
-    0 6px 20px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell {
-  background-color: rgba(255, 255, 255, 0.96) !important;
-  border-color: rgba(138, 104, 31, 0.3) !important;
-  box-shadow:
-    0 6px 18px rgba(60, 45, 20, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.94) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(231, 196, 112, 0.76) !important;
-  background: linear-gradient(180deg, rgba(231, 196, 112, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.26),
-    0 0 6px rgba(231, 196, 112, 0.12) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 4px rgba(231, 196, 112, 0.1) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.44) 50%, transparent);
-}
-
+/* Pallet step — stepper shell accent (Shipment Entry header only) */
 html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell {
-  border-color: rgba(231, 196, 112, 0.4) !important;
+  border-color: rgba(231, 196, 112, 0.42) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell {
-  border-color: rgba(138, 104, 31, 0.3) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-rail {
-  background: linear-gradient(90deg, transparent, rgba(231, 196, 112, 0.44) 50%, transparent);
-}
-
-html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-rail {
-  background: linear-gradient(90deg, transparent, rgba(138, 104, 31, 0.38) 50%, transparent);
-}
-
-html.dark [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(231, 196, 112, 0.76) !important;
-  background: linear-gradient(180deg, rgba(231, 196, 112, 0.34) 0%, rgba(42, 52, 64, 0.96) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.26),
-    0 0 6px rgba(231, 196, 112, 0.12) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-shipment-entry-header .operator-pallet-stepper-shell .operator-stepper-node--active {
-  border-color: rgba(138, 104, 31, 0.58) !important;
-  background: linear-gradient(180deg, #fffdf8 0%, #f4eddc 100%) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-rail {
-  box-shadow: none;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-stepper-node--done {
-  border-color: rgba(34, 197, 139, 0.38) !important;
-  background: rgba(18, 52, 42, 0.45) !important;
-  color: #6ee7b7 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-stepper-node--done {
-  border-color: rgba(15, 159, 110, 0.38) !important;
-  background: rgba(15, 159, 110, 0.1) !important;
-  color: #047857 !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-stepper-label--done {
-  color: #6ee7b7 !important;
-  text-shadow: none !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-stepper-label--done {
-  color: #047857 !important;
-  text-shadow: none !important;
-}
-
-html.dark [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #87919d !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked {
-  color: #4d5560 !important;
-  border-color: #cfc6b6 !important;
-  background: #f8f6f1 !important;
-}
-
-html.light [data-receiving-phase="scan"] .operator-pallet-stepper-shell .operator-stepper-node--locked .lucide {
-  opacity: 0.82;
-}
-
-html.light [data-receiving-phase="scan"] .operator-receiving-stepper-labels {
-  color: #66707a;
+  border-color: rgba(138, 104, 31, 0.36) !important;
 }
 
 html.light [data-receiving-phase="scan"] .operator-shipment-box-progress {
@@ -6904,6 +8977,11 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
 
 .operator-item-scan-body {
   min-height: 0;
+  gap: 0.625rem;
+}
+
+.operator-item-scan-stats {
+  gap: 0.5rem;
 }
 
 .operator-item-scan-expected-panel {
@@ -6916,7 +8994,8 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  align-content: start;
 }
 
 /* In-flow spacer — keeps panel bottom border above the fixed action footer overlay */
@@ -6927,46 +9006,78 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   pointer-events: none;
 }
 
+/* Item Scan sticky chrome — compact gap from stepper to summary cards (~8–12px) */
+.operator-item-scan-screen .operator-shipment-entry-header .operator-shipment-entry-stepper-shell {
+  margin-bottom: 0.125rem !important;
+}
+
+.operator-item-scan-screen .operator-item-scan-top-chrome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.operator-item-scan-screen .operator-item-scan-expected-list-scroll.space-y-1\.5 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.375rem !important;
+}
+
+.operator-item-scan-screen .operator-item-scan-progress-track > div {
+  box-shadow: none !important;
+}
+
 /* Step 3 ITEM SCAN — Shipment Entry item inspection (visual polish only) */
 html.light .operator-item-scan-screen {
   background-color: #f4f2ed !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-stat {
-  background: linear-gradient(180deg, #242c36 0%, #1a2129 52%, #141a21 100%) !important;
-  border: 1px solid rgba(231, 196, 112, 0.42) !important;
+  background: linear-gradient(180deg, #2a3440 0%, #1e262f 46%, #161d25 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.36) !important;
+  border-radius: 0.75rem !important;
   box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.22),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.45),
-    0 6px 16px rgba(0, 0, 0, 0.32) !important;
+    inset 0 1px 0 rgba(244, 218, 147, 0.26),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.42),
+    0 4px 14px rgba(0, 0, 0, 0.28) !important;
+  padding-top: 0.4375rem !important;
+  padding-bottom: 0.5rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-stat {
-  background: linear-gradient(180deg, #ffffff 0%, #f8f6f1 48%, #f0ebe2 100%) !important;
-  border: 1px solid #bbae98 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f4 44%, #f2ece2 100%) !important;
+  border: 1px solid rgba(187, 174, 152, 0.72) !important;
+  border-radius: 0.75rem !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    inset 0 -1px 0 rgba(187, 174, 152, 0.35),
-    0 5px 14px rgba(60, 45, 20, 0.1) !important;
+    inset 0 -1px 0 rgba(187, 174, 152, 0.28),
+    0 3px 12px rgba(60, 45, 20, 0.08) !important;
+  padding-top: 0.4375rem !important;
+  padding-bottom: 0.5rem !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-stat__label {
-  color: #b9c2cc !important;
-  letter-spacing: 0.06em;
+  color: #9ea8b4 !important;
+  letter-spacing: 0.08em;
+  font-size: 0.5625rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-stat__label {
   color: #66707a !important;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  font-size: 0.5625rem !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-stat__value {
   color: #faf6ed !important;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  font-size: 1.375rem !important;
+  line-height: 1 !important;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-stat__value {
   color: #16181b !important;
+  font-size: 1.375rem !important;
+  line-height: 1 !important;
   text-shadow: none;
 }
 
@@ -7009,31 +9120,47 @@ html.dark .operator-item-scan-screen .operator-item-scan-stat__value--neutral {
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-expected-panel.scanner-page-glass-card {
-  background: linear-gradient(180deg, #1e262f 0%, #1a2129 100%) !important;
-  border: 1px solid rgba(231, 196, 112, 0.34) !important;
+  background: linear-gradient(180deg, rgba(30, 38, 47, 0.98) 0%, rgba(22, 29, 37, 0.99) 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.28) !important;
+  border-radius: 0.875rem !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 10px 24px rgba(0, 0, 0, 0.28) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 18px rgba(0, 0, 0, 0.22) !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-expected-panel.scanner-page-glass-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8f6f1 100%) !important;
-  border: 1px solid #cfc6b6 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f4 100%) !important;
+  border: 1px solid rgba(207, 198, 182, 0.85) !important;
+  border-radius: 0.875rem !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 8px 20px rgba(60, 45, 20, 0.08) !important;
+    0 4px 16px rgba(60, 45, 20, 0.06) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__header {
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid rgba(231, 196, 112, 0.1);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-expected-panel__header {
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid rgba(207, 198, 182, 0.55);
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__title {
   color: #faf6ed !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.01em;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-expected-panel__title {
   color: #16181b !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.01em;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__eyebrow {
@@ -7093,12 +9220,105 @@ html.light .operator-item-scan-screen .operator-item-scan-expected-panel__counts
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-progress-track {
-  background-color: rgba(15, 23, 42, 0.85) !important;
+  background-color: rgba(12, 16, 22, 0.72) !important;
+  height: 0.3125rem !important;
+  margin-bottom: 0.5rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-progress-track {
   background-color: #e8e2d6 !important;
-  border: 1px solid rgba(207, 198, 182, 0.65);
+  border: none !important;
+  height: 0.3125rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+/* Slip rows — softer surfaces, clearer hierarchy */
+.operator-item-scan-screen .operator-item-scan-slip-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.625rem 0.4375rem !important;
+  border-radius: 0.625rem !important;
+  border-width: 1px !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row {
+  border-color: rgba(231, 196, 112, 0.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row {
+  border-color: rgba(207, 198, 182, 0.55) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="Awaiting"] {
+  background: rgba(26, 33, 41, 0.72) !important;
+  box-shadow: inset 3px 0 0 0 rgba(148, 163, 184, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="IN PROGRESS"] {
+  background: linear-gradient(135deg, rgba(26, 38, 34, 0.92) 0%, rgba(22, 33, 41, 0.88) 100%) !important;
+  border-color: rgba(110, 231, 183, 0.22) !important;
+  box-shadow: inset 3px 0 0 0 rgba(110, 231, 183, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="RECEIVED"] {
+  background: linear-gradient(135deg, rgba(24, 38, 32, 0.95) 0%, rgba(22, 33, 41, 0.9) 100%) !important;
+  border-color: rgba(110, 231, 183, 0.28) !important;
+  box-shadow: inset 3px 0 0 0 rgba(110, 231, 183, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="UNDER"] {
+  background: linear-gradient(135deg, rgba(42, 26, 28, 0.92) 0%, rgba(22, 33, 41, 0.88) 100%) !important;
+  border-color: rgba(252, 165, 165, 0.22) !important;
+  box-shadow: inset 3px 0 0 0 rgba(252, 165, 165, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="OVER"],
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="UNEXPECTED"] {
+  background: linear-gradient(135deg, rgba(38, 34, 24, 0.92) 0%, rgba(22, 33, 41, 0.88) 100%) !important;
+  border-color: rgba(244, 218, 147, 0.24) !important;
+  box-shadow: inset 3px 0 0 0 rgba(231, 196, 112, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-product-link,
+.operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-slip-row__title {
+  font-size: 0.8125rem !important;
+  font-weight: 800 !important;
+  line-height: 1.25 !important;
+  letter-spacing: 0.012em;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row > div[class*="data-linkage-chip"],
+.operator-item-scan-screen .operator-item-scan-slip-row > div:has([data-linkage-chip]) {
+  margin-top: -0.0625rem;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row > .mt-0\.5.flex,
+.operator-item-scan-screen .operator-item-scan-slip-row > div.mt-0\.5 {
+  margin-top: 0 !important;
+  padding-top: 0.3125rem;
+  border-top: 1px solid rgba(231, 196, 112, 0.1);
+  align-items: center;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row > .mt-0\.5.flex,
+html.light .operator-item-scan-screen .operator-item-scan-slip-row > div.mt-0\.5 {
+  border-top-color: rgba(207, 198, 182, 0.45);
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-slip-status {
+  min-width: 4.25rem;
+  text-align: center;
+  border-radius: 9999px !important;
+}
+
+.operator-item-scan-screen .operator-item-scan-slip-row__qty {
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="Awaiting"] {
@@ -7252,6 +9472,16 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-status--awaiting 
   color: #4d5560 !important;
 }
 
+html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="RECEIVED"] {
+  color: #6ee7b7 !important;
+  background-color: rgba(16, 185, 129, 0.1) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="IN PROGRESS"] {
+  color: #6ee7b7 !important;
+  background-color: rgba(16, 185, 129, 0.08) !important;
+}
+
 html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="RECEIVED"] {
   color: #15803d !important;
 }
@@ -7269,23 +9499,114 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-
   color: #8a681f !important;
 }
 
-html.light .operator-item-scan-screen .operator-item-scan-empty-note {
-  border-color: #cfc6b6 !important;
-  background-color: #f8f6f1 !important;
-  color: #4d5560 !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-empty-note {
-  border-color: rgba(185, 194, 204, 0.22) !important;
-  background-color: rgba(32, 40, 50, 0.55) !important;
-  color: #b9c2cc !important;
+html.dark .operator-item-scan-screen .operator-item-scan-shipment-summary.scanner-page-glass-card {
+  background: rgba(22, 29, 37, 0.55) !important;
+  border: none !important;
+  border-top: 1px solid rgba(231, 196, 112, 0.12) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-top: 0.625rem !important;
+  margin-top: 0.375rem !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-shipment-summary.scanner-page-glass-card {
-  background: #ffffff !important;
-  border: 1px solid #cfc6b6 !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid rgba(207, 198, 182, 0.55) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-top: 0.625rem !important;
+  margin-top: 0.375rem !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-empty-note {
+  border: none !important;
+  border-left: 2px solid rgba(231, 196, 112, 0.28) !important;
+  background-color: rgba(26, 33, 41, 0.45) !important;
+  color: #b9c2cc !important;
+  border-radius: 0.5rem !important;
+  padding: 0.4375rem 0.625rem !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-empty-note {
+  border: none !important;
+  border-left: 2px solid rgba(187, 174, 152, 0.65) !important;
+  background-color: rgba(248, 246, 241, 0.85) !important;
+  color: #4d5560 !important;
+  border-radius: 0.5rem !important;
+  padding: 0.4375rem 0.625rem !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-actions,
+html.dark .operator-item-scan-screen .operator-item-scan-fixed-actions {
+  border-color: rgba(50, 60, 72, 0.65) !important;
+  border-top-width: 1px !important;
+  background: linear-gradient(180deg, rgba(22, 29, 37, 0.97) 0%, rgba(16, 21, 27, 0.98) 100%) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-actions,
+html.light .operator-item-scan-screen .operator-item-scan-fixed-actions {
+  border-color: rgba(207, 198, 182, 0.75) !important;
+  border-top-width: 1px !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 248, 244, 0.99) 100%) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 -4px 14px rgba(60, 45, 20, 0.06);
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-save-exit {
+  border: 1px solid rgba(231, 196, 112, 0.38) !important;
+  background: linear-gradient(180deg, #2a3440 0%, #1e262f 100%) !important;
+  color: #e8e2d6 !important;
+  font-weight: 700 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.18) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-btn-save-exit:hover:not(:disabled) {
+  border-color: rgba(231, 196, 112, 0.52) !important;
+  color: #faf6ed !important;
+  filter: brightness(1.04);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-save-exit {
+  border: 1px solid rgba(187, 174, 152, 0.85) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f2ece2 100%) !important;
+  color: #4d5560 !important;
+  font-weight: 700 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 2px 8px rgba(60, 45, 20, 0.06) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-btn-save-exit:hover:not(:disabled) {
+  border-color: rgba(138, 104, 31, 0.55) !important;
+  color: #16181b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-add-btn.operator-neda-mechanical-scan-btn {
+  margin-top: 0.125rem;
+  margin-bottom: 0.125rem;
+  border-width: 1px !important;
+  border-color: rgba(231, 196, 112, 0.82) !important;
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.55),
+    0 0 18px rgba(214, 183, 110, 0.1) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-add-btn.operator-neda-mechanical-scan-btn {
+  margin-top: 0.125rem;
+  margin-bottom: 0.125rem;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 218, 147, 0.32),
+    0 0 0 1px rgba(214, 183, 110, 0.28),
+    0 8px 22px rgba(60, 45, 20, 0.24) !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-shipment-summary__title {
@@ -7316,21 +9637,6 @@ html.dark .operator-item-scan-screen .operator-item-scan-shipment-summary__list 
   border-color: #243241;
 }
 
-html.dark .operator-item-scan-screen .operator-item-scan-actions {
-  border-color: rgba(50, 60, 72, 0.85) !important;
-  background: linear-gradient(180deg, rgba(26, 33, 41, 0.96) 0%, rgba(20, 26, 33, 0.98) 100%) !important;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-}
-
-html.light .operator-item-scan-screen .operator-item-scan-actions {
-  border-color: #cfc6b6 !important;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 246, 241, 0.98) 100%) !important;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 -6px 20px rgba(60, 45, 20, 0.08);
-}
-
 html.dark .operator-item-scan-screen .operator-item-scan-btn-back {
   border-color: rgba(185, 194, 204, 0.38) !important;
   background: linear-gradient(180deg, #2a3440 0%, #1a2129 100%) !important;
@@ -7356,18 +9662,21 @@ html.light .operator-item-scan-screen .operator-item-scan-btn-back:hover:not(:di
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-btn-finalize--ok {
-  background: linear-gradient(180deg, #3d4a38 0%, #2a3830 48%, #1e2c26 100%) !important;
-  border: 2px solid rgba(231, 196, 112, 0.55) !important;
+  background: linear-gradient(180deg, #424d5a 0%, #2f3844 46%, #1a2129 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.58) !important;
   color: #faf6ed !important;
+  font-weight: 800 !important;
   box-shadow:
-    inset 0 1px 0 rgba(244, 218, 147, 0.28),
+    inset 0 1px 0 rgba(244, 218, 147, 0.32),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.38),
     0 6px 18px rgba(0, 0, 0, 0.32) !important;
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-btn-finalize--ok {
   background: linear-gradient(180deg, #3d4550 0%, #2a313a 48%, #171c22 100%) !important;
-  border: 2px solid rgba(138, 104, 31, 0.58) !important;
+  border: 1px solid rgba(138, 104, 31, 0.62) !important;
   color: #faf6ed !important;
+  font-weight: 800 !important;
   box-shadow:
     inset 0 1px 0 rgba(244, 218, 147, 0.35),
     0 6px 18px rgba(60, 45, 20, 0.18) !important;
@@ -7994,15 +10303,15 @@ html.light .operator-dashboard-metric-cell {
     inset 0 -2px 5px rgba(22, 24, 27, 0.05);
 }
 
-/* Master stepper — industrial gold active rail */
+/* Master stepper — fallback (Shipment Entry header overrides below) */
 .operator-stepper-rail {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(214, 183, 110, 0.45) 50%,
+    rgba(214, 183, 110, 0.38) 50%,
     transparent
   );
-  box-shadow: 0 0 8px var(--scanner-gold-glow);
+  box-shadow: none;
 }
 
 html.light .operator-stepper-rail {
@@ -8010,12 +10319,16 @@ html.light .operator-stepper-rail {
 }
 
 .operator-stepper-node--active {
-  border-color: rgba(214, 183, 110, 0.65) !important;
-  background: linear-gradient(180deg, rgba(214, 183, 110, 0.22) 0%, rgba(32, 40, 50, 0.95) 100%) !important;
+  border-color: rgba(214, 183, 110, 0.55) !important;
+  background: linear-gradient(180deg, rgba(214, 183, 110, 0.18) 0%, rgba(32, 40, 50, 0.95) 100%) !important;
   box-shadow:
-    0 0 16px var(--scanner-gold-glow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25) !important;
   color: var(--scanner-text) !important;
+}
+
+.operator-shipment-entry-header .operator-stepper-node--active {
+  filter: none !important;
 }
 
 .operator-stepper-node--locked {
@@ -8601,7 +10914,137 @@ html.light .operator-home-page .operator-home-recent-action-btn:hover {
   }
 }
 
-/* Scanner footers — primary on top when stacked (Zebra/narrow) */
-.operator-scanner-footer-actions {
+/* Neda Zebra — portaled photo action sheet (ScannerPhotoActionSheet) */
+.scanner-photo-action-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.scanner-photo-action-sheet-panel {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: 58%;
+  bottom: auto;
+  transform: translateY(-50%);
+  z-index: 261;
+  width: auto;
+  max-width: 430px;
+  margin-inline: auto;
+  max-height: min(
+    17.5rem,
+    calc(100dvh - var(--scanner-bottom-nav-height, 4.75rem) - env(safe-area-inset-bottom, 0px) - 6rem)
+  );
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: 1rem;
+}
+
+html.dark .scanner-photo-action-sheet-panel {
+  background-color: rgba(32, 40, 50, 0.96);
+  border: 1px solid var(--scanner-border, #323c48);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+  box-shadow:
+    0 0 28px rgba(214, 183, 110, 0.18),
+    0 22px 52px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html.light .scanner-photo-action-sheet-panel {
+  background-color: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--scanner-border, rgba(138, 104, 31, 0.28));
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 14px 40px -10px rgba(22, 24, 27, 0.18);
+}
+
+.scanner-photo-action-sheet-handle {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 0.25rem;
+}
+
+.scanner-photo-action-sheet-handle::before {
+  content: "";
+  display: block;
+  height: 0.25rem;
+  width: 2.5rem;
+  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.55);
+}
+
+html.dark .scanner-photo-action-sheet-handle::before {
+  background: rgba(100, 116, 139, 0.85);
+}
+
+.scanner-photo-action-sheet-title {
+  padding: 0 1rem 0.5rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--scanner-text-secondary, #87919d);
+}
+
+.scanner-photo-action-sheet-options {
+  display: flex;
+  flex-direction: column;
+}
+
+.scanner-photo-action-sheet-option {
+  display: flex;
+  min-height: 3.25rem;
   width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.25;
+  transition: background-color 0.15s ease;
+}
+
+.scanner-photo-action-sheet-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.scanner-photo-action-sheet-option--border {
+  border-top: 1px solid var(--scanner-border, #323c48);
+}
+
+.scanner-photo-action-sheet-option--cancel {
+  justify-content: center;
+  text-align: center;
+  font-weight: 600;
+}
+
+html.dark .scanner-photo-action-sheet-option {
+  color: #faf6ed;
+}
+
+html.dark .scanner-photo-action-sheet-option:hover:not(:disabled),
+html.dark .scanner-photo-action-sheet-option:active:not(:disabled) {
+  background: rgba(214, 183, 110, 0.12);
+}
+
+html.light .scanner-photo-action-sheet-option {
+  color: #16181b;
+}
+
+html.light .scanner-photo-action-sheet-option:hover:not(:disabled),
+html.light .scanner-photo-action-sheet-option:active:not(:disabled) {
+  background: rgba(138, 104, 31, 0.1);
+}
+
+.scanner-photo-action-sheet-option-icon {
+  font-size: 1.25rem;
+  line-height: 1;
 }

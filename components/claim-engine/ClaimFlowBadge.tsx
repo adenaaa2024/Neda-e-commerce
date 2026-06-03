@@ -18,7 +18,7 @@ export function ClaimFlowBadge({
   return (
     <span
       title={hint}
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${CLAIM_FLOW_STAGE_BADGE_CLASS[stage]} ${className}`}
+      className={`inline-flex ${CLAIM_FLOW_STAGE_BADGE_CLASS[stage]} ${className}`}
     >
       {CLAIM_FLOW_STAGE_LABELS[stage]}
     </span>

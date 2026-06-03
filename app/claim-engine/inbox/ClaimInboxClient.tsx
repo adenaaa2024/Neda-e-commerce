@@ -20,8 +20,16 @@ import {
   type IntakeSourceFilter,
 } from "@/lib/claim-intake-source-filter";
 import {
-  claimEngineSubTabClass,
+  CLAIM_ENGINE_BANNER_ERROR_CLASS,
+  CLAIM_ENGINE_BANNER_INFO_CLASS,
+  CLAIM_ENGINE_BANNER_WARNING_CLASS,
+  CLAIM_ENGINE_CARD_CLASS,
+  CLAIM_ENGINE_INPUT_CLASS,
   CLAIM_ENGINE_MAIN_CLASS,
+  CLAIM_ENGINE_SELECT_CLASS,
+  CLAIM_ENGINE_TABLE_CLASS,
+  CLAIM_ENGINE_TABLE_HEAD_CLASS,
+  CLAIM_ENGINE_TABLE_ROW_CLASS,
 } from "@/components/claim-engine/claim-engine-ui";
 import { ClaimEvidenceViewer } from "@/components/claims/ClaimEvidenceViewer";
 import { ClaimReferenceCandidatesPanel } from "@/components/claims/ClaimReferenceCandidatesPanel";
@@ -84,6 +92,19 @@ const QUEUE_TABS: { id: InboxQueueTab; label: string }[] = [
   { id: "legacy_source_broken", label: "Legacy Source Broken" },
   { id: "ineligible_pre_cutoff", label: "Pre-cutoff" },
 ];
+
+const CLAIM_SOURCE_OPTIONS = INTAKE_SOURCE_FILTER_TABS.map((t) => ({
+  id: t.id,
+  label: t.id === "all" ? "All sources" : t.label,
+}));
+
+const REVIEW_STATUS_OPTIONS = QUEUE_TABS.map((t) => ({
+  id: t.id,
+  label: t.id === "all" ? "All statuses" : t.label,
+}));
+
+const CLAIM_ENGINE_FILTER_LABEL_CLASS =
+  "text-[11px] font-medium uppercase tracking-wide text-muted-foreground";
 
 type InboxDraftItem = {
   id: string;
@@ -559,28 +580,28 @@ export function ClaimInboxClient({
             </p>
           ) : null}
           {storesLoading || !storesReady ? (
-            <div className="rounded-xl border border-slate-200 bg-white px-3 py-6 text-center text-sm text-muted-foreground dark:border-slate-800 dark:bg-slate-950">
+            <div className="claim-engine-loading px-3 py-6 text-center text-sm">
               Loading store access…
             </div>
           ) : storesError ? (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
+            <div className={CLAIM_ENGINE_BANNER_ERROR_CLASS}>
               Could not load store access: {storesError}
             </div>
           ) : noStoreAccess ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+            <div className={CLAIM_ENGINE_BANNER_INFO_CLASS}>
               No store access assigned. Ask an admin to grant store access.
             </div>
           ) : (
             <>
               {allowAllAllowedOption && selectedStoreId === null && allowedStores.length > 0 ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                <div className={CLAIM_ENGINE_BANNER_WARNING_CLASS}>
                   All allowed stores — results are not filtered to a single marketplace location. (Administrators may see
                   every store in the organization in this view.)
                 </div>
               ) : null}
 
               {queueTab === "legacy_source_broken" ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                <div className={CLAIM_ENGINE_BANNER_WARNING_CLASS}>
                   <div className="flex gap-2">
                     <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                     <div>
@@ -595,8 +616,8 @@ export function ClaimInboxClient({
               ) : null}
 
               <div className="flex flex-wrap items-end gap-3">
-                <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Store
+                <label className="flex flex-col gap-1">
+                  <span className={CLAIM_ENGINE_FILTER_LABEL_CLASS}>Store</span>
                   <select
                     value={selectedStoreId ?? ""}
                     disabled={storesLoading || !!storesError || (allowedStores.length === 0 && !hasVirtualCoverage)}
@@ -605,7 +626,7 @@ export function ClaimInboxClient({
                       setSelectedStoreId(v === "" ? null : v);
                       resetPagination();
                     }}
-                    className="min-w-[12rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900"
+                    className={`min-w-[12rem] ${CLAIM_ENGINE_SELECT_CLASS}`}
                   >
                     {allowAllAllowedOption ? <option value="">All allowed stores</option> : null}
                     {allowedStores.map((s) => (
@@ -617,67 +638,69 @@ export function ClaimInboxClient({
                     ))}
                   </select>
                 </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-              Evidence status
-              <input
-                value={filterEvidenceStatus}
-                onChange={(e) => setFilterEvidenceStatus(e.target.value)}
-                onBlur={() => resetPagination()}
-                placeholder="e.g. missing"
-                className="w-36 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-              Claim family (exact)
-              <input
-                value={filterClaimFamily}
-                onChange={(e) => setFilterClaimFamily(e.target.value)}
-                onBlur={() => resetPagination()}
-                className="w-40 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-              Claim reason (exact)
-              <input
-                value={filterClaimReason}
-                onChange={(e) => setFilterClaimReason(e.target.value)}
-                onBlur={() => resetPagination()}
-                className="min-w-[8rem] flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900 sm:max-w-xs"
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80">
-            {INTAKE_SOURCE_FILTER_TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => {
-                  setIntakeSourceFilter(t.id);
-                  resetPagination();
-                }}
-                className={claimEngineSubTabClass(intakeSourceFilter === t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80">
-            {QUEUE_TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => {
-                  setQueueTab(t.id);
-                  resetPagination();
-                }}
-                className={claimEngineSubTabClass(queueTab === t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+                <label className="flex flex-col gap-1">
+                  <span className={CLAIM_ENGINE_FILTER_LABEL_CLASS}>Claim source</span>
+                  <select
+                    value={intakeSourceFilter}
+                    onChange={(e) => {
+                      setIntakeSourceFilter(e.target.value as IntakeSourceFilter);
+                      resetPagination();
+                    }}
+                    className={`min-w-[10rem] ${CLAIM_ENGINE_SELECT_CLASS}`}
+                  >
+                    {CLAIM_SOURCE_OPTIONS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={CLAIM_ENGINE_FILTER_LABEL_CLASS}>Review status</span>
+                  <select
+                    value={queueTab}
+                    onChange={(e) => {
+                      setQueueTab(e.target.value as InboxQueueTab);
+                      resetPagination();
+                    }}
+                    className={`min-w-[10rem] ${CLAIM_ENGINE_SELECT_CLASS}`}
+                  >
+                    {REVIEW_STATUS_OPTIONS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={CLAIM_ENGINE_FILTER_LABEL_CLASS}>Evidence status</span>
+                  <input
+                    value={filterEvidenceStatus}
+                    onChange={(e) => setFilterEvidenceStatus(e.target.value)}
+                    onBlur={() => resetPagination()}
+                    placeholder="e.g. missing"
+                    className={`w-36 ${CLAIM_ENGINE_INPUT_CLASS}`}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={CLAIM_ENGINE_FILTER_LABEL_CLASS}>Claim family (exact)</span>
+                  <input
+                    value={filterClaimFamily}
+                    onChange={(e) => setFilterClaimFamily(e.target.value)}
+                    onBlur={() => resetPagination()}
+                    className={`w-40 ${CLAIM_ENGINE_INPUT_CLASS}`}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={CLAIM_ENGINE_FILTER_LABEL_CLASS}>Claim reason (exact)</span>
+                  <input
+                    value={filterClaimReason}
+                    onChange={(e) => setFilterClaimReason(e.target.value)}
+                    onBlur={() => resetPagination()}
+                    className={`min-w-[8rem] flex-1 sm:max-w-xs ${CLAIM_ENGINE_INPUT_CLASS}`}
+                  />
+                </label>
+              </div>
 
           {intakeFilterShowsPhysicalSection(intakeSourceFilter) ? (
             <ClaimIntakePhysicalReturnsSection
@@ -735,16 +758,16 @@ export function ClaimInboxClient({
           ) : null}
 
           {error ? (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
+            <div className={CLAIM_ENGINE_BANNER_ERROR_CLASS}>
               {error}
             </div>
           ) : null}
 
           {intakeFilterShowsClaimCandidates(intakeSourceFilter) ? (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-            <table className="min-w-[960px] w-full border-collapse text-left text-xs">
-              <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/80">
-                <tr className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className={`overflow-x-auto ${CLAIM_ENGINE_CARD_CLASS}`}>
+            <table className={`${CLAIM_ENGINE_TABLE_CLASS} min-w-[960px]`}>
+              <thead className={CLAIM_ENGINE_TABLE_HEAD_CLASS}>
+                <tr>
                   <th className="px-3 py-2">Source</th>
                   <th className="px-3 py-2">Why / type</th>
                   <th className="px-3 py-2">Queue</th>
@@ -759,8 +782,8 @@ export function ClaimInboxClient({
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-12 text-center text-slate-500">
-                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-sky-500" />
+                    <td colSpan={9} className="px-3 py-12 text-center">
+                      <Loader2 className="claim-engine-loading mx-auto h-6 w-6 animate-spin" />
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
@@ -781,7 +804,7 @@ export function ClaimInboxClient({
                     return (
                       <tr
                         key={row.id}
-                        className="cursor-pointer border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800/80 dark:hover:bg-slate-900/60"
+                        className={`cursor-pointer ${CLAIM_ENGINE_TABLE_ROW_CLASS}`}
                         onClick={() => openDetail(row.id)}
                       >
                         <td className="px-3 py-2 align-top">

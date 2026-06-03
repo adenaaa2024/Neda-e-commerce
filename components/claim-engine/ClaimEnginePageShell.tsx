@@ -33,11 +33,7 @@ export function ClaimEnginePageShell({
     Array.isArray(aside) ? (
       <div className="flex flex-wrap gap-3 text-sm">
         {aside.map((l) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            className="font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          >
+          <Link key={l.href} href={l.href} className="claim-engine-link">
             {l.label}
           </Link>
         ))}
@@ -48,12 +44,12 @@ export function ClaimEnginePageShell({
 
   return (
     <div className={CLAIM_ENGINE_PAGE_CLASS}>
-      {showHub ? <ClaimEngineHubNavShell /> : null}
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4 dark:border-slate-800">
-        <div className="min-w-0 flex-1 space-y-1">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50">{title}</h1>
-          <p className="max-w-3xl text-sm text-muted-foreground">{description}</p>
-          {pathNote ? <p className="text-xs text-slate-500 dark:text-slate-400">{pathNote}</p> : null}
+      {showHub ? <ClaimEngineHubNavShell className="claim-engine-hub-nav" /> : null}
+      <header className="claim-engine-page-header flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <h1 className="text-xl font-bold tracking-tight">{title}</h1>
+          <p className="max-w-3xl text-sm">{description}</p>
+          {pathNote ? <p className="text-xs">{pathNote}</p> : null}
         </div>
         {asideNode ? <div className="shrink-0">{asideNode}</div> : null}
       </header>
@@ -68,12 +64,12 @@ export function ClaimEnginePageShell({
 /** Intake scope note — all sources, not import-only. */
 export function ClaimIntakeScopeBanner() {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-100">
+    <div className="claim-engine-banner claim-engine-banner--info">
       <p className="font-semibold">Claim intake inbox</p>
-      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-        Raw signals from <strong className="text-foreground">claim_candidates</strong> (imports, removals, Amazon
-        returns reports, and generators). Physical warehouse scans are normalized in the{" "}
-        <Link href="/returns/claims" className="font-medium text-slate-900 underline dark:text-slate-100">
+      <p className="mt-1 text-xs leading-relaxed">
+        Raw signals from <strong>claim_candidates</strong> (imports, removals, Amazon returns reports, and generators).
+        Physical warehouse scans are normalized in the{" "}
+        <Link href="/returns/claims" className="claim-engine-link">
           Draft pool
         </Link>
         . Settlement, reimbursement, and inventory connectors are listed below when not yet live.

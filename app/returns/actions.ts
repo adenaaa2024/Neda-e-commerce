@@ -82,6 +82,9 @@ import type {
   ReturnRecord,
   ReturnsAnalyticsPayload,
   ReturnUpdatePayload,
+  CommandCenterActionItem,
+  CommandCenterPayload,
+  CommandCenterTrendPoint,
 } from "./returns-action-types";
 
 const DEFAULT_ORG = resolveOrganizationId();
@@ -1813,6 +1816,444 @@ export async function getDashboardSnapshot(
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Failed to load dashboard snapshot.",
+    };
+  }
+}
+
+// ─── Command Center (dashboard KPIs, charts, action queue, health — read-only) ─
+
+function bucketReturnTrendByDay(
+  rows: { created_at: string }[],
+  days: number,
+): CommandCenterTrendPoint[] {
+  const end = new Date();
+  end.setUTCHours(23, 59, 59, 999);
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  start.setUTCHours(0, 0, 0, 0);
+  const buckets = new Map<string, number>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setUTCDate(start.getUTCDate() + i);
+    buckets.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const r of rows) {
+    const key = r.created_at?.slice(0, 10);
+    if (!key || !buckets.has(key)) continue;
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  return [...buckets.entries()].map(([date, count]) => ({ date, count }));
+}
+
+export async function getCommandCenterData(
+  tenant?: TenantQueryOpts,
+): Promise<{ ok: boolean; data?: CommandCenterPayload; error?: string }> {
+  const snapRes = await getDashboardSnapshot(tenant);
+  if (!snapRes.ok || !snapRes.data) {
+    return { ok: false, error: snapRes.error ?? "Failed to load dashboard snapshot." };
+  }
+
+  const trendSince = new Date();
+  trendSince.setUTCDate(trendSince.getUTCDate() - 29);
+  trendSince.setUTCHours(0, 0, 0, 0);
+  const staleBefore = new Date();
+  staleBefore.setUTCDate(staleBefore.getUTCDate() - 7);
+
+  try {
+    const scope = await resolveTenantListScope(tenant);
+
+    let qOpenPlt = supabaseServer
+      .from("pallets")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "open")
+      .is("deleted_at", null);
+    let qOpenPkg = supabaseServer
+      .from("packages")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "open")
+      .is("deleted_at", null);
+    let qPkgExpected = supabaseServer
+      .from("packages")
+      .select("expected_item_count")
+      .is("deleted_at", null)
+      .limit(5000);
+    let qScanned = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null);
+    qScanned = applyExcludeBulkOrphanReturnItemsFilter(qScanned);
+    let qMissingEv = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending_evidence")
+      .is("deleted_at", null);
+    qMissingEv = applyExcludeBulkOrphanReturnItemsFilter(qMissingEv);
+    let qNeedsLink = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .is("resolved_product_id", null)
+      .is("deleted_at", null);
+    qNeedsLink = applyExcludeBulkOrphanReturnItemsFilter(qNeedsLink);
+    let qResolvedLink = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .not("resolved_product_id", "is", null)
+      .is("deleted_at", null);
+    qResolvedLink = applyExcludeBulkOrphanReturnItemsFilter(qResolvedLink);
+    let qClaimsDraft = supabaseServer
+      .from("claim_submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "draft");
+    let qClaimsSubmitted = supabaseServer
+      .from("claim_submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "submitted");
+    let qClaimsEligible = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id", { count: "exact", head: true })
+      .eq("status", "ready_for_claim")
+      .is("deleted_at", null);
+    qClaimsEligible = applyExcludeBulkOrphanReturnItemsFilter(qClaimsEligible);
+    let qTrend = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("created_at")
+      .gte("created_at", trendSince.toISOString())
+      .is("deleted_at", null)
+      .limit(3000);
+    qTrend = applyExcludeBulkOrphanReturnItemsFilter(qTrend);
+    let qConditions = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("conditions")
+      .is("deleted_at", null)
+      .limit(500);
+    qConditions = applyExcludeBulkOrphanReturnItemsFilter(qConditions);
+
+    let qActEvidence = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id,item_name,lpn,created_at,status")
+      .eq("status", "pending_evidence")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(5);
+    qActEvidence = applyExcludeBulkOrphanReturnItemsFilter(qActEvidence);
+    let qActLink = supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id,item_name,lpn,sku,fnsku,created_at")
+      .is("resolved_product_id", null)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(5);
+    qActLink = applyExcludeBulkOrphanReturnItemsFilter(qActLink);
+    let qActStalePkg = supabaseServer
+      .from("packages")
+      .select("id,package_code,updated_at,status")
+      .eq("status", "open")
+      .is("deleted_at", null)
+      .lt("updated_at", staleBefore.toISOString())
+      .order("updated_at", { ascending: true })
+      .limit(5);
+    let qActPallet = supabaseServer
+      .from("pallets")
+      .select("id,pallet_number,created_at,status")
+      .eq("status", "open")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(5);
+    let qActClaims = supabaseServer
+      .from("claim_submissions")
+      .select("id,status,created_at,return_id")
+      .eq("status", "ready_to_send")
+      .order("created_at", { ascending: false })
+      .limit(5);
+    let qActHolds = supabaseServer
+      .from("packages")
+      .select("id,package_code,discrepancy_note,updated_at,status")
+      .eq("status", "open")
+      .not("discrepancy_note", "is", null)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(5);
+
+    let qAudit = supabaseServer
+      .from("return_audit_log")
+      .select("created_at,action")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    let qImport = supabaseServer
+      .from("raw_report_uploads")
+      .select("created_at,report_type,status")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    let qProductJob = supabaseServer
+      .from("background_jobs")
+      .select("status,updated_at,job_type")
+      .eq("job_type", "product_enrichment")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (scope.mode === "single") {
+      const oid = scope.organizationId;
+      qOpenPlt = qOpenPlt.eq("organization_id", oid);
+      qOpenPkg = qOpenPkg.eq("organization_id", oid);
+      qPkgExpected = qPkgExpected.eq("organization_id", oid);
+      qScanned = qScanned.eq("organization_id", oid);
+      qMissingEv = qMissingEv.eq("organization_id", oid);
+      qNeedsLink = qNeedsLink.eq("organization_id", oid);
+      qResolvedLink = qResolvedLink.eq("organization_id", oid);
+      qClaimsDraft = qClaimsDraft.eq("organization_id", oid);
+      qClaimsSubmitted = qClaimsSubmitted.eq("organization_id", oid);
+      qClaimsEligible = qClaimsEligible.eq("organization_id", oid);
+      qTrend = qTrend.eq("organization_id", oid);
+      qConditions = qConditions.eq("organization_id", oid);
+      qActEvidence = qActEvidence.eq("organization_id", oid);
+      qActLink = qActLink.eq("organization_id", oid);
+      qActStalePkg = qActStalePkg.eq("organization_id", oid);
+      qActPallet = qActPallet.eq("organization_id", oid);
+      qActClaims = qActClaims.eq("organization_id", oid);
+      qActHolds = qActHolds.eq("organization_id", oid);
+      qAudit = qAudit.eq("organization_id", oid);
+      qImport = qImport.eq("organization_id", oid);
+      qProductJob = qProductJob.eq("organization_id", oid);
+    }
+
+    const [
+      openPltRes,
+      openPkgRes,
+      pkgExpectedRes,
+      scannedRes,
+      missingEvRes,
+      needsLinkRes,
+      resolvedLinkRes,
+      claimsDraftRes,
+      claimsSubmittedRes,
+      claimsEligibleRes,
+      trendRes,
+      conditionsRes,
+      actEvidenceRes,
+      actLinkRes,
+      actStalePkgRes,
+      actPalletRes,
+      actClaimsRes,
+      actHoldsRes,
+      auditRes,
+      importRes,
+      productJobRes,
+    ] = await Promise.all([
+      qOpenPlt,
+      qOpenPkg,
+      qPkgExpected,
+      qScanned,
+      qMissingEv,
+      qNeedsLink,
+      qResolvedLink,
+      qClaimsDraft,
+      qClaimsSubmitted,
+      qClaimsEligible,
+      qTrend,
+      qConditions,
+      qActEvidence,
+      qActLink,
+      qActStalePkg,
+      qActPallet,
+      qActClaims,
+      qActHolds,
+      qAudit,
+      qImport,
+      qProductJob,
+    ]);
+
+    const firstErr = [
+      openPltRes.error,
+      openPkgRes.error,
+      pkgExpectedRes.error,
+      scannedRes.error,
+      missingEvRes.error,
+      needsLinkRes.error,
+      resolvedLinkRes.error,
+      claimsDraftRes.error,
+      claimsSubmittedRes.error,
+      claimsEligibleRes.error,
+      trendRes.error,
+      conditionsRes.error,
+    ].find(Boolean);
+    if (firstErr) throw new Error(firstErr.message);
+
+    let expectedItems = 0;
+    for (const row of pkgExpectedRes.data ?? []) {
+      const n = Number((row as { expected_item_count?: unknown }).expected_item_count);
+      if (Number.isFinite(n) && n > 0) expectedItems += Math.floor(n);
+    }
+
+    const conditionCounts = new Map<string, number>();
+    for (const row of conditionsRes.data ?? []) {
+      const conds = (row as { conditions?: string[] }).conditions ?? [];
+      for (const c of conds) {
+        conditionCounts.set(c, (conditionCounts.get(c) ?? 0) + 1);
+      }
+    }
+    const conditionSlices = [...conditionCounts.entries()]
+      .map(([name, value]) => ({ name, value }))
+      .filter((x) => x.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const returnsTrend = bucketReturnTrendByDay(
+      (trendRes.data ?? []) as { created_at: string }[],
+      30,
+    );
+
+    const scannedCount = scannedRes.count ?? 0;
+    const claimFunnel = {
+      scanned: scannedCount,
+      eligible: claimsEligibleRes.count ?? 0,
+      draft: claimsDraftRes.count ?? 0,
+      ready: snapRes.data.claimsReadyToSend,
+      submitted: claimsSubmittedRes.count ?? 0,
+    };
+
+    const actionQueue: CommandCenterActionItem[] = [];
+    for (const r of actEvidenceRes.data ?? []) {
+      const row = r as { id: string; item_name?: string; lpn?: string | null; created_at: string; status: string };
+      actionQueue.push({
+        id: `ev-${row.id}`,
+        type: "missing_evidence",
+        label: row.item_name?.trim() || "Return item",
+        reference: row.lpn?.trim() || row.id.slice(0, 8),
+        createdAt: row.created_at ?? null,
+        status: row.status,
+        href: "/claim-engine/inbox",
+      });
+    }
+    for (const r of actLinkRes.data ?? []) {
+      const row = r as {
+        id: string;
+        item_name?: string;
+        lpn?: string | null;
+        sku?: string | null;
+        fnsku?: string | null;
+        created_at: string;
+      };
+      actionQueue.push({
+        id: `pl-${row.id}`,
+        type: "product_link",
+        label: row.item_name?.trim() || "Unlinked item",
+        reference: row.fnsku?.trim() || row.sku?.trim() || row.lpn?.trim() || row.id.slice(0, 8),
+        createdAt: row.created_at ?? null,
+        status: "needs_product_link",
+        href: "/claim-engine/inbox",
+      });
+    }
+    for (const p of actStalePkgRes.data ?? []) {
+      const row = p as { id: string; package_code?: string; updated_at: string; status: string };
+      actionQueue.push({
+        id: `sp-${row.id}`,
+        type: "stale_package",
+        label: row.package_code?.trim() || "Open package",
+        reference: row.id.slice(0, 8),
+        createdAt: row.updated_at ?? null,
+        status: row.status,
+        href: "/returns",
+      });
+    }
+    for (const p of actPalletRes.data ?? []) {
+      const row = p as { id: string; pallet_number?: string; created_at: string; status: string };
+      actionQueue.push({
+        id: `op-${row.id}`,
+        type: "open_pallet",
+        label: row.pallet_number?.trim() || "Open pallet",
+        reference: row.id.slice(0, 8),
+        createdAt: row.created_at ?? null,
+        status: row.status,
+        href: "/returns",
+      });
+    }
+    for (const c of actClaimsRes.data ?? []) {
+      const row = c as { id: string; status: string; created_at: string; return_id?: string | null };
+      actionQueue.push({
+        id: `cr-${row.id}`,
+        type: "claim_ready",
+        label: "Claim ready to send",
+        reference: row.return_id?.slice(0, 8) ?? row.id.slice(0, 8),
+        createdAt: row.created_at ?? null,
+        status: row.status,
+        href: "/claim-engine",
+      });
+    }
+    for (const p of actHoldsRes.data ?? []) {
+      const row = p as {
+        id: string;
+        package_code?: string;
+        discrepancy_note?: string | null;
+        updated_at: string;
+        status: string;
+      };
+      const note = row.discrepancy_note?.trim();
+      actionQueue.push({
+        id: `ph-${row.id}`,
+        type: "package_hold",
+        label: row.package_code?.trim() || "Package hold",
+        reference: note ? note.slice(0, 48) : row.id.slice(0, 8),
+        createdAt: row.updated_at ?? null,
+        status: row.status,
+        href: "/returns",
+      });
+    }
+
+    actionQueue.sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+
+    const auditRow = (auditRes.data?.[0] ?? null) as { created_at?: string; action?: string } | null;
+    const importRow = (importRes.data?.[0] ?? null) as {
+      created_at?: string;
+      report_type?: string;
+      status?: string;
+    } | null;
+    const jobRow = (productJobRes.data?.[0] ?? null) as {
+      status?: string;
+      updated_at?: string;
+      job_type?: string;
+    } | null;
+
+    const importStatus = importRow?.status?.trim();
+    const importErrorsHint =
+      importStatus && /fail|error/i.test(importStatus)
+        ? `Last import status: ${importStatus}`
+        : null;
+
+    return {
+      ok: true,
+      data: {
+        snapshot: snapRes.data,
+        openPallets: openPltRes.count ?? 0,
+        openPackages: openPkgRes.count ?? 0,
+        expectedItems,
+        scannedItems: scannedCount,
+        missingEvidence: missingEvRes.count ?? 0,
+        needsProductLink: needsLinkRes.count ?? 0,
+        productLinkResolved: resolvedLinkRes.count ?? 0,
+        claimsDraft: claimsDraftRes.count ?? 0,
+        returnsTrend,
+        claimFunnel,
+        conditionSlices,
+        actionQueue: actionQueue.slice(0, 24),
+        health: {
+          lastImportAt: importRow?.created_at ?? null,
+          lastImportLabel: importRow?.report_type?.trim() || null,
+          productJobStatus: jobRow?.status?.trim() || null,
+          productJobAt: jobRow?.updated_at ?? null,
+          lastAuditAt: auditRow?.created_at ?? null,
+          lastAuditAction: auditRow?.action?.trim() || null,
+          importErrorsHint,
+          scannerActivityHint:
+            scannedCount > 0
+              ? `${scannedCount.toLocaleString()} active return items in scope`
+              : "No scanned items in scope yet",
+        },
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to load command center.",
     };
   }
 }

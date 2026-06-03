@@ -6,6 +6,202 @@ import {
   deleteReturnItemWithExpectedReleaseV2,
   moveReturnItemParentV2,
 } from "@/lib/scanner/delete-cascade-v2-app";
+import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
+
+/** Same normalization as operator Item Scan slip ↔ EP matching (`slipTokenNorm`). */
+export function normalizeExpectedIdentifierKey(raw: string | null | undefined): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+export type AllocationErrorContext = {
+  fnsku?: string | null;
+  sku?: string | null;
+  slipCode?: string | null;
+  trackingNumber?: string | null;
+};
+
+export function humanizeExpectedAllocationError(
+  message: string,
+  ctx?: AllocationErrorContext,
+): string {
+  const m = String(message ?? "").trim();
+  if (!m) return "Expected allocation failed.";
+  if (/no_allocatable_expected/i.test(m)) {
+    const idParts = [
+      ctx?.fnsku?.trim() ? `FNSKU ${ctx.fnsku.trim()}` : null,
+      ctx?.sku?.trim() ? `SKU/UPC ${ctx.sku.trim()}` : null,
+    ].filter(Boolean);
+    const idLabel = idParts.length ? idParts.join(", ") : "this identifier";
+    const scopeParts = [
+      ctx?.slipCode?.trim() ? `slip ${ctx.slipCode.trim()}` : null,
+      ctx?.trackingNumber?.trim() ? `tracking ${ctx.trackingNumber.trim()}` : null,
+    ].filter(Boolean);
+    const scopeLabel = scopeParts.length ? ` (${scopeParts.join("; ")})` : "";
+    return `No remaining allocatable expected quantity for ${idLabel}${scopeLabel}. The packing slip may still show units, but shipment expectations have no open parent row to receive against. Sync expectations or open the matching shipment line.`;
+  }
+  if (/return_item_not_found/i.test(m)) return "Return item row was not found — refresh and try again.";
+  return m;
+}
+
+type AllocatableEpRow = {
+  id: string;
+  sku: string | null;
+  fnsku: string | null;
+  tracking_number: string | null;
+  id_slip_contents: string | null;
+  expected_scan_quantity: number;
+  build_source: string | null;
+  order_id: string | null;
+  disposition: string | null;
+};
+
+function epBuildSourceRank(buildSource: string | null): number {
+  const s = String(buildSource ?? "legacy");
+  if (s === "detail_remainder") return 1;
+  if (s === "detail_shipment") return 2;
+  return 3;
+}
+
+function epRowMatchesSlipIdentifiers(
+  row: AllocatableEpRow,
+  slipFnsku: string,
+  slipSku: string,
+): boolean {
+  const f = normalizeExpectedIdentifierKey(row.fnsku);
+  const sku = normalizeExpectedIdentifierKey(row.sku);
+  if (slipFnsku && f && slipFnsku === f) return true;
+  if (slipSku && sku && slipSku === sku) return true;
+  if (slipSku && f && slipSku === f) return true;
+  if (slipFnsku && sku && slipFnsku === sku) return true;
+  return false;
+}
+
+function scoreAllocatableEpRow(
+  row: AllocatableEpRow,
+  opts: {
+    slipFnsku: string;
+    slipSku: string;
+    normSlipCode: string;
+    normTracking: string;
+    orderId: string;
+    disposition: string;
+  },
+): number {
+  if (!epRowMatchesSlipIdentifiers(row, opts.slipFnsku, opts.slipSku)) return -1;
+  if (String(row.build_source ?? "") === "receive_allocated") return -1;
+  const remainder = Math.max(0, Math.floor(Number(row.expected_scan_quantity ?? 0)));
+  if (remainder < 1) return -1;
+  if (opts.orderId && String(row.order_id ?? "").trim() && String(row.order_id ?? "").trim() !== opts.orderId) {
+    return -1;
+  }
+  if (
+    opts.disposition &&
+    String(row.disposition ?? "").trim() &&
+    String(row.disposition ?? "").trim() !== opts.disposition
+  ) {
+    return -1;
+  }
+
+  let score = remainder * 10;
+  const epSlip = normalizeExpectedIdentifierKey(row.id_slip_contents);
+  if (opts.normSlipCode && epSlip && epSlip === opts.normSlipCode) score += 5000;
+  const epTn = normalizeTrackingKey(row.tracking_number);
+  if (opts.normTracking && epTn && epTn === opts.normTracking) score += 800;
+  else if (!opts.normTracking) score += 200;
+  else score += 50;
+  score -= epBuildSourceRank(row.build_source) * 5;
+  return score;
+}
+
+/**
+ * Resolve a parent `expected_packages.id` with `expected_scan_quantity >= 1` using the same
+ * identifier normalization as Item Scan slip rows (not package tracking alone).
+ */
+export async function resolveAllocatableExpectedPackageHint(
+  supabase: SupabaseClient,
+  input: {
+    organizationId: string;
+    storeId: string;
+    fnsku?: string | null;
+    sku?: string | null;
+    upc?: string | null;
+    orderId?: string | null;
+    disposition?: string | null;
+    packageSlipCode?: string | null;
+    packageTrackingNumber?: string | null;
+    preferredHintId?: string | null;
+  },
+): Promise<string | null> {
+  const orgId = String(input.organizationId ?? "").trim();
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(orgId) || !isUuidString(storeId)) return null;
+
+  const slipFnsku = normalizeExpectedIdentifierKey(input.fnsku);
+  const slipSku = normalizeExpectedIdentifierKey(input.sku ?? input.upc);
+  if (!slipFnsku && !slipSku) return null;
+
+  const normSlipCode = normalizeExpectedIdentifierKey(input.packageSlipCode);
+  const normTracking = normalizeTrackingKey(input.packageTrackingNumber ?? "");
+  const orderId = String(input.orderId ?? "").trim();
+  const disposition = String(input.disposition ?? "").trim();
+
+  const preferred = String(input.preferredHintId ?? "").trim();
+  if (preferred && isUuidString(preferred)) {
+    const { data: pref, error: prefErr } = await supabase
+      .from("expected_packages")
+      .select(
+        "id, sku, fnsku, tracking_number, id_slip_contents, expected_scan_quantity, build_source, order_id, disposition, parent_expected_package_id",
+      )
+      .eq("id", preferred)
+      .eq("organization_id", orgId)
+      .eq("store_id", storeId)
+      .maybeSingle();
+    if (!prefErr && pref && !(pref as { parent_expected_package_id?: string | null }).parent_expected_package_id) {
+      const row = pref as AllocatableEpRow;
+      if (scoreAllocatableEpRow(row, { slipFnsku, slipSku, normSlipCode, normTracking, orderId, disposition }) >= 0) {
+        return row.id;
+      }
+    }
+  }
+
+  const orFilters: string[] = [];
+  const fnskuRaw = String(input.fnsku ?? "").trim();
+  const skuRaw = String(input.sku ?? input.upc ?? "").trim();
+  if (fnskuRaw) {
+    orFilters.push(`fnsku.ilike.${fnskuRaw}`);
+    orFilters.push(`sku.ilike.${fnskuRaw}`);
+  }
+  if (skuRaw && skuRaw !== fnskuRaw) {
+    orFilters.push(`fnsku.ilike.${skuRaw}`);
+    orFilters.push(`sku.ilike.${skuRaw}`);
+  }
+  if (!orFilters.length) return null;
+
+  const { data, error } = await supabase
+    .from("expected_packages")
+    .select(
+      "id, sku, fnsku, tracking_number, id_slip_contents, expected_scan_quantity, build_source, order_id, disposition",
+    )
+    .eq("organization_id", orgId)
+    .eq("store_id", storeId)
+    .is("parent_expected_package_id", null)
+    .gt("expected_scan_quantity", 0)
+    .or(orFilters.join(","))
+    .limit(48);
+  if (error) throw error;
+
+  const scored = (data ?? [])
+    .map((r) => {
+      const row = r as AllocatableEpRow;
+      return { row, score: scoreAllocatableEpRow(row, { slipFnsku, slipSku, normSlipCode, normTracking, orderId, disposition }) };
+    })
+    .filter((x) => x.score >= 0)
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.row.id ?? null;
+}
 
 export type AllocateReturnItemsResult = {
   return_item_id: string;
@@ -62,6 +258,8 @@ export async function allocateExpectedItemsForReturnItemIds(
     returnItemIds: string[];
     expectedPackageHintId?: string | null;
     receiveScopeKey?: string | null;
+    /** Used to replace raw RPC errors (e.g. `no_allocatable_expected`). */
+    errorContext?: AllocationErrorContext;
   },
 ): Promise<{ ok: true; rows: AllocateReturnItemsResult[] } | { ok: false; error: string; rows: AllocateReturnItemsResult[] }> {
   const ids = [...new Set(input.returnItemIds.map((id) => id.trim()).filter((id) => isUuidString(id)))];
@@ -77,7 +275,11 @@ export async function allocateExpectedItemsForReturnItemIds(
   });
 
   if (error) {
-    return { ok: false, error: error.message, rows: [] };
+    return {
+      ok: false,
+      error: humanizeExpectedAllocationError(error.message, input.errorContext),
+      rows: [],
+    };
   }
 
   const rows: AllocateReturnItemsResult[] = (Array.isArray(data) ? data : []).map((r) => {
@@ -99,7 +301,10 @@ export async function allocateExpectedItemsForReturnItemIds(
   if (failed) {
     return {
       ok: false,
-      error: failed.error_message ?? "Allocation failed for one or more return items.",
+      error: humanizeExpectedAllocationError(
+        failed.error_message ?? "Allocation failed for one or more return items.",
+        input.errorContext,
+      ),
       rows,
     };
   }

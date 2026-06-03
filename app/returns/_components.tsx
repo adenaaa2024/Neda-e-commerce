@@ -331,45 +331,45 @@ const ALL_PHOTO_CATEGORIES: Record<string, PhotoCategoryDef> = {
 // ─── Status configs ────────────────────────────────────────────────────────────
 
 export const STATUS_CFG: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
-  received:         { label: "Received",         icon: Clock,          cls: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-300" },
-  pending_evidence: { label: "Pending Evidence", icon: AlertTriangle,  cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700/60 dark:bg-amber-950/50 dark:text-amber-300" },
-  ready_for_claim:  { label: "Ready for Claim",  icon: ClipboardCheck, cls: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-700/60 dark:bg-violet-950/50 dark:text-violet-300" },
-  completed:        { label: "Completed",        icon: CheckCircle2,   cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-950/50 dark:text-emerald-300" },
-  flagged:          { label: "Flagged",           icon: AlertTriangle,  cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-700/60 dark:bg-rose-950/50 dark:text-rose-300" },
+  received:         { label: "Received",         icon: Clock,          cls: "border-[rgba(138,104,31,0.20)] bg-[#EFE6D2] text-[#6C5320] dark:border-[rgba(214,183,110,0.25)] dark:bg-[#2A2418] dark:text-[#E8CF98]" },
+  pending_evidence: { label: "Pending Evidence", icon: AlertTriangle,  cls: "border-[rgba(138,104,31,0.24)] bg-[#F5E9D2] text-[#6A4C16] dark:border-[rgba(214,183,110,0.28)] dark:bg-[#312613] dark:text-[#EFD49A]" },
+  ready_for_claim:  { label: "Ready for Claim",  icon: ClipboardCheck, cls: "border-[rgba(138,104,31,0.20)] bg-[#EEE8DC] text-[#4C5661] dark:border-[rgba(214,183,110,0.22)] dark:bg-[#232C35] dark:text-[#B8C1CB]" },
+  completed:        { label: "Completed",        icon: CheckCircle2,   cls: "border-[rgba(138,104,31,0.20)] bg-[#ECE9DF] text-[#3D4A40] dark:border-[rgba(214,183,110,0.22)] dark:bg-[#202B24] dark:text-[#BCD0BE]" },
+  flagged:          { label: "Flagged",          icon: AlertTriangle,  cls: "border-[rgba(138,104,31,0.22)] bg-[#F3E5DE] text-[#6C3E34] dark:border-[rgba(214,183,110,0.24)] dark:bg-[#302025] dark:text-[#D7B2A8]" },
 };
 
 export const PKG_STATUS_CFG: Record<PackageStatus, { label: string; cls: string }> = {
-  open:       { label: "Open",        cls: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-300" },
-  closed:     { label: "Closed",      cls: "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400" },
-  suspicious: { label: "Discrepancy", cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700/60 dark:bg-amber-950/50 dark:text-amber-300" },
-  submitted:  { label: "Submitted",   cls: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-700/60 dark:bg-violet-950/50 dark:text-violet-300" },
+  open:       { label: "Open",        cls: "border-[rgba(138,104,31,0.20)] bg-[#EEE8DC] text-[#4C5661] dark:border-[rgba(214,183,110,0.22)] dark:bg-[#232C35] dark:text-[#B8C1CB]" },
+  closed:     { label: "Closed",      cls: "border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] text-[#737C86] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#7E8894]" },
+  suspicious: { label: "Discrepancy", cls: "border-[rgba(138,104,31,0.24)] bg-[#F5E9D2] text-[#6A4C16] dark:border-[rgba(214,183,110,0.28)] dark:bg-[#312613] dark:text-[#EFD49A]" },
+  submitted:  { label: "Submitted",   cls: "border-[rgba(138,104,31,0.20)] bg-[#EFE6D2] text-[#6C5320] dark:border-[rgba(214,183,110,0.25)] dark:bg-[#2A2418] dark:text-[#E8CF98]" },
 };
 
 export const PALLET_STATUS_CFG: Record<PalletStatus, { label: string; cls: string }> = {
-  open:      { label: "Open",      cls: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700/60 dark:bg-sky-950/50 dark:text-sky-300" },
-  closed:    { label: "Closed",    cls: "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400" },
-  submitted: { label: "Submitted", cls: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-700/60 dark:bg-violet-950/50 dark:text-violet-300" },
+  open:      { label: "Open",      cls: "border-[rgba(138,104,31,0.20)] bg-[#EEE8DC] text-[#4C5661] dark:border-[rgba(214,183,110,0.22)] dark:bg-[#232C35] dark:text-[#B8C1CB]" },
+  closed:    { label: "Closed",    cls: "border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] text-[#737C86] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#7E8894]" },
+  submitted: { label: "Submitted", cls: "border-[rgba(138,104,31,0.20)] bg-[#EFE6D2] text-[#6C5320] dark:border-[rgba(214,183,110,0.25)] dark:bg-[#2A2418] dark:text-[#E8CF98]" },
 };
 
 // ─── CSS constants ─────────────────────────────────────────────────────────────
 
-export const INPUT      = "h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base text-slate-900 placeholder:text-slate-400 transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-500/60";
-export const LABEL      = "mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-300";
-export const INPUT_SM   = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
-export const BTN_PRIMARY = "flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 font-semibold text-white transition hover:bg-sky-600 active:scale-[0.98] disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
+export const INPUT      = "admin-form-input admin-form-input--lg";
+export const LABEL      = "admin-form-label";
+export const INPUT_SM   = "admin-form-input admin-form-input--sm";
+export const BTN_PRIMARY = "admin-btn-primary flex h-14 w-full active:scale-[0.98] disabled:opacity-50";
 /** Primary actions in drawer/modal footers — avoids `w-full` collapsing in flex layouts. */
-export const BTN_PRIMARY_INLINE = "inline-flex h-14 shrink-0 min-w-[12rem] items-center justify-center gap-2 rounded-2xl bg-sky-500 px-6 font-semibold text-white transition hover:bg-sky-600 active:scale-[0.98] disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
+export const BTN_PRIMARY_INLINE = "admin-btn-primary inline-flex h-14 shrink-0 min-w-[12rem] px-6 active:scale-[0.98] disabled:opacity-50";
 /** Modal / drawer footers — balanced h-10 primary + secondary (use with `flex flex-wrap items-center justify-end gap-2`). */
-export const BTN_FOOTER_PRIMARY = "inline-flex h-10 min-w-[5.5rem] shrink-0 items-center justify-center gap-2 rounded-md bg-sky-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
-export const BTN_FOOTER_GHOST = "inline-flex h-10 min-w-[5.5rem] shrink-0 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800";
-export const BTN_GHOST   = "flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800";
+export const BTN_FOOTER_PRIMARY = "admin-btn-primary inline-flex h-10 min-w-[5.5rem] shrink-0 px-4 text-sm disabled:opacity-50";
+export const BTN_FOOTER_GHOST = "admin-btn-secondary inline-flex h-10 min-w-[5.5rem] shrink-0 px-4 text-sm font-medium";
+export const BTN_GHOST   = "admin-btn-quiet inline-flex h-10 items-center gap-1.5 px-3 text-sm";
 
 /** Create Package / Create Pallet — equal-width footer actions (sticky bar). */
 export const MODAL_FOOTER_GRID = "grid grid-cols-2 gap-3";
 export const MODAL_FOOTER_CANCEL =
-  "flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800";
+  "admin-btn-secondary flex h-12 w-full text-sm font-semibold shadow-sm";
 export const MODAL_FOOTER_SUBMIT =
-  "inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500";
+  "admin-btn-primary inline-flex h-12 w-full text-sm disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Checkbox column — fixed width + centered so TableHead matches TableCell */
 export const TH_CHK = "w-10 min-w-[2.5rem] px-0 py-3 text-center align-middle";
@@ -729,18 +729,18 @@ export type DrawerContent =
 
 export function ConditionBadge({ value }: { value: string }) {
   const m = CONDITION_META[value];
-  if (!m) return <span className="text-[10px] text-slate-400 capitalize">{value}</span>;
+  if (!m) return <span className="text-[10px] text-[#737C86] capitalize dark:text-[#7E8894]">{value}</span>;
   const Icon = m.icon;
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${m.badge}`}><Icon className="h-3 w-3" />{m.label}</span>;
 }
 export function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CFG[status] ?? { label: status, icon: Clock, cls: "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400" };
+  const cfg = STATUS_CFG[status] ?? { label: status, icon: Clock, cls: "border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] text-[#737C86] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#7E8894]" };
   const Icon = cfg.icon;
   return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${cfg.cls}`}><Icon className="h-3 w-3" />{cfg.label}</span>;
 }
 const PKG_STATUS_FALLBACK = {
   label: "Unknown",
-  cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400",
+  cls: "border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] text-[#737C86] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#7E8894]",
 };
 
 export function PkgStatusBadge({ status }: { status: PackageStatus | string }) {
@@ -774,7 +774,7 @@ export function StoreBadge({ name, platform, fallback = "Multi-Store" }: {
 }) {
   if (!name) {
     return (
-      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500">
+      <span className="inline-flex items-center rounded-full border border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] px-2 py-0.5 text-[10px] font-medium text-[#737C86] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#7E8894]">
         {fallback}
       </span>
     );
@@ -783,10 +783,10 @@ export function StoreBadge({ name, platform, fallback = "Multi-Store" }: {
   const isAmazon  = slug.includes("amazon") || slug === "amz";
   const isWalmart = slug.includes("walmart") || slug === "wmt";
   const cls = isAmazon
-    ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300"
+    ? "border-[rgba(138,104,31,0.22)] bg-[#EFE6D2] text-[#6C5320] dark:border-[rgba(214,183,110,0.25)] dark:bg-[#2A2418] dark:text-[#E8CF98]"
     : isWalmart
     ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/50 dark:bg-blue-950/30 dark:text-blue-300"
-    : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
+    : "border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] text-[#4C5661] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#B8C1CB]";
   const dot = isAmazon ? "bg-amber-400" : isWalmart ? "bg-blue-400" : "bg-slate-400";
   return (
     <span className={`inline-flex max-w-[160px] items-center gap-1.5 truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold ${cls}`} title={name}>
@@ -828,7 +828,7 @@ export function SortButton({ field, label, sortField, sortAsc, onSort }: {
 }) {
   const active = sortField === field;
   return (
-    <button onClick={() => onSort(field)} className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+    <button onClick={() => onSort(field)} className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-[#737C86] hover:text-[#4C5661] dark:text-[#7E8894] dark:hover:text-[#B8C1CB]">
       {label}
       {active ? (sortAsc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <span className="h-3 w-3 opacity-40">↕</span>}
     </button>
@@ -853,7 +853,7 @@ function MarketplaceIconCell({ r, platformIconBySlug = {} }: {
   platformIconBySlug?: Record<string, string | null | undefined>;
 }) {
   const url = resolveReturnMarketplaceIconUrl(r, platformIconBySlug);
-  if (!url) return <span className="text-xs text-slate-400">—</span>;
+  if (!url) return <span className="text-xs text-[#737C86] dark:text-[#7E8894]">—</span>;
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={url} alt="" className="mx-auto h-5 w-5 object-contain" loading="lazy" title={r.marketplaces?.name ?? r.marketplace} />
@@ -930,7 +930,7 @@ export function InlineCopy({
   onToast,
   stopPropagation,
   revealOnHover = true,
-  className = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800",
+  className = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] text-[#4C5661] hover:bg-[#F8F6F1] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]",
 }: {
   value: string;
   label?: string;
@@ -1243,7 +1243,7 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
     <div
       ref={menuRef}
       role="menu"
-      className="fixed z-[220] w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+      className="fixed z-[220] w-44 overflow-hidden rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] py-1 shadow-xl dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C]"
       style={coords ? { top: coords.top, left: coords.left } : { top: -9999, left: 0, visibility: "hidden" as const }}
     >
       {onView && (
@@ -1254,9 +1254,9 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
             onView();
             setOpen(false);
           }}
-          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-[#4C5661] transition hover:bg-[#F8F6F1] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]"
         >
-          <Eye className="h-4 w-4 text-slate-400" />
+          <Eye className="h-4 w-4 text-[#737C86] dark:text-[#B8C1CB]" />
           View Detail
         </button>
       )}
@@ -1268,9 +1268,9 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
             onEdit();
             setOpen(false);
           }}
-          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+          className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-[#4C5661] transition hover:bg-[#F8F6F1] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]"
         >
-          <Pencil className="h-4 w-4 text-slate-400" />
+          <Pencil className="h-4 w-4 text-[#737C86] dark:text-[#B8C1CB]" />
           Edit
         </button>
       )}
@@ -1293,7 +1293,7 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
             e.stopPropagation();
             setOpen((o) => !o);
           }}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737C86] transition hover:bg-[#F8F6F1] hover:text-[#4C5661] dark:text-[#B8C1CB] dark:hover:bg-[#232C35] dark:hover:text-[#F7F3EA]"
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
@@ -5014,6 +5014,7 @@ export function WizardStep2({
             <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Optional — outer box</p>
               <MasterUploader
+                className="admin-uploader"
                 label="Outer box (optional)"
                 hint="Exterior carton — saved on this return only (photo_evidence.urls)."
                 value={state.wizard_outer_box_url.trim() ? [state.wizard_outer_box_url.trim()] : []}
@@ -5035,6 +5036,7 @@ export function WizardStep2({
               <div className="space-y-4">
                 {!hasPkgOpenedOnly && (
                   <MasterUploader
+                    className="admin-uploader"
                     label="Opened box"
                     hint="Interior / opened carton — saved on this return (photo_evidence.urls)."
                     value={state.wizard_opened_box_url.trim() ? [state.wizard_opened_box_url.trim()] : []}
@@ -5045,6 +5047,7 @@ export function WizardStep2({
                 )}
                 {!hasPkgReturnLabel && (
                   <MasterUploader
+                    className="admin-uploader"
                     label="Return label"
                     hint="Return / RMA label on the carton — saved on this return (photo_evidence.urls)."
                     value={state.wizard_pkg_return_label_url.trim() ? [state.wizard_pkg_return_label_url.trim()] : []}
@@ -5062,6 +5065,7 @@ export function WizardStep2({
 
             {!isLooseItem && (
               <MasterUploader
+                className="admin-uploader"
                 label="Item photo"
                 hint="Overall shot of the product (optional). Stored in photo_evidence (item_url)."
                 value={state.photo_item_url.trim() ? [state.photo_item_url.trim()] : []}
@@ -5073,6 +5077,7 @@ export function WizardStep2({
 
             {showExpiryPhotoSlot && (
               <MasterUploader
+                className="admin-uploader"
                 label="Expiry label photo"
                 hint={ALL_PHOTO_CATEGORIES.expiry_label.hint}
                 value={state.photo_expiry_url.trim() ? [state.photo_expiry_url.trim()] : []}
@@ -5084,6 +5089,7 @@ export function WizardStep2({
 
             {isLooseItem && (
               <MasterUploader
+                className="admin-uploader"
                 label="Return label (optional)"
                 hint="RMA / return label for this item — stored on this return only (photo_evidence)."
                 value={state.photo_return_label_url.trim() ? [state.photo_return_label_url.trim()] : []}
@@ -5094,6 +5100,7 @@ export function WizardStep2({
             )}
 
             <MasterUploader
+              className="admin-uploader"
               label="Additional evidence (gallery)"
               hint="Optional — up to 3 images merged into photo_evidence.urls."
               value={state.evidence_gallery_urls}
@@ -6469,6 +6476,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                     </label>
                   </div>
                   <MasterUploader
+                    className="admin-uploader"
                     label=""
                     hint="Up to 3 images — stored in photo_evidence.label_urls."
                     value={labelUrls}
@@ -6497,6 +6505,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                     </label>
                   </div>
                   <MasterUploader
+                    className="admin-uploader"
                     label=""
                     hint="Up to 3 images — stored in photo_evidence.outer_box_urls."
                     value={outerUrls}
@@ -6525,6 +6534,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                     </label>
                   </div>
                   <MasterUploader
+                    className="admin-uploader"
                     label=""
                     hint="Up to 3 images — stored in photo_evidence.inside_content_urls."
                     value={insideUrls}
@@ -6535,6 +6545,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                   />
                 </div>
                 <MasterUploader
+                className="admin-uploader"
                   label="Box sealed (optional)"
                   hint="Up to 3 images — stored in photo_evidence.sealed_box_urls."
                   value={sealedUrls}
@@ -6545,6 +6556,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
               </div>
             ) : (
               <MasterUploader
+                className="admin-uploader"
                 label="Reference photos (optional)"
                 hint="Up to 3 images — stored in photo_evidence.urls."
                 value={extraEvidenceUrls}
@@ -6730,6 +6742,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
               <p className="text-sm font-bold text-amber-900 dark:text-amber-100">Pallet documentation</p>
             </div>
             <MasterUploader
+              className="admin-uploader"
               label="Pallet photo (optional)"
               hint="Up to 3 images — first is saved to photo_url (extras are not stored on the pallet row)."
               value={palletPhotoUrls}
@@ -6738,6 +6751,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
               maxFiles={3}
             />
             <MasterUploader
+              className="admin-uploader"
               label="Bill of Lading (optional)"
               hint="Up to 3 images — first is saved to bol_photo_url (extras are not stored on the pallet row)."
               value={bolUrls}
@@ -6896,17 +6910,17 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
     }
   }
 
-  const INPUT_SM_DARK = `${INPUT_SM} dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500`;
+  const INPUT_SM_DARK = `${INPUT_SM} border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] text-[#171A1E] placeholder:text-[#737C86] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA] dark:placeholder:text-[#7E8894]`;
 
   return (
     <div className="space-y-3">
       {returnsTotalInDb != null && returnsTotalInDb > items.length && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-100">
+        <div className="rounded-xl border border-[rgba(138,104,31,0.28)] bg-[#F5E9D2] px-3 py-2 text-xs text-[#6A4C16] dark:border-[rgba(214,183,110,0.30)] dark:bg-[#2C2314] dark:text-[#EFD49A]">
           This session loads the latest {items.length} of {returnsTotalInDb} return items in the database. The table shows {PER} rows per page; use Next / Prev below or narrow with filters.
         </div>
       )}
       {returnsTotalInDb != null && returnsTotalInDb <= 50 ? (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-100">
+        <div className="rounded-xl border border-[rgba(138,104,31,0.28)] bg-[#F5E9D2] px-3 py-2 text-xs text-[#6A4C16] dark:border-[rgba(214,183,110,0.30)] dark:bg-[#2C2314] dark:text-[#EFD49A]">
           <strong>Staging data note:</strong> <code className="font-mono">return_items</code> on staging is mostly
           fake/test data (low row count). Resolver coverage on this table is not production truth — see{" "}
           <code className="font-mono">PROJECT_CONTEXT.md</code> and V178 audit{" "}
@@ -6918,33 +6932,36 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
       )}
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[180px] flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input placeholder="Filter: ID, ASIN, tracking, RMA…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} pl-9`} /></div>
-        <select value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`}><option value="">All Statuses</option>{Object.entries(STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-        <select value={marketF} onChange={(e) => { setMarketF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`} title="Filter by store"><option value="">All Stores</option>{MARKETPLACES.map((m) => <option key={m} value={m}>{MP_LABELS[m]}</option>)}</select>
-        <div className="flex items-center gap-1.5">
-          <Calendar className="h-4 w-4 shrink-0 text-slate-400" />
-          <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} title="From date" />
-          <span className="text-xs text-slate-400">–</span>
-          <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} title="To date" />
+        <div className="relative min-w-[230px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#737C86] dark:text-[#7E8894]" />
+          <input placeholder="Filter: ID, ASIN, tracking, RMA…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full pl-9`} />
         </div>
-        {(search || statusF || marketF || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo(""); setPage(1); }} className="flex h-10 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"><X className="h-3.5 w-3.5" />Clear</button>}
-        <button onClick={onNewItem} className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-sky-500 px-4 text-sm font-semibold text-white hover:bg-sky-600"><Plus className="h-4 w-4" />Scan Item</button>
+        <select value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 min-w-[230px] flex-1`}><option value="">All Statuses</option>{Object.entries(STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+        <select value={marketF} onChange={(e) => { setMarketF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 min-w-[230px] flex-1`} title="Filter by store"><option value="">All Stores</option>{MARKETPLACES.map((m) => <option key={m} value={m}>{MP_LABELS[m]}</option>)}</select>
+        <div className="flex items-center gap-1.5 shrink-0">
+            <Calendar className="h-4 w-4 shrink-0 text-[#737C86] dark:text-[#7E8894]" />
+            <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-[150px]`} title="From date" />
+            <span className="text-xs text-[#737C86] dark:text-[#7E8894]">–</span>
+            <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-[150px]`} title="To date" />
+        </div>
+        {(search || statusF || marketF || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo(""); setPage(1); }} className="flex h-10 items-center gap-1 rounded-xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-3 text-xs font-medium text-[#4C5661] hover:bg-[#F8F6F1] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]"><X className="h-3.5 w-3.5" />Clear</button>}
+        <button onClick={onNewItem} className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-[#8A681F] px-4 text-sm font-semibold text-[#F7F3EA] hover:bg-[#B08A3C] dark:bg-[#D6B76E] dark:text-[#171A1E] dark:hover:bg-[#F1D58A]"><Plus className="h-4 w-4" />Scan Item</button>
       </div>
 
-      <div className="w-full overflow-x-auto rounded-2xl border border-border">
+      <div className="w-full overflow-x-auto rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C]">
         <div className="w-full min-w-0">
           <table className="w-full min-w-[1580px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
+              <tr className="border-b border-[rgba(138,104,31,0.18)] bg-[#F8F6F1] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#232C35]">
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
                   <div className={CHK_FLEX}>
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((r) => r.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
                 {showCompanyColumn && (
-                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
+                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-[#4C5661] dark:text-[#B8C1CB]">Company</th>
                 )}
-                <th className="w-12 px-2 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500" title="Marketplace">MP</th>
+                <th className="w-12 px-2 py-3 text-center text-xs font-semibold uppercase tracking-wide text-[#4C5661] dark:text-[#B8C1CB]" title="Marketplace">MP</th>
                 <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Item / Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Product</th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6962,7 +6979,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                 <th className="px-3 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            <tbody className="divide-y divide-[rgba(138,104,31,0.10)] dark:divide-[rgba(214,183,110,0.12)]">
               {rows.map((r) => {
                 const linkedPkg = r.package_id ? pkgMap.get(r.package_id) : null;
                 const linkedPlt = r.pallet_id  ? pltMap.get(r.pallet_id)  : null;
@@ -6970,15 +6987,15 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                 const expiryStatus = getExpiryStatus(r.expiration_date, fefo_critical, fefo_warning);
                 const peUrls = getReturnPhotoEvidenceUrls(r.photo_evidence);
                 return (
-                  <tr key={r.id} onClick={() => onRowClick(r)} className="group cursor-pointer transition hover:bg-sky-50/50 dark:hover:bg-sky-950/20">
+                  <tr key={r.id} onClick={() => onRowClick(r)} className="group cursor-pointer transition hover:bg-[#F8F4EC] dark:hover:bg-[#232C35]">
                     <td className={TD_CHK} onClick={(e) => e.stopPropagation()}>
                       <div className={CHK_FLEX}>
                         <input type="checkbox" checked={selectedIds.has(r.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(r.id) : s.delete(r.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                       </div>
                     </td>
                     {showCompanyColumn && (
-                      <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold text-violet-600 dark:text-violet-400 md:table-cell" title={organizationLabelById[r.organization_id] ?? r.organization_id}>
-                        {organizationLabelById[r.organization_id] ?? <span className="animate-pulse text-violet-300 dark:text-violet-700">Resolving…</span>}
+                      <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold text-[#8A681F] dark:text-[#D6B76E] md:table-cell" title={organizationLabelById[r.organization_id] ?? r.organization_id}>
+                        {organizationLabelById[r.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/70 dark:text-[#D6B76E]/60">Resolving…</span>}
                       </td>
                     )}
                     <td className="w-12 px-2 py-3 align-middle">
@@ -7031,10 +7048,10 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                             <span className={`h-1.5 w-1.5 rounded-full ${expiryStatus.dotCls}`} />
                             {expiryStatus.label}
                           </span>
-                          <span className="pl-0.5 text-[10px] text-slate-400">{expiryStatus.daysLabel}</span>
+                          <span className="pl-0.5 text-[10px] text-[#737C86] dark:text-[#7E8894]">{expiryStatus.daysLabel}</span>
                         </div>
                       ) : (
-                        <span className="text-xs text-slate-400">—</span>
+                        <span className="text-xs text-[#737C86] dark:text-[#7E8894]">—</span>
                       )}
                     </td>
                     {/* ── Evidence Photo cell ── */}
@@ -7047,11 +7064,11 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                     </td>
                     <td className="hidden px-4 py-3 lg:table-cell">
                       {linkedPkg
-                        ? <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 font-mono text-[10px] font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
-                        : <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">⚠ Orphaned / Loose</span>}
+                        ? <span className="inline-flex items-center gap-1 rounded-full bg-[#EFE6D2] px-2 py-0.5 font-mono text-[10px] font-bold text-[#6C5320] dark:bg-[#2A2418] dark:text-[#E8CF98]">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
+                        : <span className="inline-flex items-center gap-1 rounded-full bg-[#F5E9D2] px-2 py-0.5 text-[10px] font-bold text-[#6A4C16] dark:bg-[#312613] dark:text-[#EFD49A]">⚠ Orphaned / Loose</span>}
                     </td>
-                    <td className="hidden px-4 py-3 xl:table-cell text-xs text-slate-400">{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
-                    <td className="hidden px-4 py-3 text-xs text-slate-400 lg:table-cell">{fmt(r.created_at)}</td>
+                    <td className="hidden px-4 py-3 xl:table-cell text-xs text-[#737C86] dark:text-[#7E8894]">{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
+                    <td className="hidden px-4 py-3 text-xs text-[#737C86] dark:text-[#7E8894] lg:table-cell">{fmt(r.created_at)}</td>
                     <td className="px-3 py-3">
                       <RowActionMenu
                         onView={() => onRowClick(r)}
@@ -7074,7 +7091,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           </table>
         </div>
         {rows.length === 0 && (
-          <p className="py-10 text-center text-sm text-slate-400">
+          <p className="py-10 text-center text-sm text-[#737C86] dark:text-[#7E8894]">
             {items.length === 0 && !hasActiveFilters
               ? "No return items yet. Scan or add an item to get started."
               : "No records match your filters."}
@@ -7082,7 +7099,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
         )}
       </div>
 
-      {total > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><p>Page {page} of {total} · {filtered.length} items</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">Next →</button></div></div>}
+      {total > 1 && <div className="flex items-center justify-between text-sm text-[#4C5661] dark:text-[#B8C1CB]"><p>Page {page} of {total} · {filtered.length} items</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-3 text-sm font-medium text-[#4C5661] hover:bg-[#F8F6F1] disabled:opacity-40 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-3 text-sm font-medium text-[#4C5661] hover:bg-[#F8F6F1] disabled:opacity-40 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]">Next →</button></div></div>}
 
       {showBulkMove && (
         <BulkMoveModal selectedIds={[...selectedIds]} packages={packages} pallets={pallets} returns={items} actor={actor} actorProfileId={actorProfileId} onClose={() => setShowBulkMove(false)}

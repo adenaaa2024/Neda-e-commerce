@@ -5,7 +5,7 @@ import { ClaimEngineHubNav } from "./ClaimEngineHubNav";
 function HubNavFallback() {
   return (
     <div
-      className="h-9 animate-pulse rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900/60"
+      className="claim-engine-hub-nav h-9 animate-pulse"
       aria-hidden
     />
   );

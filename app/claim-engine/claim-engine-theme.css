@@ -1,0 +1,1235 @@
+/**
+ * Claim Engine — premium MENORIX styling (desktop).
+ * Scoped to `.claim-engine-view` only; does not affect scanner/operator-mobile UI.
+ */
+
+/* ── Page canvas ── */
+html.dark .claim-engine-view {
+  background: #0b0e12 !important;
+}
+
+html.light .claim-engine-view {
+  background: #f3efe6 !important;
+}
+
+/* ── Hub nav (tab bar) ── */
+html.dark .claim-engine-view .claim-engine-hub-nav {
+  background: #151a20 !important;
+  border: 1px solid rgba(214, 183, 110, 0.2) !important;
+  border-radius: 14px !important;
+  padding: 0.375rem !important;
+  gap: 0.25rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 4px 18px rgba(0, 0, 0, 0.28);
+}
+
+html.light .claim-engine-view .claim-engine-hub-nav {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.18) !important;
+  border-radius: 14px !important;
+  padding: 0.375rem !important;
+  gap: 0.25rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 4px 16px rgba(22, 24, 27, 0.06);
+}
+
+html.dark .claim-engine-view .claim-engine-hub-nav a {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  color: #b8c1cb !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em;
+  padding: 0.4375rem 0.75rem !important;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+html.light .claim-engine-view .claim-engine-hub-nav a {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  color: #4c5661 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em;
+  padding: 0.4375rem 0.75rem !important;
+}
+
+html.dark .claim-engine-view .claim-engine-hub-nav a:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(214, 183, 110, 0.2) !important;
+  color: #f7f3ea !important;
+}
+
+html.light .claim-engine-view .claim-engine-hub-nav a:hover {
+  background: #f8f6f1 !important;
+  border-color: rgba(138, 104, 31, 0.16) !important;
+  color: #171a1e !important;
+}
+
+html.dark .claim-engine-view .claim-engine-hub-nav a.claim-engine-hub-nav__link--active {
+  background: linear-gradient(165deg, rgba(214, 183, 110, 0.22) 0%, rgba(35, 44, 53, 0.98) 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  color: #f1d58a !important;
+  box-shadow:
+    inset 0 1px 0 rgba(241, 213, 138, 0.18),
+    0 2px 10px rgba(0, 0, 0, 0.22);
+}
+
+html.light .claim-engine-view .claim-engine-hub-nav a.claim-engine-hub-nav__link--active {
+  background: linear-gradient(165deg, #f4ead6 0%, #ffffff 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.38) !important;
+  color: #7a5b1b !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 2px 8px rgba(138, 104, 31, 0.1);
+}
+
+/* ── Page header ── */
+html.dark .claim-engine-view .claim-engine-page-header {
+  border-color: rgba(214, 183, 110, 0.2) !important;
+  padding-bottom: 1.375rem;
+  margin-top: 0.25rem;
+}
+
+html.light .claim-engine-view .claim-engine-page-header {
+  border-color: rgba(138, 104, 31, 0.18) !important;
+  padding-bottom: 1.375rem;
+  margin-top: 0.25rem;
+}
+
+html.dark .claim-engine-view .claim-engine-page-header h1 {
+  color: #f7f3ea !important;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+html.light .claim-engine-view .claim-engine-page-header h1 {
+  color: #171a1e !important;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+html.dark .claim-engine-view .claim-engine-page-header p {
+  color: #b8c1cb !important;
+  line-height: 1.55;
+  max-width: 42rem;
+}
+
+html.light .claim-engine-view .claim-engine-page-header p {
+  color: #4c5661 !important;
+  line-height: 1.55;
+  max-width: 42rem;
+}
+
+/* ── KPI cards ── */
+html.dark .claim-engine-kpi {
+  background: linear-gradient(165deg, #232c35 0%, #1d242c 52%, #151a20 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.22) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 8px 24px rgba(0, 0, 0, 0.32);
+  padding: 1.25rem 1.375rem !important;
+  position: relative;
+  overflow: hidden;
+}
+
+html.dark .claim-engine-kpi::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(214, 183, 110, 0.35), transparent);
+  pointer-events: none;
+}
+
+html.light .claim-engine-kpi {
+  background: linear-gradient(165deg, #ffffff 0%, #f8f6f1 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.2) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 8px 22px rgba(22, 24, 27, 0.07);
+  padding: 1.25rem 1.375rem !important;
+  position: relative;
+  overflow: hidden;
+}
+
+html.light .claim-engine-kpi::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(176, 138, 60, 0.35), transparent);
+  pointer-events: none;
+}
+
+html.dark .claim-engine-kpi .claim-engine-kpi__label {
+  color: #7e8894 !important;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html.light .claim-engine-kpi .claim-engine-kpi__label {
+  color: #737c86 !important;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html.dark .claim-engine-kpi .claim-engine-kpi__value {
+  color: #f7f3ea !important;
+  font-size: 1.875rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  margin-top: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+html.light .claim-engine-kpi .claim-engine-kpi__value {
+  color: #171a1e !important;
+  font-size: 1.875rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  margin-top: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Compact KPI — policy summary strips (Draft pool) */
+html.dark .claim-engine-kpi.claim-engine-kpi--compact,
+html.light .claim-engine-kpi.claim-engine-kpi--compact {
+  border-radius: 10px !important;
+  padding: 0.5rem 0.75rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+html.light .claim-engine-kpi.claim-engine-kpi--compact {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 6px rgba(22, 24, 27, 0.05);
+}
+
+html.dark .claim-engine-kpi--compact .claim-engine-kpi__label,
+html.light .claim-engine-kpi--compact .claim-engine-kpi__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+
+html.dark .claim-engine-kpi--compact .claim-engine-kpi__value,
+html.light .claim-engine-kpi--compact .claim-engine-kpi__value {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.35;
+  margin-top: 0.125rem;
+}
+
+/* ── Table card ── */
+html.dark .claim-engine-table-card {
+  background: #151a20 !important;
+  border: 1px solid rgba(214, 183, 110, 0.22) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 32px rgba(0, 0, 0, 0.36);
+}
+
+html.light .claim-engine-table-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.2) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 10px 28px rgba(22, 24, 27, 0.07);
+}
+
+html.dark .claim-engine-table-card__header {
+  border-color: rgba(214, 183, 110, 0.16) !important;
+}
+
+html.light .claim-engine-table-card__header {
+  border-color: rgba(138, 104, 31, 0.14) !important;
+}
+
+html.dark .claim-engine-table-card__title {
+  color: #f7f3ea !important;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: -0.01em;
+}
+
+html.light .claim-engine-table-card__title {
+  color: #171a1e !important;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: -0.01em;
+}
+
+html.dark .claim-engine-table-card__subtitle {
+  color: #7e8894 !important;
+}
+
+html.light .claim-engine-table-card__subtitle {
+  color: #737c86 !important;
+}
+
+html.dark .claim-engine-table-card__icon {
+  color: #d6b76e !important;
+}
+
+html.light .claim-engine-table-card__icon {
+  color: #8a681f !important;
+}
+
+/* ── Search input ── */
+html.dark .claim-engine-search-wrap {
+  border-color: rgba(214, 183, 110, 0.12) !important;
+}
+
+html.light .claim-engine-search-wrap {
+  border-color: rgba(138, 104, 31, 0.12) !important;
+}
+
+html.dark .claim-engine-search {
+  background: #1d242c !important;
+  border: 1px solid rgba(214, 183, 110, 0.22) !important;
+  color: #f7f3ea !important;
+  border-radius: 10px !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+
+html.dark .claim-engine-search::placeholder {
+  color: #7e8894 !important;
+}
+
+html.light .claim-engine-search {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.22) !important;
+  color: #171a1e !important;
+  border-radius: 10px !important;
+  box-shadow: inset 0 1px 2px rgba(22, 24, 27, 0.04);
+}
+
+html.light .claim-engine-search::placeholder {
+  color: #737c86 !important;
+}
+
+html.dark .claim-engine-search:focus {
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  outline: none;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.22),
+    0 0 0 3px rgba(214, 183, 110, 0.12);
+}
+
+html.light .claim-engine-search:focus {
+  border-color: rgba(138, 104, 31, 0.42) !important;
+  outline: none;
+  box-shadow:
+    inset 0 1px 2px rgba(22, 24, 27, 0.04),
+    0 0 0 3px rgba(138, 104, 31, 0.1);
+}
+
+html.dark .claim-engine-search-icon {
+  color: #7e8894 !important;
+}
+
+html.light .claim-engine-search-icon {
+  color: #737c86 !important;
+}
+
+/* ── Table ── */
+html.dark .claim-engine-table thead tr {
+  background: #1d242c !important;
+  border-color: rgba(214, 183, 110, 0.16) !important;
+}
+
+html.light .claim-engine-table thead tr {
+  background: #f8f6f1 !important;
+  border-color: rgba(138, 104, 31, 0.14) !important;
+}
+
+html.dark .claim-engine-table thead th,
+html.dark .claim-engine-table thead th button {
+  color: #7e8894 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em;
+}
+
+html.light .claim-engine-table thead th,
+html.light .claim-engine-table thead th button {
+  color: #737c86 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em;
+}
+
+html.dark .claim-engine-table thead th button:hover {
+  color: #d6b76e !important;
+}
+
+html.light .claim-engine-table thead th button:hover {
+  color: #8a681f !important;
+}
+
+html.dark .claim-engine-table tbody tr {
+  border-color: rgba(214, 183, 110, 0.1) !important;
+}
+
+html.light .claim-engine-table tbody tr {
+  border-color: rgba(138, 104, 31, 0.1) !important;
+}
+
+html.dark .menorix-admin-shell .claim-engine-view .claim-engine-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 11%, #1a2129) !important;
+  transform: translateY(-2px);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 30%, rgba(214, 183, 110, 0.35));
+}
+
+html.light .menorix-admin-shell .claim-engine-view .claim-engine-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 9%, #f8f6f1) !important;
+  transform: translateY(-2px);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 26%, rgba(138, 104, 31, 0.28));
+}
+
+html.dark .menorix-admin-shell .claim-engine-view .claim-engine-table tbody tr:hover td {
+  color: #f7f3ea !important;
+  opacity: 1 !important;
+}
+
+html.light .menorix-admin-shell .claim-engine-view .claim-engine-table tbody tr:hover td {
+  color: #171a1e !important;
+  opacity: 1 !important;
+}
+
+html.dark .claim-engine-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+html.light .claim-engine-table tbody tr:hover {
+  background: rgba(138, 104, 31, 0.04) !important;
+}
+
+html.dark .claim-engine-table tbody td {
+  color: #b8c1cb;
+}
+
+html.light .claim-engine-table tbody td {
+  color: #4c5661;
+}
+
+html.dark .claim-engine-table .claim-engine-amount {
+  color: #f7f3ea !important;
+  font-weight: 700 !important;
+}
+
+html.light .claim-engine-table .claim-engine-amount {
+  color: #171a1e !important;
+  font-weight: 700 !important;
+}
+
+html.dark .claim-engine-table .claim-engine-payout {
+  color: #22c58b !important;
+  font-weight: 700 !important;
+}
+
+html.light .claim-engine-table .claim-engine-payout {
+  color: #0b6f4d !important;
+  font-weight: 700 !important;
+}
+
+html.dark .claim-engine-table .claim-engine-meta {
+  color: #7e8894 !important;
+}
+
+html.light .claim-engine-table .claim-engine-meta {
+  color: #737c86 !important;
+}
+
+html.dark .claim-engine-table .claim-engine-type {
+  color: #b8c1cb !important;
+}
+
+html.light .claim-engine-table .claim-engine-type {
+  color: #4c5661 !important;
+}
+
+/* Store / provider chips in closed table */
+html.dark .claim-engine-table .claim-engine-provider {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-table .claim-engine-provider {
+  background: #f4ead6 !important;
+  border: 1px solid rgba(176, 138, 60, 0.32) !important;
+  color: #7a5b1b !important;
+}
+
+/* Store / provider chips in closed table */
+html.dark .claim-engine-status--accepted {
+  background: rgba(34, 197, 139, 0.12) !important;
+  border: 1px solid rgba(34, 197, 139, 0.32) !important;
+  color: #22c58b !important;
+}
+
+html.light .claim-engine-status--accepted {
+  background: rgba(15, 143, 99, 0.1) !important;
+  border: 1px solid rgba(15, 143, 99, 0.28) !important;
+  color: #0b6f4d !important;
+}
+
+html.dark .claim-engine-status--rejected {
+  background: rgba(248, 113, 113, 0.1) !important;
+  border: 1px solid rgba(248, 113, 113, 0.28) !important;
+  color: #fca5a5 !important;
+}
+
+html.light .claim-engine-status--rejected {
+  background: rgba(209, 67, 67, 0.08) !important;
+  border: 1px solid rgba(209, 67, 67, 0.24) !important;
+  color: #b42318 !important;
+}
+
+html.dark .claim-engine-status--failed {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-status--failed {
+  background: rgba(138, 104, 31, 0.08) !important;
+  border: 1px solid rgba(176, 138, 60, 0.28) !important;
+  color: #7a5b1b !important;
+}
+
+.claim-engine-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ── Row action buttons ── */
+.claim-engine-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 8px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition:
+    transform 220ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    box-shadow 220ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-btn:not(:disabled):hover {
+  transform: translateY(-2px);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary, #d6b76e) 30%, var(--border, #323c48));
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-btn:not(:disabled):hover svg {
+  opacity: 1;
+  filter: none;
+  animation: mx-icon-shock 340ms cubic-bezier(0.34, 1.28, 0.64, 1) forwards;
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-btn svg {
+  transition: transform 220ms cubic-bezier(0.34, 1.28, 0.64, 1), color 0.2s ease;
+  filter: none;
+}
+
+html.dark .claim-engine-btn--transcript {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border: 1px solid rgba(214, 183, 110, 0.32) !important;
+  color: #f1d58a !important;
+}
+
+html.dark .claim-engine-btn--transcript:hover {
+  background: rgba(214, 183, 110, 0.18) !important;
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  color: #faf6ed !important;
+}
+
+html.light .claim-engine-btn--transcript {
+  background: #f4ead6 !important;
+  border: 1px solid rgba(176, 138, 60, 0.38) !important;
+  color: #7a5b1b !important;
+}
+
+html.light .claim-engine-btn--transcript:hover {
+  background: #ece3cf !important;
+  border-color: rgba(138, 104, 31, 0.48) !important;
+  color: #524018 !important;
+}
+
+html.dark .claim-engine-btn--neutral {
+  background: #232c35 !important;
+  border: 1px solid rgba(214, 183, 110, 0.2) !important;
+  color: #b8c1cb !important;
+}
+
+html.dark .claim-engine-btn--neutral:hover {
+  background: #2a343f !important;
+  border-color: rgba(214, 183, 110, 0.32) !important;
+  color: #f7f3ea !important;
+}
+
+html.light .claim-engine-btn--neutral {
+  background: #f8f6f1 !important;
+  border: 1px solid rgba(138, 104, 31, 0.18) !important;
+  color: #4c5661 !important;
+}
+
+html.light .claim-engine-btn--neutral:hover {
+  background: #f3efe6 !important;
+  border-color: rgba(138, 104, 31, 0.28) !important;
+  color: #171a1e !important;
+}
+
+html.dark .claim-engine-btn--accent {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  color: #d6b76e !important;
+}
+
+html.dark .claim-engine-btn--accent:hover {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border-color: rgba(214, 183, 110, 0.4) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-btn--accent {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.28) !important;
+  color: #8a681f !important;
+}
+
+html.light .claim-engine-btn--accent:hover {
+  background: #f8f6f1 !important;
+  border-color: rgba(138, 104, 31, 0.4) !important;
+  color: #7a5b1b !important;
+}
+
+/* ── Mobile cards (narrow desktop / tablet) ── */
+html.dark .claim-engine-mobile-card {
+  background: #1d242c !important;
+  border: 1px solid rgba(214, 183, 110, 0.18) !important;
+  border-radius: 14px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html.light .claim-engine-mobile-card {
+  background: #f8f6f1 !important;
+  border: 1px solid rgba(138, 104, 31, 0.16) !important;
+  border-radius: 14px !important;
+}
+
+html.dark .claim-engine-mobile-card__title {
+  color: #f7f3ea !important;
+  font-weight: 700 !important;
+}
+
+html.light .claim-engine-mobile-card__title {
+  color: #171a1e !important;
+  font-weight: 700 !important;
+}
+
+html.dark .claim-engine-empty-filter {
+  color: #7e8894 !important;
+}
+
+html.light .claim-engine-empty-filter {
+  color: #737c86 !important;
+}
+
+/* KPI grid spacing inside claim engine view */
+.claim-engine-view .grid.gap-4,
+.claim-engine-view .grid.grid-cols-1.gap-4.sm\:grid-cols-3 {
+  gap: 1.125rem;
+}
+
+/* Identifier column — primary name stronger */
+html.dark .claim-engine-table tbody td:first-child .font-semibold,
+html.dark .claim-engine-table tbody td:first-child .font-bold,
+html.dark .claim-engine-table tbody td:first-child [class*="font-semibold"],
+html.dark .claim-engine-table tbody td:first-child [class*="font-bold"] {
+  color: #f7f3ea !important;
+  font-weight: 700 !important;
+}
+
+html.light .claim-engine-table tbody td:first-child .font-semibold,
+html.light .claim-engine-table tbody td:first-child .font-bold,
+html.light .claim-engine-table tbody td:first-child [class*="font-semibold"],
+html.light .claim-engine-table tbody td:first-child [class*="font-bold"] {
+  color: #171a1e !important;
+  font-weight: 700 !important;
+}
+
+/* Secondary identifier lines in first column */
+html.dark .claim-engine-table tbody td:first-child .text-muted-foreground,
+html.dark .claim-engine-table tbody td:first-child [class*="text-slate"] {
+  color: #7e8894 !important;
+}
+
+html.light .claim-engine-table tbody td:first-child .text-muted-foreground,
+html.light .claim-engine-table tbody td:first-child [class*="text-slate"] {
+  color: #737c86 !important;
+}
+
+/* ── Section panels ── */
+html.dark .claim-engine-section {
+  background: linear-gradient(165deg, #232c35 0%, #1d242c 52%, #151a20 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.2) !important;
+  border-radius: 14px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 20px rgba(0, 0, 0, 0.28);
+  padding: 1.125rem 1.25rem !important;
+  position: relative;
+  overflow: hidden;
+}
+
+html.light .claim-engine-section {
+  background: linear-gradient(165deg, #ffffff 0%, #f8f6f1 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.18) !important;
+  border-radius: 14px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 6px 18px rgba(22, 24, 27, 0.06);
+  padding: 1.125rem 1.25rem !important;
+}
+
+html.dark .claim-engine-kpi__hint {
+  color: #7e8894 !important;
+  font-size: 0.6875rem;
+  margin-top: 0.375rem;
+}
+
+html.light .claim-engine-kpi__hint {
+  color: #737c86 !important;
+  font-size: 0.6875rem;
+  margin-top: 0.375rem;
+}
+
+/* ── Filter / sub-tabs ── */
+.claim-engine-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 10px;
+  padding: 0.4375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+html.dark .claim-engine-filter-tab {
+  color: #b8c1cb !important;
+  background: transparent !important;
+}
+
+html.light .claim-engine-filter-tab {
+  color: #4c5661 !important;
+  background: transparent !important;
+}
+
+html.dark .claim-engine-filter-tab:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #f7f3ea !important;
+}
+
+html.light .claim-engine-filter-tab:hover {
+  background: #f8f6f1 !important;
+  color: #171a1e !important;
+}
+
+html.dark .claim-engine-filter-tab--active {
+  background: linear-gradient(165deg, rgba(214, 183, 110, 0.18) 0%, rgba(35, 44, 53, 0.95) 100%) !important;
+  border-color: rgba(214, 183, 110, 0.35) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-filter-tab--active {
+  background: linear-gradient(165deg, #f4ead6 0%, #ffffff 100%) !important;
+  border-color: rgba(138, 104, 31, 0.32) !important;
+  color: #7a5b1b !important;
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-hub-nav a {
+  transition:
+    transform 220ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    box-shadow 220ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease !important;
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-filter-tab {
+  transition:
+    transform 220ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    box-shadow 220ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease !important;
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-filter-tab:hover {
+  transform: translateY(-2px) !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 28%, var(--border)) !important;
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-hub-nav a:hover {
+  transform: translateY(-2px) !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 28%, var(--border)) !important;
+}
+
+.menorix-admin-shell .claim-engine-view .claim-engine-select:hover {
+  transform: translateY(-2px);
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 24%, var(--border)) !important;
+  transition:
+    transform var(--mx-hover-duration, 220ms) cubic-bezier(0.34, 1.28, 0.64, 1),
+    box-shadow var(--mx-hover-duration, 220ms) cubic-bezier(0.34, 1.28, 0.64, 1),
+    border-color 0.2s ease;
+}
+
+/* ── Select inputs ── */
+html.dark .claim-engine-select {
+  background: #1d242c !important;
+  border: 1px solid rgba(214, 183, 110, 0.22) !important;
+  color: #f7f3ea !important;
+  border-radius: 10px !important;
+}
+
+html.light .claim-engine-select {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.22) !important;
+  color: #171a1e !important;
+  border-radius: 10px !important;
+}
+
+html.dark .claim-engine-select:focus {
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  outline: none;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.22),
+    0 0 0 3px rgba(214, 183, 110, 0.12);
+}
+
+html.light .claim-engine-select:focus {
+  border-color: rgba(138, 104, 31, 0.42) !important;
+  outline: none;
+  box-shadow:
+    inset 0 1px 2px rgba(22, 24, 27, 0.04),
+    0 0 0 3px rgba(138, 104, 31, 0.1);
+}
+
+/* ── Extended status badges ── */
+html.dark .claim-engine-status--neutral {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(214, 183, 110, 0.18) !important;
+  color: #b8c1cb !important;
+}
+
+html.light .claim-engine-status--neutral {
+  background: #f8f6f1 !important;
+  border: 1px solid rgba(138, 104, 31, 0.16) !important;
+  color: #4c5661 !important;
+}
+
+html.dark .claim-engine-status--ready {
+  background: rgba(34, 197, 139, 0.1) !important;
+  border: 1px solid rgba(34, 197, 139, 0.28) !important;
+  color: #22c58b !important;
+}
+
+html.light .claim-engine-status--ready {
+  background: rgba(15, 143, 99, 0.08) !important;
+  border: 1px solid rgba(15, 143, 99, 0.24) !important;
+  color: #0b6f4d !important;
+}
+
+html.dark .claim-engine-status--submitted {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-status--submitted {
+  background: #f4ead6 !important;
+  border: 1px solid rgba(176, 138, 60, 0.28) !important;
+  color: #7a5b1b !important;
+}
+
+html.dark .claim-engine-status--warning {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border: 1px solid rgba(214, 183, 110, 0.28) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-status--warning {
+  background: rgba(138, 104, 31, 0.08) !important;
+  border: 1px solid rgba(176, 138, 60, 0.24) !important;
+  color: #7a5b1b !important;
+}
+
+html.dark .claim-engine-status--info {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(214, 183, 110, 0.22) !important;
+  color: #d6b76e !important;
+}
+
+html.light .claim-engine-status--info {
+  background: #f8f6f1 !important;
+  border: 1px solid rgba(138, 104, 31, 0.2) !important;
+  color: #8a681f !important;
+}
+
+html.dark .claim-engine-status--danger {
+  background: rgba(248, 113, 113, 0.1) !important;
+  border: 1px solid rgba(248, 113, 113, 0.28) !important;
+  color: #fca5a5 !important;
+}
+
+html.light .claim-engine-status--danger {
+  background: rgba(209, 67, 67, 0.08) !important;
+  border: 1px solid rgba(209, 67, 67, 0.24) !important;
+  color: #b42318 !important;
+}
+
+/* ── Extended buttons ── */
+html.dark .claim-engine-btn--primary {
+  background: linear-gradient(165deg, rgba(214, 183, 110, 0.28) 0%, rgba(214, 183, 110, 0.12) 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.42) !important;
+  color: #f1d58a !important;
+}
+
+html.dark .claim-engine-btn--primary:hover {
+  background: linear-gradient(165deg, rgba(214, 183, 110, 0.38) 0%, rgba(214, 183, 110, 0.18) 100%) !important;
+  color: #faf6ed !important;
+}
+
+html.light .claim-engine-btn--primary {
+  background: linear-gradient(165deg, #f4ead6 0%, #ece3cf 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.38) !important;
+  color: #7a5b1b !important;
+}
+
+html.light .claim-engine-btn--primary:hover {
+  background: #ece3cf !important;
+  color: #524018 !important;
+}
+
+html.dark .claim-engine-btn--success {
+  background: rgba(34, 197, 139, 0.12) !important;
+  border: 1px solid rgba(34, 197, 139, 0.32) !important;
+  color: #22c58b !important;
+}
+
+html.dark .claim-engine-btn--success:hover {
+  background: rgba(34, 197, 139, 0.2) !important;
+  color: #4adea8 !important;
+}
+
+html.light .claim-engine-btn--success {
+  background: rgba(15, 143, 99, 0.08) !important;
+  border: 1px solid rgba(15, 143, 99, 0.28) !important;
+  color: #0b6f4d !important;
+}
+
+html.light .claim-engine-btn--success:hover {
+  background: rgba(15, 143, 99, 0.14) !important;
+}
+
+/* ── Banners ── */
+.claim-engine-banner {
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+html.dark .claim-engine-banner--error {
+  background: rgba(248, 113, 113, 0.08) !important;
+  border: 1px solid rgba(248, 113, 113, 0.24) !important;
+  color: #fca5a5 !important;
+}
+
+html.light .claim-engine-banner--error {
+  background: rgba(209, 67, 67, 0.06) !important;
+  border: 1px solid rgba(209, 67, 67, 0.2) !important;
+  color: #b42318 !important;
+}
+
+html.dark .claim-engine-banner--warning {
+  background: rgba(214, 183, 110, 0.08) !important;
+  border: 1px solid rgba(214, 183, 110, 0.24) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-banner--warning {
+  background: rgba(138, 104, 31, 0.06) !important;
+  border: 1px solid rgba(176, 138, 60, 0.2) !important;
+  color: #7a5b1b !important;
+}
+
+html.dark .claim-engine-banner--success {
+  background: rgba(34, 197, 139, 0.08) !important;
+  border: 1px solid rgba(34, 197, 139, 0.24) !important;
+  color: #22c58b !important;
+}
+
+html.light .claim-engine-banner--success {
+  background: rgba(15, 143, 99, 0.06) !important;
+  border: 1px solid rgba(15, 143, 99, 0.2) !important;
+  color: #0b6f4d !important;
+}
+
+html.dark .claim-engine-banner--info {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(214, 183, 110, 0.2) !important;
+  color: #b8c1cb !important;
+}
+
+html.light .claim-engine-banner--info {
+  background: #f8f6f1 !important;
+  border: 1px solid rgba(138, 104, 31, 0.16) !important;
+  color: #4c5661 !important;
+}
+
+/* ── Sticky action bar ── */
+html.dark .claim-engine-sticky-bar {
+  background: rgba(21, 26, 32, 0.96) !important;
+  border-top: 1px solid rgba(214, 183, 110, 0.2) !important;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(12px);
+}
+
+html.light .claim-engine-sticky-bar {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-top: 1px solid rgba(138, 104, 31, 0.18) !important;
+  box-shadow: 0 -8px 24px rgba(22, 24, 27, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+/* ── Flow / source chips ── */
+.claim-engine-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+html.dark .claim-engine-chip--accent {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border-color: rgba(214, 183, 110, 0.28) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-chip--accent {
+  background: #f4ead6 !important;
+  border-color: rgba(176, 138, 60, 0.28) !important;
+  color: #7a5b1b !important;
+}
+
+html.dark .claim-engine-chip--success {
+  background: rgba(34, 197, 139, 0.1) !important;
+  border-color: rgba(34, 197, 139, 0.28) !important;
+  color: #22c58b !important;
+}
+
+html.light .claim-engine-chip--success {
+  background: rgba(15, 143, 99, 0.08) !important;
+  border-color: rgba(15, 143, 99, 0.24) !important;
+  color: #0b6f4d !important;
+}
+
+html.dark .claim-engine-chip--warning {
+  background: rgba(214, 183, 110, 0.1) !important;
+  border-color: rgba(214, 183, 110, 0.28) !important;
+  color: #f1d58a !important;
+}
+
+html.light .claim-engine-chip--warning {
+  background: rgba(138, 104, 31, 0.08) !important;
+  border-color: rgba(176, 138, 60, 0.24) !important;
+  color: #7a5b1b !important;
+}
+
+html.dark .claim-engine-chip--info {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(214, 183, 110, 0.22) !important;
+  color: #d6b76e !important;
+}
+
+html.light .claim-engine-chip--info {
+  background: #f8f6f1 !important;
+  border-color: rgba(138, 104, 31, 0.18) !important;
+  color: #8a681f !important;
+}
+
+html.dark .claim-engine-chip--danger {
+  background: rgba(248, 113, 113, 0.1) !important;
+  border-color: rgba(248, 113, 113, 0.28) !important;
+  color: #fca5a5 !important;
+}
+
+html.light .claim-engine-chip--danger {
+  background: rgba(209, 67, 67, 0.08) !important;
+  border-color: rgba(209, 67, 67, 0.24) !important;
+  color: #b42318 !important;
+}
+
+html.dark .claim-engine-chip--neutral {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(214, 183, 110, 0.16) !important;
+  color: #b8c1cb !important;
+}
+
+html.light .claim-engine-chip--neutral {
+  background: #f8f6f1 !important;
+  border-color: rgba(138, 104, 31, 0.14) !important;
+  color: #4c5661 !important;
+}
+
+/* ── Queue row highlight ── */
+html.dark .claim-engine-row--ready {
+  background: rgba(214, 183, 110, 0.04) !important;
+}
+
+html.light .claim-engine-row--ready {
+  background: rgba(138, 104, 31, 0.04) !important;
+}
+
+/* ── Loading / empty inside view ── */
+html.dark .claim-engine-view .claim-engine-loading {
+  color: #7e8894 !important;
+}
+
+html.light .claim-engine-view .claim-engine-loading {
+  color: #737c86 !important;
+}
+
+/* ── Settings cards inside claim engine view ── */
+html.dark .claim-engine-view .claim-engine-settings-card {
+  background: #151a20 !important;
+  border: 1px solid rgba(214, 183, 110, 0.2) !important;
+  border-radius: 16px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+html.light .claim-engine-view .claim-engine-settings-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.18) !important;
+  border-radius: 16px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 8px 22px rgba(22, 24, 27, 0.06);
+}
+
+html.dark .claim-engine-view .claim-engine-settings-card h2,
+html.dark .claim-engine-view .claim-engine-settings-card h3 {
+  color: #f7f3ea !important;
+}
+
+html.light .claim-engine-view .claim-engine-settings-card h2,
+html.light .claim-engine-view .claim-engine-settings-card h3 {
+  color: #171a1e !important;
+}
+
+html.dark .claim-engine-view .claim-engine-settings-card .claim-engine-search,
+html.dark .claim-engine-view .claim-engine-settings-card input:not([type="checkbox"]):not([type="radio"]),
+html.dark .claim-engine-view .claim-engine-settings-card select,
+html.dark .claim-engine-view .claim-engine-settings-card textarea {
+  background: #1d242c !important;
+  border: 1px solid rgba(214, 183, 110, 0.22) !important;
+  color: #f7f3ea !important;
+  border-radius: 10px !important;
+}
+
+html.light .claim-engine-view .claim-engine-settings-card input:not([type="checkbox"]):not([type="radio"]),
+html.light .claim-engine-view .claim-engine-settings-card select,
+html.light .claim-engine-view .claim-engine-settings-card textarea {
+  background: #ffffff !important;
+  border: 1px solid rgba(138, 104, 31, 0.22) !important;
+  color: #171a1e !important;
+  border-radius: 10px !important;
+}
+
+/* ── Accent links inside claim engine ── */
+html.dark .claim-engine-view .claim-engine-link {
+  color: #d6b76e !important;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+html.light .claim-engine-view .claim-engine-link {
+  color: #8a681f !important;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Icon tile (queue list) ── */
+html.dark .claim-engine-icon-tile {
+  background: linear-gradient(165deg, #232c35 0%, #1d242c 100%) !important;
+  border: 1px solid rgba(214, 183, 110, 0.18) !important;
+  color: #d6b76e !important;
+}
+
+html.light .claim-engine-icon-tile {
+  background: linear-gradient(165deg, #f8f6f1 0%, #ffffff 100%) !important;
+  border: 1px solid rgba(138, 104, 31, 0.16) !important;
+  color: #8a681f !important;
+}
+
+/* KPI grid spacing */
+.claim-engine-view .grid.gap-4 {
+  gap: 1.125rem;
+}

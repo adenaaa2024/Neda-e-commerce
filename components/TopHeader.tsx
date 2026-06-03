@@ -331,23 +331,23 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
               <Link
                 href="/profile"
                 role="menuitem"
-                className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent"
+                className="admin-dropdown-item flex items-center gap-2 px-3 py-2 text-sm"
                 onClick={() => setProfileMenuOpen(false)}
               >
-                <UserCircle className="h-4 w-4 shrink-0 opacity-70" />
+                <UserCircle className="h-4 w-4 shrink-0" />
                 Profile &amp; account
               </Link>
               <button
                 type="button"
                 role="menuitem"
                 disabled={isSigningOut}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                className="admin-dropdown-item flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => {
                   setProfileMenuOpen(false);
                   void handleSignOut();
                 }}
               >
-                <LogOut className="h-4 w-4 shrink-0 opacity-70" />
+                <LogOut className="h-4 w-4 shrink-0" />
                 {isSigningOut ? "Signing out…" : "Sign out"}
               </button>
             </div>

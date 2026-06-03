@@ -12,7 +12,9 @@ import {
   allocateExpectedItemsForReturnItemIds,
   buildReceiveScopeKey,
   fetchPackageReceiveContext,
+  humanizeExpectedAllocationError,
   releaseExpectedItemUnit,
+  resolveAllocatableExpectedPackageHint,
   softVoidReturnItemWithExpectedRelease,
 } from "@/lib/scanner/receive-expected-with-split";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
@@ -214,10 +216,50 @@ export async function operatorReceiveItem(
   const returnItemId = res.data.id;
 
   try {
+    const allocFnsku = payload.fnsku?.trim() ?? "";
+    const allocSku = payload.sku?.trim() ?? "";
+    let expectedHint = payload.expected_package_id?.trim() ?? "";
+    if (!expectedHint || !isUuidString(expectedHint)) {
+      try {
+        const resolved = await resolveAllocatableExpectedPackageHint(supabaseServer, {
+          organizationId: orgId,
+          storeId: payload.store_id.trim(),
+          fnsku: allocFnsku,
+          sku: allocSku,
+          orderId: payload.order_id,
+          disposition: payload.disposition,
+          packageSlipCode: pkgCtx.slipCode,
+          packageTrackingNumber: pkgCtx.trackingNumber,
+          preferredHintId: payload.expected_package_id,
+        });
+        if (resolved) expectedHint = resolved;
+      } catch (e) {
+        await supabaseServer.from(RETURN_ITEMS_TABLE).delete().eq("id", returnItemId);
+        return {
+          ok: false,
+          error: humanizeExpectedAllocationError(
+            e instanceof Error ? e.message : "Expected row lookup failed.",
+            {
+              fnsku: allocFnsku,
+              sku: allocSku,
+              slipCode: pkgCtx.slipCode,
+              trackingNumber: pkgCtx.trackingNumber,
+            },
+          ),
+        };
+      }
+    }
+
     const alloc = await allocateExpectedItemsForReturnItemIds(supabaseServer, {
       returnItemIds: [returnItemId],
-      expectedPackageHintId: payload.expected_package_id ?? null,
+      expectedPackageHintId: expectedHint && isUuidString(expectedHint) ? expectedHint : null,
       receiveScopeKey,
+      errorContext: {
+        fnsku: allocFnsku,
+        sku: allocSku,
+        slipCode: pkgCtx.slipCode,
+        trackingNumber: pkgCtx.trackingNumber,
+      },
     });
 
     if (!alloc.ok) {

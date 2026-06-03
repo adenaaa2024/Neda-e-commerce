@@ -1,0 +1,1 @@
+- Branch must be feature/product-canonicalization-v2

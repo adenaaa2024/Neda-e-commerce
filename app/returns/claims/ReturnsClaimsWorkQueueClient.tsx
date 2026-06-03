@@ -10,11 +10,20 @@ import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageS
 import { ClaimFlowBadge } from "@/components/claim-engine/ClaimFlowBadge";
 import { ClaimSourceBadge } from "@/components/claim-engine/ClaimSourceBadge";
 import {
+  CLAIM_ENGINE_BANNER_ERROR_CLASS,
+  CLAIM_ENGINE_BANNER_INFO_CLASS,
+  CLAIM_ENGINE_BANNER_SUCCESS_CLASS,
+  CLAIM_ENGINE_BANNER_WARNING_CLASS,
   CLAIM_ENGINE_BTN_PRIMARY,
   CLAIM_ENGINE_CARD_CLASS,
   CLAIM_ENGINE_FILTER_TAB_ACTIVE,
   CLAIM_ENGINE_FILTER_TAB_IDLE,
   CLAIM_ENGINE_INPUT_CLASS,
+  CLAIM_ENGINE_KPI_COMPACT_CARD_CLASS,
+  CLAIM_ENGINE_KPI_HINT_CLASS,
+  CLAIM_ENGINE_KPI_LABEL_CLASS,
+  CLAIM_ENGINE_KPI_VALUE_CLASS,
+  CLAIM_ENGINE_MAIN_CLASS,
   CLAIM_ENGINE_SECTION_CLASS,
   CLAIM_ENGINE_STICKY_ACTION_BAR_CLASS,
   CLAIM_ENGINE_TABLE_CLASS,
@@ -253,6 +262,7 @@ export function ReturnsClaimsWorkQueueClient() {
   };
 
   return (
+    <main className={CLAIM_ENGINE_MAIN_CLASS}>
     <ClaimEnginePageShell
       title="Draft pool"
       description="Physical-scan return items eligible for claims. Select items and use the case builder to group them into claim cases."
@@ -271,42 +281,44 @@ export function ReturnsClaimsWorkQueueClient() {
       />
 
       {result && !result.returns_domain_enabled ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-100">
+        <div className={CLAIM_ENGINE_BANNER_WARNING_CLASS}>
           <strong>Returns module is disabled</strong> in claim policy. Enable Returns under Settings → Claim Engine →
           module scope before creating draft cases.
         </div>
       ) : null}
 
       {result?.policy_summary ? (
-        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-          <span>
-            Scan go-live:{" "}
-            <strong className="text-foreground">{result.policy_summary.scan_go_live_date ?? "not set"}</strong>
-          </span>
-          <span>
-            Claim start:{" "}
-            <strong className="text-foreground">{result.policy_summary.claim_start_date ?? "not set"}</strong>
-          </span>
-          <span>
-            Window:{" "}
-            <strong className="text-foreground">{result.policy_summary.claim_eligibility_window_days ?? 90}d</strong>
-          </span>
-          <span>
-            Grouping:{" "}
-            <strong className="text-foreground">{result.claim_policy?.claim_grouping_policy ?? "single_item"}</strong>
-          </span>
-          <span>
-            Queue rows: <strong className="text-foreground">{result.stats.queue_rows}</strong>
-          </span>
-          <span>
-            Eligible: <strong className="text-foreground">{result.stats.eligible_count}</strong>
-          </span>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <div className={CLAIM_ENGINE_KPI_COMPACT_CARD_CLASS}>
+            <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Scan go-live</p>
+            <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{result.policy_summary.scan_go_live_date ?? "not set"}</p>
+          </div>
+          <div className={CLAIM_ENGINE_KPI_COMPACT_CARD_CLASS}>
+            <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Claim start</p>
+            <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{result.policy_summary.claim_start_date ?? "not set"}</p>
+          </div>
+          <div className={CLAIM_ENGINE_KPI_COMPACT_CARD_CLASS}>
+            <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Window</p>
+            <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{result.policy_summary.claim_eligibility_window_days ?? 90}d</p>
+          </div>
+          <div className={CLAIM_ENGINE_KPI_COMPACT_CARD_CLASS}>
+            <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Grouping</p>
+            <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{result.claim_policy?.claim_grouping_policy ?? "single_item"}</p>
+          </div>
+          <div className={CLAIM_ENGINE_KPI_COMPACT_CARD_CLASS}>
+            <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Queue rows</p>
+            <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{result.stats.queue_rows}</p>
+          </div>
+          <div className={CLAIM_ENGINE_KPI_COMPACT_CARD_CLASS}>
+            <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Eligible</p>
+            <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{result.stats.eligible_count}</p>
+          </div>
         </div>
       ) : null}
 
       <div className={CLAIM_ENGINE_SECTION_CLASS}>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Manual grouping</span>
+          <span className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Manual grouping</span>
           <select
             value={groupingDimension}
             onChange={(e) => setGroupingDimension(e.target.value as ManualGroupingDimension)}
@@ -344,27 +356,22 @@ export function ReturnsClaimsWorkQueueClient() {
           </button>
         </div>
         {suggestedGroups.length > 1 ? (
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className={`mt-2 ${CLAIM_ENGINE_KPI_HINT_CLASS}`}>
             Selection spans {suggestedGroups.length} {groupingDimension} groups:{" "}
             {suggestedGroups.map((g) => `${g.key} (${g.count})`).join(", ")}
           </p>
         ) : null}
         {draftMessage ? (
-          <p
-            className={[
-              "mt-2 text-sm",
-              draftMessage.ok ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300",
-            ].join(" ")}
-          >
+          <div className={`mt-2 ${draftMessage.ok ? CLAIM_ENGINE_BANNER_SUCCESS_CLASS : CLAIM_ENGINE_BANNER_ERROR_CLASS}`}>
             {draftMessage.text}
-          </p>
+          </div>
         ) : null}
       </div>
 
       {references && references.lines.length > 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-3 dark:border-slate-600 dark:bg-slate-900/40">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Read-only import context (amazon_returns)</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">{references.note}</p>
+        <div className={CLAIM_ENGINE_BANNER_INFO_CLASS}>
+          <p className="font-semibold">Read-only import context (amazon_returns)</p>
+          <p className={`mt-0.5 ${CLAIM_ENGINE_KPI_HINT_CLASS}`}>{references.note}</p>
           <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
             {references.lines.map((line) => (
               <li key={line.claim_line_id}>
@@ -391,12 +398,12 @@ export function ReturnsClaimsWorkQueueClient() {
       </div>
 
       {initialLoading && rows.length === 0 ? (
-        <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
+        <div className="claim-engine-loading flex items-center gap-2 py-12 text-sm">
           <Loader2 className="h-5 w-5 animate-spin" />
           Loading queue…
         </div>
       ) : result?.error ? (
-        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+        <div className={`flex items-start gap-2 ${CLAIM_ENGINE_BANNER_ERROR_CLASS}`}>
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           {result.error}
         </div>
@@ -415,7 +422,7 @@ export function ReturnsClaimsWorkQueueClient() {
       ) : (
         <>
           {refreshing ? (
-            <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+            <div className="claim-engine-loading mb-2 flex items-center gap-2 text-sm" aria-live="polite">
               <Loader2 className="h-4 w-4 animate-spin" />
               Refreshing queue…
             </div>
@@ -486,6 +493,7 @@ export function ReturnsClaimsWorkQueueClient() {
         </div>
       ) : null}
     </ClaimEnginePageShell>
+    </main>
   );
 }
 

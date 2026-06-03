@@ -5,6 +5,8 @@ import { OperatorProductBrandingStrip } from "./_components/OperatorProductBrand
 import { OperatorPwaInstallHint } from "./_components/OperatorPwaInstallHint";
 import { OperatorUtilityRow } from "./_components/OperatorUtilityRow";
 
+import { OperatorMobileIntroShell } from "./_components/OperatorMobileIntroShell";
+
 const operatorDisplay = Oswald({
   variable: "--font-operator-display",
   subsets: ["latin"],
@@ -23,6 +25,7 @@ const operatorDisplay = Oswald({
  */
 export default function OperatorMobileLayout({ children }: { children: ReactNode }) {
   return (
+    <OperatorMobileIntroShell>
     <div
       dir="ltr"
       lang="en"
@@ -41,9 +44,6 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         }}
       >
         <OperatorSessionStoreProvider>
-          {/* Utility row — slim, top-right; sits above the brand header.
-              The border-b draws a divider that visually separates the platform
-              (creator) brand row from the customer / store row below. */}
           <div
             className="shrink-0 border-b px-3 sm:px-4 pb-1 pt-[max(0.15rem,env(safe-area-inset-top))]"
             style={{
@@ -53,7 +53,6 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
           >
             <OperatorUtilityRow />
           </div>
-          {/* Brand header — company logo + name on left, store name/selector on right. */}
           <div
             className="shrink-0 border-b px-3 sm:px-4 py-1.5"
             style={{
@@ -68,5 +67,6 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         </OperatorSessionStoreProvider>
       </div>
     </div>
+    </OperatorMobileIntroShell>
   );
 }

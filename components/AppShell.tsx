@@ -32,8 +32,8 @@ import { GlobalSearchProvider } from "./GlobalSearchContext";
 import { UserRoleProvider } from "./UserRoleContext";
 import { TechDebugPanel } from "./TechDebugPanel";
 import { useRbacPermissions } from "../hooks/useRbacPermissions";
-import { isClaimsHubRoute, isClaimsSidebarActive } from "../lib/claims-hub-routes";
-import { MAIN_SIDEBAR, WMS_ONLY_NAV, isLeafVisibleByRbac, type SidebarGroup } from "../lib/sidebar-config";
+import { isClaimsHubRoute, isClaimsSidebarActive, isReturnsProcessingRoute } from "../lib/claims-hub-routes";
+import { MAIN_SIDEBAR, WMS_ONLY_NAV, DASHBOARD_NAV_LEAF, isLeafVisibleByRbac, type SidebarGroup } from "../lib/sidebar-config";
 import { getSidebarIcon } from "../lib/sidebar-icons";
 
 // ─── Nav (from `lib/sidebar-config.ts`) ─────────────────────────────────────
@@ -81,9 +81,11 @@ const SIDEBAR_MAX_PX = Math.round(SIDEBAR_EXPANDED_DEFAULT_PX * 1.6);
 
 const CLS = {
   linkActive: "admin-nav-link--active",
+  linkGroupOpen: "admin-nav-link--group-open",
+  linkChildActive: "admin-nav-link--child-active",
   linkIdle:   "admin-nav-link--idle",
   linkDis:    "pointer-events-none text-muted-foreground/50",
-  linkBase:   "group relative flex min-h-[40px] w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
+  linkBase:   "admin-nav-link group relative flex min-h-[42px] w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-medium",
   section:    "admin-nav-section",
 };
 
@@ -192,6 +194,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     if (href === "/claim-engine/inbox") {
       return isClaimsSidebarActive(path, settingsTabParam);
     }
+    if (href === "/returns") {
+      return isReturnsProcessingRoute(path);
+    }
     return path === href || path.startsWith(`${href}/`);
   }
 
@@ -249,9 +254,13 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         tabIndex={disabled ? -1 : undefined}
         className={[
           CLS.linkBase,
-          child && showText ? "pl-9 pr-3" : "",
+          child && showText ? "admin-nav-link--child" : "",
           collapsed && !showText ? "justify-center" : "",
-          active && !disabled ? CLS.linkActive : disabled ? CLS.linkDis : CLS.linkIdle,
+          active && !disabled
+            ? [CLS.linkActive, child ? CLS.linkChildActive : ""].filter(Boolean).join(" ")
+            : disabled
+              ? CLS.linkDis
+              : CLS.linkIdle,
         ].join(" ")}
       >
         {Icon && (
@@ -315,7 +324,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           className={[
             CLS.linkBase,
             collapsed && !showText ? "justify-center" : "",
-            childActive ? CLS.linkActive : CLS.linkIdle,
+            childActive ? CLS.linkGroupOpen : CLS.linkIdle,
           ].join(" ")}
         >
           <Icon className={[
@@ -328,7 +337,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
               <span className="flex-1 truncate text-left">{item.label}</span>
               <ChevronDown
                 className={[
-                  "h-4 w-4 shrink-0 opacity-50 transition-transform duration-300 ease-out motion-reduce:transition-none",
+                  "h-4 w-4 shrink-0 opacity-90 transition-transform duration-300 ease-out motion-reduce:transition-none",
                   open ? "rotate-0" : "-rotate-90",
                 ].join(" ")}
               />
@@ -382,6 +391,16 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       const wmsVisible = WMS_ONLY_NAV.leaves.filter((c) => isLeafVisibleByRbac(c, perms));
       return (
         <div className="mb-4">
+          <div className="mb-2">
+            <NavLink
+              item={{
+                label: DASHBOARD_NAV_LEAF.label,
+                href: DASHBOARD_NAV_LEAF.path,
+                icon: getSidebarIcon(DASHBOARD_NAV_LEAF.icon ?? "LayoutDashboard"),
+              }}
+              alwaysFull={alwaysFull}
+            />
+          </div>
           {showSection
             ? <p className={CLS.section}>{WMS_ONLY_NAV.label}</p>
             : <div className="mb-2 mx-3 h-px bg-border" />
@@ -413,6 +432,16 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
     return (
       <>
+        <div className="mb-2">
+          <NavLink
+            item={{
+              label: DASHBOARD_NAV_LEAF.label,
+              href: DASHBOARD_NAV_LEAF.path,
+              icon: getSidebarIcon(DASHBOARD_NAV_LEAF.icon ?? "LayoutDashboard"),
+            }}
+            alwaysFull={alwaysFull}
+          />
+        </div>
         <div className="space-y-1">
           {core.groups.map((g) => {
             const ch = navChildrenForGroup(g, perms);
@@ -570,7 +599,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             <Link
               href="/"
               className={[
-                "admin-sidebar-brand flex h-14 shrink-0 items-center border-b border-sidebar-border px-4 min-w-0 overflow-hidden outline-none ring-sidebar-ring transition hover:bg-sidebar-accent/40 focus-visible:ring-2",
+                "admin-sidebar-brand mx-hover-sidebar-brand flex h-14 shrink-0 items-center border-b border-sidebar-border px-4 min-w-0 overflow-hidden outline-none ring-sidebar-ring focus-visible:ring-2",
                 collapsed ? "justify-center" : "gap-2.5",
               ].join(" ")}
               title="Home / Dashboard"
@@ -590,20 +619,20 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
               <SidebarBody collapsed={collapsed} />
             </nav>
 
-            <div className="shrink-0 border-t border-sidebar-border p-2">
+            <div className="shrink-0 border-t border-sidebar-border px-3 py-2.5">
               <button
                 type="button"
                 onClick={toggleCollapsed}
                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 className={[
-                  CLS.linkBase, CLS.linkIdle,
-                  collapsed ? "justify-center" : "",
+                  "admin-sidebar-collapse-btn mx-hover-sidebar-control",
+                  collapsed ? "mx-auto" : "ml-auto",
                 ].join(" ")}
               >
                 {collapsed
-                  ? <PanelLeftOpen  className="h-5 w-5 shrink-0" />
-                  : <PanelLeftClose className="h-5 w-5 shrink-0" />}
-                {!collapsed && <span>Collapse</span>}
+                  ? <PanelLeftOpen className="h-6 w-6 shrink-0" />
+                  : <PanelLeftClose className="h-6 w-6 shrink-0" />}
               </button>
             </div>
 
@@ -621,7 +650,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
                   };
                   setSidebarResizing(true);
                 }}
-                className="absolute right-0 top-0 z-30 h-full w-2 max-w-[12px] cursor-col-resize border-0 bg-transparent p-0 hover:bg-foreground/[0.06] active:bg-foreground/10"
+                className="admin-sidebar-resize-handle mx-hover-sidebar-resize absolute right-0 top-0 z-30 h-full w-2 max-w-[12px] cursor-col-resize border-0 bg-transparent p-0"
               >
                 <span className="pointer-events-none absolute right-1 top-1/2 h-10 w-px -translate-y-1/2 rounded-full bg-border/80" />
               </button>
@@ -632,7 +661,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
             <TopHeader onMenuClick={() => setMobileOpen(true)} />
             <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-auto">
-              {children}
+              <div className="admin-page-content w-full flex-1">{children}</div>
             </div>
           </div>
 
@@ -668,7 +697,7 @@ function TechDebugNavButton({
       aria-label="Open Tech Debug panel"
       className={[
         CLS.linkBase, CLS.linkIdle,
-        child && showText ? "pl-9 pr-3" : "",
+        child && showText ? "admin-nav-link--child" : "",
         collapsed && !showText ? "justify-center" : "",
       ].join(" ")}
     >

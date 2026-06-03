@@ -1,0 +1,708 @@
+/* Menorix intro splash — login entry only (not scanner) */
+
+.menorix-intro-root {
+  position: relative;
+  min-height: 100%;
+}
+
+.menorix-intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  --mx-intro-letter: #e8c872;
+  --mx-intro-letter-border: color-mix(in srgb, var(--primary) 52%, var(--border, #323c48));
+  --mx-intro-letter-bg: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--primary) 32%, var(--card, #1a2129)) 0%,
+    var(--card, #1a2129) 55%,
+    color-mix(in srgb, var(--primary) 12%, var(--card, #1a2129)) 100%
+  );
+  --mx-intro-word: color-mix(in srgb, var(--foreground) 88%, var(--muted-foreground));
+  --mx-intro-word-plain: color-mix(in srgb, var(--muted-foreground) 78%, var(--foreground));
+  --mx-intro-word-accent: #e0bc62;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 38%, color-mix(in srgb, var(--primary) 20%, transparent), transparent 70%),
+    var(--background, #050607);
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.light .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
+  --mx-intro-letter: #7a5608;
+  --mx-intro-letter-border: rgba(138, 101, 16, 0.42);
+  --mx-intro-letter-bg: linear-gradient(
+    155deg,
+    #faf6ed 0%,
+    #f3efe6 52%,
+    #ece7dc 100%
+  );
+  --mx-intro-word: #2a3038;
+  --mx-intro-word-plain: #5c6570;
+  --mx-intro-word-accent: #8a6510;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 38%, rgba(214, 183, 110, 0.14), transparent 70%),
+    var(--background, #f8f6f1);
+}
+
+html.dark .menorix-intro-overlay:not(.menorix-intro-overlay--scanner) {
+  --mx-intro-letter: #e8c872;
+  --mx-intro-word: #d8dde4;
+  --mx-intro-word-plain: #9aa3ae;
+  --mx-intro-word-accent: #e0bc62;
+}
+
+.menorix-intro-overlay--skippable {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.menorix-intro-overlay--exit {
+  animation: menorix-intro-fade-out 720ms ease forwards;
+}
+
+@keyframes menorix-intro-fade-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* Ground line — letters land here */
+.menorix-intro-court {
+  position: absolute;
+  left: 50%;
+  bottom: 28%;
+  z-index: 1;
+  width: min(420px, 72vw);
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--primary) 55%, transparent) 20%,
+    color-mix(in srgb, var(--primary) 80%, transparent) 50%,
+    color-mix(in srgb, var(--primary) 55%, transparent) 80%,
+    transparent
+  );
+  box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 40%, transparent);
+  opacity: 0;
+  animation: menorix-court-in 400ms ease forwards;
+  animation-delay: 200ms;
+}
+
+@keyframes menorix-court-in {
+  to { opacity: 1; }
+}
+
+/* Login — court line sits in flow directly under acronym words */
+.menorix-intro-court--under-text {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  margin-top: 1rem;
+  margin-bottom: 0;
+  flex-shrink: 0;
+  z-index: 2;
+  opacity: 0;
+  animation: menorix-court-in 400ms ease forwards;
+  animation-delay: 200ms;
+}
+
+.menorix-intro-brand-stack {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.menorix-intro-brand-stack--login {
+  gap: 1.2rem;
+  max-width: min(38rem, 96vw);
+  transform: translateY(-2vh);
+  padding-bottom: 0.25rem;
+}
+
+.menorix-intro-overlay--login {
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 4vh;
+}
+
+.menorix-intro-logo {
+  width: 5rem !important;
+  height: 5rem !important;
+  border-radius: 14px !important;
+  opacity: 0;
+  animation: menorix-intro-logo-in 680ms ease forwards;
+  animation-delay: 120ms;
+  filter: none !important;
+}
+
+.menorix-intro-logo--login {
+  width: 13.75rem !important;
+  height: 13.75rem !important;
+  border-radius: 26px !important;
+  border-width: 2px !important;
+  animation: menorix-intro-logo-magic 900ms cubic-bezier(0.22, 1.15, 0.36, 1) forwards;
+  animation-delay: 180ms;
+}
+
+.menorix-intro-logo--login img {
+  padding: 0.65rem !important;
+}
+
+@keyframes menorix-intro-logo-magic {
+  0% {
+    opacity: 0;
+    transform: translateY(-24px) scale(0.55);
+    filter: blur(10px);
+    box-shadow: 0 0 0 rgba(214, 183, 110, 0);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06);
+    filter: blur(0);
+    box-shadow: 0 0 32px color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--primary) 22%, transparent);
+  }
+}
+
+.menorix-intro-logo--scanner {
+  width: 6.5rem !important;
+  height: 6.5rem !important;
+  border-radius: 16px !important;
+  animation:
+    menorix-intro-logo-in 520ms ease forwards,
+    login-logo-float 2.8s ease-in-out infinite;
+  animation-delay: 80ms, 680ms;
+}
+
+.menorix-intro-overlay--scanner {
+  background:
+    radial-gradient(ellipse 72% 52% at 50% 38%, rgba(214, 183, 110, 0.14), transparent 68%),
+    var(--op-app-bg, #050607);
+  z-index: 10050;
+}
+
+.menorix-intro-letter--scanner {
+  width: 2rem;
+  height: 2.45rem;
+  font-size: 1rem;
+  opacity: 0;
+  transform: translateY(8px) scale(0.88);
+  animation:
+    menorix-scanner-letter-in 480ms cubic-bezier(0.34, 1.2, 0.64, 1) forwards,
+    menorix-scanner-letter-shock 2.2s ease-in-out infinite;
+  animation-delay: var(--mx-letter-delay, 0ms), calc(var(--mx-letter-delay, 0ms) + 520ms);
+}
+
+@keyframes menorix-scanner-letter-in {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes menorix-scanner-letter-shock {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  22% {
+    transform: translateY(-3px) rotate(calc(var(--mx-shock-i, 0) * 1deg - 4deg)) scale(1.06);
+  }
+  44% {
+    transform: translateY(0) rotate(calc(var(--mx-shock-i, 0) * 0.5deg + 3deg)) scale(1.03);
+  }
+  66% {
+    transform: translateY(-2px) rotate(calc(var(--mx-shock-i, 0) * -0.5deg - 2deg)) scale(1.05);
+  }
+}
+
+@keyframes menorix-intro-logo-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.menorix-intro-letters {
+  position: relative;
+  display: flex;
+  gap: 0.28rem;
+  z-index: 2;
+}
+
+.menorix-intro-brand-stack--login .menorix-intro-letters {
+  gap: 0.58rem;
+}
+
+.menorix-intro-letter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.55rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--primary) 52%, var(--border, #323c48));
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--primary) 32%, var(--card, #1a2129)) 0%,
+    var(--card, #1a2129) 55%,
+    color-mix(in srgb, var(--primary) 12%, var(--card, #1a2129)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 14%, transparent),
+    0 2px 0 0 color-mix(in srgb, var(--primary) 42%, var(--border, #323c48));
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--primary, #d6b76e);
+  opacity: 0;
+  transform: translateY(-110vh) rotate(var(--mx-letter-tilt, 10deg)) scale(0.45);
+  animation: menorix-letter-bounce 1.05s cubic-bezier(0.22, 1.15, 0.36, 1) forwards;
+  animation-delay: var(--mx-letter-delay, 0ms);
+  filter: none;
+  backdrop-filter: none;
+  transform-origin: center bottom;
+}
+
+.menorix-intro-letter--login {
+  width: 3.35rem;
+  height: 4.1rem;
+  border-radius: 11px;
+  font-size: 1.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--mx-intro-letter);
+  text-shadow: none;
+  border-color: var(--mx-intro-letter-border);
+  background: var(--mx-intro-letter-bg);
+  transform: translateY(12px) scale(0.35) rotate(var(--mx-letter-tilt, 8deg));
+  filter: blur(8px);
+  animation: menorix-letter-magic 780ms cubic-bezier(0.22, 1.18, 0.36, 1) forwards;
+  animation-delay: var(--mx-letter-delay, 0ms);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent),
+    0 0 0 0 transparent,
+    0 3px 0 0 var(--mx-intro-letter-border);
+}
+
+html.dark .menorix-intro-letter--login {
+  text-shadow: 0 0 16px color-mix(in srgb, var(--primary) 38%, transparent);
+}
+
+@keyframes menorix-letter-magic {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.35) rotate(var(--mx-letter-tilt, 8deg));
+    filter: blur(10px);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent),
+      0 3px 0 0 color-mix(in srgb, var(--primary) 48%, var(--border, #323c48));
+  }
+  45% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.12) rotate(calc(var(--mx-letter-tilt, 8deg) * 0.2));
+    filter: blur(0);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent),
+      0 0 22px color-mix(in srgb, var(--primary) 55%, transparent),
+      0 4px 0 0 color-mix(in srgb, var(--primary) 55%, var(--border, #323c48));
+  }
+  72% {
+    transform: translateY(2px) scale(0.96) rotate(-2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+    filter: blur(0);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+      0 0 12px color-mix(in srgb, var(--primary) 28%, transparent),
+      0 3px 0 0 color-mix(in srgb, var(--primary) 42%, var(--border, #323c48));
+  }
+}
+
+.menorix-intro-acronym-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.35rem 1.1rem;
+  margin: 0.45rem 0 0;
+  padding: 0 1rem;
+  max-width: 38rem;
+  text-align: center;
+  font-size: 1.125rem;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  position: relative;
+  z-index: 3;
+}
+
+.menorix-intro-acronym-word {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(10px) scale(0.88);
+  filter: blur(6px);
+  animation: menorix-word-magic 560ms cubic-bezier(0.22, 1.12, 0.36, 1) forwards;
+  animation-delay: var(--mx-word-delay, 0ms);
+  color: var(--mx-intro-word);
+}
+
+.menorix-intro-acronym-word--plain {
+  font-weight: 500;
+  font-size: 1rem;
+  color: var(--mx-intro-word-plain);
+}
+
+.menorix-intro-acronym-word__rest {
+  color: var(--mx-intro-word);
+  font-weight: 600;
+}
+
+.menorix-intro-acronym-word__accent {
+  font-size: 1.4em;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--mx-intro-word-accent);
+  letter-spacing: 0.03em;
+}
+
+@keyframes menorix-word-magic {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.88);
+    filter: blur(6px);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.04);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.menorix-intro-letter--powder {
+  animation:
+    menorix-letter-bounce 1.05s cubic-bezier(0.22, 1.15, 0.36, 1) forwards,
+    menorix-letter-powder 1000ms ease-in forwards;
+  animation-delay: var(--mx-letter-delay, 0ms), var(--mx-powder-delay, 4200ms);
+}
+
+@keyframes menorix-letter-bounce {
+  0% {
+    opacity: 0;
+    transform: translateY(-110vh) rotate(var(--mx-letter-tilt, 10deg)) scale(0.4);
+  }
+  58% {
+    opacity: 1;
+    transform: translateY(0) rotate(calc(var(--mx-letter-tilt, 10deg) * 0.15)) scale(1.08);
+  }
+  72% {
+    transform: translateY(calc(var(--mx-bounce-height, 20px) * -1)) scale(1.04) rotate(-4deg);
+  }
+  84% {
+    transform: translateY(0) scale(0.96) rotate(2deg);
+  }
+  92% {
+    transform: translateY(calc(var(--mx-bounce-height, 20px) * -0.35)) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes menorix-letter-powder {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(36px) scale(0.28) rotate(14deg);
+  }
+}
+
+.menorix-intro-wordmark {
+  margin-top: 1rem;
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--foreground, #faf6ed);
+  opacity: 0;
+  animation:
+    menorix-wordmark-in 700ms ease forwards,
+    menorix-wordmark-wiggle 2.8s ease-in-out infinite;
+  animation-delay: 2800ms, 3600ms;
+  filter: none;
+}
+
+@keyframes menorix-wordmark-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes menorix-wordmark-wiggle {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20% { transform: translateY(-3px) rotate(-2deg); }
+  40% { transform: translateY(0) rotate(2deg); }
+  60% { transform: translateY(-2px) rotate(-1deg); }
+  80% { transform: translateY(0) rotate(1deg); }
+}
+
+.menorix-intro-sparkles {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  filter: none;
+  backdrop-filter: none;
+}
+
+.menorix-intro-sparkle {
+  position: absolute;
+  width: var(--mx-sparkle-size, 4px);
+  height: var(--mx-sparkle-size, 4px);
+  border-radius: 999px;
+  background: var(--primary, #d6b76e);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 85%, transparent);
+  opacity: 0;
+  animation: menorix-sparkle 1.6s ease-in-out infinite;
+  animation-delay: var(--mx-sparkle-delay, 0ms);
+  filter: none;
+}
+
+@keyframes menorix-sparkle {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+}
+
+.menorix-intro-powder {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  filter: none;
+  backdrop-filter: none;
+}
+
+.menorix-intro-particle {
+  position: absolute;
+  left: var(--mx-p-x, 50%);
+  top: var(--mx-p-y, 50%);
+  width: var(--mx-p-size, 3px);
+  height: var(--mx-p-size, 3px);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 92%, #fff);
+  opacity: 0;
+  animation: menorix-particle-fall 1200ms ease-in forwards;
+  animation-delay: var(--mx-p-delay, 4200ms);
+  filter: none;
+}
+
+@keyframes menorix-particle-fall {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.4);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(0, -12px) scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--mx-p-dx, 0), var(--mx-p-dy, 90px)) scale(0.15);
+  }
+}
+
+.menorix-intro-content {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 640ms ease,
+    transform 720ms cubic-bezier(0.34, 1.2, 0.64, 1);
+  filter: none;
+  backdrop-filter: none;
+}
+
+.menorix-intro-content--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Login page chrome */
+.login-page {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1rem 2.5rem;
+  overflow: hidden;
+}
+
+.login-page__bg {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 0%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 65%),
+    radial-gradient(ellipse 50% 40% at 80% 90%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 60%),
+    var(--background);
+  filter: none;
+  backdrop-filter: none;
+}
+
+.login-page__card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 27rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--card) 90%, var(--primary)) 0%,
+    var(--card) 42%,
+    color-mix(in srgb, var(--card) 94%, var(--background)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 10%, transparent),
+    0 16px 48px color-mix(in srgb, var(--foreground) 14%, transparent);
+  padding: 2.25rem 1.85rem 1.85rem;
+  filter: none;
+  backdrop-filter: none;
+}
+
+.login-page__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 1.85rem;
+}
+
+.login-page__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 5.4rem;
+  height: 5.4rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 28%, var(--card)), var(--card));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent);
+  margin-bottom: 0.75rem;
+  filter: none;
+  backdrop-filter: none;
+}
+
+.login-page__logo--live {
+  animation: login-logo-float 3s ease-in-out infinite;
+}
+
+.login-page__logo--live:hover {
+  animation: login-logo-shock 420ms cubic-bezier(0.34, 1.28, 0.64, 1) forwards;
+}
+
+.login-page__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 0.35rem;
+  filter: none;
+}
+
+@keyframes login-logo-float {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+  25% { transform: translateY(-4px) rotate(-4deg) scale(1.05); }
+  50% { transform: translateY(0) rotate(3deg) scale(1.03); }
+  75% { transform: translateY(-2px) rotate(-2deg) scale(1.04); }
+}
+
+@keyframes login-logo-shock {
+  0% { transform: scale(1) rotate(0deg); }
+  35% { transform: scale(1.14) rotate(-10deg); }
+  65% { transform: scale(1.08) rotate(8deg); }
+  100% { transform: scale(1.06) rotate(-3deg); }
+}
+
+.login-page__title {
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.login-page .admin-form-input:hover,
+.login-page .admin-btn-primary:hover {
+  transform: translateY(-2px);
+  filter: none;
+  backdrop-filter: none;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menorix-intro-overlay,
+  .menorix-intro-letter,
+  .menorix-intro-letter--login,
+  .menorix-intro-acronym-word,
+  .menorix-intro-wordmark,
+  .menorix-intro-sparkle,
+  .menorix-intro-particle,
+  .menorix-intro-content,
+  .login-page__logo,
+  .login-page__logo--live,
+  .menorix-wordmark--live,
+  .menorix-intro-logo--scanner,
+  .menorix-intro-letter--scanner {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
