@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./claim-engine/claim-engine-theme.css";
 
 /* Reduce layout shift when modals hide the scrollbar (dashboard sidebar alignment). */
 html {
@@ -222,6 +223,14 @@ html {
   --sidebar-accent:         #f8f6f1;
   --sidebar-accent-foreground: var(--menorix-text);
   --sidebar-ring:           var(--menorix-accent-bright);
+  --sidebar-nav-label:      #1a1e24;
+  --sidebar-nav-icon:       #2c323a;
+  --sidebar-nav-label-hover: #12151a;
+  --sidebar-nav-icon-hover:  #1a1e24;
+  --mx-hover-spring:        cubic-bezier(0.34, 1.28, 0.64, 1);
+  --mx-hover-duration:      220ms;
+  --mx-hover-lift:          -2px;
+  --mx-hover-shift:         3px;
 }
 
 .dark .menorix-admin-shell {
@@ -259,6 +268,10 @@ html {
   --sidebar-accent:         var(--menorix-card);
   --sidebar-accent-foreground: var(--menorix-text);
   --sidebar-ring:           var(--menorix-accent-bright);
+  --sidebar-nav-label:      #fffef9;
+  --sidebar-nav-icon:       #f7f3ea;
+  --sidebar-nav-label-hover: #ffffff;
+  --sidebar-nav-icon-hover:  #fffef9;
 }
 
 .menorix-admin-shell .admin-sidebar {
@@ -300,11 +313,30 @@ html {
 .menorix-admin-shell .admin-chrome-control {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--menorix-surface) 90%, var(--menorix-card));
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-chrome-control svg {
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), color 0.2s ease;
 }
 
 .menorix-admin-shell .admin-chrome-control:hover {
+  transform: translateY(var(--mx-hover-lift));
   background: color-mix(in srgb, var(--accent) 55%, var(--menorix-surface));
   border-color: color-mix(in srgb, var(--ring) 28%, var(--border));
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 28%, var(--border));
+  filter: none;
+  backdrop-filter: none;
+}
+
+.menorix-admin-shell .admin-chrome-control:hover svg {
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+  opacity: 1;
+  filter: none;
 }
 
 .menorix-admin-shell .admin-stat-card {
@@ -383,6 +415,24 @@ html {
     0 1px 3px color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
+.menorix-admin-shell .admin-page-content {
+  width: 100%;
+  max-width: min(1880px, calc(100vw - 1.5rem));
+  margin-inline: auto;
+  padding-inline: clamp(0.625rem, 1.1vw, 1.5rem);
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .menorix-admin-shell .admin-page-content {
+    max-width: min(1880px, calc(100vw - 15.5rem));
+  }
+}
+
+.menorix-admin-shell :is(.max-w-6xl, .max-w-7xl) {
+  max-width: min(1760px, calc(100vw - 14rem)) !important;
+}
+
 .menorix-admin-shell .admin-page-header {
   display: flex;
   flex-direction: column;
@@ -432,10 +482,13 @@ html {
   font-weight: 600;
   color: var(--primary-foreground);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
-  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .menorix-admin-shell .admin-btn-primary:hover {
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
   border-color: var(--ring);
   background: linear-gradient(
     180deg,
@@ -593,23 +646,644 @@ html {
   color: var(--primary);
 }
 
+/* Accordion parent while a child route is active — label only, no full pill */
+.menorix-admin-shell .admin-nav-link--group-open {
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--sidebar-nav-label);
+  font-weight: 600;
+}
+
+.menorix-admin-shell .admin-nav-link--group-open svg {
+  color: var(--primary);
+}
+
+/* Sidebar + nav links — floating hover (admin shell only; not operator-mobile) */
+.menorix-admin-shell .admin-sidebar {
+  --sidebar-nav-inset: 5px;
+}
+
+.menorix-admin-shell .admin-sidebar .admin-nav-link {
+  box-sizing: border-box;
+  width: calc(100% - (var(--sidebar-nav-inset) * 2));
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.menorix-admin-shell .admin-sidebar .admin-nav-link--child {
+  width: calc(100% - (var(--sidebar-nav-inset) * 2 + 6px));
+  padding-left: 2rem;
+  padding-right: 0.5rem;
+}
+
+.menorix-admin-shell .admin-nav-link {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+  filter: none;
+  backdrop-filter: none;
+}
+
+.menorix-admin-shell .admin-nav-link svg {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    color 0.2s ease;
+  filter: none;
+}
+
+.menorix-admin-shell .admin-nav-link--idle:hover,
+.menorix-admin-shell .admin-nav-link--group-open:hover {
+  transform: translateX(var(--mx-hover-shift)) translateY(var(--mx-hover-lift));
+  border-color: color-mix(in srgb, var(--primary) 36%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--primary) 14%, var(--sidebar));
+  color: var(--sidebar-nav-label-hover);
+  font-weight: 600;
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 32%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-nav-link--idle:hover svg,
+.menorix-admin-shell .admin-nav-link--group-open:hover svg {
+  color: var(--primary);
+  opacity: 1;
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell .admin-nav-link--active:hover,
+.menorix-admin-shell .admin-nav-link--child-active.admin-nav-link--active:hover {
+  transform: translateX(calc(var(--mx-hover-shift) + 1px)) translateY(var(--mx-hover-lift));
+  color: var(--sidebar-nav-label-hover);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 40%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-nav-link--active:hover svg,
+.menorix-admin-shell .admin-nav-link--child-active.admin-nav-link--active:hover svg {
+  color: var(--primary);
+  opacity: 1;
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell .admin-nav-link:hover [class*="opacity-"] {
+  opacity: 1 !important;
+}
+
+@keyframes mx-icon-shock {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  28% {
+    transform: scale(1.24) rotate(-18deg);
+  }
+  52% {
+    transform: scale(1.14) rotate(16deg);
+  }
+  76% {
+    transform: scale(1.2) rotate(-10deg);
+  }
+  100% {
+    transform: scale(1.16) rotate(-6deg);
+  }
+}
+
+@keyframes mx-icon-pop {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  30% {
+    transform: scale(1.2) rotate(-14deg);
+  }
+  55% {
+    transform: scale(1.12) rotate(12deg);
+  }
+  78% {
+    transform: scale(1.16) rotate(-8deg);
+  }
+  100% {
+    transform: scale(1.14) rotate(-5deg);
+  }
+}
+
+/* Shared float hover — buttons & link-controls (never operator-mobile / scanner) */
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link) {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link):hover {
+  transform: translateY(calc(var(--mx-hover-lift) - 1px));
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 26%, var(--border));
+}
+
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link):hover svg {
+  opacity: 1;
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell :where(
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  main a.inline-flex[class*="rounded-lg"]:not(.admin-nav-link),
+  main button.inline-flex[class*="rounded-lg"]:not(.admin-nav-link)
+):not([data-no-hover-lift]):not(.admin-nav-link) svg {
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), color 0.2s ease;
+  filter: none;
+}
+
+.menorix-admin-shell .admin-btn-primary,
+.menorix-admin-shell .admin-btn-secondary,
+.menorix-admin-shell .admin-btn-quiet {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Table rows + list rows + cards — subtle water float (no fade) */
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row,
+  .admin-stat-card,
+  .admin-panel-card,
+  .cc-panel,
+  .claim-engine-table-card,
+  .claim-engine-mobile-card,
+  .claim-engine-kpi
+) {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row
+):hover {
+  transform: translateY(-2px);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  background-color: color-mix(in srgb, var(--primary) 11%, var(--menorix-card)) !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row
+):hover td,
+.menorix-admin-shell :is(
+  .admin-table-wrap tbody tr,
+  .claim-engine-table tbody tr,
+  .admin-table tbody tr,
+  main table tbody tr,
+  .cc-queue-row
+):hover .text-muted-foreground {
+  opacity: 1 !important;
+  color: var(--foreground) !important;
+}
+
+.menorix-admin-shell :is(
+  .admin-stat-card,
+  .admin-panel-card,
+  .cc-panel,
+  .claim-engine-table-card,
+  .claim-engine-mobile-card,
+  .claim-engine-kpi
+):hover {
+  transform: translateY(-2px);
+  opacity: 1;
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 22%, var(--border));
+}
+
+.menorix-admin-shell tbody tr:hover svg,
+.menorix-admin-shell .cc-queue-row:hover svg {
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
+}
+
+/* Never dim or blur interactive elements on hover */
+.menorix-admin-shell :is(
+  .admin-nav-link,
+  button:not(:disabled),
+  a.admin-btn-primary,
+  a.admin-btn-secondary,
+  a.admin-btn-quiet,
+  a.cc-btn-review,
+  a.cc-rail-link,
+  a.cc-queue-view-all,
+  tbody tr,
+  .cc-queue-row,
+  .admin-stat-card,
+  .cc-panel,
+  .claim-engine-table-card
+):hover {
+  opacity: 1;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.menorix-admin-shell :is(
+  .admin-nav-link,
+  button,
+  a,
+  tbody tr,
+  .cc-queue-row
+):hover svg {
+  filter: none !important;
+}
+
+/* ── Crisp hover extensions (no blur/fade on any interactive surface) ── */
+.menorix-admin-shell :is(
+  .admin-sidebar-brand,
+  .admin-sidebar-collapse-btn,
+  .admin-sidebar-resize-handle,
+  .admin-dropdown-item,
+  .mx-hover-field,
+  .mx-hover-control,
+  .claim-engine-select,
+  .claim-engine-search-input,
+  select,
+  input[type="search"],
+  input[type="text"],
+  input[type="email"],
+  textarea
+) {
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  backface-visibility: hidden;
+}
+
+.menorix-admin-shell .admin-sidebar-brand {
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-sidebar-brand:hover {
+  transform: translateY(-3px) translateX(2px);
+  background: color-mix(in srgb, var(--primary) 12%, var(--sidebar));
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--sidebar-border));
+  opacity: 1;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 32%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-sidebar-brand:hover > div:first-child,
+.menorix-admin-shell .admin-sidebar-brand:hover svg {
+  animation: mx-icon-shock 400ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell .admin-sidebar-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--sidebar-nav-icon);
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-sidebar-collapse-btn:hover {
+  transform: translateY(-3px) scale(1.06);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--primary) 14%, var(--sidebar));
+  color: var(--primary);
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 30%, var(--sidebar-border));
+}
+
+.menorix-admin-shell .admin-sidebar-collapse-btn:hover svg {
+  animation: mx-icon-shock 400ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+}
+
+.menorix-admin-shell .admin-sidebar-resize-handle {
+  transition: background 0.15s ease;
+}
+
+.menorix-admin-shell .admin-sidebar-resize-handle:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  filter: none !important;
+}
+
+.menorix-admin-shell .admin-sidebar-resize-handle:hover span {
+  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
+  transform-origin: center;
+  filter: none !important;
+}
+
+.menorix-admin-shell .admin-dropdown-item {
+  color: var(--foreground);
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.menorix-admin-shell .admin-dropdown-item:hover:not(:disabled) {
+  transform: translateX(3px) translateY(-2px);
+  background: color-mix(in srgb, var(--primary) 12%, var(--accent));
+  color: var(--foreground);
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 1px 0 0 color-mix(in srgb, var(--primary) 26%, var(--border));
+}
+
+.menorix-admin-shell .admin-dropdown-item:hover:not(:disabled) svg {
+  color: var(--primary);
+  opacity: 1 !important;
+  filter: none !important;
+  animation: mx-icon-shock 360ms var(--mx-hover-spring) forwards;
+}
+
+.menorix-admin-shell :is(
+  .admin-form-input,
+  .admin-chrome-input,
+  .claim-engine-select,
+  .claim-engine-search-input,
+  select,
+  input[type="search"]
+):not(:disabled):hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 22%, var(--border));
+  transition:
+    transform var(--mx-hover-duration) var(--mx-hover-spring),
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    border-color 0.2s ease;
+}
+
+.menorix-admin-shell .cc-queue-header:hover .cc-queue-header__badge svg,
+.menorix-admin-shell .cc-panel__header:hover > svg:first-child,
+.menorix-admin-shell .cc-panel__header--compact:hover > svg:first-child {
+  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell .cc-queue-panel:hover {
+  transform: translateY(-2px);
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 22%, var(--border));
+}
+
+.menorix-admin-shell .cc-queue-header {
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring);
+}
+
+.menorix-admin-shell .cc-queue-header:hover {
+  transform: translateY(-1px);
+}
+
+.menorix-admin-shell .cc-drag-slot {
+  transition:
+    transform 420ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    box-shadow 420ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    outline-color 0.2s ease;
+  cursor: grab;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell .cc-drag-slot:active {
+  cursor: grabbing;
+}
+
+.menorix-admin-shell .cc-drag-slot--dragging {
+  opacity: 1 !important;
+  transform: scale(1.05) rotate(-1deg) translateY(-5px);
+  z-index: 30;
+  filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 4px 0 0 color-mix(in srgb, var(--primary) 32%, var(--border));
+}
+
+.menorix-admin-shell .cc-drag-slot--over {
+  transform: scale(0.95) translateY(3px);
+  outline: 2px dashed color-mix(in srgb, var(--primary) 55%, var(--border));
+  outline-offset: 4px;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell .cc-drag-slot--swapped {
+  animation: cc-drag-swap-pop 540ms cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+
+@keyframes cc-drag-swap-pop {
+  0% {
+    transform: scale(0.92);
+  }
+  42% {
+    transform: scale(1.05) translateY(-3px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
+}
+
+.menorix-admin-shell .cc-drag-handle {
+  opacity: 0.55;
+  filter: none !important;
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), opacity 0.15s ease;
+}
+
+.menorix-admin-shell .cc-drag-slot:hover .cc-drag-handle,
+.menorix-admin-shell .cc-drag-slot--dragging .cc-drag-handle {
+  opacity: 1;
+}
+
+.menorix-admin-shell .cc-drag-handle:hover svg {
+  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
+  filter: none !important;
+}
+
+.menorix-admin-shell .cc-progress-animate {
+  animation: cc-progress-grow 1.85s cubic-bezier(0.34, 1.08, 0.64, 1) forwards;
+  transform-origin: left center;
+  filter: none !important;
+}
+
+@keyframes cc-progress-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.menorix-admin-shell .cc-exec-metric__value--counting {
+  display: inline-block;
+}
+
+/* Block accidental opacity/filter transitions that read as blur on hover */
+.menorix-admin-shell :is(button, a, tr, .cc-panel, .admin-nav-link, input, select):not([data-no-hover-lift]) {
+  transition-property: transform, box-shadow, background, background-color, border-color, color;
+}
+
+.menorix-admin-shell :is(button, a, tr, .cc-panel, .admin-nav-link, input, select):not([data-no-hover-lift]):hover {
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell .login-page :is(.mx-hover-field, .mx-hover-control):hover {
+  filter: none !important;
+  backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+/* Hard block — no blur/fade/glass on ANY hover inside admin shell */
+.menorix-admin-shell :hover {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell :is(a, button, input, select, textarea, tr, td, th, .cc-panel, .admin-nav-link, .cc-drag-slot, .cc-queue-row, .admin-stat-card, label, span, div, svg):hover {
+  filter: none !important;
+  -webkit-filter: none !important;
+  opacity: inherit;
+}
+
+.menorix-admin-shell :is(a, button, input, select, textarea, tr, .cc-panel, .admin-nav-link, .cc-drag-slot, .cc-queue-row):hover {
+  opacity: 1 !important;
+}
+
+.menorix-admin-shell :is(a, button, input, select, textarea, tr, .cc-panel, .admin-nav-link):not([data-no-hover-lift]) {
+  transition-property: transform, box-shadow, background, background-color, border-color, color !important;
+}
+
+/* Nested child — inset pill so parent vs active child are visually distinct */
+.menorix-admin-shell .admin-nav-link--child-active.admin-nav-link--active {
+  min-height: 2.125rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  border-radius: 8px;
+}
+
 .menorix-admin-shell .admin-nav-link--idle {
   border: 1px solid transparent;
-  color: var(--menorix-text-secondary);
+  color: var(--sidebar-nav-label);
 }
 
 .menorix-admin-shell .admin-nav-link--idle svg {
-  color: color-mix(in srgb, var(--menorix-text-secondary) 88%, var(--primary));
+  color: var(--sidebar-nav-icon);
 }
 
-.menorix-admin-shell .admin-nav-link--idle:hover {
-  border-color: var(--sidebar-border);
-  background: var(--sidebar-accent);
-  color: var(--sidebar-accent-foreground);
-}
-
-.menorix-admin-shell .admin-nav-link--idle:hover svg {
-  color: var(--primary);
+@media (prefers-reduced-motion: reduce) {
+  .menorix-admin-shell .admin-nav-link,
+  .menorix-admin-shell .admin-nav-link svg,
+  .menorix-admin-shell button,
+  .menorix-admin-shell a.admin-btn-primary,
+  .menorix-admin-shell a.admin-btn-secondary,
+  .menorix-admin-shell a.admin-btn-quiet,
+  .menorix-admin-shell a.cc-btn-review,
+  .menorix-admin-shell a.cc-rail-link,
+  .menorix-admin-shell a.cc-queue-view-all,
+  .menorix-admin-shell [role="button"],
+  .menorix-admin-shell .admin-btn-primary,
+  .menorix-admin-shell .admin-btn-secondary,
+  .menorix-admin-shell .admin-btn-quiet,
+  .menorix-admin-shell .admin-chrome-control,
+  .menorix-admin-shell .admin-chrome-control svg,
+  .menorix-admin-shell tbody tr,
+  .menorix-admin-shell .cc-queue-row,
+  .menorix-admin-shell .admin-stat-card,
+  .menorix-admin-shell .cc-panel {
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
+    animation: none !important;
+  }
 }
 
 /* ── Command Center dashboard (desktop admin — not operator-mobile) ─────────── */
@@ -725,6 +1399,56 @@ html {
   .menorix-admin-shell .cc-executive-strip {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  .menorix-admin-shell .cc-drag-slot--exec-span-2 {
+    grid-column: span 2;
+  }
+}
+
+.menorix-admin-shell .cc-layout-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 5%, var(--menorix-card));
+}
+
+.menorix-admin-shell .cc-layout-toolbar__hint {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.menorix-admin-shell .cc-layout-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.25rem;
+  padding-inline: 0.75rem;
+}
+
+.menorix-admin-shell .cc-drag-slot {
+  padding-top: 2.125rem;
+}
+
+.menorix-admin-shell .cc-drag-slot__controls {
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell .cc-drag-size-btn:hover,
+.menorix-admin-shell .cc-drag-handle:hover {
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menorix-admin-shell .cc-drag-size-btn:hover svg {
+  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
 }
 
 .menorix-admin-shell .cc-exec-link,
@@ -732,6 +1456,7 @@ html {
   text-decoration: none;
   color: inherit;
   min-height: 7.5rem;
+  display: block;
 }
 
 .menorix-admin-shell .cc-exec-card {
@@ -752,14 +1477,23 @@ html {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
     0 1px 4px color-mix(in srgb, var(--foreground) 4%, transparent);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow var(--mx-hover-duration) var(--mx-hover-spring),
+    transform var(--mx-hover-duration) var(--mx-hover-spring);
 }
 
 .menorix-admin-shell .cc-exec-link:hover .cc-exec-card {
-  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent),
-    0 2px 8px color-mix(in srgb, var(--foreground) 6%, transparent);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--primary) 24%, var(--border));
+}
+
+.menorix-admin-shell .cc-exec-link:hover .cc-exec-card__icon {
+  filter: none;
+  animation: mx-icon-shock 340ms var(--mx-hover-spring) forwards;
 }
 
 .menorix-admin-shell .cc-exec-card::before {
@@ -807,6 +1541,7 @@ html {
   border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
   background: color-mix(in srgb, var(--primary) 10%, var(--menorix-card));
   color: var(--primary);
+  transition: transform var(--mx-hover-duration) var(--mx-hover-spring), color 0.2s ease;
 }
 
 .menorix-admin-shell .cc-exec-card__title {
@@ -883,6 +1618,16 @@ html {
   .menorix-admin-shell .cc-insight-row {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  .menorix-admin-shell .cc-drag-slot--insight-span-2 {
+    grid-column: span 2;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1279px) {
+  .menorix-admin-shell .cc-drag-slot--insight-span-2 {
+    grid-column: span 2;
+  }
 }
 
 .menorix-admin-shell .cc-insight-card {
@@ -943,12 +1688,20 @@ html {
     align-items: stretch;
   }
 
-  .menorix-admin-shell .cc-body-main {
+  .menorix-admin-shell .cc-drag-slot--body-span-4 {
+    grid-column: span 4;
+  }
+
+  .menorix-admin-shell .cc-drag-slot--body-span-6 {
+    grid-column: span 6;
+  }
+
+  .menorix-admin-shell .cc-drag-slot--body-span-8 {
     grid-column: span 8;
   }
 
-  .menorix-admin-shell .cc-body-rail {
-    grid-column: span 4;
+  .menorix-admin-shell .cc-drag-slot--body-span-12 {
+    grid-column: span 12;
   }
 
   .menorix-admin-shell .cc-queue-panel,
@@ -1050,10 +1803,6 @@ html {
   border-bottom: none;
 }
 
-.menorix-admin-shell .cc-queue-row:hover {
-  background: color-mix(in srgb, var(--primary) 5%, transparent);
-}
-
 .menorix-admin-shell .cc-queue-row__top {
   display: flex;
   align-items: center;
@@ -1134,11 +1883,11 @@ html {
   background: color-mix(in srgb, var(--primary) 8%, var(--menorix-surface));
   color: var(--primary);
   text-decoration: none;
-  transition: background 0.12s ease;
 }
 
 .menorix-admin-shell .cc-btn-review:hover {
   background: color-mix(in srgb, var(--primary) 16%, var(--menorix-surface));
+  color: var(--primary);
 }
 
 .menorix-admin-shell .cc-btn-review--disabled {
@@ -1157,8 +1906,8 @@ html {
 }
 
 .menorix-admin-shell .cc-queue-view-all:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  color: var(--primary);
+  text-decoration: none;
 }
 
 .menorix-admin-shell .cc-queue-footer__actions {
@@ -1864,6 +2613,223 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   border-radius: 0.75rem;
   outline: 2px solid rgba(248, 113, 113, 0.55);
   outline-offset: 2px;
+}
+
+/* ── Admin shell — mobile UX (all ERP pages; NOT operator-mobile / scanner) ─── */
+@media (max-width: 767px) {
+  .menorix-admin-shell .admin-page-content {
+    max-width: 100%;
+    padding-inline: 0.625rem;
+  }
+
+  .menorix-admin-shell .admin-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+  }
+
+  .menorix-admin-shell .admin-page-header h1 {
+    font-size: 1rem;
+  }
+
+  .menorix-admin-shell .admin-page-header p {
+    font-size: 0.6875rem;
+  }
+
+  .menorix-admin-shell .admin-page-header > div:last-child,
+  .menorix-admin-shell .admin-page-header .flex-wrap {
+    width: 100%;
+  }
+
+  .menorix-admin-shell :is(.admin-btn-primary, .admin-btn-secondary, .admin-btn-quiet) {
+    min-height: 2.75rem;
+    padding-inline: 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  .menorix-admin-shell :is(.admin-form-input, .admin-chrome-input, .admin-form-textarea, select, .claim-engine-select) {
+    min-height: 2.75rem;
+    font-size: 1rem;
+    width: 100%;
+  }
+
+  .menorix-admin-shell label:has(select),
+  .menorix-admin-shell label:has(input) {
+    flex-direction: column;
+    align-items: stretch !important;
+    width: 100%;
+    gap: 0.375rem;
+  }
+
+  .menorix-admin-shell label:has(select) select,
+  .menorix-admin-shell label:has(select) .admin-chrome-control {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .menorix-admin-shell .admin-table-wrap,
+  .menorix-admin-shell .claim-engine-table-card,
+  .menorix-admin-shell .admin-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+  }
+
+  .menorix-admin-shell .admin-table-wrap::after,
+  .menorix-admin-shell .claim-engine-table-card::after {
+    content: "";
+    pointer-events: none;
+    position: sticky;
+    right: 0;
+    top: 0;
+    float: right;
+    width: 1.25rem;
+    height: 100%;
+    margin-left: -1.25rem;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--menorix-card) 88%, transparent));
+  }
+
+  .menorix-admin-shell table {
+    font-size: 0.75rem;
+  }
+
+  .menorix-admin-shell table th,
+  .menorix-admin-shell table td {
+    padding: 0.5rem 0.625rem;
+    white-space: nowrap;
+  }
+
+  .menorix-admin-shell .admin-panel-card,
+  .menorix-admin-shell .admin-stat-card,
+  .menorix-admin-shell .cc-panel,
+  .menorix-admin-shell .claim-engine-table-card,
+  .menorix-admin-shell .claim-engine-kpi,
+  .menorix-admin-shell .claim-engine-mobile-card {
+    border-radius: 10px;
+    padding: 0.75rem;
+  }
+
+  .menorix-admin-shell .claim-engine-view .flex-wrap,
+  .menorix-admin-shell .claim-engine-view [class*="gap-2"]:has(select),
+  .menorix-admin-shell .claim-engine-view [class*="gap-3"]:has(select) {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .menorix-admin-shell .claim-engine-view select.claim-engine-select {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .menorix-admin-shell .command-center-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.625rem;
+  }
+
+  .menorix-admin-shell .command-center-header .relative.w-72 {
+    width: 100%;
+  }
+
+  .menorix-admin-shell .cc-layout-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .menorix-admin-shell .cc-layout-reset {
+    width: 100%;
+    justify-content: center;
+    min-height: 2.75rem;
+  }
+
+  .menorix-admin-shell .cc-drag-slot {
+    padding-top: 2.5rem;
+  }
+
+  .menorix-admin-shell .cc-drag-handle,
+  .menorix-admin-shell .cc-drag-size-btn {
+    min-height: 2.25rem;
+    min-width: 2.25rem;
+  }
+
+  .menorix-admin-shell .cc-drag-slot--exec-span-2,
+  .menorix-admin-shell .cc-drag-slot--insight-span-2,
+  .menorix-admin-shell .cc-drag-slot--body-span-4,
+  .menorix-admin-shell .cc-drag-slot--body-span-6,
+  .menorix-admin-shell .cc-drag-slot--body-span-8,
+  .menorix-admin-shell .cc-drag-slot--body-span-12 {
+    grid-column: 1 / -1;
+  }
+
+  .menorix-admin-shell .cc-exec-card {
+    min-height: 6.5rem;
+    padding: 0.625rem 0.75rem;
+  }
+
+  .menorix-admin-shell .cc-exec-metric__value {
+    font-size: 1.125rem;
+  }
+
+  .menorix-admin-shell .cc-insight-card {
+    min-height: 11rem;
+    max-height: none;
+  }
+
+  .menorix-admin-shell .cc-chart-box--insight {
+    min-height: 8.5rem;
+    max-height: none;
+  }
+
+  .menorix-admin-shell .cc-queue-panel,
+  .menorix-admin-shell .cc-body-rail {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .menorix-admin-shell .cc-queue-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .menorix-admin-shell .cc-btn-review {
+    width: 100%;
+    justify-content: center;
+    min-height: 2.5rem;
+  }
+
+  .menorix-admin-shell .cc-queue-footer__actions {
+    flex-direction: column;
+  }
+
+  .menorix-admin-shell .cc-queue-footer__actions :is(a, button) {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .menorix-admin-shell .max-w-6xl,
+  .menorix-admin-shell .max-w-7xl {
+    max-width: 100% !important;
+    padding-inline: 0.625rem;
+  }
+
+  .menorix-admin-shell .admin-modal-shell {
+    margin-inline: 0.25rem;
+    max-width: calc(100vw - 0.5rem);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .menorix-admin-shell .admin-page-content {
+    max-width: min(100%, calc(100vw - 1.25rem));
+    padding-inline: 0.75rem;
+  }
+
+  .menorix-admin-shell .cc-insight-card {
+    max-height: none;
+  }
 }
 
 /* ── Operator mobile: Luxury Industrial tokens (dark / light dual mode) ── */

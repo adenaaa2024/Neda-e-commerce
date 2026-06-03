@@ -27,16 +27,16 @@ export const CLAIM_FLOW_STAGE_LABELS: Record<ClaimFlowStage, string> = {
 };
 
 export const CLAIM_FLOW_STAGE_BADGE_CLASS: Record<ClaimFlowStage, string> = {
-  needs_product: "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200",
-  needs_review: "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
-  on_hold: "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
-  ready_for_case: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
-  case_ready: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200",
-  case_built: "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300",
-  ready_for_submission: "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200",
-  pdf_ready: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100",
-  pre_cutoff: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
-  domain_disabled: "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
+  needs_product: "claim-engine-chip claim-engine-chip--accent",
+  needs_review: "claim-engine-chip claim-engine-chip--warning",
+  on_hold: "claim-engine-chip claim-engine-chip--info",
+  ready_for_case: "claim-engine-chip claim-engine-chip--success",
+  case_ready: "claim-engine-chip claim-engine-chip--info",
+  case_built: "claim-engine-chip claim-engine-chip--info",
+  ready_for_submission: "claim-engine-chip claim-engine-chip--success",
+  pdf_ready: "claim-engine-chip claim-engine-chip--success",
+  pre_cutoff: "claim-engine-chip claim-engine-chip--neutral",
+  domain_disabled: "claim-engine-chip claim-engine-chip--danger",
 };
 
 export function deriveClaimFlowStage(input: {

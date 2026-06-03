@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Oswald } from "next/font/google";
+import { MenorixIntroSplash } from "@/components/MenorixIntroSplash";
 import { OperatorSessionStoreProvider } from "./_components/OperatorSessionStoreProvider";
 import { OperatorProductBrandingStrip } from "./_components/OperatorProductBrandingStrip";
 import { OperatorPwaInstallHint } from "./_components/OperatorPwaInstallHint";
@@ -23,6 +24,7 @@ const operatorDisplay = Oswald({
  */
 export default function OperatorMobileLayout({ children }: { children: ReactNode }) {
   return (
+    <MenorixIntroSplash durationMs={5800} variant="scanner">
     <div
       dir="ltr"
       lang="en"
@@ -68,5 +70,6 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         </OperatorSessionStoreProvider>
       </div>
     </div>
+    </MenorixIntroSplash>
   );
 }

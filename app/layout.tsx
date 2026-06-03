@@ -74,7 +74,7 @@ export default function RootLayout({
              * and a hamburger-triggered drawer on mobile.
              * Every page route is wrapped here — the sidebar NEVER disappears.
              */}
-            <Suspense fallback={<div className="min-h-screen bg-slate-50 dark:bg-slate-950" />}>
+            <Suspense fallback={null}>
               <AppShell>{children}</AppShell>
             </Suspense>
           </DebugModeProvider>

@@ -7,9 +7,11 @@ import { Loader2 } from "lucide-react";
 import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
 import { ClaimFlowBadge } from "@/components/claim-engine/ClaimFlowBadge";
 import {
+  CLAIM_ENGINE_BANNER_ERROR_CLASS,
   CLAIM_ENGINE_CARD_CLASS,
   CLAIM_ENGINE_FILTER_TAB_ACTIVE,
   CLAIM_ENGINE_FILTER_TAB_IDLE,
+  CLAIM_ENGINE_MOBILE_CARD_CLASS,
   CLAIM_ENGINE_TABLE_CLASS,
   CLAIM_ENGINE_TABLE_HEAD_CLASS,
   CLAIM_ENGINE_TABLE_ROW_CLASS,
@@ -140,11 +142,11 @@ export function ClaimReviewReadOnlyQueue({
       </div>
 
       {loading ? (
-        <p className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <p className="claim-engine-loading flex items-center gap-2 py-8 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading review queue…
         </p>
       ) : error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+        <div className={CLAIM_ENGINE_BANNER_ERROR_CLASS}>
           {error}
         </div>
       ) : rows.length === 0 ? (
@@ -203,7 +205,7 @@ export function ClaimReviewReadOnlyQueue({
             {filtered.map((row) => (
               <div
                 key={row.return_item_id}
-                className="rounded-xl border border-slate-100 p-3 dark:border-slate-800"
+                className={CLAIM_ENGINE_MOBILE_CARD_CLASS}
               >
                 <div className="flex flex-wrap items-center gap-2">
                   {row.flow_stage ? (
@@ -224,7 +226,7 @@ export function ClaimReviewReadOnlyQueue({
       )}
 
       <p className="text-center text-xs text-muted-foreground">
-        <Link href="/returns/claims" className="font-semibold text-sky-600 hover:underline dark:text-sky-400">
+        <Link href="/returns/claims" className="claim-engine-link">
           Open draft pool
         </Link>
         {" "}to select rows and build claim cases.

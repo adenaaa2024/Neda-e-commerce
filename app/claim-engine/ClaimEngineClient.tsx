@@ -61,7 +61,41 @@ import { downloadBulkClaimsPdf, enrichBulkPagesWithDefaultEvidence } from "./cla
 import { prepareClaimEnginePdfPages } from "./claim-pdf-batch-actions";
 import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
-import { CLAIM_ENGINE_KPI_CARD_CLASS, CLAIM_ENGINE_MAIN_CLASS } from "@/components/claim-engine/claim-engine-ui";
+import {
+  claimEngineStatusClass,
+  CLAIM_ENGINE_AMOUNT_CLASS,
+  CLAIM_ENGINE_BANNER_ERROR_CLASS,
+  CLAIM_ENGINE_BANNER_INFO_CLASS,
+  CLAIM_ENGINE_BANNER_SUCCESS_CLASS,
+  CLAIM_ENGINE_BANNER_WARNING_CLASS,
+  CLAIM_ENGINE_BTN_ACCENT,
+  CLAIM_ENGINE_BTN_PRIMARY,
+  CLAIM_ENGINE_BTN_SECONDARY,
+  CLAIM_ENGINE_BTN_SUCCESS,
+  CLAIM_ENGINE_BTN_TRANSCRIPT,
+  CLAIM_ENGINE_CARD_CLASS,
+  CLAIM_ENGINE_EMPTY_FILTER_CLASS,
+  CLAIM_ENGINE_KPI_CARD_CLASS,
+  CLAIM_ENGINE_KPI_HINT_CLASS,
+  CLAIM_ENGINE_KPI_LABEL_CLASS,
+  CLAIM_ENGINE_KPI_VALUE_CLASS,
+  CLAIM_ENGINE_MAIN_CLASS,
+  CLAIM_ENGINE_META_CLASS,
+  CLAIM_ENGINE_MOBILE_CARD_CLASS,
+  CLAIM_ENGINE_MOBILE_CARD_TITLE_CLASS,
+  CLAIM_ENGINE_PAYOUT_CLASS,
+  CLAIM_ENGINE_PROVIDER_CLASS,
+  CLAIM_ENGINE_SEARCH_ICON_CLASS,
+  CLAIM_ENGINE_SEARCH_INPUT_CLASS,
+  CLAIM_ENGINE_SEARCH_WRAP_CLASS,
+  CLAIM_ENGINE_SELECT_CLASS,
+  CLAIM_ENGINE_TABLE_CARD_HEADER_CLASS,
+  CLAIM_ENGINE_TABLE_CARD_ICON_CLASS,
+  CLAIM_ENGINE_TABLE_CARD_SUBTITLE_CLASS,
+  CLAIM_ENGINE_TABLE_CARD_TITLE_CLASS,
+  CLAIM_ENGINE_TABLE_CLASS,
+  CLAIM_ENGINE_TYPE_CLASS,
+} from "@/components/claim-engine/claim-engine-ui";
 import { ClaimDetailModal } from "./ClaimDetailModal";
 import { ClaimGenerationModal } from "./ClaimGenerationModal";
 import { ClaimHistoryModal } from "./ClaimHistoryModal";
@@ -115,31 +149,6 @@ function providerLabel(raw: string | null): string {
   };
   return map[raw] ?? raw;
 }
-
-const STATUS_STYLES: Record<string, string> = {
-  pending: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
-  recovered:
-    "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
-  suspicious: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
-  cancelled: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
-};
-
-/** `claim_submissions.status` + legacy adapter labels for synced rows */
-const CLAIM_ROW_STATUS_STYLES: Record<string, string> = {
-  ...STATUS_STYLES,
-  draft: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  ready_to_send: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
-  submitted: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
-  evidence_requested:
-    "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
-  investigating:
-    "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200",
-  accepted: STATUS_STYLES.recovered,
-  rejected: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
-  failed: "border-rose-300 bg-rose-100 text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200",
-};
-
-const SUBMISSION_STATUS_STYLES: Record<string, string> = { ...CLAIM_ROW_STATUS_STYLES };
 
 /** UI buckets over existing `claim_submissions.status` — no schema changes. */
 const SUBMISSION_QUEUE_STATUSES = new Set(["draft", "ready_to_send"]);
@@ -660,7 +669,7 @@ export function ClaimEngineClient({
             type="button"
             disabled={queueBulkPdfBusy}
             onClick={() => void handlePrepareBulkQueuePdfReport()}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+            className={`inline-flex items-center justify-center gap-2 ${CLAIM_ENGINE_BTN_SUCCESS}`}
           >
             {queueBulkPdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
             Prepare bulk PDF report
@@ -720,37 +729,37 @@ export function ClaimEngineClient({
           {claimEngineTab === "submission_queue" && (kpisError || kpis) ? (
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               {kpisError ? (
-                <div className="col-span-full rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+                <div className={`col-span-full ${CLAIM_ENGINE_BANNER_ERROR_CLASS}`}>
                   KPI data: {kpisError}
                 </div>
               ) : kpis ? (
                 <>
                   <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Active pipeline</p>
-                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{kpis.totalActiveClaims}</p>
-                    <p className="mt-2 text-[11px] text-muted-foreground">Not accepted or denied</p>
+                    <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Active pipeline</p>
+                    <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{kpis.totalActiveClaims}</p>
+                    <p className={CLAIM_ENGINE_KPI_HINT_CLASS}>Not accepted or denied</p>
                   </div>
                   <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Claim value</p>
-                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                    <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Claim value</p>
+                    <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>
                       {formatCurrency(kpis.totalClaimValueUsd)}
                     </p>
                   </div>
                   <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Projected recovery</p>
-                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                    <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Projected recovery</p>
+                    <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>
                       {formatCurrency(kpis.projectedRecoveryUsd)}
                     </p>
                   </div>
                   <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Success rate</p>
-                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
+                    <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Success rate</p>
+                    <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>
                       {kpis.successRatePercent.toFixed(1)}%
                     </p>
                   </div>
                   <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending evidence</p>
-                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{kpis.pendingEvidenceCount}</p>
+                    <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Pending evidence</p>
+                    <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{kpis.pendingEvidenceCount}</p>
                   </div>
                 </>
               ) : null}
@@ -758,11 +767,11 @@ export function ClaimEngineClient({
           ) : null}
 
           {claimEngineTab === "submission_queue" ? (
-            <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+            <section className={CLAIM_ENGINE_CARD_CLASS}>
+              <div className={`${CLAIM_ENGINE_TABLE_CARD_HEADER_CLASS} flex-wrap gap-3`}>
                 <div>
-                  <p className="text-xs font-semibold tracking-tight text-slate-900 dark:text-slate-50">Submission queue</p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className={CLAIM_ENGINE_TABLE_CARD_TITLE_CLASS}>Submission queue</p>
+                  <p className={CLAIM_ENGINE_TABLE_CARD_SUBTITLE_CLASS}>
                     Draft / ready to send — not yet filed with the marketplace. Review evidence, preview PDFs, then submit the claim.
                   </p>
                 </div>
@@ -770,7 +779,7 @@ export function ClaimEngineClient({
                   <button
                     type="button"
                     onClick={() => void handleGeneratePdfReport()}
-                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                    className={`inline-flex items-center gap-2 ${CLAIM_ENGINE_BTN_SUCCESS}`}
                   >
                     <FileText className="h-4 w-4" />
                     Review evidence (PDF)
@@ -779,7 +788,7 @@ export function ClaimEngineClient({
                     type="button"
                     disabled={generateBusy}
                     onClick={() => void handleEnqueuePipelineReports()}
-                    className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-100"
+                    className={`inline-flex items-center gap-2 ${CLAIM_ENGINE_BTN_PRIMARY}`}
                   >
                     {generateBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                     Build queue from returns
@@ -788,30 +797,30 @@ export function ClaimEngineClient({
                     type="button"
                     disabled={bulkSubmitBusy}
                     onClick={() => void handleBulkMarketplace()}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    className={`inline-flex items-center gap-2 ${CLAIM_ENGINE_BTN_SECONDARY}`}
                   >
                     {bulkSubmitBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     Submit claim to marketplace
                   </button>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
+              <div className={`${CLAIM_ENGINE_SEARCH_WRAP_CLASS} flex flex-wrap items-center gap-3`}>
                 <div className="relative min-w-[200px] max-w-md flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Search className={CLAIM_ENGINE_SEARCH_ICON_CLASS} />
                   <input
                     type="search"
                     placeholder="Filter submission queue…"
                     value={queueSf.filter}
                     onChange={(e) => queueSf.setFilter(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    className={CLAIM_ENGINE_SEARCH_INPUT_CLASS}
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
                   <span className="font-medium">Sort</span>
                   <select
                     value={queueSf.sortKey ?? ""}
                     onChange={(e) => queueSf.setSortKey(e.target.value || null)}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                    className={CLAIM_ENGINE_SELECT_CLASS}
                   >
                     <option value="">(list order)</option>
                     <option value="identifiers">Identifiers</option>
@@ -822,24 +831,24 @@ export function ClaimEngineClient({
                   <select
                     value={queueSf.sortDir}
                     onChange={(e) => queueSf.setSortDir(e.target.value as SortDir)}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+                    className={CLAIM_ENGINE_SELECT_CLASS}
                   >
                     <option value="asc">Asc</option>
                     <option value="desc">Desc</option>
                   </select>
                 </div>
                 {queueSelectedIds.size > 0 ? (
-                  <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-200">
+                  <span className={`text-xs font-semibold ${CLAIM_ENGINE_AMOUNT_CLASS}`}>
                     {queueSelectedIds.size} row(s) selected for PDF
                   </span>
                 ) : null}
               </div>
               {submissionsError ? (
-                <div className="border-b border-rose-700/40 bg-rose-950/30 px-4 py-2 text-xs text-rose-100">{submissionsError}</div>
+                <div className={CLAIM_ENGINE_BANNER_ERROR_CLASS}>{submissionsError}</div>
               ) : null}
               {readyToSendCount > 0 ? (
-                <div className="border-b border-sky-300/80 bg-gradient-to-r from-sky-100/90 to-sky-50/90 px-4 py-3 dark:border-sky-800 dark:from-sky-950/80 dark:to-slate-950/60">
-                  <p className="text-sm font-bold text-sky-950 dark:text-sky-100">
+                <div className={CLAIM_ENGINE_BANNER_INFO_CLASS}>
+                  <p className="text-sm font-bold">
                     {readyToSendCount} claim{readyToSendCount === 1 ? "" : "s"} ready to send
                   </p>
                 </div>
@@ -854,17 +863,17 @@ export function ClaimEngineClient({
                   />
                 </div>
               ) : submissionQueueDisplay.length === 0 ? (
-                <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+                <div className={CLAIM_ENGINE_EMPTY_FILTER_CLASS}>
                   No queue rows match this filter.
                 </div>
               ) : (
-                <ul className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                <ul className="divide-y">
                   {submissionQueueDisplay.map((row) => (
                     <li
                       key={row.id}
                       className={[
                         "flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-stretch",
-                        row.status === "ready_to_send" ? "bg-sky-50/50 dark:bg-sky-950/20" : "",
+                        row.status === "ready_to_send" ? "claim-engine-row--ready" : "",
                       ].join(" ")}
                     >
                       <div className="flex min-w-0 flex-1 gap-3">
@@ -881,10 +890,10 @@ export function ClaimEngineClient({
                           />
                         </div>
                         <div
-                          className="flex h-16 w-14 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900"
+                          className="claim-engine-icon-tile flex h-16 w-14 shrink-0 items-center justify-center"
                           aria-hidden
                         >
-                          <FileText className="h-7 w-7 text-slate-500 dark:text-slate-400" />
+                          <FileText className="h-7 w-7" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <ReturnIdentifiersColumn
@@ -896,16 +905,16 @@ export function ClaimEngineClient({
                             storePlatform={storePlatformForSubmission(row, stores)}
                             onToast={showToast}
                           />
-                          <p className="mt-2 rounded-lg border border-emerald-200/80 bg-emerald-50/50 px-3 py-2 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/30">
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">Requested amount </span>
-                            <span className="font-bold tabular-nums text-emerald-800 dark:text-emerald-300">
+                          <p className="mt-2 px-3 py-2 text-sm">
+                            <span className={`font-semibold ${CLAIM_ENGINE_META_CLASS}`}>Requested amount </span>
+                            <span className={`font-bold tabular-nums ${CLAIM_ENGINE_AMOUNT_CLASS}`}>
                               {formatMoneyUsd2(Number(row.claim_amount) || 0)}
                             </span>
                           </p>
-                          <p className="mt-1 text-[10px] text-muted-foreground">
+                          <p className={`mt-1 text-[10px] ${CLAIM_ENGINE_META_CLASS}`}>
                             {formatDate(row.created_at)}
                             {typeof row.success_probability === "number" && !Number.isNaN(row.success_probability) ? (
-                              <span className="ml-2 text-violet-600 dark:text-violet-400">
+                              <span className="ml-2">
                                 P(success): {row.success_probability.toFixed(0)}%
                               </span>
                             ) : null}
@@ -913,17 +922,13 @@ export function ClaimEngineClient({
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                            SUBMISSION_STATUS_STYLES[row.status] ?? SUBMISSION_STATUS_STYLES.draft
-                          }`}
-                        >
+                        <span className={claimEngineStatusClass(row.status)}>
                           {row.status.replace(/_/g, " ")}
                         </span>
                         <button
                           type="button"
                           onClick={() => openClaimGenerationForRow(row)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                          className={`inline-flex items-center gap-1.5 ${CLAIM_ENGINE_BTN_SUCCESS}`}
                         >
                           <FileText className="h-3.5 w-3.5" />
                           Review evidence
@@ -932,7 +937,7 @@ export function ClaimEngineClient({
                           type="button"
                           disabled={queueBusyId === row.id || !row.report_url}
                           onClick={() => void handlePreview(row)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                          className={`inline-flex items-center gap-1.5 ${CLAIM_ENGINE_BTN_SECONDARY}`}
                         >
                           {queueBusyId === row.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -945,7 +950,7 @@ export function ClaimEngineClient({
                           type="button"
                           disabled={queueBusyId === row.id}
                           onClick={() => void handleManualSubmit(row)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-900 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                          className={`inline-flex items-center gap-1.5 ${CLAIM_ENGINE_BTN_SUCCESS}`}
                         >
                           Submit claim
                         </button>
@@ -958,37 +963,37 @@ export function ClaimEngineClient({
           ) : claimEngineTab === "active" ? (
             <>
           {claimsError && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+            <div className={CLAIM_ENGINE_BANNER_ERROR_CLASS}>
               <span className="font-semibold">Data warning:</span> {claimsError}
             </div>
           )}
 
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total recovered</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{formatCurrency(totalRecoveredDisplay)}</p>
-              <p className="mt-2 text-[11px] text-muted-foreground">Reimbursement when recorded, else claim amount</p>
+              <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Total recovered</p>
+              <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{formatCurrency(totalRecoveredDisplay)}</p>
+              <p className={CLAIM_ENGINE_KPI_HINT_CLASS}>Reimbursement when recorded, else claim amount</p>
             </div>
             <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pending</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{pendingCount}</p>
-              <p className="mt-2 text-[11px] text-muted-foreground">Awaiting marketplace sync</p>
+              <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Pending</p>
+              <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{pendingCount}</p>
+              <p className={CLAIM_ENGINE_KPI_HINT_CLASS}>Awaiting marketplace sync</p>
             </div>
             <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Suspicious</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{suspiciousCount}</p>
-              <p className="mt-2 text-[11px] text-muted-foreground">Flagged by adapter rules</p>
+              <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Suspicious</p>
+              <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{suspiciousCount}</p>
+              <p className={CLAIM_ENGINE_KPI_HINT_CLASS}>Flagged by adapter rules</p>
             </div>
           </section>
 
           {selectedIds.size > 0 && (
-            <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-900 dark:bg-sky-950/40">
-              <span className="text-sm font-semibold text-sky-900 dark:text-sky-100">{selectedIds.size} selected</span>
+            <div className={`${CLAIM_ENGINE_BANNER_INFO_CLASS} flex flex-wrap items-center gap-3`}>
+              <span className="text-sm font-semibold">{selectedIds.size} selected</span>
               <button
                 type="button"
                 disabled={bulkBusy}
                 onClick={() => void handleBulkCancel()}
-                className="inline-flex items-center gap-2 rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-800 disabled:opacity-50 dark:border-rose-800 dark:bg-slate-900 dark:text-rose-200"
+                className={`inline-flex items-center gap-2 ${CLAIM_ENGINE_BTN_SECONDARY}`}
               >
                 {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                 Cancel claims
@@ -997,7 +1002,7 @@ export function ClaimEngineClient({
                 type="button"
                 disabled={bulkBusy}
                 onClick={() => void handleGeneratePdfReport()}
-                className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                className={`inline-flex items-center gap-2 ${CLAIM_ENGINE_BTN_SUCCESS}`}
               >
                 <FileText className="h-4 w-4" />
                 Generate PDF
@@ -1006,7 +1011,7 @@ export function ClaimEngineClient({
                 type="button"
                 disabled={bulkBusy}
                 onClick={() => void handleBulkPdf()}
-                className="inline-flex items-center gap-2 rounded-xl border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-900 disabled:opacity-50 dark:border-sky-700 dark:bg-slate-900 dark:text-sky-100"
+                className={`inline-flex items-center gap-2 ${CLAIM_ENGINE_BTN_PRIMARY}`}
               >
                 {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                 Export bulk claims PDF
@@ -1014,31 +1019,31 @@ export function ClaimEngineClient({
               <button
                 type="button"
                 onClick={() => setSelectedIds(new Set())}
-                className="ml-auto text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                className={`ml-auto text-xs font-medium ${CLAIM_ENGINE_META_CLASS}`}
               >
                 Clear selection
               </button>
             </div>
           )}
 
-          <section className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+          <section className={CLAIM_ENGINE_CARD_CLASS}>
             <DatabaseTag table="claim_submissions" />
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+            <div className={CLAIM_ENGINE_TABLE_CARD_HEADER_CLASS}>
               <div>
-                <p className="text-xs font-semibold tracking-tight text-slate-900 dark:text-slate-50">Active claims</p>
-                <p className="text-[11px] text-muted-foreground">Submitted, in review, or awaiting evidence — includes Case ID and negotiation when available.</p>
+                <p className={CLAIM_ENGINE_TABLE_CARD_TITLE_CLASS}>Active claims</p>
+                <p className={CLAIM_ENGINE_TABLE_CARD_SUBTITLE_CLASS}>Submitted, in review, or awaiting evidence — includes Case ID and negotiation when available.</p>
               </div>
-              <FileText className="h-4 w-4 text-muted-foreground" />
+              <FileText className={CLAIM_ENGINE_TABLE_CARD_ICON_CLASS} />
             </div>
-            <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-800">
+            <div className={CLAIM_ENGINE_SEARCH_WRAP_CLASS}>
               <div className="relative max-w-md">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className={CLAIM_ENGINE_SEARCH_ICON_CLASS} />
                 <input
                   type="search"
                   placeholder="Filter claims (identifiers, order, status…)"
                   value={activeClaimsSf.filter}
                   onChange={(e) => activeClaimsSf.setFilter(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  className={CLAIM_ENGINE_SEARCH_INPUT_CLASS}
                 />
               </div>
             </div>
@@ -1053,15 +1058,15 @@ export function ClaimEngineClient({
                 />
               </div>
             ) : activeDisplayClaims.length === 0 ? (
-              <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+              <div className={CLAIM_ENGINE_EMPTY_FILTER_CLASS}>
                 No claims match this filter. Clear the search box to see all rows.
               </div>
             ) : (
               <>
                 <div className="hidden overflow-x-auto md:block">
-                  <table className="w-full min-w-[960px] text-sm">
+                  <table className={`${CLAIM_ENGINE_TABLE_CLASS} min-w-[960px]`}>
                     <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40">
+                      <tr className="border-b">
                         <th className="w-10 px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
@@ -1128,9 +1133,9 @@ export function ClaimEngineClient({
                         <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                    <tbody className="divide-y">
                       {activeDisplayClaims.map((claim) => (
-                        <tr key={claim.id} className="transition hover:bg-accent/40">
+                        <tr key={claim.id} className="transition">
                           <td
                             className="w-10 px-2 py-3"
                             onClick={(e) => toggleRow(claim.id, e)}
@@ -1156,47 +1161,37 @@ export function ClaimEngineClient({
                           </td>
                           <td className="px-4 py-3 align-top">
                             {claim.marketplace_provider ? (
-                              <span
-                                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                                  claim.marketplace_provider === "amazon_sp_api"
-                                    ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300"
-                                    : claim.marketplace_provider === "walmart_api"
-                                      ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300"
-                                      : "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700/50 dark:bg-rose-950/30 dark:text-rose-300"
-                                }`}
-                              >
+                              <span className={CLAIM_ENGINE_PROVIDER_CLASS}>
                                 {providerLabel(claim.marketplace_provider)}
                               </span>
                             ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
+                              <span className={`text-xs ${CLAIM_ENGINE_META_CLASS}`}>—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3 align-top text-xs text-slate-600 dark:text-slate-300">
+                          <td className={`${CLAIM_ENGINE_TYPE_CLASS} px-4 py-3 align-top text-xs`}>
                             {claim.claim_type ?? "—"}
                           </td>
-                          <td className="px-4 py-3 align-top font-mono text-xs text-muted-foreground">
+                          <td className={`${CLAIM_ENGINE_META_CLASS} px-4 py-3 align-top font-mono text-xs`}>
                             {claim.amazon_order_id ?? "—"}
                           </td>
-                          <td className="px-4 py-3 align-top text-right text-xs font-semibold text-slate-900 dark:text-slate-50">
+                          <td className={`${CLAIM_ENGINE_AMOUNT_CLASS} px-4 py-3 align-top text-right text-xs`}>
                             {formatCurrency(Number(claim.amount) || 0)}
                           </td>
                           <td className="px-4 py-3 align-top">
-                            <span
-                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${CLAIM_ROW_STATUS_STYLES[claim.status] ?? CLAIM_ROW_STATUS_STYLES.pending}`}
-                            >
+                            <span className={claimEngineStatusClass(claim.status)}>
                               {claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
                             </span>
                           </td>
-                          <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+                          <td className={`${CLAIM_ENGINE_META_CLASS} px-4 py-3 align-top text-xs`}>
                             {formatDate(claim.created_at)}
                           </td>
-                          <td className="px-4 py-3 align-top font-mono text-xs text-muted-foreground">
+                          <td className={`${CLAIM_ENGINE_META_CLASS} px-4 py-3 align-top font-mono text-xs`}>
                             {claim.marketplace_claim_id?.trim() ? claim.marketplace_claim_id : "—"}
                           </td>
                           <td className="px-4 py-3 align-top">
                             <Link
                               href={`/claim-engine/investigation/${claim.id}`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100"
+                              className={CLAIM_ENGINE_BTN_TRANSCRIPT}
                             >
                               <MessageSquare className="h-3.5 w-3.5" />
                               Negotiation
@@ -1206,7 +1201,7 @@ export function ClaimEngineClient({
                             <button
                               type="button"
                               onClick={() => setHistoryClaimId(claim.id)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                              className={CLAIM_ENGINE_BTN_SECONDARY}
                             >
                               <HistoryIcon className="h-3.5 w-3.5" />
                               History
@@ -1219,7 +1214,7 @@ export function ClaimEngineClient({
                                 setDetailModalReadOnly(false);
                                 setModalClaim(claim);
                               }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+                              className={CLAIM_ENGINE_BTN_ACCENT}
                             >
                               Details
                             </button>
@@ -1229,7 +1224,7 @@ export function ClaimEngineClient({
                               type="button"
                               disabled={approveBusyId === claim.id || claim.status === "accepted"}
                               onClick={() => void handleApproveClaim(claim)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-900 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                              className={CLAIM_ENGINE_BTN_SUCCESS}
                             >
                               {approveBusyId === claim.id ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1247,29 +1242,26 @@ export function ClaimEngineClient({
 
                 <div className="space-y-3 p-3 md:hidden">
                   {activeDisplayClaims.map((claim) => (
-                    <div
-                      key={claim.id}
-                      className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/50"
-                    >
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                    <div key={claim.id} className={CLAIM_ENGINE_MOBILE_CARD_CLASS}>
+                      <p className={CLAIM_ENGINE_MOBILE_CARD_TITLE_CLASS}>
                         {claim.item_name?.trim() || "Claim"}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className={`mt-1 text-xs ${CLAIM_ENGINE_META_CLASS}`}>
                         Case ID:{" "}
-                        <span className="font-mono text-slate-700 dark:text-slate-200">
+                        <span className="font-mono">
                           {claim.marketplace_claim_id?.trim() ? claim.marketplace_claim_id : "—"}
                         </span>
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className={`mt-1 text-xs ${CLAIM_ENGINE_META_CLASS}`}>
                         {formatCurrency(Number(claim.amount) || 0)} ·{" "}
-                        <span className="font-medium text-slate-700 dark:text-slate-300">{claim.status}</span>
+                        <span className="font-medium">{claim.status}</span>
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={approveBusyId === claim.id || claim.status === "accepted"}
                           onClick={() => void handleApproveClaim(claim)}
-                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                          className={`inline-flex flex-1 items-center justify-center gap-1 ${CLAIM_ENGINE_BTN_SUCCESS}`}
                         >
                           {approveBusyId === claim.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1280,7 +1272,7 @@ export function ClaimEngineClient({
                         </button>
                         <Link
                           href={`/claim-engine/investigation/${claim.id}`}
-                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100"
+                          className={`inline-flex flex-1 items-center justify-center gap-1 ${CLAIM_ENGINE_BTN_TRANSCRIPT}`}
                         >
                           <MessageSquare className="h-4 w-4" />
                           Negotiation
@@ -1288,7 +1280,7 @@ export function ClaimEngineClient({
                         <button
                           type="button"
                           onClick={() => setHistoryClaimId(claim.id)}
-                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                          className={`inline-flex flex-1 items-center justify-center gap-1 ${CLAIM_ENGINE_BTN_SECONDARY}`}
                         >
                           <HistoryIcon className="h-4 w-4" />
                           History
@@ -1299,7 +1291,7 @@ export function ClaimEngineClient({
                             setDetailModalReadOnly(false);
                             setModalClaim(claim);
                           }}
-                          className="inline-flex flex-1 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+                          className={`inline-flex flex-1 items-center justify-center ${CLAIM_ENGINE_BTN_ACCENT}`}
                         >
                           Details
                         </button>
@@ -1314,46 +1306,46 @@ export function ClaimEngineClient({
           ) : (
             <>
               {claimsError && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+                <div className={CLAIM_ENGINE_BANNER_ERROR_CLASS}>
                   <span className="font-semibold">Data warning:</span> {claimsError}
                 </div>
               )}
 
               <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total recovered</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{formatCurrency(totalRecoveredDisplay)}</p>
+                  <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Total recovered</p>
+                  <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{formatCurrency(totalRecoveredDisplay)}</p>
                 </div>
                 <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Closed count</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{closedDisplayClaims.length}</p>
+                  <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Closed count</p>
+                  <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{closedDisplayClaims.length}</p>
                 </div>
                 <div className={CLAIM_ENGINE_KPI_CARD_CLASS}>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Suspicious</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{suspiciousCount}</p>
+                  <p className={CLAIM_ENGINE_KPI_LABEL_CLASS}>Suspicious</p>
+                  <p className={CLAIM_ENGINE_KPI_VALUE_CLASS}>{suspiciousCount}</p>
                 </div>
               </section>
 
-              <section className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+              <section className={CLAIM_ENGINE_CARD_CLASS}>
                 <DatabaseTag table="claim_submissions" />
-                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                <div className={CLAIM_ENGINE_TABLE_CARD_HEADER_CLASS}>
                   <div>
-                    <p className="text-xs font-semibold tracking-tight text-slate-900 dark:text-slate-50">Closed claims</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className={CLAIM_ENGINE_TABLE_CARD_TITLE_CLASS}>Closed claims</p>
+                    <p className={CLAIM_ENGINE_TABLE_CARD_SUBTITLE_CLASS}>
                       Accepted, denied, or failed — view-only history, transcript, and final payout.
                     </p>
                   </div>
-                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <FileText className={CLAIM_ENGINE_TABLE_CARD_ICON_CLASS} />
                 </div>
-                <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-800">
+                <div className={CLAIM_ENGINE_SEARCH_WRAP_CLASS}>
                   <div className="relative max-w-md">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Search className={CLAIM_ENGINE_SEARCH_ICON_CLASS} />
                     <input
                       type="search"
                       placeholder="Filter closed claims…"
                       value={closedClaimsSf.filter}
                       onChange={(e) => closedClaimsSf.setFilter(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-900"
+                      className={CLAIM_ENGINE_SEARCH_INPUT_CLASS}
                     />
                   </div>
                 </div>
@@ -1368,15 +1360,15 @@ export function ClaimEngineClient({
                     />
                   </div>
                 ) : closedDisplayClaims.length === 0 ? (
-                  <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+                  <div className={CLAIM_ENGINE_EMPTY_FILTER_CLASS}>
                     No rows match this filter. Clear the search to see all closed claims.
                   </div>
                 ) : (
                   <>
                     <div className="hidden overflow-x-auto md:block">
-                      <table className="w-full min-w-[1100px] text-sm">
+                      <table className={`${CLAIM_ENGINE_TABLE_CLASS} min-w-[1100px]`}>
                         <thead>
-                          <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40">
+                          <tr className="border-b">
                             <DataTableSortHeader
                               label="Identifiers"
                               colKey="identifiers"
@@ -1441,10 +1433,10 @@ export function ClaimEngineClient({
                             <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">Details</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                        <tbody className="divide-y">
                           {closedDisplayClaims.map((claim) => (
-                            <tr key={claim.id} className="transition hover:bg-accent/40">
-                              <td className="px-4 py-3 align-top">
+                            <tr key={claim.id} className="transition">
+                              <td className="px-4 py-3.5 align-top">
                                 <ReturnIdentifiersColumn
                                   compact
                                   itemName={claim.item_name}
@@ -1455,75 +1447,65 @@ export function ClaimEngineClient({
                                   onToast={showToast}
                                 />
                               </td>
-                              <td className="px-4 py-3 align-top">
+                              <td className="px-4 py-3.5 align-top">
                                 {claim.marketplace_provider ? (
-                                  <span
-                                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                                      claim.marketplace_provider === "amazon_sp_api"
-                                        ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300"
-                                        : claim.marketplace_provider === "walmart_api"
-                                          ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/30 dark:text-sky-300"
-                                          : "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700/50 dark:bg-rose-950/30 dark:text-rose-300"
-                                    }`}
-                                  >
+                                  <span className={CLAIM_ENGINE_PROVIDER_CLASS}>
                                     {providerLabel(claim.marketplace_provider)}
                                   </span>
                                 ) : (
-                                  <span className="text-xs text-muted-foreground">—</span>
+                                  <span className={`text-xs ${CLAIM_ENGINE_META_CLASS}`}>—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 align-top text-xs text-slate-600 dark:text-slate-300">
+                              <td className={`${CLAIM_ENGINE_TYPE_CLASS} px-4 py-3.5 align-top text-xs`}>
                                 {claim.claim_type ?? "—"}
                               </td>
-                              <td className="px-4 py-3 align-top font-mono text-xs text-muted-foreground">
+                              <td className={`${CLAIM_ENGINE_META_CLASS} px-4 py-3.5 align-top font-mono text-xs`}>
                                 {claim.amazon_order_id ?? "—"}
                               </td>
-                              <td className="px-4 py-3 align-top text-right text-xs font-semibold text-slate-900 dark:text-slate-50">
+                              <td className={`${CLAIM_ENGINE_AMOUNT_CLASS} px-4 py-3.5 align-top text-right text-xs`}>
                                 {formatCurrency(Number(claim.amount) || 0)}
                               </td>
-                              <td className="px-4 py-3 align-top">
-                                <span
-                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${CLAIM_ROW_STATUS_STYLES[claim.status] ?? CLAIM_ROW_STATUS_STYLES.pending}`}
-                                >
+                              <td className="px-4 py-3.5 align-top">
+                                <span className={claimEngineStatusClass(claim.status)}>
                                   {claim.status.charAt(0).toUpperCase() + claim.status.slice(1)}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+                              <td className={`${CLAIM_ENGINE_META_CLASS} px-4 py-3.5 align-top text-xs`}>
                                 {formatDate(claim.created_at)}
                               </td>
-                              <td className="px-4 py-3 align-top text-right text-xs font-semibold text-emerald-800 dark:text-emerald-200">
+                              <td className={`${CLAIM_ENGINE_PAYOUT_CLASS} px-4 py-3.5 align-top text-right text-xs`}>
                                 {formatFinalPayoutUsd(claim)}
                               </td>
-                              <td className="px-4 py-3 align-top font-mono text-xs text-muted-foreground">
+                              <td className={`${CLAIM_ENGINE_META_CLASS} px-4 py-3.5 align-top font-mono text-xs`}>
                                 {claim.marketplace_claim_id?.trim() ? claim.marketplace_claim_id : "—"}
                               </td>
-                              <td className="px-4 py-3 align-top">
+                              <td className="px-4 py-3.5 align-top">
                                 <Link
                                   href={`/claim-engine/investigation/${claim.id}?readonly=1`}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100"
+                                  className={CLAIM_ENGINE_BTN_TRANSCRIPT}
                                 >
                                   <MessageSquare className="h-3.5 w-3.5" />
                                   Transcript
                                 </Link>
                               </td>
-                              <td className="px-4 py-3 align-top">
+                              <td className="px-4 py-3.5 align-top">
                                 <button
                                   type="button"
                                   onClick={() => setHistoryClaimId(claim.id)}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                  className={CLAIM_ENGINE_BTN_SECONDARY}
                                 >
                                   <HistoryIcon className="h-3.5 w-3.5" />
                                   History
                                 </button>
                               </td>
-                              <td className="px-4 py-3 align-top">
+                              <td className="px-4 py-3.5 align-top">
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setDetailModalReadOnly(true);
                                     setModalClaim(claim);
                                   }}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+                                  className={CLAIM_ENGINE_BTN_ACCENT}
                                 >
                                   Details
                                 </button>
@@ -1536,24 +1518,21 @@ export function ClaimEngineClient({
 
                     <div className="space-y-3 p-3 md:hidden">
                       {closedDisplayClaims.map((claim) => (
-                        <div
-                          key={claim.id}
-                          className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/50"
-                        >
-                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+                        <div key={claim.id} className={CLAIM_ENGINE_MOBILE_CARD_CLASS}>
+                          <p className={CLAIM_ENGINE_MOBILE_CARD_TITLE_CLASS}>
                             {claim.item_name?.trim() || "Claim"}
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
+                          <p className={`mt-1 text-xs ${CLAIM_ENGINE_META_CLASS}`}>
                             Final payout:{" "}
-                            <span className="font-semibold text-emerald-800 dark:text-emerald-200">{formatFinalPayoutUsd(claim)}</span>
+                            <span className={`${CLAIM_ENGINE_PAYOUT_CLASS} font-semibold`}>{formatFinalPayoutUsd(claim)}</span>
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
+                          <p className={`mt-1 text-xs ${CLAIM_ENGINE_META_CLASS}`}>
                             {formatCurrency(Number(claim.amount) || 0)} requested · {claim.status}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <Link
                               href={`/claim-engine/investigation/${claim.id}?readonly=1`}
-                              className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100"
+                              className={`inline-flex flex-1 items-center justify-center gap-1 ${CLAIM_ENGINE_BTN_TRANSCRIPT}`}
                             >
                               <MessageSquare className="h-4 w-4" />
                               Transcript
@@ -1561,7 +1540,7 @@ export function ClaimEngineClient({
                             <button
                               type="button"
                               onClick={() => setHistoryClaimId(claim.id)}
-                              className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                              className={`inline-flex flex-1 items-center justify-center gap-1 ${CLAIM_ENGINE_BTN_SECONDARY}`}
                             >
                               <HistoryIcon className="h-4 w-4" />
                               History
@@ -1572,7 +1551,7 @@ export function ClaimEngineClient({
                                 setDetailModalReadOnly(true);
                                 setModalClaim(claim);
                               }}
-                              className="inline-flex flex-1 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+                              className={`inline-flex flex-1 items-center justify-center ${CLAIM_ENGINE_BTN_ACCENT}`}
                             >
                               Details
                             </button>

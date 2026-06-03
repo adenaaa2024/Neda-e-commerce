@@ -17,6 +17,10 @@ import {
   Users,
   ClipboardList,
   Inbox,
+  LayoutDashboard,
+  Wrench,
+  Store,
+  Zap,
 } from "lucide-react";
 import type { SidebarIconName } from "./sidebar-config";
 
@@ -38,6 +42,10 @@ export const SIDEBAR_ICONS: Record<SidebarIconName, LucideIcon> = {
   Database: Database,
   ScanLine: ScanLine,
   Inbox: Inbox,
+  LayoutDashboard: LayoutDashboard,
+  Wrench: Wrench,
+  Store: Store,
+  Zap: Zap,
 };
 
 export function getSidebarIcon(name: SidebarIconName): LucideIcon {

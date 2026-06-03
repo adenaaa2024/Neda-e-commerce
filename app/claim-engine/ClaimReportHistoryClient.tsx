@@ -6,13 +6,17 @@ import { FileDown, Loader2 } from "lucide-react";
 import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmptyState";
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
 import {
+  CLAIM_ENGINE_BANNER_ERROR_CLASS,
   CLAIM_ENGINE_BTN_PRIMARY,
   CLAIM_ENGINE_CARD_CLASS,
+  CLAIM_ENGINE_INPUT_CLASS,
   CLAIM_ENGINE_MAIN_CLASS,
   CLAIM_ENGINE_SECTION_CLASS,
+  CLAIM_ENGINE_SELECT_CLASS,
   CLAIM_ENGINE_TABLE_CLASS,
   CLAIM_ENGINE_TABLE_HEAD_CLASS,
   CLAIM_ENGINE_TABLE_ROW_CLASS,
+  claimEngineStatusClass,
 } from "@/components/claim-engine/claim-engine-ui";
 import {
   listClaimReportHistory,
@@ -51,11 +55,11 @@ function endUtcIsoFromYyyyMmDd(s: string): string {
 }
 
 const STATUS_BADGE: Record<ClaimReportHistoryStatusLabel, string> = {
-  Generated: "border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
-  Submitted: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
-  Denied: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
-  "Generating...": "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
-  Failed: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400",
+  Generated: claimEngineStatusClass("draft"),
+  Submitted: claimEngineStatusClass("submitted"),
+  Denied: claimEngineStatusClass("rejected"),
+  "Generating...": claimEngineStatusClass("pending"),
+  Failed: claimEngineStatusClass("failed"),
 };
 
 function isHttpUrl(path: string): boolean {
@@ -181,32 +185,32 @@ export function ClaimReportHistoryClient({
         aside={[{ href: "/claim-engine", label: "Submission queue" }]}
       >
         {loadError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+          <div className={CLAIM_ENGINE_BANNER_ERROR_CLASS}>
             {loadError}
           </div>
         ) : null}
 
         <section className={CLAIM_ENGINE_SECTION_CLASS}>
             <div className="flex flex-wrap items-end gap-3">
-              <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-400">
+              <label className="flex flex-col gap-1 text-[11px] font-medium">
                 From
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className={CLAIM_ENGINE_INPUT_CLASS}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-400">
+              <label className="flex flex-col gap-1 text-[11px] font-medium">
                 To
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className={CLAIM_ENGINE_INPUT_CLASS}
                 />
               </label>
-              <label className="flex min-w-[10rem] flex-col gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-400">
+              <label className="flex min-w-[10rem] flex-col gap-1 text-[11px] font-medium">
                 Claim type
                 <select
                   value={claimType}
@@ -215,7 +219,7 @@ export function ClaimReportHistoryClient({
                     setClaimType(v);
                     persistQuery({ from: dateFrom, to: dateTo, type: v });
                   }}
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className={CLAIM_ENGINE_SELECT_CLASS}
                 >
                   <option value="all">All types</option>
                   {claimTypeOptions.map((t) => (
@@ -229,7 +233,7 @@ export function ClaimReportHistoryClient({
                 Apply range
               </button>
               {polling ? (
-                <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                <span className="claim-engine-loading flex items-center gap-1 text-[11px]">
                   <Loader2 className="h-3 w-3 animate-spin" /> Syncing…
                 </span>
               ) : null}
@@ -262,9 +266,7 @@ export function ClaimReportHistoryClient({
                     <p className="mt-1 text-xs text-muted-foreground">
                       {row.claim_type ?? "—"} · {formatDateTime(row.created_at)}
                     </p>
-                    <span
-                      className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${STATUS_BADGE[row.status_label]}`}
-                    >
+                    <span className={`inline-flex ${STATUS_BADGE[row.status_label]}`}>
                       {row.status_label}
                     </span>
                     <button
@@ -339,9 +341,7 @@ export function ClaimReportHistoryClient({
                             {formatDateTime(row.created_at)}
                           </td>
                           <td className="px-4 py-3">
-                            <span
-                              className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${STATUS_BADGE[row.status_label]}`}
-                            >
+                            <span className={STATUS_BADGE[row.status_label]}>
                               {row.status_label}
                             </span>
                           </td>

@@ -22,13 +22,13 @@ export function resolveClaimSourceKind(input: {
 }
 
 export const CLAIM_SOURCE_BADGE_CLASS: Record<ClaimIntakeSourceKind, string> = {
-  physical_return: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200",
-  amazon_return: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
-  removal: "border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200",
-  reimbursement: "border-teal-200 bg-teal-50 text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-200",
-  settlement: "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200",
-  manual: "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200",
-  inventory: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200",
+  physical_return: "claim-engine-chip claim-engine-chip--info",
+  amazon_return: "claim-engine-chip claim-engine-chip--warning",
+  removal: "claim-engine-chip claim-engine-chip--warning",
+  reimbursement: "claim-engine-chip claim-engine-chip--success",
+  settlement: "claim-engine-chip claim-engine-chip--accent",
+  manual: "claim-engine-chip claim-engine-chip--accent",
+  inventory: "claim-engine-chip claim-engine-chip--danger",
 };
 
 export const CLAIM_SOURCE_LABEL: Record<ClaimIntakeSourceKind, string> = {

@@ -22,6 +22,19 @@ export function isClaimsSettingsRoute(pathname: string, settingsTab: string | nu
   return normalizeAppPath(pathname) === "/settings" && settingsTab === CLAIMS_SETTINGS_TAB;
 }
 
+/** Claim Engine draft pool — part of Claims hub, not Returns Processing. */
+export function isReturnsClaimsDraftPoolRoute(pathname: string): boolean {
+  const path = normalizeAppPath(pathname);
+  return path === "/returns/claims" || path.startsWith("/returns/claims/");
+}
+
+/** Sidebar "Returns Processing" (/returns) — excludes Claim Engine draft pool routes. */
+export function isReturnsProcessingRoute(pathname: string): boolean {
+  const path = normalizeAppPath(pathname);
+  if (isReturnsClaimsDraftPoolRoute(path)) return false;
+  return path === "/returns" || path.startsWith("/returns/");
+}
+
 export function isClaimsSidebarActive(pathname: string, settingsTab?: string | null): boolean {
   return isClaimsHubRoute(pathname) || isClaimsSettingsRoute(pathname, settingsTab);
 }

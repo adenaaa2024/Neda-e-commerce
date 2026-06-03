@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+﻿import { Search } from "lucide-react";
 import { CommandCenterDashboard } from "@/components/CommandCenterDashboard";
 import { getCommandCenterData } from "./returns/actions";
 
@@ -11,10 +11,7 @@ export default async function Page() {
     <>
       <header className="admin-page-header command-center-header h-auto min-h-14 sm:flex-row">
         <div className="flex flex-col gap-0.5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
-            MENORIX
-          </p>
-          <h1>Command Center</h1>
+          <h1>Dashboard</h1>
           <p>Operational pulse for returns, warehouse intake, claims, and catalog health.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-4">
@@ -30,7 +27,7 @@ export default async function Page() {
       </header>
 
       <main className="command-center-main flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col px-4 py-4 sm:px-5 lg:px-6 lg:py-5">
+        <div className="mx-auto flex w-full max-w-[min(100%,1880px)] flex-col px-3 py-4 sm:px-5 lg:px-6 lg:py-5">
           <CommandCenterDashboard data={data} fetchError={fetchError} />
         </div>
       </main>

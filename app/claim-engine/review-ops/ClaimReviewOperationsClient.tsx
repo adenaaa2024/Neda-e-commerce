@@ -8,6 +8,7 @@ import { ClaimEngineEmptyState } from "@/components/claim-engine/ClaimEngineEmpt
 import { ClaimEnginePageShell } from "@/components/claim-engine/ClaimEnginePageShell";
 import {
   CLAIM_ENGINE_INPUT_CLASS,
+  CLAIM_ENGINE_MAIN_CLASS,
   CLAIM_ENGINE_SECTION_CLASS,
   claimEngineSubTabClass,
 } from "@/components/claim-engine/claim-engine-ui";
@@ -82,21 +83,23 @@ export function ClaimReviewOperationsClient({
   defaultStoreId: string | null;
 }) {
   return (
-    <ClaimEnginePageShell
-      title="Review"
-      description="Import/TRID draft review — product links, evidence flags, and grouping holds."
-    >
-      <Suspense
-        fallback={
-          <section className={`${CLAIM_ENGINE_SECTION_CLASS} text-sm text-slate-500 dark:text-slate-400`}>
-            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden />
-            Loading work queue…
-          </section>
-        }
+    <main className={CLAIM_ENGINE_MAIN_CLASS}>
+      <ClaimEnginePageShell
+        title="Review"
+        description="Import/TRID draft review — product links, evidence flags, and grouping holds."
       >
-        <ClaimReviewOperationsBody organizationId={organizationId} defaultStoreId={defaultStoreId} />
-      </Suspense>
-    </ClaimEnginePageShell>
+        <Suspense
+          fallback={
+            <section className={`${CLAIM_ENGINE_SECTION_CLASS} claim-engine-loading text-sm`}>
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden />
+              Loading work queue…
+            </section>
+          }
+        >
+          <ClaimReviewOperationsBody organizationId={organizationId} defaultStoreId={defaultStoreId} />
+        </Suspense>
+      </ClaimEnginePageShell>
+    </main>
   );
 }
 
@@ -775,7 +778,7 @@ function ClaimReviewOperationsBody({
                 <span>Escalation: {num(summary, ["escalation_open"])}</span>
               </div>
             )}
-            <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950/80">
+            <div className="claim-engine-hub-nav flex flex-wrap gap-1 p-1">
               {TABS.map((t) => (
                 <button
                   key={t.id}
@@ -787,16 +790,16 @@ function ClaimReviewOperationsBody({
                 </button>
               ))}
             </div>
-            <p className="text-xs text-slate-500">
+            <p className="claim-engine-meta text-xs">
               Viewing: {tabLabel}. Keyboard: J/K or arrows move row focus; Enter or Space opens; [ / ] previous/next in
               drawer; R refreshes drawer; ? shortcuts; Escape closes drawer or help.
             </p>
             {listLoading ? (
-              <p className="flex items-center gap-2 text-sm text-slate-500">
+              <p className="claim-engine-loading flex items-center gap-2 text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading…
               </p>
             ) : listError ? (
-              <p className="text-sm text-red-600">{listError}</p>
+              <p className="claim-engine-banner claim-engine-banner--error text-sm">{listError}</p>
             ) : items.length === 0 ? (
               <ClaimEngineEmptyState
                 title={`No work items in “${tabLabel}”`}

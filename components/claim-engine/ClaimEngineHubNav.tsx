@@ -8,7 +8,7 @@ import {
   isClaimsSettingsRoute,
   normalizeAppPath,
 } from "@/lib/claims-hub-routes";
-import { CLAIM_ENGINE_HUB_NAV_CLASS, claimEngineSubTabClass } from "./claim-engine-ui";
+import { CLAIM_ENGINE_HUB_NAV_CLASS, claimEngineHubLinkClass } from "./claim-engine-ui";
 
 type HubLink = {
   href: string;
@@ -92,7 +92,8 @@ export function ClaimEngineHubNav({ className = "" }: { className?: string }) {
             href={item.href}
             title={item.tip}
             aria-label={`${item.label} — ${item.tip}`}
-            className={`${claimEngineSubTabClass(active)} shrink-0 whitespace-nowrap`}
+            className={claimEngineHubLinkClass(active)}
+            aria-current={active ? "page" : undefined}
           >
             {item.label}
           </Link>
