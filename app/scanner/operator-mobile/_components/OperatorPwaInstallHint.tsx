@@ -3,15 +3,15 @@
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Download, Share, X } from "lucide-react";
+import {
+  getDeferredInstallPrompt,
+  runDeferredInstallPrompt,
+  subscribeInstallPrompt,
+} from "@/lib/pwa-install-prompt";
 import { isStandaloneDisplay } from "@/lib/pwa-standalone";
 import { SCANNER_OPERATOR_SCAN_PATH } from "./ScannerBottomNav";
 
 const DISMISS_KEY = "operatorMobile:pwaHintDismissed";
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
 
 function isMobileClient(): boolean {
   if (typeof window === "undefined") return false;
@@ -27,6 +27,11 @@ function isIosSafari(): boolean {
   return /iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+function isAndroidChrome(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android/i.test(navigator.userAgent);
+}
+
 /**
  * Install banner on operator-mobile scan — native prompt when available,
  * iOS share-sheet hint otherwise.
@@ -36,7 +41,7 @@ export function OperatorPwaInstallHint() {
   const onScanRoute =
     pathname === SCANNER_OPERATOR_SCAN_PATH || pathname.startsWith(`${SCANNER_OPERATOR_SCAN_PATH}/`);
   const [visible, setVisible] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [canInstall, setCanInstall] = useState(false);
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
@@ -51,14 +56,9 @@ export function OperatorPwaInstallHint() {
 
   useEffect(() => {
     if (!visible || isStandaloneDisplay()) return;
-
-    const onBeforeInstall = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
-
-    window.addEventListener("beforeinstallprompt", onBeforeInstall);
-    return () => window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+    const sync = () => setCanInstall(Boolean(getDeferredInstallPrompt()));
+    sync();
+    return subscribeInstallPrompt(sync);
   }, [visible]);
 
   const dismiss = useCallback(() => {
@@ -71,23 +71,19 @@ export function OperatorPwaInstallHint() {
   }, []);
 
   const handleInstall = useCallback(async () => {
-    if (!installPrompt) return;
     setInstalling(true);
     try {
-      await installPrompt.prompt();
-      const choice = await installPrompt.userChoice;
-      if (choice.outcome === "accepted") dismiss();
-      setInstallPrompt(null);
-    } catch {
-      /* ignore */
+      const outcome = await runDeferredInstallPrompt();
+      if (outcome === "accepted") dismiss();
     } finally {
       setInstalling(false);
     }
-  }, [dismiss, installPrompt]);
+  }, [dismiss]);
 
   if (!visible || !onScanRoute) return null;
 
-  const iosManual = isIosSafari() && !installPrompt;
+  const iosManual = isIosSafari();
+  const androidMenu = isAndroidChrome() && !canInstall && !iosManual;
 
   return (
     <div
@@ -109,10 +105,14 @@ export function OperatorPwaInstallHint() {
           </p>
           <p className="mt-0.5 text-[11px] leading-snug" style={{ color: "var(--op-text-secondary, #b9c2cc)" }}>
             {iosManual
-              ? "Tap Share, then “Add to Home Screen” for one-tap warehouse scanning."
-              : "Add to your home screen for fast access — opens directly in the mobile scanner."}
+              ? "Opens full-screen like an app — Share → Add to Home Screen (not a browser tab)."
+              : canInstall
+                ? "Install as a standalone warehouse scanner app — no browser address bar."
+                : androidMenu
+                  ? "Menu ⋮ → Install app (or Add to Home screen). Avoid “Shortcut” — pick Install for full-screen app."
+                  : "Install from your browser menu as an app for full-screen scanner mode."}
           </p>
-          {installPrompt ? (
+          {canInstall ? (
             <button
               type="button"
               onClick={() => void handleInstall()}

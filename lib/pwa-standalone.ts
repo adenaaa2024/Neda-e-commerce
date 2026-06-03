@@ -1,6 +1,8 @@
 /** Installed PWA entry — warehouse mobile scanner. */
 export const SCANNER_PWA_ENTRY_PATH = "/scanner/operator-mobile/scan";
 
+export const SCANNER_PWA_START_URL = "/scanner/operator-mobile/scan?source=pwa";
+
 export function isStandaloneDisplay(): boolean {
   if (typeof window === "undefined") return false;
   if (window.matchMedia("(display-mode: standalone)").matches) return true;

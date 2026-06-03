@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import { LogoMark } from "@/components/LogoMark";
 import { PlatformAppWordmark } from "@/components/PlatformAppWordmark";
 import { usePlatformBranding } from "@/components/PlatformBrandingContext";
+import { markOperatorMobileSkipIntroOnce } from "@/lib/operator-mobile-intro";
 
 /**
  * Slim utility row pinned to the top of the operator-mobile shell.
@@ -34,6 +35,7 @@ export function OperatorUtilityRow({ className }: { className?: string }) {
   const { platformAppName, loading: platformLoading } = usePlatformBranding();
 
   const handleRefresh = () => {
+    markOperatorMobileSkipIntroOnce();
     router.refresh();
   };
 

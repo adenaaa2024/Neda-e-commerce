@@ -1,56 +1,33 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { MenorixIntroSplash } from "@/components/MenorixIntroSplash";
+import { shouldPlayOperatorMobileEntryIntro } from "@/lib/operator-mobile-intro";
 
-const INTRO_PLAYED_KEY = "operatorMobile:introPlayed";
-
-function introAlreadyPlayed(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return sessionStorage.getItem(INTRO_PLAYED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
+export { markOperatorMobileSkipIntroOnce } from "@/lib/operator-mobile-intro";
 
 /**
- * Operator-mobile splash — once per browser session (cold PWA/tab open).
- * In-session refresh must not replay the intro.
+ * Entry splash (~2.8s) when opening the scanner app or returning after a full reload.
+ * Skipped during in-app use: soft refresh, pull-to-refresh, back/forward, route changes inside layout.
  */
 export function OperatorMobileIntroShell({ children }: { children: ReactNode }) {
-  const [introState, setIntroState] = useState<"pending" | "show" | "skip">("pending");
+  const [skipIntro, setSkipIntro] = useState(false);
 
-  useEffect(() => {
-    setIntroState(introAlreadyPlayed() ? "skip" : "show");
+  useLayoutEffect(() => {
+    setSkipIntro(!shouldPlayOperatorMobileEntryIntro());
   }, []);
 
-  const markIntroPlayed = useCallback(() => {
-    try {
-      sessionStorage.setItem(INTRO_PLAYED_KEY, "1");
-    } catch {
-      /* ignore */
-    }
-    setIntroState("skip");
+  const markIntroFinished = useCallback(() => {
+    setSkipIntro(true);
   }, []);
 
-  if (introState === "pending") {
-    return (
-      <div
-        className="min-h-dvh w-full"
-        style={{ backgroundColor: "var(--op-app-bg, #050607)" }}
-        aria-hidden
-      />
-    );
-  }
-
-  if (introState === "skip") {
+  if (skipIntro) {
     return <>{children}</>;
   }
 
   return (
-    <MenorixIntroSplash durationMs={2800} variant="scanner" skippable onFinished={markIntroPlayed}>
+    <MenorixIntroSplash durationMs={2800} variant="scanner" skippable onFinished={markIntroFinished}>
       {children}
     </MenorixIntroSplash>
   );

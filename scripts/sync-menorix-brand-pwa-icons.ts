@@ -23,10 +23,8 @@ const FAVICON_PNG = join(process.cwd(), "public", "favicon.png");
 const APP_ICON = join(process.cwd(), "app", "icon.png");
 const APP_APPLE_ICON = join(process.cwd(), "app", "apple-icon.png");
 
-/** Matches official Menorix logo artboard (white), not ERP dark shell. */
+/** Brand logo artboard — white; avoids black box on install icon / OS splash. */
 const ICON_BG = { r: 255, g: 255, b: 255, alpha: 1 as const };
-/** PWA splash / home-screen — same as operator-mobile canvas (#050607). */
-const PWA_ICON_BG = { r: 5, g: 6, b: 7, alpha: 1 as const };
 
 const ICON_512_MASKABLE = join(process.cwd(), "public", "icons", "icon-512-maskable.png");
 
@@ -163,10 +161,10 @@ async function main() {
   const meta = await sharp(buf).metadata();
   console.log(`[pwa-icons] source=${from}, ${meta.width}x${meta.height}, format=${meta.format}`);
 
-  await writeSquareIcon(buf, ICON_192, 192, 0.1, PWA_ICON_BG);
-  await writeSquareIcon(buf, ICON_512, 512, 0.1, PWA_ICON_BG);
-  await writeSquareIcon(buf, ICON_512_MASKABLE, 512, 0.24, PWA_ICON_BG);
-  await writeSquareIcon(buf, APPLE_TOUCH, 180, 0.1, PWA_ICON_BG);
+  await writeSquareIcon(buf, ICON_192, 192, 0.08, ICON_BG);
+  await writeSquareIcon(buf, ICON_512, 512, 0.08, ICON_BG);
+  await writeSquareIcon(buf, ICON_512_MASKABLE, 512, 0.14, ICON_BG);
+  await writeSquareIcon(buf, APPLE_TOUCH, 180, 0.08, ICON_BG);
 
   await sharp(buf)
     .resize(48, 48, { fit: "contain", background: ICON_BG })
