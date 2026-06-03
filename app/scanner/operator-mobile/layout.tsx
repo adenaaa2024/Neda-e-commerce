@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { Oswald } from "next/font/google";
-import { MenorixIntroSplash } from "@/components/MenorixIntroSplash";
 import { OperatorSessionStoreProvider } from "./_components/OperatorSessionStoreProvider";
 import { OperatorProductBrandingStrip } from "./_components/OperatorProductBrandingStrip";
 import { OperatorPwaInstallHint } from "./_components/OperatorPwaInstallHint";
 import { OperatorUtilityRow } from "./_components/OperatorUtilityRow";
+
+import { OperatorMobileIntroShell } from "./_components/OperatorMobileIntroShell";
 
 const operatorDisplay = Oswald({
   variable: "--font-operator-display",
@@ -24,7 +25,7 @@ const operatorDisplay = Oswald({
  */
 export default function OperatorMobileLayout({ children }: { children: ReactNode }) {
   return (
-    <MenorixIntroSplash durationMs={5800} variant="scanner">
+    <OperatorMobileIntroShell>
     <div
       dir="ltr"
       lang="en"
@@ -43,9 +44,6 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         }}
       >
         <OperatorSessionStoreProvider>
-          {/* Utility row — slim, top-right; sits above the brand header.
-              The border-b draws a divider that visually separates the platform
-              (creator) brand row from the customer / store row below. */}
           <div
             className="shrink-0 border-b px-3 sm:px-4 pb-1 pt-[max(0.15rem,env(safe-area-inset-top))]"
             style={{
@@ -55,7 +53,6 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
           >
             <OperatorUtilityRow />
           </div>
-          {/* Brand header — company logo + name on left, store name/selector on right. */}
           <div
             className="shrink-0 border-b px-3 sm:px-4 py-1.5"
             style={{
@@ -70,6 +67,6 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         </OperatorSessionStoreProvider>
       </div>
     </div>
-    </MenorixIntroSplash>
+    </OperatorMobileIntroShell>
   );
 }

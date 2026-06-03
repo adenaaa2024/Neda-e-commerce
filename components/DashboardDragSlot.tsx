@@ -1,27 +1,17 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
-import { GripVertical, Maximize2, Minimize2 } from "lucide-react";
+import { GripVertical } from "lucide-react";
 
 type DashboardDragSlotProps = {
   id: string;
   className?: string;
   onSwap: (sourceId: string, targetId: string) => void;
-  /** Toggle widget footprint (compact ↔ wide). */
-  onCycleSize?: () => void;
-  sizeMode?: "compact" | "wide";
   children: React.ReactNode;
 };
 
-/** Puzzle-style drag — drop on another widget to swap places; optional size toggle. */
-export function DashboardDragSlot({
-  id,
-  className,
-  onSwap,
-  onCycleSize,
-  sizeMode = "compact",
-  children,
-}: DashboardDragSlotProps) {
+/** Drag handle — drop on another widget to swap order. */
+export function DashboardDragSlot({ id, className, onSwap, children }: DashboardDragSlotProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isOver, setIsOver] = useState(false);
   const [justSwapped, setJustSwapped] = useState(false);
@@ -61,7 +51,7 @@ export function DashboardDragSlot({
       if (sourceId && sourceId !== id) {
         onSwap(sourceId, id);
         setJustSwapped(true);
-        window.setTimeout(() => setJustSwapped(false), 540);
+        window.setTimeout(() => setJustSwapped(false), 480);
       }
     },
     [id, onSwap],
@@ -82,33 +72,17 @@ export function DashboardDragSlot({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div className="cc-drag-slot__controls absolute right-1.5 top-1.5 z-20 flex items-center gap-1">
-        {onCycleSize ? (
-          <button
-            type="button"
-            aria-label={sizeMode === "wide" ? "Make widget compact" : "Make widget wider"}
-            title={sizeMode === "wide" ? "Compact size" : "Wide size"}
-            className="cc-drag-size-btn flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCycleSize();
-            }}
-          >
-            {sizeMode === "wide" ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          draggable
-          aria-label="Drag to reorder"
-          title="Drag onto another widget to swap"
-          className="cc-drag-handle flex h-7 w-7 cursor-grab items-center justify-center rounded-md border border-border bg-card text-muted-foreground active:cursor-grabbing"
-          onDragStart={onHandleDragStart}
-          onDragEnd={onDragEnd}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-      </div>
+      <button
+        type="button"
+        draggable
+        aria-label="Drag to reorder"
+        title="Drag onto another widget to swap"
+        className="cc-drag-handle absolute right-1.5 top-1.5 z-10 flex h-6 w-6 cursor-grab items-center justify-center rounded-md border border-border/80 bg-card/90 text-muted-foreground opacity-0 transition-opacity group-hover/drag:opacity-100 active:cursor-grabbing"
+        onDragStart={onHandleDragStart}
+        onDragEnd={onDragEnd}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
       {children}
     </div>
   );

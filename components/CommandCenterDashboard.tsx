@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -17,7 +17,6 @@ import {
   Send,
   Server,
   Upload,
-  Maximize2,
 } from "lucide-react";
 import {
   Bar,
@@ -38,15 +37,15 @@ import {
   type BodyWidgetId,
   type ExecWidgetId,
   type InsightWidgetId,
-  bodySpanClass,
-  cycleBodyQueueSpan,
-  cycleGridSpan,
-  DEFAULT_DASHBOARD_LAYOUT,
-  execSpanClass,
-  insightSpanClass,
-  loadDashboardLayout,
-  resetDashboardLayout,
-  saveDashboardLayout,
+  DEFAULT_BODY_ORDER,
+  DEFAULT_EXEC_ORDER,
+  DEFAULT_INSIGHT_ORDER,
+  loadBodyOrder,
+  loadExecOrder,
+  loadInsightOrder,
+  saveBodyOrder,
+  saveExecOrder,
+  saveInsightOrder,
   swapIds,
 } from "@/lib/dashboard-layout";
 
@@ -288,82 +287,39 @@ function CommandCenterDashboardLoaded({
   const queueTotal = data.actionQueue.length;
   const queueCountDisplay = useCountUp(queueTotal);
 
-  const [layout, setLayout] = useState(DEFAULT_DASHBOARD_LAYOUT);
+  const [execOrder, setExecOrder] = useState<ExecWidgetId[]>(DEFAULT_EXEC_ORDER);
+  const [insightOrder, setInsightOrder] = useState<InsightWidgetId[]>(DEFAULT_INSIGHT_ORDER);
+  const [bodyOrder, setBodyOrder] = useState<BodyWidgetId[]>(DEFAULT_BODY_ORDER);
 
   useEffect(() => {
-    setLayout(loadDashboardLayout());
+    setExecOrder(loadExecOrder());
+    setInsightOrder(loadInsightOrder());
+    setBodyOrder(loadBodyOrder());
   }, []);
 
-  const persistLayout = useCallback((updater: (prev: typeof DEFAULT_DASHBOARD_LAYOUT) => typeof DEFAULT_DASHBOARD_LAYOUT) => {
-    setLayout((prev) => {
-      const next = updater(prev);
-      saveDashboardLayout(next);
+  const onExecSwap = useCallback((sourceId: string, targetId: string) => {
+    setExecOrder((prev) => {
+      const next = swapIds(prev, sourceId as ExecWidgetId, targetId as ExecWidgetId);
+      saveExecOrder(next);
       return next;
     });
   }, []);
 
-  const onExecSwap = useCallback(
-    (sourceId: string, targetId: string) => {
-      persistLayout((prev) => ({
-        ...prev,
-        execOrder: swapIds(prev.execOrder, sourceId as ExecWidgetId, targetId as ExecWidgetId),
-      }));
-    },
-    [persistLayout],
-  );
-
-  const onInsightSwap = useCallback(
-    (sourceId: string, targetId: string) => {
-      persistLayout((prev) => ({
-        ...prev,
-        insightOrder: swapIds(prev.insightOrder, sourceId as InsightWidgetId, targetId as InsightWidgetId),
-      }));
-    },
-    [persistLayout],
-  );
-
-  const onBodySwap = useCallback(
-    (sourceId: string, targetId: string) => {
-      persistLayout((prev) => ({
-        ...prev,
-        bodyOrder: swapIds(prev.bodyOrder, sourceId as BodyWidgetId, targetId as BodyWidgetId),
-      }));
-    },
-    [persistLayout],
-  );
-
-  const onResetLayout = useCallback(() => {
-    const next = resetDashboardLayout();
-    setLayout(next);
-    saveDashboardLayout(next);
+  const onInsightSwap = useCallback((sourceId: string, targetId: string) => {
+    setInsightOrder((prev) => {
+      const next = swapIds(prev, sourceId as InsightWidgetId, targetId as InsightWidgetId);
+      saveInsightOrder(next);
+      return next;
+    });
   }, []);
 
-  const cycleExecSpan = useCallback(
-    (id: ExecWidgetId) => {
-      persistLayout((prev) => ({
-        ...prev,
-        execSpans: { ...prev.execSpans, [id]: cycleGridSpan(prev.execSpans[id]) },
-      }));
-    },
-    [persistLayout],
-  );
-
-  const cycleInsightSpan = useCallback(
-    (id: InsightWidgetId) => {
-      persistLayout((prev) => ({
-        ...prev,
-        insightSpans: { ...prev.insightSpans, [id]: cycleGridSpan(prev.insightSpans[id]) },
-      }));
-    },
-    [persistLayout],
-  );
-
-  const cycleBodyQueueSize = useCallback(() => {
-    persistLayout((prev) => ({
-      ...prev,
-      bodyQueueSpan: cycleBodyQueueSpan(prev.bodyQueueSpan),
-    }));
-  }, [persistLayout]);
+  const onBodySwap = useCallback((sourceId: string, targetId: string) => {
+    setBodyOrder((prev) => {
+      const next = swapIds(prev, sourceId as BodyWidgetId, targetId as BodyWidgetId);
+      saveBodyOrder(next);
+      return next;
+    });
+  }, []);
 
   const execWidgets: Record<ExecWidgetId, React.ReactNode> = {
     today: (
@@ -655,9 +611,9 @@ function CommandCenterDashboardLoaded({
             {linkTotal <= 0 ? (
               <p className="cc-rail-empty">No linkage in scope yet.</p>
             ) : (
-              <div className="cc-linkage-compact cc-linkage-compact--sm">
+              <div className="cc-linkage-compact cc-linkage-compact--rail">
                 <div
-                  className="cc-linkage-ring cc-linkage-ring--sm"
+                  className="cc-linkage-ring cc-linkage-ring--rail"
                   style={{
                     background: `conic-gradient(${CHART_GOLD} ${linkResolvedPct * 3.6}deg, var(--muted) 0deg)`,
                   }}
@@ -728,58 +684,29 @@ function CommandCenterDashboardLoaded({
         </div>
       )}
 
-      <div className="cc-layout-toolbar">
-        <p className="cc-layout-toolbar__hint">
-          Drag widgets to swap · use <Maximize2 className="inline h-3 w-3" aria-hidden /> to resize
-        </p>
-        <button type="button" className="admin-btn-quiet cc-layout-reset text-xs" onClick={onResetLayout}>
-          <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-          Reset layout
-        </button>
-      </div>
-
       <section aria-label="Executive summary" className="cc-executive-strip">
-        {layout.execOrder.map((id) => (
-          <DashboardDragSlot
-            key={id}
-            id={id}
-            className={["h-full", execSpanClass(layout.execSpans[id])].join(" ")}
-            onSwap={onExecSwap}
-            onCycleSize={() => cycleExecSpan(id)}
-            sizeMode={layout.execSpans[id] === 2 ? "wide" : "compact"}
-          >
+        {execOrder.map((id) => (
+          <DashboardDragSlot key={id} id={id} className="h-full" onSwap={onExecSwap}>
             {execWidgets[id]}
           </DashboardDragSlot>
         ))}
       </section>
 
       <section aria-label="Operational insights" className="cc-insight-row">
-        {layout.insightOrder.map((id) => (
-          <DashboardDragSlot
-            key={id}
-            id={id}
-            className={["h-full min-w-0", insightSpanClass(layout.insightSpans[id])].join(" ")}
-            onSwap={onInsightSwap}
-            onCycleSize={() => cycleInsightSpan(id)}
-            sizeMode={layout.insightSpans[id] === 2 ? "wide" : "compact"}
-          >
+        {insightOrder.map((id) => (
+          <DashboardDragSlot key={id} id={id} className="h-full min-w-0" onSwap={onInsightSwap}>
             {insightWidgets[id]}
           </DashboardDragSlot>
         ))}
       </section>
 
       <div className="cc-body-grid">
-        {layout.bodyOrder.map((id) => (
+        {bodyOrder.map((id) => (
           <DashboardDragSlot
             key={id}
             id={id}
-            className={[
-              id === "queue" ? "cc-body-main min-w-0" : "cc-body-rail min-w-0",
-              bodySpanClass(id, layout.bodyQueueSpan),
-            ].join(" ")}
+            className={id === "queue" ? "cc-body-main min-w-0" : "cc-body-rail min-w-0"}
             onSwap={onBodySwap}
-            onCycleSize={id === "queue" ? cycleBodyQueueSize : undefined}
-            sizeMode={layout.bodyQueueSpan >= 8 ? "wide" : "compact"}
           >
             {bodyWidgets[id]}
           </DashboardDragSlot>

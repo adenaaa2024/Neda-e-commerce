@@ -5,43 +5,21 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/src/lib/supabase";
 import { MenorixIntroSplash } from "@/components/MenorixIntroSplash";
+import { MenorixWordmark } from "@/components/MenorixWordmark";
 import { PlatformBrandingProvider } from "@/components/PlatformBrandingContext";
 import { LogoMark } from "@/components/LogoMark";
 
-async function tryOfferSavePassword(
-  email: string,
-  password: string,
-): Promise<void> {
+async function tryOfferSavePassword(email: string, password: string): Promise<void> {
   if (typeof globalThis === "undefined" || !globalThis.isSecureContext) return;
   if (!("PasswordCredential" in globalThis) || !navigator.credentials?.store) return;
   try {
     const C = (globalThis as unknown as {
       PasswordCredential: new (d: { id: string; password: string; name: string }) => Credential;
     }).PasswordCredential;
-    const cred = new C({ id: email, password, name: email });
-    await navigator.credentials.store(cred);
+    await navigator.credentials.store(new C({ id: email, password, name: email }));
   } catch {
-    /* optional browser dialog */
+    /* optional */
   }
-}
-
-const TITLE = "Menorix";
-
-function AnimatedTitle() {
-  return (
-    <h1 className="login-page__title login-page__title--live" aria-label={TITLE}>
-      {TITLE.split("").map((char, i) => (
-        <span
-          key={`${char}-${i}`}
-          className="login-page__title-char"
-          style={{ ["--char-i" as string]: String(i) }}
-          aria-hidden={char === " "}
-        >
-          {char}
-        </span>
-      ))}
-    </h1>
-  );
 }
 
 export default function LoginPage() {
@@ -62,12 +40,10 @@ export default function LoginPage() {
 
     try {
       const response = await supabase.auth.signInWithPassword({ email, password });
-
       if (response.error) {
         setErrorMessage(response.error.message || "Login failed. Please try again.");
         return;
       }
-
       await tryOfferSavePassword(email, password);
       router.push("/");
       router.refresh();
@@ -81,14 +57,16 @@ export default function LoginPage() {
 
   return (
     <PlatformBrandingProvider>
-      <MenorixIntroSplash durationMs={6200} variant="login">
+      <MenorixIntroSplash durationMs={9000} variant="login" skippable>
         <main className="login-page">
           <div className="login-page__bg" aria-hidden />
 
           <section className="login-page__card">
             <header className="login-page__brand">
-              <LogoMark className="login-page__logo !h-16 !w-16 !rounded-[14px] !border-primary/40 !shadow-none" />
-              <AnimatedTitle />
+              <LogoMark className="login-page__logo login-page__logo--live !h-[5.4rem] !w-[5.4rem] !rounded-[16px] !border-primary/40 !shadow-none" />
+              <h1 className="login-page__title">
+                <MenorixWordmark size="login" animated />
+              </h1>
             </header>
 
             <form id="login-form" className="space-y-4" onSubmit={handleSubmit} method="post">

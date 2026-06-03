@@ -1399,56 +1399,11 @@ html {
   .menorix-admin-shell .cc-executive-strip {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-
-  .menorix-admin-shell .cc-drag-slot--exec-span-2 {
-    grid-column: span 2;
-  }
 }
 
-.menorix-admin-shell .cc-layout-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 0.75rem;
-  margin-bottom: 0.5rem;
-  padding: 0.375rem 0.5rem;
-  border-radius: 8px;
-  border: 1px dashed color-mix(in srgb, var(--primary) 28%, var(--border));
-  background: color-mix(in srgb, var(--primary) 5%, var(--menorix-card));
-}
-
-.menorix-admin-shell .cc-layout-toolbar__hint {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  margin: 0;
-}
-
-.menorix-admin-shell .cc-layout-reset {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  min-height: 2.25rem;
-  padding-inline: 0.75rem;
-}
-
-.menorix-admin-shell .cc-drag-slot {
-  padding-top: 2.125rem;
-}
-
-.menorix-admin-shell .cc-drag-slot__controls {
+.menorix-admin-shell .cc-drag-slot:hover {
   filter: none !important;
   backdrop-filter: none !important;
-}
-
-.menorix-admin-shell .cc-drag-size-btn:hover,
-.menorix-admin-shell .cc-drag-handle:hover {
-  filter: none !important;
-  backdrop-filter: none !important;
-}
-
-.menorix-admin-shell .cc-drag-size-btn:hover svg {
-  animation: mx-icon-shock 380ms var(--mx-hover-spring) forwards;
 }
 
 .menorix-admin-shell .cc-exec-link,
@@ -1618,16 +1573,6 @@ html {
   .menorix-admin-shell .cc-insight-row {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-
-  .menorix-admin-shell .cc-drag-slot--insight-span-2 {
-    grid-column: span 2;
-  }
-}
-
-@media (min-width: 768px) and (max-width: 1279px) {
-  .menorix-admin-shell .cc-drag-slot--insight-span-2 {
-    grid-column: span 2;
-  }
 }
 
 .menorix-admin-shell .cc-insight-card {
@@ -1688,20 +1633,14 @@ html {
     align-items: stretch;
   }
 
-  .menorix-admin-shell .cc-drag-slot--body-span-4 {
-    grid-column: span 4;
-  }
-
-  .menorix-admin-shell .cc-drag-slot--body-span-6 {
-    grid-column: span 6;
-  }
-
-  .menorix-admin-shell .cc-drag-slot--body-span-8 {
+  .menorix-admin-shell .cc-body-main,
+  .menorix-admin-shell .cc-drag-slot.cc-body-main {
     grid-column: span 8;
   }
 
-  .menorix-admin-shell .cc-drag-slot--body-span-12 {
-    grid-column: span 12;
+  .menorix-admin-shell .cc-body-rail,
+  .menorix-admin-shell .cc-drag-slot.cc-body-rail {
+    grid-column: span 4;
   }
 
   .menorix-admin-shell .cc-queue-panel,
@@ -1974,7 +1913,7 @@ html {
 
 .menorix-admin-shell .cc-rail-card--compact .cc-panel__header--compact {
   flex-shrink: 0;
-  padding: 0.5rem 0.75rem 0.125rem;
+  padding: 0.5rem 0.75rem 0.5rem;
 }
 
 .menorix-admin-shell .cc-rail-empty {
@@ -2057,11 +1996,26 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   padding: 0.125rem 0.75rem 0.25rem;
 }
 
-.menorix-admin-shell .cc-linkage-compact--sm {
-  gap: 0.5rem;
-  padding: 0.125rem 0.75rem 0;
+.menorix-admin-shell .cc-linkage-compact--rail {
+  gap: 0.75rem;
+  padding: 0.375rem 0.625rem 0.5rem;
 }
 
+.menorix-admin-shell .cc-linkage-stats {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.menorix-admin-shell .cc-linkage-ring--rail {
+  width: 4.75rem;
+  height: 4.75rem;
+}
+
+.menorix-admin-shell .cc-linkage-ring--rail .cc-linkage-ring__inner {
+  width: 3.55rem;
+  height: 3.55rem;
+  font-size: 0.875rem;
+}
 .menorix-admin-shell .cc-linkage-ring {
   width: 3rem;
   height: 3rem;
@@ -2075,6 +2029,11 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 .menorix-admin-shell .cc-linkage-ring--sm {
   width: 2.5rem;
   height: 2.5rem;
+}
+
+.menorix-admin-shell .cc-linkage-compact--sm {
+  gap: 0.5rem;
+  padding: 0.125rem 0.75rem 0;
 }
 
 .menorix-admin-shell .cc-linkage-ring__inner {
@@ -2094,11 +2053,6 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   width: 1.875rem;
   height: 1.875rem;
   font-size: 0.625rem;
-}
-
-.menorix-admin-shell .cc-linkage-stats {
-  font-size: 0.625rem;
-  line-height: 1.45;
 }
 
 .menorix-admin-shell .cc-rail-card--compact .cc-rail-link {
@@ -2132,7 +2086,9 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 
 .menorix-admin-shell .cc-claims-ready-value--sm {
   font-size: 1.375rem;
-  padding: 0 0.75rem;
+  padding: 0.375rem 0.75rem 0;
+  margin-top: 0.375rem;
+  line-height: 1.15;
 }
 
 .menorix-admin-shell .cc-claims-ready-label {
@@ -2143,7 +2099,8 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 }
 
 .menorix-admin-shell .cc-rail-card--compact .cc-claims-ready-label {
-  padding: 0 0.75rem;
+  padding: 0.25rem 0.75rem 0;
+  margin-top: 0.125rem;
 }
 
 .menorix-admin-shell .cc-claims-mini {
@@ -2733,24 +2690,7 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
   }
 
   .menorix-admin-shell .cc-layout-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .menorix-admin-shell .cc-layout-reset {
-    width: 100%;
-    justify-content: center;
-    min-height: 2.75rem;
-  }
-
-  .menorix-admin-shell .cc-drag-slot {
-    padding-top: 2.5rem;
-  }
-
-  .menorix-admin-shell .cc-drag-handle,
-  .menorix-admin-shell .cc-drag-size-btn {
-    min-height: 2.25rem;
-    min-width: 2.25rem;
+    display: none;
   }
 
   .menorix-admin-shell .cc-drag-slot--exec-span-2,
@@ -3207,6 +3147,34 @@ html.light .operator-shipment-entry-gate-scan-card.scanner-page-glass-card {
 
 html.light .operator-shipment-entry-gate-scan-card p.mt-4.font-semibold {
   color: #737b86 !important;
+}
+
+html.light .operator-shipment-entry-gate__searching-label {
+  color: #524018 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__phase-label {
+  color: #524018 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__stuck-hint {
+  color: #6f5424 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__review-hint {
+  color: #8a681f !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-chip--pending {
+  background: #f3efe6 !important;
+  border: 1px solid #cfc6b6 !important;
+  color: #737b86 !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-chip--active {
+  background: rgba(138, 104, 31, 0.12) !important;
+  border: 1px solid rgba(138, 104, 31, 0.42) !important;
+  color: #524018 !important;
 }
 
 html.light .operator-shipment-entry-gate-page {
@@ -4347,11 +4315,22 @@ html.light .operator-shipment-entry-gate__entity-btn--idle {
   -webkit-backdrop-filter: none;
 }
 
-html.light .operator-shipment-entry-gate .operator-scan-progress-chip--pending,
-html.light .operator-shipment-entry-gate .operator-scan-progress-chip--active {
-  background: #f3efe6 !important;
-  border: 1px solid #cfc6b6 !important;
-  color: #4d5560 !important;
+html.dark .operator-shipment-entry-gate .operator-scan-progress-strip__phase-label {
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-shipment-entry-gate .operator-scan-progress-strip__stuck-hint {
+  color: rgba(232, 220, 192, 0.72) !important;
+}
+
+html.dark .operator-shipment-entry-gate .operator-scan-progress-strip__review-hint {
+  color: rgba(214, 183, 110, 0.82) !important;
+}
+
+html.light .operator-shipment-entry-gate .operator-scan-progress-strip__error {
+  border-color: rgba(220, 38, 38, 0.35) !important;
+  background: rgba(254, 226, 226, 0.85) !important;
+  color: #991b1b !important;
 }
 
 html.light .operator-shipment-entry-gate .operator-scan-progress-chip--done {

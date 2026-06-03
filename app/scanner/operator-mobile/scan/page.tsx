@@ -12927,7 +12927,7 @@ function OperatorMobileScanPageContent() {
                 </div>
               ) : null}
               {identifyGatePhase === "searching" ? (
-                <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold" style={{ color: "#B9C2CC" }}>
+                <p className="operator-shipment-entry-gate__searching-label mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold">
                   <Loader2 className="operator-shipment-entry-gate__searching-spinner h-5 w-5 animate-spin" strokeWidth={2} />
                   Searching inventory status…
                 </p>
