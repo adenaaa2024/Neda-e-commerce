@@ -3121,6 +3121,19 @@ html.light .operator-mobile-app-shell .operator-shipment-entry-gate .scanner-ocr
   background: linear-gradient(180deg, #11161c 0%, #050607 36%, #050607 100%) !important;
 }
 
+.operator-shipment-entry-gate-page > .operator-shipment-entry-gate-main {
+  flex: 1 1 0%;
+  min-height: 0;
+  /* Content aligns to top; ~14px inset above in-column nav comes from pb-3.5 on main. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.operator-shipment-entry-gate-page > .operator-shipment-entry-gate-main > .operator-shipment-entry-gate {
+  flex: 0 0 auto;
+}
+
 .operator-shipment-entry-gate {
   --scanner-bracket-cyan: rgba(214, 183, 110, 0.9);
   --scanner-bracket-glow: drop-shadow(0 0 10px rgba(214, 183, 110, 0.42))
@@ -3777,11 +3790,17 @@ html.light .operator-shipment-entry-gate__line-items {
 }
 
 /* Shipment Entry result — scrollable line-items body (only when list is long) */
+.operator-shipment-entry-gate__line-items .operator-shipment-entry-gate__line-item-card {
+  --operator-shipment-entry-line-item-row: 5.5rem;
+  cursor: default;
+}
+
 .operator-shipment-entry-gate__results .operator-shipment-entry-gate__line-items-scroll--long {
-  max-height: clamp(260px, 38vh, 360px);
+  max-height: calc(var(--operator-shipment-entry-line-item-row, 5.5rem) * 3 + 1rem);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   scrollbar-width: thin;

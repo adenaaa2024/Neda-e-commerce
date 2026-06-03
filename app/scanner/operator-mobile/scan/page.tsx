@@ -304,6 +304,9 @@ const ZEBRA_COMPACT_BTN =
 /** Rugged handheld density — forced via `.operator-shipment-handheld-compact` on scan page (not viewport MQ). */
 const HANDHELD_COMPACT =
   "gap-1 space-y-0.5 px-2 pb-[5.5rem] pt-0";
+/** Shipment Entry gate — tight bottom inset above in-column nav (no fixed-action clearance). */
+const HANDHELD_GATE_COMPACT =
+  "gap-1 space-y-0.5 px-2 pb-3.5 pt-0";
 const HANDHELD_HEADER_COMPACT =
   "px-2 pb-0 pt-0";
 const HANDHELD_STEPPER_COMPACT =
@@ -3123,6 +3126,18 @@ function countLookupExpectedPackages(
   return typeof fallbackRowCount === "number" && fallbackRowCount > 0 ? fallbackRowCount : null;
 }
 
+/** Matched gate: operator box stepper is hidden — derive count from manifest lookup when possible. */
+function resolveMatchedGatePalletBoxCount(
+  physicalBoxStr: string,
+  shipmentLines: VInventoryStatusRow[],
+  detailRows: Record<string, unknown>[],
+  inventoryAgg: { rowCount?: number | null } | null,
+): number | null {
+  const parsed = parseMandatoryGateBoxCount(physicalBoxStr);
+  if (parsed.valid) return parsed.n;
+  return countLookupExpectedPackages(shipmentLines, detailRows, inventoryAgg?.rowCount ?? null);
+}
+
 function trackingScopedInventoryRows(rows: VInventoryStatusRow[], trackingNumber: string): VInventoryStatusRow[] {
   const key = normalizeTrackingKey(trackingNumber);
   if (!key) return [];
@@ -5128,6 +5143,9 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateInventoryVisual(scopedVis);
         setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
         setIdentifyGateShipmentLines(shipmentLines);
+        setIdentifyGateEntity((prev) =>
+          prev ?? identifyGateEntityForManifestMatch(gateMatchField, gateLookup.match_status),
+        );
         setIdentifyGatePhase("matched");
         setScanProgressPhase("ready");
         if (!invRows.length && !shipmentLines.length && !scopedSafe.length) {
@@ -9416,12 +9434,16 @@ function OperatorMobileScanPageContent() {
   );
 
   const handleIdentifyMatchedStartWorkflow = useCallback(async () => {
-    if (identifyGatePhase !== "matched" || !identifyGateEntity) return;
+    if (identifyGatePhase !== "matched") return;
+    const entity =
+      identifyGateEntity ??
+      identifyGateEntityForManifestMatch(identifyGateMatchField, "");
+    if (!entity) return;
     if (identifyGateInventoryVisual === "completed") return;
     const tracking = (identifyGateCanonicalTracking ?? identifyGateEnteredCode).trim();
     if (!tracking) return;
 
-    if (identifyGateEntity === "pallet") setDirectBox(false);
+    if (entity === "pallet") setDirectBox(false);
 
     const orderIdFromGate = (): string | null => {
       for (const r of identifyGateShipmentLines) {
@@ -9437,19 +9459,24 @@ function OperatorMobileScanPageContent() {
     const orderId = orderIdFromGate();
 
     let palletOperatorPackageCount: number | null = null;
-    if (identifyGateEntity === "pallet") {
-      const parsed = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr);
-      if (!parsed.valid) return;
-      palletOperatorPackageCount = parsed.n;
-      setPhysicalBoxCount(parsed.n);
-      setBoxScanTargetDenominator(parsed.n);
-    } else if (identifyGateEntity === "single_box") {
+    if (entity === "pallet") {
+      palletOperatorPackageCount = resolveMatchedGatePalletBoxCount(
+        identifyGatePhysicalBoxStr,
+        identifyGateShipmentLines,
+        identifyGateRows,
+        identifyGateInventoryAgg,
+      );
+      if (palletOperatorPackageCount != null) {
+        setPhysicalBoxCount(palletOperatorPackageCount);
+        setBoxScanTargetDenominator(palletOperatorPackageCount);
+      }
+    } else if (entity === "single_box") {
       palletOperatorPackageCount = 1;
       setPhysicalBoxCount(1);
       setBoxScanTargetDenominator(1);
     } else if (
       !(
-        identifyGateEntity === "package" &&
+        entity === "package" &&
         (identifyGateInventoryVisual === "new" || identifyGateInventoryVisual === "in_progress")
       )
     ) {
@@ -9458,12 +9485,32 @@ function OperatorMobileScanPageContent() {
     }
 
     const shipContinueVisual =
-      identifyGateEntity === "package" &&
+      entity === "package" &&
       (identifyGateInventoryVisual === "new" || identifyGateInventoryVisual === "in_progress");
 
     setBusy(true);
     try {
       const code = identifyGateEnteredCode.trim() || tracking;
+      if (
+        entity === "pallet" &&
+        palletOperatorPackageCount == null &&
+        isSupabaseConfigured() &&
+        sessionStoreId
+      ) {
+        const snap = await loadTrackingExpectationSnapshot(supabase, orgId, sessionStoreId, tracking);
+        if (snap.rawRowCount > 0) {
+          palletOperatorPackageCount = snap.rawRowCount;
+          setPhysicalBoxCount(snap.rawRowCount);
+          setBoxScanTargetDenominator(snap.rawRowCount);
+        }
+      } else if (entity === "pallet" && palletOperatorPackageCount == null && !isSupabaseConfigured()) {
+        const snap = mockTrackingExpectationSnapshot(tracking);
+        if (snap.rawRowCount > 0) {
+          palletOperatorPackageCount = snap.rawRowCount;
+          setPhysicalBoxCount(snap.rawRowCount);
+          setBoxScanTargetDenominator(snap.rawRowCount);
+        }
+      }
       if (isSupabaseConfigured() && sessionStoreId) {
         const dbResume = await tryDirectPackageDbFallbackResume(code, [
           tracking,
@@ -9485,11 +9532,11 @@ function OperatorMobileScanPageContent() {
       let applied = false;
       let lastResolve: OperatorResolveResult | null = null;
       const resolveOnly: OperatorResolveKind | undefined =
-        identifyGateEntity === "package"
+        entity === "package"
           ? "package"
-          : identifyGateEntity === "single_box"
+          : entity === "single_box"
             ? "tracking"
-            : identifyGateEntity === "pallet"
+            : entity === "pallet"
               ? "pallet"
               : "tracking";
 
@@ -9604,7 +9651,7 @@ function OperatorMobileScanPageContent() {
         }
       } else {
         setModernPalletWorkspace(false);
-        if (identifyGateEntity === "single_box") {
+        if (entity === "single_box") {
           setActiveSlipOrPackage(null);
           setDirectBox(true);
           setPhysicalBoxCount(1);
@@ -9645,7 +9692,9 @@ function OperatorMobileScanPageContent() {
   }, [
     identifyGatePhase,
     identifyGateEntity,
+    identifyGateMatchField,
     identifyGateInventoryVisual,
+    identifyGateInventoryAgg,
     identifyGateCanonicalTracking,
     identifyGateEnteredCode,
     identifyGatePhysicalBoxStr,
@@ -9659,6 +9708,7 @@ function OperatorMobileScanPageContent() {
     hydrateSavedPackageRowIntoBoxIntake,
     scheduleFocusScanner,
     resetIdentifyGateForm,
+    tryDirectPackageDbFallbackResume,
   ]);
 
   const handleIdentifyNewCreateAndStart = useCallback(async () => {
@@ -12613,10 +12663,12 @@ function OperatorMobileScanPageContent() {
 
       <main
         ref={itemsChromeStickyLayout ? undefined : bindOperatorMainScrollEl}
-        className={`min-h-0 flex-1 px-3 pt-1 ${
+        className={`min-h-0 px-3 pt-1 ${
           itemsChromeStickyLayout
-            ? "operator-item-scan-main flex min-h-0 flex-col overflow-hidden overscroll-contain"
-            : `overflow-y-auto overscroll-contain pb-3 ${mainScrollClass} ${HANDHELD_COMPACT}`
+            ? "operator-item-scan-main flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain"
+            : !isIdentified
+              ? `operator-shipment-entry-gate-main flex-1 overflow-y-auto overscroll-contain ${mainScrollClass} ${HANDHELD_GATE_COMPACT}`
+              : `flex-1 overflow-y-auto overscroll-contain pb-3 ${mainScrollClass} ${HANDHELD_COMPACT}`
         }`}
       >
         {!isIdentified ? (
@@ -13011,7 +13063,7 @@ function OperatorMobileScanPageContent() {
               <section
                 key={`identify-gate-results-${identifyGatePhase}-${identifyGateInventoryVisual}`}
                 data-gate-visual={identifyGateInventoryVisual}
-                className={`operator-shipment-entry-gate__results animate-scanner-results-enter relative z-0 mb-4 w-full max-w-full overflow-hidden rounded-lg border px-4 py-4 sm:px-5 sm:py-5 border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)] ${glassCard}${
+                className={`operator-shipment-entry-gate__results animate-scanner-results-enter relative z-0 mb-0 w-full max-w-full overflow-hidden rounded-lg border px-4 py-4 sm:px-5 sm:py-5 border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)] ${glassCard}${
                   identifyGateGlowFlash ? " operator-shipment-entry-gate__results--glow-flash" : ""
                 }`}
               >
@@ -13260,7 +13312,7 @@ function OperatorMobileScanPageContent() {
                         </div>
                         <div
                           className={`operator-shipment-entry-gate__line-items-scroll${
-                            identifyGateShipmentLines.length > 5
+                            identifyGateShipmentLines.length > 3
                               ? " operator-shipment-entry-gate__line-items-scroll--long"
                               : ""
                           }`}
@@ -13293,16 +13345,11 @@ function OperatorMobileScanPageContent() {
                                 className="operator-shipment-entry-gate__line-item-card rounded-md bg-[rgba(255,255,255,0.025)] p-1.5"
                               >
                                 <div className="flex min-w-0 items-start justify-between gap-2">
-                                  <div
-                                    className="min-w-0 flex-1"
-                                    onClick={(e) => e.stopPropagation()}
-                                    onKeyDown={(e) => e.stopPropagation()}
-                                  >
+                                  <div className="min-w-0 flex-1">
                                     <ProductLinkagePrimaryLink
                                       linkage={lineLinkage}
-                                      detailFrom="scan"
+                                      linkWhenResolved={false}
                                       className={`operator-shipment-entry-gate__product-link line-clamp-2 break-words ${SLIP_CARD_HEADING}`}
-                                      onClick={(e) => e.stopPropagation()}
                                     />
                                     <div className={`mt-0.5 max-w-full overflow-hidden leading-tight ${SLIP_CARD_TECH_ID}`}>
                                       <span className="text-neutral-500">{primaryIdentifierLabel}</span>{" "}
