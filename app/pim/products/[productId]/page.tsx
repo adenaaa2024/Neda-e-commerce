@@ -190,7 +190,7 @@ export default async function ProductProfilePage({
   const backLabel = backHref.includes("/returns") ? "Back to returns" : "Back to products";
 
   return (
-    <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <main className="w-full min-w-0 space-y-6 py-6 lg:py-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href={backHref} className="text-xs font-medium text-sky-600 hover:underline">

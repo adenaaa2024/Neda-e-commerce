@@ -54,6 +54,15 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isLoginRoute) {
+    // POST / RSC refresh during client navigation must not get a 307 HTML redirect —
+    // that breaks Server Actions / router.refresh with "unexpected response from server".
+    const isMutationOrRsc =
+      request.method !== "GET" ||
+      request.headers.has("Next-Action") ||
+      request.headers.get("RSC") === "1";
+    if (isMutationOrRsc) {
+      return response;
+    }
     const homeUrl = request.nextUrl.clone();
     homeUrl.pathname = "/";
     return NextResponse.redirect(homeUrl);

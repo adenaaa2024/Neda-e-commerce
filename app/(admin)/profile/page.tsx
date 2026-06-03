@@ -130,7 +130,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8 sm:px-6 md:py-10 lg:px-10">
+    <div className="w-full min-w-0 py-8 sm:py-8 md:py-10">
       <Link
         href="/"
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground md:mb-8"

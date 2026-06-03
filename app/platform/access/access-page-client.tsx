@@ -1530,7 +1530,7 @@ function PlatformAccessPageInner() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full min-w-0 max-w-6xl flex-col px-4 py-8 pb-28 sm:px-6">
+    <div className="flex min-h-screen w-full min-w-0 flex-col py-8 pb-28 sm:py-8">
       <Link
         href="/platform/settings"
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground"

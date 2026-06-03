@@ -2,16 +2,22 @@
 
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Download, Share, X } from "lucide-react";
+import { Download, RefreshCw, Share, X } from "lucide-react";
+import { PWA_APP_NAME, PWA_APP_VERSION } from "@/lib/pwa-app-version";
 import {
   getDeferredInstallPrompt,
   runDeferredInstallPrompt,
   subscribeInstallPrompt,
 } from "@/lib/pwa-install-prompt";
 import { isStandaloneDisplay } from "@/lib/pwa-standalone";
+import {
+  applyWaitingServiceWorkerUpdate,
+  subscribeSwUpdate,
+} from "@/lib/pwa-sw-update";
 import { SCANNER_OPERATOR_SCAN_PATH } from "./ScannerBottomNav";
 
-const DISMISS_KEY = "operatorMobile:pwaHintDismissed";
+const DISMISS_KEY = `operatorMobile:pwaHintDismissed:${PWA_APP_VERSION}`;
+const PROMPT_WAIT_MS = 2500;
 
 function isMobileClient(): boolean {
   if (typeof window === "undefined") return false;
@@ -32,34 +38,68 @@ function isAndroidChrome(): boolean {
   return /Android/i.test(navigator.userAgent);
 }
 
+function wasDismissed(): boolean {
+  try {
+    return sessionStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Install banner on operator-mobile scan — native prompt when available,
- * iOS share-sheet hint otherwise.
+ * Install / update banner on operator-mobile scan — native prompt when available,
+ * iOS share-sheet hint otherwise. Hidden when installed unless a newer version ships.
  */
 export function OperatorPwaInstallHint() {
   const pathname = usePathname();
   const onScanRoute =
     pathname === SCANNER_OPERATOR_SCAN_PATH || pathname.startsWith(`${SCANNER_OPERATOR_SCAN_PATH}/`);
+  const [installed, setInstalled] = useState(false);
   const [visible, setVisible] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
+  const [promptPending, setPromptPending] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
-    if (!isMobileClient() || isStandaloneDisplay() || !onScanRoute) return;
-    try {
-      if (sessionStorage.getItem(DISMISS_KEY) === "1") return;
-    } catch {
-      /* ignore */
+    setInstalled(isStandaloneDisplay());
+  }, []);
+
+  useEffect(() => {
+    if (!onScanRoute || !isMobileClient()) {
+      setVisible(false);
+      return;
     }
+
+    if (installed) {
+      return subscribeSwUpdate((available) => {
+        setUpdateAvailable(available);
+        setVisible(available && !wasDismissed());
+      });
+    }
+
+    if (wasDismissed()) {
+      setVisible(false);
+      return;
+    }
+
     setVisible(true);
-  }, [onScanRoute]);
+    setPromptPending(true);
+    const timer = window.setTimeout(() => setPromptPending(false), PROMPT_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [onScanRoute, installed]);
 
   useEffect(() => {
-    if (!visible || isStandaloneDisplay()) return;
-    const sync = () => setCanInstall(Boolean(getDeferredInstallPrompt()));
+    if (!visible || installed) return;
+    const sync = () => {
+      const ready = Boolean(getDeferredInstallPrompt());
+      setCanInstall(ready);
+      if (ready) setPromptPending(false);
+    };
     sync();
     return subscribeInstallPrompt(sync);
-  }, [visible]);
+  }, [visible, installed]);
 
   const dismiss = useCallback(() => {
     try {
@@ -80,10 +120,20 @@ export function OperatorPwaInstallHint() {
     }
   }, [dismiss]);
 
+  const handleUpdate = useCallback(async () => {
+    setUpdating(true);
+    try {
+      await applyWaitingServiceWorkerUpdate();
+    } finally {
+      setUpdating(false);
+    }
+  }, []);
+
   if (!visible || !onScanRoute) return null;
 
-  const iosManual = isIosSafari();
-  const androidMenu = isAndroidChrome() && !canInstall && !iosManual;
+  const iosManual = !installed && isIosSafari();
+  const androidMenu = !installed && isAndroidChrome() && !canInstall && !iosManual && !promptPending;
+  const showUpdate = installed && updateAvailable;
 
   return (
     <div
@@ -93,7 +143,7 @@ export function OperatorPwaInstallHint() {
         background: "var(--scanner-header-gradient)",
       }}
       role="region"
-      aria-label="Install Menorix app"
+      aria-label={showUpdate ? `Update ${PWA_APP_NAME} app` : `Install ${PWA_APP_NAME} app`}
     >
       <div className="flex items-start gap-2.5">
         <div className="min-w-0 flex-1">
@@ -101,18 +151,36 @@ export function OperatorPwaInstallHint() {
             className="text-[12px] font-bold leading-snug"
             style={{ color: "var(--scanner-text, #faf6ed)" }}
           >
-            Install Menorix Scanner
+            {showUpdate ? `Update ${PWA_APP_NAME}` : `Install ${PWA_APP_NAME}`}
           </p>
           <p className="mt-0.5 text-[11px] leading-snug" style={{ color: "var(--op-text-secondary, #b9c2cc)" }}>
-            {iosManual
-              ? "Opens full-screen like an app — Share → Add to Home Screen (not a browser tab)."
-              : canInstall
-                ? "Install as a standalone warehouse scanner app — no browser address bar."
-                : androidMenu
-                  ? "Menu ⋮ → Install app (or Add to Home screen). Avoid “Shortcut” — pick Install for full-screen app."
-                  : "Install from your browser menu as an app for full-screen scanner mode."}
+            {showUpdate
+              ? "A newer version is ready — tap Update to refresh the installed app."
+              : iosManual
+                ? "Opens full-screen like an app — tap Share below, then Add to Home Screen."
+                : canInstall
+                  ? "Install as a standalone app — no browser address bar."
+                  : promptPending
+                    ? "Checking install availability…"
+                    : androidMenu
+                      ? "If the button below does not appear, use Menu ⋮ → Install app (not Shortcut)."
+                      : "Install from your browser menu as an app for full-screen mode."}
           </p>
-          {canInstall ? (
+          {showUpdate ? (
+            <button
+              type="button"
+              onClick={() => void handleUpdate()}
+              disabled={updating}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-bold transition active:scale-[0.98] disabled:opacity-60"
+              style={{
+                color: "var(--op-app-bg, #050607)",
+                background: "var(--op-accent-gold, #d6b76e)",
+              }}
+            >
+              <RefreshCw className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {updating ? "Updating…" : "Update app"}
+            </button>
+          ) : canInstall ? (
             <button
               type="button"
               onClick={() => void handleInstall()}
@@ -124,7 +192,7 @@ export function OperatorPwaInstallHint() {
               }}
             >
               <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              {installing ? "Installing…" : "Install app"}
+              {installing ? "Installing…" : `Install ${PWA_APP_NAME}`}
             </button>
           ) : iosManual ? (
             <p
@@ -133,6 +201,13 @@ export function OperatorPwaInstallHint() {
             >
               <Share className="h-3.5 w-3.5 shrink-0" aria-hidden />
               Share → Add to Home Screen
+            </p>
+          ) : promptPending ? (
+            <p
+              className="mt-2 text-[11px] font-semibold"
+              style={{ color: "var(--op-accent-gold, #d6b76e)" }}
+            >
+              Preparing install…
             </p>
           ) : null}
         </div>

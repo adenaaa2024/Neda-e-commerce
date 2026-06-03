@@ -27,7 +27,7 @@ export default async function Page() {
       </header>
 
       <main className="command-center-main flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto flex w-full max-w-[min(100%,1880px)] flex-col px-3 py-4 sm:px-5 lg:px-6 lg:py-5">
+        <div className="flex w-full min-w-0 flex-col py-4 lg:py-5">
           <CommandCenterDashboard data={data} fetchError={fetchError} />
         </div>
       </main>

@@ -6,7 +6,9 @@ import { ThemeProvider } from "../components/providers/ThemeProvider";
 import { DebugModeProvider } from "../components/DebugModeContext";
 import { AppShell } from "../components/AppShell";
 import { PwaStandaloneScannerRedirect } from "../components/PwaStandaloneScannerRedirect";
+import { PwaEarlyInstallCapture } from "../components/PwaEarlyInstallCapture";
 import { PwaServiceWorkerRegister } from "../components/PwaServiceWorkerRegister";
+import { PWA_APP_NAME } from "../lib/pwa-app-version";
 import { getPlatformAppNameForMetadata } from "../lib/platform-settings-read";
 
 /** Global Menorix PWA — matches operator-mobile scanner canvas. */
@@ -29,10 +31,10 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description: "B2B Returns & Recovery Platform",
     manifest: "/manifest.json",
-    applicationName: "Menorix Scanner",
+    applicationName: PWA_APP_NAME,
     appleWebApp: {
       capable: true,
-      title: "Menorix Scanner",
+      title: PWA_APP_NAME,
       statusBarStyle: "black-translucent",
     },
     icons: {
@@ -63,6 +65,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <PwaEarlyInstallCapture />
+      </head>
       <body className={`${inter.variable} ${geistMono.variable} font-sans antialiased`}>
         <ThemeProvider
           attribute="class"

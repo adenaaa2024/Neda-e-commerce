@@ -1,6 +1,6 @@
 /** Shared layout + premium MENORIX styling tokens for Claims workflow pages. */
 
-export const CLAIM_ENGINE_PAGE_CLASS = "mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8";
+export const CLAIM_ENGINE_PAGE_CLASS = "w-full min-w-0 space-y-6 py-6 lg:py-8";
 
 export const CLAIM_ENGINE_MAIN_CLASS =
   "claim-engine-main claim-engine-view min-h-0 flex-1 overflow-y-auto overflow-x-hidden";

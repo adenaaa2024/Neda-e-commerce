@@ -481,7 +481,7 @@ export default function ProductInformationManagementPage() {
         <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-sky-400/15 blur-3xl dark:bg-sky-500/10" />
       </div>
 
-      <div className="relative mx-auto w-full max-w-[min(100%,1680px)]">
+      <div className="relative w-full min-w-0">
         <header className="mb-8 rounded-2xl border border-border/60 bg-card/70 p-6 shadow-xl backdrop-blur-md dark:bg-card/50 sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
