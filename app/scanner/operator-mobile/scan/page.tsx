@@ -394,6 +394,11 @@ function operatorEvidenceUrlArraysChanged(
   const b = norm(baseline);
   return a.length !== b.length || a.some((v, i) => v !== b[i]);
 }
+
+/** Scalar box/pallet intake fields — treat null/undefined/whitespace as empty. */
+function normBoxScalar(value: unknown): string {
+  return String(value ?? "").trim();
+}
 /** Second gate when saving a BOX while slip snapshot records pallet Order ID conflict. */
 const PACKAGE_SAVE_ORDER_CONFLICT_WARNING =
   "Order ID conflict: the packing slip does not match this pallet's assigned Order ID. Do you want to continue and save anyway?";
@@ -4093,6 +4098,9 @@ function OperatorMobileScanPageContent() {
     orderId: "",
     carrier: "",
   });
+  /** False while a persisted package row is re-hydrating — avoids false dirty before baseline is finalized. */
+  const boxIntakeBaselineReadyRef = useRef(true);
+  const finalizeBoxIntakeBaselineRef = useRef<(() => void) | null>(null);
   const palletNotesBaselineRef = useRef("");
   /** Persisted storage public URLs to remove after a successful Save/Confirm. */
   const pendingEvidenceStorageDeletesRef = useRef<Set<string>>(new Set());
@@ -4389,6 +4397,7 @@ function OperatorMobileScanPageContent() {
         });
         if (hydrateBoxPackageIdRef.current !== pid) return;
         applyHydratedBoxSlipVisionSnapshot(snap);
+        finalizeBoxIntakeBaselineRef.current?.();
       } catch {
         /* resume hydration is best-effort */
       }
@@ -6326,14 +6335,24 @@ function OperatorMobileScanPageContent() {
   }, []);
 
   const captureBoxIntakeFieldsBaseline = useCallback(() => {
-    boxNotesBaselineRef.current = boxNotesRef.current.trim();
+    boxNotesBaselineRef.current = normBoxScalar(boxNotesRef.current);
     boxIntakeFieldsBaselineRef.current = {
-      slipCode: boxSlipCodeRef.current.trim(),
-      rma: boxSlipRmaRef.current.trim(),
-      orderId: palletOrderIdRef.current.trim(),
-      carrier: palletCarrierRef.current.trim(),
+      slipCode: normBoxScalar(boxSlipCodeRef.current),
+      rma: normBoxScalar(boxSlipRmaRef.current),
+      orderId: normBoxScalar(palletOrderIdRef.current),
+      carrier: normBoxScalar(palletCarrierRef.current),
     };
   }, []);
+
+  const finalizeBoxIntakeBaselineFromCurrentState = useCallback(() => {
+    captureBoxEvidenceBaseline();
+    captureBoxIntakeFieldsBaseline();
+    boxIntakeBaselineReadyRef.current = true;
+  }, [captureBoxEvidenceBaseline, captureBoxIntakeFieldsBaseline]);
+
+  useEffect(() => {
+    finalizeBoxIntakeBaselineRef.current = finalizeBoxIntakeBaselineFromCurrentState;
+  }, [finalizeBoxIntakeBaselineFromCurrentState]);
 
   const deleteOrphanEvidenceUploads = useCallback(async (urls: readonly string[]) => {
     const oid = (orgId ?? "").trim();
@@ -6745,8 +6764,10 @@ function OperatorMobileScanPageContent() {
     const pid = String(session.packageId ?? "").trim();
     if (!pid || !isUuidString(pid) || !isSupabaseConfigured()) {
       hydrateBoxPackageIdRef.current = null;
+      boxIntakeBaselineReadyRef.current = true;
       return;
     }
+    boxIntakeBaselineReadyRef.current = false;
     hydrateBoxPackageIdRef.current = pid;
     const fetchingFor = pid;
     let cancelled = false;
@@ -6804,10 +6825,8 @@ function OperatorMobileScanPageContent() {
       evidenceBaselineRef.current.outside = [...o];
       evidenceBaselineRef.current.inside = [...ins];
       pendingEvidenceStorageDeletesRef.current.clear();
-      const hydratedNotes = String(row.notes ?? "").trim();
+      const hydratedNotes = normBoxScalar(row.notes);
       setBoxNotes(hydratedNotes);
-      boxNotesBaselineRef.current = hydratedNotes;
-      captureBoxIntakeFieldsBaseline();
       const pkgCarrierRaw = String(row.carrier_name ?? "").trim();
       if (pkgCarrierRaw) {
         const normalized = normalizeCarrierLabel(pkgCarrierRaw);
@@ -6870,7 +6889,9 @@ function OperatorMobileScanPageContent() {
         });
         if (cancelled || hydrateBoxPackageIdRef.current !== fetchingFor) return;
         applyHydratedBoxSlipVisionSnapshot(snap);
-        captureBoxIntakeFieldsBaseline();
+      }
+      if (!cancelled && hydrateBoxPackageIdRef.current === fetchingFor) {
+        finalizeBoxIntakeBaselineRef.current?.();
       }
     })();
     return () => {
@@ -6891,7 +6912,6 @@ function OperatorMobileScanPageContent() {
     activePallet?.id,
     directBox,
     clearOperatorPhotoArrays,
-    captureBoxIntakeFieldsBaseline,
   ]);
 
   useEffect(() => {
@@ -8401,12 +8421,18 @@ function OperatorMobileScanPageContent() {
         }
       }
       if (pkgId && isUuidString(pkgId)) {
+        boxIntakeBaselineReadyRef.current = false;
         hydrateBoxPackageIdRef.current = pkgId;
         void hydrateBoxSlipVisionFromSavedPackage(pkgId, row);
+      } else {
+        finalizeBoxIntakeBaselineFromCurrentState();
       }
-      captureBoxIntakeFieldsBaseline();
     },
-    [persistOperatorSessionCarrier, hydrateBoxSlipVisionFromSavedPackage, captureBoxIntakeFieldsBaseline],
+    [
+      persistOperatorSessionCarrier,
+      hydrateBoxSlipVisionFromSavedPackage,
+      finalizeBoxIntakeBaselineFromCurrentState,
+    ],
   );
 
   const resumeWorkflowFromExistingPalletRow = useCallback(
@@ -8625,7 +8651,10 @@ function OperatorMobileScanPageContent() {
       if (orderRow) setPalletOrderId(orderRow);
 
       if (pkgId && isUuidString(pkgId)) {
+        boxIntakeBaselineReadyRef.current = false;
         await hydrateBoxSlipVisionFromSavedPackage(pkgId, row);
+      } else {
+        finalizeBoxIntakeBaselineFromCurrentState();
       }
 
       const resumedItemScan = Boolean(
@@ -8634,9 +8663,13 @@ function OperatorMobileScanPageContent() {
       if (!resumedItemScan) setFlowPhase("package_scan");
       setIsIdentified(true);
       setPalletDocHydrationNonce((n) => n + 1);
-      captureBoxIntakeFieldsBaseline();
     },
-    [resetIdentifyGateForm, persistOperatorSessionCarrier, hydrateBoxSlipVisionFromSavedPackage, captureBoxIntakeFieldsBaseline],
+    [
+      resetIdentifyGateForm,
+      persistOperatorSessionCarrier,
+      hydrateBoxSlipVisionFromSavedPackage,
+      finalizeBoxIntakeBaselineFromCurrentState,
+    ],
   );
 
   const tryDirectPackageDbFallbackResume = useCallback(
@@ -10945,38 +10978,40 @@ function OperatorMobileScanPageContent() {
         palletPackageSearchInputRef.current?.blur();
         return;
       }
-      const o = parsePalletPhotoUrlArray(p.outside_photo_urls);
-      const ins = parsePalletPhotoUrlArray(p.inside_photo_urls);
-      const s = parsePalletPhotoUrlArray(p.slip_photo_urls);
+      const o = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(p.outside_photo_urls),
+        supabase,
+      );
+      const ins = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(p.inside_photo_urls),
+        supabase,
+      );
+      const s = normalizePalletDocumentationImageUrls(
+        parsePalletPhotoUrlArray(p.slip_photo_urls),
+        supabase,
+      );
       setOutsideBoxPhotoUrls(o);
       setInsideBoxPhotoUrls(ins);
       setSlipBoxPhotoUrls(s);
       slipBoxPhotoUrlsRef.current = [...s];
       outsideBoxPhotoUrlsRef.current = [...o];
       insideBoxPhotoUrlsRef.current = [...ins];
-      evidenceBaselineRef.current.slip = [...s];
-      evidenceBaselineRef.current.outside = [...o];
-      evidenceBaselineRef.current.inside = [...ins];
       pendingEvidenceStorageDeletesRef.current.clear();
       setBoxSlipInvalidFormatBlocksSave(false);
-      const loadedBoxNotes = String(p.notes ?? "").trim();
+      const loadedBoxNotes = normBoxScalar(p.notes);
       setBoxNotes(loadedBoxNotes);
-      boxNotesBaselineRef.current = loadedBoxNotes;
-      captureBoxIntakeFieldsBaseline();
       clearBoxSlipVisionLinesState();
-      setBoxSlipCode(String(p.id_slip_contents ?? "").trim());
-      boxSlipCodeRef.current = String(p.id_slip_contents ?? "").trim();
+      const slipCodeRow = normBoxScalar(p.id_slip_contents);
+      setBoxSlipCode(slipCodeRow);
+      boxSlipCodeRef.current = slipCodeRow;
       setPalletPackagePickerQuery("");
       setPackageCodeCardOpen(false);
       setCurrentPackageTrackingId(code);
       setReceivingSlipExpectedItemQtyTotal(null);
       setEditAllMode(false);
+      boxIntakeBaselineReadyRef.current = false;
       setActiveBoxSession({ barcode: code, packageId: p.id });
       hydrateBoxPackageIdRef.current = p.id;
-      void hydrateBoxSlipVisionFromSavedPackage(p.id, {
-        id_slip_contents: p.id_slip_contents,
-        order_id: p.order_id,
-      });
       setIntakeToast("Loaded saved box — review photos and slip lines, then save.");
       palletPackageSearchInputRef.current?.blur();
       window.requestAnimationFrame(() => {
@@ -10985,13 +11020,7 @@ function OperatorMobileScanPageContent() {
         });
       });
     },
-    [
-      activeBoxSession,
-      orgId,
-      clearBoxSlipVisionLinesState,
-      hydrateBoxSlipVisionFromSavedPackage,
-      captureBoxIntakeFieldsBaseline,
-    ],
+    [activeBoxSession, orgId, clearBoxSlipVisionLinesState],
   );
 
   const closeActiveBoxPackageSession = useCallback(() => {
@@ -11019,6 +11048,7 @@ function OperatorMobileScanPageContent() {
     setDuplicatePackingSlip(null);
     setBoxSlipInvalidFormatBlocksSave(false);
     hydrateBoxPackageIdRef.current = null;
+    boxIntakeBaselineReadyRef.current = true;
     clearOperatorPhotoArrays(["outside", "inside", "slip"]);
     setBoxSlipCode("");
     setBoxSlipRma("");
@@ -11210,11 +11240,93 @@ function OperatorMobileScanPageContent() {
     return { dirty: false };
   }, [isIdentified, flowPhase, palletNotes, editAllMode, currentPalletTrackingId]);
 
+  const debugLogBoxIntakeDirtyState = useCallback(
+    (result: { dirty: boolean; reason?: string }) => {
+      if (!SCANNER_BACK_DEBUG) return;
+      const b = evidenceBaselineRef.current;
+      const fieldBaseline = boxIntakeFieldsBaselineRef.current;
+      const reasons: string[] = [];
+      if (!boxIntakeBaselineReadyRef.current) reasons.push("baseline_not_ready");
+      if (operatorEvidenceUrlArraysChanged(slipBoxPhotoUrlsRef.current, b.slip)) reasons.push("slip_photos");
+      if (operatorEvidenceUrlArraysChanged(outsideBoxPhotoUrlsRef.current, b.outside)) {
+        reasons.push("outside_photos");
+      }
+      if (operatorEvidenceUrlArraysChanged(insideBoxPhotoUrlsRef.current, b.inside)) {
+        reasons.push("inside_photos");
+      }
+      if (directBox && operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) {
+        reasons.push("shipping_label_photos");
+      }
+      if (directBox && operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) {
+        reasons.push("bol_photos");
+      }
+      if (normBoxScalar(boxNotesRef.current) !== normBoxScalar(boxNotesBaselineRef.current)) {
+        reasons.push("box_notes");
+      }
+      if (normBoxScalar(boxSlipCodeRef.current) !== normBoxScalar(fieldBaseline.slipCode)) {
+        reasons.push("slip_code");
+      }
+      if (normBoxScalar(boxSlipRmaRef.current) !== normBoxScalar(fieldBaseline.rma)) reasons.push("rma");
+      if (normBoxScalar(palletOrderIdRef.current) !== normBoxScalar(fieldBaseline.orderId)) {
+        reasons.push("order_id");
+      }
+      if (normBoxScalar(palletCarrierRef.current) !== normBoxScalar(fieldBaseline.carrier)) {
+        reasons.push("carrier");
+      }
+      const visionCurrent = clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+      const visionBaseline = boxSlipVisionLinesPersistRef.current;
+      if (JSON.stringify(visionCurrent) !== JSON.stringify(visionBaseline)) {
+        reasons.push("slip_vision_lines");
+      }
+      console.log("[box-dirty-debug]", {
+        flowPhase,
+        packageId: (activeBoxSession?.packageId ?? "").trim() || null,
+        directBox,
+        parentPalletId: (activePallet?.id ?? "").trim() || null,
+        baselineReady: boxIntakeBaselineReadyRef.current,
+        hasUnsavedBoxIntakeEdits: result,
+        dirtyReasons: reasons,
+        packageCodeCardOpen,
+        palletPackagePickerQuery: palletPackagePickerQuery.trim(),
+        currentPackageTrackingId: (currentPackageTrackingId ?? "").trim() || null,
+        fields: {
+          slipCode: { current: normBoxScalar(boxSlipCodeRef.current), baseline: fieldBaseline.slipCode },
+          rma: { current: normBoxScalar(boxSlipRmaRef.current), baseline: fieldBaseline.rma },
+          orderId: { current: normBoxScalar(palletOrderIdRef.current), baseline: fieldBaseline.orderId },
+          carrier: { current: normBoxScalar(palletCarrierRef.current), baseline: fieldBaseline.carrier },
+          notes: { current: normBoxScalar(boxNotesRef.current), baseline: boxNotesBaselineRef.current },
+        },
+        photos: {
+          slip: { current: slipBoxPhotoUrlsRef.current, baseline: b.slip },
+          outside: { current: outsideBoxPhotoUrlsRef.current, baseline: b.outside },
+          inside: { current: insideBoxPhotoUrlsRef.current, baseline: b.inside },
+          shipping: directBox
+            ? { current: shippingLabelPhotoUrlsRef.current, baseline: b.shipping }
+            : "ignored_non_direct_box",
+          bol: directBox ? { current: bolPhotoUrlsRef.current, baseline: b.bol } : "ignored_non_direct_box",
+        },
+        slipVisionLines: { current: visionCurrent, baseline: visionBaseline },
+        newBoxSession: !isUuidString((activeBoxSession?.packageId ?? "").trim()),
+      });
+    },
+    [
+      flowPhase,
+      activeBoxSession,
+      directBox,
+      activePallet?.id,
+      boxSlipVisionLines,
+      packageCodeCardOpen,
+      palletPackagePickerQuery,
+      currentPackageTrackingId,
+    ],
+  );
+
   const hasUnsavedBoxIntakeEdits = useCallback((): { dirty: boolean; reason?: string } => {
     if (flowPhase !== "package_scan") return { dirty: false };
     if (!activeBoxSession) return { dirty: false };
     const sessionPackageId = (activeBoxSession.packageId ?? "").trim();
     if (!isUuidString(sessionPackageId)) return { dirty: true, reason: "new_box_session" };
+    if (!boxIntakeBaselineReadyRef.current) return { dirty: false };
     const b = evidenceBaselineRef.current;
     if (operatorEvidenceUrlArraysChanged(slipBoxPhotoUrlsRef.current, b.slip)) {
       return { dirty: true, reason: "slip_photos" };
@@ -11233,20 +11345,20 @@ function OperatorMobileScanPageContent() {
         return { dirty: true, reason: "bol_photos" };
       }
     }
-    if (boxNotesRef.current.trim() !== boxNotesBaselineRef.current) {
+    if (normBoxScalar(boxNotesRef.current) !== normBoxScalar(boxNotesBaselineRef.current)) {
       return { dirty: true, reason: "box_notes" };
     }
     const fieldBaseline = boxIntakeFieldsBaselineRef.current;
-    if (boxSlipCodeRef.current.trim() !== fieldBaseline.slipCode) {
+    if (normBoxScalar(boxSlipCodeRef.current) !== normBoxScalar(fieldBaseline.slipCode)) {
       return { dirty: true, reason: "slip_code" };
     }
-    if (boxSlipRmaRef.current.trim() !== fieldBaseline.rma) {
+    if (normBoxScalar(boxSlipRmaRef.current) !== normBoxScalar(fieldBaseline.rma)) {
       return { dirty: true, reason: "rma" };
     }
-    if (palletOrderIdRef.current.trim() !== fieldBaseline.orderId) {
+    if (normBoxScalar(palletOrderIdRef.current) !== normBoxScalar(fieldBaseline.orderId)) {
       return { dirty: true, reason: "order_id" };
     }
-    if (palletCarrierRef.current.trim() !== fieldBaseline.carrier) {
+    if (normBoxScalar(palletCarrierRef.current) !== normBoxScalar(fieldBaseline.carrier)) {
       return { dirty: true, reason: "carrier" };
     }
     const visionCurrent = clonePersistBoxSlipVisionLines(boxSlipVisionLines);
@@ -11445,11 +11557,8 @@ function OperatorMobileScanPageContent() {
       setCurrentPackageTrackingId(barcode);
       setPackageCodeCardOpen(false);
       setEditAllMode(false);
+      boxIntakeBaselineReadyRef.current = false;
       hydrateBoxPackageIdRef.current = pkgId;
-      void hydrateBoxSlipVisionFromSavedPackage(pkgId, {
-        id_slip_contents: row?.id_slip_contents ?? null,
-        order_id: row?.order_id ?? null,
-      });
     } else if (label) {
       setCurrentPackageTrackingId(label);
       setActiveBoxSession({ barcode: label, packageId: null });
@@ -11457,8 +11566,6 @@ function OperatorMobileScanPageContent() {
     }
 
     setFlowPhase("package_scan");
-    captureBoxEvidenceBaseline();
-    captureBoxIntakeFieldsBaseline();
     scheduleFocusScanner();
   }, [
     dismissItemScanModalDrafts,
@@ -11466,9 +11573,6 @@ function OperatorMobileScanPageContent() {
     itemScanPackageId,
     itemScanPackageLabel,
     palletPackagePickerList,
-    hydrateBoxSlipVisionFromSavedPackage,
-    captureBoxEvidenceBaseline,
-    captureBoxIntakeFieldsBaseline,
     scheduleFocusScanner,
   ]);
 
@@ -11513,6 +11617,7 @@ function OperatorMobileScanPageContent() {
 
     if (flowPhase === "package_scan") {
       const box = hasUnsavedBoxIntakeEdits();
+      debugLogBoxIntakeDirtyState(box);
       const isDirect = directBox || !(activePallet?.id?.trim());
 
       if (activeBoxSession) {
@@ -11629,6 +11734,7 @@ function OperatorMobileScanPageContent() {
     returnFromItemsPhaseToBoxInfo,
     requestScannerLeaveConfirm,
     hasUnsavedBoxIntakeEdits,
+    debugLogBoxIntakeDirtyState,
     directBox,
     activePallet?.id,
     activeBoxSession,
