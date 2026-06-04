@@ -1525,7 +1525,7 @@ function ReceivingMasterStepper({
   const rail1Done = boxActive || boxDone || itemsActive;
   const rail1 = () => (
     <div
-      className="operator-stepper-rail mx-1 flex-1 shrink rounded-full"
+      className="operator-stepper-rail rounded-full"
       data-rail-done={rail1Done ? "true" : undefined}
       aria-hidden
     />
@@ -1534,7 +1534,7 @@ function ReceivingMasterStepper({
   const rail2Done = itemsActive;
   const rail2 = () => (
     <div
-      className="operator-stepper-rail mx-1 flex-1 shrink rounded-full"
+      className="operator-stepper-rail rounded-full"
       data-rail-done={rail2Done ? "true" : undefined}
       aria-hidden
     />
@@ -4240,6 +4240,21 @@ function OperatorMobileScanPageContent() {
   const finalizeBoxIntakeBaselineRef = useRef<(() => void) | null>(null);
   const reloadBoxPackageIntakeRef = useRef<(pkgId: string) => Promise<boolean>>(async () => false);
   const palletNotesBaselineRef = useRef("");
+  /** False while a persisted pallet row is re-hydrating — avoids false dirty before baseline is finalized. */
+  const palletShipmentBaselineReadyRef = useRef(false);
+  const lastPalletShipmentBaselineKeyRef = useRef<string | null>(null);
+  const finalizePalletShipmentBaselineRef = useRef<
+    ((snap?: {
+      notes?: string;
+      tracking?: string;
+      orderId?: string;
+      carrier?: string;
+      shipping?: string[];
+      pallet?: string[];
+      bol?: string[];
+      baselineKey?: string | null;
+    }) => void) | null
+  >(null);
   /** Persisted storage public URLs to remove after a successful Save/Confirm. */
   const pendingEvidenceStorageDeletesRef = useRef<Set<string>>(new Set());
   /** `pallets.notes` — collaboration / receiving notes (pallet step). */
@@ -5573,6 +5588,9 @@ function OperatorMobileScanPageContent() {
     }
 
     hydrateActivePalletIdRef.current = palletId;
+    if (switchedPalletOrOrg) {
+      palletShipmentBaselineReadyRef.current = false;
+    }
     const fetchingFor = palletId;
     let cancelled = false;
     (async () => {
@@ -5704,10 +5722,11 @@ function OperatorMobileScanPageContent() {
       if (process.env.NODE_ENV === "development") {
         console.log("Current Pallet Data from DB:", { palletId: fetchingFor, ...row });
       }
+      let hydratedNotesForBaseline = "";
       setPalletNotes((prev) => {
-        if (prev.trim()) return prev;
-        const next = String(row.notes ?? "").trim();
-        palletNotesBaselineRef.current = next;
+        const next = prev.trim() ? prev.trim() : String(row.notes ?? "").trim();
+        hydratedNotesForBaseline = next;
+        palletNotesBaselineRef.current = normBoxScalar(next);
         return next;
       });
       // Do not hydrate `currentPalletTrackingId` from DB during the session — gate / operator edits own it.
@@ -5747,6 +5766,33 @@ function OperatorMobileScanPageContent() {
         incomingPhotoCount > 0 ||
         currentPhotoCount > 0;
       setPalletDbHasShipmentDetails(persistedSlip);
+      const appliedCarrierBaseline = raw
+        ? (() => {
+            const normalized = normalizeCarrierLabel(raw);
+            return normalized && normalized !== OTHER_CARRIER_NAME ? normalized : raw;
+          })()
+        : normBoxScalar(palletCarrierRef.current);
+      const orderAppliedBaseline = lockOrderInput
+        ? normBoxScalar(palletOrderIdRef.current)
+        : normBoxScalar(rowOrder || palletOrderIdRef.current);
+      if (raw) {
+        palletCarrierRef.current = appliedCarrierBaseline;
+      }
+      if (!lockOrderInput) {
+        palletOrderIdRef.current = orderAppliedBaseline;
+      }
+      finalizePalletShipmentBaselineRef.current?.({
+        notes: hydratedNotesForBaseline,
+        tracking:
+          normBoxScalar(currentPalletTrackingId) ||
+          normBoxScalar(activePallet?.pallet_number),
+        orderId: orderAppliedBaseline,
+        carrier: appliedCarrierBaseline,
+        shipping: [...evidenceBaselineRef.current.shipping],
+        pallet: [...evidenceBaselineRef.current.pallet],
+        bol: [...evidenceBaselineRef.current.bol],
+        baselineKey: fetchingFor,
+      });
     })();
     return () => {
       cancelled = true;
@@ -6478,19 +6524,48 @@ function OperatorMobileScanPageContent() {
     return () => window.clearTimeout(t);
   }, [identifyGatePhase]);
 
+  const commitPalletShipmentBaselineSnapshot = useCallback(
+    (snap?: {
+      notes?: string;
+      tracking?: string;
+      orderId?: string;
+      carrier?: string;
+      shipping?: string[];
+      pallet?: string[];
+      bol?: string[];
+      baselineKey?: string | null;
+    }) => {
+      const o = evidenceBaselineRef.current;
+      o.shipping = [...(snap?.shipping ?? shippingLabelPhotoUrlsRef.current)];
+      o.pallet = [...(snap?.pallet ?? palletPhotoUrlsRef.current)];
+      o.bol = [...(snap?.bol ?? bolPhotoUrlsRef.current)];
+      palletNotesBaselineRef.current = normBoxScalar(snap?.notes ?? palletNotes);
+      palletTrackingEditBaselineRef.current =
+        normBoxScalar(snap?.tracking) ||
+        normBoxScalar(currentPalletTrackingId) ||
+        normBoxScalar(activePallet?.pallet_number);
+      palletShipmentFieldsBaselineRef.current = {
+        orderId: normBoxScalar(snap?.orderId ?? palletOrderIdRef.current),
+        carrier: normBoxScalar(snap?.carrier ?? palletCarrierRef.current),
+      };
+      palletShipmentBaselineReadyRef.current = true;
+      if (snap?.baselineKey !== undefined) {
+        lastPalletShipmentBaselineKeyRef.current = snap.baselineKey;
+      } else {
+        const pid = (activePallet?.id ?? "").trim();
+        lastPalletShipmentBaselineKeyRef.current = pid.length ? pid : null;
+      }
+    },
+    [palletNotes, currentPalletTrackingId, activePallet?.pallet_number, activePallet?.id],
+  );
+
   const capturePalletEvidenceBaseline = useCallback(() => {
-    const o = evidenceBaselineRef.current;
-    o.shipping = [...shippingLabelPhotoUrlsRef.current];
-    o.pallet = [...palletPhotoUrlsRef.current];
-    o.bol = [...bolPhotoUrlsRef.current];
-    palletNotesBaselineRef.current = palletNotes.trim();
-    palletShipmentFieldsBaselineRef.current = {
-      orderId: palletOrderIdRef.current.trim(),
-      carrier: palletCarrierRef.current.trim(),
-    };
-    palletTrackingEditBaselineRef.current =
-      (currentPalletTrackingId ?? "").trim() || (activePallet?.pallet_number ?? "").trim();
-  }, [palletNotes, currentPalletTrackingId, activePallet?.pallet_number]);
+    commitPalletShipmentBaselineSnapshot();
+  }, [commitPalletShipmentBaselineSnapshot]);
+
+  useEffect(() => {
+    finalizePalletShipmentBaselineRef.current = commitPalletShipmentBaselineSnapshot;
+  }, [commitPalletShipmentBaselineSnapshot]);
 
   const captureBoxEvidenceBaseline = useCallback(() => {
     const o = evidenceBaselineRef.current;
@@ -6790,6 +6865,7 @@ function OperatorMobileScanPageContent() {
   /** Restore pallet shipment photos to baseline, drop staged storage deletes, remove orphan uploads (session-only adds). */
   const abandonUnsavedPalletShipmentEdits = useCallback(async () => {
     const b = evidenceBaselineRef.current;
+    const shipBase = palletShipmentFieldsBaselineRef.current;
     const ship = [...shippingLabelPhotoUrlsRef.current];
     const p = [...palletPhotoUrlsRef.current];
     const bl = [...bolPhotoUrlsRef.current];
@@ -6805,6 +6881,15 @@ function OperatorMobileScanPageContent() {
     palletPhotoUrlsRef.current = [...b.pallet];
     setBolPhotoUrls([...b.bol]);
     bolPhotoUrlsRef.current = [...b.bol];
+    const notesBase = normBoxScalar(palletNotesBaselineRef.current);
+    setPalletNotes(notesBase);
+    const trackingBase = normBoxScalar(palletTrackingEditBaselineRef.current);
+    setCurrentPalletTrackingId(trackingBase.length ? trackingBase : null);
+    setPalletOrderId(shipBase.orderId);
+    palletOrderIdRef.current = shipBase.orderId;
+    setPalletCarrier(shipBase.carrier);
+    palletCarrierRef.current = shipBase.carrier;
+    setEditAllMode(false);
     await deleteOrphanEvidenceUploads(orphanCandidates);
   }, [deleteOrphanEvidenceUploads]);
 
@@ -10445,6 +10530,24 @@ function OperatorMobileScanPageContent() {
     Boolean(activeTracking?.trim()) || Boolean(activePallet?.id && (currentPalletTrackingId ?? "").trim().length > 0);
   const parentIdentified = palletIdentified || trackingIdentified;
 
+  /** Draft / non-UUID pallet on receiving step — baseline from current fields once identified. */
+  useEffect(() => {
+    if (flowPhase !== "scan" || !isIdentified || !parentIdentified || directBox) return;
+    const pid = (activePallet?.id ?? "").trim();
+    if (isUuidString(pid)) return;
+    const key = pid || normBoxScalar(currentPalletTrackingId) || "draft";
+    if (lastPalletShipmentBaselineKeyRef.current === key && palletShipmentBaselineReadyRef.current) return;
+    commitPalletShipmentBaselineSnapshot({ baselineKey: key });
+  }, [
+    flowPhase,
+    isIdentified,
+    parentIdentified,
+    directBox,
+    activePallet?.id,
+    currentPalletTrackingId,
+    commitPalletShipmentBaselineSnapshot,
+  ]);
+
   const stepIndex = flowPhase === "scan" ? 0 : flowPhase === "package_scan" ? 1 : 2;
 
   const scanStepMeta = SCANNER_STEPS[stepIndex] ?? SCANNER_STEPS[0];
@@ -11353,17 +11456,6 @@ function OperatorMobileScanPageContent() {
     }
   }, [flowPhase, parentIdentified, activePallet?.id]);
 
-  /** Snapshot header tracking + shipment fields when Edit All enables pallet edits (duplicate-check revert). */
-  useEffect(() => {
-    if (!trackingIdEditable || flowPhase !== "scan") return;
-    palletTrackingEditBaselineRef.current =
-      (currentPalletTrackingId ?? "").trim() || (activePallet?.pallet_number ?? "").trim();
-    palletShipmentFieldsBaselineRef.current = {
-      orderId: palletOrderIdRef.current.trim(),
-      carrier: palletCarrierRef.current.trim(),
-    };
-  }, [trackingIdEditable, flowPhase, currentPalletTrackingId, activePallet?.pallet_number]);
-
   const handlePalletHeaderTrackingBlur = useCallback(
     async (trimmed: string) => {
       const t = trimmed.trim();
@@ -11760,7 +11852,8 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const hasUnsavedPalletShipmentEdits = useCallback((): { dirty: boolean; reason?: string } => {
-    if (!isIdentified || flowPhase !== "scan" || !editAllMode) return { dirty: false };
+    if (!isIdentified || flowPhase !== "scan") return { dirty: false };
+    if (!palletShipmentBaselineReadyRef.current) return { dirty: false };
     const b = evidenceBaselineRef.current;
     if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) {
       return { dirty: true, reason: "shipping_label_photos" };
@@ -11771,21 +11864,82 @@ function OperatorMobileScanPageContent() {
     if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) {
       return { dirty: true, reason: "bol_photos" };
     }
-    if (palletNotes.trim() !== palletNotesBaselineRef.current) {
+    if (normBoxScalar(palletNotes) !== normBoxScalar(palletNotesBaselineRef.current)) {
       return { dirty: true, reason: "pallet_notes" };
     }
-    const cur = (currentPalletTrackingId ?? "").trim();
-    const base = palletTrackingEditBaselineRef.current.trim();
-    if (cur !== base) return { dirty: true, reason: "tracking" };
+    const curTracking =
+      normBoxScalar(currentPalletTrackingId) || normBoxScalar(activePallet?.pallet_number);
+    const baseTracking = normBoxScalar(palletTrackingEditBaselineRef.current);
+    if (curTracking !== baseTracking) return { dirty: true, reason: "tracking" };
     const shipBase = palletShipmentFieldsBaselineRef.current;
-    if (palletOrderIdRef.current.trim() !== shipBase.orderId) {
+    if (normBoxScalar(palletOrderIdRef.current) !== normBoxScalar(shipBase.orderId)) {
       return { dirty: true, reason: "order_id" };
     }
-    if (palletCarrierRef.current.trim() !== shipBase.carrier) {
+    if (normBoxScalar(palletCarrierRef.current) !== normBoxScalar(shipBase.carrier)) {
       return { dirty: true, reason: "carrier" };
     }
     return { dirty: false };
-  }, [isIdentified, flowPhase, editAllMode, palletNotes, currentPalletTrackingId]);
+  }, [isIdentified, flowPhase, palletNotes, currentPalletTrackingId, activePallet?.pallet_number]);
+
+  const debugLogPalletBackDirtyState = useCallback(
+    (result: { dirty: boolean; reason?: string }) => {
+      if (!SCANNER_BACK_DEBUG) return;
+      const b = evidenceBaselineRef.current;
+      const shipBase = palletShipmentFieldsBaselineRef.current;
+      const reasons: string[] = [];
+      if (!palletShipmentBaselineReadyRef.current) reasons.push("baseline_not_ready");
+      if (operatorEvidenceUrlArraysChanged(shippingLabelPhotoUrlsRef.current, b.shipping)) {
+        reasons.push("shipping_label_photos");
+      }
+      if (operatorEvidenceUrlArraysChanged(palletPhotoUrlsRef.current, b.pallet)) {
+        reasons.push("pallet_photos");
+      }
+      if (operatorEvidenceUrlArraysChanged(bolPhotoUrlsRef.current, b.bol)) {
+        reasons.push("bol_photos");
+      }
+      if (normBoxScalar(palletNotes) !== normBoxScalar(palletNotesBaselineRef.current)) {
+        reasons.push("pallet_notes");
+      }
+      const curTracking =
+        normBoxScalar(currentPalletTrackingId) || normBoxScalar(activePallet?.pallet_number);
+      const baseTracking = normBoxScalar(palletTrackingEditBaselineRef.current);
+      if (curTracking !== baseTracking) reasons.push("tracking");
+      if (normBoxScalar(palletOrderIdRef.current) !== normBoxScalar(shipBase.orderId)) {
+        reasons.push("order_id");
+      }
+      if (normBoxScalar(palletCarrierRef.current) !== normBoxScalar(shipBase.carrier)) {
+        reasons.push("carrier");
+      }
+      console.log("[pallet-back-dirty-debug]", {
+        flowPhase,
+        isIdentified,
+        parentPalletId: (activePallet?.id ?? "").trim() || null,
+        notes: {
+          current: normBoxScalar(palletNotes),
+          baseline: normBoxScalar(palletNotesBaselineRef.current),
+        },
+        tracking: { current: curTracking, baseline: baseTracking },
+        carrier: {
+          current: normBoxScalar(palletCarrierRef.current),
+          baseline: normBoxScalar(shipBase.carrier),
+        },
+        orderId: {
+          current: normBoxScalar(palletOrderIdRef.current),
+          baseline: normBoxScalar(shipBase.orderId),
+        },
+        photos: {
+          shipping: { current: shippingLabelPhotoUrlsRef.current, baseline: b.shipping },
+          pallet: { current: palletPhotoUrlsRef.current, baseline: b.pallet },
+          bol: { current: bolPhotoUrlsRef.current, baseline: b.bol },
+        },
+        editAllEnabled: editAllMode,
+        dirtyReasons: reasons,
+        targetNavigation: "home/initial",
+        hasUnsavedPalletShipmentEdits: result,
+      });
+    },
+    [flowPhase, isIdentified, activePallet?.id, palletNotes, currentPalletTrackingId, activePallet?.pallet_number, editAllMode],
+  );
 
   const debugLogBoxIntakeDirtyState = useCallback(
     (result: { dirty: boolean; reason?: string }) => {
@@ -11975,8 +12129,8 @@ function OperatorMobileScanPageContent() {
       if (itemScanEditAllMode) return hasUnsavedItemScanModalDraft();
       return { dirty: false };
     }
-    if (!editAllMode) return { dirty: false };
     if (flowPhase === "scan" && isIdentified) return hasUnsavedPalletShipmentEdits();
+    if (!editAllMode) return { dirty: false };
     if (flowPhase === "package_scan") return hasUnsavedBoxIntakeEdits();
     return { dirty: false };
   }, [
@@ -12068,6 +12222,11 @@ function OperatorMobileScanPageContent() {
     pendingEvidenceStorageDeletesRef.current.clear();
     hydrateActivePalletIdRef.current = null;
     hydrateBoxPackageIdRef.current = null;
+    palletShipmentBaselineReadyRef.current = false;
+    lastPalletShipmentBaselineKeyRef.current = null;
+    palletNotesBaselineRef.current = "";
+    palletTrackingEditBaselineRef.current = "";
+    palletShipmentFieldsBaselineRef.current = { orderId: "", carrier: "" };
 
     setEditAllMode(false);
     setPackageCodeCardOpen(false);
@@ -12347,16 +12506,23 @@ function OperatorMobileScanPageContent() {
 
     if (flowPhase === "scan" && isIdentified) {
       const editDirty = hasEditModeUnsavedChanges();
-      logScannerBack("scan/identified", editDirty.dirty, editDirty.dirty ? "confirm-router-back" : "router-back", editDirty.reason);
+      debugLogPalletBackDirtyState(editDirty);
+      const goHome = () => {
+        resetToInitialShipmentEntry();
+      };
+      logScannerBack(
+        "scan/identified",
+        editDirty.dirty,
+        editDirty.dirty ? "confirm-home" : "home",
+        editDirty.reason,
+      );
       if (editDirty.dirty) {
         requestScannerLeaveConfirm(() => {
-          void abandonUnsavedPalletShipmentEdits().finally(() => {
-            router.back();
-          });
+          void abandonUnsavedPalletShipmentEdits().finally(goHome);
         }, editDirty.reason ? [editDirty.reason] : []);
         return;
       }
-      router.back();
+      goHome();
       return;
     }
 
@@ -12383,6 +12549,7 @@ function OperatorMobileScanPageContent() {
     returnFromItemsPhaseToBoxInfo,
     requestScannerLeaveConfirm,
     debugLogBoxIntakeDirtyState,
+    debugLogPalletBackDirtyState,
     directBox,
     activePallet?.id,
     activeBoxSession,

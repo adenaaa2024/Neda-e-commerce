@@ -58,7 +58,7 @@ export default function LoginPage() {
 
   return (
     <PlatformBrandingProvider>
-      <MenorixIntroSplash durationMs={9000} variant="login" skippable>
+      <MenorixIntroSplash variant="login" skippable rememberSkip>
         <main className="login-page">
           <div className="login-page__bg" aria-hidden />
 
