@@ -94,6 +94,7 @@ export function ScannerBottomNav({ active = "home", alertCount = 0 }: ScannerBot
       dir="ltr"
       className="shrink-0 border-t px-0 py-2 backdrop-blur-xl backdrop-saturate-150"
       style={{
+        minHeight: "var(--scanner-bottom-nav-height, 4.75rem)",
         paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))",
         borderColor: "var(--scanner-border)",
         backgroundColor: "color-mix(in srgb, var(--scanner-card-inner) 92%, transparent)",

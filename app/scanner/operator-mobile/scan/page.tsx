@@ -44,6 +44,7 @@ import {
   Search,
   Sparkles,
   ThumbsUp,
+  Trash2,
   Truck,
   Warehouse,
   X,
@@ -142,6 +143,8 @@ import {
   voidOperatorIntakeBoxPackageAction,
   voidOperatorIntakePalletAction,
   updateOperatorPackageItemAction,
+  reconcileReturnItemsSlipContentsAction,
+  deleteOperatorPackageItemAction,
   type DuplicatePackingSlipInfo,
   type OperatorPackageItemRow,
   type OperatorPackageListRow,
@@ -307,10 +310,10 @@ const OP_SCAN_ALERT_WARNING = "operator-scan-alert operator-scan-alert--warning 
 const CONFIRM_DIALOG_BTN_GRID = "operator-scan-confirm-dialog__actions mt-6 grid grid-cols-2 gap-3";
 /** Rugged handheld density — forced via `.operator-shipment-handheld-compact` on scan page (not viewport MQ). */
 const HANDHELD_COMPACT =
-  "gap-1 space-y-0.5 px-2 pb-[5.5rem] pt-0";
+  "gap-1 space-y-0.5 px-2 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-0";
 /** Shipment Entry gate — tight bottom inset above in-column nav (no fixed-action clearance). */
 const HANDHELD_GATE_COMPACT =
-  "gap-1 space-y-0.5 px-2 pb-3.5 pt-0";
+  "gap-1 space-y-0.5 px-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-0";
 const HANDHELD_HEADER_COMPACT =
   "px-2 pb-0 pt-0";
 const HANDHELD_STEPPER_COMPACT =
@@ -875,9 +878,13 @@ function formatOperatorPackagePickerItemLine(p: OperatorPackageListRow): string 
     typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
       ? Math.floor(p.actual_item_count)
       : null;
-  if (exp != null && exp >= 0 && act != null && act >= 0) return `${act}/${exp} Items`;
-  if (exp != null && exp >= 0) return `0/${exp} Items`;
-  if (act != null && act >= 0) return `${act} Items`;
+  const skuCount =
+    typeof p.slip_line_count === "number" && p.slip_line_count > 0
+      ? ` · ${p.slip_line_count} SKU`
+      : "";
+  if (exp != null && exp >= 0 && act != null && act >= 0) return `${act}/${exp} Items${skuCount}`;
+  if (exp != null && exp >= 0) return `0/${exp} Items${skuCount}`;
+  if (act != null && act >= 0) return `${act} Items${skuCount}`;
   return "0 Items";
 }
 
@@ -4043,6 +4050,21 @@ function OperatorMobileScanPageContent() {
   const [itemsBoxFinalizeModalOpen, setItemsBoxFinalizeModalOpen] = useState(false);
   const [itemsFinalizeBusy, setItemsFinalizeBusy] = useState(false);
 
+  /** Pending new slip vision data waiting for reconcile confirmation (slip changed with items scanned). */
+  const [slipChangeConfirmOpen, setSlipChangeConfirmOpen] = useState(false);
+  const slipChangePendingRef = useRef<null | {
+    items: BoxSlipVisionLine[];
+    sid: string;
+    rma: string;
+    slipOrderId: string;
+    conflictingOrderId: string;
+    pkgId: string;
+    oid: string;
+    storeId: string;
+    manifestPayload: Record<string, unknown>;
+    linesPayload: { upc: string | null; fnsku: string | null; printed_asin: string | null; description: string | null; expected_qty: number; condition: string | null; missing: boolean }[];
+  }>(null);
+
   /** Pallet shipment-slip / pallet-photo / BOL extras (operator-mobile pallet step). */
   const [palletCarrier, setPalletCarrier] = useState("");
   const [palletOrderId, setPalletOrderId] = useState("");
@@ -5172,6 +5194,13 @@ function OperatorMobileScanPageContent() {
         );
         setIdentifyGatePhase("matched");
         setScanProgressPhase("ready");
+        // Pre-fill box count from manifest so the operator can confirm or override
+        if (!identifyGatePhysicalBoxStr.trim()) {
+          const manifestCount = resolveMatchedGatePalletBoxCount("", shipmentLines, scopedSafe, scopedAgg);
+          if (manifestCount != null && manifestCount > 0) {
+            setIdentifyGatePhysicalBoxStr(String(manifestCount));
+          }
+        }
         if (!invRows.length && !shipmentLines.length && !scopedSafe.length) {
           setIdentifyGateSlowHint(
             (prev) =>
@@ -6782,6 +6811,28 @@ function OperatorMobileScanPageContent() {
               condition: line.condition?.trim() || null,
               missing: Boolean(line.missing),
             }));
+
+            // If items are already scanned for this package, ask for reconciliation confirmation
+            const scannedCount = packageItemHydratedRows.length;
+            if (scannedCount > 0 && boxSlipVisionLines.length > 0) {
+              // Store pending data and show confirm dialog — user must explicitly accept slip change
+              slipChangePendingRef.current = {
+                items,
+                sid: slipCodeForRow ?? "",
+                rma: rmaForRow ?? "",
+                slipOrderId: normVision.slip,
+                conflictingOrderId: normVision.conflicting,
+                pkgId: pkgIdPersist,
+                oid: oidPersist,
+                storeId: storePersist,
+                manifestPayload,
+                linesPayload,
+              };
+              modalOpenRef.current = true;
+              setSlipChangeConfirmOpen(true);
+              return;
+            }
+
             const persistRes = await saveOperatorSlipVisionAction({
               requestedOrganizationId: oidPersist,
               storeId: storePersist,
@@ -6864,8 +6915,68 @@ function OperatorMobileScanPageContent() {
       applyPalletOrderIdFromRaIfApplicable,
       applySlipOrderIdIfEmpty,
       clearPalletOrderIdIfAutoFilledFromRa,
+      packageItemHydratedRows,
+      boxSlipVisionLines,
     ],
   );
+
+  /** Execute the slip-change after the operator confirms via the reconcile dialog. */
+  const executeSlipChangePending = useCallback(async () => {
+    const pending = slipChangePendingRef.current;
+    slipChangePendingRef.current = null;
+    setSlipChangeConfirmOpen(false);
+    modalOpenRef.current = false;
+    if (!pending) return;
+
+    setBoxSlipVisionBusy(true);
+    try {
+      // Commit new vision lines to UI immediately
+      commitBoxSlipVisionLinesFromSource(pending.items);
+      setBoxSlipCode(pending.sid);
+      setBoxSlipOrderId(pending.slipOrderId);
+      setBoxSlipConflictingOrderId(pending.conflictingOrderId);
+
+      // Persist new slip to DB
+      const persistRes = await saveOperatorSlipVisionAction({
+        requestedOrganizationId: pending.oid,
+        storeId: pending.storeId,
+        packageId: pending.pkgId,
+        palletId: null,
+        palletUpdate: null,
+        packageUpdate: {
+          id_slip_contents: pending.sid || null,
+          rma_number: pending.rma || null,
+          manifest_data: pending.manifestPayload,
+        },
+        slipContents: {
+          mode: "replace",
+          slipCode: pending.sid || null,
+          lines: pending.linesPayload,
+        },
+      });
+      if (!persistRes.ok) {
+        setSyncErrorToast(persistRes.message ?? "Could not save new slip.");
+        return;
+      }
+
+      // Reconcile return_items — update slip_content_id and slip_code for all scanned items
+      void reconcileReturnItemsSlipContentsAction({
+        requestedOrganizationId: pending.oid,
+        packageId: pending.pkgId,
+        newSlipCode: pending.sid || null,
+      }).then((res) => {
+        if (!res.ok) console.warn("[slip-reconcile]", res.error);
+        // Refresh item scan hydration so OVER items are reflected
+        setPackageItemsHydrationNonce((n) => n + 1);
+      });
+
+      setPalletDocHydrationNonce((n) => n + 1);
+    } catch (e) {
+      setSyncErrorToast(e instanceof Error ? e.message : "Slip change failed.");
+    } finally {
+      setBoxSlipVisionBusy(false);
+    }
+  }, [commitBoxSlipVisionLinesFromSource]);
 
   const handleSlipBoxPhotoUrlsChange = useCallback(
     (urls: string[]) => {
@@ -7796,6 +7907,57 @@ function OperatorMobileScanPageContent() {
       units,
     );
   }, [itemScanEditAllMode, busy, packageItemHydratedRows, openItemScanUnitPickerForRow]);
+
+  /** Soft-delete the most recently scanned return_item for a given slip cell (Edit All mode only). */
+  const handleDeleteSlipCellUnit = useCallback(
+    async (cell: { key: string; scanned: number; slip: OperatorSlipContentsListRow }) => {
+      if (!itemScanEditAllMode || busy) return;
+      const slipId = String(cell.slip.id ?? "").trim();
+      const units = slipId ? packageItemsForSlipContentId(packageItemHydratedRows, slipId) : packageItemsUnexpected(packageItemHydratedRows);
+      if (units.length === 0) return;
+      // Sort by created_at desc to delete most recent
+      const sorted = [...units].sort((a, b) => {
+        const ta = String(a.created_at ?? "").trim();
+        const tb = String(b.created_at ?? "").trim();
+        return tb.localeCompare(ta);
+      });
+      const target = sorted[0];
+      if (!target?.id || !isUuidString(String(target.id).trim())) return;
+      const oid = (orgId ?? "").trim();
+      const pkgId = (itemScanPackageId ?? "").trim();
+      if (!oid || !pkgId) return;
+
+      setBusy(true);
+      try {
+        const res = await deleteOperatorPackageItemAction({
+          requestedOrganizationId: oid,
+          returnItemId: String(target.id).trim(),
+          packageId: pkgId,
+        });
+        if (!res.ok) {
+          setSyncErrorToast(res.error ?? "Could not delete scan record.");
+          return;
+        }
+        // Update local state immediately
+        setPackageItemHydratedRows((prev) => prev.filter((r) => r.id !== target.id));
+        setPackageItemScanState((prev) => {
+          const sid = slipId || null;
+          if (!sid) {
+            return { ...prev, unexpectedUnits: Math.max(0, prev.unexpectedUnits - 1) };
+          }
+          const cur = prev.bySlipId[sid] ?? 0;
+          return {
+            ...prev,
+            bySlipId: { ...prev.bySlipId, [sid]: Math.max(0, cur - 1) },
+          };
+        });
+        setItemReceiveCountSyncNonce((n) => n + 1);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [itemScanEditAllMode, busy, packageItemHydratedRows, orgId, itemScanPackageId],
+  );
 
   const handleItemScanEditSelectOrphanUnit = useCallback(
     (unit: OperatorPackageItemRow) => {
@@ -10002,15 +10164,17 @@ function OperatorMobileScanPageContent() {
   // and items phases below.
   void scanStepMeta;
 
-  /** Operator box count is collected only when entity type is Pallet (saved as pallets.operator_package_count). */
+  /** Operator box count is collected when entity type is Pallet (for both new and matched). */
   const identifyGateNeedsValidBoxCount = identifyGateEntity === "pallet";
   const identifyGateBoxCountValid = parseMandatoryGateBoxCount(identifyGatePhysicalBoxStr).valid;
   const identifyGateBoxCountShowsError = identifyGateNeedsValidBoxCount && !identifyGateBoxCountValid;
   const identifyGateMandatoryFieldsOk =
-    identifyGatePhase === "matched" ||
-    (identifyGateEntity !== null && (!identifyGateNeedsValidBoxCount || identifyGateBoxCountValid));
+    identifyGateEntity !== null &&
+    (!identifyGateNeedsValidBoxCount || identifyGateBoxCountValid);
 
-  const showIdentifyGatePhysicalBoxInput = identifyGatePhase === "new" && identifyGateEntity === "pallet";
+  /** Show box count stepper for any gate phase when pallet is selected. */
+  const showIdentifyGatePhysicalBoxInput = identifyGateEntity === "pallet" &&
+    (identifyGatePhase === "new" || identifyGatePhase === "matched");
 
   const hasItemReceivableBox = hasReceivableBoxForItems(itemScanPackageId, activeBoxSession);
 
@@ -10385,6 +10549,8 @@ function OperatorMobileScanPageContent() {
     setUnexpectedPackageItemModal(null);
     setItemOverscanWarning(null);
     setItemsBoxFinalizeModalOpen(false);
+    setItemScanEditAllMode(false);
+    setEditAllMode(false);
     modalOpenRef.current = false;
     setFlowPhase("scan");
     setPalletDocHydrationNonce((n) => n + 1);
@@ -11011,7 +11177,24 @@ function OperatorMobileScanPageContent() {
         palletPackageSearchInputRef.current?.blur();
         return;
       }
+      // Synchronously pre-fill photos from cached picker row so UI shows immediately
+      // while the full async reload (vision lines, slip code, notes) completes in the background.
+      const o = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(p.outside_photo_urls), supabase);
+      const ins = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(p.inside_photo_urls), supabase);
+      const s = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(p.slip_photo_urls), supabase);
+      setOutsideBoxPhotoUrls(o);
+      setInsideBoxPhotoUrls(ins);
+      setSlipBoxPhotoUrls(s);
+      outsideBoxPhotoUrlsRef.current = [...o];
+      insideBoxPhotoUrlsRef.current = [...ins];
+      slipBoxPhotoUrlsRef.current = [...s];
+      pendingEvidenceStorageDeletesRef.current.clear();
       setBoxSlipInvalidFormatBlocksSave(false);
+      clearBoxSlipVisionLinesState();
+      setBoxNotes(normBoxScalar(p.notes));
+      const slipCodeRow = normBoxScalar(p.id_slip_contents);
+      setBoxSlipCode(slipCodeRow);
+      boxSlipCodeRef.current = slipCodeRow;
       setPalletPackagePickerQuery("");
       setPackageCodeCardOpen(false);
       setCurrentPackageTrackingId(code);
@@ -11020,6 +11203,7 @@ function OperatorMobileScanPageContent() {
       boxIntakeBaselineReadyRef.current = false;
       setActiveBoxSession({ barcode: code, packageId: p.id });
       hydrateBoxPackageIdRef.current = p.id;
+      // Bump nonce to trigger full async reload (refreshes vision lines, notes, fields from DB)
       setBoxHydrateNonce((n) => n + 1);
       setIntakeToast("Loaded saved box — review photos and slip lines, then save.");
       palletPackageSearchInputRef.current?.blur();
@@ -11029,7 +11213,7 @@ function OperatorMobileScanPageContent() {
         });
       });
     },
-    [activeBoxSession],
+    [activeBoxSession, clearBoxSlipVisionLinesState],
   );
 
   const closeActiveBoxPackageSession = useCallback(() => {
@@ -11180,6 +11364,8 @@ function OperatorMobileScanPageContent() {
     setUnexpectedPackageItemModal(null);
     setItemOverscanWarning(null);
     setItemsBoxFinalizeModalOpen(false);
+    setItemScanEditAllMode(false);
+    setEditAllMode(false);
     modalOpenRef.current = false;
     closeActiveBoxPackageSession();
     setScanLine("");
@@ -11586,6 +11772,18 @@ function OperatorMobileScanPageContent() {
     if (pkgId && isUuidString(pkgId)) {
       const row = palletPackagePickerList.find((p) => p.id === pkgId);
       const barcode = label || String(row?.package_code ?? "").trim() || pkgId;
+      // Pre-fill photos from cached hub row so UI shows immediately (stale-while-revalidate).
+      if (row) {
+        const o = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(row.outside_photo_urls), supabase);
+        const ins = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(row.inside_photo_urls), supabase);
+        const s = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(row.slip_photo_urls), supabase);
+        setOutsideBoxPhotoUrls(o);
+        setInsideBoxPhotoUrls(ins);
+        setSlipBoxPhotoUrls(s);
+        outsideBoxPhotoUrlsRef.current = [...o];
+        insideBoxPhotoUrlsRef.current = [...ins];
+        slipBoxPhotoUrlsRef.current = [...s];
+      }
       setActiveBoxSession({ barcode, packageId: pkgId });
       setCurrentPackageTrackingId(barcode);
       setPackageCodeCardOpen(false);
@@ -13547,7 +13745,7 @@ function OperatorMobileScanPageContent() {
                     </div>
                   ) : null}
 
-                  {identifyGatePhase === "new" ? (
+                  {(identifyGatePhase === "new" || identifyGatePhase === "matched") ? (
                     <>
                       <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Identify as</p>
                       <div className="operator-shipment-entry-gate__entity-grid mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -13989,7 +14187,7 @@ function OperatorMobileScanPageContent() {
               />
             </section>
 
-            <div className="operator-pallet-actions mb-4 flex w-full justify-center px-4 pb-1">
+            <div className="operator-pallet-actions mb-[calc(1rem+env(safe-area-inset-bottom,0px))] flex w-full justify-center px-4 pb-0">
               <div className="flex w-full max-w-md flex-wrap justify-center gap-4 sm:flex-nowrap">
                 <button
                   type="button"
@@ -15558,27 +15756,33 @@ function OperatorMobileScanPageContent() {
                   <OperatorScanProgressStrip phase={scanProgressPhase} className="mb-0" />
                 ) : null}
 
-                <div className="operator-item-scan-stats grid w-full grid-cols-3 gap-2" aria-label="Item scan summary counts">
-                  <div className="operator-item-scan-stat operator-item-scan-stat--expected shrink-0 rounded-xl border px-2 py-2 text-center">
-                    <p className="operator-item-scan-stat__label text-[9px] font-bold uppercase tracking-wide">Total expected</p>
-                    <p className="operator-item-scan-stat__value mt-1 text-[20px] font-black tabular-nums leading-none">
+                <div className="operator-item-scan-stats grid w-full grid-cols-4 gap-1.5" aria-label="Item scan summary counts">
+                  <div className="operator-item-scan-stat operator-item-scan-stat--expected shrink-0 rounded-xl border px-1 py-2 text-center">
+                    <p className="operator-item-scan-stat__label text-[8px] font-bold uppercase tracking-wide">Expected</p>
+                    <p className="operator-item-scan-stat__value mt-1 text-[17px] font-black tabular-nums leading-none">
                       {itemInspectionQtyBasisExpected}
                     </p>
                   </div>
-                  <div className="operator-item-scan-stat operator-item-scan-stat--scanned shrink-0 rounded-xl border px-2 py-2 text-center">
-                    <p className="operator-item-scan-stat__label text-[9px] font-bold uppercase tracking-wide">Scanned</p>
+                  <div className="operator-item-scan-stat operator-item-scan-stat--scanned shrink-0 rounded-xl border px-1 py-2 text-center">
+                    <p className="operator-item-scan-stat__label text-[8px] font-bold uppercase tracking-wide">Scanned</p>
                     <p
-                      className={`operator-item-scan-stat__value operator-item-scan-stat__value--${itemScanStatScannedTone} mt-1 text-[20px] font-black tabular-nums leading-none`}
+                      className={`operator-item-scan-stat__value operator-item-scan-stat__value--${itemScanStatScannedTone} mt-1 text-[17px] font-black tabular-nums leading-none`}
                     >
                       {itemInspectionQtyBasisScanned}
                     </p>
                   </div>
-                  <div className="operator-item-scan-stat operator-item-scan-stat--remaining shrink-0 rounded-xl border px-2 py-2 text-center">
-                    <p className="operator-item-scan-stat__label text-[9px] font-bold uppercase tracking-wide">Remaining</p>
+                  <div className="operator-item-scan-stat operator-item-scan-stat--remaining shrink-0 rounded-xl border px-1 py-2 text-center">
+                    <p className="operator-item-scan-stat__label text-[8px] font-bold uppercase tracking-wide">Remaining</p>
                     <p
-                      className={`operator-item-scan-stat__value operator-item-scan-stat__value--${itemScanStatRemainingTone} mt-1 text-[20px] font-black tabular-nums leading-none`}
+                      className={`operator-item-scan-stat__value operator-item-scan-stat__value--${itemScanStatRemainingTone} mt-1 text-[17px] font-black tabular-nums leading-none`}
                     >
                       {itemScanStatRemaining}
+                    </p>
+                  </div>
+                  <div className="operator-item-scan-stat operator-item-scan-stat--skus shrink-0 rounded-xl border px-1 py-2 text-center">
+                    <p className="operator-item-scan-stat__label text-[8px] font-bold uppercase tracking-wide">SKUs</p>
+                    <p className="operator-item-scan-stat__value mt-1 text-[17px] font-black tabular-nums leading-none">
+                      {itemInspectionSlipCells.length}
                     </p>
                   </div>
                 </div>
@@ -15823,6 +16027,20 @@ function OperatorMobileScanPageContent() {
                               FNSKU {fnskuLabel}
                             </p>
                             <div className="flex shrink-0 items-center gap-1">
+                              {rowEditable ? (
+                                <button
+                                  type="button"
+                                  aria-label="Delete one scanned unit"
+                                  disabled={busy || cell.scanned === 0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleDeleteSlipCellUnit(cell);
+                                  }}
+                                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-red-500/40 bg-red-50 text-red-600 transition hover:bg-red-100 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-400"
+                                >
+                                  <Trash2 className="h-2.5 w-2.5" strokeWidth={2.25} aria-hidden />
+                                </button>
+                              ) : null}
                               {slipCardStatusMark(vis)}
                               <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
                                 Qty {cell.scanned}/{cell.expected}
@@ -16453,6 +16671,57 @@ function OperatorMobileScanPageContent() {
         </div>
       ) : null}
 
+      {slipChangeConfirmOpen ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[145] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-slip-change-title`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-slip-change-title`}
+              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+            >
+              Slip changed — items already scanned
+            </p>
+            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+              {packageItemHydratedRows.length} unit{packageItemHydratedRows.length !== 1 ? "s were" : " was"} scanned
+              against the current slip. Items not found in the new slip will show as{" "}
+              <span className="font-bold text-amber-600 dark:text-amber-400">OVER</span>.
+            </p>
+            <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
+              Items from the old slip that were not scanned will be removed from the expected list.
+            </p>
+            <OperatorScannerFooterActions
+              className="mt-6"
+              primary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-warning h-11 w-full rounded-xl border border-amber-500/60 bg-amber-50 text-[13px] font-bold text-amber-900 transition active:scale-[0.98] dark:bg-amber-900/20 dark:text-amber-300"
+                  onClick={() => void executeSlipChangePending()}
+                >
+                  Use new slip
+                </button>
+              }
+              secondary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    slipChangePendingRef.current = null;
+                    setSlipChangeConfirmOpen(false);
+                    modalOpenRef.current = false;
+                  }}
+                >
+                  Keep old slip
+                </button>
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
       {itemsBoxFinalizeModalOpen ? (
         <div
           className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
@@ -16555,7 +16824,7 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" && hasItemReceivableBox ? (
         <div
-          className="operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] grid w-full max-w-[430px] -translate-x-1/2 grid-cols-2 items-stretch gap-2 border-t px-3 pb-2 pt-1.5 sm:px-4"
+          className="operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(var(--scanner-bottom-nav-height,4.75rem)+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] grid w-full max-w-[430px] -translate-x-1/2 grid-cols-2 items-stretch gap-2 border-t px-3 pb-0 pt-1.5 sm:px-4"
           role="region"
           aria-label="Item inspection actions"
         >

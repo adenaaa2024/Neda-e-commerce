@@ -4086,9 +4086,14 @@ html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate_
 }
 
 html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_new"] {
-  border-color: rgba(47, 128, 237, 0.42) !important;
-  background-color: rgba(47, 128, 237, 0.1) !important;
-  color: #1d4ed8 !important;
+  background: #f4ead6 !important;
+  border: 1px solid #b08a3c !important;
+  color: #7a5b1b !important;
+  border-radius: 4px !important;
+  padding: 2px 7px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
 }
 
 html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate__status-badge[data-gate-badge="unexpected"] {
@@ -4374,14 +4379,16 @@ html.dark .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_ne
   letter-spacing: 0.1em;
 }
 
+/* light-mode manual_new: gold/amber — same palette as "new" badge; the more-specific .results rule above wins when inside results */
 html.light .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_new"] {
-  border: 1px solid rgba(138, 104, 31, 0.44) !important;
-  background: linear-gradient(165deg, #3d4550 0%, #2a3139 100%) !important;
-  color: #f8f6f1 !important;
-  box-shadow:
-    0 1px 4px rgba(22, 24, 27, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  letter-spacing: 0.1em;
+  background: #f4ead6 !important;
+  border: 1px solid #b08a3c !important;
+  color: #7a5b1b !important;
+  border-radius: 4px !important;
+  padding: 2px 7px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
 }
 
 /* Identify As segmented controls */
@@ -9077,10 +9084,10 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   flex: 1 1 auto;
   min-height: 0;
   /*
-   * Fixed actions: bottom offset 4.75rem (sits above bottom nav) + ~2×40px buttons + gap/padding.
-   * Nav height is NOT included — ScannerBottomNav is already below <main> in the flex column.
+   * Fixed actions bar: pt-1.5 + h-11 buttons + no bottom padding = 1.5*4px + 44px ≈ 3.375rem.
+   * Add gap + safe-area so the spacer fully clears the bar + a 4px visual breath.
    */
-  --operator-item-scan-actions-stack: 3.25rem;
+  --operator-item-scan-actions-stack: 3.5rem;
   --operator-item-scan-footer-reserve: calc(
     var(--operator-item-scan-actions-stack) + var(--op-scan-gap, 0.5rem) + env(safe-area-inset-bottom, 0px)
   );
@@ -9099,15 +9106,21 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   gap: 0.5rem;
 }
 
+/* Default panel min-height: 3 item rows (~70px each) + header ~40px + progress bar ~12px ≈ 13.5rem */
+:root {
+  --op-scan-panel-min-h: 13.5rem;
+  --op-scan-panel-min-h-few: 9rem;
+}
+
 .operator-item-scan-expected-panel {
   flex: 1 1 auto;
-  min-height: var(--op-scan-panel-min-h, 10rem);
+  min-height: var(--op-scan-panel-min-h, 13.5rem);
   max-height: 100%;
 }
 
 .operator-scan-panel--flexible {
   flex: 1 1 auto;
-  min-height: var(--op-scan-panel-min-h, 10rem);
+  min-height: var(--op-scan-panel-min-h, 13.5rem);
   max-height: 100%;
   display: flex;
   flex-direction: column;
@@ -9116,7 +9129,7 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
 
 .operator-scan-panel--flexible.operator-scan-panel--few-items {
   flex: 0 1 auto;
-  min-height: 0;
+  min-height: var(--op-scan-panel-min-h-few, 9rem);
 }
 
 .operator-scan-panel__body {

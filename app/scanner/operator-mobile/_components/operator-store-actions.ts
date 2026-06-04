@@ -194,6 +194,8 @@ export type OperatorPackageListRow = {
   /** Filled by {@link listOperatorPackagesForPalletAction} via profiles lookup. */
   created_by_display?: string | null;
   updated_by_display?: string | null;
+  /** Number of distinct packing-slip lines (SKUs) for this package — filled by {@link listOperatorPackagesForPalletAction}. */
+  slip_line_count?: number | null;
 };
 
 async function enrichOperatorPackageItemRowsWithAuditLabels(
@@ -317,6 +319,31 @@ export async function listOperatorPackagesForPalletAction(
   if (error) return { ok: false, message: error.message };
   const rawRows = (data ?? []) as OperatorPackageListRow[];
   const packages = await enrichOperatorPackageRowsWithProfileLabels(rawRows);
+
+  // Enrich with slip_contents count (distinct packing-slip lines per package)
+  if (packages.length > 0) {
+    try {
+      const pkgIds = packages.map((p) => p.id).filter(Boolean);
+      const { data: slipCounts } = await supabaseServer
+        .from("slip_contents")
+        .select("package_id")
+        .in("package_id", pkgIds)
+        .is("deleted_at", null);
+      if (slipCounts) {
+        const countByPkg = new Map<string, number>();
+        for (const row of slipCounts) {
+          const pid2 = String(row.package_id ?? "").trim();
+          if (pid2) countByPkg.set(pid2, (countByPkg.get(pid2) ?? 0) + 1);
+        }
+        for (const pkg of packages) {
+          (pkg as OperatorPackageListRow).slip_line_count = countByPkg.get(pkg.id) ?? 0;
+        }
+      }
+    } catch {
+      /* slip_line_count stays undefined — non-fatal */
+    }
+  }
+
   return { ok: true, packages };
 }
 
@@ -3487,5 +3514,139 @@ export async function fetchInventoryItemStatusLinesForGateAction(
     const msg = formatSupabaseActionError(e, "Inventory line fetch failed.");
     console.error("[fetchInventoryItemStatusLinesForGateAction]", msg, e);
     return { ok: false, error: msg };
+  }
+}
+
+// ─── Slip Reconciliation ──────────────────────────────────────────────────────
+
+/**
+ * After a packing slip is replaced in Box Info (while items are already scanned),
+ * update each scanned return_items row for the package:
+ * - Items whose barcode (fnsku / sku / product_identifier) matches a new slip line →
+ *   receive the new slip_content_id + slip_code.
+ * - Items that do NOT match any new slip line → slip_content_id = null, slip_code = null.
+ *
+ * Called AFTER updateOperatorIntakeBoxPackageAction so that new slip_contents rows exist.
+ */
+export async function reconcileReturnItemsSlipContentsAction(input: {
+  requestedOrganizationId: string;
+  packageId: string;
+  newSlipCode: string | null;
+}): Promise<{ ok: boolean; matched: number; unlinked: number; error?: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, matched: 0, unlinked: 0, error: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, matched: 0, unlinked: 0, error: "Could not resolve organization." };
+  }
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, matched: 0, unlinked: 0, error: "Invalid package id." };
+  }
+
+  const RETURN_ITEMS_TABLE = "return_items";
+
+  try {
+    // Load new slip_contents for this package (after save)
+    const { data: newSlipRows, error: slipErr } = await supabaseServer
+      .from("slip_contents")
+      .select("id, fnsku, upc, slip_code")
+      .eq("package_id", pkgId)
+      .is("deleted_at", null);
+    if (slipErr) return { ok: false, matched: 0, unlinked: 0, error: slipErr.message };
+
+    // Build lookup: barcode → slip_content_id for fast matching
+    type SlipMatch = { id: string; slip_code: string | null };
+    const byFnsku = new Map<string, SlipMatch>();
+    const byUpc = new Map<string, SlipMatch>();
+    for (const row of newSlipRows ?? []) {
+      const match: SlipMatch = { id: String(row.id), slip_code: String(row.slip_code ?? input.newSlipCode ?? "") || null };
+      const fnsku = String(row.fnsku ?? "").trim().toUpperCase();
+      const upc = String(row.upc ?? "").trim();
+      if (fnsku) byFnsku.set(fnsku, match);
+      if (upc) byUpc.set(upc, match);
+    }
+
+    // Load scanned return_items for this package
+    const { data: items, error: riErr } = await supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select("id, fnsku, sku, product_identifier")
+      .eq("package_id", pkgId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null);
+    if (riErr) return { ok: false, matched: 0, unlinked: 0, error: riErr.message };
+
+    let matched = 0;
+    let unlinked = 0;
+
+    for (const item of items ?? []) {
+      const fnsku = String(item.fnsku ?? "").trim().toUpperCase();
+      const upc = String(item.product_identifier ?? item.sku ?? "").trim();
+      const slip = byFnsku.get(fnsku) ?? byUpc.get(upc) ?? null;
+
+      if (slip) {
+        await supabaseServer
+          .from(RETURN_ITEMS_TABLE)
+          .update({ slip_content_id: slip.id, slip_code: slip.slip_code })
+          .eq("id", item.id)
+          .eq("organization_id", organizationId);
+        matched++;
+      } else {
+        await supabaseServer
+          .from(RETURN_ITEMS_TABLE)
+          .update({ slip_content_id: null, slip_code: null })
+          .eq("id", item.id)
+          .eq("organization_id", organizationId);
+        unlinked++;
+      }
+    }
+
+    return { ok: true, matched, unlinked };
+  } catch (e) {
+    const msg = String(e instanceof Error ? e.message : e);
+    return { ok: false, matched: 0, unlinked: 0, error: msg };
+  }
+}
+
+// ─── Item Soft Delete ─────────────────────────────────────────────────────────
+
+/**
+ * Soft-delete a single scanned item (return_items row) by setting deleted_at = NOW().
+ * Follows the project's soft-delete convention — the row is recoverable via admin tools
+ * within the configured undo window.
+ */
+export async function deleteOperatorPackageItemAction(input: {
+  requestedOrganizationId: string;
+  returnItemId: string;
+  packageId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, error: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, error: "Could not resolve organization." };
+  }
+  const riId = String(input.returnItemId ?? "").trim();
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(riId) || !isUuidString(pkgId)) {
+    return { ok: false, error: "Invalid item or package id." };
+  }
+
+  try {
+    const { error } = await supabaseServer
+      .from("return_items")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", riId)
+      .eq("package_id", pkgId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e instanceof Error ? e.message : e) };
   }
 }
