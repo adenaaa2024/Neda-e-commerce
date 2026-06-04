@@ -23,6 +23,8 @@ import {
 import {
   OPERATOR_MOBILE_MOVE_BOX,
   OPERATOR_MOBILE_VOID_BOX,
+  OPERATOR_MOBILE_EDIT_ITEM,
+  OPERATOR_MOBILE_DELETE_ITEM,
 } from "@/lib/operator-mobile-permissions";
 import { softDeleteShipmentEntryBaselineReturnItems } from "@/lib/scanner/operator-active-scanned-counts";
 import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
@@ -43,6 +45,7 @@ import {
   releaseExpectedItemsForPackage,
   resolveAllocatableExpectedPackageHint,
   softVoidPalletWithExpectedRelease,
+  softVoidReturnItemWithExpectedRelease,
   syncReturnItemsPalletForPackage,
 } from "@/lib/scanner/receive-expected-with-split";
 import { extractSlipOrderTokenForPalletCompare } from "@/lib/scanner/amazon-ra-order-id";
@@ -605,6 +608,51 @@ export async function listOperatorSlipContentsForPackageAction(
   });
 
   return { ok: true, rows: normalized };
+}
+
+/**
+ * Load a single package row for Box Info hydration (service role + org check).
+ * Use instead of browser Supabase on `packages`, which may be blocked by RLS.
+ */
+export async function getOperatorIntakeBoxPackageRowAction(
+  requestedOrganizationId: string,
+  packageId: string,
+  storeId?: string | null,
+): Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const pkgId = String(packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const { data, error } = await supabaseServer
+    .from("packages")
+    .select(
+      "id, package_code, outside_photo_urls, inside_photo_urls, slip_photo_urls, id_slip_contents, rma_number, manifest_data, notes, carrier_name, order_id, store_id",
+    )
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  if (!data) {
+    return { ok: false, message: "Package not found for this organization." };
+  }
+
+  const scope = String(storeId ?? "").trim();
+  const pkgStore = String((data as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  return { ok: true, row: data as Record<string, unknown> };
 }
 
 export type CreateOperatorPalletActionInput = {
@@ -2954,6 +3002,8 @@ export async function insertOperatorPackageItemAction(
 export type OperatorMobileCorrectionPermissions = {
   moveBox: boolean;
   voidBox: boolean;
+  editItem: boolean;
+  deleteItem: boolean;
 };
 
 /**
@@ -2977,11 +3027,13 @@ export async function getOperatorMobileCorrectionPermissionsAction(
   if (!org.ok) {
     return { ok: false, message: org.error };
   }
-  const [moveBox, voidBox] = await Promise.all([
+  const [moveBox, voidBox, editItem, deleteItem] = await Promise.all([
     userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_MOVE_BOX),
     userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_VOID_BOX),
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_EDIT_ITEM),
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_DELETE_ITEM),
   ]);
-  return { ok: true, permissions: { moveBox, voidBox } };
+  return { ok: true, permissions: { moveBox, voidBox, editItem, deleteItem } };
 }
 
 export type MoveOperatorIntakeBoxToPalletInput = {
@@ -3177,6 +3229,20 @@ export async function voidOperatorIntakeBoxPackageAction(
     return { ok: false, message: "This package belongs to another store — select the correct store." };
   }
 
+  // Guard: package must be empty (no active scanned items) before voiding
+  const { count: riCount, error: riCountErr } = await supabaseServer
+    .from("return_items")
+    .select("id", { count: "exact", head: true })
+    .eq("package_id", packageId)
+    .is("deleted_at", null);
+  if (riCountErr) return { ok: false, message: riCountErr.message };
+  if (riCount && riCount > 0) {
+    return {
+      ok: false,
+      message: `This box has ${riCount} scanned item${riCount !== 1 ? "s" : ""}. Remove all items first before voiding the box.`,
+    };
+  }
+
   const releaseAlloc = await releaseExpectedItemsForPackage(supabaseServer, {
     packageId,
     organizationId,
@@ -3285,6 +3351,20 @@ export async function voidOperatorIntakePalletAction(
     palStore !== storeScope
   ) {
     return { ok: false, message: "This pallet belongs to another store — select the correct store." };
+  }
+
+  // Guard: pallet must be empty (no active packages) before voiding
+  const { count: pkgCount, error: pkgCountErr } = await supabaseServer
+    .from("packages")
+    .select("id", { count: "exact", head: true })
+    .eq("pallet_id", palletId)
+    .is("deleted_at", null);
+  if (pkgCountErr) return { ok: false, message: pkgCountErr.message };
+  if (pkgCount && pkgCount > 0) {
+    return {
+      ok: false,
+      message: `This pallet contains ${pkgCount} box${pkgCount !== 1 ? "es" : ""}. Remove all boxes first before voiding the pallet.`,
+    };
   }
 
   const actor = await resolveAuditActorForSession();
@@ -3617,6 +3697,12 @@ export async function reconcileReturnItemsSlipContentsAction(input: {
  * Follows the project's soft-delete convention — the row is recoverable via admin tools
  * within the configured undo window.
  */
+/**
+ * Soft-delete a single scanned item (return_items row) using the system's proper
+ * soft-void pipeline: releases expected allocation and creates an undo batch.
+ * Uses `softVoidReturnItemWithExpectedRelease` which calls the v2 cascade RPC with
+ * TS fallback (handles missing migrations gracefully).
+ */
 export async function deleteOperatorPackageItemAction(input: {
   requestedOrganizationId: string;
   returnItemId: string;
@@ -3636,17 +3722,12 @@ export async function deleteOperatorPackageItemAction(input: {
     return { ok: false, error: "Invalid item or package id." };
   }
 
-  try {
-    const { error } = await supabaseServer
-      .from("return_items")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", riId)
-      .eq("package_id", pkgId)
-      .eq("organization_id", organizationId)
-      .is("deleted_at", null);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e instanceof Error ? e.message : e) };
-  }
+  const actor = await resolveAuditActorForSession();
+  const voided = await softVoidReturnItemWithExpectedRelease(supabaseServer, {
+    returnItemId: riId,
+    organizationId,
+    updatedBy: actor.userId && isUuidString(actor.userId) ? actor.userId : null,
+  });
+  if (!voided.ok) return { ok: false, error: voided.error };
+  return { ok: true };
 }

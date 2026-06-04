@@ -50,6 +50,8 @@ export type ItemUnitRecordSavePayload = {
   expiryDate: string | null;
   lotNumber: string | null;
   evidenceUrls: string[];
+  /** Separate evidence photos specifically for the Expired condition (expiry date label, packaging, etc.). */
+  expiryEvidenceUrls: string[];
   traceabilityRequired: boolean;
   /** Optional item photo (not required for Sellable/Ok). */
   optionalItemPhotoUrl: string | null;
@@ -57,7 +59,7 @@ export type ItemUnitRecordSavePayload = {
   operatorNotes: string | null;
 };
 
-type ItemUnitPhotoMenuTarget = "optional" | "evidence";
+type ItemUnitPhotoMenuTarget = "optional" | "evidence" | "expiry_evidence";
 
 function validateItemUnitBeforeSave(input: {
   barcode: string;
@@ -68,6 +70,7 @@ function validateItemUnitBeforeSave(input: {
   traceabilityRequired: boolean;
   needsEvidence: boolean;
   evidenceCount: number;
+  expiryEvidenceCount: number;
 }): ItemUnitValidationIssue[] {
   const issues: ItemUnitValidationIssue[] = [];
   const bc = input.barcode.trim();
@@ -115,6 +118,14 @@ function validateItemUnitBeforeSave(input: {
       target: "evidence",
     });
   }
+  if (input.hasExpiredTag && input.expiryEvidenceCount === 0) {
+    issues.push({
+      code: "expiry_evidence_photo",
+      title: "Expiry photo required",
+      message: "Add at least one photo showing the expiry date before saving.",
+      target: "evidence",
+    });
+  }
   return issues;
 }
 
@@ -129,6 +140,7 @@ function isItemUnitValidationIssueActive(
     traceabilityRequired: boolean;
     needsEvidence: boolean;
     evidenceCount: number;
+    expiryEvidenceCount: number;
   },
 ): boolean {
   switch (issue.target) {
@@ -140,6 +152,7 @@ function isItemUnitValidationIssueActive(
       if (input.hasExpiredTag && !input.noExpiryChecked && !input.expiryDate.trim()) return true;
       return input.traceabilityRequired && !input.expiryDate.trim();
     case "evidence":
+      if (issue.code === "expiry_evidence_photo") return input.hasExpiredTag && input.expiryEvidenceCount === 0;
       return input.needsEvidence && input.evidenceCount === 0;
     case "allocation":
       return true;
@@ -154,6 +167,7 @@ export type ItemUnitRecordModalInitialState = {
   lotNumber: string;
   noExpiryChecked: boolean;
   evidenceUrls: string[];
+  expiryEvidenceUrls: string[];
   optionalItemPhotoUrl: string | null;
   operatorNotes: string;
 };
@@ -270,10 +284,12 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const [lotNumber, setLotNumber] = useState("");
   const [noExpiryChecked, setNoExpiryChecked] = useState(false);
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
+  const [expiryEvidenceUrls, setExpiryEvidenceUrls] = useState<string[]>([]);
   const [optionalItemPhotoUrl, setOptionalItemPhotoUrl] = useState<string | null>(null);
   const [operatorNotes, setOperatorNotes] = useState("");
   const [validationIssues, setValidationIssues] = useState<ItemUnitValidationIssue[]>([]);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const [uploadingExpiryEvidence, setUploadingExpiryEvidence] = useState(false);
   const [uploadingOptionalPhoto, setUploadingOptionalPhoto] = useState(false);
   const [manualBarcodeEntry, setManualBarcodeEntry] = useState(false);
   const [photoMenuTarget, setPhotoMenuTarget] = useState<ItemUnitPhotoMenuTarget | null>(null);
@@ -281,6 +297,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const optionalUploadInputRef = useRef<HTMLInputElement>(null);
   const evidenceCameraInputRef = useRef<HTMLInputElement>(null);
   const evidenceUploadInputRef = useRef<HTMLInputElement>(null);
+  const expiryEvidenceCameraInputRef = useRef<HTMLInputElement>(null);
+  const expiryEvidenceUploadInputRef = useRef<HTMLInputElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const expiryInputRef = useRef<HTMLInputElement>(null);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
@@ -304,6 +322,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       setLotNumber(initialState.lotNumber);
       setNoExpiryChecked(initialState.noExpiryChecked);
       setEvidenceUrls(initialState.evidenceUrls);
+      setExpiryEvidenceUrls(initialState.expiryEvidenceUrls ?? []);
       setOptionalItemPhotoUrl(initialState.optionalItemPhotoUrl);
       setOperatorNotes(initialState.operatorNotes);
     } else {
@@ -312,6 +331,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       setLotNumber("");
       setNoExpiryChecked(false);
       setEvidenceUrls([]);
+      setExpiryEvidenceUrls([]);
       setOptionalItemPhotoUrl(null);
       setOperatorNotes("");
     }
@@ -345,6 +365,11 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     if (busy || uploadingEvidence) return;
     setPhotoMenuTarget("evidence");
   }, [busy, uploadingEvidence]);
+
+  const openExpiryEvidencePhotoMenu = useCallback(() => {
+    if (busy || uploadingExpiryEvidence) return;
+    setPhotoMenuTarget("expiry_evidence");
+  }, [busy, uploadingExpiryEvidence]);
 
   const startManualBarcodeEntry = useCallback(() => {
     if (busy || barcodeReadOnly) return;
@@ -412,6 +437,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       traceabilityRequired,
       needsEvidence,
       evidenceCount: evidenceUrls.length,
+      expiryEvidenceCount: expiryEvidenceUrls.length,
     }),
     [
       barcode,
@@ -422,6 +448,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       traceabilityRequired,
       needsEvidence,
       evidenceUrls.length,
+      expiryEvidenceUrls.length,
     ],
   );
 
@@ -519,7 +546,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   }, [busy]);
 
   const uploadFiles = useCallback(
-    async (files: FileList | null, mode: "evidence" | "optional") => {
+    async (files: FileList | null, mode: "evidence" | "optional" | "expiry_evidence") => {
       if (!files?.length) return;
       const oid = organizationId.trim();
       if (!oid) {
@@ -533,7 +560,12 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
         ]);
         return;
       }
-      const setUploading = mode === "evidence" ? setUploadingEvidence : setUploadingOptionalPhoto;
+      const setUploading =
+        mode === "evidence"
+          ? setUploadingEvidence
+          : mode === "expiry_evidence"
+            ? setUploadingExpiryEvidence
+            : setUploadingOptionalPhoto;
       setUploading(true);
       try {
         if (mode === "optional") {
@@ -557,6 +589,30 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             return;
           }
           setOptionalItemPhotoUrl(res.publicUrl);
+        } else if (mode === "expiry_evidence") {
+          const nextUrls: string[] = [...expiryEvidenceUrls];
+          for (const file of Array.from(files)) {
+            if (nextUrls.length >= 5) break;
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("bucket", "media");
+            fd.append("folder", "packages");
+            fd.append("organization_id", oid);
+            const res = await uploadMediaFileAction(fd);
+            if (!res.ok) {
+              showValidationIssues([
+                {
+                  code: "upload_expiry_evidence",
+                  title: "Upload failed",
+                  message: res.error,
+                  target: "evidence",
+                },
+              ]);
+              break;
+            }
+            nextUrls.push(res.publicUrl);
+          }
+          setExpiryEvidenceUrls(nextUrls);
         } else {
           const nextUrls: string[] = [...evidenceUrls];
           for (const file of Array.from(files)) {
@@ -588,6 +644,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           if (evidenceCameraInputRef.current) evidenceCameraInputRef.current.value = "";
           if (evidenceUploadInputRef.current) evidenceUploadInputRef.current.value = "";
         }
+        if (mode === "expiry_evidence") {
+          if (expiryEvidenceCameraInputRef.current) expiryEvidenceCameraInputRef.current.value = "";
+          if (expiryEvidenceUploadInputRef.current) expiryEvidenceUploadInputRef.current.value = "";
+        }
         if (mode === "optional") {
           if (optionalCameraInputRef.current) optionalCameraInputRef.current.value = "";
           if (optionalUploadInputRef.current) optionalUploadInputRef.current.value = "";
@@ -608,6 +668,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       traceabilityRequired,
       needsEvidence,
       evidenceCount: evidenceUrls.length,
+      expiryEvidenceCount: expiryEvidenceUrls.length,
     });
     if (clientIssues.length > 0) {
       showValidationIssues(clientIssues);
@@ -626,6 +687,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       expiryDate: noExpiryChecked ? null : expiryDate.trim() || null,
       lotNumber: noExpiryChecked ? null : lotNumber.trim() || null,
       evidenceUrls: gallery,
+      expiryEvidenceUrls: [...expiryEvidenceUrls],
       traceabilityRequired: tr,
       optionalItemPhotoUrl,
       operatorNotes: operatorNotes.trim() || null,
@@ -647,6 +709,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     selectedTags,
     needsEvidence,
     evidenceUrls,
+    expiryEvidenceUrls,
     optionalItemPhotoUrl,
     operatorNotes,
     expiryDate,
@@ -986,13 +1049,16 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 Capture evidence photo
               </button>
               {evidenceUrls.length > 0 ? (
-                <ul className="operator-item-unit-record-modal__muted mt-2 space-y-1 text-[10px] font-mono font-semibold">
+                <div className="mt-2 flex flex-wrap gap-2">
                   {evidenceUrls.map((u) => (
-                    <li key={u} className="truncate">
-                      {u.slice(0, 72)}…
-                    </li>
+                    <img
+                      key={u}
+                      src={u}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded-md border border-white/10 object-cover"
+                    />
                   ))}
-                </ul>
+                </div>
               ) : (
                 <>
                   <p className="operator-item-unit-record-modal__evidence-warn mt-2 text-[11px] font-semibold">
@@ -1004,6 +1070,65 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                     </p>
                   ) : null}
                 </>
+              )}
+            </div>
+          ) : null}
+
+          {/* Separate expiry photo section — only when "Expired" tag is selected */}
+          {hasExpiredTag ? (
+            <div className="mt-5">
+              <p className="operator-item-unit-record-modal__heading text-[12px] font-bold">Expiry date photo</p>
+              <p className="operator-item-unit-record-modal__muted mt-1 text-[10px] font-semibold">
+                Capture at least one photo showing the expiry date on the packaging before saving.
+              </p>
+              <input
+                ref={expiryEvidenceCameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden
+                onChange={(e) => void uploadFiles(e.target.files, "expiry_evidence")}
+              />
+              <input
+                ref={expiryEvidenceUploadInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden
+                onChange={(e) => void uploadFiles(e.target.files, "expiry_evidence")}
+              />
+              <button
+                type="button"
+                disabled={busy || uploadingExpiryEvidence}
+                onClick={openExpiryEvidencePhotoMenu}
+                className="operator-item-unit-record-modal__evidence-btn mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-bold transition disabled:opacity-40"
+              >
+                {uploadingExpiryEvidence ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Camera className="h-5 w-5" strokeWidth={2} />
+                )}
+                Capture expiry photo
+              </button>
+              {expiryEvidenceUrls.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {expiryEvidenceUrls.map((u) => (
+                    <img
+                      key={u}
+                      src={u}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded-md border border-white/10 object-cover"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="operator-item-unit-record-modal__evidence-warn mt-2 text-[11px] font-semibold">
+                  No expiry photo yet — required when Expired is selected.
+                </p>
               )}
             </div>
           ) : null}
@@ -1068,18 +1193,32 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           setPhotoMenuTarget(null);
           if (target === "optional") optionalCameraInputRef.current?.click();
           else if (target === "evidence") evidenceCameraInputRef.current?.click();
+          else if (target === "expiry_evidence") expiryEvidenceCameraInputRef.current?.click();
         }}
         onUploadPhoto={() => {
           const target = photoMenuTarget;
           setPhotoMenuTarget(null);
           if (target === "optional") optionalUploadInputRef.current?.click();
           else if (target === "evidence") evidenceUploadInputRef.current?.click();
+          else if (target === "expiry_evidence") expiryEvidenceUploadInputRef.current?.click();
         }}
         disabled={
           busy ||
-          (photoMenuTarget === "optional" ? uploadingOptionalPhoto : photoMenuTarget === "evidence" ? uploadingEvidence : false)
+          (photoMenuTarget === "optional"
+            ? uploadingOptionalPhoto
+            : photoMenuTarget === "evidence"
+              ? uploadingEvidence
+              : photoMenuTarget === "expiry_evidence"
+                ? uploadingExpiryEvidence
+                : false)
         }
-        title={photoMenuTarget === "optional" ? "Optional item photo" : "Issue evidence photo"}
+        title={
+          photoMenuTarget === "optional"
+            ? "Optional item photo"
+            : photoMenuTarget === "expiry_evidence"
+              ? "Expiry date photo"
+              : "Issue evidence photo"
+        }
       />
     </div>
   );

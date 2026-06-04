@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import type { OperatorPackageItemRow } from "@/app/scanner/operator-mobile/_components/operator-store-actions";
 import { auditUserDisplayLabel } from "@/lib/operator-audit-display";
 import {
@@ -138,6 +138,7 @@ type ItemScanEditUnitPickerModalProps = {
   units: OperatorPackageItemRow[];
   busy: boolean;
   onEditUnit: (unit: OperatorPackageItemRow) => void;
+  onDeleteUnit?: (unit: OperatorPackageItemRow) => void;
   onClose: () => void;
 };
 
@@ -148,6 +149,7 @@ export function ItemScanEditUnitPickerModal({
   units,
   busy,
   onEditUnit,
+  onDeleteUnit,
   onClose,
 }: ItemScanEditUnitPickerModalProps) {
   if (!open) return null;
@@ -194,19 +196,33 @@ export function ItemScanEditUnitPickerModal({
                 const audit = itemScanUnitAuditLines(unit);
                 return (
                   <li key={unit.id}>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => onEditUnit(unit)}
-                      className="operator-item-scan-unit-picker__unit-card flex w-full min-h-[52px] flex-col gap-1 rounded-lg border px-3 py-2.5 text-left transition active:scale-[0.98] disabled:opacity-40"
-                    >
+                    <div className="operator-item-scan-unit-picker__unit-card flex w-full min-h-[52px] flex-col gap-1 rounded-lg border px-3 py-2.5 text-left">
                       <span className="flex items-center justify-between gap-2">
                         <span className="operator-item-scan-unit-picker__unit-label text-[12px] font-black leading-none">
                           Unit {index + 1}
                         </span>
-                        <span className="operator-item-scan-unit-picker__edit-btn inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide">
-                          <Pencil className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                          Edit
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => onEditUnit(unit)}
+                            className="operator-item-scan-unit-picker__edit-btn inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide transition active:scale-95 disabled:opacity-40"
+                          >
+                            <Pencil className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
+                            Edit
+                          </button>
+                          {onDeleteUnit ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => onDeleteUnit(unit)}
+                              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-500/40 bg-red-950/30 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-red-400 transition active:scale-95 disabled:opacity-40 hover:bg-red-950/50"
+                              aria-label="Delete this scanned unit"
+                            >
+                              <Trash2 className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
+                              Delete
+                            </button>
+                          ) : null}
                         </span>
                       </span>
                       <span className="operator-item-scan-unit-picker__summary text-[10px] font-medium leading-snug">
@@ -223,7 +239,7 @@ export function ItemScanEditUnitPickerModal({
                           {audit.edited}
                         </span>
                       ) : null}
-                    </button>
+                    </div>
                   </li>
                 );
               })}

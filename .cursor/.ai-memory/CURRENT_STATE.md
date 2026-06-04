@@ -56,3 +56,15 @@ Preserve **scanner UX** + **Phase1 governed allocation/release rules** (`release
 Detail: [NEXT_ACTIONS.md](NEXT_ACTIONS.md) · [NEDA_HANDOFF.md](NEDA_HANDOFF.md)
 
 **Last memory sync:** `phase1-demo-ready-history-memory-sync/20260617T120000Z/`
+
+## Scanner: Box Info hydration on Item Scan -> Back (FIXED 2026-06-04)
+
+| Item | Status |
+|------|--------|
+| returnFromItemsPhaseToBoxInfo | **FIXED** -- hydrateBoxPackageIdRef.current = pkgId (not null) |
+| Vision lines carryover prefill | **ADDED** -- itemScanSlipCarryover pre-populates before DB arrives |
+| Debug flag | **ADDED** -- ITEM_TO_BOX_HYDRATE_DEBUG = false |
+| tsc / build | **PASS** |
+| clearBoxSlipVisionLinesState in return path | **NOT CALLED** (correct) |
+| Baseline committed | **AFTER hydrate** via finalizeBoxIntakeBaselineRef in reloadBoxPackageIntake |
+

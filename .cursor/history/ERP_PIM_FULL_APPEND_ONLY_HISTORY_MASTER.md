@@ -229987,3 +229987,98 @@ Exact next prompt: PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE
 ================================================================================
 END APPEND SLICE â€” 20260617T120000Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260604T194700Z
+TOPIC: BOX-INFO-HYDRATION-FIX-ITEM-SCAN-BACK-NAV
+================================================================================
+
+## Session: Box Info hydration on Item Scan -> Back (2026-06-04)
+
+### Problem
+When operator pressed Back from Item Scan to Box Info, the Box Info page showed
+blank state: no packing slip photo, no box photos, no OCR/slip vision lines,
+no detected item lines.
+
+### Root cause (multi-factor)
+1. hydrateBoxPackageIdRef.current was set to null at line 11997 in
+   returnFromItemsPhaseToBoxInfo, BEFORE calling reloadBoxPackageIntakeRef.current(pkgId).
+   This incorrectly signaled "no active hydration" to concurrent async guards.
+   While reloadBoxPackageIntake immediately reset it to pkgId, this created a
+   window where stale guard checks could reject valid hydration responses.
+2. palletPackagePickerList is cleared when flowPhase transitions to "items"
+   (effect line 5700 calls setPalletPackagePickerList([])) so photo pre-fill
+   from cache was silently a no-op (row = undefined).
+3. No immediate pre-fill of vision lines from itemScanSlipCarryover; there was
+   a blank vision-lines flash until the async DB fetch completed.
+4. The hydration effect (line 7072) fires a second concurrent reloadBoxPackageIntake
+   call (triggered by setActiveBoxSession + setBoxHydrateNonce changes) without
+   the guard being pre-set, risking guard mismatch in edge cases.
+
+### Fix applied (app/scanner/operator-mobile/scan/page.tsx)
+- Changed hydrateBoxPackageIdRef.current = null -> hydrateBoxPackageIdRef.current = pkgId
+  before void reloadBoxPackageIntakeRef.current(pkgId) in returnFromItemsPhaseToBoxInfo.
+  This claims the guard correctly so both the direct call and the effect call share
+  fetchingFor=pkgId and all guard checks pass.
+- Added immediate pre-populate of vision lines from itemScanSlipCarryover
+  (using mapSlipContentRowToVisionLine conversion + commitBoxSlipVisionLinesFromSource)
+  so OCR/detected items appear before DB fetch completes (stale-while-revalidate).
+- Added ITEM_TO_BOX_HYDRATE_DEBUG = false flag for optional console tracing.
+- Added [item-to-box-hydrate-debug] logging block covering: packageId, had session,
+  restored session, cache row found, photo counts before/after prefill, vision lines
+  before/after carryover prefill, carryover found/count, hydrate guard claimed,
+  baseline commit path.
+- Updated returnFromItemsPhaseToBoxInfo deps: added itemScanSlipCarryover,
+  commitBoxSlipVisionLinesFromSource.
+- clearBoxSlipVisionLinesState() is NOT called during the return path (preserved).
+- Baseline is committed by reloadBoxPackageIntake via finalizeBoxIntakeBaselineRef
+  after DB hydration completes.
+- Direct Box and Pallet Box modes both work (reloadBoxPackageIntake handles both).
+
+### Scope: operator mobile scanner phase transition only
+- No changes to item allocation, scanner search, product resolver/linkage, OCR
+  extraction, DB/schema/RLS/migrations, admin/desktop pages, or Save Unit behavior.
+
+### Validation
+- npx tsc --noEmit: PASS (0 errors)
+- npx next build: PASS (clean build)
+- ESLint: 0 errors on modified file
+
+================================================================================
+END APPEND SLICE -- 20260604T194700Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260604T210000Z
+TOPIC: BOX-INFO-PHOTO-HYDRATE-FIX-ITEM-SCAN-BACK
+================================================================================
+
+### Problem (follow-up)
+Vision/OCR lines restored on Item Scan -> Back, but box photo previews still blank.
+
+### Root cause
+1. Box photo reload used browser supabase.from('packages') — RLS-blocked (same pattern
+   as slip_contents which already uses server action per code comment).
+2. saveBoxAndContinue clears slip/outside/inside photo state with no photo carryover;
+   palletPackagePickerList empty during items phase — no cache fallback.
+3. reloadBoxPackageIntake set refs + setState inline but fetch path never returned row.
+
+### UI state source of truth (NOT activeBoxSession)
+- slipBoxPhotoUrls -> packing slip MasterUploader
+- outsideBoxPhotoUrls -> outside box MasterUploader
+- insideBoxPhotoUrls -> inside box MasterUploader
+- shippingLabelPhotoUrls -> shipping label MasterUploader (direct box)
+- bolPhotoUrls -> BOL MasterUploader (direct box)
+
+### Fix
+- getOperatorIntakeBoxPackageRowAction (server role) in operator-store-actions.ts
+- parseHydratedBoxPhotoUrlsFromPackageRow + applyHydratedBoxPhotoUrlsFromParsed/PackageRow
+- ItemScanBoxPhotoCarryoverPayload snapshot on Save & Continue
+- returnFromItemsPhaseToBoxInfo applies photo carryover immediately, then server reload
+- [item-to-box-photo-debug] under ITEM_TO_BOX_HYDRATE_DEBUG
+
+### Validation: tsc + next build PASS
+
+================================================================================
+END APPEND SLICE -- 20260604T210000Z
+================================================================================

@@ -482,7 +482,13 @@ export async function syncReturnItemsPalletForPackage(
 
 export function isSupabaseRpcMissingError(message: string): boolean {
   const m = message.toLowerCase();
-  return m.includes("could not find the function") || m.includes("pgrst202");
+  return (
+    m.includes("could not find the function") ||
+    m.includes("pgrst202") ||
+    // RPC internal failure: migration table not applied (e.g. user_permissions relation missing)
+    m.includes("user_permissions") ||
+    (m.includes("relation") && m.includes("does not exist"))
+  );
 }
 
 /** Soft-void one return_items row via v2 delete RPC (release + undo batch). */

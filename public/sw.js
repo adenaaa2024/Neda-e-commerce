@@ -2,7 +2,7 @@
  * Minimal service worker — required for installable PWA (not just a home-screen shortcut).
  * Network-first; no aggressive caching of ERP pages.
  *
- * Version: 1.1.0 — keep in sync with lib/pwa-app-version.ts
+ * Version: 1.2.0 — keep in sync with lib/pwa-app-version.ts
  */
 
 self.addEventListener("install", (event) => {

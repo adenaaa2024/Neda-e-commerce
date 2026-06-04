@@ -4078,7 +4078,6 @@ html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate_
   background: #f4ead6 !important;
   border: 1px solid #b08a3c !important;
   color: #7a5b1b !important;
-  border-radius: 4px !important;
   padding: 2px 7px !important;
   font-weight: 800 !important;
   letter-spacing: 0.06em !important;
@@ -4089,7 +4088,6 @@ html.light .operator-shipment-entry-gate__results .operator-shipment-entry-gate_
   background: #f4ead6 !important;
   border: 1px solid #b08a3c !important;
   color: #7a5b1b !important;
-  border-radius: 4px !important;
   padding: 2px 7px !important;
   font-weight: 800 !important;
   letter-spacing: 0.06em !important;
@@ -4362,7 +4360,6 @@ html.dark .operator-shipment-entry-gate__results .operator-shipment-entry-gate__
   background: rgba(214, 183, 110, 0.1) !important;
   border: 1px solid rgba(214, 183, 110, 0.4) !important;
   color: #f1d58a !important;
-  border-radius: 4px !important;
   padding: 2px 7px !important;
   font-weight: 800 !important;
   letter-spacing: 0.06em !important;
@@ -4379,12 +4376,11 @@ html.dark .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_ne
   letter-spacing: 0.1em;
 }
 
-/* light-mode manual_new: gold/amber — same palette as "new" badge; the more-specific .results rule above wins when inside results */
+/* light-mode manual_new: gold/amber pill — same palette as "new" badge; the more-specific .results rule above wins when inside results */
 html.light .operator-shipment-entry-gate__status-badge[data-gate-badge="manual_new"] {
   background: #f4ead6 !important;
   border: 1px solid #b08a3c !important;
   color: #7a5b1b !important;
-  border-radius: 4px !important;
   padding: 2px 7px !important;
   font-weight: 800 !important;
   letter-spacing: 0.06em !important;
@@ -5160,9 +5156,10 @@ html.light .operator-shipment-entry-header .operator-pallet-stepper-shell {
 }
 
 .operator-shipment-entry-header .operator-stepper-rail {
-  height: 0.1875rem !important;
-  min-height: 0.1875rem !important;
+  height: 0.25rem !important;
+  min-height: 0.25rem !important;
   border-radius: 9999px !important;
+  margin-inline: 0.375rem !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-node--active,
@@ -5231,59 +5228,62 @@ html.light .operator-shipment-entry-header [data-receiving-phase] .operator-step
   opacity: 0.78;
 }
 
+/* Rail default (gold / pending) — dark mode */
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
-html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail,
+html.dark .operator-shipment-entry-header .operator-stepper-rail:not([data-rail-done]) {
   background: linear-gradient(
     90deg,
-    rgba(50, 60, 72, 0.35) 0%,
-    rgba(214, 183, 110, 0.22) 18%,
-    rgba(231, 196, 112, 0.48) 50%,
-    rgba(214, 183, 110, 0.22) 82%,
-    rgba(50, 60, 72, 0.35) 100%
+    rgba(214, 183, 110, 0.45) 0%,
+    rgba(231, 196, 112, 0.78) 50%,
+    rgba(214, 183, 110, 0.45) 100%
   ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.35) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.32) !important;
 }
 
+/* Rail default (gold / pending) — light mode */
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-shipment-entry-stepper-shell .operator-stepper-rail,
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-box-info-stepper-shell .operator-stepper-rail,
-html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail {
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-pallet-stepper-shell .operator-stepper-rail,
+html.light .operator-shipment-entry-header .operator-stepper-rail:not([data-rail-done]) {
   background: linear-gradient(
     90deg,
-    rgba(207, 198, 182, 0.45) 0%,
-    rgba(187, 174, 152, 0.35) 18%,
-    rgba(138, 104, 31, 0.42) 50%,
-    rgba(187, 174, 152, 0.35) 82%,
-    rgba(207, 198, 182, 0.45) 100%
+    rgba(138, 104, 31, 0.35) 0%,
+    rgba(138, 104, 31, 0.68) 50%,
+    rgba(138, 104, 31, 0.35) 100%
   ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.65),
-    inset 0 -1px 0 rgba(187, 174, 152, 0.22) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(187, 174, 152, 0.18) !important;
 }
 
-/* Rails after a completed step — slightly stronger metallic link (visual only) */
-html.dark .operator-shipment-entry-header .operator-stepper-node--done + .operator-stepper-rail {
+/* Rail done (green) — dark mode */
+html.dark .operator-shipment-entry-header .operator-stepper-rail[data-rail-done="true"] {
   background: linear-gradient(
     90deg,
-    rgba(110, 231, 183, 0.18) 0%,
-    rgba(214, 183, 110, 0.32) 22%,
-    rgba(231, 196, 112, 0.58) 50%,
-    rgba(214, 183, 110, 0.32) 78%,
-    rgba(50, 60, 72, 0.3) 100%
+    rgba(52, 211, 153, 0.45) 0%,
+    rgba(110, 231, 183, 0.82) 50%,
+    rgba(52, 211, 153, 0.45) 100%
   ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(167, 243, 208, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28) !important;
 }
 
-html.light .operator-shipment-entry-header .operator-stepper-node--done + .operator-stepper-rail {
+/* Rail done (green) — light mode */
+html.light .operator-shipment-entry-header .operator-stepper-rail[data-rail-done="true"] {
   background: linear-gradient(
     90deg,
-    rgba(21, 128, 61, 0.14) 0%,
-    rgba(187, 174, 152, 0.42) 22%,
-    rgba(138, 104, 31, 0.52) 50%,
-    rgba(187, 174, 152, 0.42) 78%,
-    rgba(207, 198, 182, 0.4) 100%
+    rgba(21, 128, 61, 0.35) 0%,
+    rgba(21, 128, 61, 0.72) 50%,
+    rgba(21, 128, 61, 0.35) 100%
   ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(21, 128, 61, 0.12) !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
@@ -9084,10 +9084,10 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   flex: 1 1 auto;
   min-height: 0;
   /*
-   * Fixed actions bar: pt-1.5 + h-11 buttons + no bottom padding = 1.5*4px + 44px ≈ 3.375rem.
-   * Add gap + safe-area so the spacer fully clears the bar + a 4px visual breath.
+   * Fixed actions bar: pt-1.5 + h-11 buttons + pb-[op-scan-gap] ≈ 3.375rem + 0.5rem = 3.875rem.
+   * Add gap for visual breathing above nav.
    */
-  --operator-item-scan-actions-stack: 3.5rem;
+  --operator-item-scan-actions-stack: 4rem;
   --operator-item-scan-footer-reserve: calc(
     var(--operator-item-scan-actions-stack) + var(--op-scan-gap, 0.5rem) + env(safe-area-inset-bottom, 0px)
   );
@@ -9099,7 +9099,33 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
 
 .operator-item-scan-body {
   min-height: 0;
-  gap: 0.625rem;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* "Not on packing slip" / OVER panel — second panel in two-panel layout */
+.operator-item-scan-over-panel {
+  flex: 0 1 auto;
+  /* at least 1 item row + header so it never collapses to nothing */
+  min-height: calc(var(--op-item-row-h, 4.5rem) + 2.5rem);
+  /* 3 item rows max before internal scroll; each row ≈ 4.5rem + panel header 2.25rem */
+  max-height: calc(var(--op-item-row-h, 4.5rem) * 3 + 2.5rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.operator-item-scan-over-panel .operator-scan-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .operator-item-scan-stats {

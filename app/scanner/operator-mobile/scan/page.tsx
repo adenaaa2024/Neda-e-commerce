@@ -138,6 +138,7 @@ import {
   updateOperatorIntakeBoxPackageAction,
   saveOperatorSlipVisionAction,
   checkOperatorSlipCodeDuplicateAction,
+  getOperatorIntakeBoxPackageRowAction,
   getOperatorMobileCorrectionPermissionsAction,
   moveOperatorIntakeBoxToPalletAction,
   voidOperatorIntakeBoxPackageAction,
@@ -311,13 +312,16 @@ const CONFIRM_DIALOG_BTN_GRID = "operator-scan-confirm-dialog__actions mt-6 grid
 /** Rugged handheld density — forced via `.operator-shipment-handheld-compact` on scan page (not viewport MQ). */
 const HANDHELD_COMPACT =
   "gap-1 space-y-0.5 px-2 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-0";
+/** Pallet docs phase (flowPhase==="scan", identified) — in-flow buttons, needs only small bottom gap. */
+const HANDHELD_PALLET_COMPACT =
+  "gap-1 space-y-0.5 px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pt-0";
 /** Shipment Entry gate — tight bottom inset above in-column nav (no fixed-action clearance). */
 const HANDHELD_GATE_COMPACT =
   "gap-1 space-y-0.5 px-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-0";
 const HANDHELD_HEADER_COMPACT =
   "px-2 pb-0 pt-0";
 const HANDHELD_STEPPER_COMPACT =
-  "mt-0 rounded-[11px] px-1.5 py-0.5";
+  "mt-0 rounded-[11px] px-3 py-0.5";
 /** Box Info intake (package_scan) — compact polish; scan page only. */
 const BOX_INFO_SECTION =
   "relative mb-0 overflow-hidden rounded-md border border-[rgba(138,104,31,0.28)] bg-white p-1.5 shadow-[0_2px_8px_rgba(60,45,20,0.05)] dark:border-[rgba(214,183,110,0.24)] dark:bg-[#1a2129] dark:shadow-[0_4px_12px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]";
@@ -380,8 +384,29 @@ const CONFIRM_SAVE_MESSAGE = "Are you sure you want to save these changes?";
 const CONFIRM_DISCARD_MESSAGE = "Unsaved changes will be lost. Are you sure you want to discard?";
 const SCANNER_LEAVE_UNSAVED_TITLE = "Leave without saving changes?";
 const SCANNER_LEAVE_UNSAVED_BODY = "Unsaved photos, notes, or slip details may be lost.";
+
+/** Human-readable labels for dirty-state reasons shown in the leave confirmation dialog. */
+const DIRTY_REASON_LABEL: Record<string, string> = {
+  shipping_label_photos: "Shipping label photos",
+  pallet_photos: "Pallet photos",
+  bol_photos: "BOL photos",
+  pallet_notes: "Pallet notes",
+  tracking: "Tracking number",
+  order_id: "Order ID",
+  carrier: "Carrier",
+  slip_photos: "Packing slip photos",
+  outside_photos: "Outside box photos",
+  inside_photos: "Inside box photos",
+  box_notes: "Box notes",
+  slip_code: "Slip code",
+  rma: "RMA number",
+  slip_vision_lines: "Slip lines",
+  item_unit_modal_edit: "Item edit in progress",
+};
 /** Set true temporarily to trace back-navigation decisions in the console. */
 const SCANNER_BACK_DEBUG = false;
+/** Set true temporarily to trace Item Scan → Box Info hydration in the console. */
+const ITEM_TO_BOX_HYDRATE_DEBUG = false;
 
 type IdentifyGateLookupTimingPath = "exact_hit" | "fast_miss" | "deep_search";
 
@@ -1496,9 +1521,21 @@ function ReceivingMasterStepper({
   const ringBase =
     "operator-stepper-node flex h-[1.3125rem] w-[1.3125rem] shrink-0 items-center justify-center rounded-full border-2 transition";
 
-  const rail = () => (
+  // Rail 1: Pallet→Box — green when box step is active or beyond; gold otherwise
+  const rail1Done = boxActive || boxDone || itemsActive;
+  const rail1 = () => (
     <div
-      className="operator-stepper-rail mx-0.5 min-w-[0.75rem] max-w-[2rem] flex-1 shrink rounded-full"
+      className="operator-stepper-rail mx-1 flex-1 shrink rounded-full"
+      data-rail-done={rail1Done ? "true" : undefined}
+      aria-hidden
+    />
+  );
+  // Rail 2: Box→Items — green only when items step is active; gold otherwise
+  const rail2Done = itemsActive;
+  const rail2 = () => (
+    <div
+      className="operator-stepper-rail mx-1 flex-1 shrink rounded-full"
+      data-rail-done={rail2Done ? "true" : undefined}
       aria-hidden
     />
   );
@@ -1566,9 +1603,9 @@ function ReceivingMasterStepper({
     <div className="operator-receiving-stepper w-full px-0 pb-0" role="list" aria-label="Receiving progress">
       <div className="operator-receiving-stepper-track flex w-full items-center justify-center">
         {palletNode()}
-        {rail()}
+        {rail1()}
         {boxNode()}
-        {rail()}
+        {rail2()}
         {itemsNode()}
       </div>
       <div className="operator-receiving-stepper-labels mt-1 grid grid-cols-[1fr_minmax(0.625rem,1.5rem)_1fr_minmax(0.625rem,1.5rem)_1fr] gap-0 text-center font-bold uppercase tracking-wide">
@@ -2720,6 +2757,73 @@ type ItemScanSlipCarryoverPayload = {
   rows: OperatorSlipContentsListRow[];
 };
 
+/** Box documentation photo URLs — survives Save & Continue before DB reload on Item Scan → Back. */
+type ItemScanBoxPhotoCarryoverPayload = {
+  packageId: string;
+  slip: string[];
+  outside: string[];
+  inside: string[];
+  shipping: string[];
+  bol: string[];
+};
+
+type ParsedBoxPhotoUrls = {
+  slip: string[];
+  outside: string[];
+  inside: string[];
+  shipping: string[];
+  bol: string[];
+};
+
+function snapshotItemScanBoxPhotoCarryoverFromBoxIntake(
+  packageId: string,
+  photos: {
+    slip: readonly string[];
+    outside: readonly string[];
+    inside: readonly string[];
+    shipping: readonly string[];
+    bol: readonly string[];
+  },
+): ItemScanBoxPhotoCarryoverPayload {
+  const pid = String(packageId ?? "").trim();
+  return {
+    packageId: pid,
+    slip: photos.slip.map((u) => String(u ?? "").trim()).filter(Boolean),
+    outside: photos.outside.map((u) => String(u ?? "").trim()).filter(Boolean),
+    inside: photos.inside.map((u) => String(u ?? "").trim()).filter(Boolean),
+    shipping: photos.shipping.map((u) => String(u ?? "").trim()).filter(Boolean),
+    bol: photos.bol.map((u) => String(u ?? "").trim()).filter(Boolean),
+  };
+}
+
+/** Parse package row / manifest into viewable photo URL arrays for Box Info UI state. */
+function parseHydratedBoxPhotoUrlsFromPackageRow(
+  row: Record<string, unknown>,
+  client: SupabaseClient,
+  opts?: { includeDirectBoxShipmentDocs?: boolean },
+): ParsedBoxPhotoUrls {
+  const slip = normalizePalletDocumentationImageUrls(
+    parsePalletPhotoUrlArray(row.slip_photo_urls),
+    client,
+  );
+  const outside = normalizePalletDocumentationImageUrls(
+    parsePalletPhotoUrlArray(row.outside_photo_urls),
+    client,
+  );
+  const inside = normalizePalletDocumentationImageUrls(
+    parsePalletPhotoUrlArray(row.inside_photo_urls),
+    client,
+  );
+  let shipping: string[] = [];
+  let bol: string[] = [];
+  if (opts?.includeDirectBoxShipmentDocs) {
+    const docs = parseDirectBoxShipmentDocumentation(row.manifest_data);
+    shipping = normalizePalletDocumentationImageUrls(docs.shippingLabelUrls, client);
+    bol = normalizePalletDocumentationImageUrls(docs.bolUrls, client);
+  }
+  return { slip, outside, inside, shipping, bol };
+}
+
 function snapshotItemScanSlipCarryoverFromBoxIntake(
   packageId: string,
   visionLines: BoxSlipVisionLine[],
@@ -2818,6 +2922,8 @@ type ItemScanEditPick = {
   slipContentId?: string;
   rowTitle: string;
   rowSubtitle: string | null;
+  /** Explicit unit list — when set, picker shows exactly these units instead of deriving from state. */
+  units?: OperatorPackageItemRow[];
 };
 
 function packageItemsForSlipContentId(
@@ -2887,6 +2993,7 @@ function operatorPackageItemRowToModalInitial(unit: OperatorPackageItemRow): Ite
     lotNumber: unit.lot_number?.trim() ?? "",
     noExpiryChecked: !expiry && !hasExpired,
     evidenceUrls: [...(unit.evidence_urls ?? [])],
+    expiryEvidenceUrls: [],
     optionalItemPhotoUrl: unit.optional_item_photo_url,
     operatorNotes: unit.operator_notes ?? "",
   };
@@ -3994,7 +4101,7 @@ function OperatorMobileScanPageContent() {
    * and package intake when a saved UUID box is open. Persisted pallet / saved box rows default to read-only.
    */
   const [editAllMode, setEditAllMode] = useState(false);
-  const [correctionPerms, setCorrectionPerms] = useState({ moveBox: false, voidBox: false });
+  const [correctionPerms, setCorrectionPerms] = useState({ moveBox: false, voidBox: false, editItem: false, deleteItem: false });
   const [moveBoxModalOpen, setMoveBoxModalOpen] = useState(false);
   /** Target pallet for Move Box — filled by page scan capture while {@link moveBoxModalOpen}. */
   const [moveBoxTargetDraft, setMoveBoxTargetDraft] = useState("");
@@ -4039,6 +4146,7 @@ function OperatorMobileScanPageContent() {
   const [pickerDismissConfirmOpen, setPickerDismissConfirmOpen] = useState(false);
   /** Shared back-navigation gate for unsaved box / pallet intake edits. */
   const [scannerLeaveConfirmOpen, setScannerLeaveConfirmOpen] = useState(false);
+  const [scannerLeaveUnsavedReasons, setScannerLeaveUnsavedReasons] = useState<string[]>([]);
   const scannerLeavePendingActionRef = useRef<(() => void) | null>(null);
   /** Exit active box intake without persisting. */
   const [packageSessionCancelConfirmOpen, setPackageSessionCancelConfirmOpen] = useState(false);
@@ -4466,6 +4574,8 @@ function OperatorMobileScanPageContent() {
 
   /** Set when /api/scanner/extract-box-slip returns INVALID_SLIP_FORMAT — blocks Save until slip is replaced or removed. */
   const [boxSlipInvalidFormatBlocksSave, setBoxSlipInvalidFormatBlocksSave] = useState(false);
+  /** Operator marked that this box has no packing slip — exempts the slip photo requirement. */
+  const [boxHasNoPackingSlip, setBoxHasNoPackingSlip] = useState(false);
   const [boxSaveBusy, setBoxSaveBusy] = useState(false);
   const [boxNotes, setBoxNotes] = useState("");
   const boxNotesRef = useRef("");
@@ -4547,6 +4657,10 @@ function OperatorMobileScanPageContent() {
     null,
   );
   const itemScanSlipCarryoverRef = useRef<ItemScanSlipCarryoverPayload | null>(null);
+  /** Box documentation photo URLs — survives phase flip until DB reload on Item Scan → Back. */
+  const [itemScanBoxPhotoCarryover, setItemScanBoxPhotoCarryover] =
+    useState<ItemScanBoxPhotoCarryoverPayload | null>(null);
+  const itemScanBoxPhotoCarryoverRef = useRef<ItemScanBoxPhotoCarryoverPayload | null>(null);
   /** Set when item-phase EP fetch returns zero rows for an active tracking (live DB only). */
   const [itemDraft, setItemDraft] = useState<{
     barcode: string;
@@ -4607,6 +4721,20 @@ function OperatorMobileScanPageContent() {
   const [unexpectedPackageItemModal, setUnexpectedPackageItemModal] = useState<{ barcode: string } | null>(null);
   const [itemUnitModal, setItemUnitModal] = useState<ItemUnitModalContext | null>(null);
   const [itemOverscanWarning, setItemOverscanWarning] = useState<string | null>(null);
+  /** Blocking dialog before deleting a scanned unit in Edit All mode. */
+  const [deleteUnitConfirmOpen, setDeleteUnitConfirmOpen] = useState(false);
+  const deleteUnitConfirmCellRef = useRef<Parameters<typeof handleDeleteSlipCellUnit>[0] | null>(null);
+  /** When delete is triggered from the unit picker modal (specific unit, not slip cell). */
+  const pickerDeleteUnitRef = useRef<OperatorPackageItemRow | null>(null);
+
+  /** Blocking dialog state when operator tries to scan a slip line that's already at/over expected. */
+  const [overscanConfirmOpen, setOverscanConfirmOpen] = useState(false);
+  const overscanConfirmCtxRef = useRef<{
+    slipId: string | null;
+    expected: number;
+    current: number;
+    args: Parameters<typeof queueItemUnitModalInner>[0];
+  } | null>(null);
   const [syncErrorToast, setSyncErrorToast] = useState<string | null>(null);
 
   const [expectedPkgLines, setExpectedPkgLines] = useState<TrackingOperatorLine[]>([]);
@@ -5194,13 +5322,6 @@ function OperatorMobileScanPageContent() {
         );
         setIdentifyGatePhase("matched");
         setScanProgressPhase("ready");
-        // Pre-fill box count from manifest so the operator can confirm or override
-        if (!identifyGatePhysicalBoxStr.trim()) {
-          const manifestCount = resolveMatchedGatePalletBoxCount("", shipmentLines, scopedSafe, scopedAgg);
-          if (manifestCount != null && manifestCount > 0) {
-            setIdentifyGatePhysicalBoxStr(String(manifestCount));
-          }
-        }
         if (!invRows.length && !shipmentLines.length && !scopedSafe.length) {
           setIdentifyGateSlowHint(
             (prev) =>
@@ -5351,14 +5472,22 @@ function OperatorMobileScanPageContent() {
   useEffect(() => {
     const oid = (orgId ?? "").trim();
     if (!oid || !isUuidString(oid)) {
-      setCorrectionPerms({ moveBox: false, voidBox: false });
+      setCorrectionPerms({ moveBox: false, voidBox: false, editItem: false, deleteItem: false });
       return;
     }
     let cancelled = false;
     void getOperatorMobileCorrectionPermissionsAction(oid).then((res) => {
       if (cancelled) return;
-      if (res.ok) setCorrectionPerms(res.permissions);
-      else setCorrectionPerms({ moveBox: false, voidBox: false });
+      if (res.ok) {
+        setCorrectionPerms(res.permissions);
+      } else {
+        // Retry once on failure (e.g. transient server-side permission load error)
+        void getOperatorMobileCorrectionPermissionsAction(oid).then((res2) => {
+          if (cancelled) return;
+          if (res2.ok) setCorrectionPerms(res2.permissions);
+          else setCorrectionPerms({ moveBox: false, voidBox: false, editItem: false, deleteItem: false });
+        });
+      }
     });
     return () => {
       cancelled = true;
@@ -6391,6 +6520,119 @@ function OperatorMobileScanPageContent() {
     finalizeBoxIntakeBaselineRef.current = finalizeBoxIntakeBaselineFromCurrentState;
   }, [finalizeBoxIntakeBaselineFromCurrentState]);
 
+  /**
+   * Apply parsed photo URLs into the exact React states MasterUploader renders on Box Info.
+   * Also syncs refs + evidence baseline used for dirty comparison.
+   */
+  const applyHydratedBoxPhotoUrlsFromParsed = useCallback(
+    (
+      parsed: ParsedBoxPhotoUrls,
+      opts?: {
+        updateEvidenceBaseline?: boolean;
+        /** When false, skip shipping/BOL (pallet box path — those live on pallet row). */
+        applyShippingAndBol?: boolean;
+        debugContext?: string;
+      },
+    ) => {
+      const dbgBefore = ITEM_TO_BOX_HYDRATE_DEBUG
+        ? {
+            slip: slipBoxPhotoUrlsRef.current.length,
+            outside: outsideBoxPhotoUrlsRef.current.length,
+            inside: insideBoxPhotoUrlsRef.current.length,
+            shipping: shippingLabelPhotoUrlsRef.current.length,
+            bol: bolPhotoUrlsRef.current.length,
+          }
+        : null;
+
+      setSlipBoxPhotoUrls(parsed.slip);
+      setOutsideBoxPhotoUrls(parsed.outside);
+      setInsideBoxPhotoUrls(parsed.inside);
+      slipBoxPhotoUrlsRef.current = [...parsed.slip];
+      outsideBoxPhotoUrlsRef.current = [...parsed.outside];
+      insideBoxPhotoUrlsRef.current = [...parsed.inside];
+
+      if (opts?.applyShippingAndBol !== false) {
+        setShippingLabelPhotoUrls(parsed.shipping);
+        setBolPhotoUrls(parsed.bol);
+        shippingLabelPhotoUrlsRef.current = [...parsed.shipping];
+        bolPhotoUrlsRef.current = [...parsed.bol];
+      }
+
+      if (opts?.updateEvidenceBaseline !== false) {
+        const b = evidenceBaselineRef.current;
+        b.slip = [...parsed.slip];
+        b.outside = [...parsed.outside];
+        b.inside = [...parsed.inside];
+        if (opts?.applyShippingAndBol !== false) {
+          b.shipping = [...parsed.shipping];
+          b.bol = [...parsed.bol];
+        }
+      }
+
+      if (ITEM_TO_BOX_HYDRATE_DEBUG && dbgBefore) {
+        console.log("[item-to-box-photo-debug]", {
+          context: opts?.debugContext ?? "applyHydratedBoxPhotoUrlsFromParsed",
+          uiSlipBefore: dbgBefore.slip,
+          uiSlipAfter: parsed.slip.length,
+          uiOutsideBefore: dbgBefore.outside,
+          uiOutsideAfter: parsed.outside.length,
+          uiInsideBefore: dbgBefore.inside,
+          uiInsideAfter: parsed.inside.length,
+          uiShippingBefore: dbgBefore.shipping,
+          uiShippingAfter: opts?.applyShippingAndBol !== false ? parsed.shipping.length : dbgBefore.shipping,
+          uiBolBefore: dbgBefore.bol,
+          uiBolAfter: opts?.applyShippingAndBol !== false ? parsed.bol.length : dbgBefore.bol,
+        });
+      }
+    },
+    [],
+  );
+
+  const applyHydratedBoxPhotoUrlsFromPackageRow = useCallback(
+    (
+      row: Record<string, unknown>,
+      opts?: {
+        includeDirectBoxShipmentDocs?: boolean;
+        updateEvidenceBaseline?: boolean;
+        debugContext?: string;
+      },
+    ) => {
+      const parsed = parseHydratedBoxPhotoUrlsFromPackageRow(row, supabase, {
+        includeDirectBoxShipmentDocs: opts?.includeDirectBoxShipmentDocs,
+      });
+      if (opts?.includeDirectBoxShipmentDocs) {
+        if (parsed.shipping.length === 0) {
+          parsed.shipping = [...shippingLabelPhotoUrlsRef.current];
+        }
+        if (parsed.bol.length === 0) {
+          parsed.bol = [...bolPhotoUrlsRef.current];
+        }
+      }
+      if (ITEM_TO_BOX_HYDRATE_DEBUG) {
+        console.log("[item-to-box-photo-debug]", {
+          context: opts?.debugContext ?? "applyHydratedBoxPhotoUrlsFromPackageRow",
+          packageRowFound: true,
+          dbSlipPhotoUrlsCount: parsePalletPhotoUrlArray(row.slip_photo_urls).length,
+          dbOutsidePhotoUrlsCount: parsePalletPhotoUrlArray(row.outside_photo_urls).length,
+          dbInsidePhotoUrlsCount: parsePalletPhotoUrlArray(row.inside_photo_urls).length,
+          dbShippingLabelUrlsCount: opts?.includeDirectBoxShipmentDocs
+            ? parseDirectBoxShipmentDocumentation(row.manifest_data).shippingLabelUrls.length
+            : "skipped_non_direct_box",
+          dbBolPhotoUrlsCount: opts?.includeDirectBoxShipmentDocs
+            ? parseDirectBoxShipmentDocumentation(row.manifest_data).bolUrls.length
+            : "skipped_non_direct_box",
+        });
+      }
+      applyHydratedBoxPhotoUrlsFromParsed(parsed, {
+        updateEvidenceBaseline: opts?.updateEvidenceBaseline,
+        applyShippingAndBol: Boolean(opts?.includeDirectBoxShipmentDocs),
+        debugContext: opts?.debugContext,
+      });
+      return parsed;
+    },
+    [applyHydratedBoxPhotoUrlsFromParsed],
+  );
+
   /** Explicit box package reload — used on back from items, hub open, and hydrate effect. Stale-while-revalidate: keeps prior photos until fetch completes. */
   const reloadBoxPackageIntake = useCallback(
     async (pkgId: string): Promise<boolean> => {
@@ -6402,18 +6644,27 @@ function OperatorMobileScanPageContent() {
       try {
         setBoxSlipConflictingOrderId("");
         setBoxSlipOrderId("");
-        const { data, error } = await supabase
-          .from("packages")
-          .select(
-            "outside_photo_urls, inside_photo_urls, slip_photo_urls, package_code, id_slip_contents, rma_number, manifest_data, notes, carrier_name, order_id",
-          )
-          .eq("id", fetchingFor)
-          .maybeSingle();
-        if (hydrateBoxPackageIdRef.current !== fetchingFor) return false;
         let row: Record<string, unknown> | null = null;
-        if (!error && data) {
-          row = data as Record<string, unknown>;
-        } else {
+        const oid = (orgId ?? "").trim();
+        if (oid) {
+          const serverRes = await getOperatorIntakeBoxPackageRowAction(
+            oid,
+            fetchingFor,
+            sessionStoreId ?? null,
+          );
+          if (hydrateBoxPackageIdRef.current !== fetchingFor) return false;
+          if (serverRes.ok) {
+            row = serverRes.row;
+          } else if (ITEM_TO_BOX_HYDRATE_DEBUG) {
+            console.log("[item-to-box-photo-debug]", {
+              context: "reloadBoxPackageIntake",
+              packageId: fetchingFor,
+              packageRowFound: false,
+              serverFetchMessage: serverRes.message,
+            });
+          }
+        }
+        if (!row) {
           const fb = palletPackagePickerListRef.current.find((r) => r.id === fetchingFor);
           if (fb) {
             row = {
@@ -6431,27 +6682,11 @@ function OperatorMobileScanPageContent() {
           }
         }
         if (!row) return false;
-        const o = normalizePalletDocumentationImageUrls(
-          parsePalletPhotoUrlArray(row.outside_photo_urls),
-          supabase,
-        );
-        const ins = normalizePalletDocumentationImageUrls(
-          parsePalletPhotoUrlArray(row.inside_photo_urls),
-          supabase,
-        );
-        const s = normalizePalletDocumentationImageUrls(
-          parsePalletPhotoUrlArray(row.slip_photo_urls),
-          supabase,
-        );
-        setOutsideBoxPhotoUrls(o);
-        setInsideBoxPhotoUrls(ins);
-        setSlipBoxPhotoUrls(s);
-        slipBoxPhotoUrlsRef.current = [...s];
-        outsideBoxPhotoUrlsRef.current = [...o];
-        insideBoxPhotoUrlsRef.current = [...ins];
-        evidenceBaselineRef.current.slip = [...s];
-        evidenceBaselineRef.current.outside = [...o];
-        evidenceBaselineRef.current.inside = [...ins];
+        applyHydratedBoxPhotoUrlsFromPackageRow(row, {
+          includeDirectBoxShipmentDocs: directBox,
+          updateEvidenceBaseline: true,
+          debugContext: "reloadBoxPackageIntake",
+        });
         pendingEvidenceStorageDeletesRef.current.clear();
         const hydratedNotes = normBoxScalar(row.notes);
         setBoxNotes(hydratedNotes);
@@ -6473,16 +6708,6 @@ function OperatorMobileScanPageContent() {
         }
         const fromDirectBoxDocs = parseDirectBoxShipmentDocumentation(row.manifest_data);
         if (directBox) {
-          if (fromDirectBoxDocs.shippingLabelUrls.length > 0) {
-            setShippingLabelPhotoUrls(fromDirectBoxDocs.shippingLabelUrls);
-            shippingLabelPhotoUrlsRef.current = [...fromDirectBoxDocs.shippingLabelUrls];
-            evidenceBaselineRef.current.shipping = [...fromDirectBoxDocs.shippingLabelUrls];
-          }
-          if (fromDirectBoxDocs.bolUrls.length > 0) {
-            setBolPhotoUrls(fromDirectBoxDocs.bolUrls);
-            bolPhotoUrlsRef.current = [...fromDirectBoxDocs.bolUrls];
-            evidenceBaselineRef.current.bol = [...fromDirectBoxDocs.bolUrls];
-          }
           if (!palletCarrierRef.current.trim() && fromDirectBoxDocs.carrierName) {
             const normalized = normalizeCarrierLabel(fromDirectBoxDocs.carrierName);
             const applied =
@@ -6531,6 +6756,7 @@ function OperatorMobileScanPageContent() {
       orgId,
       sessionStoreId,
       directBox,
+      applyHydratedBoxPhotoUrlsFromPackageRow,
       applyHydratedBoxSlipVisionSnapshot,
       persistOperatorSessionCarrier,
       mergeCarrierIntoActivePalletState,
@@ -7018,14 +7244,16 @@ function OperatorMobileScanPageContent() {
     const session = activeBoxSession;
     if (!session) {
       hydrateBoxPackageIdRef.current = null;
+      const inPalletHubWithNoPackage =
+        flowPhase === "package_scan" &&
+        Boolean(activePallet?.id?.trim()) &&
+        isUuidString(String(activePallet?.id ?? "").trim());
       const packageRestorePending =
         identifyGatePhase === "searching" ||
         busy ||
         flowPhase === "items" ||
         boxIntakeRestoring ||
-        (flowPhase === "package_scan" &&
-          Boolean(activePallet?.id?.trim()) &&
-          isUuidString(String(activePallet?.id ?? "").trim()));
+        inPalletHubWithNoPackage;
       if (packageRestorePending) {
         return;
       }
@@ -7414,8 +7642,8 @@ function OperatorMobileScanPageContent() {
         setBoxIntakeError("Enter the carrier name (Other selected) before saving this BOX.");
         return false;
       }
-      if (!slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) {
-        setBoxIntakeError("Add at least one packing slip photo before saving this BOX.");
+      if (!boxHasNoPackingSlip && !slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) {
+        setBoxIntakeError("Add at least one packing slip photo, or mark 'No packing slip' before saving this BOX.");
         return false;
       }
       const directBoxShipmentDocumentation = directBox;
@@ -7426,7 +7654,7 @@ function OperatorMobileScanPageContent() {
         setBoxIntakeError("Add the required shipment photo / shipping label before saving this BOX.");
         return false;
       }
-      if (boxSlipInvalidFormatBlocksSave) {
+      if (boxSlipInvalidFormatBlocksSave && !boxHasNoPackingSlip) {
         setBoxIntakeError(
           "INVALID_SLIP_FORMAT — use a clear packing slip photo (slip id, item lines, and barcodes visible).",
         );
@@ -7471,6 +7699,7 @@ function OperatorMobileScanPageContent() {
           items: slipLinesForPersist,
           captured_at: new Date().toISOString(),
         },
+        ...(boxHasNoPackingSlip ? { no_packing_slip: true } : {}),
         ...(directBoxSave
           ? {
               direct_box_shipment_documentation: {
@@ -7611,9 +7840,20 @@ function OperatorMobileScanPageContent() {
           );
           itemScanSlipCarryoverRef.current = carryPayload;
           setItemScanSlipCarryover(carryPayload);
+          const photoCarryPayload = snapshotItemScanBoxPhotoCarryoverFromBoxIntake(packageId, {
+            slip: slipBoxPhotoUrlsRef.current,
+            outside: outsideBoxPhotoUrlsRef.current,
+            inside: insideBoxPhotoUrlsRef.current,
+            shipping: shippingLabelPhotoUrlsRef.current,
+            bol: bolPhotoUrlsRef.current,
+          });
+          itemScanBoxPhotoCarryoverRef.current = photoCarryPayload;
+          setItemScanBoxPhotoCarryover(photoCarryPayload);
         } else {
           itemScanSlipCarryoverRef.current = null;
           setItemScanSlipCarryover(null);
+          itemScanBoxPhotoCarryoverRef.current = null;
+          setItemScanBoxPhotoCarryover(null);
         }
         setItemScanPackageId(packageId);
       } else {
@@ -7762,45 +8002,29 @@ function OperatorMobileScanPageContent() {
     [expectedPkgLines],
   );
 
-  const queueItemUnitModal = useCallback(
-    (args: {
-      scannedBarcode: string;
-      slip: SlipBarcodeMatchRow | null;
-      title?: string;
-      subtitle?: string | null;
-      /** When slip is null, pass EP / shipment line text for perishable heuristic in the modal. */
-      slipDescription?: string | null;
-      matchKindPreset?: "fnsku" | "upc" | "unexpected" | null;
-    }) => {
-      const slip = args.slip;
-      if (!slip) {
-        setItemOverscanWarning(null);
-      } else {
-        const slipId = slip.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
-        const expectedQty = Math.max(0, Math.floor(Number(slip.quantity ?? 0)));
-        const currentForSlip = slipId ? (packageItemScanState.bySlipId[slipId] ?? 0) : 0;
-        if (expectedQty > 0 && currentForSlip >= expectedQty) {
-          setItemOverscanWarning(
-            `Over-scan: this slip line already shows ${currentForSlip} scanned (expected ${expectedQty}). The scan will still be recorded.`,
-          );
-        } else {
-          setItemOverscanWarning(null);
-        }
-      }
+  type QueueItemUnitModalArgs = {
+    scannedBarcode: string;
+    slip: SlipBarcodeMatchRow | null;
+    title?: string;
+    subtitle?: string | null;
+    slipDescription?: string | null;
+    matchKindPreset?: "fnsku" | "upc" | "unexpected" | null;
+  };
 
+  /** Inner implementation — opens the modal directly without overscan check. */
+  const queueItemUnitModalInner = useCallback(
+    (args: QueueItemUnitModalArgs) => {
+      const slip = args.slip;
       let slipDescription: string | null = null;
       if (args.slipDescription !== undefined) {
         slipDescription = String(args.slipDescription ?? "").trim() || null;
       } else if (slip != null) {
         slipDescription = String(slip.description ?? "").trim() || null;
       }
-
-      const slipIdResolved =
-        slip?.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
-
+      const slipIdResolved = slip?.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
       setItemDraft(null);
       setCandidatePicker(null);
-
+      setItemOverscanWarning(null);
       itemUnitModalDraftDirtyRef.current = false;
       modalOpenRef.current = true;
       setItemUnitModal({
@@ -7816,7 +8040,28 @@ function OperatorMobileScanPageContent() {
         matchKindPreset: args.matchKindPreset ?? null,
       });
     },
-    [packageItemScanState.bySlipId, itemInspectionSlipLines],
+    [itemInspectionSlipLines],
+  );
+
+  /** Entry point — checks for overscan and shows a blocking confirm dialog before opening the record modal. */
+  const queueItemUnitModal = useCallback(
+    (args: QueueItemUnitModalArgs) => {
+      const slip = args.slip;
+      if (slip) {
+        const slipId = slip.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
+        const expectedQty = Math.max(0, Math.floor(Number(slip.quantity ?? 0)));
+        const currentForSlip = slipId ? (packageItemScanState.bySlipId[slipId] ?? 0) : 0;
+        if (expectedQty > 0 && currentForSlip >= expectedQty) {
+          // Show blocking confirmation before proceeding — scan CAN still happen but operator must confirm
+          overscanConfirmCtxRef.current = { slipId, expected: expectedQty, current: currentForSlip, args };
+          modalOpenRef.current = true;
+          setOverscanConfirmOpen(true);
+          return;
+        }
+      }
+      queueItemUnitModalInner(args);
+    },
+    [packageItemScanState.bySlipId, queueItemUnitModalInner],
   );
 
   const openEditScannedItemModal = useCallback(
@@ -7978,6 +8223,44 @@ function OperatorMobileScanPageContent() {
     [itemScanEditAllMode, busy, openEditScannedItemModal, openItemScanUnitPickerForRow],
   );
 
+  /** Soft-delete a specific return_item by its ID (used from unit picker modal). */
+  const handleDeleteSpecificUnit = useCallback(
+    async (unit: OperatorPackageItemRow) => {
+      if (!itemScanEditAllMode || busy) return;
+      const unitId = String(unit.id ?? "").trim();
+      if (!isUuidString(unitId)) return;
+      const oid = (orgId ?? "").trim();
+      const pkgId = (itemScanPackageId ?? "").trim();
+      if (!oid || !pkgId) return;
+
+      setBusy(true);
+      try {
+        const res = await deleteOperatorPackageItemAction({
+          requestedOrganizationId: oid,
+          returnItemId: unitId,
+          packageId: pkgId,
+        });
+        if (!res.ok) {
+          setSyncErrorToast(res.error ?? "Could not delete scan record.");
+          return;
+        }
+        setPackageItemHydratedRows((prev) => prev.filter((r) => r.id !== unit.id));
+        const slipId = String(unit.slip_content_id ?? "").trim();
+        setPackageItemScanState((prev) => {
+          if (!slipId) {
+            return { ...prev, unexpectedUnits: Math.max(0, prev.unexpectedUnits - 1) };
+          }
+          const cur = prev.bySlipId[slipId] ?? 0;
+          return { ...prev, bySlipId: { ...prev.bySlipId, [slipId]: Math.max(0, cur - 1) } };
+        });
+        setItemReceiveCountSyncNonce((n) => n + 1);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [itemScanEditAllMode, busy, orgId, itemScanPackageId],
+  );
+
   const openAddScanItemModal = useCallback(() => {
     if (!hasReceivableBoxForItems(itemScanPackageId, activeBoxSession)) {
       setItemReceiveError("Select or scan a box before inspecting items.");
@@ -8021,6 +8304,10 @@ function OperatorMobileScanPageContent() {
         setBusy(true);
         setItemReceiveError(null);
         try {
+          const allEvidenceUrls = [
+            ...payload.evidenceUrls,
+            ...(payload.expiryEvidenceUrls ?? []),
+          ];
           const res = await updateOperatorPackageItemAction({
             requestedOrganizationId: orgId,
             returnItemId: editReturnItemId,
@@ -8028,7 +8315,7 @@ function OperatorMobileScanPageContent() {
             discrepancyTags: payload.discrepancyTags,
             expiryDate: payload.expiryDate,
             lotNumber: payload.lotNumber,
-            evidenceUrls: payload.evidenceUrls,
+            evidenceUrls: allEvidenceUrls,
             optionalItemPhotoUrl: payload.optionalItemPhotoUrl,
             traceabilityRequired: payload.traceabilityRequired,
             operatorNotes: payload.operatorNotes,
@@ -8128,6 +8415,10 @@ function OperatorMobileScanPageContent() {
       setBusy(true);
       setItemReceiveError(null);
       try {
+        const allInsertEvidenceUrls = [
+          ...payload.evidenceUrls,
+          ...(payload.expiryEvidenceUrls ?? []),
+        ];
         const res = await insertOperatorPackageItemAction({
           requestedOrganizationId: orgId,
           packageId: pkgId,
@@ -8140,7 +8431,7 @@ function OperatorMobileScanPageContent() {
           discrepancyTags: payload.discrepancyTags,
           expiryDate: payload.expiryDate,
           lotNumber: payload.lotNumber,
-          evidenceUrls: payload.evidenceUrls,
+          evidenceUrls: allInsertEvidenceUrls,
           optionalItemPhotoUrl: payload.optionalItemPhotoUrl,
           traceabilityRequired: payload.traceabilityRequired,
           operatorNotes: payload.operatorNotes,
@@ -10366,13 +10657,15 @@ function OperatorMobileScanPageContent() {
 
   const itemInspectionQtyBasisExpected = useMemo(() => {
     if (itemScanUsesPackageSlipExpectedRows && itemInspectionSlipCells.length > 0) {
-      return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0);
+      // Include unlinked/unexpected units so EXPECTED = new_slip_qty + unlinked_scanned
+      // This makes REMAINING = new_slip_qty - new_slip_scanned (always non-negative for valid slips)
+      return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0) + packageItemScanState.unexpectedUnits;
     }
     if (itemScanExpectationLinesLive.length > 0) {
       return itemScanExpectationLinesLive.reduce((s, line) => s + Math.max(0, line.expectedQty), 0);
     }
     if (itemInspectionSlipCells.length > 0) {
-      return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0);
+      return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0) + packageItemScanState.unexpectedUnits;
     }
     return itemExpectedUnitsTotal;
   }, [
@@ -10380,6 +10673,7 @@ function OperatorMobileScanPageContent() {
     itemScanExpectationLinesLive,
     itemInspectionSlipCells,
     itemExpectedUnitsTotal,
+    packageItemScanState.unexpectedUnits,
   ]);
 
   const itemInspectionQtyBasisScanned = useMemo(() => {
@@ -10404,6 +10698,37 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const itemScanStatRemaining = Math.max(0, itemInspectionQtyBasisExpected - itemInspectionQtyBasisScanned);
+
+  /**
+   * Compare slip vision lines (slipLikeRowsForInspection) against EP expected lines (expectedPkgDetailRows).
+   * Only active when both are available — highlights quantity mismatches and slip lines not in EP.
+   */
+  const slipEpCompare = useMemo(() => {
+    const eps = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
+    if (eps.length === 0 || slipLikeRowsForInspection.length === 0 || !itemScanUsesPackageSlipExpectedRows) {
+      return { unmatchedSlipIds: new Set<string>(), qtyMismatchSlipIds: new Set<string>() };
+    }
+    const unmatchedSlipIds = new Set<string>();
+    const qtyMismatchSlipIds = new Set<string>();
+    for (const slipRow of slipLikeRowsForInspection) {
+      const fnsku = String(slipRow.fnsku ?? "").trim().toUpperCase();
+      const upc = String(slipRow.upc ?? "").trim();
+      const epMatch = eps.find((ep) => {
+        const epFnsku = String((ep as Record<string, unknown>).fnsku ?? "").trim().toUpperCase();
+        const epSku = String((ep as Record<string, unknown>).sku ?? (ep as Record<string, unknown>).upc ?? "").trim();
+        return (fnsku && epFnsku && fnsku === epFnsku) || (upc && epSku && upc === epSku);
+      });
+      const slipId = slipRow.id && isUuidString(String(slipRow.id)) ? String(slipRow.id) : null;
+      if (!epMatch) {
+        if (slipId) unmatchedSlipIds.add(slipId);
+      } else {
+        const epQty = Math.max(0, Math.floor(Number((epMatch as Record<string, unknown>).expected_scan_quantity ?? 0)));
+        const slipQty = Math.max(0, Math.floor(Number(slipRow.quantity ?? 0)));
+        if (epQty !== slipQty && slipId) qtyMismatchSlipIds.add(slipId);
+      }
+    }
+    return { unmatchedSlipIds, qtyMismatchSlipIds };
+  }, [slipLikeRowsForInspection, expectedPkgDetailRows, itemScanUsesPackageSlipExpectedRows]);
 
   const itemScanStatScannedTone = useMemo(() => {
     const exp = itemInspectionQtyBasisExpected;
@@ -10802,6 +11127,12 @@ function OperatorMobileScanPageContent() {
 
   const itemScanEditPickUnits = useMemo(() => {
     if (!itemScanEditPick) return [];
+    // If explicit units were stored (e.g. OVER panel barcode group), use them directly
+    if (Array.isArray(itemScanEditPick.units)) {
+      return itemScanEditPick.units.filter((u) =>
+        packageItemHydratedRows.some((r) => r.id === u.id),
+      );
+    }
     if (itemScanEditPick.kind === "slip_cell") {
       const slipContentId = String(itemScanEditPick.slipContentId ?? "").trim();
       if (!slipContentId) return [];
@@ -10995,7 +11326,8 @@ function OperatorMobileScanPageContent() {
     Boolean(palletCarrier.trim()) &&
     (!showBoxIntakeShipmentDocumentation ||
       shippingLabelPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) &&
-    slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0) &&
+    // Slip photo required unless operator checked "No packing slip"
+    (boxHasNoPackingSlip || slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) &&
     (!isSupabaseConfigured() || Boolean(sessionStoreId)) &&
     !duplicatePackingSlip;
   /** Primary CTA: save current box and go to items, or resume items when a box is already saved. */
@@ -11240,6 +11572,7 @@ function OperatorMobileScanPageContent() {
     setBoxIntakeError(null);
     setDuplicatePackingSlip(null);
     setBoxSlipInvalidFormatBlocksSave(false);
+    setBoxHasNoPackingSlip(false);
     hydrateBoxPackageIdRef.current = null;
     boxIntakeBaselineReadyRef.current = true;
     clearOperatorPhotoArrays(["outside", "inside", "slip"]);
@@ -11259,12 +11592,33 @@ function OperatorMobileScanPageContent() {
     clearOperatorPhotoArrays,
   ]);
 
+  /**
+   * Like closeActiveBoxPackageSession but preserves photo AND field state (stale-while-revalidate).
+   * Used when transitioning to item scan so photos and slip data persist for back navigation.
+   * All preserved fields will be overwritten by reloadBoxPackageIntake on back.
+   */
+  const closeBoxSessionForItemScan = useCallback(() => {
+    setActiveBoxSession(null);
+    setCurrentPackageTrackingId(null);
+    setPackageCodeCardOpen(false);
+    setPalletPackagePickerQuery("");
+    setBoxIntakeError(null);
+    setDuplicatePackingSlip(null);
+    setBoxSlipInvalidFormatBlocksSave(false);
+    setBoxHasNoPackingSlip(false);
+    setBoxIntakeRestoring(false);
+    hydrateBoxPackageIdRef.current = null;
+    boxIntakeBaselineReadyRef.current = true;
+    // Photos, slip data, and box fields intentionally NOT cleared — stale-while-revalidate
+    // reloadBoxPackageIntake will overwrite all of these on back navigation
+  }, []);
+
   const resumeItemScanForPackage = useCallback(
     (p: OperatorPackageListRow) => {
       const pkgId = String(p.id ?? "").trim();
       const code = String(p.package_code ?? "").trim();
       if (!pkgId || !isUuidString(pkgId)) return false;
-      closeActiveBoxPackageSession();
+      closeBoxSessionForItemScan();
       setItemScanPackageId(pkgId);
       setItemScanPackageLabel(code || null);
       const exp =
@@ -11287,7 +11641,7 @@ function OperatorMobileScanPageContent() {
       scheduleFocusScanner();
       return true;
     },
-    [closeActiveBoxPackageSession, resetItemInspectionForm, scheduleFocusScanner],
+    [closeBoxSessionForItemScan, resetItemInspectionForm, scheduleFocusScanner],
   );
 
   const maybeResumeItemScanAfterPackageRow = useCallback(
@@ -11647,8 +12001,9 @@ function OperatorMobileScanPageContent() {
     manualEntryModeRef.current = false;
   }, []);
 
-  const requestScannerLeaveConfirm = useCallback((action: () => void) => {
+  const requestScannerLeaveConfirm = useCallback((action: () => void, reasons?: string[]) => {
     scannerLeavePendingActionRef.current = action;
+    setScannerLeaveUnsavedReasons(reasons ?? []);
     modalOpenRef.current = true;
     setScannerLeaveConfirmOpen(true);
   }, []);
@@ -11657,9 +12012,41 @@ function OperatorMobileScanPageContent() {
     const action = scannerLeavePendingActionRef.current;
     scannerLeavePendingActionRef.current = null;
     setScannerLeaveConfirmOpen(false);
+    setScannerLeaveUnsavedReasons([]);
     modalOpenRef.current = false;
     action?.();
   }, []);
+
+  // Intercept hardware/browser back button when there are unsaved changes
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Push a sentinel state so popstate fires when hardware back is pressed
+    history.pushState(null, "", location.href);
+
+    const handlePopState = () => {
+      const dirty = hasEditModeUnsavedChanges();
+      if (dirty.dirty) {
+        // Re-push current state so the page doesn't navigate away
+        history.pushState(null, "", location.href);
+        requestScannerLeaveConfirm(() => router.back());
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [hasEditModeUnsavedChanges, requestScannerLeaveConfirm, router]);
+
+  // Intercept browser tab/window close when there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasEditModeUnsavedChanges().dirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasEditModeUnsavedChanges]);
 
   const returnFromPackageScanToShipmentSearch = useCallback(() => {
     if (activePallet?.id?.trim()) {
@@ -11772,25 +12159,108 @@ function OperatorMobileScanPageContent() {
     if (pkgId && isUuidString(pkgId)) {
       const row = palletPackagePickerList.find((p) => p.id === pkgId);
       const barcode = label || String(row?.package_code ?? "").trim() || pkgId;
-      // Pre-fill photos from cached hub row so UI shows immediately (stale-while-revalidate).
-      if (row) {
-        const o = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(row.outside_photo_urls), supabase);
-        const ins = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(row.inside_photo_urls), supabase);
-        const s = normalizePalletDocumentationImageUrls(parsePalletPhotoUrlArray(row.slip_photo_urls), supabase);
-        setOutsideBoxPhotoUrls(o);
-        setInsideBoxPhotoUrls(ins);
-        setSlipBoxPhotoUrls(s);
-        outsideBoxPhotoUrlsRef.current = [...o];
-        insideBoxPhotoUrlsRef.current = [...ins];
-        slipBoxPhotoUrlsRef.current = [...s];
+
+      // Capture debug snapshots before any mutations.
+      const dbgHadSession = ITEM_TO_BOX_HYDRATE_DEBUG ? Boolean(activeBoxSessionPackageIdRef.current) : false;
+      const dbgSlipBefore = ITEM_TO_BOX_HYDRATE_DEBUG ? slipBoxPhotoUrlsRef.current.length : 0;
+      const dbgOutsideBefore = ITEM_TO_BOX_HYDRATE_DEBUG ? outsideBoxPhotoUrlsRef.current.length : 0;
+      const dbgInsideBefore = ITEM_TO_BOX_HYDRATE_DEBUG ? insideBoxPhotoUrlsRef.current.length : 0;
+      const dbgShippingBefore = ITEM_TO_BOX_HYDRATE_DEBUG ? shippingLabelPhotoUrlsRef.current.length : 0;
+      const dbgBolBefore = ITEM_TO_BOX_HYDRATE_DEBUG ? bolPhotoUrlsRef.current.length : 0;
+      const dbgVisionBefore = ITEM_TO_BOX_HYDRATE_DEBUG ? boxSlipVisionLinesPersistRef.current.length : 0;
+
+      // Immediate photo prefill from in-memory carryover (captured before Save & Continue cleared arrays).
+      const photoCarryover = itemScanBoxPhotoCarryoverRef.current ?? itemScanBoxPhotoCarryover;
+      const photoCarryoverMatches = photoCarryover?.packageId === pkgId;
+      if (photoCarryoverMatches && photoCarryover) {
+        applyHydratedBoxPhotoUrlsFromParsed(
+          {
+            slip: photoCarryover.slip,
+            outside: photoCarryover.outside,
+            inside: photoCarryover.inside,
+            shipping: photoCarryover.shipping,
+            bol: photoCarryover.bol,
+          },
+          {
+            updateEvidenceBaseline: false,
+            applyShippingAndBol: true,
+            debugContext: "returnFromItemsPhaseToBoxInfo/carryover",
+          },
+        );
+      } else if (row) {
+        // Fallback: cached hub row when carryover missing (picker repopulated after pallet refresh).
+        applyHydratedBoxPhotoUrlsFromPackageRow(row, {
+          includeDirectBoxShipmentDocs: directBox,
+          updateEvidenceBaseline: false,
+          debugContext: "returnFromItemsPhaseToBoxInfo/pickerCache",
+        });
+      } else if (ITEM_TO_BOX_HYDRATE_DEBUG) {
+        console.log("[item-to-box-photo-debug]", {
+          context: "returnFromItemsPhaseToBoxInfo",
+          packageId: pkgId,
+          packageRowFound: false,
+          photoCarryoverFound: false,
+          note: "awaiting reloadBoxPackageIntake server fetch",
+        });
       }
+
+      // Pre-populate vision lines from in-memory carryover so OCR/slip detected items show
+      // immediately before the async DB fetch arrives (stale-while-revalidate for vision lines).
+      // carryover was captured by saveBoxAndContinue; it matches the package that was just saved.
+      const carryover = itemScanSlipCarryoverRef.current ?? itemScanSlipCarryover;
+      const carryoverMatches = carryover?.packageId === pkgId && (carryover?.rows.length ?? 0) > 0;
+      if (carryoverMatches && carryover) {
+        const carryoverLines = carryover.rows.map((sr) =>
+          mapSlipContentRowToVisionLine(sr as unknown as Record<string, unknown>),
+        );
+        commitBoxSlipVisionLinesFromSource(carryoverLines);
+      }
+
       setActiveBoxSession({ barcode, packageId: pkgId });
       setCurrentPackageTrackingId(barcode);
       setPackageCodeCardOpen(false);
       setEditAllMode(false);
       setFlowPhase("package_scan");
+
+      // Claim the hydration guard for this package BEFORE the async reload.
+      // Setting to pkgId (not null) ensures all concurrent reloadBoxPackageIntake guard checks
+      // use the correct package ID and don't bail out with a false stale-hydration rejection.
+      hydrateBoxPackageIdRef.current = pkgId;
       setBoxHydrateNonce((n) => n + 1);
+
+      // Explicitly start full DB hydration: fetches photos, notes, carrier, OCR/slip vision.
+      // The hydration effect (activeBoxSession + boxHydrateNonce change) also fires and calls
+      // reloadBoxPackageIntakeRef; both calls share fetchingFor=pkgId so guard checks pass safely.
       void reloadBoxPackageIntakeRef.current(pkgId);
+
+      if (ITEM_TO_BOX_HYDRATE_DEBUG) {
+        console.log("[item-to-box-hydrate-debug]", {
+          packageId: pkgId,
+          hadActiveBoxSessionBeforeReturn: dbgHadSession,
+          restoredActiveBoxSession: true,
+          packageRowFoundInPickerCache: Boolean(row),
+          packageRowFetchedFromDB: "pending — see reloadBoxPackageIntake",
+          slipPhotosBeforeReturn: dbgSlipBefore,
+          slipPhotosAfterPrefill: slipBoxPhotoUrlsRef.current.length,
+          outsidePhotosBeforeReturn: dbgOutsideBefore,
+          outsidePhotosAfterPrefill: outsideBoxPhotoUrlsRef.current.length,
+          insidePhotosBeforeReturn: dbgInsideBefore,
+          insidePhotosAfterPrefill: insideBoxPhotoUrlsRef.current.length,
+          shippingPhotosBeforeReturn: dbgShippingBefore,
+          shippingPhotosAfterPrefill: shippingLabelPhotoUrlsRef.current.length,
+          bolPhotosBeforeReturn: dbgBolBefore,
+          bolPhotosAfterPrefill: bolPhotoUrlsRef.current.length,
+          photoCarryoverFound: photoCarryoverMatches,
+          visionLinesBeforeReturn: dbgVisionBefore,
+          visionLinesAfterCarryoverPrefill: boxSlipVisionLinesPersistRef.current.length,
+          carryoverFound: carryoverMatches,
+          carryoverLineCount: carryoverMatches ? (carryover?.rows.length ?? 0) : 0,
+          hydrateGuardClaimedAs: pkgId,
+          baselineCommittedAfterHydrate: "yes — reloadBoxPackageIntake calls finalizeBoxIntakeBaselineRef",
+          flowPhaseBefore: "items",
+          flowPhaseAfter: "package_scan",
+        });
+      }
     } else if (label) {
       setCurrentPackageTrackingId(label);
       setActiveBoxSession({ barcode: label, packageId: null });
@@ -11806,6 +12276,12 @@ function OperatorMobileScanPageContent() {
     itemScanPackageId,
     itemScanPackageLabel,
     palletPackagePickerList,
+    itemScanSlipCarryover,
+    itemScanBoxPhotoCarryover,
+    directBox,
+    applyHydratedBoxPhotoUrlsFromParsed,
+    applyHydratedBoxPhotoUrlsFromPackageRow,
+    commitBoxSlipVisionLinesFromSource,
     scheduleFocusScanner,
   ]);
 
@@ -11827,7 +12303,7 @@ function OperatorMobileScanPageContent() {
       const proceed = () => returnFromItemsPhaseToBoxInfo();
       const editDirty = hasEditModeUnsavedChanges();
       logScannerBack("items", editDirty.dirty, editDirty.dirty ? "confirm-box-info" : "box-info", editDirty.reason);
-      if (editDirty.dirty) requestScannerLeaveConfirm(proceed);
+      if (editDirty.dirty) requestScannerLeaveConfirm(proceed, editDirty.reason ? [editDirty.reason] : []);
       else proceed();
       return;
     }
@@ -11840,7 +12316,7 @@ function OperatorMobileScanPageContent() {
       if (activeBoxSession) {
         const action = () => performBoxIntakeBackNavigation();
         logScannerBack("package_scan/session", editDirty.dirty, editDirty.dirty ? "confirm-leave" : "leave", editDirty.reason);
-        if (editDirty.dirty) requestScannerLeaveConfirm(action);
+        if (editDirty.dirty) requestScannerLeaveConfirm(action, editDirty.reason ? [editDirty.reason] : []);
         else action();
         return;
       }
@@ -11864,7 +12340,7 @@ function OperatorMobileScanPageContent() {
 
       const action = () => performBoxIntakeBackNavigation();
       logScannerBack("package_scan/hub", editDirty.dirty, editDirty.dirty ? "confirm-leave" : "leave", editDirty.reason);
-      if (editDirty.dirty) requestScannerLeaveConfirm(action);
+      if (editDirty.dirty) requestScannerLeaveConfirm(action, editDirty.reason ? [editDirty.reason] : []);
       else action();
       return;
     }
@@ -11877,7 +12353,7 @@ function OperatorMobileScanPageContent() {
           void abandonUnsavedPalletShipmentEdits().finally(() => {
             router.back();
           });
-        });
+        }, editDirty.reason ? [editDirty.reason] : []);
         return;
       }
       router.back();
@@ -12703,7 +13179,7 @@ function OperatorMobileScanPageContent() {
               </div>
             </div>
             <div
-              className={`operator-shipment-entry-stepper-shell operator-box-info-stepper-shell operator-pallet-stepper-shell relative z-[1] isolate mx-auto w-full max-w-[19rem] sm:max-w-sm ${HANDHELD_STEPPER_COMPACT}`}
+              className={`operator-shipment-entry-stepper-shell operator-box-info-stepper-shell operator-pallet-stepper-shell relative z-[1] isolate w-full ${HANDHELD_STEPPER_COMPACT}`}
             >
               <ReceivingMasterStepper
                 flowPhase={flowPhase}
@@ -12875,7 +13351,7 @@ function OperatorMobileScanPageContent() {
                   />
                 ) : null}
                 {editAllMode ? (
-                  <div className="operator-shipment-entry-box-count-editor flex flex-wrap items-center justify-center gap-2 border-t pt-1.5">
+                  <div className="operator-shipment-entry-box-count-editor flex w-full flex-wrap items-center justify-center gap-2 border-t pt-1.5">
                     <span
                       className="operator-shipment-entry-box-count-editor__label shrink-0 text-[9px] font-bold uppercase tracking-widest"
                       id={`${formId}-physical-boxes-label`}
@@ -13017,7 +13493,7 @@ function OperatorMobileScanPageContent() {
             ? "operator-item-scan-main flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain"
             : !isIdentified
               ? `operator-shipment-entry-gate-main flex-1 overflow-y-auto overscroll-contain ${mainScrollClass} ${HANDHELD_GATE_COMPACT}`
-              : `operator-shipment-identified-main flex-1 overflow-y-auto overscroll-contain pb-3 ${mainScrollClass} ${HANDHELD_COMPACT}`
+              : `operator-shipment-identified-main flex-1 overflow-y-auto overscroll-contain ${mainScrollClass} ${flowPhase === "scan" ? HANDHELD_PALLET_COMPACT : HANDHELD_COMPACT}`
         }`}
       >
         {!isIdentified ? (
@@ -13452,15 +13928,22 @@ function OperatorMobileScanPageContent() {
                         </p>
                       )}
                       {identifyGatePhase === "matched" ? (
-                        <p className="mt-1.5 text-[12px] leading-snug" style={{ color: MUTED_LABEL }}>
-                          Order ID{" "}
-                          <span className="font-mono font-semibold text-white">{identifyGateOrderIdsLabel}</span>
-                        </p>
+                        <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                          <p className="shrink text-[12px] leading-snug" style={{ color: MUTED_LABEL }}>
+                            Order ID{" "}
+                            <span className="font-mono font-semibold text-white">{identifyGateOrderIdsLabel}</span>
+                          </p>
+                          {identifyGateShipmentLines.length > 0 ? (
+                            <span className="shrink-0 text-[11px] font-semibold" style={{ color: "#86efac" }}>
+                              {identifyGateShipmentLines.length} item type{identifyGateShipmentLines.length !== 1 ? "s" : ""}
+                            </span>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   ) : null}
 
-                  <p className="mb-1 max-w-[calc(100%-5.5rem)] text-[13px] font-medium leading-snug text-white/90">
+                  <p className="mb-1 max-w-[calc(100%-5.5rem)] truncate text-[12px] font-medium leading-snug text-white/90">
                     {identifyGateInventoryVisual !== "manual_new" &&
                     identifyGateInventoryAgg?.totalScanned === 0 &&
                     identifyGateInventoryAgg.totalExpected > 0
@@ -13502,7 +13985,7 @@ function OperatorMobileScanPageContent() {
                   ) : null}
 
                   {identifyGateInventoryVisual !== "manual_new" && identifyGateInventoryAgg ? (
-                    <div className="mt-4">
+                    <div className="mt-2">
                       <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-bold tabular-nums text-white">
                         <span style={{ color: MUTED_LABEL }}>Scan progress</span>
                         <span>
@@ -13723,17 +14206,13 @@ function OperatorMobileScanPageContent() {
                                   </span>
                                 </div>
                                 <div className={`mt-1 grid grid-cols-2 gap-1.5 uppercase tracking-wide ${SLIP_CARD_TECH_ID}`}>
-                                  <div className="px-1 py-0.5">
-                                    Expected{" "}
-                                    <span className="float-right tabular-nums">
-                                      {row.total_expected}
-                                    </span>
+                                  <div className="flex flex-col items-center px-1 py-0.5 text-center">
+                                    <span>Expected</span>
+                                    <span className="tabular-nums font-semibold">{row.total_expected}</span>
                                   </div>
-                                  <div className="px-1 py-0.5">
-                                    Scanned{" "}
-                                    <span className="float-right tabular-nums">
-                                      {row.total_scanned}
-                                    </span>
+                                  <div className="flex flex-col items-center px-1 py-0.5 text-center">
+                                    <span>Scanned</span>
+                                    <span className="tabular-nums font-semibold">{row.total_scanned}</span>
                                   </div>
                                 </div>
                               </div>
@@ -15259,7 +15738,10 @@ function OperatorMobileScanPageContent() {
                         }
                         label={
                           <>
-                            PACKING SLIP <span className="operator-shipment-req-mark font-normal normal-case">(required)</span>
+                            PACKING SLIP{" "}
+                            <span className="operator-shipment-req-mark font-normal normal-case">
+                              {boxHasNoPackingSlip ? "(marked N/A)" : "(required)"}
+                            </span>
                           </>
                         }
                         hint={null}
@@ -15279,11 +15761,26 @@ function OperatorMobileScanPageContent() {
                         viewLocked={savedBoxIntakeViewLocked}
                         className="operator-shipment-docs-uploader"
                       />
-                      {boxSlipInvalidFormatBlocksSave ? (
+                      {boxSlipInvalidFormatBlocksSave && !boxHasNoPackingSlip ? (
                         <p className="mt-1.5 px-0.5 text-left text-[11px] font-semibold leading-snug text-amber-200/95">
                           INVALID_SLIP_FORMAT — replace this photo with a clear packing slip (slip id, item lines, and
                           barcodes). Save stays disabled until the slip is valid.
                         </p>
+                      ) : null}
+                      {slipBoxPhotoUrls.length === 0 && !boxScanDocumentationLocked && !savedBoxIntakeViewLocked ? (
+                        <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 px-0.5 text-[10px] font-semibold leading-tight">
+                          <input
+                            type="checkbox"
+                            checked={boxHasNoPackingSlip}
+                            onChange={(e) => {
+                              setBoxHasNoPackingSlip(e.target.checked);
+                              if (e.target.checked) setBoxSlipInvalidFormatBlocksSave(false);
+                            }}
+                            disabled={boxScanDocumentationLocked}
+                            className="h-3 w-3 shrink-0 cursor-pointer rounded"
+                          />
+                          <span className="opacity-70">No packing slip available (mark as exempt)</span>
+                        </label>
                       ) : null}
                     </div>
                     <div
@@ -15732,7 +16229,7 @@ function OperatorMobileScanPageContent() {
               </section>
             </div>
           ) : (
-            <div className="operator-item-scan-body flex min-h-0 flex-1 flex-col gap-[var(--op-scan-gap,0.5rem)]">
+            <div className="operator-item-scan-body min-h-0 flex-1">
               <div className="operator-item-scan-middle-chrome shrink-0 space-y-[var(--op-scan-gap,0.5rem)]">
                 {isSupabaseConfigured() && !operatorStoresLoading && !kioskStoreLocked && operatorStores.length === 0 ? (
               <p className={OP_SCAN_ALERT_ERROR}>
@@ -15780,7 +16277,7 @@ function OperatorMobileScanPageContent() {
                     </p>
                   </div>
                   <div className="operator-item-scan-stat operator-item-scan-stat--skus shrink-0 rounded-xl border px-1 py-2 text-center">
-                    <p className="operator-item-scan-stat__label text-[8px] font-bold uppercase tracking-wide">SKUs</p>
+                    <p className="operator-item-scan-stat__label text-[8px] font-bold normal-case tracking-wide">SKUs</p>
                     <p className="operator-item-scan-stat__value mt-1 text-[17px] font-black tabular-nums leading-none">
                       {itemInspectionSlipCells.length}
                     </p>
@@ -15876,37 +16373,6 @@ function OperatorMobileScanPageContent() {
                         discrepancyMode={isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen}
                       />
                     ))}
-                    {packageItemScanState.unexpectedUnits > 0 ? (() => {
-                      const u = packageItemScanState.unexpectedUnits;
-                      const vis = itemInspectionSlipLinePresentation(
-                        0,
-                        u,
-                        isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen,
-                      );
-                      return (
-                        <div
-                          key="unexpected-package-items-ep"
-                          className={itemScanSlipRowShellClass(vis.matchedRing)}
-                          data-neda-qty={vis.label}
-                          style={itemInspectionSlipCardStyle(vis)}
-                        >
-                          <p className={`operator-item-scan-slip-row__title line-clamp-2 ${SLIP_CARD_HEADING}`}>
-                            Not on packing slip
-                          </p>
-                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
-                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
-                              No slip line match · {u} unit{u === 1 ? "" : "s"}
-                            </p>
-                            <div className="flex shrink-0 items-center gap-1">
-                              {slipCardStatusMark(vis)}
-                              <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
-                                Qty {u}/0
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })() : null}
                   </>
                 ) : itemScanExpectedItemsRenderSource === "hydrated_return_items_only" ? (
                   packageItemHydratedRows.length > 0 ? (
@@ -16020,6 +16486,11 @@ function OperatorMobileScanPageContent() {
                           <div className={SLIP_CARD_META_LINKAGE}>
                             <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
                           </div>
+                          {slipEpCompare.qtyMismatchSlipIds.has(String(cell.slip.id ?? "")) ? (
+                            <p className="mt-0.5 text-[9px] font-semibold" style={{ color: "#fde68a" }}>
+                              Qty differs from manifest
+                            </p>
+                          ) : null}
                           <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
                             <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
                               UPC {upcLabel}
@@ -16027,14 +16498,16 @@ function OperatorMobileScanPageContent() {
                               FNSKU {fnskuLabel}
                             </p>
                             <div className="flex shrink-0 items-center gap-1">
-                              {rowEditable ? (
+                              {rowEditable && correctionPerms.deleteItem ? (
                                 <button
                                   type="button"
                                   aria-label="Delete one scanned unit"
                                   disabled={busy || cell.scanned === 0}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    void handleDeleteSlipCellUnit(cell);
+                                    deleteUnitConfirmCellRef.current = cell;
+                                    modalOpenRef.current = true;
+                                    setDeleteUnitConfirmOpen(true);
                                   }}
                                   className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-red-500/40 bg-red-50 text-red-600 transition hover:bg-red-100 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 dark:border-red-500/30 dark:bg-red-950/30 dark:text-red-400"
                                 >
@@ -16055,52 +16528,6 @@ function OperatorMobileScanPageContent() {
                         </div>
                       );
                     })}
-                    {packageItemScanState.unexpectedUnits > 0 ? (() => {
-                      const u = packageItemScanState.unexpectedUnits;
-                      const vis = itemInspectionSlipLinePresentation(
-                        0,
-                        u,
-                        isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen,
-                      );
-                      const rowEditable = itemScanEditAllMode && u > 0;
-                      const rowSelected =
-                        itemScanUnitPickerOpen && itemScanEditPick?.kind === "unexpected";
-                      const rowInteract = itemScanRowEditInteractProps(
-                        rowEditable,
-                        rowSelected,
-                        handleItemScanEditSelectUnexpected,
-                      );
-                      return (
-                        <div
-                          key="unexpected-package-items"
-                          className={`${itemScanSlipRowShellClass(vis.matchedRing)} ${rowInteract.className}`}
-                          data-neda-qty={vis.label}
-                          style={itemInspectionSlipCardStyle(vis)}
-                          role={rowInteract.role}
-                          tabIndex={rowInteract.tabIndex}
-                          onClick={rowInteract.onClick}
-                          onKeyDown={rowInteract.onKeyDown}
-                          aria-label={
-                            rowEditable ? `Edit ${u} unexpected scanned unit${u === 1 ? "" : "s"}` : undefined
-                          }
-                        >
-                          <p className={`operator-item-scan-slip-row__title line-clamp-2 ${SLIP_CARD_HEADING}`}>
-                            Not on packing slip
-                          </p>
-                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
-                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
-                              No slip line match · {u} unit{u === 1 ? "" : "s"}
-                            </p>
-                            <div className="flex shrink-0 items-center gap-1">
-                              {slipCardStatusMark(vis)}
-                              <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
-                                Qty {u}/0
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })() : null}
                   </>
                 ) : (
                   <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
@@ -16138,6 +16565,142 @@ function OperatorMobileScanPageContent() {
                 ) : null}
               </div>
             </section>
+
+            {/* "Not on packing slip" / OVER panel — second panel, only shown when unlinked items or unmatched slip rows exist */}
+            {packageItemHydratedRows.some((r) => !r.slip_content_id) || packageItemScanState.unexpectedUnits > 0 || slipEpCompare.unmatchedSlipIds.size > 0 ? (
+              <section
+                className={`operator-item-scan-over-panel mb-0 flex min-h-0 flex-col overflow-hidden rounded-xl border-2 p-2.5`}
+                style={{ borderColor: "rgba(180, 134, 52, 0.55)", backgroundColor: "rgba(69, 26, 3, 0.22)" }}
+              >
+                <h3 className="mb-1.5 shrink-0 text-[11px] font-bold uppercase tracking-wide" style={{ color: "#fde68a" }}>
+                  Not on packing slip
+                </h3>
+                <div className={`operator-scan-panel__body space-y-1.5 px-0.5 ${mainScrollClass}`}>
+                  {/* Per-item cards for items scanned but not linked to any slip line */}
+                  {(() => {
+                    const unlinkedRows = packageItemHydratedRows.filter((r) => !r.slip_content_id);
+                    if (unlinkedRows.length === 0 && packageItemScanState.unexpectedUnits === 0) return null;
+
+                    // Group by product linkage resolved name / barcode
+                    const grouped = new Map<string, { rows: typeof unlinkedRows; barcode: string; linkage: (typeof unlinkedRows)[0]["product_linkage"] }>();
+                    for (const row of unlinkedRows) {
+                      const key = String(row.scanned_barcode ?? "").trim() || row.id;
+                      if (!grouped.has(key)) {
+                        grouped.set(key, { rows: [], barcode: String(row.scanned_barcode ?? "").trim(), linkage: row.product_linkage });
+                      }
+                      grouped.get(key)!.rows.push(row);
+                    }
+
+                    const cards = Array.from(grouped.values()).map(({ rows, barcode, linkage }) => {
+                      const qty = rows.reduce((s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))), 0);
+                      const vis = itemInspectionSlipLinePresentation(0, qty, false);
+                      const rowEditable = itemScanEditAllMode && rows.length > 0;
+                      const rowInteract = itemScanRowEditInteractProps(
+                        rowEditable,
+                        false,
+                        () => {
+                          if (!itemScanEditAllMode || busy) return;
+                          const rowTitle = productLinkageOperatorPrimaryDisplayLabel(linkage);
+                          openItemScanUnitPickerForRow(
+                            { kind: "unexpected", rowTitle, rowSubtitle: barcode || null, units: rows },
+                            rows,
+                          );
+                        },
+                      );
+                      return (
+                        <div
+                          key={barcode}
+                          className={`${itemScanSlipRowShellClass(false)} ${rowInteract.className}`}
+                          data-neda-qty={vis.label}
+                          style={itemInspectionSlipCardStyle(vis)}
+                          role={rowInteract.role}
+                          tabIndex={rowInteract.tabIndex}
+                          onClick={rowInteract.onClick}
+                          onKeyDown={rowInteract.onKeyDown}
+                          aria-label={rowEditable ? `Edit ${qty} scanned unit${qty !== 1 ? "s" : ""} for ${barcode || "this item"}` : undefined}
+                        >
+                          <ProductLinkagePrimaryLink
+                            linkage={linkage}
+                            linkWhenResolved={false}
+                            detailFrom="scan"
+                            className={SLIP_CARD_HEADING}
+                          />
+                          <div className={SLIP_CARD_META_LINKAGE}>
+                            <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+                          </div>
+                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+                              {barcode || "Unknown barcode"}
+                            </p>
+                            <div className="flex shrink-0 items-center gap-1">
+                              {slipCardStatusMark(vis)}
+                              <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                Qty {qty}/0
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    });
+
+                    // If there are unexpected units not covered by hydrated rows (demo mode or aggregation gap)
+                    const coveredQty = unlinkedRows.reduce((s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))), 0);
+                    const residualUnexpected = Math.max(0, packageItemScanState.unexpectedUnits - coveredQty);
+                    if (residualUnexpected > 0) {
+                      const vis = itemInspectionSlipLinePresentation(0, residualUnexpected, false);
+                      cards.push(
+                        <div key="residual-unexpected" className={itemScanSlipRowShellClass(false)} data-neda-qty={vis.label} style={itemInspectionSlipCardStyle(vis)}>
+                          <p className={`operator-item-scan-slip-row__title ${SLIP_CARD_HEADING}`}>Additional unexpected units</p>
+                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+                              {residualUnexpected} unit{residualUnexpected === 1 ? "" : "s"} — no slip line match
+                            </p>
+                            <div className="flex shrink-0 items-center gap-1">
+                              {slipCardStatusMark(vis)}
+                              <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                Qty {residualUnexpected}/0
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return cards;
+                  })()}
+
+                  {/* Slip lines not matched to any EP expected line — shown as informational YELLOW cards */}
+                  {slipEpCompare.unmatchedSlipIds.size > 0
+                    ? slipLikeRowsForInspection
+                        .filter((r) => r.id && slipEpCompare.unmatchedSlipIds.has(String(r.id)))
+                        .map((r, i) => {
+                          const linkage = slipRowProductLinkage(r);
+                          const slipQty = Math.max(0, Math.floor(Number(r.quantity ?? 0)));
+                          return (
+                            <div
+                              key={`unmatched-ep-${i}`}
+                              className={`${itemScanSlipRowShellClass(false)} rounded-lg border p-2`}
+                              style={{ borderColor: "rgba(180,134,52,0.6)", backgroundColor: "rgba(69,26,3,0.25)" }}
+                            >
+                              <ProductLinkagePrimaryLink linkage={linkage} linkWhenResolved={false} detailFrom="scan" className={SLIP_CARD_HEADING} />
+                              <div className={SLIP_CARD_META_LINKAGE}>
+                                <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+                              </div>
+                              <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                                <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`} style={{ color: "#fde68a" }}>
+                                  Not in manifest — slip only
+                                </p>
+                                <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                  Qty {slipQty}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                    : null}
+                </div>
+              </section>
+            ) : null}
+
             {itemsChromeStickyLayout ? (
               <div aria-hidden className="operator-item-scan-footer-spacer" />
             ) : null}
@@ -16544,25 +17107,57 @@ function OperatorMobileScanPageContent() {
             <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
               {SCANNER_LEAVE_UNSAVED_BODY}
             </p>
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-secondary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                onClick={() => {
-                  scannerLeavePendingActionRef.current = null;
-                  setScannerLeaveConfirmOpen(false);
-                  modalOpenRef.current = false;
-                }}
-              >
-                Stay
-              </button>
-              <button
-                type="button"
-                className="operator-shipment-flow-modal__btn-danger h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                onClick={() => runScannerLeavePendingAction()}
-              >
-                Leave
-              </button>
+            {scannerLeaveUnsavedReasons.length > 0 ? (
+              <ul className="operator-shipment-flow-modal__muted mt-2 space-y-0.5 rounded-lg border px-3 py-2 text-left text-[11px] font-semibold">
+                {scannerLeaveUnsavedReasons.map((r) => (
+                  <li key={r} className="flex items-center gap-1.5">
+                    <span className="shrink-0 opacity-50">·</span>
+                    {DIRTY_REASON_LABEL[r] ?? r}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="mt-5 flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    scannerLeavePendingActionRef.current = null;
+                    setScannerLeaveConfirmOpen(false);
+                    setScannerLeaveUnsavedReasons([]);
+                    modalOpenRef.current = false;
+                  }}
+                >
+                  Stay on page
+                </button>
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-danger h-11 rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    setScannerLeaveUnsavedReasons([]);
+                    runScannerLeavePendingAction();
+                  }}
+                >
+                  Leave without saving
+                </button>
+              </div>
+              {flowPhase === "items" ? (
+                <button
+                  type="button"
+                  className="h-10 w-full rounded-xl border border-emerald-500/50 bg-emerald-950/30 text-[12px] font-bold text-emerald-300 transition active:scale-[0.98] disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => {
+                    setScannerLeaveConfirmOpen(false);
+                    setScannerLeaveUnsavedReasons([]);
+                    modalOpenRef.current = false;
+                    scannerLeavePendingActionRef.current = null;
+                    void confirmItemsPhaseSaveAndExit();
+                  }}
+                >
+                  Save & Exit
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -16664,6 +17259,124 @@ function OperatorMobileScanPageContent() {
                   }}
                 >
                   Go Back
+                </button>
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {deleteUnitConfirmOpen ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[148] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-delete-unit-title`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-delete-unit-title`}
+              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+            >
+              Delete scanned unit?
+            </p>
+            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+              This removes the most recent scan record for this slip line. The action is reversible within the configured undo window.
+            </p>
+            <OperatorScannerFooterActions
+              className="mt-6"
+              primary={
+                <button
+                  type="button"
+                  className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] dark:bg-red-950/30 dark:text-red-300"
+                  onClick={() => {
+                    const cell = deleteUnitConfirmCellRef.current;
+                    const pickerUnit = pickerDeleteUnitRef.current;
+                    deleteUnitConfirmCellRef.current = null;
+                    pickerDeleteUnitRef.current = null;
+                    setDeleteUnitConfirmOpen(false);
+                    modalOpenRef.current = false;
+                    if (pickerUnit) {
+                      void handleDeleteSpecificUnit(pickerUnit);
+                    } else if (cell) {
+                      void handleDeleteSlipCellUnit(cell);
+                    }
+                  }}
+                >
+                  Yes, delete
+                </button>
+              }
+              secondary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    deleteUnitConfirmCellRef.current = null;
+                    pickerDeleteUnitRef.current = null;
+                    setDeleteUnitConfirmOpen(false);
+                    modalOpenRef.current = false;
+                  }}
+                >
+                  Cancel
+                </button>
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {overscanConfirmOpen && overscanConfirmCtxRef.current ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[147] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-overscan-confirm-title`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-overscan-confirm-title`}
+              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+            >
+              Over-scan warning
+            </p>
+            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+              This slip line already has{" "}
+              <span className="font-mono font-bold">{overscanConfirmCtxRef.current.current}</span>{" "}
+              unit{overscanConfirmCtxRef.current.current !== 1 ? "s" : ""} scanned (expected{" "}
+              <span className="font-mono font-bold">{overscanConfirmCtxRef.current.expected}</span>).
+            </p>
+            <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
+              Adding another unit will mark this line as OVER. Are you sure?
+            </p>
+            <OperatorScannerFooterActions
+              className="mt-6"
+              primary={
+                <button
+                  type="button"
+                  className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] dark:bg-red-950/30 dark:text-red-300"
+                  onClick={() => {
+                    const ctx = overscanConfirmCtxRef.current;
+                    overscanConfirmCtxRef.current = null;
+                    setOverscanConfirmOpen(false);
+                    modalOpenRef.current = false;
+                    if (ctx) queueItemUnitModalInner(ctx.args);
+                  }}
+                >
+                  Yes, add anyway (OVER)
+                </button>
+              }
+              secondary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    overscanConfirmCtxRef.current = null;
+                    setOverscanConfirmOpen(false);
+                    modalOpenRef.current = false;
+                    scheduleFocusScanner();
+                  }}
+                >
+                  Cancel
                 </button>
               }
             />
@@ -16824,7 +17537,7 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" && hasItemReceivableBox ? (
         <div
-          className="operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(var(--scanner-bottom-nav-height,4.75rem)+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] grid w-full max-w-[430px] -translate-x-1/2 grid-cols-2 items-stretch gap-2 border-t px-3 pb-0 pt-1.5 sm:px-4"
+          className="operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(var(--scanner-bottom-nav-height,4.75rem)+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] grid w-full max-w-[430px] -translate-x-1/2 grid-cols-2 items-stretch gap-2 border-t px-3 pb-[var(--op-scan-gap,0.5rem)] pt-1.5 sm:px-4"
           role="region"
           aria-label="Item inspection actions"
         >
@@ -17040,6 +17753,13 @@ function OperatorMobileScanPageContent() {
           closeItemScanUnitPicker();
           openEditScannedItemModal(unit);
         }}
+        onDeleteUnit={correctionPerms.deleteItem ? (unit) => {
+          closeItemScanUnitPicker();
+          deleteUnitConfirmCellRef.current = null;
+          pickerDeleteUnitRef.current = unit;
+          modalOpenRef.current = true;
+          setDeleteUnitConfirmOpen(true);
+        } : undefined}
         onClose={closeItemScanUnitPicker}
       />
 

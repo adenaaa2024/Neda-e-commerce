@@ -76,16 +76,16 @@ function underMatteRed(): NedaQtyRowPresentation {
   };
 }
 
-/** Over-quantity — metallic yellow / bronze warning. */
-function overBronzeMetallic(): NedaQtyRowPresentation {
+/** Over-quantity — warehouse matte red (mirrors UNDER but labeled OVER). */
+function overMatteRed(): NedaQtyRowPresentation {
   return {
     label: "OVER",
-    rowBg: "linear-gradient(135deg, rgba(69, 26, 3, 0.42) 0%, rgba(120, 53, 15, 0.38) 55%, rgba(92, 45, 12, 0.45) 100%)",
-    rowBorder: "rgba(180, 134, 52, 0.88)",
+    rowBg: "rgba(69, 10, 10, 0.42)",
+    rowBorder: "rgba(185, 28, 28, 0.88)",
     badge: {
-      borderColor: "rgba(217, 168, 68, 0.9)",
-      backgroundColor: "rgba(92, 45, 12, 0.48)",
-      color: "#fde68a",
+      borderColor: "rgba(220, 38, 38, 0.85)",
+      backgroundColor: "rgba(69, 10, 10, 0.52)",
+      color: "#fca5a5",
     },
     matchedRing: false,
   };
@@ -104,7 +104,7 @@ export function nedaQuantityRowPresentation(
   const scn = Math.max(0, Math.floor(Number(scannedQty) || 0));
 
   if (scn > exp || (exp <= 0 && scn > 0)) {
-    return overBronzeMetallic();
+    return overMatteRed();
   }
 
   if (discrepancyMode) {
@@ -124,7 +124,7 @@ export function nedaQuantityProgressColor(expectedQty: number, scannedQty: numbe
   const scn = Math.max(0, Math.floor(Number(scannedQty) || 0));
   if (exp <= 0) return "rgba(148,163,184,0.35)";
   if (scn === 0) return "rgba(148,163,184,0.28)";
-  if (scn > exp) return "rgba(180, 134, 52, 0.88)";
+  if (scn > exp) return "rgba(220, 38, 38, 0.88)";
   if (scn === exp) return "rgba(4, 120, 87, 0.92)";
   const t = Math.min(1, scn / exp);
   return `rgba(52, 87, 72, ${0.28 + t * 0.55})`;
@@ -136,7 +136,7 @@ export function nedaQuantityScannedStatColor(expectedQty: number, scannedQty: nu
   if (exp <= 0) return "rgba(248, 250, 252, 0.95)";
   if (scn === 0) return "rgba(148, 163, 184, 0.75)";
   if (scn === exp) return "#6ee7b7";
-  if (scn > exp) return "#fde68a";
+  if (scn > exp) return "#fca5a5";
   return "rgba(248, 250, 252, 0.95)";
 }
 
@@ -165,7 +165,7 @@ export function nedaQuantityCardSurfaceStyle(vis: NedaQtyRowPresentation): {
         : vis.label === "UNDER"
           ? "rgba(153, 27, 27, 0.55)"
           : vis.label === "OVER"
-            ? "rgba(180, 134, 52, 0.5)"
+            ? "rgba(185, 28, 28, 0.55)"
             : "transparent";
   const borderWidth = vis.label === "Awaiting" ? 1 : 2;
   return {
