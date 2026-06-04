@@ -84,6 +84,8 @@
     "test:expected-receive-delete-release": "tsx scripts/test-expected-receive-delete-release.ts",
     "test:delete-undo-v2-app-wiring-staging": "tsx scripts/test-delete-undo-v2-app-wiring-staging.ts",
     "smoke:phase1-delete-move-parity-staging": "tsx scripts/phase1-delete-move-parity-staging-smoke.ts",
+    "test:command-center-health-import-pick": "tsx scripts/test-command-center-health-import-pick.ts",
+    "audit:original-health-sync": "tsx scripts/fix-original-health-sync-audit.ts --audit-only",
     "test:box-slip-alloc-failure-parity": "tsx scripts/test-box-slip-alloc-failure-parity.ts",
     "test:product-enrichment-job-ui-finalize": "tsx scripts/test-product-enrichment-job-ui-finalize.ts",
     "test:automation-api-center-manual-run-wiring": "tsx scripts/test-automation-api-center-manual-run-wiring.ts",

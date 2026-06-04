@@ -52,6 +52,12 @@ import {
 } from "../../lib/scanner/receive-expected-with-split";
 import { fetchProductNamesByResolvedIds } from "../../lib/scanner/product-linkage-display-contract";
 import { moveReturnItemParentV2 } from "../../lib/scanner/delete-cascade-v2-app";
+import {
+  healthImportErrorsHint,
+  isBackgroundJobsProbeError,
+  pickHealthImportRow,
+  resolveProductJobHealthFallback,
+} from "../../lib/command-center-health";
 import { assertCanInsertReturnItemAgainstTestMarkers } from "../../lib/scanner/return-items-test-data-server-guard";
 import {
   mapPackageWriteRow,
@@ -1983,7 +1989,7 @@ export async function getCommandCenterData(
       .from("raw_report_uploads")
       .select("created_at,report_type,status")
       .order("created_at", { ascending: false })
-      .limit(1);
+      .limit(25);
     let qProductJob = supabaseServer
       .from("background_jobs")
       .select("status,updated_at,job_type")
@@ -2202,22 +2208,29 @@ export async function getCommandCenterData(
     actionQueue.sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
 
     const auditRow = (auditRes.data?.[0] ?? null) as { created_at?: string; action?: string } | null;
-    const importRow = (importRes.data?.[0] ?? null) as {
-      created_at?: string;
-      report_type?: string;
-      status?: string;
-    } | null;
+    const importRow = pickHealthImportRow(
+      (importRes.data ?? []) as { created_at?: string; report_type?: string; status?: string }[],
+    );
     const jobRow = (productJobRes.data?.[0] ?? null) as {
       status?: string;
       updated_at?: string;
       job_type?: string;
     } | null;
 
-    const importStatus = importRow?.status?.trim();
-    const importErrorsHint =
-      importStatus && /fail|error/i.test(importStatus)
-        ? `Last import status: ${importStatus}`
-        : null;
+    let productJobStatus = jobRow?.status?.trim() || null;
+    let productJobAt = jobRow?.updated_at ?? null;
+    const jobsProbeError = productJobRes.error?.message ?? "";
+    if (
+      !productJobStatus &&
+      scope.mode === "single" &&
+      (!jobRow || isBackgroundJobsProbeError(jobsProbeError))
+    ) {
+      const fallback = await resolveProductJobHealthFallback(supabaseServer, scope.organizationId);
+      productJobStatus = fallback.status;
+      productJobAt = fallback.at;
+    }
+
+    const importErrorsHint = healthImportErrorsHint(importRow?.status);
 
     return {
       ok: true,
@@ -2238,8 +2251,8 @@ export async function getCommandCenterData(
         health: {
           lastImportAt: importRow?.created_at ?? null,
           lastImportLabel: importRow?.report_type?.trim() || null,
-          productJobStatus: jobRow?.status?.trim() || null,
-          productJobAt: jobRow?.updated_at ?? null,
+          productJobStatus,
+          productJobAt,
           lastAuditAt: auditRow?.created_at ?? null,
           lastAuditAction: auditRow?.action?.trim() || null,
           importErrorsHint,
