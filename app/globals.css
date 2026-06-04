@@ -4814,11 +4814,7 @@ html.light .operator-stepper-label--active {
   text-shadow: none;
 }
 
-html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-labels {
-  color: #66707a;
-}
-
-html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-labels > span:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-step .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
   color: #66707a !important;
 }
 
@@ -4897,6 +4893,67 @@ html.light .operator-box-info-order-conflict .lucide {
 
 html.light .operator-box-info-filter-label {
   color: #4d5560 !important;
+}
+
+/* Box Info Edit All — Move / Void action buttons (operator mobile) */
+html.dark .operator-box-actions__move {
+  border-color: rgba(214, 183, 110, 0.42) !important;
+  background: rgba(214, 183, 110, 0.08) !important;
+  color: #e8d19a !important;
+}
+
+html.dark .operator-box-actions__move:active {
+  background: rgba(214, 183, 110, 0.14) !important;
+}
+
+html.light .operator-box-actions__move {
+  border-color: rgba(138, 104, 31, 0.32) !important;
+  background: rgba(248, 246, 241, 0.95) !important;
+  color: #5c4a1e !important;
+}
+
+html.light .operator-box-actions__move:active {
+  background: #ece7dc !important;
+}
+
+html.dark .operator-box-actions__void {
+  border-color: rgba(239, 91, 91, 0.32) !important;
+  background: rgba(239, 91, 91, 0.06) !important;
+  color: rgba(254, 202, 202, 0.88) !important;
+}
+
+html.dark .operator-box-actions__void:active {
+  background: rgba(239, 91, 91, 0.12) !important;
+}
+
+html.light .operator-box-actions__void {
+  border-color: rgba(180, 35, 47, 0.28) !important;
+  background: rgba(239, 91, 91, 0.05) !important;
+  color: #8b3a42 !important;
+}
+
+html.light .operator-box-actions__void:active {
+  background: rgba(239, 91, 91, 0.1) !important;
+}
+
+html.dark .operator-pallet-actions__void {
+  border-color: rgba(239, 91, 91, 0.32) !important;
+  background: rgba(239, 91, 91, 0.06) !important;
+  color: rgba(254, 202, 202, 0.88) !important;
+}
+
+html.dark .operator-pallet-actions__void:active {
+  background: rgba(239, 91, 91, 0.12) !important;
+}
+
+html.light .operator-pallet-actions__void {
+  border-color: rgba(180, 35, 47, 0.28) !important;
+  background: rgba(239, 91, 91, 0.05) !important;
+  color: #8b3a42 !important;
+}
+
+html.light .operator-pallet-actions__void:active {
+  background: rgba(239, 91, 91, 0.1) !important;
 }
 
 /* Shipment Entry header — Edit All pinned to row end (parent px-3 = 12px viewport inset) */
@@ -5038,7 +5095,24 @@ html.light .operator-shipment-entry-back-btn:hover {
 }
 
 .operator-shipment-entry-header .operator-shipment-edit-all-slot {
-  min-width: 4.5rem;
+  min-width: 0;
+  max-width: 52%;
+}
+
+.operator-shipment-entry-header .operator-shipment-box-list-btn {
+  box-sizing: border-box;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+html.dark .operator-shipment-entry-header [data-receiving-phase="items"] .operator-shipment-box-list-btn:not(:disabled) {
+  border-color: rgba(214, 183, 110, 0.34) !important;
+  color: rgba(231, 196, 112, 0.92) !important;
+}
+
+html.light .operator-shipment-entry-header [data-receiving-phase="items"] .operator-shipment-box-list-btn:not(:disabled) {
+  border-color: rgba(138, 104, 31, 0.34) !important;
+  color: rgba(111, 84, 36, 0.92) !important;
 }
 
 /* Shipment Entry — unified top chrome (title, stepper, progress) */
@@ -5100,39 +5174,84 @@ html.light .operator-shipment-entry-header .operator-pallet-stepper-shell {
   padding: 0.375rem 0.5rem 0.3125rem !important;
   margin-top: 0.4375rem !important;
   margin-bottom: 0.3125rem !important;
+  --op-stepper-node-size: 1.875rem;
+  --op-stepper-rail-height: 0.3125rem;
+  --op-stepper-rail-underlap: 0.1875rem;
 }
 
-/* Stepper track — flex row; rails overlap node edges for continuous connectors */
+/* Stepper — 3 equal columns; labels stacked under nodes; two absolute connector segments */
 .operator-shipment-entry-header .operator-receiving-stepper-track {
-  display: flex !important;
-  align-items: center !important;
-  gap: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  position: relative !important;
   width: 100% !important;
   padding-inline: 0.25rem !important;
+  gap: 0 !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-rail-layer {
+  position: absolute !important;
+  left: 0.25rem !important;
+  right: 0.25rem !important;
+  top: calc(var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-height) / 2) !important;
+  height: var(--op-stepper-rail-height) !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-rail-layer .operator-stepper-rail {
+  position: absolute !important;
+  top: 0 !important;
+  height: 100% !important;
+  width: auto !important;
+  margin: 0 !important;
+  flex: none !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-rail-layer .operator-stepper-rail:nth-child(1) {
+  left: calc(16.6667% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
+  right: calc(50% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-rail-layer .operator-stepper-rail:nth-child(2) {
+  left: calc(50% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
+  right: calc(16.6667% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-step {
+  grid-row: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  min-width: 0 !important;
+  z-index: 2 !important;
   position: relative !important;
 }
 
-.operator-shipment-entry-header .operator-receiving-stepper-track .operator-stepper-node {
-  flex: 0 0 1.375rem !important;
+.operator-shipment-entry-header .operator-receiving-stepper-step:nth-child(2) {
+  grid-column: 1 !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-step:nth-child(3) {
+  grid-column: 2 !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-step:nth-child(4) {
+  grid-column: 3 !important;
+}
+
+.operator-shipment-entry-header .operator-receiving-stepper-step .operator-stepper-node {
+  flex: 0 0 var(--op-stepper-node-size) !important;
   position: relative !important;
   z-index: 2 !important;
 }
 
-.operator-shipment-entry-header .operator-receiving-stepper-track .operator-stepper-rail {
-  flex: 1 1 0% !important;
-  min-width: 0 !important;
-  width: auto !important;
-  max-width: none !important;
-  margin-inline: -0.5625rem !important;
-  position: relative !important;
-  z-index: 1 !important;
-}
-
 .operator-shipment-entry-header .operator-stepper-node {
-  height: 1.375rem !important;
-  width: 1.375rem !important;
-  min-height: 1.375rem !important;
-  min-width: 1.375rem !important;
+  height: var(--op-stepper-node-size) !important;
+  width: var(--op-stepper-node-size) !important;
+  min-height: var(--op-stepper-node-size) !important;
+  min-width: var(--op-stepper-node-size) !important;
   border-width: 1.5px !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -5140,37 +5259,27 @@ html.light .operator-shipment-entry-header .operator-pallet-stepper-shell {
 }
 
 .operator-shipment-entry-header .operator-stepper-node .lucide {
-  height: 0.75rem !important;
-  width: 0.75rem !important;
+  height: 0.875rem !important;
+  width: 0.875rem !important;
 }
 
-.operator-shipment-entry-header .operator-receiving-stepper-labels {
-  display: grid !important;
-  grid-template-columns: 1fr 1fr 1fr !important;
-  gap: 0 !important;
+.operator-shipment-entry-header .operator-receiving-stepper-step .operator-receiving-stepper-label {
+  display: block !important;
   margin-top: 0.3125rem !important;
-  padding-inline: 0.25rem !important;
+  width: max-content !important;
+  max-width: 100% !important;
+  text-align: center !important;
   font-size: 0.5625rem !important;
+  font-weight: 700 !important;
   line-height: 1.15 !important;
   letter-spacing: 0.07em !important;
-}
-
-.operator-shipment-entry-header .operator-receiving-stepper-labels > .operator-receiving-stepper-label.col-start-3 {
-  grid-column: 2 !important;
-}
-
-.operator-shipment-entry-header .operator-receiving-stepper-labels > .operator-receiving-stepper-label.col-start-5 {
-  grid-column: 3 !important;
-}
-
-.operator-shipment-entry-header .operator-receiving-stepper-label {
-  max-width: 100%;
-  white-space: nowrap;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
 }
 
 .operator-shipment-entry-header .operator-stepper-rail {
-  height: 0.3125rem !important;
-  min-height: 0.3125rem !important;
+  height: var(--op-stepper-rail-height) !important;
+  min-height: var(--op-stepper-rail-height) !important;
   border-radius: 9999px !important;
 }
 
@@ -5327,19 +5436,11 @@ html.light .operator-shipment-entry-header .operator-stepper-rail[data-rail-done
     inset 0 -1px 0 rgba(21, 128, 61, 0.12) !important;
 }
 
-html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
-  color: #b9c2cc;
-}
-
-html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels {
-  color: #4d5560;
-}
-
-html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-step .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
   color: rgba(200, 169, 106, 0.52) !important;
 }
 
-html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-labels > .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
+html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-step .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
   color: #66707a !important;
 }
 
@@ -5995,60 +6096,85 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   margin-top: 0.25rem !important;
   margin-bottom: 0.25rem !important;
   border-radius: 0.5rem !important;
+  --op-stepper-node-size: 1.75rem;
+  --op-stepper-rail-height: 0.25rem;
+  --op-stepper-rail-underlap: 0.1875rem;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-track {
-  display: flex !important;
-  align-items: center !important;
-  gap: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  position: relative !important;
   width: 100% !important;
   padding-inline: 0.25rem !important;
-  position: relative !important;
+  gap: 0 !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-track .operator-stepper-node {
-  flex: 0 0 1.375rem !important;
-  position: relative !important;
-  z-index: 2 !important;
-}
-
-.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-track .operator-stepper-rail {
-  flex: 1 1 0% !important;
-  min-width: 0 !important;
-  width: auto !important;
-  max-width: none !important;
-  margin-inline: -0.5625rem !important;
-  position: relative !important;
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-rail-layer {
+  position: absolute !important;
+  left: 0.25rem !important;
+  right: 0.25rem !important;
+  top: calc(var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-height) / 2) !important;
+  height: var(--op-stepper-rail-height) !important;
+  pointer-events: none !important;
   z-index: 1 !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-node {
-  min-height: 1.375rem !important;
-  min-width: 1.375rem !important;
-  height: 1.375rem !important;
-  width: 1.375rem !important;
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-rail-layer .operator-stepper-rail {
+  position: absolute !important;
+  top: 0 !important;
+  height: 100% !important;
+  width: auto !important;
+  margin: 0 !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-node .lucide {
-  height: 0.6875rem !important;
-  width: 0.6875rem !important;
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-rail-layer .operator-stepper-rail:nth-child(1) {
+  left: calc(16.6667% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
+  right: calc(50% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-labels {
-  margin-top: 0.25rem !important;
-  padding-inline: 0.25rem !important;
-  font-size: 0.4375rem !important;
-  letter-spacing: 0.05em !important;
-  grid-template-columns: 1fr 1fr 1fr !important;
-  gap: 0 !important;
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-rail-layer .operator-stepper-rail:nth-child(2) {
+  left: calc(50% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
+  right: calc(16.6667% + var(--op-stepper-node-size) / 2 - var(--op-stepper-rail-underlap)) !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-labels > .operator-receiving-stepper-label.col-start-3 {
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-step {
+  grid-row: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  min-width: 0 !important;
+  z-index: 2 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-step:nth-child(2) {
+  grid-column: 1 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-step:nth-child(3) {
   grid-column: 2 !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-labels > .operator-receiving-stepper-label.col-start-5 {
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-step:nth-child(4) {
   grid-column: 3 !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-node {
+  min-height: var(--op-stepper-node-size) !important;
+  min-width: var(--op-stepper-node-size) !important;
+  height: var(--op-stepper-node-size) !important;
+  width: var(--op-stepper-node-size) !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-node .lucide {
+  height: 0.8125rem !important;
+  width: 0.8125rem !important;
+}
+
+.operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-receiving-stepper-step .operator-receiving-stepper-label {
+  margin-top: 0.25rem !important;
+  font-size: 0.4375rem !important;
+  letter-spacing: 0.05em !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-entry-stepper-shell .operator-stepper-rail {
@@ -6330,6 +6456,10 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   gap: 0.125rem !important;
 }
 
+.operator-shipment-handheld-compact .operator-shipment-box-list-btn {
+  letter-spacing: 0.03em !important;
+}
+
 .operator-shipment-handheld-compact .operator-shipment-reference-details summary {
   font-size: 0.5625rem !important;
   line-height: 1.2 !important;
@@ -6462,14 +6592,14 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   line-height: 1.15 !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-title-row button[aria-label] {
+.operator-shipment-handheld-compact .operator-shipment-entry-title-row button[aria-label]:not(.operator-shipment-edit-all-btn) {
   height: 2.25rem !important;
   width: 2.25rem !important;
   min-height: 2.25rem !important;
   min-width: 2.25rem !important;
 }
 
-.operator-shipment-handheld-compact .operator-shipment-entry-title-row button[aria-label] .lucide {
+.operator-shipment-handheld-compact .operator-shipment-entry-title-row button[aria-label]:not(.operator-shipment-edit-all-btn) .lucide {
   height: 1.125rem !important;
   width: 1.125rem !important;
 }
@@ -7915,6 +8045,24 @@ html.light .operator-item-unit-record-modal__field-input:focus {
   border-color: rgba(138, 104, 31, 0.45) !important;
 }
 
+html.dark .operator-item-unit-record-modal__required-mark {
+  color: #f87171 !important;
+}
+
+html.light .operator-item-unit-record-modal__required-mark {
+  color: #dc2626 !important;
+}
+
+html.dark .operator-item-unit-record-modal__field-input--invalid {
+  border-color: rgba(248, 113, 113, 0.72) !important;
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.28) !important;
+}
+
+html.light .operator-item-unit-record-modal__field-input--invalid {
+  border-color: rgba(220, 38, 38, 0.62) !important;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.2) !important;
+}
+
 html.dark .operator-item-unit-record-modal__checkbox-label {
   color: #faf6ed !important;
 }
@@ -8059,6 +8207,26 @@ html.light .operator-item-unit-record-modal__local-error {
   color: #b4232f !important;
 }
 
+html.dark .operator-item-unit-record-modal__allocation-warn {
+  border: 1px solid rgba(234, 179, 8, 0.45) !important;
+  background: rgba(234, 179, 8, 0.12) !important;
+  color: #fde68a !important;
+}
+
+html.light .operator-item-unit-record-modal__allocation-warn {
+  border: 1px solid rgba(180, 134, 36, 0.4) !important;
+  background: rgba(250, 204, 21, 0.12) !important;
+  color: #7a5c12 !important;
+}
+
+html.dark .operator-item-unit-record-modal__allocation-warn-title {
+  color: #fcd34d !important;
+}
+
+html.light .operator-item-unit-record-modal__allocation-warn-title {
+  color: #8a681f !important;
+}
+
 html.dark .operator-item-unit-record-modal__validation-summary {
   border: 1px solid rgba(239, 91, 91, 0.38) !important;
   background: rgba(239, 91, 91, 0.1) !important;
@@ -8117,6 +8285,52 @@ html.light .operator-item-unit-record-modal__shell .operator-shipment-flow-modal
   background: #ece7dc !important;
   border-color: #bbae98 !important;
   color: #16181b !important;
+}
+
+/* Edit scanned item — Delete unit (OVER-style red ring + pale fill, scoped) */
+.operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: none !important;
+}
+
+html.dark .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn {
+  --delete-unit-border: #dc2626;
+  --delete-unit-text: #f87171;
+  border: 1.5px solid var(--delete-unit-border) !important;
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: var(--delete-unit-text) !important;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.35) !important;
+}
+
+html.light .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn,
+html:not(.dark) .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn {
+  --delete-unit-border: #dc2626;
+  --delete-unit-text: #dc2626;
+  border: 1.5px solid var(--delete-unit-border) !important;
+  background-color: rgba(254, 202, 202, 0.42) !important;
+  color: var(--delete-unit-text) !important;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.28) !important;
+}
+
+html.dark .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.28) !important;
+  border-color: #b91c1c !important;
+  color: #fca5a5 !important;
+}
+
+html.light .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn:hover:not(:disabled),
+html:not(.dark) .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn:hover:not(:disabled) {
+  background-color: rgba(254, 202, 202, 0.52) !important;
+  border-color: #b91c1c !important;
+  color: #b91c1c !important;
+}
+
+html.dark .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn-icon,
+html.light .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn-icon,
+html:not(.dark) .operator-item-unit-record-modal__shell .operator-item-unit-record-modal__delete-btn-icon {
+  color: inherit !important;
+  stroke: currentColor !important;
 }
 
 /* Item scan unit picker modal — Choose unit to edit (visual only, scoped) */
@@ -8236,6 +8450,44 @@ html.light .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) .oper
   border-color: rgba(138, 104, 31, 0.38) !important;
   background: rgba(138, 104, 31, 0.16) !important;
   color: #524018 !important;
+}
+
+html.dark .operator-item-scan-unit-picker__delete-btn {
+  border-color: rgba(180, 95, 88, 0.38) !important;
+  background: rgba(120, 52, 48, 0.22) !important;
+  color: #d4a09a !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.light .operator-item-scan-unit-picker__delete-btn {
+  border-color: rgba(140, 72, 66, 0.28) !important;
+  background: rgba(140, 72, 66, 0.1) !important;
+  color: #7a4039 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+html.dark .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) .operator-item-scan-unit-picker__delete-btn {
+  border-color: rgba(180, 95, 88, 0.48) !important;
+  background: rgba(120, 52, 48, 0.32) !important;
+  color: #e0b0aa !important;
+}
+
+html.light .operator-item-scan-unit-picker__unit-card:hover:not(:disabled) .operator-item-scan-unit-picker__delete-btn {
+  border-color: rgba(140, 72, 66, 0.38) !important;
+  background: rgba(140, 72, 66, 0.16) !important;
+  color: #5c322c !important;
+}
+
+.operator-item-scan-unit-picker__unit-actions {
+  max-width: 100%;
+}
+
+.operator-item-scan-unit-picker__delete-btn,
+.operator-item-scan-unit-picker__edit-btn {
+  display: inline-flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
 }
 
 html.dark .operator-item-scan-unit-picker__summary {
@@ -9146,6 +9398,9 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   --operator-item-scan-footer-reserve: calc(
     var(--operator-item-scan-actions-stack) + var(--op-scan-gap, 0.5rem) + env(safe-area-inset-bottom, 0px)
   );
+  /* Item row cap for adaptive lists — px so zoom uses page scroll, not shrinking panels */
+  --op-item-row-h: 72px;
+  --op-item-row-gap: 6px;
 }
 
 .operator-item-scan-main {
@@ -9163,62 +9418,69 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
   -webkit-overflow-scrolling: touch;
 }
 
-/* "Not on packing slip" / OVER panel — second panel in two-panel layout */
+/* "Not on packing slip" / OVER panel — title card + amber list shell */
 .operator-item-scan-over-panel {
-  flex: 0 1 auto;
-  /* at least 1 item row + header so it never collapses to nothing */
-  min-height: calc(var(--op-item-row-h, 4.5rem) + 2.5rem);
-  /* 3 item rows max before internal scroll; each row ≈ 4.5rem + panel header 2.25rem */
-  max-height: calc(var(--op-item-row-h, 4.5rem) * 3 + 2.5rem);
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
+  gap: 0;
 }
 
-.operator-item-scan-over-panel .operator-scan-panel__body {
-  flex: 1 1 auto;
+.operator-item-scan-over-panel .operator-item-scan-adaptive-list {
+  flex: 0 0 auto;
+}
+
+.operator-item-scan-over-panel__list-shell {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
 }
 
 .operator-item-scan-stats {
   gap: 0.5rem;
 }
 
-/* Default panel min-height: 3 item rows (~70px each) + header ~40px + progress bar ~12px ≈ 13.5rem */
-:root {
-  --op-scan-panel-min-h: 13.5rem;
-  --op-scan-panel-min-h-few: 9rem;
-}
-
 .operator-item-scan-expected-panel {
-  flex: 1 1 auto;
-  min-height: var(--op-scan-panel-min-h, 13.5rem);
-  max-height: 100%;
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
 }
 
-.operator-scan-panel--flexible {
-  flex: 1 1 auto;
-  min-height: var(--op-scan-panel-min-h, 13.5rem);
-  max-height: 100%;
+.operator-item-scan-screen .operator-scan-panel--flexible {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
-.operator-scan-panel--flexible.operator-scan-panel--few-items {
-  flex: 0 1 auto;
-  min-height: var(--op-scan-panel-min-h-few, 9rem);
-}
-
-.operator-scan-panel__body {
+.operator-item-scan-screen .operator-scan-panel__body:not(.operator-item-scan-adaptive-list) {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Expected / over item lists: 1–3 rows = natural height; 4+ = cap at 3 rows + internal scroll */
+.operator-item-scan-screen .operator-item-scan-adaptive-list {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  overflow-x: hidden;
+  overflow-y: visible;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.5rem;
+  align-content: start;
+}
+
+.operator-item-scan-screen .operator-item-scan-adaptive-list[data-scrolls="true"] {
+  max-height: calc(var(--op-item-row-h) * 3 + var(--op-item-row-gap) * 2);
+  overflow-y: auto;
 }
 
 html.light .operator-scan-error-boundary__detail {
@@ -9278,11 +9540,7 @@ html.dark .operator-scan-alert--warning {
 }
 
 .operator-item-scan-expected-list-scroll {
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 0.5rem;
-  align-content: start;
+  /* Height/scroll rules live on .operator-item-scan-adaptive-list */
 }
 
 /* In-flow spacer — keeps panel bottom border above the fixed action footer overlay */
@@ -9506,6 +9764,246 @@ html.light .operator-item-scan-screen .operator-item-scan-expected-panel__counts
   color: #8a681f !important;
 }
 
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel.scanner-page-glass-card {
+  background: linear-gradient(180deg, rgba(30, 38, 47, 0.98) 0%, rgba(22, 29, 37, 0.99) 100%) !important;
+  border: 1px solid rgba(231, 196, 112, 0.28) !important;
+  border-radius: 0.875rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 18px rgba(0, 0, 0, 0.22) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel.scanner-page-glass-card {
+  background: linear-gradient(180deg, #ffffff 0%, #faf8f4 100%) !important;
+  border: 1px solid rgba(207, 198, 182, 0.85) !important;
+  border-radius: 0.875rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 4px 16px rgba(60, 45, 20, 0.06) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__header {
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid rgba(231, 196, 112, 0.1);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__header {
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid rgba(207, 198, 182, 0.55);
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__title {
+  color: #fde68a !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__title {
+  color: #16181b !important;
+  font-size: 0.875rem !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__eyebrow {
+  color: #e7c470 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__eyebrow {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__counts {
+  color: #faf6ed !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__counts {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__counts-scanned {
+  color: #6ee7b7 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__counts-scanned {
+  color: #15803d !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__counts-expected {
+  color: #f4da93 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__counts-expected {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__progress-track {
+  background-color: rgba(12, 16, 22, 0.72) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__progress-track {
+  background-color: #e8e2d6 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__list-shell {
+  border-color: rgba(180, 134, 52, 0.55) !important;
+  background-color: rgba(69, 26, 3, 0.22) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__list-shell {
+  border-color: rgba(180, 134, 52, 0.88) !important;
+  background: linear-gradient(180deg, #fde047 0%, #facc15 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 10px rgba(180, 134, 52, 0.22) !important;
+}
+
+/* Off-slip cards — soft yellow wash (night) */
+html.dark .operator-item-scan-screen .operator-item-scan-over-panel__list-shell .operator-item-scan-slip-row--off-slip {
+  background: linear-gradient(
+    135deg,
+    rgba(52, 42, 14, 0.78) 0%,
+    rgba(42, 34, 10, 0.62) 48%,
+    rgba(34, 28, 8, 0.68) 100%
+  ) !important;
+  border-color: rgba(231, 196, 112, 0.32) !important;
+  box-shadow:
+    inset 3px 0 0 0 rgba(231, 196, 112, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-over-panel__list-shell .operator-item-scan-slip-row--off-slip {
+  background: linear-gradient(135deg, #fef08a 0%, #fde047 52%, #facc15 100%) !important;
+  border-color: rgba(161, 98, 7, 0.72) !important;
+  box-shadow: inset 3px 0 0 0 rgba(180, 83, 9, 0.72) !important;
+}
+
+/* Progressive scan text: base (white/black) → green by --item-scan-progress */
+.operator-item-scan-screen .operator-item-scan-slip-row {
+  --item-scan-progress: 0;
+  --item-scan-text-night: #faf6ed;
+  --item-scan-text-day: #16181b;
+  --item-scan-green-night: #6ee7b7;
+  --item-scan-green-day: #15803d;
+}
+
+html.dark
+  .operator-item-scan-screen
+  .operator-item-scan-slip-row:not([data-neda-qty="UNDER"])
+  :is(
+    .operator-item-scan-product-link,
+    .operator-item-scan-slip-row__title,
+    .operator-item-scan-slip-row__meta,
+    .operator-item-scan-slip-row__qty,
+    [data-linkage-chip],
+    .truncate
+  ) {
+  color: color-mix(
+    in srgb,
+    var(--item-scan-text-night) calc((1 - var(--item-scan-progress)) * 100%),
+    var(--item-scan-green-night) calc(var(--item-scan-progress) * 100%)
+  ) !important;
+}
+
+html.light
+  .operator-item-scan-screen
+  .operator-item-scan-slip-row:not([data-neda-qty="UNDER"])
+  :is(
+    .operator-item-scan-product-link,
+    .operator-item-scan-slip-row__title,
+    .operator-item-scan-slip-row__meta,
+    .operator-item-scan-slip-row__qty,
+    [data-linkage-chip],
+    .truncate
+  ) {
+  color: color-mix(
+    in srgb,
+    var(--item-scan-text-day) calc((1 - var(--item-scan-progress)) * 100%),
+    var(--item-scan-green-day) calc(var(--item-scan-progress) * 100%)
+  ) !important;
+}
+
+/* Product link — slightly richer base in day mode for readability */
+html.light
+  .operator-item-scan-screen
+  .operator-item-scan-slip-row:not([data-neda-qty="UNDER"])
+  .operator-item-scan-product-link {
+  color: color-mix(
+    in srgb,
+    #052033 calc((1 - var(--item-scan-progress)) * 100%),
+    #14532d calc(var(--item-scan-progress) * 100%)
+  ) !important;
+  text-decoration: underline !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 2px !important;
+  text-decoration-color: color-mix(
+    in srgb,
+    rgba(138, 104, 31, 0.75) calc((1 - var(--item-scan-progress)) * 100%),
+    rgba(21, 128, 61, 0.55) calc(var(--item-scan-progress) * 100%)
+  ) !important;
+}
+
+html.dark
+  .operator-item-scan-screen
+  .operator-item-scan-slip-row:not([data-neda-qty="UNDER"])
+  .operator-item-scan-product-link {
+  text-decoration: underline !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 2px !important;
+  text-decoration-color: color-mix(
+    in srgb,
+    rgba(231, 196, 112, 0.35) calc((1 - var(--item-scan-progress)) * 100%),
+    rgba(110, 231, 183, 0.5) calc(var(--item-scan-progress) * 100%)
+  ) !important;
+}
+
+/* OVER / UNEXPECTED pill — sharp red ring, pale red fill, saturated red label (day + night, all panels) */
+html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="OVER"],
+html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="UNEXPECTED"],
+html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="OVER"],
+html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="UNEXPECTED"] {
+  --over-status-border: #ef4444;
+  --over-status-text: #dc2626;
+  color: var(--over-status-text) !important;
+  border: 1.5px solid var(--over-status-border) !important;
+  background-color: rgba(254, 202, 202, 0.38) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.32);
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row--off-slip[data-neda-qty="OVER"],
+html.light .operator-item-scan-screen .operator-item-scan-slip-row--off-slip[data-neda-qty="UNEXPECTED"] {
+  background: linear-gradient(135deg, #fef08a 0%, #fde047 52%, #facc15 100%) !important;
+  border-color: rgba(161, 98, 7, 0.72) !important;
+  box-shadow: inset 3px 0 0 0 rgba(194, 65, 12, 0.65) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row--off-slip .operator-item-scan-slip-row__manifest-note {
+  color: #fde68a !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row--off-slip .operator-item-scan-slip-row__manifest-note {
+  color: #4d5560 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="UNDER"] :is(
+  .operator-item-scan-product-link,
+  .operator-item-scan-slip-row__meta,
+  .operator-item-scan-slip-row__qty
+) {
+  color: #fca5a5 !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty="UNDER"] :is(
+  .operator-item-scan-product-link,
+  .operator-item-scan-slip-row__meta,
+  .operator-item-scan-slip-row__qty
+) {
+  color: #b42318 !important;
+}
+
 html.dark .operator-item-scan-screen .operator-item-scan-progress-track {
   background-color: rgba(12, 16, 22, 0.72) !important;
   height: 0.3125rem !important;
@@ -9638,21 +10136,7 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-row[data-neda-qty
   box-shadow: inset 3px 0 0 0 rgba(138, 104, 31, 0.65) !important;
 }
 
-html.light .operator-item-scan-screen .operator-item-scan-slip-row__title {
-  color: #16181b !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-slip-row__title {
-  color: #faf6ed !important;
-}
-
-html.light .operator-item-scan-screen .operator-item-scan-slip-row__meta {
-  color: #4d5560 !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-slip-row__meta {
-  color: #b9c2cc !important;
-}
+/* Title/meta base colors — driven by --item-scan-progress rules above */
 
 html.light .operator-item-scan-screen .operator-item-scan-slip-row__meta-label {
   color: #66707a !important;
@@ -9690,30 +10174,7 @@ html.dark .operator-item-scan-screen .operator-item-scan-slip-row__draft {
   color: #f4da93 !important;
 }
 
-html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty {
-  color: #4d5560 !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty {
-  color: rgba(226, 232, 240, 0.92) !important;
-}
-
-html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty > span:first-child,
-html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-scn {
-  color: #15803d !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-scn {
-  color: #6ee7b7 !important;
-}
-
-html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-exp {
-  color: #8a681f !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-exp {
-  color: #e7c470 !important;
-}
+/* Qty line colors — progressive rules above; variance accents below */
 
 html.light .operator-item-scan-screen .operator-item-scan-slip-row__qty-var--over {
   color: #8a681f !important;
@@ -9735,22 +10196,12 @@ html.dark .operator-item-scan-screen .operator-item-scan-slip-row__qty-var--unde
   color: #fca5a5 !important;
 }
 
-html.light .operator-item-scan-screen .operator-item-scan-product-link {
-  color: #2a4a62 !important;
-  text-decoration-color: rgba(138, 104, 31, 0.42) !important;
+html.light .operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-product-link:hover {
+  filter: brightness(0.92);
 }
 
-html.light .operator-item-scan-screen .operator-item-scan-product-link:hover {
-  color: #16181b !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-product-link {
-  color: #e7c470 !important;
-  text-decoration-color: rgba(231, 196, 112, 0.45) !important;
-}
-
-html.dark .operator-item-scan-screen .operator-item-scan-product-link:hover {
-  color: #f4da93 !important;
+html.dark .operator-item-scan-screen .operator-item-scan-slip-row .operator-item-scan-product-link:hover {
+  filter: brightness(1.08);
 }
 
 html.light .operator-item-scan-screen .operator-item-scan-slip-status--awaiting {
@@ -9779,11 +10230,6 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-
 
 html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="UNDER"] {
   color: #b42318 !important;
-}
-
-html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="OVER"],
-html.light .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="UNEXPECTED"] {
-  color: #8a681f !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-shipment-summary.scanner-page-glass-card {

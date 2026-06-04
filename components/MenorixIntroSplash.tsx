@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Oswald } from "next/font/google";
 import { LogoMark } from "@/components/LogoMark";
 import { PlatformBrandingProvider } from "@/components/PlatformBrandingContext";
-import { hasSeenLoginIntro, markLoginIntroSeen } from "@/lib/login-intro-preference";
 import "./menorix-intro.css";
 
 const introDisplay = Oswald({
@@ -26,83 +25,6 @@ const ACRONYM_PARTS: { word: string; accentIndex: number }[] = [
   { word: "Intelligence", accentIndex: 0 },
   { word: "eXchange", accentIndex: 1 },
 ];
-
-type MenorixIntroVariant = "login" | "admin" | "scanner";
-
-function prefersReducedMotion(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return false;
-  }
-}
-
-function letterTiming(variant: MenorixIntroVariant) {
-  const isScanner = variant === "scanner";
-  const isLogin = variant === "login";
-  return {
-    isScanner,
-    isLogin,
-    letterDelayBase: isScanner ? 80 : isLogin ? 260 : 120,
-    letterDelayStep: isScanner ? 120 : isLogin ? 200 : 280,
-    acronymWordStep: isLogin ? 320 : 240,
-  };
-}
-
-/** Extra time before parent watchdog forces overlay removal and form unlock. */
-const INTRO_FAILSAFE_EXTRA_MS = 2500;
-
-/** Login intro ends shortly after the last acronym word finishes animating. */
-export function computeLoginIntroDurationMs(): number {
-  const { letterDelayBase, letterDelayStep, acronymWordStep } = letterTiming("login");
-  const acronymWordDelayBase = letterDelayBase + LETTERS.length * letterDelayStep + 320;
-  const lastWordEnd =
-    acronymWordDelayBase + (ACRONYM_PARTS.length - 1) * acronymWordStep + 560;
-  return lastWordEnd + 1200;
-}
-
-function computeSafeRevealMs(variant: MenorixIntroVariant): number {
-  const { isScanner, isLogin, letterDelayBase, letterDelayStep, acronymWordStep } =
-    letterTiming(variant);
-  const acronymWordDelayBase = letterDelayBase + LETTERS.length * letterDelayStep + 320;
-  if (isLogin) {
-    return acronymWordDelayBase + ACRONYM_PARTS.length * acronymWordStep + 640;
-  }
-  const lastLetterDelay = letterDelayBase + (LETTERS.length - 1) * letterDelayStep;
-  return lastLetterDelay + (isScanner ? 480 : 1050) + 200;
-}
-
-function shouldPlayLoginIntro(): boolean {
-  return !hasSeenLoginIntro();
-}
-
-type IntroErrorBoundaryProps = {
-  children: React.ReactNode;
-  onFail: () => void;
-};
-
-type IntroErrorBoundaryState = {
-  failed: boolean;
-};
-
-/** If the overlay subtree throws, drop the overlay and leave login content visible. */
-class IntroErrorBoundary extends React.Component<IntroErrorBoundaryProps, IntroErrorBoundaryState> {
-  state: IntroErrorBoundaryState = { failed: false };
-
-  static getDerivedStateFromError(): IntroErrorBoundaryState {
-    return { failed: true };
-  }
-
-  componentDidCatch(): void {
-    this.props.onFail();
-  }
-
-  render(): React.ReactNode {
-    if (this.state.failed) return null;
-    return this.props.children;
-  }
-}
 
 function AcronymWord({ word, accentIndex, delayMs }: { word: string; accentIndex: number; delayMs: number }) {
   const accent = accentIndex >= 0 ? word[accentIndex] : null;
@@ -132,6 +54,8 @@ function AcronymWord({ word, accentIndex, delayMs }: { word: string; accentIndex
   );
 }
 
+type MenorixIntroVariant = "login" | "admin" | "scanner";
+
 type MenorixIntroSplashProps = {
   children: React.ReactNode;
   durationMs?: number;
@@ -140,8 +64,6 @@ type MenorixIntroSplashProps = {
   skippable?: boolean;
   /** Fires when intro completes or user skips */
   onFinished?: () => void;
-  /** When true (login), skip intro on repeat visits via localStorage */
-  rememberSkip?: boolean;
 };
 
 function buildSparkles(count: number) {
@@ -194,10 +116,9 @@ function IntroOverlay({
   onSkip: () => void;
 }) {
   const [introExit, setIntroExit] = useState(false);
-  const [safeReveal, setSafeReveal] = useState(false);
   const timers = useRef<number[]>([]);
-  const { isScanner, isLogin, letterDelayBase, letterDelayStep, acronymWordStep } =
-    letterTiming(variant);
+  const isScanner = variant === "scanner";
+  const isLogin = variant === "login";
 
   const sparkles = useMemo(
     () => buildSparkles(isScanner ? 18 : isLogin ? 32 : 18),
@@ -213,27 +134,27 @@ function IntroOverlay({
     timers.current = [];
     setIntroExit(true);
     window.setTimeout(onSkip, 520);
-    window.setTimeout(onSkip, 1500);
   }, [onSkip]);
 
   useEffect(() => {
     const exitAt = durationMs - 750;
-    const safeRevealAt = computeSafeRevealMs(variant);
     timers.current.push(window.setTimeout(() => setIntroExit(true), exitAt));
     timers.current.push(window.setTimeout(onSkip, durationMs));
-    timers.current.push(window.setTimeout(() => setSafeReveal(true), safeRevealAt));
     return () => {
       timers.current.forEach((t) => window.clearTimeout(t));
       timers.current = [];
     };
-  }, [durationMs, onSkip, variant]);
+  }, [durationMs, onSkip]);
 
   const letterClass = isScanner
     ? "menorix-intro-letter menorix-intro-letter--scanner"
     : isLogin
       ? "menorix-intro-letter menorix-intro-letter--login"
       : "menorix-intro-letter";
+  const letterDelayBase = isScanner ? 80 : isLogin ? 260 : 120;
+  const letterDelayStep = isScanner ? 120 : isLogin ? 200 : 280;
   const acronymWordDelayBase = letterDelayBase + LETTERS.length * letterDelayStep + 320;
+  const acronymWordStep = isLogin ? 320 : 240;
 
   return (
     <button
@@ -244,7 +165,6 @@ function IntroOverlay({
         isLogin ? "menorix-intro-overlay--login" : "",
         skippable ? "menorix-intro-overlay--skippable" : "",
         introExit ? "menorix-intro-overlay--exit" : "",
-        safeReveal ? "menorix-intro-overlay--safe-reveal" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -357,113 +277,45 @@ function IntroOverlay({
 
 export function MenorixIntroSplash({
   children,
-  durationMs,
+  durationMs = 6200,
   variant = "login",
   skippable = variant === "login" || variant === "scanner",
   onFinished,
-  rememberSkip = variant === "login",
 }: MenorixIntroSplashProps) {
-  const resolvedDuration =
-    durationMs ?? (variant === "login" ? computeLoginIntroDurationMs() : 6200);
+  const [showIntro, setShowIntro] = useState(true);
+  const [contentVisible, setContentVisible] = useState(false);
 
-  /** Safe defaults: content visible, no overlay — works without JS or if hydration fails. */
-  const [showIntro, setShowIntro] = useState(false);
-  const [contentVisible, setContentVisible] = useState(true);
-
-  const finishIntro = useCallback(() => {
-    if (rememberSkip && variant === "login") {
-      markLoginIntroSeen();
-    }
+  const skip = useCallback(() => {
     setShowIntro(false);
     setContentVisible(true);
     onFinished?.();
-  }, [onFinished, rememberSkip, variant]);
-
-  useLayoutEffect(() => {
-    try {
-      if (prefersReducedMotion()) {
-        if (rememberSkip && variant === "login") {
-          markLoginIntroSeen();
-        }
-        onFinished?.();
-        return;
-      }
-
-      if (variant === "login" && rememberSkip && !shouldPlayLoginIntro()) {
-        onFinished?.();
-        return;
-      }
-
-      setShowIntro(true);
-      setContentVisible(false);
-    } catch {
-      setShowIntro(false);
-      setContentVisible(true);
-      onFinished?.();
-    }
-  }, [onFinished, rememberSkip, variant]);
+  }, [onFinished]);
 
   useEffect(() => {
     if (!showIntro) return;
-
-    const revealAt = Math.max(800, resolvedDuration - 900);
-    const hardDeadline = resolvedDuration + INTRO_FAILSAFE_EXTRA_MS;
-
+    const revealAt = Math.max(800, durationMs - 900);
     const revealTimer = window.setTimeout(() => setContentVisible(true), revealAt);
-    const contentUnlockTimer = window.setTimeout(() => setContentVisible(true), hardDeadline);
-    const watchdogTimer = window.setTimeout(() => finishIntro(), hardDeadline);
-
-    return () => {
-      window.clearTimeout(revealTimer);
-      window.clearTimeout(contentUnlockTimer);
-      window.clearTimeout(watchdogTimer);
-    };
-  }, [finishIntro, resolvedDuration, showIntro]);
+    return () => window.clearTimeout(revealTimer);
+  }, [durationMs, showIntro]);
 
   const needsBranding = variant === "login" || variant === "scanner";
 
-  const overlayInner = (
-    <IntroOverlay
-      durationMs={resolvedDuration}
-      variant={variant}
-      skippable={skippable}
-      onSkip={finishIntro}
-    />
-  );
-
   const overlay = showIntro ? (
-    <IntroErrorBoundary onFail={finishIntro}>
-      {needsBranding ? (
-        <PlatformBrandingProvider>{overlayInner}</PlatformBrandingProvider>
-      ) : (
-        overlayInner
-      )}
-    </IntroErrorBoundary>
+    needsBranding ? (
+      <PlatformBrandingProvider>
+        <IntroOverlay durationMs={durationMs} variant={variant} skippable={skippable} onSkip={skip} />
+      </PlatformBrandingProvider>
+    ) : (
+      <IntroOverlay durationMs={durationMs} variant={variant} skippable={skippable} onSkip={skip} />
+    )
   ) : null;
 
   return (
-    <>
-      <noscript>
-        <style>{`.menorix-intro-root--playing .menorix-intro-content{opacity:1!important;transform:none!important}.menorix-intro-overlay{opacity:0!important;visibility:hidden!important;pointer-events:none!important}`}</style>
-      </noscript>
-      <div
-        className={[
-          "menorix-intro-root",
-          showIntro ? "menorix-intro-root--playing" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        {overlay}
-        <div
-          className={[
-            "menorix-intro-content",
-            contentVisible ? "menorix-intro-content--visible" : "",
-          ].join(" ")}
-        >
-          {children}
-        </div>
+    <div className="menorix-intro-root">
+      {overlay}
+      <div className={["menorix-intro-content", contentVisible ? "menorix-intro-content--visible" : ""].join(" ")}>
+        {children}
       </div>
-    </>
+    </div>
   );
 }

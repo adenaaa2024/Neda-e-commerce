@@ -41,6 +41,7 @@ import {
   buildReceiveScopeKey,
   fetchPackageReceiveContext,
   humanizeExpectedAllocationError,
+  isNoAllocatableExpectedAllocationError,
   moveExpectedItemsForPackageScope,
   releaseExpectedItemsForPackage,
   resolveAllocatableExpectedPackageHint,
@@ -82,6 +83,10 @@ import {
   normalizeItemUnitDiscrepancySelection,
   type ItemUnitDiscrepancyTagKey,
 } from "@/lib/scanner/item-unit-discrepancy-tags";
+import {
+  appendOffSlipAuditNote,
+  returnItemNotesMarkOffSlip,
+} from "@/lib/scanner/item-scan-off-slip";
 import {
   resolveItemBarcodeAgainstSlipRows,
   type SlipBarcodeMatchRow,
@@ -1938,6 +1943,12 @@ export type OperatorPackageItemRow = {
   id: string;
   slip_content_id: string | null;
   scanned_barcode: string;
+  /** Persisted return_items.fnsku when present. */
+  fnsku: string | null;
+  /** Persisted return_items.sku (seller SKU / UPC lane in operator UI). */
+  sku: string | null;
+  /** Persisted return_items.product_identifier when present. */
+  product_identifier: string | null;
   match_kind: "fnsku" | "upc" | "unexpected";
   quantity: number;
   discrepancy_tags: string[] | null;
@@ -2086,7 +2097,11 @@ export async function listOperatorPackageItemsForPackageAction(
     const sku = typeof row.sku === "string" ? row.sku : null;
     const product_identifier = typeof row.product_identifier === "string" ? row.product_identifier : null;
     const scanned_barcode = scannedBarcodeFromReturnItemRow({ fnsku, sku, product_identifier });
-    const slip_content_id = slipContentIdForReturnItemBarcode(scanned_barcode, slipMatchRows);
+    const operator_notes =
+      typeof row.notes === "string" && row.notes.trim() ? row.notes.trim().slice(0, 2000) : null;
+    const slip_content_id = returnItemNotesMarkOffSlip(operator_notes)
+      ? null
+      : slipContentIdForReturnItemBarcode(scanned_barcode, slipMatchRows);
     const match_kind = inferMatchKindFromReturnItemRow({ fnsku, sku, product_identifier });
     const dt = Array.isArray(row.conditions)
       ? row.conditions.map((x) => String(x ?? "").trim()).filter(Boolean)
@@ -2116,8 +2131,7 @@ export async function listOperatorPackageItemsForPackageAction(
       lot_number: lot?.length ? lot : null,
       evidence_urls: ev.length ? ev : null,
       optional_item_photo_url: optionalItem,
-      operator_notes:
-        typeof row.notes === "string" && row.notes.trim() ? row.notes.trim().slice(0, 2000) : null,
+      operator_notes,
       created_at:
         typeof row.created_at === "string" && row.created_at.trim() ? row.created_at.trim() : null,
       updated_at:
@@ -2182,6 +2196,9 @@ export async function listOperatorPackageItemsForPackageAction(
     return {
       ...rest,
       slip_content_id,
+      fnsku: fnsku?.trim() ? fnsku.trim() : null,
+      sku: sku?.trim() ? sku.trim() : null,
+      product_identifier: product_identifier?.trim() ? product_identifier.trim() : null,
       created_by_display: null,
       updated_by_display: null,
       product_linkage: buildProductLinkageDisplayContract(
@@ -2226,6 +2243,11 @@ export type InsertOperatorPackageItemInput = {
   operatorNotes?: string | null;
   /** Client/server hint — parent `expected_packages.id` with remaining qty (Item Scan slip row). */
   expectedPackageHintId?: string | null;
+  /**
+   * When true, save without expected allocation and mark the unit off-slip
+   * (`return_items.notes` audit marker; no slip line link in Item Scan counts).
+   */
+  saveAsOffSlip?: boolean;
   /** Loose item (no box) — writes `return_items` without `package_id`. */
   looseItem?: boolean;
   /** Step 2 fallback — return label on packaging (loose flow). */
@@ -2383,6 +2405,10 @@ async function finalizeOperatorPackageItemLinkage(
       return { ok: true };
     }
 
+    if (!expectedHint) {
+      return { ok: true };
+    }
+
     const alloc = await allocateExpectedItemsForReturnItemIds(supabaseServer, {
       returnItemIds: [rid],
       receiveScopeKey,
@@ -2390,6 +2416,9 @@ async function finalizeOperatorPackageItemLinkage(
       errorContext: { fnsku: allocFnsku, sku: allocSku, slipCode, trackingNumber },
     });
     if (!alloc.ok) {
+      if (isNoAllocatableExpectedAllocationError(alloc.error)) {
+        return { ok: true };
+      }
       return { ok: false, error: alloc.error };
     }
   }
@@ -2855,7 +2884,9 @@ export async function insertOperatorPackageItemAction(
   if (returnLabelUrl && /^https?:\/\//i.test(returnLabelUrl)) urlSlots.return_label_url = returnLabelUrl;
   const photo_evidence = mergeReturnPhotoEvidence(null, urlSlots, { galleryUrls: evidence });
 
-  const operatorNotes = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
+  const saveAsOffSlip = Boolean(input.saveAsOffSlip);
+  const operatorNotesRaw = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
+  const operatorNotes = saveAsOffSlip ? appendOffSlipAuditNote(operatorNotesRaw) : operatorNotesRaw;
 
   const scanIds = buildOperatorBarcodeResolverFields(barcode);
   const persistFnsku = (scanIds.fnsku ?? slipFnsku ?? "").trim().slice(0, 500) || undefined;
@@ -2871,7 +2902,12 @@ export async function insertOperatorPackageItemAction(
   }
 
   let expectedPackageHintId = String(input.expectedPackageHintId ?? "").trim();
-  if (!looseItem && pkgId && (!expectedPackageHintId || !isUuidString(expectedPackageHintId))) {
+  if (
+    !saveAsOffSlip &&
+    !looseItem &&
+    pkgId &&
+    (!expectedPackageHintId || !isUuidString(expectedPackageHintId))
+  ) {
     try {
       const resolved = await resolveAllocatableExpectedPackageHint(supabaseServer, {
         organizationId,
@@ -2899,6 +2935,9 @@ export async function insertOperatorPackageItemAction(
         ),
       };
     }
+  }
+  if (saveAsOffSlip) {
+    expectedPackageHintId = "";
   }
 
   const insertReturnBase = {
@@ -2937,9 +2976,11 @@ export async function insertOperatorPackageItemAction(
     packageId: looseItem ? null : pkgId,
     looseItem,
     slipLinkage: slipLinkageInherit,
-    slipContentId: slipHint && isUuidString(slipHint) ? slipHint : null,
-    slipExpectedQuantity,
-    expectedPackageHintId: isUuidString(expectedPackageHintId) ? expectedPackageHintId : null,
+    slipContentId:
+      saveAsOffSlip || !slipHint || !isUuidString(slipHint) ? null : slipHint,
+    slipExpectedQuantity: saveAsOffSlip ? 0 : slipExpectedQuantity,
+    expectedPackageHintId:
+      saveAsOffSlip || !isUuidString(expectedPackageHintId) ? null : expectedPackageHintId,
     packageSlipCode,
     packageTrackingNumber,
     orderId: slipOrderId,
@@ -3353,20 +3394,7 @@ export async function voidOperatorIntakePalletAction(
     return { ok: false, message: "This pallet belongs to another store — select the correct store." };
   }
 
-  // Guard: pallet must be empty (no active packages) before voiding
-  const { count: pkgCount, error: pkgCountErr } = await supabaseServer
-    .from("packages")
-    .select("id", { count: "exact", head: true })
-    .eq("pallet_id", palletId)
-    .is("deleted_at", null);
-  if (pkgCountErr) return { ok: false, message: pkgCountErr.message };
-  if (pkgCount && pkgCount > 0) {
-    return {
-      ok: false,
-      message: `This pallet contains ${pkgCount} box${pkgCount !== 1 ? "es" : ""}. Remove all boxes first before voiding the pallet.`,
-    };
-  }
-
+  // Cascade void via softVoidPalletWithExpectedRelease (packages + return_items + allocation release).
   const actor = await resolveAuditActorForSession();
   const voided = await softVoidPalletWithExpectedRelease(supabaseServer, {
     palletId,

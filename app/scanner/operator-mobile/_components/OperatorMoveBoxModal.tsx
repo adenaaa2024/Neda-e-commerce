@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Loader2, Pencil } from "lucide-react";
+import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 
 type OperatorMoveBoxModalProps = {
   open: boolean;
@@ -30,10 +31,14 @@ export function OperatorMoveBoxModal({
 }: OperatorMoveBoxModalProps) {
   const formId = useId();
   const [manualEntry, setManualEntry] = useState(false);
+  const [step, setStep] = useState<"select" | "confirm">("select");
   const manualInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) setManualEntry(false);
+    if (!open) {
+      setManualEntry(false);
+      setStep("select");
+    }
   }, [open]);
 
   const exitManualEntry = useCallback(() => {
@@ -60,12 +65,76 @@ export function OperatorMoveBoxModal({
 
   const handleClose = useCallback(() => {
     setManualEntry(false);
+    setStep("select");
     onClose();
   }, [onClose]);
 
   if (!open) return null;
 
   const trimmedTarget = target.trim();
+
+  if (step === "confirm") {
+    return (
+      <div
+        className="operator-shipment-flow-modal fixed inset-0 z-[142] flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${formId}-move-box-confirm-title`}
+      >
+        <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+          <p
+            id={`${formId}-move-box-confirm-title`}
+            className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+          >
+            Move this box?
+          </p>
+          {packageLabel.trim() ? (
+            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[12px] font-semibold leading-relaxed">
+              Box{" "}
+              <span className="font-mono font-bold">{packageLabel.trim()}</span>
+            </p>
+          ) : null}
+          <p className="operator-shipment-flow-modal__body mt-2 text-center text-[12px] font-medium leading-relaxed opacity-90">
+            This will move this box/package and its scanned units to the selected pallet.
+          </p>
+          <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-relaxed">
+            Target: <span className="font-mono">{trimmedTarget}</span>
+          </p>
+          {error ? (
+            <p className="mt-3 text-center text-[12px] font-semibold text-red-300" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <OperatorScannerFooterActions
+            className="mt-6"
+            primary={
+              <button
+                type="button"
+                disabled={busy}
+                className="operator-shipment-flow-modal__btn-primary inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:opacity-50"
+                onClick={() => onConfirm(trimmedTarget)}
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                Move box
+              </button>
+            }
+            secondary={
+              <button
+                type="button"
+                disabled={busy}
+                className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:opacity-50"
+                onClick={() => {
+                  if (!busy) setStep("select");
+                }}
+              >
+                Cancel
+              </button>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -155,11 +224,10 @@ export function OperatorMoveBoxModal({
             className="operator-shipment-flow-modal__btn-primary inline-flex h-11 items-center justify-center gap-2 rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:opacity-50"
             onClick={() => {
               exitManualEntry();
-              onConfirm(trimmedTarget);
+              setStep("confirm");
             }}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-            Confirm Move
+            Continue
           </button>
         </div>
       </div>

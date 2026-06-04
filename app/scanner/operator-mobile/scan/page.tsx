@@ -177,6 +177,8 @@ import {
 import { buildOperatorBarcodeResolverFields } from "@/lib/scanner/operator-barcode-preview-input";
 import { OperatorCrossStoreScopeBanner } from "@/app/scanner/operator-mobile/_components/OperatorCrossStoreScopeBanner";
 import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobile/_components/OperatorDuplicatePackingSlipBanner";
+import { OperatorPalletActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorPalletActionsPanel";
+import { OperatorBoxActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorBoxActionsPanel";
 import { OperatorCorrectionActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorCorrectionActionsPanel";
 import { ScannerPhotoActionSheet } from "@/app/scanner/operator-mobile/_components/ScannerPhotoActionSheet";
 import { OperatorMoveBoxModal } from "@/app/scanner/operator-mobile/_components/OperatorMoveBoxModal";
@@ -190,6 +192,11 @@ import {
   normalizeItemUnitDiscrepancySelection,
   type ItemUnitDiscrepancyTagKey,
 } from "@/lib/scanner/item-unit-discrepancy-tags";
+import {
+  ITEM_SCAN_OFF_SLIP_MODAL_WARNING,
+  itemScanSaveShouldTreatAsOffSlip,
+  returnItemNotesMarkOffSlip,
+} from "@/lib/scanner/item-scan-off-slip";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
@@ -355,7 +362,7 @@ const BOX_INFO_BTN_PRIMARY =
 const glassCard = "scanner-page-glass-card";
 /** Item scan / slip cards — high-density warehouse typography (inline Tailwind; overrides globals.css leaks). */
 const SLIP_CARD_HEADING =
-  "operator-item-scan-product-link line-clamp-2 text-xs font-bold tracking-wide text-[#FAF6ED] no-underline hover:text-[#FAF6ED]";
+  "operator-item-scan-product-link line-clamp-2 text-xs font-bold tracking-wide no-underline";
 const SLIP_CARD_SUBTEXT = "text-[11px] leading-tight text-neutral-400";
 const SLIP_CARD_TECH_ID = "font-mono text-[10px] text-neutral-500";
 const SLIP_CARD_STATUS_BADGE =
@@ -407,6 +414,20 @@ const DIRTY_REASON_LABEL: Record<string, string> = {
 const SCANNER_BACK_DEBUG = false;
 /** Set true temporarily to trace Item Scan → Box Info hydration in the console. */
 const ITEM_TO_BOX_HYDRATE_DEBUG = false;
+/** Set true temporarily to trace unit-picker delete flow in the console. */
+const ITEM_UNIT_DELETE_DEBUG = false;
+/** Set true temporarily to trace ItemUnitRecordModal delete visibility in the console. */
+const ITEM_UNIT_MODAL_DELETE_DEBUG = false;
+
+function logItemUnitDelete(...args: unknown[]) {
+  if (!ITEM_UNIT_DELETE_DEBUG) return;
+  console.log("[item-unit-delete-debug]", ...args);
+}
+
+function logItemUnitModalDelete(...args: unknown[]) {
+  if (!ITEM_UNIT_MODAL_DELETE_DEBUG) return;
+  console.log("[item-unit-modal-delete-debug]", ...args);
+}
 
 type IdentifyGateLookupTimingPath = "exact_hit" | "fast_miss" | "deep_search";
 
@@ -1519,7 +1540,7 @@ function ReceivingMasterStepper({
   const itemsActive = flowPhase === "items";
 
   const ringBase =
-    "operator-stepper-node flex h-[1.3125rem] w-[1.3125rem] shrink-0 items-center justify-center rounded-full border-2 transition";
+    "operator-stepper-node flex shrink-0 items-center justify-center rounded-full border-2 transition";
 
   // Rail 1: Pallet→Box — green when box step is active or beyond; gold otherwise
   const rail1Done = boxActive || boxDone || itemsActive;
@@ -1539,6 +1560,18 @@ function ReceivingMasterStepper({
       aria-hidden
     />
   );
+
+  const palletLabelClass = palletDone
+    ? "operator-stepper-label--done"
+    : palletActive
+      ? "operator-stepper-label--active"
+      : "";
+  const boxLabelClass = boxActive
+    ? "operator-stepper-label--active"
+    : boxDone
+      ? "operator-stepper-label--done"
+      : "";
+  const itemsLabelClass = itemsActive ? "operator-stepper-label--active" : "";
 
   const palletNode = () => {
     if (palletDone) {
@@ -1601,35 +1634,23 @@ function ReceivingMasterStepper({
 
   return (
     <div className="operator-receiving-stepper w-full px-0 pb-0" role="list" aria-label="Receiving progress">
-      <div className="operator-receiving-stepper-track flex w-full items-center justify-center">
-        {palletNode()}
-        {rail1()}
-        {boxNode()}
-        {rail2()}
-        {itemsNode()}
-      </div>
-      <div className="operator-receiving-stepper-labels mt-1 grid grid-cols-[1fr_minmax(0.625rem,1.5rem)_1fr_minmax(0.625rem,1.5rem)_1fr] gap-0 text-center font-bold uppercase tracking-wide">
-        <span
-          className={`operator-receiving-stepper-label col-start-1 justify-self-center ${palletDone ? "operator-stepper-label--done" : palletActive ? "operator-stepper-label--active" : ""}`}
-        >
-          Pallet
-        </span>
-        <span
-          className={`operator-receiving-stepper-label col-start-3 justify-self-center ${
-            boxActive
-              ? "operator-stepper-label--active"
-              : boxDone
-                ? "operator-stepper-label--done"
-                : ""
-          }`}
-        >
-          Box Info
-        </span>
-        <span
-          className={`operator-receiving-stepper-label col-start-5 justify-self-center ${itemsActive ? "operator-stepper-label--active" : ""}`}
-        >
-          Item Scan
-        </span>
+      <div className="operator-receiving-stepper-track w-full">
+        <div className="operator-receiving-stepper-rail-layer" aria-hidden>
+          {rail1()}
+          {rail2()}
+        </div>
+        <div className="operator-receiving-stepper-step" role="listitem">
+          {palletNode()}
+          <span className={`operator-receiving-stepper-label ${palletLabelClass}`}>Pallet</span>
+        </div>
+        <div className="operator-receiving-stepper-step" role="listitem">
+          {boxNode()}
+          <span className={`operator-receiving-stepper-label ${boxLabelClass}`}>Box Info</span>
+        </div>
+        <div className="operator-receiving-stepper-step" role="listitem">
+          {itemsNode()}
+          <span className={`operator-receiving-stepper-label ${itemsLabelClass}`}>Item Scan</span>
+        </div>
       </div>
     </div>
   );
@@ -1672,8 +1693,95 @@ function itemInspectionSlipCardStyle(vis: ReturnType<typeof itemInspectionSlipLi
   };
 }
 
-function itemScanSlipRowShellClass(active?: boolean): string {
-  return active ? `${SLIP_CARD_ROW} ${SLIP_CARD_ROW_ACTIVE}` : SLIP_CARD_ROW;
+/** Card surface + `--item-scan-progress` (0–1) for progressive text color in CSS. */
+function itemScanSlipRowStyle(
+  expectedQty: number,
+  scannedQty: number,
+  discrepancyMode: boolean,
+): React.CSSProperties {
+  const vis = itemInspectionSlipLinePresentation(expectedQty, scannedQty, discrepancyMode);
+  const exp = Math.max(0, Math.floor(expectedQty));
+  const scn = Math.max(0, Math.floor(scannedQty));
+  const progress = exp > 0 ? Math.min(1, scn / exp) : 0;
+  return {
+    ...itemInspectionSlipCardStyle(vis),
+    ["--item-scan-progress" as string]: String(progress),
+  };
+}
+
+function itemScanSlipRowShellClass(active?: boolean, offSlip?: boolean): string {
+  const base = active ? `${SLIP_CARD_ROW} ${SLIP_CARD_ROW_ACTIVE}` : SLIP_CARD_ROW;
+  return offSlip ? `${base} operator-item-scan-slip-row--off-slip` : base;
+}
+
+/** Same UPC/FNSKU lanes as Expected Items slip rows (never put FNSKU under UPC). */
+function itemScanUpcFnskuDisplayLabels(input: {
+  upc?: string | null;
+  fnsku?: string | null;
+  sku?: string | null;
+  product_identifier?: string | null;
+  scanned_barcode?: string | null;
+  match_kind?: OperatorPackageItemRow["match_kind"];
+}): { upc: string; fnsku: string } {
+  const fnskuRaw =
+    String(input.fnsku ?? "").trim() ||
+    (input.match_kind === "fnsku" ? String(input.scanned_barcode ?? "").trim() : "");
+  const upcRaw =
+    String(input.upc ?? "").trim() ||
+    String(input.sku ?? "").trim() ||
+    String(input.product_identifier ?? "").trim() ||
+    (input.match_kind === "upc" ? String(input.scanned_barcode ?? "").trim() : "");
+  return {
+    upc: upcRaw || "—",
+    fnsku: fnskuRaw || "—",
+  };
+}
+
+function itemScanUpcFnskuFromPackageItemRows(rows: OperatorPackageItemRow[]): { upc: string; fnsku: string } {
+  let upc = "";
+  let fnsku = "";
+  for (const row of rows) {
+    const labels = itemScanUpcFnskuDisplayLabels(row);
+    if (!fnsku && labels.fnsku !== "—") fnsku = labels.fnsku;
+    if (!upc && labels.upc !== "—") upc = labels.upc;
+    if (upc && fnsku) break;
+  }
+  return { upc: upc || "—", fnsku: fnsku || "—" };
+}
+
+function ItemScanSlipRowUpcFnskuMeta(props: { upc: string; fnsku: string }) {
+  const { upc, fnsku } = props;
+  return (
+    <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+      UPC {upc}
+      <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">·</span>
+      FNSKU {fnsku}
+    </p>
+  );
+}
+
+/** Adaptive list height: ≤3 rows fit content; >3 rows cap at 3 with internal scroll. */
+function itemScanAdaptiveListPanelProps(
+  itemCount: number,
+  scrollClass: string,
+  extraClass = "",
+): {
+  className: string;
+  "data-item-count": string;
+  "data-scrolls": "true" | "false";
+} {
+  const scrolls = itemCount > 3;
+  return {
+    className: [
+      "operator-item-scan-adaptive-list operator-scan-panel__body space-y-1.5 px-0.5",
+      extraClass,
+      scrolls ? scrollClass : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    "data-item-count": String(Math.max(0, itemCount)),
+    "data-scrolls": scrolls ? "true" : "false",
+  };
 }
 
 /** Compact status chip for item slip rows (all states show a visible label). */
@@ -1702,7 +1810,7 @@ function slipCardStatusMark(vis: ReturnType<typeof itemInspectionSlipLinePresent
         : label === "UNDER"
           ? "text-red-300"
           : label === "OVER" || label === "UNEXPECTED"
-            ? "text-amber-200"
+            ? ""
             : "text-neutral-500";
   return (
     <span
@@ -1763,6 +1871,12 @@ function sumEpActualScanned(epList: Record<string, unknown>[]): number {
 function slipInspectionStableKey(slip: OperatorSlipContentsListRow, idx: number): string {
   if (slip.id && isUuidString(slip.id)) return `sc:${slip.id}`;
   return `k:${slip.sort_index}:${idx}:${slipTokenNorm(String(slip.upc ?? ""))}:${slipTokenNorm(String(slip.fnsku ?? ""))}`;
+}
+
+function expectedPackageRowHasRemainingAllocatable(row: Record<string, unknown>): boolean {
+  const exp = Math.max(0, Math.floor(Number(row.expected_scan_quantity ?? 0)));
+  const act = Math.max(0, Math.floor(Number(row.actual_scanned_count ?? 0)));
+  return exp - act > 0;
 }
 
 function aggregateOperatorPackageItemRows(rows: OperatorPackageItemRow[]): {
@@ -2980,6 +3094,27 @@ function itemScanRowEditInteractProps(
   };
 }
 
+/** Resolve saved `return_items.id` from hydrated row or alternate id field names. */
+function resolveReturnItemIdFromPackageItemRow(
+  unit: OperatorPackageItemRow | Record<string, unknown> | null | undefined,
+): string | null {
+  if (!unit || typeof unit !== "object") return null;
+  const rec = unit as Record<string, unknown>;
+  const candidates = [rec.id, rec.return_item_id, rec.returnItemId, rec.unitId, rec.recordId];
+  for (const c of candidates) {
+    const s = String(c ?? "").trim();
+    if (isUuidString(s)) return s;
+  }
+  return null;
+}
+
+function resolveItemUnitModalReturnItemId(ctx: ItemUnitModalContext | null): string | null {
+  if (!ctx || ctx.mode !== "edit") return null;
+  const fromCtx = String(ctx.returnItemId ?? "").trim();
+  if (isUuidString(fromCtx)) return fromCtx;
+  return null;
+}
+
 function operatorPackageItemRowToModalInitial(unit: OperatorPackageItemRow): ItemUnitRecordModalInitialState {
   const tags = filterPackageItemDiscrepancyTags(unit.discrepancy_tags);
   const selectedTags = normalizeItemUnitDiscrepancySelection(
@@ -3635,7 +3770,7 @@ function ItemScanExpectationVarianceRow(props: {
     <div
       className={itemScanSlipRowShellClass(vis.matchedRing)}
       data-neda-qty={vis.label}
-      style={itemInspectionSlipCardStyle(vis)}
+      style={itemScanSlipRowStyle(line.expectedQty, line.scannedQty, discrepancyMode)}
     >
       <div className="min-w-0" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <ProductLinkagePrimaryLink
@@ -4736,11 +4871,11 @@ function OperatorMobileScanPageContent() {
   const [unexpectedPackageItemModal, setUnexpectedPackageItemModal] = useState<{ barcode: string } | null>(null);
   const [itemUnitModal, setItemUnitModal] = useState<ItemUnitModalContext | null>(null);
   const [itemOverscanWarning, setItemOverscanWarning] = useState<string | null>(null);
-  /** Blocking dialog before deleting a scanned unit in Edit All mode. */
+  /** Blocking dialog before deleting a scanned unit from a slip row trash icon (Edit All mode). */
   const [deleteUnitConfirmOpen, setDeleteUnitConfirmOpen] = useState(false);
   const deleteUnitConfirmCellRef = useRef<Parameters<typeof handleDeleteSlipCellUnit>[0] | null>(null);
-  /** When delete is triggered from the unit picker modal (specific unit, not slip cell). */
-  const pickerDeleteUnitRef = useRef<OperatorPackageItemRow | null>(null);
+  /** Unit-picker delete confirm — state (not ref) so confirm UI stays in sync with React renders. */
+  const [pickerUnitDeleteConfirm, setPickerUnitDeleteConfirm] = useState<OperatorPackageItemRow | null>(null);
 
   /** Blocking dialog state when operator tries to scan a slip line that's already at/over expected. */
   const [overscanConfirmOpen, setOverscanConfirmOpen] = useState(false);
@@ -8151,7 +8286,15 @@ function OperatorMobileScanPageContent() {
 
   const openEditScannedItemModal = useCallback(
     (unit: OperatorPackageItemRow) => {
-      if (!itemScanEditAllMode || !unit.id || busy) return;
+      const returnItemId = resolveReturnItemIdFromPackageItemRow(unit);
+      logItemUnitModalDelete("openEditScannedItemModal", {
+        path: "openEditScannedItemModal",
+        unitRowId: String(unit.id ?? "").trim(),
+        resolvedReturnItemId: returnItemId,
+        itemScanEditAllMode,
+        busy,
+      });
+      if (!itemScanEditAllMode || !returnItemId || busy) return;
       const slip =
         unit.slip_content_id && isUuidString(unit.slip_content_id)
           ? itemInspectionSlipLines.find((s) => String(s.id ?? "").trim() === unit.slip_content_id) ?? null
@@ -8173,7 +8316,7 @@ function OperatorMobileScanPageContent() {
       modalOpenRef.current = true;
       setItemUnitModal({
         mode: "edit",
-        returnItemId: unit.id,
+        returnItemId,
         scannedBarcode: unit.scanned_barcode.trim(),
         slip: slipMatch,
         slipContentId: unit.slip_content_id,
@@ -8308,15 +8451,44 @@ function OperatorMobileScanPageContent() {
     [itemScanEditAllMode, busy, openEditScannedItemModal, openItemScanUnitPickerForRow],
   );
 
-  /** Soft-delete a specific return_item by its ID (used from unit picker modal). */
+  /** Soft-delete a specific return_item by its ID (used from unit picker + ItemUnitRecordModal). */
   const handleDeleteSpecificUnit = useCallback(
-    async (unit: OperatorPackageItemRow) => {
-      if (!itemScanEditAllMode || busy) return;
+    async (unit: OperatorPackageItemRow): Promise<boolean> => {
       const unitId = String(unit.id ?? "").trim();
-      if (!isUuidString(unitId)) return;
+      const pickKey =
+        itemScanEditPick?.kind === "slip_cell"
+          ? String(itemScanEditPick.slipContentId ?? itemScanEditPick.cellKey ?? "").trim()
+          : itemScanEditPick?.rowTitle ?? null;
+      logItemUnitDelete("confirm accepted", {
+        selectedPickKey: pickKey,
+        returnItemId: unitId,
+        slipContentId: unit.slip_content_id,
+      });
+
+      if (!itemScanEditAllMode) {
+        logItemUnitDelete("blocked: edit-all off");
+        setSyncErrorToast("Turn on Edit All to delete scanned units.");
+        return false;
+      }
+      if (busy) {
+        logItemUnitDelete("blocked: busy");
+        return false;
+      }
+      if (!isUuidString(unitId)) {
+        logItemUnitDelete("blocked: invalid return_item id", unitId);
+        setSyncErrorToast("Invalid scan record id.");
+        return false;
+      }
       const oid = (orgId ?? "").trim();
       const pkgId = (itemScanPackageId ?? "").trim();
-      if (!oid || !pkgId) return;
+      if (!oid || !pkgId) {
+        logItemUnitDelete("blocked: missing org or package", { oid, pkgId });
+        setSyncErrorToast("Select a box before deleting scanned units.");
+        return false;
+      }
+
+      const rowsBefore = packageItemHydratedRows.length;
+      logItemUnitDelete("rows before count", rowsBefore);
 
       setBusy(true);
       try {
@@ -8325,11 +8497,21 @@ function OperatorMobileScanPageContent() {
           returnItemId: unitId,
           packageId: pkgId,
         });
+        logItemUnitDelete("action result", res);
         if (!res.ok) {
           setSyncErrorToast(res.error ?? "Could not delete scan record.");
-          return;
+          return false;
         }
-        setPackageItemHydratedRows((prev) => prev.filter((r) => r.id !== unit.id));
+        setPackageItemHydratedRows((prev) => {
+          const next = prev.filter((r) => String(r.id ?? "").trim() !== unitId);
+          logItemUnitDelete("rows after count", next.length);
+          return next;
+        });
+        setItemScanEditPick((pick) => {
+          if (!pick?.units?.length) return pick;
+          const nextUnits = pick.units.filter((u) => String(u.id ?? "").trim() !== unitId);
+          return nextUnits.length === pick.units.length ? pick : { ...pick, units: nextUnits };
+        });
         const slipId = String(unit.slip_content_id ?? "").trim();
         setPackageItemScanState((prev) => {
           if (!slipId) {
@@ -8339,12 +8521,71 @@ function OperatorMobileScanPageContent() {
           return { ...prev, bySlipId: { ...prev.bySlipId, [slipId]: Math.max(0, cur - 1) } };
         });
         setItemReceiveCountSyncNonce((n) => n + 1);
+        logItemUnitDelete("count sync nonce updated");
+        return true;
       } finally {
         setBusy(false);
       }
     },
-    [itemScanEditAllMode, busy, orgId, itemScanPackageId],
+    [itemScanEditAllMode, busy, orgId, itemScanPackageId, packageItemHydratedRows.length, itemScanEditPick],
   );
+
+  const closeItemUnitModalAfterDelete = useCallback(() => {
+    modalOpenRef.current = false;
+    itemUnitModalDraftDirtyRef.current = false;
+    setItemUnitModal(null);
+    scheduleFocusScanner();
+  }, [scheduleFocusScanner]);
+
+  const handleDeleteExistingUnitFromModal = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    const ctx = itemUnitModal;
+    const returnItemId = resolveItemUnitModalReturnItemId(ctx);
+    logItemUnitModalDelete("handleDeleteExistingUnitFromModal", {
+      mode: ctx?.mode ?? null,
+      returnItemId: ctx?.returnItemId ?? null,
+      resolvedReturnItemId: returnItemId,
+    });
+    if (!ctx || ctx.mode !== "edit" || !returnItemId) {
+      return { ok: false, error: "No saved unit to delete." };
+    }
+    const hydrated = packageItemHydratedRows.find((r) => String(r.id ?? "").trim() === returnItemId);
+    const unit: OperatorPackageItemRow =
+      hydrated ??
+      ({
+        id: returnItemId,
+        slip_content_id: ctx.slipContentId,
+        scanned_barcode: ctx.scannedBarcode,
+        fnsku: null,
+        sku: null,
+        product_identifier: null,
+        match_kind: ctx.matchKindPreset ?? "unexpected",
+        quantity: 1,
+        discrepancy_tags: null,
+        expiry_date: null,
+        lot_number: null,
+        evidence_urls: null,
+        optional_item_photo_url: null,
+        operator_notes: null,
+        created_at: null,
+        updated_at: null,
+        created_by: null,
+        updated_by: null,
+        created_by_display: null,
+        updated_by_display: null,
+        product_linkage: ctx.productLinkage ?? buildProductLinkageDisplayContract({}, EMPTY_PRODUCT_NAME_LOOKUP),
+      } satisfies OperatorPackageItemRow);
+    const deleted = await handleDeleteSpecificUnit(unit);
+    if (deleted) {
+      closeItemUnitModalAfterDelete();
+      return { ok: true };
+    }
+    return { ok: false, error: "Could not delete scan record." };
+  }, [
+    itemUnitModal,
+    packageItemHydratedRows,
+    handleDeleteSpecificUnit,
+    closeItemUnitModalAfterDelete,
+  ]);
 
   const openAddScanItemModal = useCallback(() => {
     if (!hasReceivableBoxForItems(itemScanPackageId, activeBoxSession)) {
@@ -8481,20 +8722,37 @@ function OperatorMobileScanPageContent() {
       }
 
       let expectedPackageHintId: string | null = null;
-      if (slipContentId && isUuidString(slipContentId)) {
-        const slipRow = itemInspectionSlipLines.find((s) => String(s.id ?? "").trim() === slipContentId);
-        if (slipRow) {
-          const epRows = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
-          const matched = epRowsMatchingSlipLike(slipRow, epRows);
-          const pick =
-            matched.find((r) => {
-              const exp = Math.max(0, Math.floor(Number(r.expected_scan_quantity ?? 0)));
-              const act = Math.max(0, Math.floor(Number(r.actual_scanned_count ?? 0)));
-              return exp - act > 0;
-            }) ?? matched[0];
+      let hasAllocatableExpectedPackageHint = false;
+      const slipIdForSave = slipContentId && isUuidString(slipContentId) ? slipContentId : null;
+      const slipRowForSave = slipIdForSave
+        ? itemInspectionSlipLines.find((s) => String(s.id ?? "").trim() === slipIdForSave)
+        : null;
+      const slipExpectedQty = slipRowForSave
+        ? Math.max(0, Math.floor(Number(slipRowForSave.quantity ?? 0)))
+        : 0;
+      const scannedForSlipQty = slipIdForSave ? (packageItemScanState.bySlipId[slipIdForSave] ?? 0) : 0;
+      if (slipRowForSave) {
+        const epRows = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
+        const matched = epRowsMatchingSlipLike(slipRowForSave, epRows);
+        const pick = matched.find((r) => expectedPackageRowHasRemainingAllocatable(r as Record<string, unknown>));
+        if (pick) {
+          hasAllocatableExpectedPackageHint = true;
           const eid = String((pick as { id?: unknown })?.id ?? "").trim();
           if (isUuidString(eid)) expectedPackageHintId = eid;
         }
+      }
+
+      const saveAsOffSlip = itemScanSaveShouldTreatAsOffSlip({
+        matchKindPreset: ctx.matchKindPreset,
+        slipContentId: slipIdForSave,
+        slipExpectedQty,
+        scannedForSlipQty,
+        hasAllocatableExpectedPackageHint,
+      });
+      if (saveAsOffSlip) {
+        slipContentId = null;
+        matchKind = "unexpected";
+        expectedPackageHintId = null;
       }
 
       setBusy(true);
@@ -8510,6 +8768,7 @@ function OperatorMobileScanPageContent() {
           storeId: sessionStoreId,
           slipContentId,
           expectedPackageHintId,
+          saveAsOffSlip,
           scannedBarcode: trimmed,
           matchKind,
           quantity: 1,
@@ -8526,7 +8785,12 @@ function OperatorMobileScanPageContent() {
           showScanActionToast("error", msg);
           return { ok: false, message: msg };
         }
-        showScanActionToast("success", "✓ Item successfully registered and logged.");
+        showScanActionToast(
+          "success",
+          saveAsOffSlip
+            ? "✓ Off-slip item saved."
+            : "✓ Item successfully registered and logged.",
+        );
         setPackageItemsHydrationNonce((n) => n + 1);
         setItemReceiveCountSyncNonce((n) => n + 1);
         setScanSuccessFlash(true);
@@ -8545,10 +8809,46 @@ function OperatorMobileScanPageContent() {
       sessionStoreId,
       itemInspectionSlipLines,
       expectedPkgDetailRows,
+      packageItemScanState.bySlipId,
       scheduleFocusScanner,
       showScanActionToast,
     ],
   );
+
+  const itemUnitOffSlipWarning = useMemo(() => {
+    const ctx = itemUnitModal;
+    if (!ctx || ctx.mode === "edit") return null;
+    const slipId = ctx.slipContentId && isUuidString(ctx.slipContentId) ? ctx.slipContentId : null;
+    const slipRow = slipId
+      ? itemInspectionSlipLines.find((s) => String(s.id ?? "").trim() === slipId)
+      : null;
+    const slipExpectedQty = slipRow ? Math.max(0, Math.floor(Number(slipRow.quantity ?? 0))) : 0;
+    const scannedForSlipQty = slipId ? (packageItemScanState.bySlipId[slipId] ?? 0) : 0;
+    let hasAllocatableExpectedPackageHint = false;
+    if (slipRow) {
+      const epRows = Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [];
+      hasAllocatableExpectedPackageHint = epRowsMatchingSlipLike(slipRow, epRows).some((r) =>
+        expectedPackageRowHasRemainingAllocatable(r as Record<string, unknown>),
+      );
+    }
+    if (
+      !itemScanSaveShouldTreatAsOffSlip({
+        matchKindPreset: ctx.matchKindPreset,
+        slipContentId: slipId,
+        slipExpectedQty,
+        scannedForSlipQty,
+        hasAllocatableExpectedPackageHint,
+      })
+    ) {
+      return null;
+    }
+    return ITEM_SCAN_OFF_SLIP_MODAL_WARNING;
+  }, [
+    itemUnitModal,
+    itemInspectionSlipLines,
+    expectedPkgDetailRows,
+    packageItemScanState.bySlipId,
+  ]);
 
   const resolveItemUnitBarcodeLinkage = useCallback(
     async (
@@ -10800,6 +11100,38 @@ function OperatorMobileScanPageContent() {
     packageItemScanState.unexpectedUnits,
   ]);
 
+  /** Expected Items panel header + progress — packing-slip lines only (no off-slip / unexpected units). */
+  const itemInspectionSlipPanelQtyExpected = useMemo(() => {
+    if (itemInspectionSlipCells.length > 0) {
+      return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0);
+    }
+    if (itemScanExpectationLinesLive.length > 0) {
+      return itemScanExpectationLinesLive.reduce((s, line) => s + Math.max(0, line.expectedQty), 0);
+    }
+    return 0;
+  }, [itemInspectionSlipCells, itemScanExpectationLinesLive]);
+
+  const itemInspectionSlipPanelQtyScanned = useMemo(() => {
+    if (itemInspectionSlipCells.length > 0) {
+      return itemInspectionSlipCells.reduce((s, c) => s + c.scanned, 0);
+    }
+    if (itemScanExpectationLinesLive.length > 0) {
+      return itemScanExpectationLinesLive.reduce((s, line) => s + Math.max(0, line.scannedQty), 0);
+    }
+    if (itemScanExpectedItemsRenderSource === "hydrated_return_items_only") {
+      return packageItemHydratedRows.reduce(
+        (s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))),
+        0,
+      );
+    }
+    return 0;
+  }, [
+    itemInspectionSlipCells,
+    itemScanExpectationLinesLive,
+    itemScanExpectedItemsRenderSource,
+    packageItemHydratedRows,
+  ]);
+
   const itemScanStatRemaining = Math.max(0, itemInspectionQtyBasisExpected - itemInspectionQtyBasisScanned);
 
   /**
@@ -10833,6 +11165,124 @@ function OperatorMobileScanPageContent() {
     return { unmatchedSlipIds, qtyMismatchSlipIds };
   }, [slipLikeRowsForInspection, expectedPkgDetailRows, itemScanUsesPackageSlipExpectedRows]);
 
+  const itemScanExpectedListItemCount = useMemo(() => {
+    switch (itemScanExpectedItemsRenderSource) {
+      case "loading":
+        return 3;
+      case "tracking_ep_variance":
+        return itemScanExpectationLinesLive.length;
+      case "hydrated_return_items_only":
+        return packageItemHydratedRows.length;
+      case "package_slip_cells":
+        return itemInspectionSlipCells.length;
+      default:
+        return 0;
+    }
+  }, [
+    itemScanExpectedItemsRenderSource,
+    itemScanExpectationLinesLive.length,
+    packageItemHydratedRows.length,
+    itemInspectionSlipCells.length,
+  ]);
+
+  /** Packing-slip قلم + off-slip قلم (grouped scans / residual); excludes EP-unmatched slip rows already in slip cells. */
+  const itemInspectionSkuLineCount = useMemo(() => {
+    let slipLineCount = 0;
+    switch (itemScanExpectedItemsRenderSource) {
+      case "loading":
+        slipLineCount = itemInspectionSlipCells.length;
+        break;
+      case "tracking_ep_variance":
+        slipLineCount = itemScanExpectationLinesLive.length;
+        break;
+      case "hydrated_return_items_only":
+        return packageItemHydratedRows.length;
+      case "package_slip_cells":
+        slipLineCount = itemInspectionSlipCells.length;
+        break;
+      default:
+        slipLineCount = 0;
+    }
+
+    const unlinkedRows = packageItemHydratedRows.filter((r) => !r.slip_content_id);
+    const offSlipKeys = new Set<string>();
+    for (const row of unlinkedRows) {
+      offSlipKeys.add(String(row.scanned_barcode ?? "").trim() || row.id);
+    }
+    const coveredQty = unlinkedRows.reduce(
+      (s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))),
+      0,
+    );
+    if (Math.max(0, packageItemScanState.unexpectedUnits - coveredQty) > 0) {
+      offSlipKeys.add("__residual_unexpected__");
+    }
+
+    return slipLineCount + offSlipKeys.size;
+  }, [
+    itemScanExpectedItemsRenderSource,
+    itemInspectionSlipCells.length,
+    itemScanExpectationLinesLive.length,
+    packageItemHydratedRows,
+    packageItemScanState.unexpectedUnits,
+  ]);
+
+  /** Not on packing slip panel header — scanned units with no slip line (not in Expected totals). */
+  const itemInspectionOffSlipPanelQtyScanned = useMemo(() => {
+    const unlinkedRows = packageItemHydratedRows.filter((r) => !r.slip_content_id);
+    const fromUnlinked = unlinkedRows.reduce(
+      (s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))),
+      0,
+    );
+    return fromUnlinked + Math.max(0, packageItemScanState.unexpectedUnits - fromUnlinked);
+  }, [packageItemHydratedRows, packageItemScanState.unexpectedUnits]);
+
+  const itemInspectionOffSlipPanelQtyExpected = 0;
+
+  const itemsOffSlipScanProgressPct = useMemo(() => {
+    const scn = itemInspectionOffSlipPanelQtyScanned;
+    const exp = itemInspectionOffSlipPanelQtyExpected;
+    if (exp <= 0) return scn > 0 ? 100 : 0;
+    return Math.min(100, Math.round((scn / exp) * 100));
+  }, [itemInspectionOffSlipPanelQtyScanned, itemInspectionOffSlipPanelQtyExpected]);
+
+  const itemsOffSlipScanProgressTrackColor = useMemo(
+    () =>
+      nedaQuantityProgressColor(
+        itemInspectionOffSlipPanelQtyExpected || itemInspectionOffSlipPanelQtyScanned,
+        itemInspectionOffSlipPanelQtyScanned,
+      ),
+    [itemInspectionOffSlipPanelQtyScanned, itemInspectionOffSlipPanelQtyExpected],
+  );
+
+  const itemScanOverListItemCount = useMemo(() => {
+    const showOverPanel =
+      packageItemHydratedRows.some((r) => !r.slip_content_id) ||
+      packageItemScanState.unexpectedUnits > 0 ||
+      slipEpCompare.unmatchedSlipIds.size > 0;
+    if (!showOverPanel) return 0;
+
+    const unlinkedRows = packageItemHydratedRows.filter((r) => !r.slip_content_id);
+    const groupedKeys = new Set<string>();
+    for (const row of unlinkedRows) {
+      groupedKeys.add(String(row.scanned_barcode ?? "").trim() || row.id);
+    }
+    let count = groupedKeys.size;
+    const coveredQty = unlinkedRows.reduce(
+      (s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))),
+      0,
+    );
+    if (Math.max(0, packageItemScanState.unexpectedUnits - coveredQty) > 0) count += 1;
+    count += slipLikeRowsForInspection.filter(
+      (r) => r.id && slipEpCompare.unmatchedSlipIds.has(String(r.id)),
+    ).length;
+    return count;
+  }, [
+    packageItemHydratedRows,
+    packageItemScanState.unexpectedUnits,
+    slipEpCompare.unmatchedSlipIds,
+    slipLikeRowsForInspection,
+  ]);
+
   const itemScanStatScannedTone = useMemo(() => {
     const exp = itemInspectionQtyBasisExpected;
     const scn = itemInspectionQtyBasisScanned;
@@ -10855,15 +11305,15 @@ function OperatorMobileScanPageContent() {
   }, [itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned, itemScanStatRemaining]);
 
   const itemsSlipScanProgressPct = useMemo(() => {
-    const exp = itemInspectionQtyBasisExpected;
-    const scn = itemInspectionQtyBasisScanned;
+    const exp = itemInspectionSlipPanelQtyExpected;
+    const scn = itemInspectionSlipPanelQtyScanned;
     if (exp <= 0) return 0;
     return Math.min(100, Math.round((scn / exp) * 100));
-  }, [itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned]);
+  }, [itemInspectionSlipPanelQtyExpected, itemInspectionSlipPanelQtyScanned]);
 
   const itemsSlipScanProgressTrackColor = useMemo(
-    () => nedaQuantityProgressColor(itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned),
-    [itemInspectionQtyBasisExpected, itemInspectionQtyBasisScanned],
+    () => nedaQuantityProgressColor(itemInspectionSlipPanelQtyExpected, itemInspectionSlipPanelQtyScanned),
+    [itemInspectionSlipPanelQtyExpected, itemInspectionSlipPanelQtyScanned],
   );
 
   const itemsPhaseLiveTotalScanned = itemInspectionQtyBasisScanned;
@@ -11247,6 +11697,40 @@ function OperatorMobileScanPageContent() {
     return [];
   }, [itemScanEditPick, packageItemHydratedRows]);
 
+  useEffect(() => {
+    if (pickerUnitDeleteConfirm) return;
+    if (itemScanUnitPickerOpen && itemScanEditPick && itemScanEditPickUnits.length === 0) {
+      closeItemScanUnitPicker();
+    }
+  }, [
+    itemScanUnitPickerOpen,
+    itemScanEditPick,
+    itemScanEditPickUnits.length,
+    pickerUnitDeleteConfirm,
+    closeItemScanUnitPicker,
+  ]);
+
+  useEffect(() => {
+    if (!ITEM_UNIT_DELETE_DEBUG || !itemScanUnitPickerOpen) return;
+    logItemUnitDelete("picker units after refresh", {
+      count: itemScanEditPickUnits.length,
+      ids: itemScanEditPickUnits.map((u) => String(u.id ?? "").trim()),
+    });
+  }, [itemScanUnitPickerOpen, itemScanEditPickUnits]);
+
+  useEffect(() => {
+    if (!ITEM_UNIT_MODAL_DELETE_DEBUG || !itemUnitModal) return;
+    const resolved = resolveItemUnitModalReturnItemId(itemUnitModal);
+    logItemUnitModalDelete({
+      modalOpenPath: itemUnitModal.mode === "edit" ? "single-unit-edit" : "create-or-scan",
+      "itemUnitModal.mode": itemUnitModal.mode,
+      "itemUnitModal.returnItemId": itemUnitModal.returnItemId ?? null,
+      derivedSavedReturnItemId: resolved,
+      hasOnDeleteExistingUnit: itemUnitModal.mode === "edit" && Boolean(resolved),
+      shouldShowDelete: itemUnitModal.mode === "edit" && Boolean(resolved),
+    });
+  }, [itemUnitModal]);
+
   const correctionSavedPackageId = useMemo(() => {
     const fromBox = (activeBoxSession?.packageId ?? "").trim();
     if (flowPhase === "package_scan" && isUuidString(fromBox)) return fromBox;
@@ -11288,17 +11772,25 @@ function OperatorMobileScanPageContent() {
     isInitialDraftShipmentUx,
   ]);
 
-  const showCorrectionMoveBox =
-    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.moveBox;
-  const showCorrectionVoidBox =
-    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.voidBox;
-  const showCorrectionVoidPallet =
+  /** Box Info (package_scan + saved session): Move/Void under Edit All only — not permission-gated in UI. */
+  const showBoxInfoEditAllActions =
+    editAllMode &&
+    flowPhase === "package_scan" &&
+    Boolean(activeBoxSession) &&
+    Boolean(correctionSavedPackageId);
+
+  /** Pallet step (scan + saved UUID row): Void under Edit All only — not permission-gated in UI. */
+  const showPalletEditAllVoidAction =
     editAllMode &&
     flowPhase === "scan" &&
     parentIdentified &&
     Boolean(activePallet?.id?.trim()) &&
-    isUuidString((activePallet?.id ?? "").trim()) &&
-    correctionPerms.voidBox;
+    isUuidString((activePallet?.id ?? "").trim());
+
+  const showCorrectionMoveBox =
+    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.moveBox;
+  const showCorrectionVoidBox =
+    editAllMode && Boolean(correctionSavedPackageId) && correctionPerms.voidBox;
 
   const handleConfirmStartBoxScan = useCallback(async () => {
     if (!parentIdentified) {
@@ -12444,6 +12936,75 @@ function OperatorMobileScanPageContent() {
     scheduleFocusScanner,
   ]);
 
+  /** Item Scan shortcut — pallet box list hub (skips Box Info; does not auto-open the current box). */
+  const returnDirectlyToBoxListForCurrentPallet = useCallback(() => {
+    dismissItemScanModalDrafts();
+    resetItemInspectionForm();
+    setItemBarcodeMiss(null);
+    setItemReceiveError(null);
+    setItemOverscanWarning(null);
+    modalOpenRef.current = false;
+
+    setItemScanPackageId(null);
+    setItemScanPackageLabel(null);
+    setReceivingSlipExpectedItemQtyTotal(null);
+    setItemScanEditAllMode(false);
+    setItemScanEditPick(null);
+    setItemScanUnitPickerOpen(false);
+    setCandidatePicker(null);
+    setSlipLineCandidatePicker(null);
+    setUnexpectedPackageItemModal(null);
+    setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemHydratedRows([]);
+    setPackageItemsHydrating(false);
+    setItemsBoxFinalizeModalOpen(false);
+    itemScanSlipCarryoverRef.current = null;
+    setItemScanSlipCarryover(null);
+    itemScanBoxPhotoCarryoverRef.current = null;
+    setItemScanBoxPhotoCarryover(null);
+
+    setActiveBoxSession(null);
+    setCurrentPackageTrackingId(null);
+    setPackageCodeCardOpen(false);
+    setPalletPackagePickerQuery("");
+    setBoxIntakeError(null);
+    setEditAllMode(false);
+    hydrateBoxPackageIdRef.current = null;
+
+    if (activePallet?.id?.trim()) {
+      setDirectBox(false);
+    }
+    setFlowPhase("package_scan");
+    setPalletDocHydrationNonce((n) => n + 1);
+    scheduleFocusScanner();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById("operator-saved-boxes-hub")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  }, [
+    dismissItemScanModalDrafts,
+    resetItemInspectionForm,
+    activePallet?.id,
+    scheduleFocusScanner,
+  ]);
+
+  const handleBackToBoxesShortcut = useCallback(() => {
+    const proceed = () => returnDirectlyToBoxListForCurrentPallet();
+    const editDirty = hasEditModeUnsavedChanges();
+    if (editDirty.dirty) {
+      requestScannerLeaveConfirm(proceed, editDirty.reason ? [editDirty.reason] : []);
+    } else {
+      proceed();
+    }
+  }, [
+    returnDirectlyToBoxListForCurrentPallet,
+    hasEditModeUnsavedChanges,
+    requestScannerLeaveConfirm,
+  ]);
+
   const handleScannerBack = useCallback(() => {
     const logScannerBack = (phase: string, dirty: boolean, action: string, reason?: string) => {
       if (!SCANNER_BACK_DEBUG) return;
@@ -12598,6 +13159,19 @@ function OperatorMobileScanPageContent() {
       const pkgId = correctionSavedPackageId;
       const oid = (orgId ?? "").trim();
       if (!pkgId || !oid) return;
+      const targetRaw = targetPalletTrackingOrNumber.trim();
+      const currentPalletId = (activePallet?.id ?? "").trim();
+      const currentTracking = (currentPalletTrackingId ?? "").trim();
+      const currentNumber = (activePallet?.pallet_number ?? "").trim();
+      if (
+        targetRaw &&
+        (targetRaw === currentPalletId ||
+          (currentTracking && targetRaw.toLowerCase() === currentTracking.toLowerCase()) ||
+          (currentNumber && targetRaw.toLowerCase() === currentNumber.toLowerCase()))
+      ) {
+        setMoveBoxModalError("This box is already on the selected pallet.");
+        return;
+      }
       setCorrectionBusy(true);
       setMoveBoxModalError(null);
       try {
@@ -12609,6 +13183,10 @@ function OperatorMobileScanPageContent() {
         });
         if (!res.ok) {
           setMoveBoxModalError(res.message);
+          return;
+        }
+        if (currentPalletId && res.palletId === currentPalletId) {
+          setMoveBoxModalError("This box is already on the selected pallet.");
           return;
         }
         setMoveBoxModalOpen(false);
@@ -12637,6 +13215,8 @@ function OperatorMobileScanPageContent() {
       orgId,
       sessionStoreId,
       activePallet?.id,
+      activePallet?.pallet_number,
+      currentPalletTrackingId,
       closeActiveBoxPackageSession,
       scheduleFocusScanner,
     ],
@@ -13154,6 +13734,12 @@ function OperatorMobileScanPageContent() {
   }
 
   const itemsChromeStickyLayout = flowPhase === "items" && hasItemReceivableBox;
+  const showBackToBoxesShortcut =
+    flowPhase === "items" &&
+    hasItemReceivableBox &&
+    isSupabaseConfigured() &&
+    Boolean((orgId ?? "").trim()) &&
+    Boolean(activePallet?.id && isUuidString((activePallet.id ?? "").trim()));
 
   return (
     <div
@@ -13281,10 +13867,21 @@ function OperatorMobileScanPageContent() {
                 {headerTitle}
               </h1>
               <div
-                className={`operator-shipment-edit-all-slot flex shrink-0 items-center justify-end${
+                className={`operator-shipment-edit-all-slot flex shrink-0 items-center justify-end gap-1${
                   flowPhase === "scan" ? " min-h-6" : " min-h-8"
                 }`}
               >
+                {showBackToBoxesShortcut ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => handleBackToBoxesShortcut()}
+                    aria-label="Box List"
+                    className="operator-shipment-edit-all-btn operator-shipment-box-list-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border font-bold uppercase tracking-wider shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 gap-1 px-2.5 py-1 text-xs sm:px-3"
+                  >
+                    Box List
+                  </button>
+                ) : null}
                 {showHeaderEditAllButton ? (
                   <button
                     type="button"
@@ -13333,11 +13930,11 @@ function OperatorMobileScanPageContent() {
                           className={`shrink-0 ${flowPhase === "scan" ? "h-2.5 w-2.5" : "h-3 w-3"}`}
                           strokeWidth={2}
                         />
-                        Edit All
+                        Edit
                       </>
                     )}
                   </button>
-                ) : (
+                ) : showBackToBoxesShortcut ? null : (
                   <span
                     className={`inline-block shrink-0 ${flowPhase === "scan" ? "h-6 w-6" : "h-8 w-8"}`}
                     aria-hidden
@@ -13462,23 +14059,27 @@ function OperatorMobileScanPageContent() {
                 ) : null}
               </div>
             </div>
-            {editAllMode &&
-            flowPhase === "package_scan" &&
-            (showCorrectionResetEntry || showCorrectionMoveBox || showCorrectionVoidBox || showCorrectionVoidPallet) ? (
-              <OperatorCorrectionActionsPanel
-                showReset={showCorrectionResetEntry}
-                showMoveBox={showCorrectionMoveBox}
-                showVoidBox={showCorrectionVoidBox}
-                showVoidPallet={showCorrectionVoidPallet}
-                onReset={handleCorrectionResetEntry}
+            {showBoxInfoEditAllActions ? (
+              <OperatorBoxActionsPanel
                 onMoveBox={openMoveBoxModal}
                 onVoidBox={() => {
                   setVoidBoxModalError(null);
                   setVoidBoxModalOpen(true);
                 }}
-                onVoidPallet={() => {
-                  setVoidPalletModalError(null);
-                  setVoidPalletModalOpen(true);
+              />
+            ) : null}
+            {editAllMode &&
+            flowPhase === "package_scan" &&
+            showCorrectionResetEntry ? (
+              <OperatorCorrectionActionsPanel
+                showReset={showCorrectionResetEntry}
+                showMoveBox={false}
+                showVoidBox={false}
+                onReset={handleCorrectionResetEntry}
+                onMoveBox={openMoveBoxModal}
+                onVoidBox={() => {
+                  setVoidBoxModalError(null);
+                  setVoidBoxModalOpen(true);
                 }}
               />
             ) : null}
@@ -13589,26 +14190,24 @@ function OperatorMobileScanPageContent() {
                     </div>
                   </div>
                 ) : null}
-                {editAllMode &&
-                flowPhase === "scan" &&
-                (showCorrectionResetEntry ||
-                  showCorrectionMoveBox ||
-                  showCorrectionVoidBox ||
-                  showCorrectionVoidPallet) ? (
+                {showPalletEditAllVoidAction ? (
+                  <OperatorPalletActionsPanel
+                    onVoidPallet={() => {
+                      setVoidPalletModalError(null);
+                      setVoidPalletModalOpen(true);
+                    }}
+                  />
+                ) : null}
+                {editAllMode && flowPhase === "scan" && showCorrectionResetEntry ? (
                   <OperatorCorrectionActionsPanel
                     showReset={showCorrectionResetEntry}
-                    showMoveBox={showCorrectionMoveBox}
-                    showVoidBox={showCorrectionVoidBox}
-                    showVoidPallet={showCorrectionVoidPallet}
+                    showMoveBox={false}
+                    showVoidBox={false}
                     onReset={handleCorrectionResetEntry}
                     onMoveBox={openMoveBoxModal}
                     onVoidBox={() => {
                       setVoidBoxModalError(null);
                       setVoidBoxModalOpen(true);
-                    }}
-                    onVoidPallet={() => {
-                      setVoidPalletModalError(null);
-                      setVoidPalletModalOpen(true);
                     }}
                   />
                 ) : null}
@@ -16446,7 +17045,7 @@ function OperatorMobileScanPageContent() {
                   <div className="operator-item-scan-stat operator-item-scan-stat--skus shrink-0 rounded-xl border px-1 py-2 text-center">
                     <p className="operator-item-scan-stat__label text-[8px] font-bold normal-case tracking-wide">SKUs</p>
                     <p className="operator-item-scan-stat__value mt-1 text-[17px] font-black tabular-nums leading-none">
-                      {itemInspectionSlipCells.length}
+                      {itemInspectionSkuLineCount}
                     </p>
                   </div>
                 </div>
@@ -16477,9 +17076,7 @@ function OperatorMobileScanPageContent() {
               </div>
 
             <section
-              className={`operator-item-scan-expected-panel operator-scan-panel--flexible mb-0 flex min-h-0 flex-1 flex-col overflow-hidden p-2.5 ${glassCard}${
-                itemInspectionSlipLines.length <= 2 ? " operator-scan-panel--few-items" : ""
-              }`}
+              className={`operator-item-scan-expected-panel operator-scan-panel--flexible mb-0 flex flex-col overflow-visible p-2.5 ${glassCard}`}
             >
               <div className="operator-item-scan-expected-panel__header mb-1.5 flex shrink-0 flex-wrap items-end justify-between gap-2">
                 <div className="min-w-0 pr-2">
@@ -16508,10 +17105,14 @@ function OperatorMobileScanPageContent() {
                   ) : null}
                 </div>
                 <p className="operator-item-scan-expected-panel__counts shrink-0 text-right text-[10px] font-semibold leading-snug tabular-nums">
-                  <span className="operator-item-scan-expected-panel__counts-scanned font-black">{itemInspectionQtyBasisScanned}</span>{" "}
+                  <span className="operator-item-scan-expected-panel__counts-scanned font-black">
+                    {itemInspectionSlipPanelQtyScanned}
+                  </span>{" "}
                   scanned
                   <br />
-                  <span className="operator-item-scan-expected-panel__counts-expected font-black">{itemInspectionQtyBasisExpected}</span>{" "}
+                  <span className="operator-item-scan-expected-panel__counts-expected font-black">
+                    {itemInspectionSlipPanelQtyExpected}
+                  </span>{" "}
                   expected
                 </p>
               </div>
@@ -16527,7 +17128,11 @@ function OperatorMobileScanPageContent() {
               </div>
               <div
                 ref={bindOperatorMainScrollEl}
-                className={`operator-item-scan-expected-list-scroll operator-scan-panel__body min-h-0 flex-1 space-y-1.5 px-0.5 ${mainScrollClass}`}
+                {...itemScanAdaptiveListPanelProps(
+                  itemScanExpectedListItemCount,
+                  mainScrollClass,
+                  "operator-item-scan-expected-list-scroll",
+                )}
               >
                 {itemScanExpectedItemsRenderSource === "loading" ? (
                   <ItemInspectionSlipSkeletonRows />
@@ -16560,7 +17165,7 @@ function OperatorMobileScanPageContent() {
                             key={unit.id}
                             className={`${itemScanSlipRowShellClass(false)} ${rowInteract.className}`}
                             data-neda-qty={vis.label}
-                            style={itemInspectionSlipCardStyle(vis)}
+                            style={itemScanSlipRowStyle(0, 1, false)}
                             role={rowInteract.role}
                             tabIndex={rowInteract.tabIndex}
                             onClick={rowInteract.onClick}
@@ -16635,7 +17240,11 @@ function OperatorMobileScanPageContent() {
                           key={cell.key}
                           className={`${itemScanSlipRowShellClass(matchedRing)} ${rowInteract.className}`}
                           data-neda-qty={vis.label}
-                          style={itemInspectionSlipCardStyle(vis)}
+                          style={itemScanSlipRowStyle(
+                            cell.expected,
+                            cell.scanned,
+                            itemScanDiscrepancyUi,
+                          )}
                           role={rowInteract.role}
                           tabIndex={rowInteract.tabIndex}
                           onClick={rowInteract.onClick}
@@ -16736,13 +17345,41 @@ function OperatorMobileScanPageContent() {
             {/* "Not on packing slip" / OVER panel — second panel, only shown when unlinked items or unmatched slip rows exist */}
             {packageItemHydratedRows.some((r) => !r.slip_content_id) || packageItemScanState.unexpectedUnits > 0 || slipEpCompare.unmatchedSlipIds.size > 0 ? (
               <section
-                className={`operator-item-scan-over-panel mb-0 flex min-h-0 flex-col overflow-hidden rounded-xl border-2 p-2.5`}
-                style={{ borderColor: "rgba(180, 134, 52, 0.55)", backgroundColor: "rgba(69, 26, 3, 0.22)" }}
+                className={`operator-item-scan-over-panel mb-0 flex min-h-0 flex-col overflow-visible p-2.5 ${glassCard}`}
               >
-                <h3 className="mb-1.5 shrink-0 text-[11px] font-bold uppercase tracking-wide" style={{ color: "#fde68a" }}>
-                  Not on packing slip
-                </h3>
-                <div className={`operator-scan-panel__body space-y-1.5 px-0.5 ${mainScrollClass}`}>
+                <div className="operator-item-scan-over-panel__header mb-1.5 flex shrink-0 flex-wrap items-end justify-between gap-2">
+                  <div className="min-w-0 pr-2">
+                    <h3 className="operator-item-scan-over-panel__title text-[13px] font-bold leading-tight">
+                      Not on packing slip
+                    </h3>
+                    <p className="operator-item-scan-over-panel__eyebrow mt-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                      Off-slip scan
+                    </p>
+                  </div>
+                  <p className="operator-item-scan-over-panel__counts shrink-0 text-right text-[10px] font-semibold leading-snug tabular-nums">
+                    <span className="operator-item-scan-over-panel__counts-scanned font-black">
+                      {itemInspectionOffSlipPanelQtyScanned}
+                    </span>{" "}
+                    scanned
+                    <br />
+                    <span className="operator-item-scan-over-panel__counts-expected font-black">
+                      {itemInspectionOffSlipPanelQtyExpected}
+                    </span>{" "}
+                    expected
+                  </p>
+                </div>
+                <div className="operator-item-scan-over-panel__progress-track operator-item-scan-progress-track mb-2 h-2 w-full shrink-0 overflow-hidden rounded-full">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-300 ease-out"
+                    style={{
+                      width: `${itemsOffSlipScanProgressPct}%`,
+                      backgroundColor: itemsOffSlipScanProgressTrackColor,
+                      boxShadow: `0 0 14px ${itemsOffSlipScanProgressTrackColor}`,
+                    }}
+                  />
+                </div>
+                <div className="operator-item-scan-over-panel__list-shell min-h-0 rounded-xl border-2 p-2.5">
+                <div {...itemScanAdaptiveListPanelProps(itemScanOverListItemCount, mainScrollClass)}>
                   {/* Per-item cards for items scanned but not linked to any slip line */}
                   {(() => {
                     const unlinkedRows = packageItemHydratedRows.filter((r) => !r.slip_content_id);
@@ -16760,6 +17397,7 @@ function OperatorMobileScanPageContent() {
 
                     const cards = Array.from(grouped.values()).map(({ rows, barcode, linkage }) => {
                       const qty = rows.reduce((s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))), 0);
+                      const { upc: upcLabel, fnsku: fnskuLabel } = itemScanUpcFnskuFromPackageItemRows(rows);
                       const vis = itemInspectionSlipLinePresentation(0, qty, false);
                       const rowEditable = itemScanEditAllMode && rows.length > 0;
                       const rowInteract = itemScanRowEditInteractProps(
@@ -16777,9 +17415,9 @@ function OperatorMobileScanPageContent() {
                       return (
                         <div
                           key={barcode}
-                          className={`${itemScanSlipRowShellClass(false)} ${rowInteract.className}`}
+                          className={`${itemScanSlipRowShellClass(false, true)} ${rowInteract.className}`}
                           data-neda-qty={vis.label}
-                          style={itemInspectionSlipCardStyle(vis)}
+                          style={itemScanSlipRowStyle(0, qty, false)}
                           role={rowInteract.role}
                           tabIndex={rowInteract.tabIndex}
                           onClick={rowInteract.onClick}
@@ -16797,7 +17435,17 @@ function OperatorMobileScanPageContent() {
                           </div>
                           <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
                             <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
-                              {barcode || "Unknown barcode"}
+                              {barcode ? `Barcode ${barcode}` : "Scanned unit"}
+                              {rows.some((r) => returnItemNotesMarkOffSlip(r.operator_notes)) ? (
+                                <>
+                                  <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">
+                                    ·
+                                  </span>
+                                  <span className="operator-item-scan-slip-row__meta-warn text-amber-300">
+                                    Not on packing slip
+                                  </span>
+                                </>
+                              ) : null}
                             </p>
                             <div className="flex shrink-0 items-center gap-1">
                               {slipCardStatusMark(vis)}
@@ -16806,6 +17454,9 @@ function OperatorMobileScanPageContent() {
                               </span>
                             </div>
                           </div>
+                          {upcLabel || fnskuLabel ? (
+                            <ItemScanSlipRowUpcFnskuMeta upc={upcLabel} fnsku={fnskuLabel} />
+                          ) : null}
                         </div>
                       );
                     });
@@ -16816,7 +17467,12 @@ function OperatorMobileScanPageContent() {
                     if (residualUnexpected > 0) {
                       const vis = itemInspectionSlipLinePresentation(0, residualUnexpected, false);
                       cards.push(
-                        <div key="residual-unexpected" className={itemScanSlipRowShellClass(false)} data-neda-qty={vis.label} style={itemInspectionSlipCardStyle(vis)}>
+                        <div
+                          key="residual-unexpected"
+                          className={itemScanSlipRowShellClass(false, true)}
+                          data-neda-qty={vis.label}
+                          style={itemScanSlipRowStyle(0, residualUnexpected, false)}
+                        >
                           <p className={`operator-item-scan-slip-row__title ${SLIP_CARD_HEADING}`}>Additional unexpected units</p>
                           <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
                             <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
@@ -16842,20 +17498,24 @@ function OperatorMobileScanPageContent() {
                         .map((r, i) => {
                           const linkage = slipRowProductLinkage(r);
                           const slipQty = Math.max(0, Math.floor(Number(r.quantity ?? 0)));
+                          const upcLabel = r.upc?.trim() ? r.upc.trim() : "—";
+                          const fnskuLabel = r.fnsku?.trim() ? r.fnsku.trim() : "—";
                           return (
                             <div
                               key={`unmatched-ep-${i}`}
-                              className={`${itemScanSlipRowShellClass(false)} rounded-lg border p-2`}
-                              style={{ borderColor: "rgba(180,134,52,0.6)", backgroundColor: "rgba(69,26,3,0.25)" }}
+                              className={itemScanSlipRowShellClass(false, true)}
+                              data-neda-qty="UNEXPECTED"
+                              style={itemScanSlipRowStyle(slipQty, 0, false)}
                             >
                               <ProductLinkagePrimaryLink linkage={linkage} linkWhenResolved={false} detailFrom="scan" className={SLIP_CARD_HEADING} />
                               <div className={SLIP_CARD_META_LINKAGE}>
                                 <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
                               </div>
+                              <p className="operator-item-scan-slip-row__manifest-note mt-0.5 text-[9px] font-semibold leading-snug">
+                                Not in manifest — slip only
+                              </p>
                               <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
-                                <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`} style={{ color: "#fde68a" }}>
-                                  Not in manifest — slip only
-                                </p>
+                                <ItemScanSlipRowUpcFnskuMeta upc={upcLabel} fnsku={fnskuLabel} />
                                 <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
                                   Qty {slipQty}
                                 </span>
@@ -16864,6 +17524,7 @@ function OperatorMobileScanPageContent() {
                           );
                         })
                     : null}
+                </div>
                 </div>
               </section>
             ) : null}
@@ -16985,7 +17646,6 @@ function OperatorMobileScanPageContent() {
         palletLabel={
           (activePallet?.pallet_number ?? currentPalletTrackingId ?? activePallet?.id ?? "").trim() || "—"
         }
-        packageCount={palletPackagePickerList.length}
         busy={correctionBusy}
         error={voidPalletModalError}
         onClose={() => {
@@ -17458,14 +18118,10 @@ function OperatorMobileScanPageContent() {
                   className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] dark:bg-red-950/30 dark:text-red-300"
                   onClick={() => {
                     const cell = deleteUnitConfirmCellRef.current;
-                    const pickerUnit = pickerDeleteUnitRef.current;
                     deleteUnitConfirmCellRef.current = null;
-                    pickerDeleteUnitRef.current = null;
                     setDeleteUnitConfirmOpen(false);
                     modalOpenRef.current = false;
-                    if (pickerUnit) {
-                      void handleDeleteSpecificUnit(pickerUnit);
-                    } else if (cell) {
+                    if (cell) {
                       void handleDeleteSlipCellUnit(cell);
                     }
                   }}
@@ -17479,7 +18135,6 @@ function OperatorMobileScanPageContent() {
                   className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
                   onClick={() => {
                     deleteUnitConfirmCellRef.current = null;
-                    pickerDeleteUnitRef.current = null;
                     setDeleteUnitConfirmOpen(false);
                     modalOpenRef.current = false;
                   }}
@@ -17920,15 +18575,75 @@ function OperatorMobileScanPageContent() {
           closeItemScanUnitPicker();
           openEditScannedItemModal(unit);
         }}
-        onDeleteUnit={correctionPerms.deleteItem ? (unit) => {
-          closeItemScanUnitPicker();
-          deleteUnitConfirmCellRef.current = null;
-          pickerDeleteUnitRef.current = unit;
+        onDeleteUnit={(unit) => {
+          const pickKey =
+            itemScanEditPick?.kind === "slip_cell"
+              ? String(itemScanEditPick.slipContentId ?? itemScanEditPick.cellKey ?? "").trim()
+              : itemScanEditPick?.rowTitle ?? null;
+          logItemUnitDelete("delete clicked", {
+            selectedPickKey: pickKey,
+            returnItemId: String(unit.id ?? "").trim(),
+          });
+          setPickerUnitDeleteConfirm(unit);
           modalOpenRef.current = true;
-          setDeleteUnitConfirmOpen(true);
-        } : undefined}
+          logItemUnitDelete("confirm opened", { returnItemId: String(unit.id ?? "").trim() });
+        }}
         onClose={closeItemScanUnitPicker}
       />
+
+      {typeof document !== "undefined" && pickerUnitDeleteConfirm
+        ? createPortal(
+            <div
+              className="operator-shipment-flow-modal fixed inset-0 z-[160] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`${formId}-picker-delete-unit-title`}
+            >
+              <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+                <p
+                  id={`${formId}-picker-delete-unit-title`}
+                  className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+                >
+                  Delete scanned unit?
+                </p>
+                <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+                  This will remove this scanned unit from the box. This action cannot be undone.
+                </p>
+                <OperatorScannerFooterActions
+                  className="mt-6"
+                  primary={
+                    <button
+                      type="button"
+                      className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] dark:bg-red-950/30 dark:text-red-300"
+                      onClick={() => {
+                        const unit = pickerUnitDeleteConfirm;
+                        setPickerUnitDeleteConfirm(null);
+                        if (unit) {
+                          void handleDeleteSpecificUnit(unit);
+                        }
+                      }}
+                    >
+                      Delete unit
+                    </button>
+                  }
+                  secondary={
+                    <button
+                      type="button"
+                      className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                      onClick={() => {
+                        logItemUnitDelete("confirm cancelled");
+                        setPickerUnitDeleteConfirm(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  }
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <ItemUnitRecordModal
         open={Boolean(itemUnitModal)}
@@ -17939,15 +18654,22 @@ function OperatorMobileScanPageContent() {
         barcodeReadOnly={itemUnitModal?.mode === "edit"}
         initialBarcode={itemUnitModal?.scannedBarcode ?? ""}
         initialState={itemUnitModal?.initialState ?? null}
+        existingReturnItemId={resolveItemUnitModalReturnItemId(itemUnitModal)}
         organizationId={(orgId ?? "").trim()}
         slipDescription={itemUnitModal?.slipDescription ?? undefined}
         productLinkage={itemUnitModal?.productLinkage ?? null}
         storeId={sessionStoreId}
         matchKind={itemUnitModal?.matchKindPreset ?? null}
+        offSlipWarning={itemUnitOffSlipWarning}
         resolveBarcodeLinkage={resolveItemUnitBarcodeLinkage}
         busy={busy}
         onClose={() => closeItemUnitModal(true)}
         onSave={saveItemUnitModal}
+        onDeleteExistingUnit={
+          itemUnitModal?.mode === "edit" && resolveItemUnitModalReturnItemId(itemUnitModal)
+            ? handleDeleteExistingUnitFromModal
+            : undefined
+        }
         onUnsavedDraftChange={handleItemUnitModalUnsavedDraftChange}
       />
 

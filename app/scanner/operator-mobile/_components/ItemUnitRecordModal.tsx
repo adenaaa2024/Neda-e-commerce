@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { classifyProductBarcode } from "@/lib/product-barcode-classify";
-import { Camera, ImagePlus, Loader2, X } from "lucide-react";
+import { Camera, ImagePlus, Loader2, Trash2, X } from "lucide-react";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 import { uploadMediaFileAction } from "@/lib/media-upload-actions";
 import {
@@ -27,6 +28,14 @@ const CHIP_LABEL: Record<ItemUnitDiscrepancyTagKey, string> = {
   missing_item: "Missing Item",
   sellable_ok: "Sellable/Ok",
 };
+
+/** Set true temporarily to trace delete button visibility in the console. */
+const ITEM_UNIT_MODAL_DELETE_DEBUG = false;
+
+function logItemUnitModalDelete(...args: unknown[]) {
+  if (!ITEM_UNIT_MODAL_DELETE_DEBUG) return;
+  console.log("[item-unit-modal-delete-debug]", ...args);
+}
 
 const VALIDATION_ISSUE_TITLE = {
   EXPIRATION_DATE: "Expiration date required",
@@ -67,7 +76,6 @@ function validateItemUnitBeforeSave(input: {
   hasExpiredTag: boolean;
   noExpiryChecked: boolean;
   expiryDate: string;
-  traceabilityRequired: boolean;
   needsEvidence: boolean;
   evidenceCount: number;
   expiryEvidenceCount: number;
@@ -90,18 +98,11 @@ function validateItemUnitBeforeSave(input: {
       target: "condition",
     });
   }
-  if (input.hasExpiredTag && !input.noExpiryChecked && !input.expiryDate.trim()) {
+  if (!input.noExpiryChecked && !input.expiryDate.trim()) {
     issues.push({
       code: "expiration_date",
       title: VALIDATION_ISSUE_TITLE.EXPIRATION_DATE,
       message: "Enter the expiration date or check 'No expiration date on packaging' before saving.",
-      target: "expiration",
-    });
-  } else if (input.traceabilityRequired && !input.expiryDate.trim()) {
-    issues.push({
-      code: "expiration_date",
-      title: "Expiration required",
-      message: "Expiration date is required for this item.",
       target: "expiration",
     });
   }
@@ -137,7 +138,6 @@ function isItemUnitValidationIssueActive(
     hasExpiredTag: boolean;
     noExpiryChecked: boolean;
     expiryDate: string;
-    traceabilityRequired: boolean;
     needsEvidence: boolean;
     evidenceCount: number;
     expiryEvidenceCount: number;
@@ -149,8 +149,7 @@ function isItemUnitValidationIssueActive(
     case "condition":
       return input.tags.length === 0;
     case "expiration":
-      if (input.hasExpiredTag && !input.noExpiryChecked && !input.expiryDate.trim()) return true;
-      return input.traceabilityRequired && !input.expiryDate.trim();
+      return !input.noExpiryChecked && !input.expiryDate.trim();
     case "evidence":
       if (issue.code === "expiry_evidence_photo") return input.hasExpiredTag && input.expiryEvidenceCount === 0;
       return input.needsEvidence && input.evidenceCount === 0;
@@ -240,13 +239,19 @@ type ItemUnitRecordModalProps = {
   productLinkage?: ProductLinkageDisplayContract | null;
   storeId?: string | null;
   matchKind?: "fnsku" | "upc" | "unexpected" | null;
+  /** Amber warning when save will record an off-slip unit (non-blocking). */
+  offSlipWarning?: { title: string; message: string } | null;
   resolveBarcodeLinkage?: (
     barcode: string,
     matchKind: "fnsku" | "upc" | "unexpected",
   ) => Promise<ProductLinkageDisplayContract | null>;
   busy: boolean;
+  /** Saved `return_items.id` when editing an existing scanned unit (create mode omits). */
+  existingReturnItemId?: string | null;
   onClose: () => void;
   onSave: (payload: ItemUnitRecordSavePayload) => Promise<ItemUnitRecordSaveResult>;
+  /** Soft-delete the saved unit currently being edited (edit mode only). */
+  onDeleteExistingUnit?: () => Promise<{ ok: boolean; error?: string }>;
   /** Fires when open draft diverges from the modal open snapshot (for scanner back-navigation). */
   onUnsavedDraftChange?: (dirty: boolean) => void;
 };
@@ -266,15 +271,22 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     productLinkage = null,
     storeId = null,
     matchKind = null,
+    offSlipWarning = null,
     resolveBarcodeLinkage,
     busy,
+    existingReturnItemId = null,
     onClose,
     onSave,
+    onDeleteExistingUnit,
     onUnsavedDraftChange,
   } = props;
 
   const isEditMode = mode === "edit";
+  const savedReturnItemId = String(existingReturnItemId ?? "").trim();
+  const canDeleteExistingUnit = Boolean(savedReturnItemId) && Boolean(onDeleteExistingUnit);
   const primarySaveLabel = saveLabel ?? (isEditMode ? "Save changes" : "Save unit");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [barcode, setBarcode] = useState("");
   const [liveLinkage, setLiveLinkage] = useState<ProductLinkageDisplayContract | null>(productLinkage);
@@ -339,7 +351,53 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     setLinkageResolving(false);
     setManualBarcodeEntry(false);
     setPhotoMenuTarget(null);
+    setDeleteConfirmOpen(false);
+    setDeleteError(null);
   }, [open, initialBarcode, productLinkage, initialState]);
+
+  useEffect(() => {
+    if (!open) return;
+    const shouldShowDelete = canDeleteExistingUnit;
+    logItemUnitModalDelete({
+      modalOpenPath: isEditMode ? "edit" : "create",
+      mode,
+      existingReturnItemId,
+      savedReturnItemId,
+      hasOnDeleteExistingUnit: Boolean(onDeleteExistingUnit),
+      shouldShowDelete,
+      renderedDeleteButton: shouldShowDelete,
+    });
+  }, [open, mode, isEditMode, existingReturnItemId, savedReturnItemId, onDeleteExistingUnit, canDeleteExistingUnit]);
+
+  useEffect(() => {
+    if (!open || !deleteConfirmOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDeleteConfirmOpen(false);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open, deleteConfirmOpen]);
+
+  const handleRequestDelete = useCallback(() => {
+    if (!canDeleteExistingUnit || busy || !onDeleteExistingUnit) return;
+    setDeleteError(null);
+    setDeleteConfirmOpen(true);
+  }, [canDeleteExistingUnit, busy, onDeleteExistingUnit]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!onDeleteExistingUnit || busy) return;
+    setDeleteError(null);
+    const result = await onDeleteExistingUnit();
+    if (result.ok) {
+      setDeleteConfirmOpen(false);
+      return;
+    }
+    setDeleteConfirmOpen(false);
+    setDeleteError(result.error ?? "Could not delete scan record.");
+  }, [busy, onDeleteExistingUnit]);
 
   const scrollToValidationSummary = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -423,7 +481,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     [normalizedTags, slipDescription],
   );
 
-  const traceabilityRequired = categoryRequiresExpiry && !noExpiryChecked;
+  const expiryDateRequired = !noExpiryChecked;
   const needsEvidence = packageItemRequiresEvidencePhotos(normalizedTags);
   const hasExpiredTag = normalizedTags.includes("expired");
 
@@ -434,7 +492,6 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       hasExpiredTag,
       noExpiryChecked,
       expiryDate,
-      traceabilityRequired,
       needsEvidence,
       evidenceCount: evidenceUrls.length,
       expiryEvidenceCount: expiryEvidenceUrls.length,
@@ -445,7 +502,6 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       hasExpiredTag,
       noExpiryChecked,
       expiryDate,
-      traceabilityRequired,
       needsEvidence,
       evidenceUrls.length,
       expiryEvidenceUrls.length,
@@ -665,7 +721,6 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       hasExpiredTag,
       noExpiryChecked,
       expiryDate,
-      traceabilityRequired,
       needsEvidence,
       evidenceCount: evidenceUrls.length,
       expiryEvidenceCount: expiryEvidenceUrls.length,
@@ -677,7 +732,6 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     setManualBarcodeEntry(false);
     barcodeInputRef.current?.blur();
 
-    const tr = packageItemRequiresExpiryBlock({ tags, slipDescription }) && !noExpiryChecked;
     const gallery = [...evidenceUrls];
     if (optionalItemPhotoUrl) gallery.push(optionalItemPhotoUrl);
 
@@ -688,7 +742,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       lotNumber: noExpiryChecked ? null : lotNumber.trim() || null,
       evidenceUrls: gallery,
       expiryEvidenceUrls: [...expiryEvidenceUrls],
-      traceabilityRequired: tr,
+      traceabilityRequired: !noExpiryChecked,
       optionalItemPhotoUrl,
       operatorNotes: operatorNotes.trim() || null,
     });
@@ -716,10 +770,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     lotNumber,
     noExpiryChecked,
     onSave,
-    slipDescription,
     showValidationIssues,
     hasExpiredTag,
-    traceabilityRequired,
   ]);
 
   if (!open) return null;
@@ -767,7 +819,13 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           <button
             type="button"
             disabled={busy}
-            onClick={onClose}
+            onClick={() => {
+              if (deleteConfirmOpen) {
+                setDeleteConfirmOpen(false);
+                return;
+              }
+              onClose();
+            }}
             className="operator-item-unit-record-modal__close-btn rounded-xl p-2 transition disabled:opacity-40"
             aria-label="Close"
           >
@@ -889,7 +947,16 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
 
           <div className="operator-item-unit-record-modal__divider mt-4 border-t pt-4">
             <label className="operator-item-unit-record-modal__section-label text-xs font-semibold uppercase tracking-wider block mb-2">
-              Expiration Date & Traceability
+              Expiration Date
+              {expiryDateRequired ? (
+                <span className="operator-item-unit-record-modal__required-mark ml-1 normal-case font-black tracking-normal">
+                  (Required)
+                </span>
+              ) : null}
+              <span className="operator-item-unit-record-modal__muted normal-case font-semibold tracking-normal">
+                {" "}
+                & Traceability
+              </span>
             </label>
             <div className="flex flex-col gap-3">
               <input
@@ -898,8 +965,9 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 disabled={busy || noExpiryChecked}
                 value={expiryDate}
                 onChange={(e) => setExpiryDate(e.target.value)}
-                aria-required={traceabilityRequired}
-                className="operator-item-unit-record-modal__field-input w-full h-12 border rounded-xl px-4 focus:outline-none disabled:opacity-40 transition-all"
+                aria-required={expiryDateRequired}
+                aria-invalid={Boolean(expirationInlineError)}
+                className={`operator-item-unit-record-modal__field-input w-full h-12 border rounded-xl px-4 focus:outline-none disabled:opacity-40 transition-all${expirationInlineError ? " operator-item-unit-record-modal__field-input--invalid" : ""}`}
               />
               <label className="operator-item-unit-record-modal__checkbox-label flex items-center gap-2.5 cursor-pointer text-sm select-none mt-1">
                 <input
@@ -1133,6 +1201,17 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             </div>
           ) : null}
 
+          {offSlipWarning && !allocationInlineError ? (
+            <div
+              className="operator-item-unit-record-modal__allocation-warn mt-4 rounded-lg border px-3 py-2 text-[12px] font-semibold leading-snug"
+              role="status"
+            >
+              <p className="operator-item-unit-record-modal__allocation-warn-title text-[13px] font-black">
+                {offSlipWarning.title}
+              </p>
+              <p className="mt-1 font-semibold">{offSlipWarning.message}</p>
+            </div>
+          ) : null}
           {allocationInlineError ? (
             <p className="operator-item-unit-record-modal__local-error mt-4 rounded-lg border px-3 py-2 text-[12px] font-semibold">
               {allocationInlineError}
@@ -1158,7 +1237,30 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           />
         </div>
 
-        <div className="operator-item-unit-record-modal__header shrink-0 border-t p-4">
+        <div className="operator-item-unit-record-modal__footer shrink-0 border-t p-4">
+          {deleteError ? (
+            <p
+              className="operator-item-unit-record-modal__local-error mb-3 rounded-lg border px-3 py-2 text-[12px] font-semibold"
+              role="alert"
+            >
+              {deleteError}
+            </p>
+          ) : null}
+          {canDeleteExistingUnit ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleRequestDelete();
+              }}
+              className="operator-item-unit-record-modal__delete-btn mb-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl text-[12px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Trash2 className="operator-item-unit-record-modal__delete-btn-icon h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+              Delete unit
+            </button>
+          ) : null}
           <OperatorScannerFooterActions
             primary={
               <button
@@ -1175,7 +1277,13 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               <button
                 type="button"
                 disabled={busy}
-                onClick={onClose}
+                onClick={() => {
+                  if (deleteConfirmOpen) {
+                    setDeleteConfirmOpen(false);
+                    return;
+                  }
+                  onClose();
+                }}
                 className="operator-shipment-flow-modal__btn-secondary h-12 w-full rounded-xl border text-sm font-bold transition active:scale-[0.98] disabled:opacity-40"
               >
                 Cancel
@@ -1184,6 +1292,55 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           />
         </div>
       </div>
+
+      {typeof document !== "undefined" && deleteConfirmOpen
+        ? createPortal(
+            <div
+              className="operator-shipment-flow-modal fixed inset-0 z-[210] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="item-unit-delete-confirm-title"
+            >
+              <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+                <p
+                  id="item-unit-delete-confirm-title"
+                  className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+                >
+                  Delete scanned unit?
+                </p>
+                <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+                  This will remove this scanned unit from the box. This action cannot be undone.
+                </p>
+                <OperatorScannerFooterActions
+                  className="mt-6"
+                  primary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-red-950/30 dark:text-red-300"
+                      onClick={() => {
+                        void handleConfirmDelete();
+                      }}
+                    >
+                      Delete unit
+                    </button>
+                  }
+                  secondary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:opacity-40"
+                      onClick={() => setDeleteConfirmOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                  }
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <ScannerPhotoActionSheet
         open={photoMenuTarget !== null}

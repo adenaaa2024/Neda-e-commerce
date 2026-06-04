@@ -23,13 +23,18 @@ export type AllocationErrorContext = {
   trackingNumber?: string | null;
 };
 
+/** True when RPC / allocation helper reports no open parent `expected_packages` row to receive against. */
+export function isNoAllocatableExpectedAllocationError(message: string): boolean {
+  return /no_allocatable_expected/i.test(String(message ?? ""));
+}
+
 export function humanizeExpectedAllocationError(
   message: string,
   ctx?: AllocationErrorContext,
 ): string {
   const m = String(message ?? "").trim();
   if (!m) return "Expected allocation failed.";
-  if (/no_allocatable_expected/i.test(m)) {
+  if (isNoAllocatableExpectedAllocationError(m)) {
     const idParts = [
       ctx?.fnsku?.trim() ? `FNSKU ${ctx.fnsku.trim()}` : null,
       ctx?.sku?.trim() ? `SKU/UPC ${ctx.sku.trim()}` : null,

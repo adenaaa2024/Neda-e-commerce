@@ -138,7 +138,7 @@ type ItemScanEditUnitPickerModalProps = {
   units: OperatorPackageItemRow[];
   busy: boolean;
   onEditUnit: (unit: OperatorPackageItemRow) => void;
-  onDeleteUnit?: (unit: OperatorPackageItemRow) => void;
+  onDeleteUnit: (unit: OperatorPackageItemRow) => void;
   onClose: () => void;
 };
 
@@ -197,32 +197,38 @@ export function ItemScanEditUnitPickerModal({
                 return (
                   <li key={unit.id}>
                     <div className="operator-item-scan-unit-picker__unit-card flex w-full min-h-[52px] flex-col gap-1 rounded-lg border px-3 py-2.5 text-left">
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="operator-item-scan-unit-picker__unit-label text-[12px] font-black leading-none">
+                      <span className="operator-item-scan-unit-picker__unit-head flex min-w-0 flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
+                        <span className="operator-item-scan-unit-picker__unit-label shrink-0 text-[12px] font-black leading-none">
                           Unit {index + 1}
                         </span>
-                        <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="operator-item-scan-unit-picker__unit-actions flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => onEditUnit(unit)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onEditUnit(unit);
+                            }}
                             className="operator-item-scan-unit-picker__edit-btn inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide transition active:scale-95 disabled:opacity-40"
                           >
                             <Pencil className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
                             Edit
                           </button>
-                          {onDeleteUnit ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => onDeleteUnit(unit)}
-                              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-500/40 bg-red-950/30 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-red-400 transition active:scale-95 disabled:opacity-40 hover:bg-red-950/50"
-                              aria-label="Delete this scanned unit"
-                            >
-                              <Trash2 className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                              Delete
-                            </button>
-                          ) : null}
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onDeleteUnit(unit);
+                            }}
+                            className="operator-item-scan-unit-picker__delete-btn inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide transition active:scale-95 disabled:opacity-40"
+                            aria-label="Delete this scanned unit"
+                          >
+                            <Trash2 className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
+                            Delete
+                          </button>
                         </span>
                       </span>
                       <span className="operator-item-scan-unit-picker__summary text-[10px] font-medium leading-snug">

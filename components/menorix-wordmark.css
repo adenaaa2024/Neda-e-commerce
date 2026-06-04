@@ -89,34 +89,18 @@ html.dark .menorix-wordmark__letter {
 
 .menorix-wordmark__x {
   font-weight: 800;
-  color: var(--mx-wm-gold-b);
-  background: none;
-  -webkit-background-clip: border-box;
-  background-clip: border-box;
-  filter: drop-shadow(0 1px 0 rgba(143, 106, 31, 0.45));
-}
-
-@supports ((-webkit-background-clip: text) or (background-clip: text)) {
-  .menorix-wordmark__x {
-    background: linear-gradient(
-      180deg,
-      var(--mx-wm-gold-a) 0%,
-      var(--mx-wm-gold-b) 38%,
-      var(--mx-wm-gold-d) 52%,
-      var(--mx-wm-gold-c) 72%,
-      var(--mx-wm-gold-a) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    filter: drop-shadow(0 1px 0 rgba(143, 106, 31, 0.45));
-  }
-}
-
-@supports (color: color-mix(in srgb, red, blue)) {
-  .menorix-wordmark__x {
-    filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--mx-wm-gold-a) 45%, transparent));
-  }
+  background: linear-gradient(
+    180deg,
+    var(--mx-wm-gold-a) 0%,
+    var(--mx-wm-gold-b) 38%,
+    var(--mx-wm-gold-d) 52%,
+    var(--mx-wm-gold-c) 72%,
+    var(--mx-wm-gold-a) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--mx-wm-gold-a) 45%, transparent));
 }
 
 /* Stylized E — three horizontal gold bars (no vertical spine) */

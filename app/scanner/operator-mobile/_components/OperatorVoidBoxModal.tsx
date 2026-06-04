@@ -36,13 +36,15 @@ export function OperatorVoidBoxModal({
         >
           Void this box?
         </p>
-        <p className="operator-shipment-flow-modal__body mt-3 text-center text-[12px] font-semibold leading-relaxed">
-          Box{" "}
-          <span className="font-mono font-bold">{packageLabel || "—"}</span>
-        </p>
+        {packageLabel.trim() ? (
+          <p className="operator-shipment-flow-modal__body mt-3 text-center text-[12px] font-semibold leading-relaxed">
+            Box{" "}
+            <span className="font-mono font-bold">{packageLabel.trim()}</span>
+          </p>
+        ) : null}
         <p className="operator-shipment-flow-modal__body mt-2 text-center text-[12px] font-medium leading-relaxed opacity-90">
-          Saved items on this box will be voided and expected quantities restored. Use only if this
-          carton was scanned by mistake.
+          This will void this box/package and its scanned units from the current receiving flow.
+          This action cannot be undone.
         </p>
         {error ? (
           <p className="mt-3 text-center text-[12px] font-semibold text-red-300" role="alert">
@@ -59,7 +61,7 @@ export function OperatorVoidBoxModal({
               onClick={onConfirm}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              Void Box
+              Void box
             </button>
           }
           secondary={

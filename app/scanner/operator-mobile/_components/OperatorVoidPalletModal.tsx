@@ -6,7 +6,6 @@ import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_com
 type OperatorVoidPalletModalProps = {
   open: boolean;
   palletLabel: string;
-  packageCount: number;
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -16,15 +15,12 @@ type OperatorVoidPalletModalProps = {
 export function OperatorVoidPalletModal({
   open,
   palletLabel,
-  packageCount,
   busy,
   error,
   onClose,
   onConfirm,
 }: OperatorVoidPalletModalProps) {
   if (!open) return null;
-
-  const hasLinkedPackages = packageCount > 0;
 
   return (
     <div
@@ -38,25 +34,18 @@ export function OperatorVoidPalletModal({
           id="operator-void-pallet-title"
           className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
         >
-          Void pallet?
+          Void this pallet?
         </p>
-        <p className="operator-shipment-flow-modal__body mt-3 text-center text-[12px] font-semibold leading-relaxed">
-          Pallet{" "}
-          <span className="font-mono font-bold">{palletLabel || "—"}</span>
-        </p>
-        <p className="operator-shipment-flow-modal__body mt-2 text-center text-[12px] font-medium leading-relaxed opacity-90">
-          This will remove this pallet from active receiving. Packages/items linked to it may be released or
-          remain according to existing void rules.
-        </p>
-        {hasLinkedPackages ? (
-          <p
-            className="operator-shipment-flow-modal__alert mt-3 rounded-xl px-3 py-2.5 text-center text-[11px] font-semibold leading-snug"
-            role="status"
-          >
-            This pallet has {packageCount} active box{packageCount === 1 ? "" : "es"} on record. Voiding will
-            soft-remove the pallet and linked packages per existing void rules.
+        {palletLabel.trim() ? (
+          <p className="operator-shipment-flow-modal__body mt-3 text-center text-[12px] font-semibold leading-relaxed">
+            Pallet{" "}
+            <span className="font-mono font-bold">{palletLabel.trim()}</span>
           </p>
         ) : null}
+        <p className="operator-shipment-flow-modal__body mt-2 text-center text-[12px] font-medium leading-relaxed opacity-90">
+          This will void this pallet and remove its boxes and scanned units from the current receiving
+          flow. This action cannot be undone.
+        </p>
         {error ? (
           <p className="mt-3 text-center text-[12px] font-semibold text-red-300" role="alert">
             {error}
@@ -72,7 +61,7 @@ export function OperatorVoidPalletModal({
               onClick={onConfirm}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              Void Pallet
+              Void pallet
             </button>
           }
           secondary={
