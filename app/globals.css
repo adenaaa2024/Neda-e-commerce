@@ -2932,6 +2932,15 @@ html.light .operator-mobile-app-shell {
 .operator-mobile-app-shell {
   position: relative;
   --scanner-bottom-nav-height: 4.75rem;
+  /* Scan tab — stable spacing / card sizing (zoom-safe min/max, not rigid fixed heights) */
+  --op-scan-gap: 0.5rem;
+  --op-scan-inset-x: 0.75rem;
+  --op-scan-card-row-min-h: 5.5rem;
+  --op-scan-stat-min-h: 3.5rem;
+  --op-scan-btn-h: 2.5rem;
+  --op-scan-panel-min-h: 10rem;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 /* Subtle graphite grain on shell */
@@ -4646,6 +4655,13 @@ html.light .operator-box-info-list {
   background-color: #f8f6f1 !important;
   border-color: #d8d1c2 !important;
   box-shadow: inset 0 1px 3px rgba(60, 45, 20, 0.06) !important;
+}
+
+.operator-box-info-hub .operator-box-info-list.operator-scan-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 html.dark .operator-saved-box-row {
@@ -9064,9 +9080,9 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
    * Fixed actions: bottom offset 4.75rem (sits above bottom nav) + ~2×40px buttons + gap/padding.
    * Nav height is NOT included — ScannerBottomNav is already below <main> in the flex column.
    */
-  --operator-item-scan-actions-stack: 7.5rem;
+  --operator-item-scan-actions-stack: 3.25rem;
   --operator-item-scan-footer-reserve: calc(
-    var(--operator-item-scan-actions-stack) + 1.25rem + env(safe-area-inset-bottom, 0px)
+    var(--operator-item-scan-actions-stack) + var(--op-scan-gap, 0.5rem) + env(safe-area-inset-bottom, 0px)
   );
 }
 
@@ -9085,8 +9101,86 @@ html.light .operator-neda-mechanical-scan-btn:active:not(:disabled) {
 
 .operator-item-scan-expected-panel {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: var(--op-scan-panel-min-h, 10rem);
   max-height: 100%;
+}
+
+.operator-scan-panel--flexible {
+  flex: 1 1 auto;
+  min-height: var(--op-scan-panel-min-h, 10rem);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.operator-scan-panel--flexible.operator-scan-panel--few-items {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.operator-scan-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.light .operator-scan-error-boundary__detail {
+  color: #4d5560;
+}
+
+html.dark .operator-scan-error-boundary__detail {
+  color: rgba(250, 246, 237, 0.72);
+}
+
+html.light .operator-scan-alert--error {
+  border-color: rgba(248, 113, 113, 0.45) !important;
+  background-color: rgba(254, 226, 226, 0.92) !important;
+  color: #991b1b !important;
+}
+
+html.dark .operator-scan-alert--error {
+  border-color: rgba(248, 113, 113, 0.35);
+  background-color: rgba(69, 10, 10, 0.35);
+  color: #fecaca;
+}
+
+html.light .operator-scan-alert--warning {
+  border-color: rgba(251, 191, 36, 0.55) !important;
+  background-color: rgba(254, 243, 199, 0.92) !important;
+  color: #92400e !important;
+}
+
+html.dark .operator-scan-alert--warning {
+  border-color: rgba(251, 191, 36, 0.45);
+  background-color: rgba(69, 26, 3, 0.35);
+  color: #fde68a;
+}
+
+.operator-scan-restoring-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.operator-scanner-footer-actions {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.operator-scanner-footer-actions__secondary {
+  order: 1;
+}
+
+.operator-scanner-footer-actions__primary {
+  order: 2;
 }
 
 .operator-item-scan-expected-list-scroll {
