@@ -25,9 +25,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = "https://menorix.com";
+
 export async function generateMetadata(): Promise<Metadata> {
   const title = await getPlatformAppNameForMetadata();
   return {
+    metadataBase: new URL(SITE_URL),
     title,
     description: "B2B Returns & Recovery Platform",
     manifest: "/manifest.json",
@@ -39,10 +42,14 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     icons: {
       icon: [
+        { url: "/favicon.ico", sizes: "48x48", type: "image/x-icon" },
+        { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+        { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
         { url: "/favicon.png", sizes: "48x48", type: "image/png" },
         { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
         { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
       ],
+      shortcut: "/favicon.ico",
       apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
     },
   };

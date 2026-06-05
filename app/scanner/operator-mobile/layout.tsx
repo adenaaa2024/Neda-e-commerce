@@ -1,12 +1,16 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
 import { Oswald } from "next/font/google";
 import { OperatorSessionStoreProvider } from "./_components/OperatorSessionStoreProvider";
 import { OperatorProductBrandingStrip } from "./_components/OperatorProductBrandingStrip";
+import { OperatorMobileBrowserHint } from "./_components/OperatorMobileBrowserHint";
 import { OperatorPwaInstallHint } from "./_components/OperatorPwaInstallHint";
 import { OperatorUtilityRow } from "./_components/OperatorUtilityRow";
 
 import { OperatorMobileIntroShell } from "./_components/OperatorMobileIntroShell";
 import { OperatorMobileSessionRouteGuard } from "./_components/OperatorMobileSessionRouteGuard";
+import { OperatorMobileStartupGate } from "./_components/OperatorMobileStartupGate";
+import { OperatorOrientationLock } from "./_components/OperatorOrientationLock";
 
 const operatorDisplay = Oswald({
   variable: "--font-operator-display",
@@ -14,6 +18,13 @@ const operatorDisplay = Oswald({
   display: "swap",
   weight: ["500", "600", "700"],
 });
+
+/** Zebra / Android WebView hint — portrait lock is runtime-only on eligible devices (not desktop). */
+export const metadata: Metadata = {
+  other: {
+    "screen-orientation": "portrait",
+  },
+};
 
 /**
  * Centered 430px “native app” shell: LTR, full-height column, no horizontal padding on the shell itself
@@ -27,6 +38,7 @@ const operatorDisplay = Oswald({
 export default function OperatorMobileLayout({ children }: { children: ReactNode }) {
   return (
     <OperatorMobileIntroShell>
+      <OperatorOrientationLock />
       <OperatorMobileSessionRouteGuard />
     <div
       dir="ltr"
@@ -46,26 +58,29 @@ export default function OperatorMobileLayout({ children }: { children: ReactNode
         }}
       >
         <OperatorSessionStoreProvider>
-          <div
-            className="shrink-0 border-b px-3 sm:px-4 pb-1 pt-[max(0.15rem,env(safe-area-inset-top))]"
-            style={{
-              borderColor: "var(--scanner-border, #323c48)",
-              background: "var(--scanner-header-gradient)",
-            }}
-          >
-            <OperatorUtilityRow />
-          </div>
-          <div
-            className="shrink-0 border-b px-3 sm:px-4 py-1.5"
-            style={{
-              borderColor: "var(--scanner-border, #323c48)",
-              background: "var(--scanner-header-gradient)",
-            }}
-          >
-            <OperatorProductBrandingStrip className="w-full" />
-          </div>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-visible">{children}</div>
-          <OperatorPwaInstallHint />
+          <OperatorMobileStartupGate>
+            <div
+              className="shrink-0 border-b px-3 sm:px-4 pb-1 pt-[max(0.15rem,env(safe-area-inset-top))]"
+              style={{
+                borderColor: "var(--scanner-border, #323c48)",
+                background: "var(--scanner-header-gradient)",
+              }}
+            >
+              <OperatorUtilityRow />
+            </div>
+            <div
+              className="shrink-0 border-b px-3 sm:px-4 py-1.5"
+              style={{
+                borderColor: "var(--scanner-border, #323c48)",
+                background: "var(--scanner-header-gradient)",
+              }}
+            >
+              <OperatorProductBrandingStrip className="w-full" />
+            </div>
+            <OperatorMobileBrowserHint />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-visible">{children}</div>
+            <OperatorPwaInstallHint />
+          </OperatorMobileStartupGate>
         </OperatorSessionStoreProvider>
       </div>
     </div>

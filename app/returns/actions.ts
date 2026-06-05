@@ -58,6 +58,7 @@ import {
   pickHealthImportRow,
   resolveProductJobHealthFallback,
 } from "../../lib/command-center-health";
+import { loadProductionSyncHealth } from "../../lib/production-sync-health";
 import { assertCanInsertReturnItemAgainstTestMarkers } from "../../lib/scanner/return-items-test-data-server-guard";
 import {
   mapPackageWriteRow,
@@ -2231,6 +2232,12 @@ export async function getCommandCenterData(
     }
 
     const importErrorsHint = healthImportErrorsHint(importRow?.status);
+    const healthOrgId = scope.mode === "single" ? scope.organizationId : DEFAULT_ORG;
+    const syncHealth = await loadProductionSyncHealth(supabaseServer, healthOrgId);
+    const expectedFreshness =
+      syncHealth.latest_shipment_date != null
+        ? `Shipments through ${syncHealth.latest_shipment_date.slice(0, 10)} · ${syncHealth.expected_packages_derived_count ?? 0} expected units`
+        : "No shipment dates in domain yet";
 
     return {
       ok: true,
@@ -2256,6 +2263,13 @@ export async function getCommandCenterData(
           lastAuditAt: auditRow?.created_at ?? null,
           lastAuditAction: auditRow?.action?.trim() || null,
           importErrorsHint,
+          lastSuccessfulRemovalImportAt: syncHealth.last_successful_removal_import_at,
+          lastSuccessfulRemovalImportType: syncHealth.last_successful_removal_import_type,
+          lastFailedRemovalImportAt: syncHealth.last_failed_removal_import_at,
+          latestShipmentDate: syncHealth.latest_shipment_date,
+          expectedPackagesDerivedCount: syncHealth.expected_packages_derived_count,
+          expectedDataFreshnessHint: expectedFreshness,
+          nextScheduledSyncAt: syncHealth.next_scheduled_cron_utc,
           scannerActivityHint:
             scannedCount > 0
               ? `${scannedCount.toLocaleString()} active return items in scope`

@@ -595,6 +595,24 @@ function CommandCenterDashboardLoaded({
                   <dd>{data.health.scannerActivityHint}</dd>
                 </div>
               </div>
+              {data.health.expectedDataFreshnessHint ? (
+                <div className="cc-health-row">
+                  <Boxes className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                  <div>
+                    <dt>Expected data</dt>
+                    <dd>{data.health.expectedDataFreshnessHint}</dd>
+                  </div>
+                </div>
+              ) : null}
+              {data.health.nextScheduledSyncAt ? (
+                <div className="cc-health-row">
+                  <Activity className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                  <div>
+                    <dt>Next sync</dt>
+                    <dd>{formatWhen(data.health.nextScheduledSyncAt)}</dd>
+                  </div>
+                </div>
+              ) : null}
             </dl>
             {data.health.importErrorsHint ? (
               <p className="cc-health-warn">{data.health.importErrorsHint}</p>

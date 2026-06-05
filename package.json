@@ -86,6 +86,7 @@
     "smoke:phase1-delete-move-parity-staging": "tsx scripts/phase1-delete-move-parity-staging-smoke.ts",
     "test:command-center-health-import-pick": "tsx scripts/test-command-center-health-import-pick.ts",
     "audit:original-health-sync": "tsx scripts/fix-original-health-sync-audit.ts --audit-only",
+    "audit:missing-allocate-rpc-original": "tsx scripts/fix-missing-allocate-rpc-original-audit.ts",
     "test:box-slip-alloc-failure-parity": "tsx scripts/test-box-slip-alloc-failure-parity.ts",
     "test:product-enrichment-job-ui-finalize": "tsx scripts/test-product-enrichment-job-ui-finalize.ts",
     "test:automation-api-center-manual-run-wiring": "tsx scripts/test-automation-api-center-manual-run-wiring.ts",
@@ -168,6 +169,7 @@
     "pg": "^8.20.0",
     "playwright": "^1.51.1",
     "tailwindcss": "^4",
+    "to-ico": "^1.1.5",
     "tsx": "^4.19.0",
     "typescript": "^5"
   }

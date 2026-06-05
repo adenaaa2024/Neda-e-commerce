@@ -12,6 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 import { mkdirSync, readFileSync, existsSync, writeFileSync } from "fs";
 import { join } from "path";
 import sharp from "sharp";
+import toIco from "to-ico";
 
 const BRAND_DIR = join(process.cwd(), "public", "brand");
 const SOURCE_PATH = join(BRAND_DIR, "menorix-icon-source.png");
@@ -20,6 +21,10 @@ const ICON_192 = join(process.cwd(), "public", "icons", "icon-192.png");
 const ICON_512 = join(process.cwd(), "public", "icons", "icon-512.png");
 const APPLE_TOUCH = join(process.cwd(), "public", "apple-touch-icon.png");
 const FAVICON_PNG = join(process.cwd(), "public", "favicon.png");
+const FAVICON_16 = join(process.cwd(), "public", "favicon-16x16.png");
+const FAVICON_32 = join(process.cwd(), "public", "favicon-32x32.png");
+const FAVICON_ICO = join(process.cwd(), "public", "favicon.ico");
+const APP_FAVICON_ICO = join(process.cwd(), "app", "favicon.ico");
 const APP_ICON = join(process.cwd(), "app", "icon.png");
 const APP_APPLE_ICON = join(process.cwd(), "app", "apple-icon.png");
 
@@ -91,7 +96,14 @@ function readStoredStorageKey(): string {
 }
 
 function iconsExist(): boolean {
-  return existsSync(ICON_192) && existsSync(ICON_512) && existsSync(APPLE_TOUCH);
+  return (
+    existsSync(ICON_192) &&
+    existsSync(ICON_512) &&
+    existsSync(APPLE_TOUCH) &&
+    existsSync(FAVICON_ICO) &&
+    existsSync(FAVICON_16) &&
+    existsSync(FAVICON_32)
+  );
 }
 
 async function resolveSourceBuffer(): Promise<{ buf: Buffer; from: "platform_settings" | "committed" }> {
@@ -166,16 +178,35 @@ async function main() {
   await writeSquareIcon(buf, ICON_512_MASKABLE, 512, 0.14, ICON_BG);
   await writeSquareIcon(buf, APPLE_TOUCH, 180, 0.08, ICON_BG);
 
-  await sharp(buf)
-    .resize(48, 48, { fit: "contain", background: ICON_BG })
-    .png()
-    .toFile(FAVICON_PNG);
-  console.log(`[pwa-icons] wrote public/favicon.png (48x48)`);
+  await writeSquareIcon(buf, FAVICON_PNG, 48, 0.1, ICON_BG);
+  await writeSquareIcon(buf, FAVICON_16, 16, 0.08, ICON_BG);
+  await writeSquareIcon(buf, FAVICON_32, 32, 0.08, ICON_BG);
 
-  // Next.js App Router favicons (override any stale default / Vercel placeholder)
-  await writeSquareIcon(buf, APP_ICON, 512, 0.06);
+  const faviconPngBuffers = await Promise.all(
+    [16, 32, 48].map(async (size) => {
+      const pad = Math.round(size * 0.08);
+      const inner = size - pad * 2;
+      const resized = await sharp(buf)
+        .resize(inner, inner, { fit: "contain", background: ICON_BG })
+        .png()
+        .toBuffer();
+      return sharp({
+        create: { width: size, height: size, channels: 4, background: ICON_BG },
+      })
+        .composite([{ input: resized, gravity: "center" }])
+        .png()
+        .toBuffer();
+    }),
+  );
+  const icoBuf = await toIco(faviconPngBuffers);
+  writeFileSync(FAVICON_ICO, icoBuf);
+  writeFileSync(APP_FAVICON_ICO, icoBuf);
+  console.log(`[pwa-icons] wrote public/favicon.ico + app/favicon.ico (${icoBuf.length} bytes, 16/32/48)`);
+
+  // Next.js App Router icons (apple-icon + high-res icon for PWA metadata)
+  await writeSquareIcon(buf, APP_ICON, 48, 0.1, ICON_BG);
   await writeSquareIcon(buf, APP_APPLE_ICON, 180, 0.08);
-  console.log("[pwa-icons] wrote app/icon.png + app/apple-icon.png (Next.js metadata)");
+  console.log("[pwa-icons] wrote app/icon.png (48x48) + app/apple-icon.png (Next.js metadata)");
 }
 
 main().catch((e) => {

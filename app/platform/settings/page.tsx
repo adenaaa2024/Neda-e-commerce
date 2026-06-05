@@ -14,6 +14,7 @@ import {
   responsivePageOuter,
 } from "../../../lib/responsive-page-shell";
 import { PageHeaderWithInfo } from "../components/page-header-with-info";
+import { PlatformPwaSettingsPanel } from "./PlatformPwaSettingsPanel";
 
 export default function PlatformSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -221,6 +222,8 @@ export default function PlatformSettingsPage() {
             </button>
           </div>
         </form>
+
+        <PlatformPwaSettingsPanel />
       </div>
     </div>
   );

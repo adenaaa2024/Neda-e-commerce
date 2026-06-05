@@ -264,6 +264,14 @@ export type CommandCenterHealth = {
   lastAuditAction: string | null;
   importErrorsHint: string | null;
   scannerActivityHint: string | null;
+  /** Removal shipment API sync observability (production go-live). */
+  lastSuccessfulRemovalImportAt: string | null;
+  lastSuccessfulRemovalImportType: string | null;
+  lastFailedRemovalImportAt: string | null;
+  latestShipmentDate: string | null;
+  expectedPackagesDerivedCount: number | null;
+  expectedDataFreshnessHint: string | null;
+  nextScheduledSyncAt: string | null;
 };
 
 /** Rich command center payload for Neda-style dashboard UI. */
