@@ -12,6 +12,7 @@ export type ImportApiRunResponse = {
   needs_resume?: boolean;
   job_id?: string;
   status?: string;
+  runtime_status?: string | null;
 };
 
 export const AUTOMATION_MANUAL_RUN_ROUTES = {
@@ -29,30 +30,54 @@ export const AUTOMATION_MANUAL_RUN_ROUTES = {
 } as const;
 
 export type ManualRunPostResult =
-  | { ok: true; data: ImportApiRunResponse; httpStatus: number; accepted: boolean }
+  | { ok: true; data: ImportApiRunResponse; httpStatus: number; accepted: boolean; has_execution_evidence: boolean }
   | { ok: false; error: string; code?: string; httpStatus: number };
 
-/** 200–202 are success for async report workers (202 = accepted / in progress). */
+const INACTIVE_STATES = new Set(["failed", "unknown", "skipped", "skipped_report_type", ""]);
+
+/** True when the server started or queued real work (not a bare 202 with no ids). */
+export function manualRunHasExecutionEvidence(data: ImportApiRunResponse, httpStatus: number): boolean {
+  if (httpStatus >= 400) return false;
+
+  const hasId = Boolean(
+    String(data.upload_id ?? "").trim() ||
+      String(data.source_run_id ?? "").trim() ||
+      String(data.job_id ?? "").trim(),
+  );
+  const state = String(data.state ?? data.runtime_status ?? data.status ?? "")
+    .trim()
+    .toLowerCase();
+  const activeState = Boolean(state && !INACTIVE_STATES.has(state));
+
+  if (hasId) return true;
+  if (httpStatus === 200 && data.ok === true) return true;
+  if (httpStatus === 202 && activeState && data.needs_resume) return true;
+  if (httpStatus === 202 && activeState) return true;
+
+  return false;
+}
+
 export function isAutomationManualRunHttpSuccess(status: number): boolean {
   return status >= 200 && status <= 202;
 }
 
 export function manualRunAcceptanceMessage(result: Extract<ManualRunPostResult, { ok: true }>): string {
+  if (!result.has_execution_evidence) {
+    return "Run request was accepted but no runtime record was created.";
+  }
   if (result.httpStatus === 202 || result.data.needs_resume) {
     return "Run accepted / started. Check status below.";
   }
   if (result.data.state === "complete") {
     return "Manual run completed.";
   }
-  if (result.accepted) {
-    return "Run accepted by server. Check status below.";
-  }
-  return "Manual run accepted by server.";
+  return "Manual run started. Check status below.";
 }
 
 export async function postAutomationManualRun(
   url: string,
   body: Record<string, unknown>,
+  opts?: { localhostDryRunOnly?: boolean },
 ): Promise<ManualRunPostResult> {
   const res = await fetch(url, {
     method: "POST",
@@ -68,15 +93,35 @@ export async function postAutomationManualRun(
   }
 
   const httpStatus = res.status;
-  const httpSuccess = isAutomationManualRunHttpSuccess(httpStatus);
-  const inProgress = httpStatus === 202 || data.needs_resume === true;
 
-  if (httpSuccess && (inProgress || data.ok !== false)) {
+  if (opts?.localhostDryRunOnly) {
+    return {
+      ok: false,
+      error: "Local manual run is dry-run only / cannot execute production sync.",
+      httpStatus,
+      code: "localhost_dry_run_only",
+    };
+  }
+
+  const hasEvidence = manualRunHasExecutionEvidence(data, httpStatus);
+
+  if (isAutomationManualRunHttpSuccess(httpStatus) && hasEvidence) {
     return {
       ok: true,
       data,
       httpStatus,
-      accepted: inProgress || httpStatus === 202,
+      accepted: httpStatus === 202 || Boolean(data.needs_resume),
+      has_execution_evidence: true,
+    };
+  }
+
+  if (isAutomationManualRunHttpSuccess(httpStatus) && !hasEvidence) {
+    return {
+      ok: false,
+      error:
+        "Run request returned success HTTP status but no upload/job was created. Check server env flags and SP-API credentials.",
+      code: "no_execution_evidence",
+      httpStatus,
     };
   }
 
@@ -90,21 +135,28 @@ export async function postAutomationManualRun(
     };
   }
 
-  return { ok: true, data, httpStatus, accepted: false };
+  return {
+    ok: true,
+    data,
+    httpStatus,
+    accepted: false,
+    has_execution_evidence: hasEvidence,
+  };
 }
 
-/** Refresh runtime stats a few times after async 202 acceptance. */
-export async function pollAutomationRuntimeRefresh(
-  refresh: () => Promise<void>,
+export async function pollAutomationRuntimeRefresh<T>(
+  refresh: () => Promise<T | null | undefined>,
   opts?: { attempts?: number; intervalMs?: number },
-): Promise<void> {
+): Promise<T | null> {
   const attempts = opts?.attempts ?? 3;
   const intervalMs = opts?.intervalMs ?? 2500;
-  await refresh();
+  let last: T | null = null;
+  last = (await refresh()) ?? null;
   for (let i = 0; i < attempts; i++) {
     await new Promise((r) => setTimeout(r, intervalMs));
-    await refresh();
+    last = (await refresh()) ?? last;
   }
+  return last;
 }
 
 export function manualRunStateFromResponse(data: ImportApiRunResponse): {
@@ -119,14 +171,34 @@ export function manualRunStateFromResponse(data: ImportApiRunResponse): {
     upload_id: data.upload_id ?? null,
     source_run_id: data.source_run_id ?? null,
     needs_resume: Boolean(data.needs_resume),
-    state: data.state ?? null,
+    state: data.state ?? data.runtime_status ?? null,
     active_job_id: data.job_id ?? null,
     job_status: data.status ?? null,
   };
 }
 
+export function isLocalhostDryRunOnly(
+  runEnvironment: { manual_run_may_queue_only?: boolean } | null | undefined,
+  isLocalhost: boolean,
+): boolean {
+  return isLocalhost && Boolean(runEnvironment?.manual_run_may_queue_only);
+}
+
+export function removalRuntimeStillEmpty(runtime: {
+  last_run_at: string | null;
+  last_run_status: string;
+}): boolean {
+  return !runtime.last_run_at && runtime.last_run_status === "never";
+}
+
 export function featureFlagBlockedMessage(code: string | undefined, fallback: string): string {
   if (!code) return fallback;
+  if (code === "localhost_dry_run_only") {
+    return "Local manual run is dry-run only / cannot execute production sync.";
+  }
+  if (code === "no_execution_evidence") {
+    return "Run request was accepted but no runtime record was created.";
+  }
   if (code === "worker_disabled" || code === "reports_worker_disabled") {
     return "Amazon Reports API worker is disabled on the server. Enable ENABLE_AMAZON_REPORTS_API_WORKER.";
   }

@@ -6,6 +6,11 @@ import {
 } from "./automation-timezone-schedule";
 import { readLegacyPlatformAutomationSettings } from "./platform-automation-scope-storage";
 import {
+  applyRemovalScheduleHobbyClamp,
+  alignRemovalRecentSyncSlots,
+} from "./platform-automation-removal-schedule-clamp";
+import { isAutomationHobbyCronTierClient } from "./platform-automation-run-environment-client";
+import {
   DEFAULT_API_CARD_SCHEDULE,
   DEFAULT_PLATFORM_AUTOMATION_SETTINGS,
   DEFAULT_PRODUCT_ENRICHMENT_SCHEDULE,
@@ -54,14 +59,28 @@ function normalizeRemovalReportTypes(raw: unknown): RemovalReportType[] {
 
 function normalizeRecentSync(raw: unknown): RemovalRecentSyncSchedule {
   const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const runsPerDay = clampInt(src.runs_per_day, 1, 24, DEFAULT_PLATFORM_AUTOMATION_SETTINGS.removal_api_sync.recent_sync.runs_per_day);
-  const runHoursUtc = normalizeHours(src.run_hours_utc, runsPerDay);
+  const runsPerDay = clampInt(
+    src.runs_per_day,
+    1,
+    24,
+    DEFAULT_PLATFORM_AUTOMATION_SETTINGS.removal_api_sync.recent_sync.runs_per_day,
+  );
+  const runHoursUtc = normalizeHours(src.run_hours_utc, runsPerDay).slice(0, runsPerDay);
+
   const tzRaw = typeof src.timezone === "string" ? src.timezone.trim() : "";
-  const timezone = tzRaw && isValidIanaTimeZone(tzRaw) ? tzRaw : DEFAULT_PLATFORM_AUTOMATION_SETTINGS.removal_api_sync.recent_sync.timezone;
-  const runTimesLocal = parseLocalRunTimes(src.run_times_local, runHoursUtc);
-  const effectiveRunsPerDay = runTimesLocal.length ? runTimesLocal.length : runsPerDay;
+  const timezone =
+    tzRaw && isValidIanaTimeZone(tzRaw)
+      ? tzRaw
+      : DEFAULT_PLATFORM_AUTOMATION_SETTINGS.removal_api_sync.recent_sync.timezone;
+
+  let runTimesLocal: string[] = [];
+  if (Array.isArray(src.run_times_local)) {
+    runTimesLocal = parseLocalRunTimes(src.run_times_local, []);
+  }
+  runTimesLocal = runTimesLocal.slice(0, runsPerDay);
+
   return {
-    runs_per_day: effectiveRunsPerDay,
+    runs_per_day: runsPerDay,
     run_hours_utc: runHoursUtc,
     timezone,
     run_times_local: runTimesLocal,
@@ -147,11 +166,26 @@ function normalizeFinancesArchive(raw: unknown): FinancesArchiveApiSchedule {
 }
 
 /** Parse + validate one org/store scope; never enables schedules unless explicitly true. */
-export function normalizeStoreAutomationSettings(raw: unknown): StoreAutomationSettings {
+export function normalizeStoreAutomationSettings(
+  raw: unknown,
+  opts?: { hobbyTier?: boolean },
+): StoreAutomationSettings {
   const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const hobbyTier = opts?.hobbyTier ?? isAutomationHobbyCronTierClient();
+  let removal_api_sync = normalizeRemovalApiSync(src.removal_api_sync);
+  removal_api_sync = {
+    ...removal_api_sync,
+    recent_sync: alignRemovalRecentSyncSlots(removal_api_sync.recent_sync),
+  };
+  if (hobbyTier) {
+    removal_api_sync = {
+      ...removal_api_sync,
+      recent_sync: applyRemovalScheduleHobbyClamp(removal_api_sync.recent_sync, true).recent,
+    };
+  }
   return {
     product_enrichment: normalizeProductEnrichment(src.product_enrichment),
-    removal_api_sync: normalizeRemovalApiSync(src.removal_api_sync),
+    removal_api_sync,
     reimbursements_api: normalizeApiCard(src.reimbursements_api, DEFAULT_STORE_AUTOMATION_SETTINGS.reimbursements_api),
     settlement_api: normalizeApiCard(src.settlement_api, DEFAULT_STORE_AUTOMATION_SETTINGS.settlement_api),
     finances_archive_api: normalizeFinancesArchive(src.finances_archive_api),

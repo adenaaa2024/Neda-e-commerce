@@ -186,10 +186,10 @@ export const DEFAULT_FINANCES_ARCHIVE_SCHEDULE: FinancesArchiveApiSchedule = {
 };
 
 export const DEFAULT_REMOVAL_RECENT_SYNC: RemovalRecentSyncSchedule = {
-  runs_per_day: 2,
-  run_hours_utc: [13, 21],
+  runs_per_day: 1,
+  run_hours_utc: [21],
   timezone: "America/Los_Angeles",
-  run_times_local: [],
+  run_times_local: ["23:30"],
   rolling_days: 7,
   report_types: ["removal_order", "removal_shipment"],
   rebuild_expected_packages: true,

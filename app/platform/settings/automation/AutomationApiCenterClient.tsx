@@ -51,10 +51,12 @@ import {
 import {
   AUTOMATION_MANUAL_RUN_ROUTES,
   featureFlagBlockedMessage,
+  isLocalhostDryRunOnly,
   manualRunAcceptanceMessage,
   manualRunStateFromResponse,
   pollAutomationRuntimeRefresh,
   postAutomationManualRun,
+  removalRuntimeStillEmpty,
 } from "@/lib/platform-automation-manual-run-ui";
 import type { AutomationRunEnvironment } from "@/lib/platform-automation-run-environment";
 import {
@@ -63,6 +65,7 @@ import {
 } from "@/lib/platform-automation-run-environment-client";
 import type {
   AutomationCardManualRunState,
+  AutomationScheduleRuntime,
   StoreAutomationSettings,
   StoreAutomationSettingsView,
 } from "@/lib/platform-automation-settings-types";
@@ -119,13 +122,31 @@ function isBrowserLocalhost(): boolean {
 
 function formatManualRunMessage(
   result: Extract<Awaited<ReturnType<typeof postAutomationManualRun>>, { ok: true }>,
-  runEnvironment: AutomationRunEnvironment | null,
 ): string {
-  let msg = manualRunAcceptanceMessage(result);
-  if (runEnvironment?.manual_run_may_queue_only && isBrowserLocalhost()) {
-    msg += " Local dev: run was queued or partial — not a full production sync.";
+  return manualRunAcceptanceMessage(result);
+}
+
+function mergeRemovalRuntimeFromManualRuns(
+  base: AutomationScheduleRuntime,
+  order: AutomationCardManualRunState | undefined,
+  shipment: AutomationCardManualRunState | undefined,
+): AutomationScheduleRuntime {
+  if (base.last_run_at) return base;
+  const pick = [order, shipment].find((r) => r?.upload_id || r?.source_run_id);
+  if (!pick?.upload_id && !pick?.source_run_id) return base;
+  const state = String(pick.state ?? "").toLowerCase();
+  let status = base.last_run_status;
+  if (status === "never") {
+    if (state === "complete") status = "success";
+    else if (state === "failed") status = "failed";
+    else status = "running";
   }
-  return msg;
+  return {
+    ...base,
+    last_run_at: new Date().toISOString(),
+    last_run_status: status,
+    last_error: pick.last_error ?? base.last_error,
+  };
 }
 
 export function AutomationApiCenterClient() {
@@ -162,8 +183,8 @@ export function AutomationApiCenterClient() {
   }, []);
 
   const loadSettings = useCallback(
-    async (organizationId: string, selectedStoreId: string) => {
-      if (!organizationId || !selectedStoreId) return;
+    async (organizationId: string, selectedStoreId: string): Promise<StoreAutomationSettingsView | null> => {
+      if (!organizationId || !selectedStoreId) return null;
       setScopeLoading(true);
       setError(null);
       const res = await getPlatformAutomationSettingsAction({
@@ -173,11 +194,12 @@ export function AutomationApiCenterClient() {
       setScopeLoading(false);
       if (res.accessDenied) {
         setAccessDenied(res.accessDenied);
-        return;
+        return null;
       }
       setView(res.view);
       setRunEnvironment(res.runEnvironment);
       hydrateDraft(res.view);
+      return res.view;
     },
     [hydrateDraft],
   );
@@ -309,6 +331,15 @@ export function AutomationApiCenterClient() {
     };
   }, [view, manualRunOverride]);
 
+  const effectiveRemovalRuntime = useMemo(() => {
+    if (!view) return null;
+    return mergeRemovalRuntimeFromManualRuns(
+      view.runtime.removal_api_sync.recent,
+      effectiveManualRuns?.removal_order,
+      effectiveManualRuns?.removal_shipment,
+    );
+  }, [view, effectiveManualRuns]);
+
   const updateDraft = useCallback((patch: Partial<StoreAutomationSettings>) => {
     setDraft((cur) => (cur ? normalizeStoreAutomationSettings({ ...cur, ...patch }) : cur));
   }, []);
@@ -331,13 +362,26 @@ export function AutomationApiCenterClient() {
     }
     setView(res.view);
     hydrateDraft(res.view);
-    setMessage("Settings saved for this company and store. Cron is not enabled from this page.");
+    const enabled = res.view.removal_api_sync.enabled;
+    setMessage(
+      enabled
+        ? "Settings saved. Schedule is enabled — next run is shown below."
+        : "Settings saved for this company and store.",
+    );
   }
 
-  async function refreshView() {
-    if (orgId && storeId) {
-      setManualRunOverride({});
-      await loadSettings(orgId, storeId);
+  async function refreshView(): Promise<StoreAutomationSettingsView | null> {
+    if (!orgId || !storeId) return null;
+    return loadSettings(orgId, storeId);
+  }
+
+  function warnIfRemovalRuntimeEmptyAfterRun(
+    latestView: StoreAutomationSettingsView | null,
+    executionUploadId: string | null,
+  ) {
+    if (!latestView || executionUploadId) return;
+    if (removalRuntimeStillEmpty(latestView.runtime.removal_api_sync.recent)) {
+      setError("Run request was accepted but no runtime record was created.");
     }
   }
 
@@ -346,12 +390,15 @@ export function AutomationApiCenterClient() {
     url: string,
     body: Record<string, unknown>,
     busyKey: string,
+    opts?: { verifyRemovalRuntime?: boolean },
   ): Promise<boolean> {
     if (!orgId || !storeId) return false;
     setManualBusy(busyKey);
     setError(null);
     try {
-      const result = await postAutomationManualRun(url, body);
+      const result = await postAutomationManualRun(url, body, {
+        localhostDryRunOnly: isLocalhostDryRunOnly(runEnvironment, isBrowserLocalhost()),
+      });
       if (!result.ok) {
         setError(featureFlagBlockedMessage(result.code, result.error));
         return false;
@@ -366,11 +413,16 @@ export function AutomationApiCenterClient() {
           last_error: null,
         },
       }));
-      setMessage(formatManualRunMessage(result, runEnvironment));
+      setMessage(formatManualRunMessage(result));
+      let latestView: StoreAutomationSettingsView | null = null;
+      const executionUploadId = patch.upload_id ?? patch.source_run_id;
       if (result.httpStatus === 202 || result.accepted) {
-        await pollAutomationRuntimeRefresh(refreshView);
+        latestView = await pollAutomationRuntimeRefresh(refreshView);
       } else {
-        await refreshView();
+        latestView = await refreshView();
+      }
+      if (opts?.verifyRemovalRuntime) {
+        warnIfRemovalRuntimeEmptyAfterRun(latestView, executionUploadId);
       }
       return true;
     } finally {
@@ -498,41 +550,45 @@ export function AutomationApiCenterClient() {
     }
     setManualBusy("removal");
     setError(null);
+    const dryRunOnly = isLocalhostDryRunOnly(runEnvironment, isBrowserLocalhost());
     try {
-      let anyAccepted = false;
+      const messages: string[] = [];
+      let executionUploadId: string | null = null;
       for (const [key, route] of [
         ["removal_order", AUTOMATION_MANUAL_RUN_ROUTES.removal_order_run] as const,
         ["removal_shipment", AUTOMATION_MANUAL_RUN_ROUTES.removal_shipment_run] as const,
       ]) {
         const uploadId = effectiveManualRuns?.[key as ManualRunKey]?.upload_id;
-        const result = await postAutomationManualRun(route, {
-          organization_id: orgId,
-          store_id: storeId,
-          window_start: win.window_start,
-          window_end: win.window_end,
-          upload_id: uploadId,
-        });
+        const result = await postAutomationManualRun(
+          route,
+          {
+            organization_id: orgId,
+            store_id: storeId,
+            window_start: win.window_start,
+            window_end: win.window_end,
+            upload_id: uploadId,
+          },
+          { localhostDryRunOnly: dryRunOnly },
+        );
         if (!result.ok) {
           setError(featureFlagBlockedMessage(result.code, result.error));
           return;
         }
+        const patch = manualRunStateFromResponse(result.data);
+        executionUploadId = patch.upload_id ?? patch.source_run_id ?? executionUploadId;
         setManualRunOverride((prev) => ({
           ...prev,
           [key]: {
             ...view?.manual_runs[key as ManualRunKey],
-            ...manualRunStateFromResponse(result.data),
+            ...patch,
             last_error: null,
           },
         }));
-        if (result.httpStatus === 202 || result.accepted) anyAccepted = true;
+        messages.push(manualRunAcceptanceMessage(result));
       }
-      setMessage(
-        anyAccepted
-          ? `Run accepted / started. Check status below.${runEnvironment?.manual_run_may_queue_only && isBrowserLocalhost() ? " Local dev: queued only." : ""}`
-          : "Removal order and shipment manual runs accepted.",
-      );
-      if (anyAccepted) await pollAutomationRuntimeRefresh(refreshView);
-      else await refreshView();
+      setMessage(messages[0] ?? "Manual run started. Check status below.");
+      const latestView = await pollAutomationRuntimeRefresh(refreshView);
+      warnIfRemovalRuntimeEmptyAfterRun(latestView, executionUploadId);
     } finally {
       setManualBusy(null);
     }
@@ -847,7 +903,10 @@ export function AutomationApiCenterClient() {
                     value={draft.removal_api_sync.recent_sync.runs_per_day}
                     onChange={(e) => {
                       const raw = Number(e.target.value);
-                      const runs = hobbyCronTier ? Math.min(1, raw) : raw;
+                      if (hobbyCronTier && raw > 1) {
+                        setMessage("Runs per day corrected to 1 for Vercel Hobby.");
+                      }
+                      const runs = hobbyCronTier ? 1 : raw;
                       updateDraft({
                         removal_api_sync: {
                           ...draft.removal_api_sync,
@@ -913,13 +972,15 @@ export function AutomationApiCenterClient() {
                     onChange={(e) => {
                       const maxTimes = hobbyCronTier ? 1 : draft.removal_api_sync.recent_sync.runs_per_day;
                       const parsed = parseLocalRunTimesFromInput(e.target.value, maxTimes);
+                      if (hobbyCronTier && e.target.value.includes(",")) {
+                        setMessage("Only one local run time is kept on Vercel Hobby.");
+                      }
                       updateDraft({
                         removal_api_sync: {
                           ...draft.removal_api_sync,
                           recent_sync: {
                             ...draft.removal_api_sync.recent_sync,
                             run_times_local: parsed,
-                            runs_per_day: parsed.length || draft.removal_api_sync.recent_sync.runs_per_day,
                           },
                         },
                       });
@@ -1111,7 +1172,7 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.removal_api_sync.enabled}
-                runtime={view.runtime.removal_api_sync.recent}
+                runtime={effectiveRemovalRuntime ?? view.runtime.removal_api_sync.recent}
                 nextRun={draft.removal_api_sync.enabled ? draftNextRuns.removal : null}
                 scheduleSource="Platform settings → removal_api_sync (Vercel daily wake 08:00 UTC on Hobby)"
               />
