@@ -28,7 +28,7 @@ function authorized(req: Request): boolean {
 
 /**
  * Vercel wake-up route — execution gated by platform_settings automation schedule.
- * Vercel cron: frequent wake (see vercel.json); business schedule from DB only.
+ * Vercel cron: daily wake (see vercel.json); business schedule from DB only.
  */
 export async function GET(req: Request): Promise<Response> {
   if (!authorized(req)) {

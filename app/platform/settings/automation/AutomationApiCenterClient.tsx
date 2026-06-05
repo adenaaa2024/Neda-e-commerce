@@ -36,6 +36,7 @@ import {
   formatHoursUtcForInput,
   formatLocalRunTimesForInput,
   isAnyStoreAutomationScheduleEnabled,
+  normalizeStoreAutomationSettings,
   parseHoursUtcFromInput,
   parseLocalRunTimesFromInput,
 } from "@/lib/platform-automation-schedule";
@@ -50,9 +51,16 @@ import {
 import {
   AUTOMATION_MANUAL_RUN_ROUTES,
   featureFlagBlockedMessage,
+  manualRunAcceptanceMessage,
   manualRunStateFromResponse,
+  pollAutomationRuntimeRefresh,
   postAutomationManualRun,
 } from "@/lib/platform-automation-manual-run-ui";
+import type { AutomationRunEnvironment } from "@/lib/platform-automation-run-environment";
+import {
+  hobbyRemovalScheduleWarning,
+  isAutomationHobbyCronTierClient,
+} from "@/lib/platform-automation-run-environment-client";
 import type {
   AutomationCardManualRunState,
   StoreAutomationSettings,
@@ -104,6 +112,22 @@ function resolveWindow(startDate: string, endDate: string): { window_start: stri
   return w;
 }
 
+function isBrowserLocalhost(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+}
+
+function formatManualRunMessage(
+  result: Extract<Awaited<ReturnType<typeof postAutomationManualRun>>, { ok: true }>,
+  runEnvironment: AutomationRunEnvironment | null,
+): string {
+  let msg = manualRunAcceptanceMessage(result);
+  if (runEnvironment?.manual_run_may_queue_only && isBrowserLocalhost()) {
+    msg += " Local dev: run was queued or partial — not a full production sync.";
+  }
+  return msg;
+}
+
 export function AutomationApiCenterClient() {
   const [loading, setLoading] = useState(true);
   const [scopeLoading, setScopeLoading] = useState(false);
@@ -122,15 +146,19 @@ export function AutomationApiCenterClient() {
     Partial<StoreAutomationSettingsView["manual_runs"]>
   >({});
   const [apiReportType, setApiReportType] = useState<AutomationApiReportType>("product_data_update");
+  const [runEnvironment, setRunEnvironment] = useState<AutomationRunEnvironment | null>(null);
+  const hobbyCronTier = isAutomationHobbyCronTierClient();
 
   const hydrateDraft = useCallback((v: StoreAutomationSettingsView) => {
-    setDraft({
-      product_enrichment: v.product_enrichment,
-      removal_api_sync: v.removal_api_sync,
-      reimbursements_api: v.reimbursements_api,
-      settlement_api: v.settlement_api,
-      finances_archive_api: v.finances_archive_api,
-    });
+    setDraft(
+      normalizeStoreAutomationSettings({
+        product_enrichment: v.product_enrichment,
+        removal_api_sync: v.removal_api_sync,
+        reimbursements_api: v.reimbursements_api,
+        settlement_api: v.settlement_api,
+        finances_archive_api: v.finances_archive_api,
+      }),
+    );
   }, []);
 
   const loadSettings = useCallback(
@@ -148,6 +176,7 @@ export function AutomationApiCenterClient() {
         return;
       }
       setView(res.view);
+      setRunEnvironment(res.runEnvironment);
       hydrateDraft(res.view);
     },
     [hydrateDraft],
@@ -197,7 +226,7 @@ export function AutomationApiCenterClient() {
       const pick =
         stored.orgId === orgId && stored.storeId && list.some((s) => s.id === stored.storeId)
           ? stored.storeId
-          : list.find((s) => s.platform.toLowerCase().includes("amazon"))?.id ?? list[0]?.id ?? "";
+          : list.find((s) => (s.platform ?? "").toLowerCase().includes("amazon"))?.id ?? list[0]?.id ?? "";
       setStoreId(pick);
     })();
     return () => {
@@ -247,6 +276,15 @@ export function AutomationApiCenterClient() {
     };
   }, [draft]);
 
+  const removalHobbyWarning = useMemo(() => {
+    if (!draft || !hobbyCronTier) return null;
+    return hobbyRemovalScheduleWarning({
+      runs_per_day: draft.removal_api_sync.recent_sync.runs_per_day,
+      run_times_local: draft.removal_api_sync.recent_sync.run_times_local,
+      run_hours_utc: draft.removal_api_sync.recent_sync.run_hours_utc,
+    });
+  }, [draft, hobbyCronTier]);
+
   const savePreview = useMemo(
     () => (draft ? buildStoreAutomationSavePreview(draft) : null),
     [draft],
@@ -272,7 +310,7 @@ export function AutomationApiCenterClient() {
   }, [view, manualRunOverride]);
 
   const updateDraft = useCallback((patch: Partial<StoreAutomationSettings>) => {
-    setDraft((cur) => (cur ? { ...cur, ...patch } : cur));
+    setDraft((cur) => (cur ? normalizeStoreAutomationSettings({ ...cur, ...patch }) : cur));
   }, []);
 
   async function onSave(e: React.FormEvent) {
@@ -328,12 +366,12 @@ export function AutomationApiCenterClient() {
           last_error: null,
         },
       }));
-      setMessage(
-        result.data.needs_resume
-          ? "Run started — resume when ready to continue the import."
-          : "Manual run accepted by server.",
-      );
-      await refreshView();
+      setMessage(formatManualRunMessage(result, runEnvironment));
+      if (result.httpStatus === 202 || result.accepted) {
+        await pollAutomationRuntimeRefresh(refreshView);
+      } else {
+        await refreshView();
+      }
       return true;
     } finally {
       setManualBusy(null);
@@ -461,6 +499,7 @@ export function AutomationApiCenterClient() {
     setManualBusy("removal");
     setError(null);
     try {
+      let anyAccepted = false;
       for (const [key, route] of [
         ["removal_order", AUTOMATION_MANUAL_RUN_ROUTES.removal_order_run] as const,
         ["removal_shipment", AUTOMATION_MANUAL_RUN_ROUTES.removal_shipment_run] as const,
@@ -485,9 +524,15 @@ export function AutomationApiCenterClient() {
             last_error: null,
           },
         }));
+        if (result.httpStatus === 202 || result.accepted) anyAccepted = true;
       }
-      setMessage("Removal order and shipment manual runs started.");
-      await refreshView();
+      setMessage(
+        anyAccepted
+          ? `Run accepted / started. Check status below.${runEnvironment?.manual_run_may_queue_only && isBrowserLocalhost() ? " Local dev: queued only." : ""}`
+          : "Removal order and shipment manual runs accepted.",
+      );
+      if (anyAccepted) await pollAutomationRuntimeRefresh(refreshView);
+      else await refreshView();
     } finally {
       setManualBusy(null);
     }
@@ -618,6 +663,13 @@ export function AutomationApiCenterClient() {
           onApiReportTypeChange={handleApiReportTypeChange}
           scopeLoading={scopeLoading}
         />
+
+        {isBrowserLocalhost() && runEnvironment?.local_warning ? (
+          <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-950 dark:text-sky-50">
+            <p className="font-medium">Local development</p>
+            <p className="mt-1 text-xs">{runEnvironment.local_warning}</p>
+          </div>
+        ) : null}
 
         {!scopeReady ? (
           <div className="rounded-xl border border-border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
@@ -761,6 +813,21 @@ export function AutomationApiCenterClient() {
               </div>
             </div>
             {flags ? <FeatureFlagBanner warning={removalFlagWarning(flags)} /> : null}
+            {hobbyCronTier ? (
+              <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-50">
+                <p className="font-medium">Vercel Hobby cron</p>
+                <p className="mt-1">
+                  Scheduled wake is limited to once per day on Hobby. Use <strong>Runs per day = 1</strong> and one
+                  local run time, or set <code className="text-[10px]">NEXT_PUBLIC_AUTOMATION_VERCEL_CRON_TIER=pro</code>{" "}
+                  for frequent wakes.
+                </p>
+              </div>
+            ) : null}
+            {removalHobbyWarning ? (
+              <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-xs text-amber-950 dark:text-amber-50">
+                {removalHobbyWarning}
+              </div>
+            ) : null}
             <div className="mt-4 space-y-4">
               <EnabledToggle
                 checked={draft.removal_api_sync.enabled}
@@ -776,19 +843,21 @@ export function AutomationApiCenterClient() {
                   <input
                     type="number"
                     min={1}
-                    max={24}
+                    max={hobbyCronTier ? 1 : 24}
                     value={draft.removal_api_sync.recent_sync.runs_per_day}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const runs = hobbyCronTier ? Math.min(1, raw) : raw;
                       updateDraft({
                         removal_api_sync: {
                           ...draft.removal_api_sync,
                           recent_sync: {
                             ...draft.removal_api_sync.recent_sync,
-                            runs_per_day: Number(e.target.value),
+                            runs_per_day: runs,
                           },
                         },
-                      })
-                    }
+                      });
+                    }}
                     className={`${responsiveFormInput} mt-1.5`}
                   />
                 </label>
@@ -841,28 +910,26 @@ export function AutomationApiCenterClient() {
                     type="text"
                     placeholder="23:30, 06:00"
                     value={formatLocalRunTimesForInput(draft.removal_api_sync.recent_sync.run_times_local)}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const maxTimes = hobbyCronTier ? 1 : draft.removal_api_sync.recent_sync.runs_per_day;
+                      const parsed = parseLocalRunTimesFromInput(e.target.value, maxTimes);
                       updateDraft({
                         removal_api_sync: {
                           ...draft.removal_api_sync,
                           recent_sync: {
                             ...draft.removal_api_sync.recent_sync,
-                            run_times_local: parseLocalRunTimesFromInput(
-                              e.target.value,
-                              draft.removal_api_sync.recent_sync.runs_per_day,
-                            ),
-                            runs_per_day: parseLocalRunTimesFromInput(
-                              e.target.value,
-                              draft.removal_api_sync.recent_sync.runs_per_day,
-                            ).length || draft.removal_api_sync.recent_sync.runs_per_day,
+                            run_times_local: parsed,
+                            runs_per_day: parsed.length || draft.removal_api_sync.recent_sync.runs_per_day,
                           },
                         },
-                      })
-                    }
+                      });
+                    }}
                     className={`${responsiveFormInput} mt-1.5`}
                   />
                   <span className="mt-1 block text-[11px] text-muted-foreground">
-                    HH:MM in timezone below. Vercel cron wakes every 15 min; runs only in these slots.
+                    HH:MM in timezone below. On Vercel Hobby the route wakes once daily (~08:00 UTC);
+                    runs only when a slot falls in that wake window. For multiple runs/day use Vercel Pro
+                    cron, an external scheduler hitting /api/cron/removal-nightly-sync, or Supabase pg_cron/pg_net.
                   </span>
                 </label>
                 <label className="block text-sm">
@@ -890,7 +957,7 @@ export function AutomationApiCenterClient() {
                   <input
                     type="number"
                     min={60}
-                    max={900}
+                    max={3600}
                     value={draft.removal_api_sync.recent_sync.max_runtime_seconds}
                     onChange={(e) =>
                       updateDraft({
@@ -1046,7 +1113,7 @@ export function AutomationApiCenterClient() {
                 enabled={draft.removal_api_sync.enabled}
                 runtime={view.runtime.removal_api_sync.recent}
                 nextRun={draft.removal_api_sync.enabled ? draftNextRuns.removal : null}
-                scheduleSource="Platform settings → removal_api_sync (Vercel wake */15 min)"
+                scheduleSource="Platform settings → removal_api_sync (Vercel daily wake 08:00 UTC on Hobby)"
               />
             </div>
           </section>

@@ -232,8 +232,8 @@ function inputTimeZoneSafe(tz: string): string {
   return isValidIanaTimeZone(tz) ? tz : "UTC";
 }
 
-export function formatLocalRunTimesForInput(times: string[]): string {
-  return times.join(", ");
+export function formatLocalRunTimesForInput(times: string[] | null | undefined): string {
+  return (times ?? []).join(", ");
 }
 
 export function parseLocalRunTimesFromInput(text: string, maxCount: number): string[] {

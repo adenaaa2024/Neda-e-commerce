@@ -16,6 +16,10 @@ import {
 } from "../lib/platform-automation-scope-storage";
 import {
   computeApiCardNextRun,
+  computeRemovalRecentNextRun,
+  formatLocalRunTimesForInput,
+  isAnyStoreAutomationScheduleEnabled,
+  normalizeAutomationSettingsInput,
   normalizeStoreAutomationSettings,
 } from "../lib/platform-automation-schedule";
 import { DEFAULT_STORE_AUTOMATION_SETTINGS } from "../lib/platform-automation-settings-types";
@@ -115,18 +119,44 @@ function scheduleChecks(): void {
   assert.equal(next!.getUTCHours(), 14);
 }
 
+function normalizationChecks(): void {
+  assert.equal(normalizeAutomationSettingsInput, normalizeStoreAutomationSettings);
+
+  const nullScope = readStoreAutomationSettings(null, ORG, STORE);
+  assert.ok(nullScope.removal_api_sync.recent_sync.run_times_local);
+  assert.ok(nullScope.removal_api_sync.cron_runtime);
+
+  const partial = normalizeStoreAutomationSettings({
+    removal_api_sync: { enabled: true },
+  });
+  assert.equal(partial.removal_api_sync.enabled, true);
+  assert.ok(Array.isArray(partial.removal_api_sync.recent_sync.report_types));
+  assert.ok(partial.removal_api_sync.cron_runtime);
+
+  computeRemovalRecentNextRun({ enabled: true } as never);
+  formatLocalRunTimesForInput(undefined);
+  assert.equal(isAnyStoreAutomationScheduleEnabled({ removal_api_sync: { enabled: true } } as never), true);
+
+  const client = readFileSync(
+    join(process.cwd(), "app/platform/settings/automation/AutomationApiCenterClient.tsx"),
+    "utf8",
+  );
+  assert.match(client, /normalizeStoreAutomationSettings/);
+}
+
 function main(): void {
   staticChecks();
   accessChecks();
   scopeStorageChecks();
   flagChecks();
   scheduleChecks();
+  normalizationChecks();
   console.log(
     JSON.stringify(
       {
         ok: true,
         prompt: "AUTOMATION-API-CENTER-UI-PHASE1",
-        checks: ["static", "access", "scope_storage", "flags", "schedule", "imports_unchanged"],
+        checks: ["static", "access", "scope_storage", "flags", "schedule", "normalization", "imports_unchanged"],
         safe_to_continue: true,
       },
       null,

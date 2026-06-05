@@ -194,7 +194,7 @@ export const DEFAULT_REMOVAL_RECENT_SYNC: RemovalRecentSyncSchedule = {
   report_types: ["removal_order", "removal_shipment"],
   rebuild_expected_packages: true,
   retry_on_failure: true,
-  max_runtime_seconds: 300,
+  max_runtime_seconds: 1800,
   ...DEFAULT_MANUAL_WINDOW,
 };
 

@@ -29,8 +29,26 @@ export const AUTOMATION_MANUAL_RUN_ROUTES = {
 } as const;
 
 export type ManualRunPostResult =
-  | { ok: true; data: ImportApiRunResponse; httpStatus: number }
+  | { ok: true; data: ImportApiRunResponse; httpStatus: number; accepted: boolean }
   | { ok: false; error: string; code?: string; httpStatus: number };
+
+/** 200–202 are success for async report workers (202 = accepted / in progress). */
+export function isAutomationManualRunHttpSuccess(status: number): boolean {
+  return status >= 200 && status <= 202;
+}
+
+export function manualRunAcceptanceMessage(result: Extract<ManualRunPostResult, { ok: true }>): string {
+  if (result.httpStatus === 202 || result.data.needs_resume) {
+    return "Run accepted / started. Check status below.";
+  }
+  if (result.data.state === "complete") {
+    return "Manual run completed.";
+  }
+  if (result.accepted) {
+    return "Run accepted by server. Check status below.";
+  }
+  return "Manual run accepted by server.";
+}
 
 export async function postAutomationManualRun(
   url: string,
@@ -49,17 +67,44 @@ export async function postAutomationManualRun(
     data = {};
   }
 
+  const httpStatus = res.status;
+  const httpSuccess = isAutomationManualRunHttpSuccess(httpStatus);
+  const inProgress = httpStatus === 202 || data.needs_resume === true;
+
+  if (httpSuccess && (inProgress || data.ok !== false)) {
+    return {
+      ok: true,
+      data,
+      httpStatus,
+      accepted: inProgress || httpStatus === 202,
+    };
+  }
+
   if (!res.ok || data.ok === false) {
-    const err = String(data.error ?? `Request failed (${res.status}).`);
+    const err = String(data.error ?? `Request failed (${httpStatus}).`);
     return {
       ok: false,
       error: err,
       code: typeof data.code === "string" ? data.code : undefined,
-      httpStatus: res.status,
+      httpStatus,
     };
   }
 
-  return { ok: true, data, httpStatus: res.status };
+  return { ok: true, data, httpStatus, accepted: false };
+}
+
+/** Refresh runtime stats a few times after async 202 acceptance. */
+export async function pollAutomationRuntimeRefresh(
+  refresh: () => Promise<void>,
+  opts?: { attempts?: number; intervalMs?: number },
+): Promise<void> {
+  const attempts = opts?.attempts ?? 3;
+  const intervalMs = opts?.intervalMs ?? 2500;
+  await refresh();
+  for (let i = 0; i < attempts; i++) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    await refresh();
+  }
 }
 
 export function manualRunStateFromResponse(data: ImportApiRunResponse): {

@@ -14,6 +14,7 @@ import type {
 } from "../../../lib/platform-automation-settings-types";
 import { supabaseServer } from "../../../lib/supabase-server";
 import { isUuidString } from "../../../lib/uuid";
+import { buildAutomationRunEnvironment, type AutomationRunEnvironment } from "../../../lib/platform-automation-run-environment";
 import { getAuthenticatedPlatformRoleKey } from "./platform-settings-actions";
 
 type AccessDenied = "not_authenticated" | "forbidden";
@@ -89,7 +90,7 @@ export async function listPlatformAutomationStoresAction(
 
 export type StoreAutomationSettingsActionResult =
   | { accessDenied: AccessDenied }
-  | { accessDenied: null; view: StoreAutomationSettingsView };
+  | { accessDenied: null; view: StoreAutomationSettingsView; runEnvironment: AutomationRunEnvironment };
 
 export async function getPlatformAutomationSettingsAction(args: {
   organizationId: string;
@@ -101,7 +102,11 @@ export async function getPlatformAutomationSettingsAction(args: {
   const organizationId = args.organizationId.trim();
   const storeId = args.storeId.trim();
   if (!isUuidString(organizationId) || !isUuidString(storeId)) {
-    return { accessDenied: null, view: emptyStoreAutomationView(organizationId, storeId) };
+    return {
+      accessDenied: null,
+      view: emptyStoreAutomationView(organizationId, storeId),
+      runEnvironment: buildAutomationRunEnvironment(),
+    };
   }
 
   const { data, error } = await supabaseServer
@@ -112,7 +117,11 @@ export async function getPlatformAutomationSettingsAction(args: {
 
   if (error) {
     console.error("[getPlatformAutomationSettingsAction]", error.message);
-    return { accessDenied: null, view: emptyStoreAutomationView(organizationId, storeId) };
+    return {
+      accessDenied: null,
+      view: emptyStoreAutomationView(organizationId, storeId),
+      runEnvironment: buildAutomationRunEnvironment(),
+    };
   }
 
   const row = data as { automation_settings?: unknown; updated_at?: string } | null;
@@ -123,7 +132,11 @@ export async function getPlatformAutomationSettingsAction(args: {
     storeId,
     typeof row?.updated_at === "string" ? row.updated_at : null,
   );
-  return { accessDenied: null, view };
+  return {
+    accessDenied: null,
+    view,
+    runEnvironment: buildAutomationRunEnvironment(),
+  };
 }
 
 export async function savePlatformAutomationSettingsAction(args: {

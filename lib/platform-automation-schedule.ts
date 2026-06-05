@@ -8,13 +8,18 @@ import { readLegacyPlatformAutomationSettings } from "./platform-automation-scop
 import {
   DEFAULT_API_CARD_SCHEDULE,
   DEFAULT_PLATFORM_AUTOMATION_SETTINGS,
+  DEFAULT_PRODUCT_ENRICHMENT_SCHEDULE,
+  DEFAULT_REMOVAL_API_SYNC_SCHEDULE,
+  DEFAULT_REMOVAL_RECENT_SYNC,
   DEFAULT_STORE_AUTOMATION_SETTINGS,
+  EMPTY_REMOVAL_CRON_RUNTIME,
   type ApiAutomationCardSchedule,
   type FinancesArchiveApiSchedule,
   type ManualWindowFields,
   type PlatformAutomationSettings,
   type ProductEnrichmentSchedule,
   type RemovalApiSyncSchedule,
+  type RemovalCronRuntimeState,
   type RemovalHistoricalBackfillSchedule,
   type RemovalRecentSyncSchedule,
   type RemovalReportType,
@@ -72,7 +77,7 @@ function normalizeRecentSync(raw: unknown): RemovalRecentSyncSchedule {
     max_runtime_seconds: clampInt(
       src.max_runtime_seconds,
       60,
-      900,
+      3600,
       DEFAULT_PLATFORM_AUTOMATION_SETTINGS.removal_api_sync.recent_sync.max_runtime_seconds,
     ),
     ...normalizeManualWindow(src),
@@ -153,31 +158,36 @@ export function normalizeStoreAutomationSettings(raw: unknown): StoreAutomationS
   };
 }
 
+/** Single entry for UI, cron, and persistence read paths (null / v1 / partial v2). */
+export const normalizeAutomationSettingsInput = normalizeStoreAutomationSettings;
+
+function normalizeRemovalCronRuntime(raw: unknown): RemovalCronRuntimeState {
+  if (!raw || typeof raw !== "object") {
+    return { ...EMPTY_REMOVAL_CRON_RUNTIME };
+  }
+  const c = raw as Record<string, unknown>;
+  const status = String(c.last_run_status ?? "never");
+  return {
+    last_run_at: typeof c.last_run_at === "string" ? c.last_run_at : null,
+    last_success_at: typeof c.last_success_at === "string" ? c.last_success_at : null,
+    last_failed_at: typeof c.last_failed_at === "string" ? c.last_failed_at : null,
+    last_run_status:
+      status === "success" || status === "failed" || status === "running" || status === "partial"
+        ? status
+        : "never",
+    last_error: typeof c.last_error === "string" ? c.last_error : null,
+    next_run_at: typeof c.next_run_at === "string" ? c.next_run_at : null,
+    last_slot_key: typeof c.last_slot_key === "string" ? c.last_slot_key : null,
+  };
+}
+
 function normalizeRemovalApiSync(raw: unknown): RemovalApiSyncSchedule {
   const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const cronRaw = src.cron_runtime;
-  let cron_runtime: RemovalApiSyncSchedule["cron_runtime"];
-  if (cronRaw && typeof cronRaw === "object") {
-    const c = cronRaw as Record<string, unknown>;
-    const status = String(c.last_run_status ?? "never");
-    cron_runtime = {
-      last_run_at: typeof c.last_run_at === "string" ? c.last_run_at : null,
-      last_success_at: typeof c.last_success_at === "string" ? c.last_success_at : null,
-      last_failed_at: typeof c.last_failed_at === "string" ? c.last_failed_at : null,
-      last_run_status:
-        status === "success" || status === "failed" || status === "running" || status === "partial"
-          ? status
-          : "never",
-      last_error: typeof c.last_error === "string" ? c.last_error : null,
-      next_run_at: typeof c.next_run_at === "string" ? c.next_run_at : null,
-      last_slot_key: typeof c.last_slot_key === "string" ? c.last_slot_key : null,
-    };
-  }
   return {
     enabled: src.enabled === true,
     recent_sync: normalizeRecentSync(src.recent_sync),
     historical_backfill: normalizeHistorical(src.historical_backfill),
-    ...(cron_runtime ? { cron_runtime } : {}),
+    cron_runtime: normalizeRemovalCronRuntime(src.cron_runtime),
   };
 }
 
@@ -244,12 +254,14 @@ export function computeRemovalRecentNextRun(
   schedule: RemovalApiSyncSchedule,
   now: Date = new Date(),
 ): Date | null {
-  if (!schedule.enabled) return null;
-  const rs = schedule.recent_sync;
-  if (rs.run_times_local.length) {
-    return computeNextLocalDailyRunUtc(rs.timezone, rs.run_times_local, now);
+  if (!schedule?.enabled) return null;
+  const rs = schedule.recent_sync ?? DEFAULT_REMOVAL_RECENT_SYNC;
+  const localTimes = Array.isArray(rs.run_times_local) ? rs.run_times_local : [];
+  if (localTimes.length) {
+    return computeNextLocalDailyRunUtc(rs.timezone ?? DEFAULT_REMOVAL_RECENT_SYNC.timezone, localTimes, now);
   }
-  return computeNextDailyRunUtc(true, rs.run_hours_utc, now);
+  const hours = Array.isArray(rs.run_hours_utc) ? rs.run_hours_utc : DEFAULT_REMOVAL_RECENT_SYNC.run_hours_utc;
+  return computeNextDailyRunUtc(true, hours, now);
 }
 
 export { parseLocalRunTimesFromInput, formatLocalRunTimesForInput } from "./automation-timezone-schedule";
@@ -258,8 +270,8 @@ export function computeRemovalHistoricalNextRun(
   schedule: RemovalApiSyncSchedule,
   now: Date = new Date(),
 ): Date | null {
-  if (!schedule.enabled || !schedule.historical_backfill.enabled) return null;
-  const hb = schedule.historical_backfill;
+  const hb = schedule?.historical_backfill;
+  if (!schedule?.enabled || !hb?.enabled) return null;
   return computeNextWeeklyRunUtc(true, hb.run_day_of_week, hb.run_hour_utc, now);
 }
 
@@ -273,26 +285,26 @@ export function computeApiCardNextRun(
 /** True when any automation schedule would fire (used by schedulers — all off by default). */
 export function isAnyAutomationScheduleEnabled(settings: PlatformAutomationSettings): boolean {
   return (
-    settings.product_enrichment.enabled ||
-    settings.removal_api_sync.enabled ||
-    settings.removal_api_sync.historical_backfill.enabled
+    settings?.product_enrichment?.enabled === true ||
+    settings?.removal_api_sync?.enabled === true ||
+    settings?.removal_api_sync?.historical_backfill?.enabled === true
   );
 }
 
 export function isAnyStoreAutomationScheduleEnabled(settings: StoreAutomationSettings): boolean {
   return (
     isAnyAutomationScheduleEnabled({
-      product_enrichment: settings.product_enrichment,
-      removal_api_sync: settings.removal_api_sync,
+      product_enrichment: settings?.product_enrichment ?? DEFAULT_PRODUCT_ENRICHMENT_SCHEDULE,
+      removal_api_sync: settings?.removal_api_sync ?? DEFAULT_REMOVAL_API_SYNC_SCHEDULE,
     }) ||
-    settings.reimbursements_api.enabled ||
-    settings.settlement_api.enabled ||
-    settings.finances_archive_api.enabled
+    settings?.reimbursements_api?.enabled === true ||
+    settings?.settlement_api?.enabled === true ||
+    settings?.finances_archive_api?.enabled === true
   );
 }
 
-export function formatHoursUtcForInput(hours: number[]): string {
-  return hours.map((h) => String(h).padStart(2, "0") + ":00").join(", ");
+export function formatHoursUtcForInput(hours: number[] | null | undefined): string {
+  return (hours ?? []).map((h) => String(h).padStart(2, "0") + ":00").join(", ");
 }
 
 export function parseHoursUtcFromInput(text: string, runsPerDay: number): number[] {

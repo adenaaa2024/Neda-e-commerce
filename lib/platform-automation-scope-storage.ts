@@ -60,7 +60,7 @@ export function readStoreAutomationSettings(
 ): StoreAutomationSettings {
   const doc = parseAutomationPersisted(raw);
   const key = automationScopeKey(organizationId, storeId);
-  return doc.scopes[key] ?? DEFAULT_STORE_AUTOMATION_SETTINGS;
+  return normalizeStoreAutomationSettings(doc.scopes[key] ?? DEFAULT_STORE_AUTOMATION_SETTINGS);
 }
 
 export function writeStoreAutomationSettings(

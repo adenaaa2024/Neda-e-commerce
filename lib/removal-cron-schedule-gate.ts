@@ -17,7 +17,8 @@ import { productionPostgresUrl } from "./production-db-bind";
 import { readRemovalCronRuntimeFromPg } from "./removal-cron-runtime-storage";
 import { supabaseServer } from "./supabase-server";
 
-export const VERCEL_REMOVAL_CRON_WAKE_SCHEDULE = "*/15 * * * *";
+/** Vercel Hobby: daily cron only. Business slots still from platform_settings. */
+export const VERCEL_REMOVAL_CRON_WAKE_SCHEDULE = "0 8 * * *";
 
 export type RemovalCronGateEvaluation = {
   settings_source: "platform_settings.automation_settings.scopes[org:store].removal_api_sync";
