@@ -37,12 +37,14 @@ export function ScheduleStats({
   nextRun,
   status,
   error,
+  scheduleSource,
 }: {
   enabled: boolean;
   lastRun: string | null;
   nextRun: Date | null;
   status: string;
   error?: string | null;
+  scheduleSource?: string | null;
 }) {
   const last = formatAutomationTimestamp(lastRun);
   const next = nextRun ? formatAutomationTimestamp(nextRun.toISOString()) : null;
@@ -70,6 +72,12 @@ export function ScheduleStats({
         <StatusPill status={status} />
         {error ? <span className="text-xs text-destructive">{error}</span> : null}
       </div>
+      {scheduleSource ? (
+        <div className="sm:col-span-2">
+          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Schedule source</dt>
+          <dd className="mt-1 text-[11px] text-muted-foreground">{scheduleSource}</dd>
+        </div>
+      ) : null}
     </dl>
   );
 }
@@ -78,10 +86,12 @@ export function RuntimeStatsFromView({
   enabled,
   runtime,
   nextRun,
+  scheduleSource,
 }: {
   enabled: boolean;
   runtime: AutomationScheduleRuntime;
   nextRun: Date | null;
+  scheduleSource?: string | null;
 }) {
   return (
     <ScheduleStats
@@ -90,6 +100,7 @@ export function RuntimeStatsFromView({
       nextRun={nextRun}
       status={runtime.last_run_status}
       error={runtime.last_error}
+      scheduleSource={scheduleSource}
     />
   );
 }

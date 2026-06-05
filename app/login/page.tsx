@@ -46,7 +46,7 @@ export default function LoginPage() {
         return;
       }
       await tryOfferSavePassword(email, password);
-      router.push(isStandaloneDisplay() ? SCANNER_PWA_ENTRY_PATH : "/");
+      router.push(isStandaloneDisplay() ? SCANNER_PWA_ENTRY_PATH : "/dashboard");
       router.refresh();
     } catch (error) {
       console.error("[login] submit exception:", error);

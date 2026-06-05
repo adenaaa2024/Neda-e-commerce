@@ -136,6 +136,9 @@ export type ProductionRemovalSyncResult = {
 export async function runProductionRemovalSync(opts: {
   window?: SyncWindow;
   skipFetch?: boolean;
+  fetchRemovalOrder?: boolean;
+  fetchRemovalShipment?: boolean;
+  rebuildExpectedPackages?: boolean;
   orderUploadId?: string | null;
   shipmentUploadId?: string | null;
 }): Promise<ProductionRemovalSyncResult> {
@@ -172,31 +175,43 @@ export async function runProductionRemovalSync(opts: {
     state: opts.skipFetch ? "skipped" : "pending",
   };
 
+  const fetchOrder = opts.fetchRemovalOrder !== false;
+  const fetchShipment = opts.fetchRemovalShipment !== false;
+  const doRebuild = opts.rebuildExpectedPackages !== false;
+
   if (!opts.skipFetch) {
     const { runRemovalOrderReportsWorker } = await import("./amazon/reports-api-removal-order-worker");
     const { runRemovalShipmentReportsWorker } = await import("./amazon/reports-api-removal-shipment-worker");
-    orderFetch = await fetchUntilReady(
-      (req) =>
-        runRemovalOrderReportsWorker(req, { runPipeline: false, requestBudgetMs: 55_000 }).then((r) => ({
-          upload_id: r.upload_id,
-          state: r.state ?? "unknown",
-          needs_resume: r.needs_resume,
-          error: r.error,
-        })),
-      window,
-    );
-    shipmentFetch = await fetchUntilReady(
-      (req) =>
-        runRemovalShipmentReportsWorker(req, { runPipeline: false, requestBudgetMs: 55_000 }).then((r) => ({
-          upload_id: r.upload_id,
-          state: r.state ?? "unknown",
-          needs_resume: r.needs_resume,
-          error: r.error,
-        })),
-      window,
-    );
-    if (!orderFetch.ok) errors.push(`order_fetch: ${orderFetch.error ?? orderFetch.state}`);
-    if (!shipmentFetch.ok) errors.push(`shipment_fetch: ${shipmentFetch.error ?? shipmentFetch.state}`);
+    if (fetchOrder) {
+      orderFetch = await fetchUntilReady(
+        (req) =>
+          runRemovalOrderReportsWorker(req, { runPipeline: false, requestBudgetMs: 55_000 }).then((r) => ({
+            upload_id: r.upload_id,
+            state: r.state ?? "unknown",
+            needs_resume: r.needs_resume,
+            error: r.error,
+          })),
+        window,
+      );
+      if (!orderFetch.ok) errors.push(`order_fetch: ${orderFetch.error ?? orderFetch.state}`);
+    } else {
+      orderFetch = { upload_id: null, ok: true, state: "skipped_report_type" };
+    }
+    if (fetchShipment) {
+      shipmentFetch = await fetchUntilReady(
+        (req) =>
+          runRemovalShipmentReportsWorker(req, { runPipeline: false, requestBudgetMs: 55_000 }).then((r) => ({
+            upload_id: r.upload_id,
+            state: r.state ?? "unknown",
+            needs_resume: r.needs_resume,
+            error: r.error,
+          })),
+        window,
+      );
+      if (!shipmentFetch.ok) errors.push(`shipment_fetch: ${shipmentFetch.error ?? shipmentFetch.state}`);
+    } else {
+      shipmentFetch = { upload_id: null, ok: true, state: "skipped_report_type" };
+    }
   }
 
   let orderPipeline: ProductionRemovalSyncResult["order_pipeline"] = null;
@@ -213,7 +228,7 @@ export async function runProductionRemovalSync(opts: {
 
   let rebuild: Record<string, unknown> | null = null;
   let rebuildValid = false;
-  if (shipmentPipeline?.ok || opts.skipFetch) {
+  if (doRebuild && (shipmentPipeline?.ok || opts.skipFetch)) {
     const rebuildRes = await client.query(
       `SELECT * FROM public.rebuild_expected_packages_from_removals($1::uuid, $2::uuid)`,
       [PRODUCTION_ORG_ID, PRODUCTION_STORE_ID],

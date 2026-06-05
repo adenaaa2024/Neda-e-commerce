@@ -2269,7 +2269,11 @@ export async function getCommandCenterData(
           latestShipmentDate: syncHealth.latest_shipment_date,
           expectedPackagesDerivedCount: syncHealth.expected_packages_derived_count,
           expectedDataFreshnessHint: expectedFreshness,
-          nextScheduledSyncAt: syncHealth.next_scheduled_cron_utc,
+          nextScheduledSyncAt: syncHealth.next_scheduled_run_at ?? syncHealth.next_scheduled_cron_utc,
+          removalScheduleSource: syncHealth.schedule_source,
+          lastCronSuccessAt: syncHealth.last_cron_success_at,
+          lastCronFailedAt: syncHealth.last_cron_failed_at,
+          lastCronStatus: syncHealth.last_cron_status,
           scannerActivityHint:
             scannedCount > 0
               ? `${scannedCount.toLocaleString()} active return items in scope`

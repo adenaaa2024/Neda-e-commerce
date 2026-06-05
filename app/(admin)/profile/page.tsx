@@ -132,7 +132,7 @@ export default function ProfilePage() {
   return (
     <div className="w-full min-w-0 py-8 sm:py-8 md:py-10">
       <Link
-        href="/"
+        href="/dashboard"
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground md:mb-8"
       >
         <ArrowLeft className="h-4 w-4" />

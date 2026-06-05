@@ -34,8 +34,10 @@ import {
   computeRemovalHistoricalNextRun,
   computeRemovalRecentNextRun,
   formatHoursUtcForInput,
+  formatLocalRunTimesForInput,
   isAnyStoreAutomationScheduleEnabled,
   parseHoursUtcFromInput,
+  parseLocalRunTimesFromInput,
 } from "@/lib/platform-automation-schedule";
 import {
   dateInputToWindowIso,
@@ -813,7 +815,7 @@ export function AutomationApiCenterClient() {
                 </label>
                 <RunTimeField
                   id="rem-run-times"
-                  label="Schedule run times (UTC)"
+                  label="Schedule run times (UTC fallback)"
                   value={formatHoursUtcForInput(draft.removal_api_sync.recent_sync.run_hours_utc)}
                   onChange={(text) =>
                     updateDraft({
@@ -833,6 +835,157 @@ export function AutomationApiCenterClient() {
                   formatUtcHoursForDisplay={formatUtcHoursForDisplay}
                   parseHoursUtcFromInput={parseHoursUtcFromInput}
                 />
+                <label className="block text-sm sm:col-span-2">
+                  <span className="font-medium text-foreground">Local run times (preferred)</span>
+                  <input
+                    type="text"
+                    placeholder="23:30, 06:00"
+                    value={formatLocalRunTimesForInput(draft.removal_api_sync.recent_sync.run_times_local)}
+                    onChange={(e) =>
+                      updateDraft({
+                        removal_api_sync: {
+                          ...draft.removal_api_sync,
+                          recent_sync: {
+                            ...draft.removal_api_sync.recent_sync,
+                            run_times_local: parseLocalRunTimesFromInput(
+                              e.target.value,
+                              draft.removal_api_sync.recent_sync.runs_per_day,
+                            ),
+                            runs_per_day: parseLocalRunTimesFromInput(
+                              e.target.value,
+                              draft.removal_api_sync.recent_sync.runs_per_day,
+                            ).length || draft.removal_api_sync.recent_sync.runs_per_day,
+                          },
+                        },
+                      })
+                    }
+                    className={`${responsiveFormInput} mt-1.5`}
+                  />
+                  <span className="mt-1 block text-[11px] text-muted-foreground">
+                    HH:MM in timezone below. Vercel cron wakes every 15 min; runs only in these slots.
+                  </span>
+                </label>
+                <label className="block text-sm">
+                  <span className="font-medium text-foreground">Timezone</span>
+                  <input
+                    type="text"
+                    value={draft.removal_api_sync.recent_sync.timezone}
+                    onChange={(e) =>
+                      updateDraft({
+                        removal_api_sync: {
+                          ...draft.removal_api_sync,
+                          recent_sync: {
+                            ...draft.removal_api_sync.recent_sync,
+                            timezone: e.target.value.trim() || "UTC",
+                          },
+                        },
+                      })
+                    }
+                    className={`${responsiveFormInput} mt-1.5`}
+                    placeholder="America/Los_Angeles"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-medium text-foreground">Max runtime (seconds)</span>
+                  <input
+                    type="number"
+                    min={60}
+                    max={900}
+                    value={draft.removal_api_sync.recent_sync.max_runtime_seconds}
+                    onChange={(e) =>
+                      updateDraft({
+                        removal_api_sync: {
+                          ...draft.removal_api_sync,
+                          recent_sync: {
+                            ...draft.removal_api_sync.recent_sync,
+                            max_runtime_seconds: Number(e.target.value),
+                          },
+                        },
+                      })
+                    }
+                    className={`${responsiveFormInput} mt-1.5`}
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-4 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.removal_api_sync.recent_sync.report_types.includes("removal_order")}
+                    onChange={(e) => {
+                      const set = new Set(draft.removal_api_sync.recent_sync.report_types);
+                      if (e.target.checked) set.add("removal_order");
+                      else set.delete("removal_order");
+                      updateDraft({
+                        removal_api_sync: {
+                          ...draft.removal_api_sync,
+                          recent_sync: {
+                            ...draft.removal_api_sync.recent_sync,
+                            report_types: [...set] as ("removal_order" | "removal_shipment")[],
+                          },
+                        },
+                      });
+                    }}
+                  />
+                  Removal order report
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.removal_api_sync.recent_sync.report_types.includes("removal_shipment")}
+                    onChange={(e) => {
+                      const set = new Set(draft.removal_api_sync.recent_sync.report_types);
+                      if (e.target.checked) set.add("removal_shipment");
+                      else set.delete("removal_shipment");
+                      updateDraft({
+                        removal_api_sync: {
+                          ...draft.removal_api_sync,
+                          recent_sync: {
+                            ...draft.removal_api_sync.recent_sync,
+                            report_types: [...set] as ("removal_order" | "removal_shipment")[],
+                          },
+                        },
+                      });
+                    }}
+                  />
+                  Removal shipment report
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.removal_api_sync.recent_sync.rebuild_expected_packages}
+                    onChange={(e) =>
+                      updateDraft({
+                        removal_api_sync: {
+                          ...draft.removal_api_sync,
+                          recent_sync: {
+                            ...draft.removal_api_sync.recent_sync,
+                            rebuild_expected_packages: e.target.checked,
+                          },
+                        },
+                      })
+                    }
+                  />
+                  Rebuild expected packages
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.removal_api_sync.recent_sync.retry_on_failure}
+                    onChange={(e) =>
+                      updateDraft({
+                        removal_api_sync: {
+                          ...draft.removal_api_sync,
+                          recent_sync: {
+                            ...draft.removal_api_sync.recent_sync,
+                            retry_on_failure: e.target.checked,
+                          },
+                        },
+                      })
+                    }
+                  />
+                  Retry on failure (next slot)
+                </label>
               </div>
               <ManualDateRangeFields
                 windowStart={
@@ -893,6 +1046,7 @@ export function AutomationApiCenterClient() {
                 enabled={draft.removal_api_sync.enabled}
                 runtime={view.runtime.removal_api_sync.recent}
                 nextRun={draft.removal_api_sync.enabled ? draftNextRuns.removal : null}
+                scheduleSource="Platform settings → removal_api_sync (Vercel wake */15 min)"
               />
             </div>
           </section>

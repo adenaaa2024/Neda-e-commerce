@@ -665,6 +665,106 @@ html.dark .menorix-intro-letter--login {
   overflow: hidden;
 }
 
+.landing-page__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 40rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--card) 90%, var(--primary)) 0%,
+    var(--card) 42%,
+    color-mix(in srgb, var(--card) 94%, var(--background)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 10%, transparent),
+    0 16px 48px color-mix(in srgb, var(--foreground) 14%, transparent);
+  padding: 2.5rem 2rem 2rem;
+}
+
+.landing-page__brand {
+  margin-bottom: 1.5rem;
+}
+
+.landing-page__tagline {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.landing-page__hero {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.landing-page__headline {
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+
+.landing-page__description {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+.landing-page__features {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.landing-page__features li {
+  position: relative;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+}
+
+.landing-page__features li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background: var(--primary);
+}
+
+.landing-page__cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.landing-page__cta-btn {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.landing-page__cta-note {
+  margin: 0;
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+
 .login-page__bg {
   pointer-events: none;
   position: absolute;

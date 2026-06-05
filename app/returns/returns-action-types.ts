@@ -272,6 +272,10 @@ export type CommandCenterHealth = {
   expectedPackagesDerivedCount: number | null;
   expectedDataFreshnessHint: string | null;
   nextScheduledSyncAt: string | null;
+  removalScheduleSource: string | null;
+  lastCronSuccessAt: string | null;
+  lastCronFailedAt: string | null;
+  lastCronStatus: string | null;
 };
 
 /** Rich command center payload for Neda-style dashboard UI. */

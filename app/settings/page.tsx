@@ -1532,7 +1532,7 @@ export default function SettingsPage() {
   return (
     <div className="w-full min-w-0 py-8 sm:py-8 md:py-8">
       <Link
-        href="/"
+        href="/dashboard"
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />

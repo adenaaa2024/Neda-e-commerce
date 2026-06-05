@@ -622,7 +622,7 @@ export default function PlatformUsersPage() {
             ? "You must be signed in to view this page."
             : "This page is restricted to super_admin only."}
         </p>
-        <Link href="/" className="mt-6 inline-block text-sm font-medium text-primary underline">
+        <Link href="/dashboard" className="mt-6 inline-block text-sm font-medium text-primary underline">
           Back to dashboard
         </Link>
       </div>

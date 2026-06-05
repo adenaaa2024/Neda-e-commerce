@@ -7,6 +7,7 @@
  *   npx tsx scripts/original-product-pim-parity-phase-a-b-execute.ts
  *   APPROVED_TO_APPLY_SCOPED_PRODUCT_PIM_PARITY=true APPROVED_TO_BACKFILL_EXPECTED_PACKAGE_PRODUCT_LINKAGE=true \
  *     npx tsx scripts/original-product-pim-parity-phase-a-b-execute.ts --apply
+ *   npx tsx scripts/original-product-pim-parity-phase-a-b-execute.ts --apply --phase-b-only
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -221,7 +222,7 @@ async function classifyUnresolved(orig: pg.Client): Promise<{
 }> {
   const r = await orig.query(`
     WITH base AS (
-      SELECT ep.id, ep.organization_id, ep.store_id, ep.sku, ep.fnsku, ep.asin,
+      SELECT ep.id, ep.organization_id, ep.store_id, ep.sku, ep.fnsku,
              ep.identifier_resolution_status
       FROM expected_packages ep
       WHERE ep.resolved_product_id IS NULL
@@ -274,7 +275,7 @@ async function classifyUnresolved(orig: pg.Client): Promise<{
       ),
       map_products AS (
         SELECT b.id, count(DISTINCT m.product_id) FILTER (WHERE m.product_id IS NOT NULL)::int AS map_product_count,
-               min(m.product_id) FILTER (WHERE m.product_id IS NOT NULL) AS sole_product_id
+               min(m.product_id::text) FILTER (WHERE m.product_id IS NOT NULL) AS sole_product_id
         FROM base b
         LEFT JOIN product_identifier_map m
           ON m.deleted_at IS NULL AND m.organization_id = b.organization_id AND m.store_id = b.store_id
@@ -305,7 +306,7 @@ async function classifyUnresolved(orig: pg.Client): Promise<{
         GROUP BY b.id
       ),
       direct_products AS (
-        SELECT b.id, min(p.id) AS product_id
+        SELECT b.id, min(p.id::text) AS product_id
         FROM base b
         JOIN products p ON p.organization_id = b.organization_id AND p.deleted_at IS NULL
          AND ((NULLIF(btrim(b.fnsku),'') IS NOT NULL AND upper(btrim(p.fnsku))=upper(btrim(b.fnsku)))
@@ -342,7 +343,7 @@ async function epUnresolvedCount(orig: pg.Client): Promise<number> {
 
 async function verifyExample(orig: pg.Client, fnsku: string): Promise<Record<string, unknown>> {
   const ep = await orig.query(
-    `SELECT count(*)::int AS unresolved,
+    `SELECT count(*) FILTER (WHERE resolved_product_id IS NULL)::int AS unresolved,
             count(*) FILTER (WHERE resolved_product_id IS NOT NULL)::int AS resolved
      FROM expected_packages WHERE upper(trim(fnsku))=upper($1)`,
     [fnsku],
@@ -357,6 +358,7 @@ async function verifyExample(orig: pg.Client, fnsku: string): Promise<Record<str
 
 async function main(): Promise<void> {
   const apply = process.argv.includes("--apply");
+  const phaseBOnly = process.argv.includes("--phase-b-only");
   loadEnvLocalIntoProcess();
   const approvedA = process.env.APPROVED_TO_APPLY_SCOPED_PRODUCT_PIM_PARITY?.trim().toLowerCase() === "true";
   const approvedB = process.env.APPROVED_TO_BACKFILL_EXPECTED_PACKAGE_PRODUCT_LINKAGE?.trim().toLowerCase() === "true";
@@ -394,6 +396,7 @@ async function main(): Promise<void> {
   const result: Record<string, unknown> = {
     run_id: rid,
     apply,
+    phase_b_only: phaseBOnly,
     phase_a_applied: false,
     fnsku_conflict_resolved: false,
     fnsku_conflict_detail: fnskuConflictsBefore,
@@ -454,8 +457,24 @@ async function main(): Promise<void> {
   let productStats = { inserted: 0, updated: 0, skipped: 0 };
   let mapStats = { inserted: 0, updated: 0, skipped: 0 };
   let priceStats = { inserted: 0, updated: 0, skipped: 0 };
+  let classABackfilled = 0;
+  let classBInserted = 0;
 
-  try {
+  if (phaseBOnly) {
+    result.phase_a_applied = productCross.staging_only.length === 0;
+    result.products_upserted = "skipped_phase_b_only";
+    result.identifier_map_rows_upserted = "skipped_phase_b_only";
+    result.prices_copied = "skipped_phase_b_only";
+    result.fnsku_conflict_resolved = result.fnsku_conflict_resolved || fnskuConflictsBefore.length === 0;
+    if (!result.phase_a_applied) {
+      throw new Error(
+        `phase-b-only blocked: ${productCross.staging_only.length} staging-only products remain — run full apply first`,
+      );
+    }
+  }
+
+  // ── Phase A (separate transaction) ──
+  if (!phaseBOnly) try {
     await orig.query("BEGIN");
 
     // Backup preimage
@@ -489,7 +508,13 @@ async function main(): Promise<void> {
 
     productStats = await upsertById(stag, orig, "products", productCross.staging_only);
 
+    const mapUseCols = await intersectCols(stag, orig, "product_identifier_map");
+    const mapColList = mapUseCols.map((c) => `"${c}"`).join(", ");
+    const mapPh = mapUseCols.map((_, i) => `$${i + 1}`).join(", ");
+    const mapUpdates = mapUseCols.filter((c) => c !== "id").map((c) => `"${c}"=EXCLUDED."${c}"`).join(", ");
+
     // Map rows by id from staging
+    const mapConflictsSkipped: Array<Record<string, unknown>> = [];
     for (const mapId of mapCross.staging_only) {
       const row = (
         await stag.query(`SELECT * FROM product_identifier_map WHERE id=$1::uuid`, [mapId])
@@ -498,10 +523,56 @@ async function main(): Promise<void> {
         mapStats.skipped += 1;
         continue;
       }
-      const useCols = await intersectCols(stag, orig, "product_identifier_map");
-      const colList = useCols.map((c) => `"${c}"`).join(", ");
-      const ph = useCols.map((_, i) => `$${i + 1}`).join(", ");
-      const updates = useCols.filter((c) => c !== "id").map((c) => `"${c}"=EXCLUDED."${c}"`).join(", ");
+
+      const org = row.organization_id;
+      const store = row.store_id;
+      const sellerSku = row.seller_sku;
+      const fnsku = row.fnsku;
+      const productId = row.product_id;
+
+      if (sellerSku) {
+        const dupSku = await orig.query(
+          `SELECT id::text, product_id::text FROM product_identifier_map
+           WHERE organization_id=$1 AND store_id IS NOT DISTINCT FROM $2
+             AND deleted_at IS NULL
+             AND upper(btrim(seller_sku))=upper(btrim($3::text))
+             AND id <> $4::uuid`,
+          [org, store, sellerSku, mapId],
+        );
+        if (dupSku.rows.length) {
+          const d = dupSku.rows[0] as { id: string; product_id: string };
+          if (d.product_id === String(productId)) {
+            mapStats.skipped += 1;
+            continue;
+          }
+          mapConflictsSkipped.push({ type: "seller_sku", map_id: mapId, seller_sku: sellerSku, existing: d });
+          mapStats.skipped += 1;
+          continue;
+        }
+      }
+      if (fnsku) {
+        const dupFnsku = await orig.query(
+          `SELECT id::text, product_id::text FROM product_identifier_map
+           WHERE organization_id=$1 AND store_id IS NOT DISTINCT FROM $2
+             AND fnsku=$3 AND deleted_at IS NULL AND id <> $4::uuid`,
+          [org, store, fnsku, mapId],
+        );
+        if (dupFnsku.rows.length) {
+          const d = dupFnsku.rows[0] as { id: string; product_id: string };
+          if (d.product_id === String(productId)) {
+            mapStats.skipped += 1;
+            continue;
+          }
+          mapConflictsSkipped.push({ type: "fnsku", map_id: mapId, fnsku, existing: d });
+          mapStats.skipped += 1;
+          continue;
+        }
+      }
+
+      const useCols = mapUseCols;
+      const colList = mapColList;
+      const ph = mapPh;
+      const updates = mapUpdates;
       const exists = await orig.query(`SELECT 1 FROM product_identifier_map WHERE id=$1::uuid`, [mapId]);
       const vals = useCols.map((c) => row[c]);
       await orig.query(
@@ -512,6 +583,7 @@ async function main(): Promise<void> {
       if (exists.rows.length) mapStats.updated += 1;
       else mapStats.inserted += 1;
     }
+    result.map_conflicts_skipped = mapConflictsSkipped.length;
 
     // product_prices for new product ids
     if (productCross.staging_only.length && (await tableExists(stag, "product_prices"))) {
@@ -541,9 +613,24 @@ async function main(): Promise<void> {
     result.identifier_map_rows_upserted = mapStats.inserted + mapStats.updated;
     result.prices_copied = priceStats.inserted + priceStats.updated;
 
-    // ── Phase B Class A ──
+    await orig.query("COMMIT");
+  } catch (e) {
+    await orig.query("ROLLBACK");
+    throw e;
+  }
+
+  if (phaseBOnly) {
+    const mapGap = mapCross.staging_only.length;
+    result.identifier_map_gap_remaining = mapGap;
+    result.original_only_maps_preserved = mapCross.original_only.length;
+  }
+
+  // ── Phase B (separate transaction) ──
+  try {
+    await orig.query("BEGIN");
+
     const { classA, classB } = await classifyUnresolved(orig);
-    let classABackfilled = 0;
+    // ── Phase B Class A ──
     for (const row of classA) {
       const upd = await orig.query(
         `UPDATE expected_packages ep
@@ -566,7 +653,6 @@ async function main(): Promise<void> {
     }
 
     // ── Phase B Class B map bridge ──
-    let classBInserted = 0;
     const mapCols = await cols(orig, "product_identifier_map");
     for (const row of classB) {
       const exists = await orig.query(

@@ -462,7 +462,7 @@ export default function UsersPage() {
         <p className="mt-2 text-sm text-muted-foreground">
           You need an organization <strong>Admin</strong> role (or internal staff with user management) to open this directory.
         </p>
-        <Link href="/" className="mt-6 inline-block text-sm font-medium text-primary underline">
+        <Link href="/dashboard" className="mt-6 inline-block text-sm font-medium text-primary underline">
           Back to dashboard
         </Link>
       </div>
@@ -472,7 +472,7 @@ export default function UsersPage() {
   return (
     <div className="w-full min-w-0 py-8 sm:py-8">
       <Link
-        href="/"
+        href="/dashboard"
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />

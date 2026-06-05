@@ -61,7 +61,7 @@ export function DrawerWorkspaceBar({ onClose }: { onClose: () => void }) {
     return (
       <div className="space-y-2 border-b border-sidebar-border px-3 py-2">
         <Link
-          href="/"
+          href="/dashboard"
           onClick={onClose}
           className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2 py-2 text-xs font-medium text-sidebar-foreground transition hover:bg-muted/50"
         >
@@ -77,7 +77,7 @@ export function DrawerWorkspaceBar({ onClose }: { onClose: () => void }) {
       {perms.canSwitchOrganization && workspaceOrganizations.length > 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2 py-1.5">
           <Link
-            href="/"
+            href="/dashboard"
             onClick={onClose}
             className="shrink-0 rounded-md p-0.5 outline-none ring-sidebar-ring hover:bg-muted/60 focus-visible:ring-2"
             title="Home / Dashboard"
@@ -97,7 +97,7 @@ export function DrawerWorkspaceBar({ onClose }: { onClose: () => void }) {
         </div>
       ) : (
         <Link
-          href="/"
+          href="/dashboard"
           onClick={onClose}
           className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2 py-2 text-xs font-medium text-sidebar-foreground transition hover:bg-muted/50"
         >

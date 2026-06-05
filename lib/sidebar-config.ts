@@ -399,7 +399,7 @@ export const DASHBOARD_NAV_LEAF: SidebarLeaf = {
   kind: "leaf",
   id: "dashboard",
   label: "Dashboard",
-  path: "/",
+  path: "/dashboard",
   icon: "LayoutDashboard",
   featureKey: "dashboard.command_center",
   permissionBase: "operations.dashboard",

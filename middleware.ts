@@ -6,6 +6,8 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isLoginRoute = pathname.startsWith("/login");
+  /** Public SEO landing — must return 200 without auth (Google / crawlers). */
+  const isPublicLandingRoute = pathname === "/";
   /** Password reset tokens live in the URL hash, which is not sent to the server; these routes must stay public. */
   const isPublicAuthRoute = pathname.startsWith("/auth/");
   if (
@@ -45,12 +47,18 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (error || !user) {
-    if (isLoginRoute || isPublicAuthRoute) {
+    if (isLoginRoute || isPublicAuthRoute || isPublicLandingRoute) {
       return response;
     }
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     return NextResponse.redirect(loginUrl);
+  }
+
+  if (isPublicLandingRoute) {
+    const dashboardUrl = request.nextUrl.clone();
+    dashboardUrl.pathname = "/dashboard";
+    return NextResponse.redirect(dashboardUrl);
   }
 
   if (isLoginRoute) {
@@ -63,9 +71,9 @@ export async function middleware(request: NextRequest) {
     if (isMutationOrRsc) {
       return response;
     }
-    const homeUrl = request.nextUrl.clone();
-    homeUrl.pathname = "/";
-    return NextResponse.redirect(homeUrl);
+    const dashboardUrl = request.nextUrl.clone();
+    dashboardUrl.pathname = "/dashboard";
+    return NextResponse.redirect(dashboardUrl);
   }
 
   return response;

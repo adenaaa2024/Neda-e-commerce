@@ -25,7 +25,7 @@ export function PlatformWorkspaceGate({ children }: { children: React.ReactNode 
     if (workspaceViewMode !== "tenant") return;
     const p = pathname ?? "";
     if (!p.startsWith("/platform")) return;
-    router.replace("/");
+    router.replace("/dashboard");
   }, [profileLoading, workspaceViewMode, workspaceViewModeReady, pathname, router]);
 
   // Only show full spinner on first load — not on subsequent profileLoading fluctuations.

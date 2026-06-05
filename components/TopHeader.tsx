@@ -76,7 +76,7 @@ function TenantMarkBesideName({
   if (linkHome) {
     return (
       <Link
-        href="/"
+        href="/dashboard"
         className="shrink-0 rounded-md p-0.5 outline-none ring-offset-background transition hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
         title="Home / Dashboard"
         aria-label="Go to home / dashboard"
@@ -193,7 +193,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
           </div>
         ) : (
           <Link
-            href="/"
+            href="/dashboard"
             className="admin-chrome-control flex min-w-0 max-w-[14rem] shrink-0 items-center gap-2 truncate rounded-lg px-2.5 py-1.5 text-left text-xs font-medium text-foreground transition md:max-w-[20rem]"
             title="Home / Dashboard"
             aria-label={`${organizationName} — go to home`}
@@ -249,7 +249,7 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
         </div>
       ) : (
         <Link
-          href="/"
+          href="/dashboard"
           className="admin-chrome-control mx-0 flex max-w-[min(38vw,11rem)] shrink-0 items-center gap-1.5 truncate rounded-lg px-2 py-1 text-[11px] font-medium text-foreground transition md:hidden"
           title="Home / Dashboard"
           aria-label={`${organizationName} — go to home`}

@@ -1522,7 +1522,7 @@ function PlatformAccessPageInner() {
             ? "You must be signed in."
             : "You do not have access. Required catalog roles: super_admin, programmer, or system_admin."}
         </p>
-        <Link href="/" className="mt-6 inline-block text-sm font-medium text-primary underline">
+        <Link href="/dashboard" className="mt-6 inline-block text-sm font-medium text-primary underline">
           Back to dashboard
         </Link>
       </div>

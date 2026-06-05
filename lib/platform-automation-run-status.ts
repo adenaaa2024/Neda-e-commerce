@@ -233,6 +233,20 @@ export async function buildStoreAutomationSettingsView(
 
   const financesRuntime = await readFinancesArchiveRuntime(client, organizationId, storeId);
 
+  const cronRt = settings.removal_api_sync.cron_runtime;
+  const removalRecentBase =
+    cronRt?.last_run_at != null
+      ? {
+          last_run_at: cronRt.last_run_at,
+          last_run_status: cronRt.last_run_status,
+          last_error: cronRt.last_error,
+        }
+      : removal;
+  const removalNext =
+    cronRt?.next_run_at != null
+      ? new Date(cronRt.next_run_at)
+      : computeRemovalRecentNextRun(settings.removal_api_sync, now);
+
   return {
     ...settings,
     organization_id: organizationId,
@@ -246,10 +260,7 @@ export async function buildStoreAutomationSettingsView(
         computeProductEnrichmentNextRun(settings.product_enrichment, now),
       ),
       removal_api_sync: {
-        recent: withNextRun(
-          removal,
-          computeRemovalRecentNextRun(settings.removal_api_sync, now),
-        ),
+        recent: withNextRun(removalRecentBase, removalNext),
         historical_backfill: withNextRun(
           { last_run_at: null, last_run_status: "never", last_error: null },
           computeRemovalHistoricalNextRun(settings.removal_api_sync, now),

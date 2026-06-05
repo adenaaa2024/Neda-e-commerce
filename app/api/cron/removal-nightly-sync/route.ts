@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
 
-import { PRODUCTION_ORG_ID } from "@/lib/production-removal-sync-run";
-import { runProductionRemovalSync, syncWindowThroughToday } from "@/lib/production-removal-sync-run";
-import { REMOVAL_NIGHTLY_CRON_UTC } from "@/lib/production-sync-health";
+import {
+  evaluateProductionRemovalCronGate,
+  loadProductionRemovalAutomationSettings,
+  tryAcquireRemovalCronAdvisoryLock,
+  VERCEL_REMOVAL_CRON_WAKE_SCHEDULE,
+} from "@/lib/removal-cron-schedule-gate";
+import { persistRemovalCronRuntime } from "@/lib/removal-cron-runtime-storage";
+import {
+  PRODUCTION_ORG_ID,
+  PRODUCTION_STORE_ID,
+  runProductionRemovalSync,
+  syncWindowThroughToday,
+} from "@/lib/production-removal-sync-run";
 import { PRODUCTION_REF } from "@/lib/production-db-bind";
+import { computeRemovalRecentNextRun } from "@/lib/platform-automation-schedule";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -16,8 +27,8 @@ function authorized(req: Request): boolean {
 }
 
 /**
- * Nightly removal shipment sync — production only.
- * Schedule: vercel.json `30 6 * * *` (~11:30 PM America/Los_Angeles PDT).
+ * Vercel wake-up route — execution gated by platform_settings automation schedule.
+ * Vercel cron: frequent wake (see vercel.json); business schedule from DB only.
  */
 export async function GET(req: Request): Promise<Response> {
   if (!authorized(req)) {
@@ -47,15 +58,105 @@ export async function GET(req: Request): Promise<Response> {
     );
   }
 
-  try {
-    const result = await runProductionRemovalSync({
-      window: syncWindowThroughToday(14),
-    });
+  const gate = await evaluateProductionRemovalCronGate();
+
+  if (!gate.enabled) {
     return NextResponse.json({
-      ok: result.errors.length === 0,
+      ok: true,
+      skipped: true,
+      reason: "schedule_disabled",
+      settings_source: gate.settings_source,
+      next_run_at: gate.next_run_at,
+      vercel_wake_schedule: VERCEL_REMOVAL_CRON_WAKE_SCHEDULE,
+    });
+  }
+
+  if (!gate.due) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: gate.reason,
+      settings_source: gate.settings_source,
+      next_run_at: gate.next_run_at,
+      schedule: gate.schedule,
+      vercel_wake_schedule: VERCEL_REMOVAL_CRON_WAKE_SCHEDULE,
+    });
+  }
+
+  const lock = await tryAcquireRemovalCronAdvisoryLock(PRODUCTION_ORG_ID, PRODUCTION_STORE_ID);
+  if (!lock.acquired) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "overlap_lock",
+      overlap: lock.reason,
+      settings_source: gate.settings_source,
+      next_run_at: gate.next_run_at,
+    });
+  }
+
+  const startedAt = new Date().toISOString();
+  let loadedScope = gate.schedule;
+  try {
+    const loaded = await loadProductionRemovalAutomationSettings();
+    loadedScope = {
+      timezone: loaded.scope.recent_sync.timezone,
+      run_times_local: loaded.scope.recent_sync.run_times_local,
+      run_hours_utc: loaded.scope.recent_sync.run_hours_utc,
+      rolling_days: loaded.scope.recent_sync.rolling_days,
+      report_types: loaded.scope.recent_sync.report_types,
+      rebuild_expected_packages: loaded.scope.recent_sync.rebuild_expected_packages,
+      max_runtime_seconds: loaded.scope.recent_sync.max_runtime_seconds,
+    };
+
+    await persistRemovalCronRuntime(
+      PRODUCTION_ORG_ID,
+      PRODUCTION_STORE_ID,
+      {
+        last_run_at: startedAt,
+        last_run_status: "running",
+        last_error: null,
+        last_slot_key: gate.matched_slot_key,
+      },
+      loaded.scope,
+    );
+
+    const reportTypes = new Set(loaded.scope.recent_sync.report_types);
+    const result = await runProductionRemovalSync({
+      window: syncWindowThroughToday(loaded.scope.recent_sync.rolling_days),
+      fetchRemovalOrder: reportTypes.has("removal_order"),
+      fetchRemovalShipment: reportTypes.has("removal_shipment"),
+      rebuildExpectedPackages: loaded.scope.recent_sync.rebuild_expected_packages,
+    });
+
+    const finishedAt = new Date().toISOString();
+    const success = result.errors.length === 0;
+    const nextRun = computeRemovalRecentNextRun(loaded.scope, new Date())?.toISOString() ?? null;
+
+    await persistRemovalCronRuntime(
+      PRODUCTION_ORG_ID,
+      PRODUCTION_STORE_ID,
+      {
+        last_run_at: finishedAt,
+        last_run_status: success ? "success" : "failed",
+        last_error: success ? null : result.errors.join("; ").slice(0, 2000),
+        last_success_at: success ? finishedAt : undefined,
+        last_failed_at: success ? undefined : finishedAt,
+        next_run_at: nextRun,
+        last_slot_key: gate.matched_slot_key,
+      },
+      loaded.scope,
+    );
+
+    return NextResponse.json({
+      ok: success,
+      skipped: false,
+      reason: "executed",
+      settings_source: gate.settings_source,
       organization_id: PRODUCTION_ORG_ID,
       target_ref: PRODUCTION_REF,
-      cron_schedule: REMOVAL_NIGHTLY_CRON_UTC,
+      vercel_wake_schedule: VERCEL_REMOVAL_CRON_WAKE_SCHEDULE,
+      schedule: loadedScope,
       window: result.window,
       counts_before: result.counts_before,
       counts_after: result.counts_after,
@@ -64,9 +165,28 @@ export async function GET(req: Request): Promise<Response> {
       errors: result.errors,
       order_upload_id: result.order_fetch.upload_id,
       shipment_upload_id: result.shipment_fetch.upload_id,
+      next_run_at: nextRun,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    try {
+      const loaded = await loadProductionRemovalAutomationSettings();
+      await persistRemovalCronRuntime(
+        PRODUCTION_ORG_ID,
+        PRODUCTION_STORE_ID,
+        {
+          last_run_at: new Date().toISOString(),
+          last_run_status: "failed",
+          last_error: msg.slice(0, 2000),
+          last_failed_at: new Date().toISOString(),
+        },
+        loaded.scope,
+      );
+    } catch {
+      /* best effort */
+    }
+    return NextResponse.json({ ok: false, error: msg, skipped: false }, { status: 500 });
+  } finally {
+    await lock.release();
   }
 }

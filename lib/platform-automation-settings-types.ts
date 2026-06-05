@@ -26,10 +26,31 @@ export interface FinancesArchiveApiSchedule extends ApiAutomationCardSchedule {
   marketplace_id: string | null;
 }
 
+export type RemovalReportType = "removal_order" | "removal_shipment";
+
+export interface RemovalCronRuntimeState {
+  last_run_at: string | null;
+  last_success_at: string | null;
+  last_failed_at: string | null;
+  last_run_status: AutomationRunStatus;
+  last_error: string | null;
+  next_run_at: string | null;
+  last_slot_key: string | null;
+}
+
 export interface RemovalRecentSyncSchedule extends ManualWindowFields {
   runs_per_day: number;
+  /** Legacy UTC hour slots (0–23). Used when run_times_local is empty. */
   run_hours_utc: number[];
+  /** IANA timezone for scheduled local run times. */
+  timezone: string;
+  /** Local HH:MM slots, e.g. ["23:30"]. Preferred over run_hours_utc when non-empty. */
+  run_times_local: string[];
   rolling_days: number;
+  report_types: RemovalReportType[];
+  rebuild_expected_packages: boolean;
+  retry_on_failure: boolean;
+  max_runtime_seconds: number;
 }
 
 export interface RemovalHistoricalBackfillSchedule {
@@ -44,6 +65,8 @@ export interface RemovalApiSyncSchedule {
   enabled: boolean;
   recent_sync: RemovalRecentSyncSchedule;
   historical_backfill: RemovalHistoricalBackfillSchedule;
+  /** Updated by production Vercel cron (read-path for health dashboard). */
+  cron_runtime?: RemovalCronRuntimeState;
 }
 
 /** Full settings for one organization + store scope. */
@@ -165,8 +188,24 @@ export const DEFAULT_FINANCES_ARCHIVE_SCHEDULE: FinancesArchiveApiSchedule = {
 export const DEFAULT_REMOVAL_RECENT_SYNC: RemovalRecentSyncSchedule = {
   runs_per_day: 2,
   run_hours_utc: [13, 21],
+  timezone: "America/Los_Angeles",
+  run_times_local: [],
   rolling_days: 7,
+  report_types: ["removal_order", "removal_shipment"],
+  rebuild_expected_packages: true,
+  retry_on_failure: true,
+  max_runtime_seconds: 300,
   ...DEFAULT_MANUAL_WINDOW,
+};
+
+export const EMPTY_REMOVAL_CRON_RUNTIME: RemovalCronRuntimeState = {
+  last_run_at: null,
+  last_success_at: null,
+  last_failed_at: null,
+  last_run_status: "never",
+  last_error: null,
+  next_run_at: null,
+  last_slot_key: null,
 };
 
 export const DEFAULT_REMOVAL_HISTORICAL_BACKFILL: RemovalHistoricalBackfillSchedule = {

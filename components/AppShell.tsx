@@ -119,7 +119,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const settingsTabParam = searchParams.get("tab");
-  const isAuthRoute = pathname === "/login";
+  const isPublicRoute = pathname === "/login" || pathname === "/";
   /** Standalone mobile scanner UI — no ERP sidebar, top search, or workspace chrome. */
   const isOperatorMobileScanner = pathname.startsWith("/scanner/operator-mobile");
 
@@ -189,7 +189,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   function isActive(href?: string) {
     if (!href || href === "#") return false;
     const path = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
-    if (href === "/") return path === "/";
+    if (href === "/dashboard") return path === "/dashboard";
     if (href === "/settings") return path === "/settings";
     if (href === "/platform/settings") return path === "/platform/settings";
     if (href === "/claim-engine/inbox") {
@@ -524,7 +524,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       >
         <div className="admin-sidebar-brand flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
           <Link
-            href="/"
+            href="/dashboard"
             onClick={closeMenu}
             className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg outline-none ring-sidebar-ring transition hover:bg-sidebar-accent/25 focus-visible:ring-2"
             title="Home / Dashboard"
@@ -560,8 +560,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     </>
   );
 
-  // Auth routes render without the main app shell chrome.
-  if (isAuthRoute) {
+  // Public routes (landing + login) render without the main app shell chrome.
+  if (isPublicRoute) {
     return (
       <GlobalSearchProvider>
         <MobileMenuCtx.Provider value={{ openMobileMenu: () => setMobileOpen(true) }}>
@@ -602,7 +602,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             style={!collapsed ? { width: expandedSidebarWidth } : undefined}
           >
             <Link
-              href="/"
+              href="/dashboard"
               className={[
                 "admin-sidebar-brand mx-hover-sidebar-brand flex h-14 shrink-0 items-center border-b border-sidebar-border px-4 min-w-0 overflow-hidden outline-none ring-sidebar-ring focus-visible:ring-2",
                 collapsed ? "justify-center" : "gap-2.5",
