@@ -13,6 +13,24 @@ import {
 import type { AutomationScheduleRuntime } from "@/lib/platform-automation-settings-types";
 import { responsiveFormInput } from "@/lib/responsive-page-shell";
 
+export function RollingWindowHelp() {
+  return (
+    <p className="mt-0.5 text-xs text-muted-foreground">
+      Each scheduled run re-checks and upserts the last N calendar days — not only missing days. Data in that
+      window is refreshed every run.
+    </p>
+  );
+}
+
+export function ManualWindowHelp() {
+  return (
+    <p className="mt-0.5 text-xs text-muted-foreground">
+      Manual window applies only to Run now / manual backfill. Scheduled cron uses the rolling window — you do
+      not need to change these dates daily.
+    </p>
+  );
+}
+
 export function StatusPill({ status }: { status: string }) {
   const cls =
     status === "success"
@@ -160,7 +178,7 @@ export function ManualDateRangeFields({
   onStartChange: (v: string) => void;
   onEndChange: (v: string) => void;
   disabled?: boolean;
-  hint?: string;
+  hint?: React.ReactNode;
 }) {
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -259,7 +277,14 @@ export function ImportResumeNotice({
   return (
     <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-muted-foreground">
       <p className="font-medium text-foreground">{label}</p>
-      {run.state ? (
+      {run.needs_resume ? (
+        <p className="mt-1 text-amber-800 dark:text-amber-100">
+          {run.state === "synthetic_upload_ready"
+            ? "Step 1 ready — click Resume to continue the import pipeline."
+            : "Import paused — click Resume to continue."}
+        </p>
+      ) : null}
+      {run.state && !run.needs_resume ? (
         <p className="mt-1">
           Run state: <span className="font-mono text-foreground">{run.state}</span>
           {run.needs_resume ? " · needs resume" : ""}

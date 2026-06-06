@@ -35,7 +35,160 @@ export type ManualRunPostResult =
 
 const INACTIVE_STATES = new Set(["failed", "unknown", "skipped", "skipped_report_type", ""]);
 
-/** True when the server started or queued real work (not a bare 202 with no ids). */
+const RESUMABLE_STATES = new Set([
+  "requested",
+  "polling",
+  "downloading",
+  "synthetic_upload_ready",
+  "staging",
+  "syncing",
+  "generic",
+]);
+
+export function isTerminalManualRunState(state: string | null | undefined): boolean {
+  const s = String(state ?? "")
+    .trim()
+    .toLowerCase();
+  return s === "complete" || s === "failed" || s === "synced";
+}
+
+export function manualRunNeedsClientDrain(data: ImportApiRunResponse): boolean {
+  if (data.needs_resume) return true;
+  const state = String(data.state ?? data.runtime_status ?? data.status ?? "")
+    .trim()
+    .toLowerCase();
+  return RESUMABLE_STATES.has(state);
+}
+
+export type ManualRunDrainResult =
+  | {
+      ok: true;
+      final: Extract<ManualRunPostResult, { ok: true }>;
+      steps: number;
+      terminal_state: string | null;
+    }
+  | {
+      ok: false;
+      error: string;
+      last?: ManualRunPostResult;
+      steps: number;
+      needs_manual_resume: boolean;
+      state: string | null;
+    };
+
+/** Poll run/resume until terminal import state or max_runtime_seconds. */
+export async function drainAutomationManualImportRun(args: {
+  runUrl: string;
+  resumeUrl: string;
+  runBody: Record<string, unknown>;
+  organizationId: string;
+  maxRuntimeSeconds: number;
+  localhostDryRunOnly?: boolean;
+  intervalMs?: number;
+}): Promise<ManualRunDrainResult> {
+  const deadline = Date.now() + Math.max(5, args.maxRuntimeSeconds) * 1000;
+  const intervalMs = args.intervalMs ?? 2500;
+  let steps = 0;
+  let uploadId: string | null = null;
+
+  const post = (url: string, body: Record<string, unknown>) =>
+    postAutomationManualRun(url, { ...body, run_pipeline: true }, {
+      localhostDryRunOnly: args.localhostDryRunOnly,
+    });
+
+  let result = await post(args.runUrl, args.runBody);
+  steps += 1;
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.error,
+      last: result,
+      steps,
+      needs_manual_resume: false,
+      state: null,
+    };
+  }
+
+  let patch = manualRunStateFromResponse(result.data);
+  uploadId = patch.upload_id;
+
+  while (Date.now() < deadline) {
+    const state = patch.state;
+    if (isTerminalManualRunState(state) && !patch.needs_resume) {
+      return {
+        ok: true,
+        final: result,
+        steps,
+        terminal_state: state,
+      };
+    }
+    if (!manualRunNeedsClientDrain(result.data) && !patch.needs_resume) {
+      return {
+        ok: true,
+        final: result,
+        steps,
+        terminal_state: state,
+      };
+    }
+    if (!uploadId) break;
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+    result = await post(args.resumeUrl, {
+      organization_id: args.organizationId,
+      upload_id: uploadId,
+    });
+    steps += 1;
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error,
+        last: result,
+        steps,
+        needs_manual_resume: true,
+        state: patch.state,
+      };
+    }
+    patch = manualRunStateFromResponse(result.data);
+    uploadId = patch.upload_id ?? uploadId;
+  }
+
+  const state = patch.state;
+  const needsResume = patch.needs_resume || manualRunNeedsClientDrain(result.data);
+  return {
+    ok: false,
+    error: needsResume
+      ? `Import did not finish within ${args.maxRuntimeSeconds}s (last state: ${state ?? "unknown"}). Click Resume to continue the import.`
+      : `Import stopped after ${args.maxRuntimeSeconds}s (state: ${state ?? "unknown"}).`,
+    last: result.ok ? result : undefined,
+    steps,
+    needs_manual_resume: needsResume,
+    state,
+  };
+}
+
+export function manualRunCompletionMessage(input: {
+  drain: ManualRunDrainResult;
+  label: string;
+}): string {
+  const { drain, label } = input;
+  if (drain.ok) {
+    const state = String(drain.terminal_state ?? drain.final.data.state ?? "").toLowerCase();
+    if (state === "failed") {
+      return `${label} import failed. See status below.`;
+    }
+    return `${label} import completed (${state || "done"}).`;
+  }
+  if (drain.needs_manual_resume) {
+    const state = String(drain.state ?? "in progress").toLowerCase();
+    if (state === "synthetic_upload_ready") {
+      return `${label}: report ready — auto-resume timed out. Click Resume to run the import pipeline.`;
+    }
+    return `${label}: ${drain.error}`;
+  }
+  return drain.error;
+}
+
+/** @deprecated Prefer manualRunCompletionMessage after drain. */
 export function manualRunHasExecutionEvidence(data: ImportApiRunResponse, httpStatus: number): boolean {
   if (httpStatus >= 400) return false;
 
@@ -65,13 +218,17 @@ export function manualRunAcceptanceMessage(result: Extract<ManualRunPostResult, 
   if (!result.has_execution_evidence) {
     return "Run request was accepted but no runtime record was created.";
   }
-  if (result.httpStatus === 202 || result.data.needs_resume) {
-    return "Run accepted / started. Check status below.";
+  const state = String(result.data.state ?? result.data.runtime_status ?? "").toLowerCase();
+  if (isTerminalManualRunState(state) && !result.data.needs_resume) {
+    return state === "failed" ? "Manual run failed. See status below." : "Manual run completed.";
   }
-  if (result.data.state === "complete") {
-    return "Manual run completed.";
+  if (state === "synthetic_upload_ready" || result.data.needs_resume) {
+    return "Step 1 complete (report ready). Continuing import…";
   }
-  return "Manual run started. Check status below.";
+  if (result.httpStatus === 202) {
+    return "Run queued. Continuing…";
+  }
+  return "Manual run in progress…";
 }
 
 export async function postAutomationManualRun(

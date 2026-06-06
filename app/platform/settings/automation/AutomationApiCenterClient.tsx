@@ -51,8 +51,10 @@ import {
 } from "@/lib/pim-catalog-enrichment-job-client";
 import {
   AUTOMATION_MANUAL_RUN_ROUTES,
+  drainAutomationManualImportRun,
   featureFlagBlockedMessage,
   isLocalhostDryRunOnly,
+  manualRunCompletionMessage,
   manualRunAcceptanceMessage,
   manualRunStateFromResponse,
   pollAutomationRuntimeRefresh,
@@ -91,6 +93,8 @@ import {
   ImportResumeNotice,
   ManualDateRangeFields,
   ManualRunButtons,
+  ManualWindowHelp,
+  RollingWindowHelp,
   RunTimeField,
   RuntimeStatsFromView,
 } from "./automation-api-center-shared";
@@ -656,42 +660,72 @@ export function AutomationApiCenterClient() {
     setManualBusy("removal");
     setError(null);
     const dryRunOnly = isLocalhostDryRunOnly(runEnvironment, isBrowserLocalhost());
+    const maxRuntimeSeconds = draft.removal_api_sync.recent_sync.max_runtime_seconds;
     try {
       const messages: string[] = [];
       let executionUploadId: string | null = null;
-      for (const [key, route] of [
-        ["removal_order", AUTOMATION_MANUAL_RUN_ROUTES.removal_order_run] as const,
-        ["removal_shipment", AUTOMATION_MANUAL_RUN_ROUTES.removal_shipment_run] as const,
-      ]) {
-        const uploadId = effectiveManualRuns?.[key as ManualRunKey]?.upload_id;
-        const result = await postAutomationManualRun(
-          route,
-          {
+
+      const runs = [
+        {
+          key: "removal_order" as const,
+          label: "Removal order",
+          runUrl: AUTOMATION_MANUAL_RUN_ROUTES.removal_order_run,
+          resumeUrl: AUTOMATION_MANUAL_RUN_ROUTES.removal_order_resume,
+        },
+        {
+          key: "removal_shipment" as const,
+          label: "Removal shipment",
+          runUrl: AUTOMATION_MANUAL_RUN_ROUTES.removal_shipment_run,
+          resumeUrl: AUTOMATION_MANUAL_RUN_ROUTES.removal_shipment_resume,
+        },
+      ];
+
+      for (const spec of runs) {
+        const uploadId = effectiveManualRuns[spec.key]?.upload_id;
+        const drain = await drainAutomationManualImportRun({
+          runUrl: spec.runUrl,
+          resumeUrl: spec.resumeUrl,
+          runBody: {
             organization_id: orgId,
             store_id: storeId,
             window_start: win.window_start,
             window_end: win.window_end,
             upload_id: uploadId,
           },
-          { localhostDryRunOnly: dryRunOnly },
-        );
-        if (!result.ok) {
-          setError(featureFlagBlockedMessage(result.code, result.error));
+          organizationId: orgId,
+          maxRuntimeSeconds: maxRuntimeSeconds,
+          localhostDryRunOnly: dryRunOnly,
+        });
+        if (!drain.ok && !drain.last?.ok) {
+          setError(featureFlagBlockedMessage(drain.last?.ok === false ? drain.last.code : undefined, drain.error));
           return;
         }
-        const patch = manualRunStateFromResponse(result.data);
+        const finalResult = drain.ok ? drain.final : drain.last;
+        if (!finalResult?.ok) {
+          setError(!drain.ok ? drain.error : "Manual run failed.");
+          return;
+        }
+        const patch = manualRunStateFromResponse(finalResult.data);
         executionUploadId = patch.upload_id ?? patch.source_run_id ?? executionUploadId;
         setManualRunOverride((prev) => ({
           ...prev,
-          [key]: {
-            ...view?.manual_runs[key as ManualRunKey],
+          [spec.key]: {
+            ...view?.manual_runs[spec.key],
             ...patch,
-            last_error: null,
+            needs_resume: drain.ok ? false : Boolean(patch.needs_resume),
+            last_error: drain.ok ? null : drain.error,
           },
         }));
-        messages.push(manualRunAcceptanceMessage(result));
+        messages.push(manualRunCompletionMessage({ drain, label: spec.label }));
+        if (!drain.ok && drain.needs_manual_resume) {
+          setMessage(messages.join(" "));
+          setError(!drain.ok ? drain.error : null);
+          await pollAutomationRuntimeRefresh(refreshView);
+          return;
+        }
       }
-      setMessage(messages[0] ?? "Manual run started. Check status below.");
+
+      setMessage(messages.join(" "));
       const latestView = await pollAutomationRuntimeRefresh(refreshView);
       warnIfRemovalRuntimeEmptyAfterRun(latestView, executionUploadId);
     } finally {
@@ -708,7 +742,7 @@ export function AutomationApiCenterClient() {
     await applyManualRunResult(
       "removal_order",
       AUTOMATION_MANUAL_RUN_ROUTES.removal_order_resume,
-      { organization_id: orgId, upload_id: uploadId },
+      { organization_id: orgId, upload_id: uploadId, run_pipeline: true },
       "removal-order-resume",
     );
   }
@@ -722,7 +756,7 @@ export function AutomationApiCenterClient() {
     await applyManualRunResult(
       "removal_shipment",
       AUTOMATION_MANUAL_RUN_ROUTES.removal_shipment_resume,
-      { organization_id: orgId, upload_id: uploadId },
+      { organization_id: orgId, upload_id: uploadId, run_pipeline: true },
       "removal-shipment-resume",
     );
   }
@@ -830,6 +864,13 @@ export function AutomationApiCenterClient() {
           <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-950 dark:text-sky-50">
             <p className="font-medium">Local development</p>
             <p className="mt-1 text-xs">{runEnvironment.local_warning}</p>
+            <p className="mt-2 text-xs opacity-90">
+              If the page shows <span className="font-mono">ChunkLoadError</span> or missing{" "}
+              <span className="font-mono">/_next/static/chunks/*.js</span>, stop the dev server, delete{" "}
+              <span className="font-mono">.next</span>, restart <span className="font-mono">npm run dev</span>, and
+              clear this site&apos;s browser cache (Application → Storage → Clear site data). Stale chunk 404s are a
+              cache/build artifact, not an automation settings bug, unless they persist after that reset.
+            </p>
           </div>
         ) : null}
 
@@ -1054,6 +1095,7 @@ export function AutomationApiCenterClient() {
                 </label>
                 <label className="block text-sm">
                   <span className="font-medium text-foreground">Rolling window (days)</span>
+                  <RollingWindowHelp />
                   <input
                     type="number"
                     min={1}
@@ -1262,6 +1304,7 @@ export function AutomationApiCenterClient() {
                   draft.removal_api_sync.recent_sync.manual_window_start ?? manualDates.start
                 }
                 windowEnd={draft.removal_api_sync.recent_sync.manual_window_end ?? manualDates.end}
+                hint={<ManualWindowHelp />}
                 onStartChange={(v) =>
                   updateDraft({
                     removal_api_sync: {
@@ -1359,6 +1402,7 @@ export function AutomationApiCenterClient() {
                 </label>
                 <label className="block text-sm">
                   <span className="font-medium text-foreground">Rolling window (days)</span>
+                  <RollingWindowHelp />
                   <input
                     type="number"
                     min={1}
@@ -1460,6 +1504,7 @@ export function AutomationApiCenterClient() {
                 </label>
                 <label className="block text-sm">
                   <span className="font-medium text-foreground">Rolling window (days)</span>
+                  <RollingWindowHelp />
                   <input
                     type="number"
                     min={1}
