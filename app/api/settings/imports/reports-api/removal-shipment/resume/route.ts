@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { runRemovalShipmentReportsWorker } from "@/lib/amazon/reports-api-removal-shipment-worker";
 import { parseSourceRun } from "@/lib/amazon/reports-api-source-run";
 import { reportsApiDisabledReasonForRemovalShipment } from "@/lib/amazon/reports-api-worker-flags";
+import { auditPlatformAutomationManualRun } from "@/lib/platform-automation-manual-run-audit";
 import { supabaseServer } from "@/lib/supabase-server";
 import { isUuidString } from "@/lib/uuid";
 
@@ -69,6 +70,22 @@ export async function POST(req: Request): Promise<Response> {
     },
     { runPipeline: body.run_pipeline === true },
   );
+
+  void auditPlatformAutomationManualRun({
+    organizationId,
+    storeId: sourceRun.store_id,
+    automationType: "removal_shipment",
+    action: "resume",
+    requestBody: { upload_id: uploadId, run_pipeline: body.run_pipeline },
+    result: {
+      ok: result.ok,
+      upload_id: result.upload_id,
+      state: result.state,
+      needs_resume: result.needs_resume,
+      http_status: result.httpStatus,
+    },
+    route: "/api/settings/imports/reports-api/removal-shipment/resume",
+  });
 
   return NextResponse.json(
     {

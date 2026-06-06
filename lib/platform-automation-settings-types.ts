@@ -107,6 +107,17 @@ export interface PlatformAutomationApiFlags {
   finances_ingest_enabled: boolean;
 }
 
+/** Client-safe run environment hints (no secrets). */
+export type AutomationRunEnvironment = {
+  reports_api_worker_enabled: boolean;
+  production_db_configured: boolean;
+  cron_secret_configured: boolean;
+  original_postgres_configured: boolean;
+  vercel_cron_tier: "hobby" | "pro";
+  manual_run_may_queue_only: boolean;
+  local_warning: string | null;
+};
+
 /** Latest manual/import run handles for resume (no credentials). */
 export interface AutomationCardManualRunState {
   upload_id: string | null;
@@ -153,6 +164,15 @@ export interface StoreAutomationSettingsView extends StoreAutomationSettings {
   };
   api_flags: PlatformAutomationApiFlags;
 }
+
+export const EMPTY_MANUAL_RUNS: StoreAutomationSettingsView["manual_runs"] = {
+  product_enrichment: { ...EMPTY_MANUAL_RUN_STATE },
+  reimbursements_api: { ...EMPTY_MANUAL_RUN_STATE },
+  settlement_api: { ...EMPTY_MANUAL_RUN_STATE },
+  finances_archive_api: { ...EMPTY_MANUAL_RUN_STATE },
+  removal_order: { ...EMPTY_MANUAL_RUN_STATE },
+  removal_shipment: { ...EMPTY_MANUAL_RUN_STATE },
+};
 
 /** @deprecated Use StoreAutomationSettingsView — kept for script compat */
 export interface PlatformAutomationSettingsView extends PlatformAutomationSettings {

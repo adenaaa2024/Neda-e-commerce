@@ -5,15 +5,9 @@ import { readPlatformAutomationApiFlags } from "./platform-automation-api-flags"
 import { PRODUCTION_REF } from "./production-db-bind";
 import { refFromSupabaseUrl } from "./staging-project-ref";
 
-export type AutomationRunEnvironment = {
-  reports_api_worker_enabled: boolean;
-  production_db_configured: boolean;
-  cron_secret_configured: boolean;
-  original_postgres_configured: boolean;
-  vercel_cron_tier: "hobby" | "pro";
-  manual_run_may_queue_only: boolean;
-  local_warning: string | null;
-};
+import type { AutomationRunEnvironment } from "./platform-automation-settings-types";
+
+export type { AutomationRunEnvironment } from "./platform-automation-settings-types";
 
 export function resolveAutomationVercelCronTier(): "hobby" | "pro" {
   const raw =

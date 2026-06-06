@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { runRemovalOrderReportsWorker } from "@/lib/amazon/reports-api-removal-order-worker";
 import { reportsApiDisabledReasonForRemovalOrder } from "@/lib/amazon/reports-api-worker-flags";
+import { auditPlatformAutomationManualRun } from "@/lib/platform-automation-manual-run-audit";
 import { isUuidString } from "@/lib/uuid";
 
 export const runtime = "nodejs";
@@ -60,6 +61,28 @@ export async function POST(req: Request): Promise<Response> {
     },
     { runPipeline: body.run_pipeline === true },
   );
+
+  void auditPlatformAutomationManualRun({
+    organizationId,
+    storeId,
+    automationType: "removal_order",
+    action: "run_now",
+    requestBody: {
+      window_start: body.window_start,
+      window_end: body.window_end,
+      upload_id: body.upload_id,
+      run_pipeline: body.run_pipeline,
+    },
+    result: {
+      ok: result.ok,
+      upload_id: result.upload_id,
+      source_run_id: result.source_run_id,
+      state: result.state,
+      needs_resume: result.needs_resume,
+      http_status: result.httpStatus,
+    },
+    route: "/api/settings/imports/reports-api/removal-order/run",
+  });
 
   return NextResponse.json(
     {

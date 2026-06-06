@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -59,16 +59,20 @@ import {
   postAutomationManualRun,
   removalRuntimeStillEmpty,
 } from "@/lib/platform-automation-manual-run-ui";
-import type { AutomationRunEnvironment } from "@/lib/platform-automation-run-environment";
+import type { AutomationRunEnvironment } from "@/lib/platform-automation-settings-types";
+import { buildClientEmptyAutomationView } from "@/lib/platform-automation-client-empty-view";
 import {
   hobbyRemovalScheduleWarning,
   isAutomationHobbyCronTierClient,
 } from "@/lib/platform-automation-run-environment-client";
-import type {
-  AutomationCardManualRunState,
-  AutomationScheduleRuntime,
-  StoreAutomationSettings,
-  StoreAutomationSettingsView,
+import {
+  EMPTY_AUTOMATION_RUNTIME,
+  EMPTY_MANUAL_RUNS,
+  EMPTY_MANUAL_RUN_STATE,
+  type AutomationCardManualRunState,
+  type AutomationScheduleRuntime,
+  type StoreAutomationSettings,
+  type StoreAutomationSettingsView,
 } from "@/lib/platform-automation-settings-types";
 import {
   readAutomationApiReportType,
@@ -102,6 +106,19 @@ type StoreOption = { id: string; name: string; platform: string };
 
 type ManualRunKey = keyof StoreAutomationSettingsView["manual_runs"];
 
+const LOAD_SETTINGS_TIMEOUT_MS = 28_000;
+
+const EMPTY_SCOPE_RUNTIME: StoreAutomationSettingsView["runtime"] = {
+  product_enrichment: { ...EMPTY_AUTOMATION_RUNTIME },
+  removal_api_sync: {
+    recent: { ...EMPTY_AUTOMATION_RUNTIME },
+    historical_backfill: { ...EMPTY_AUTOMATION_RUNTIME },
+  },
+  reimbursements_api: { ...EMPTY_AUTOMATION_RUNTIME },
+  settlement_api: { ...EMPTY_AUTOMATION_RUNTIME },
+  finances_archive_api: { ...EMPTY_AUTOMATION_RUNTIME },
+};
+
 function defaultManualDates(settings: StoreAutomationSettings): { start: string; end: string } {
   const d = defaultReimbursementWindowDates();
   return {
@@ -127,6 +144,26 @@ function formatManualRunMessage(
   return manualRunAcceptanceMessage(result);
 }
 
+function mergeManualRunState(
+  base: StoreAutomationSettingsView["manual_runs"] | null | undefined,
+  key: ManualRunKey,
+  override: AutomationCardManualRunState | undefined,
+): AutomationCardManualRunState {
+  return {
+    ...(base?.[key] ?? EMPTY_MANUAL_RUN_STATE),
+    ...(override ?? {}),
+  };
+}
+
+function safeRemovalRecentRuntime(
+  view: StoreAutomationSettingsView | null | undefined,
+): AutomationScheduleRuntime {
+  return (
+    view?.runtime?.removal_api_sync?.recent ?? {
+      ...EMPTY_AUTOMATION_RUNTIME,
+    }
+  );
+}
 function mergeRemovalRuntimeFromManualRuns(
   base: AutomationScheduleRuntime,
   order: AutomationCardManualRunState | undefined,
@@ -162,6 +199,7 @@ export function AutomationApiCenterClient() {
   const [draft, setDraft] = useState<StoreAutomationSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [scopeLoadError, setScopeLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manualBusy, setManualBusy] = useState<string | null>(null);
   const [manualRunOverride, setManualRunOverride] = useState<
@@ -170,37 +208,74 @@ export function AutomationApiCenterClient() {
   const [apiReportType, setApiReportType] = useState<AutomationApiReportType>("product_data_update");
   const [runEnvironment, setRunEnvironment] = useState<AutomationRunEnvironment | null>(null);
   const hobbyCronTier = isAutomationHobbyCronTierClient();
+  const loadRequestIdRef = useRef(0);
 
-  const hydrateDraft = useCallback((v: StoreAutomationSettingsView) => {
-    setDraft(
-      normalizeStoreAutomationSettings({
-        product_enrichment: v.product_enrichment,
-        removal_api_sync: v.removal_api_sync,
-        reimbursements_api: v.reimbursements_api,
-        settlement_api: v.settlement_api,
-        finances_archive_api: v.finances_archive_api,
-      }),
+  const hydrateDraft = useCallback((v: StoreAutomationSettingsView | null | undefined) => {
+    const normalized = normalizeStoreAutomationSettings(
+      v
+        ? {
+            product_enrichment: v.product_enrichment,
+            removal_api_sync: v.removal_api_sync,
+            reimbursements_api: v.reimbursements_api,
+            settlement_api: v.settlement_api,
+            finances_archive_api: v.finances_archive_api,
+          }
+        : {},
     );
+    setDraft(normalized);
   }, []);
 
   const loadSettings = useCallback(
     async (organizationId: string, selectedStoreId: string): Promise<StoreAutomationSettingsView | null> => {
       if (!organizationId || !selectedStoreId) return null;
+      const requestId = ++loadRequestIdRef.current;
       setScopeLoading(true);
+      setScopeLoadError(null);
       setError(null);
-      const res = await getPlatformAutomationSettingsAction({
-        organizationId,
-        storeId: selectedStoreId,
-      });
-      setScopeLoading(false);
-      if (res.accessDenied) {
-        setAccessDenied(res.accessDenied);
+      const fallbackView = buildClientEmptyAutomationView(organizationId, selectedStoreId);
+      try {
+        const res = await Promise.race([
+          getPlatformAutomationSettingsAction({
+            organizationId,
+            storeId: selectedStoreId,
+          }),
+          new Promise<never>((_, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `Settings load timed out after ${LOAD_SETTINGS_TIMEOUT_MS / 1000}s. The server may be slow or unreachable.`,
+                  ),
+                ),
+              LOAD_SETTINGS_TIMEOUT_MS,
+            );
+          }),
+        ]);
+        if (requestId !== loadRequestIdRef.current) return null;
+        if (res.accessDenied) {
+          setAccessDenied(res.accessDenied);
+          return null;
+        }
+        const nextView = res.view ?? fallbackView;
+        if (res.loadError) {
+          setScopeLoadError(res.loadError);
+        }
+        setView(nextView);
+        setRunEnvironment(res.runEnvironment);
+        hydrateDraft(nextView);
+        return nextView;
+      } catch (err) {
+        if (requestId !== loadRequestIdRef.current) return null;
+        const msg = err instanceof Error ? err.message : "Failed to load automation settings.";
+        setScopeLoadError(msg);
+        setView(fallbackView);
+        hydrateDraft(fallbackView);
         return null;
+      } finally {
+        if (requestId === loadRequestIdRef.current) {
+          setScopeLoading(false);
+        }
       }
-      setView(res.view);
-      setRunEnvironment(res.runEnvironment);
-      hydrateDraft(res.view);
-      return res.view;
     },
     [hydrateDraft],
   );
@@ -288,15 +363,20 @@ export function AutomationApiCenterClient() {
 
   const draftNextRuns = useMemo(() => {
     if (!draft) return null;
-    const now = new Date();
-    return {
-      product: computeProductEnrichmentNextRun(draft.product_enrichment, now),
-      removal: computeRemovalRecentNextRun(draft.removal_api_sync, now),
-      historical: computeRemovalHistoricalNextRun(draft.removal_api_sync, now),
-      reimbursements: computeApiCardNextRun(draft.reimbursements_api, now),
-      settlement: computeApiCardNextRun(draft.settlement_api, now),
-      finances: computeApiCardNextRun(draft.finances_archive_api, now),
-    };
+    try {
+      const now = new Date();
+      return {
+        product: computeProductEnrichmentNextRun(draft.product_enrichment, now),
+        removal: computeRemovalRecentNextRun(draft.removal_api_sync, now),
+        historical: computeRemovalHistoricalNextRun(draft.removal_api_sync, now),
+        reimbursements: computeApiCardNextRun(draft.reimbursements_api, now),
+        settlement: computeApiCardNextRun(draft.settlement_api, now),
+        finances: computeApiCardNextRun(draft.finances_archive_api, now),
+      };
+    } catch (err) {
+      console.error("[AutomationApiCenterClient] draftNextRuns", err);
+      return null;
+    }
   }, [draft]);
 
   const removalHobbyWarning = useMemo(() => {
@@ -310,49 +390,58 @@ export function AutomationApiCenterClient() {
 
   const removalUtcField = useMemo(() => {
     if (!draft) return { value: "", readOnly: false };
-    const rs = draft.removal_api_sync.recent_sync;
-    if (rs.run_times_local.length) {
+    try {
+      const rs = draft.removal_api_sync.recent_sync;
+      if (rs.run_times_local.length) {
+        return {
+          value: deriveUtcRunTimesDisplayFromLocal(rs.timezone, rs.run_times_local),
+          readOnly: true,
+        };
+      }
       return {
-        value: deriveUtcRunTimesDisplayFromLocal(rs.timezone, rs.run_times_local),
-        readOnly: true,
+        value: formatHoursUtcForInput(rs.run_hours_utc),
+        readOnly: false,
       };
+    } catch (err) {
+      console.error("[AutomationApiCenterClient] removalUtcField", err);
+      return { value: "", readOnly: false };
     }
-    return {
-      value: formatHoursUtcForInput(rs.run_hours_utc),
-      readOnly: false,
-    };
   }, [draft]);
 
-  const savePreview = useMemo(
-    () => (draft ? buildStoreAutomationSavePreview(draft) : null),
-    [draft],
-  );
+  const savePreview = useMemo(() => {
+    if (!draft) return null;
+    try {
+      return buildStoreAutomationSavePreview(draft);
+    } catch (err) {
+      console.error("[AutomationApiCenterClient] savePreview", err);
+      return null;
+    }
+  }, [draft]);
 
   const flags = view?.api_flags ?? null;
   const manualDates = draft ? defaultManualDates(draft) : defaultReimbursementWindowDates();
 
   const effectiveManualRuns = useMemo(() => {
-    if (!view) return null;
-    const merge = (key: ManualRunKey): AutomationCardManualRunState => ({
-      ...view.manual_runs[key],
-      ...manualRunOverride[key],
-    });
+    const base = view?.manual_runs ?? EMPTY_MANUAL_RUNS;
     return {
-      product_enrichment: merge("product_enrichment"),
-      reimbursements_api: merge("reimbursements_api"),
-      settlement_api: merge("settlement_api"),
-      finances_archive_api: merge("finances_archive_api"),
-      removal_order: merge("removal_order"),
-      removal_shipment: merge("removal_shipment"),
+      product_enrichment: mergeManualRunState(base, "product_enrichment", manualRunOverride.product_enrichment),
+      reimbursements_api: mergeManualRunState(base, "reimbursements_api", manualRunOverride.reimbursements_api),
+      settlement_api: mergeManualRunState(base, "settlement_api", manualRunOverride.settlement_api),
+      finances_archive_api: mergeManualRunState(
+        base,
+        "finances_archive_api",
+        manualRunOverride.finances_archive_api,
+      ),
+      removal_order: mergeManualRunState(base, "removal_order", manualRunOverride.removal_order),
+      removal_shipment: mergeManualRunState(base, "removal_shipment", manualRunOverride.removal_shipment),
     };
   }, [view, manualRunOverride]);
 
   const effectiveRemovalRuntime = useMemo(() => {
-    if (!view) return null;
     return mergeRemovalRuntimeFromManualRuns(
-      view.runtime.removal_api_sync.recent,
-      effectiveManualRuns?.removal_order,
-      effectiveManualRuns?.removal_shipment,
+      safeRemovalRecentRuntime(view),
+      effectiveManualRuns.removal_order,
+      effectiveManualRuns.removal_shipment,
     );
   }, [view, effectiveManualRuns]);
 
@@ -396,7 +485,7 @@ export function AutomationApiCenterClient() {
     executionUploadId: string | null,
   ) {
     if (!latestView || executionUploadId) return;
-    if (removalRuntimeStillEmpty(latestView.runtime.removal_api_sync.recent)) {
+    if (removalRuntimeStillEmpty(safeRemovalRecentRuntime(latestView))) {
       setError("Run request was accepted but no runtime record was created.");
     }
   }
@@ -456,7 +545,7 @@ export function AutomationApiCenterClient() {
       setError("Invalid manual date range for reimbursements.");
       return;
     }
-    const uploadId = effectiveManualRuns?.reimbursements_api.upload_id;
+    const uploadId = effectiveManualRuns.reimbursements_api?.upload_id;
     await applyManualRunResult("reimbursements_api", AUTOMATION_MANUAL_RUN_ROUTES.reimbursements_run, {
       organization_id: orgId,
       store_id: storeId,
@@ -467,7 +556,7 @@ export function AutomationApiCenterClient() {
   }
 
   async function resumeReimbursements() {
-    const uploadId = effectiveManualRuns?.reimbursements_api.upload_id;
+    const uploadId = effectiveManualRuns.reimbursements_api?.upload_id;
     if (!uploadId) {
       setError("No reimbursements upload to resume.");
       return;
@@ -490,7 +579,7 @@ export function AutomationApiCenterClient() {
       setError("Invalid manual date range for settlement.");
       return;
     }
-    const uploadId = effectiveManualRuns?.settlement_api.upload_id;
+    const uploadId = effectiveManualRuns.settlement_api?.upload_id;
     await applyManualRunResult("settlement_api", AUTOMATION_MANUAL_RUN_ROUTES.settlement_run, {
       organization_id: orgId,
       store_id: storeId,
@@ -501,7 +590,7 @@ export function AutomationApiCenterClient() {
   }
 
   async function resumeSettlement() {
-    const uploadId = effectiveManualRuns?.settlement_api.upload_id;
+    const uploadId = effectiveManualRuns.settlement_api?.upload_id;
     if (!uploadId) {
       setError("No settlement upload to resume.");
       return;
@@ -534,7 +623,7 @@ export function AutomationApiCenterClient() {
   }
 
   async function resumeFinances() {
-    const sourceRunId = effectiveManualRuns?.finances_archive_api.source_run_id;
+    const sourceRunId = effectiveManualRuns.finances_archive_api?.source_run_id;
     if (!sourceRunId || !draft) {
       setError("No finances source run to resume.");
       return;
@@ -611,7 +700,7 @@ export function AutomationApiCenterClient() {
   }
 
   async function resumeRemovalOrder() {
-    const uploadId = effectiveManualRuns?.removal_order.upload_id;
+    const uploadId = effectiveManualRuns.removal_order?.upload_id;
     if (!uploadId) {
       setError("No removal order upload to resume.");
       return;
@@ -625,7 +714,7 @@ export function AutomationApiCenterClient() {
   }
 
   async function resumeRemovalShipment() {
-    const uploadId = effectiveManualRuns?.removal_shipment.upload_id;
+    const uploadId = effectiveManualRuns.removal_shipment?.upload_id;
     if (!uploadId) {
       setError("No removal shipment upload to resume.");
       return;
@@ -698,8 +787,9 @@ export function AutomationApiCenterClient() {
     );
   }
 
-  const scopeReady = Boolean(draft && view && draftNextRuns);
+  const scopeReady = Boolean(draft && draftNextRuns && !scopeLoading);
   const anyEnabled = draft ? isAnyStoreAutomationScheduleEnabled(draft) : false;
+  const scopeRuntime = view?.runtime ?? EMPTY_SCOPE_RUNTIME;
 
   return (
     <div className={responsivePageOuter}>
@@ -743,15 +833,41 @@ export function AutomationApiCenterClient() {
           </div>
         ) : null}
 
-        {!scopeReady ? (
+        {!scopeReady && !scopeLoading ? (
           <div className="rounded-xl border border-border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
-            {scopeLoading || loading
-              ? "Loading automation settings for the selected company and store…"
-              : "Choose a company and store above to load automation settings."}
+            Choose a company and store above to load automation settings.
           </div>
         ) : null}
 
-        {scopeReady && draft && view && draftNextRuns ? (
+        {scopeLoading ? (
+          <div className="rounded-xl border border-border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
+            <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" aria-hidden />
+            Loading automation settings for the selected company and store…
+          </div>
+        ) : null}
+
+        {scopeLoadError ? (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50">
+            <p className="font-medium">Could not load automation settings</p>
+            <p className="mt-1 text-xs">{scopeLoadError}</p>
+            <p className="mt-2 text-xs opacity-90">
+              Showing normalized defaults for this company and store. You can edit and save; runtime status may be
+              incomplete until the issue is resolved.
+            </p>
+            {orgId && storeId ? (
+              <button
+                type="button"
+                className="mt-3 rounded-lg border border-amber-600/40 bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                onClick={() => void loadSettings(orgId, storeId)}
+                disabled={scopeLoading}
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {scopeReady && draft && draftNextRuns ? (
           <>
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50">
           <div className="flex gap-2">
@@ -864,7 +980,7 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.product_enrichment.enabled}
-                runtime={view.runtime.product_enrichment}
+                runtime={scopeRuntime.product_enrichment}
                 nextRun={draft.product_enrichment.enabled ? draftNextRuns.product : null}
               />
             </div>
@@ -1175,13 +1291,13 @@ export function AutomationApiCenterClient() {
                 onRun={runRemovalFetch}
                 canResume={
                   Boolean(
-                    effectiveManualRuns?.removal_order.needs_resume ||
-                      effectiveManualRuns?.removal_shipment.needs_resume,
+                    effectiveManualRuns.removal_order?.needs_resume ||
+                      effectiveManualRuns.removal_shipment?.needs_resume,
                   )
                 }
                 onResume={async () => {
-                  if (effectiveManualRuns?.removal_order.needs_resume) await resumeRemovalOrder();
-                  if (effectiveManualRuns?.removal_shipment.needs_resume) await resumeRemovalShipment();
+                  if (effectiveManualRuns.removal_order?.needs_resume) await resumeRemovalOrder();
+                  if (effectiveManualRuns.removal_shipment?.needs_resume) await resumeRemovalShipment();
                 }}
               />
               {effectiveManualRuns ? (
@@ -1198,7 +1314,7 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.removal_api_sync.enabled}
-                runtime={effectiveRemovalRuntime ?? view.runtime.removal_api_sync.recent}
+                runtime={effectiveRemovalRuntime}
                 nextRun={draft.removal_api_sync.enabled ? draftNextRuns.removal : null}
                 scheduleSource="Platform settings → removal_api_sync (Vercel daily wake 08:00 UTC on Hobby)"
               />
@@ -1294,7 +1410,7 @@ export function AutomationApiCenterClient() {
                 busy={manualBusy === "reimbursements" || manualBusy === "reimbursements-resume"}
                 disabled={!orgId || !storeId || Boolean(flags && reimbursementFlagWarning(flags).disabled)}
                 onRun={runReimbursements}
-                canResume={Boolean(effectiveManualRuns?.reimbursements_api.needs_resume)}
+                canResume={Boolean(effectiveManualRuns.reimbursements_api?.needs_resume)}
                 onResume={resumeReimbursements}
               />
               {effectiveManualRuns ? (
@@ -1305,7 +1421,7 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.reimbursements_api.enabled}
-                runtime={view.runtime.reimbursements_api}
+                runtime={scopeRuntime.reimbursements_api}
                 nextRun={draft.reimbursements_api.enabled ? draftNextRuns.reimbursements : null}
               />
             </div>
@@ -1388,7 +1504,7 @@ export function AutomationApiCenterClient() {
                 busy={manualBusy === "settlement" || manualBusy === "settlement-resume"}
                 disabled={!orgId || !storeId || Boolean(flags && settlementFlagWarning(flags).disabled)}
                 onRun={runSettlement}
-                canResume={Boolean(effectiveManualRuns?.settlement_api.needs_resume)}
+                canResume={Boolean(effectiveManualRuns.settlement_api?.needs_resume)}
                 onResume={resumeSettlement}
               />
               {effectiveManualRuns ? (
@@ -1399,7 +1515,7 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.settlement_api.enabled}
-                runtime={view.runtime.settlement_api}
+                runtime={scopeRuntime.settlement_api}
                 nextRun={draft.settlement_api.enabled ? draftNextRuns.settlement : null}
               />
             </div>
@@ -1496,7 +1612,7 @@ export function AutomationApiCenterClient() {
                 busy={manualBusy === "finances" || manualBusy === "finances-resume"}
                 disabled={!orgId || !storeId || Boolean(flags && financesFlagWarning(flags).disabled)}
                 onRun={runFinances}
-                canResume={Boolean(effectiveManualRuns?.finances_archive_api.needs_resume)}
+                canResume={Boolean(effectiveManualRuns.finances_archive_api?.needs_resume)}
                 onResume={resumeFinances}
               />
               {effectiveManualRuns ? (
@@ -1507,7 +1623,7 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.finances_archive_api.enabled}
-                runtime={view.runtime.finances_archive_api}
+                runtime={scopeRuntime.finances_archive_api}
                 nextRun={draft.finances_archive_api.enabled ? draftNextRuns.finances : null}
               />
             </div>
@@ -1627,7 +1743,7 @@ export function AutomationApiCenterClient() {
               />
               <RuntimeStatsFromView
                 enabled={draft.removal_api_sync.enabled && draft.removal_api_sync.historical_backfill.enabled}
-                runtime={view.runtime.removal_api_sync.historical_backfill}
+                runtime={scopeRuntime.removal_api_sync.historical_backfill}
                 nextRun={
                   draft.removal_api_sync.enabled && draft.removal_api_sync.historical_backfill.enabled
                     ? draftNextRuns.historical

@@ -142,7 +142,7 @@ async function readProductEnrichmentManualRun(
     organizationId,
     storeId,
     jobType: "product_enrichment",
-  });
+  }).catch(() => null);
 
   if (active) {
     return {

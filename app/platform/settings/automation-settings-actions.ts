@@ -3,11 +3,16 @@
 import { listStoresForOrganization } from "../../settings/adapters/actions";
 import { canEditPlatformProductSettings } from "../../../lib/platform-product-settings-access";
 import {
+  diffRemovalAutomationAuditEntries,
+  resolvePlatformAutomationAuditActor,
+  writePlatformAutomationAuditLogs,
+} from "../../../lib/platform-automation-audit-log";
+import {
   buildStoreAutomationSettingsView,
   emptyStoreAutomationView,
 } from "../../../lib/platform-automation-run-status";
 import { normalizeStoreAutomationSettings } from "../../../lib/platform-automation-schedule";
-import { writeStoreAutomationSettings } from "../../../lib/platform-automation-scope-storage";
+import { readStoreAutomationSettings, writeStoreAutomationSettings } from "../../../lib/platform-automation-scope-storage";
 import type {
   StoreAutomationSettings,
   StoreAutomationSettingsView,
@@ -90,7 +95,12 @@ export async function listPlatformAutomationStoresAction(
 
 export type StoreAutomationSettingsActionResult =
   | { accessDenied: AccessDenied }
-  | { accessDenied: null; view: StoreAutomationSettingsView; runEnvironment: AutomationRunEnvironment };
+  | {
+      accessDenied: null;
+      view: StoreAutomationSettingsView;
+      runEnvironment: AutomationRunEnvironment;
+      loadError: string | null;
+    };
 
 export async function getPlatformAutomationSettingsAction(args: {
   organizationId: string;
@@ -101,42 +111,60 @@ export async function getPlatformAutomationSettingsAction(args: {
 
   const organizationId = args.organizationId.trim();
   const storeId = args.storeId.trim();
+  const runEnvironment = buildAutomationRunEnvironment();
+
   if (!isUuidString(organizationId) || !isUuidString(storeId)) {
     return {
       accessDenied: null,
       view: emptyStoreAutomationView(organizationId, storeId),
-      runEnvironment: buildAutomationRunEnvironment(),
+      runEnvironment,
+      loadError: null,
     };
   }
 
-  const { data, error } = await supabaseServer
-    .from("platform_settings")
-    .select("automation_settings, updated_at")
-    .eq("id", true)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabaseServer
+      .from("platform_settings")
+      .select("automation_settings, updated_at")
+      .eq("id", true)
+      .maybeSingle();
 
-  if (error) {
-    console.error("[getPlatformAutomationSettingsAction]", error.message);
+    if (error) {
+      console.error("[getPlatformAutomationSettingsAction]", error.message);
+      return {
+        accessDenied: null,
+        view: emptyStoreAutomationView(organizationId, storeId),
+        runEnvironment,
+        loadError: error.message.includes("automation_settings")
+          ? "Database column platform_settings.automation_settings is missing. Apply migration 20260833180000_platform_settings_automation_settings_column.sql."
+          : error.message,
+      };
+    }
+
+    const row = data as { automation_settings?: unknown; updated_at?: string } | null;
+    const view = await buildStoreAutomationSettingsView(
+      supabaseServer,
+      row?.automation_settings,
+      organizationId,
+      storeId,
+      typeof row?.updated_at === "string" ? row.updated_at : null,
+    );
+    return {
+      accessDenied: null,
+      view,
+      runEnvironment,
+      loadError: null,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[getPlatformAutomationSettingsAction] unexpected:", msg);
     return {
       accessDenied: null,
       view: emptyStoreAutomationView(organizationId, storeId),
-      runEnvironment: buildAutomationRunEnvironment(),
+      runEnvironment,
+      loadError: msg,
     };
   }
-
-  const row = data as { automation_settings?: unknown; updated_at?: string } | null;
-  const view = await buildStoreAutomationSettingsView(
-    supabaseServer,
-    row?.automation_settings,
-    organizationId,
-    storeId,
-    typeof row?.updated_at === "string" ? row.updated_at : null,
-  );
-  return {
-    accessDenied: null,
-    view,
-    runEnvironment: buildAutomationRunEnvironment(),
-  };
 }
 
 export async function savePlatformAutomationSettingsAction(args: {
@@ -174,6 +202,7 @@ export async function savePlatformAutomationSettingsAction(args: {
   if (readErr) return { ok: false, error: readErr.message };
 
   const row = existing as { automation_settings?: unknown } | null;
+  const beforeSettings = readStoreAutomationSettings(row?.automation_settings, organizationId, storeId);
   const nextDoc = writeStoreAutomationSettings(
     row?.automation_settings,
     organizationId,
@@ -187,6 +216,15 @@ export async function savePlatformAutomationSettingsAction(args: {
     .eq("id", true);
 
   if (error) return { ok: false, error: error.message };
+
+  const actor = await resolvePlatformAutomationAuditActor(supabaseServer);
+  const auditEntries = diffRemovalAutomationAuditEntries(
+    organizationId,
+    storeId,
+    beforeSettings,
+    normalized,
+  );
+  await writePlatformAutomationAuditLogs(supabaseServer, actor, auditEntries);
 
   const { data: savedRow } = await supabaseServer
     .from("platform_settings")

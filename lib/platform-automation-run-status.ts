@@ -223,15 +223,25 @@ export async function buildStoreAutomationSettingsView(
 ): Promise<StoreAutomationSettingsView> {
   const settings = readStoreAutomationSettings(rawSettings, organizationId, storeId);
 
-  const [enrichmentJob, reimbursements, settlement, removal, manualRuns] = await Promise.all([
-    readLatestEnrichmentJob(client, organizationId, storeId),
-    readLatestReportsApiUpload(client, organizationId, storeId, ["REIMBURSEMENTS"]),
-    readLatestReportsApiUpload(client, organizationId, storeId, ["SETTLEMENT"]),
-    readLatestReportsApiUpload(client, organizationId, storeId, [...REMOVAL_UPLOAD_TYPES]),
-    buildAutomationManualRunStates(client, organizationId, storeId),
-  ]);
+  let enrichmentJob = { last_run_at: null as string | null, last_run_status: "never" as AutomationRunStatus, last_error: null as string | null };
+  let reimbursements = enrichmentJob;
+  let settlement = enrichmentJob;
+  let removal = enrichmentJob;
+  let manualRuns = emptyStoreAutomationView(organizationId, storeId).manual_runs;
+  let financesRuntime = enrichmentJob;
 
-  const financesRuntime = await readFinancesArchiveRuntime(client, organizationId, storeId);
+  try {
+    [enrichmentJob, reimbursements, settlement, removal, manualRuns] = await Promise.all([
+      readLatestEnrichmentJob(client, organizationId, storeId),
+      readLatestReportsApiUpload(client, organizationId, storeId, ["REIMBURSEMENTS"]),
+      readLatestReportsApiUpload(client, organizationId, storeId, ["SETTLEMENT"]),
+      readLatestReportsApiUpload(client, organizationId, storeId, [...REMOVAL_UPLOAD_TYPES]),
+      buildAutomationManualRunStates(client, organizationId, storeId),
+    ]);
+    financesRuntime = await readFinancesArchiveRuntime(client, organizationId, storeId);
+  } catch (err) {
+    console.error("[buildStoreAutomationSettingsView] runtime/manual_runs degraded:", err);
+  }
 
   const cronRt = settings.removal_api_sync.cron_runtime;
   const removalRecentBase =

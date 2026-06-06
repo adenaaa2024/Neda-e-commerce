@@ -1,5 +1,10 @@
 import { AutomationApiCenterClient } from "./AutomationApiCenterClient";
+import { AutomationApiCenterErrorBoundary } from "./AutomationApiCenterErrorBoundary";
 
 export default function PlatformAutomationSettingsPage() {
-  return <AutomationApiCenterClient />;
+  return (
+    <AutomationApiCenterErrorBoundary>
+      <AutomationApiCenterClient />
+    </AutomationApiCenterErrorBoundary>
+  );
 }
