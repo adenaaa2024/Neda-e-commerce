@@ -33,6 +33,7 @@ import {
   computeProductEnrichmentNextRun,
   computeRemovalHistoricalNextRun,
   computeRemovalRecentNextRun,
+  deriveUtcRunTimesDisplayFromLocal,
   formatHoursUtcForInput,
   formatLocalRunTimesForInput,
   isAnyStoreAutomationScheduleEnabled,
@@ -306,6 +307,21 @@ export function AutomationApiCenterClient() {
       run_hours_utc: draft.removal_api_sync.recent_sync.run_hours_utc,
     });
   }, [draft, hobbyCronTier]);
+
+  const removalUtcField = useMemo(() => {
+    if (!draft) return { value: "", readOnly: false };
+    const rs = draft.removal_api_sync.recent_sync;
+    if (rs.run_times_local.length) {
+      return {
+        value: deriveUtcRunTimesDisplayFromLocal(rs.timezone, rs.run_times_local),
+        readOnly: true,
+      };
+    }
+    return {
+      value: formatHoursUtcForInput(rs.run_hours_utc),
+      readOnly: false,
+    };
+  }, [draft]);
 
   const savePreview = useMemo(
     () => (draft ? buildStoreAutomationSavePreview(draft) : null),
@@ -943,8 +959,13 @@ export function AutomationApiCenterClient() {
                 </label>
                 <RunTimeField
                   id="rem-run-times"
-                  label="Schedule run times (UTC fallback)"
-                  value={formatHoursUtcForInput(draft.removal_api_sync.recent_sync.run_hours_utc)}
+                  label={
+                    removalUtcField.readOnly
+                      ? "Derived UTC (from local run times)"
+                      : "Schedule run times (UTC fallback)"
+                  }
+                  value={removalUtcField.value}
+                  readOnly={removalUtcField.readOnly}
                   onChange={(text) =>
                     updateDraft({
                       removal_api_sync: {
@@ -962,6 +983,11 @@ export function AutomationApiCenterClient() {
                   runsPerDay={draft.removal_api_sync.recent_sync.runs_per_day}
                   formatUtcHoursForDisplay={formatUtcHoursForDisplay}
                   parseHoursUtcFromInput={parseHoursUtcFromInput}
+                  hint={
+                    removalUtcField.readOnly
+                      ? `Computed from ${draft.removal_api_sync.recent_sync.timezone} local slots (includes minutes; not the legacy hour-only fallback).`
+                      : undefined
+                  }
                 />
                 <label className="block text-sm sm:col-span-2">
                   <span className="font-medium text-foreground">Local run times (preferred)</span>

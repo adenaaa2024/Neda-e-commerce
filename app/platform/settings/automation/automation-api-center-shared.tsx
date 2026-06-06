@@ -196,6 +196,7 @@ export function RunTimeField({
   onChange,
   runsPerDay,
   hint,
+  readOnly,
   formatUtcHoursForDisplay,
   parseHoursUtcFromInput,
 }: {
@@ -205,16 +206,18 @@ export function RunTimeField({
   onChange: (v: string) => void;
   runsPerDay: number;
   hint?: string;
+  readOnly?: boolean;
   formatUtcHoursForDisplay: (hours: number[]) => string;
   parseHoursUtcFromInput: (text: string, runsPerDay: number) => number[];
 }) {
   const parsedPreview = React.useMemo(() => {
+    if (readOnly) return null;
     try {
       return formatUtcHoursForDisplay(parseHoursUtcFromInput(value, runsPerDay));
     } catch {
       return null;
     }
-  }, [value, runsPerDay, formatUtcHoursForDisplay, parseHoursUtcFromInput]);
+  }, [value, runsPerDay, formatUtcHoursForDisplay, parseHoursUtcFromInput, readOnly]);
 
   return (
     <label className="block text-sm sm:col-span-2" htmlFor={id}>
@@ -223,9 +226,11 @@ export function RunTimeField({
         id={id}
         type="text"
         value={value}
+        readOnly={readOnly}
+        disabled={readOnly}
         onChange={(e) => onChange(e.target.value)}
         placeholder="06:00, 14:00"
-        className={`${responsiveFormInput} mt-1.5 font-mono text-sm`}
+        className={`${responsiveFormInput} mt-1.5 font-mono text-sm ${readOnly ? "cursor-default opacity-80" : ""}`}
       />
       {hint ? <span className="mt-1 block text-xs text-muted-foreground">{hint}</span> : null}
       {parsedPreview ? (

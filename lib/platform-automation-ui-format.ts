@@ -3,6 +3,7 @@ import {
   computeProductEnrichmentNextRun,
   computeRemovalHistoricalNextRun,
   computeRemovalRecentNextRun,
+  deriveUtcRunTimesDisplayFromLocal,
   normalizePlatformAutomationSettings,
   normalizeStoreAutomationSettings,
 } from "./platform-automation-schedule";
@@ -186,12 +187,15 @@ function buildRemovalPreview(settings: PlatformAutomationSettings, now: Date): {
     return { removalSync: "Removal / Shipment sync is off — nothing will be scheduled." };
   }
   const next = computeRemovalRecentNextRun(settings.removal_api_sync, now);
-  const times = formatUtcHoursForDisplay(settings.removal_api_sync.recent_sync.run_hours_utc);
-  const rolling = settings.removal_api_sync.recent_sync.rolling_days;
+  const rs = settings.removal_api_sync.recent_sync;
+  const times = rs.run_times_local.length
+    ? `${rs.run_times_local.join(", ")} ${rs.timezone} → ${deriveUtcRunTimesDisplayFromLocal(rs.timezone, rs.run_times_local, now)} UTC`
+    : formatUtcHoursForDisplay(rs.run_hours_utc);
+  const rolling = rs.rolling_days;
   const nextFmt = next ? formatAutomationTimestamp(next.toISOString()) : null;
   return {
     removalSync: nextFmt
-      ? `Removal sync will run ${settings.removal_api_sync.recent_sync.runs_per_day} time(s) per day (${times}), rolling ${rolling}-day window. Next run: ${nextFmt.primary}. Dry-run only until operator enables apply secrets.`
+      ? `Removal sync will run ${rs.runs_per_day} time(s) per day (${times}), rolling ${rolling}-day window. Next run: ${nextFmt.primary}. Dry-run only until operator enables apply secrets.`
       : `Removal sync enabled (${times}), ${rolling}-day rolling window. Dry-run only until operator enables apply secrets.`,
   };
 }

@@ -1,5 +1,7 @@
 import {
   computeNextLocalDailyRunUtc,
+  deriveUtcHoursFromLocalRunTimes,
+  deriveUtcRunTimesDisplayFromLocal,
   isValidIanaTimeZone,
   parseLocalRunTimes,
   parseLocalRunTimesFromInput,
@@ -65,7 +67,7 @@ function normalizeRecentSync(raw: unknown): RemovalRecentSyncSchedule {
     24,
     DEFAULT_PLATFORM_AUTOMATION_SETTINGS.removal_api_sync.recent_sync.runs_per_day,
   );
-  const runHoursUtc = normalizeHours(src.run_hours_utc, runsPerDay).slice(0, runsPerDay);
+  let runHoursUtc = normalizeHours(src.run_hours_utc, runsPerDay).slice(0, runsPerDay);
 
   const tzRaw = typeof src.timezone === "string" ? src.timezone.trim() : "";
   const timezone =
@@ -78,6 +80,13 @@ function normalizeRecentSync(raw: unknown): RemovalRecentSyncSchedule {
     runTimesLocal = parseLocalRunTimes(src.run_times_local, []);
   }
   runTimesLocal = runTimesLocal.slice(0, runsPerDay);
+
+  if (runTimesLocal.length) {
+    runHoursUtc = deriveUtcHoursFromLocalRunTimes(timezone, runTimesLocal).slice(0, runsPerDay);
+    if (!runHoursUtc.length) {
+      runHoursUtc = normalizeHours(src.run_hours_utc, runsPerDay).slice(0, runsPerDay);
+    }
+  }
 
   return {
     runs_per_day: runsPerDay,
@@ -299,6 +308,11 @@ export function computeRemovalRecentNextRun(
 }
 
 export { parseLocalRunTimesFromInput, formatLocalRunTimesForInput } from "./automation-timezone-schedule";
+export {
+  deriveUtcRunTimesDisplayFromLocal,
+  deriveUtcRunSlotsFromLocalRunTimes,
+  formatUtcRunSlotsForInput,
+} from "./automation-timezone-schedule";
 
 export function computeRemovalHistoricalNextRun(
   schedule: RemovalApiSyncSchedule,

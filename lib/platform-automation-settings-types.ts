@@ -187,7 +187,7 @@ export const DEFAULT_FINANCES_ARCHIVE_SCHEDULE: FinancesArchiveApiSchedule = {
 
 export const DEFAULT_REMOVAL_RECENT_SYNC: RemovalRecentSyncSchedule = {
   runs_per_day: 1,
-  run_hours_utc: [21],
+  run_hours_utc: [6],
   timezone: "America/Los_Angeles",
   run_times_local: ["23:30"],
   rolling_days: 7,

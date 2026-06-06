@@ -228,6 +228,55 @@ export function computeNextLocalDailyRunUtc(
   return candidates[0] ?? null;
 }
 
+export type UtcRunSlot = { hour: number; minute: number };
+
+/** Map each local HH:MM slot to its UTC hour/minute (next occurrence from referenceDate). */
+export function deriveUtcRunSlotsFromLocalRunTimes(
+  timeZone: string,
+  runTimesLocal: string[],
+  referenceDate: Date = new Date(),
+): UtcRunSlot[] {
+  const tz = isValidIanaTimeZone(timeZone) ? timeZone : "UTC";
+  const slots: UtcRunSlot[] = [];
+  for (const raw of runTimesLocal) {
+    if (!parseLocalRunTime(raw)) continue;
+    const next = computeNextLocalDailyRunUtc(tz, [raw], referenceDate);
+    if (!next) continue;
+    slots.push({ hour: next.getUTCHours(), minute: next.getUTCMinutes() });
+  }
+  const seen = new Set<string>();
+  return slots.filter((s) => {
+    const key = `${s.hour}:${s.minute}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function deriveUtcHoursFromLocalRunTimes(
+  timeZone: string,
+  runTimesLocal: string[],
+  referenceDate: Date = new Date(),
+): number[] {
+  return deriveUtcRunSlotsFromLocalRunTimes(timeZone, runTimesLocal, referenceDate).map((s) => s.hour);
+}
+
+export function formatUtcRunSlotsForInput(slots: UtcRunSlot[]): string {
+  return slots
+    .map((s) => `${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`)
+    .join(", ");
+}
+
+export function deriveUtcRunTimesDisplayFromLocal(
+  timeZone: string,
+  runTimesLocal: string[],
+  referenceDate: Date = new Date(),
+): string {
+  const slots = deriveUtcRunSlotsFromLocalRunTimes(timeZone, runTimesLocal, referenceDate);
+  if (!slots.length) return "";
+  return formatUtcRunSlotsForInput(slots);
+}
+
 function inputTimeZoneSafe(tz: string): string {
   return isValidIanaTimeZone(tz) ? tz : "UTC";
 }
