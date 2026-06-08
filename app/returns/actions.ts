@@ -1174,6 +1174,9 @@ export async function insertReturn(
       resolveActorUserId(payload.created_by);
     const expectedItemFk = uuidFkOrNull(payload.expected_item_id ?? null, "expected_item_id");
 
+    const qtyRaw = Number(payload.scanned_quantity ?? 1);
+    const scannedQuantity = Number.isFinite(qtyRaw) ? Math.max(1, Math.floor(qtyRaw)) : 1;
+
     const insertRow: Record<string, unknown> = {
       organization_id: orgId,
       lpn:             payload.lpn?.trim() || null,
@@ -1190,6 +1193,7 @@ export async function insertReturn(
       status,
       created_by:      createdBy,
       store_id:        resolvedStoreId,
+      scanned_quantity: scannedQuantity,
     };
     const normalizedAsin = normalizeUpperIdentifier(payload.asin);
     const normalizedFnsku = normalizeUpperIdentifier(payload.fnsku);

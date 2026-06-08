@@ -140,6 +140,8 @@ export type ReturnInsertPayload = {
   notes?: string;
   photo_evidence?: Record<string, string | number | string[] | null> | null;
   expiration_date?: string; batch_number?: string;
+  /** Units in this scan batch (default 1). Requires migration 20260608180000 on DB. */
+  scanned_quantity?: number;
   pallet_id?: string; package_id?: string;
   store_id?: string;
   amazon_order_id?: string | null;

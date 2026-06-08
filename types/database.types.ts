@@ -72,6 +72,8 @@ export type ReturnsRow = {
   photo_evidence: Json | null;
   expiration_date: string | null;
   batch_number: string | null;
+  /** Scan batch unit count (default 1). Migration 20260608180000. */
+  scanned_quantity?: number;
   asin: string | null;
   fnsku: string | null;
   sku: string | null;

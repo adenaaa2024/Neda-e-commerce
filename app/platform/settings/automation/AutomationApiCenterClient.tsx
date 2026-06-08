@@ -142,12 +142,6 @@ function isBrowserLocalhost(): boolean {
   return /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
 }
 
-function formatManualRunMessage(
-  result: Extract<Awaited<ReturnType<typeof postAutomationManualRun>>, { ok: true }>,
-): string {
-  return manualRunAcceptanceMessage(result);
-}
-
 function mergeManualRunState(
   base: StoreAutomationSettingsView["manual_runs"] | null | undefined,
   key: ManualRunKey,
@@ -213,6 +207,14 @@ export function AutomationApiCenterClient() {
   const [runEnvironment, setRunEnvironment] = useState<AutomationRunEnvironment | null>(null);
   const hobbyCronTier = isAutomationHobbyCronTierClient();
   const loadRequestIdRef = useRef(0);
+
+  const formatManualRunMessage = useCallback(
+    (result: Extract<Awaited<ReturnType<typeof postAutomationManualRun>>, { ok: true }>) =>
+      manualRunAcceptanceMessage(result, {
+        localhostQueuedOnly: isBrowserLocalhost() && Boolean(runEnvironment?.manual_run_may_queue_only),
+      }),
+    [runEnvironment],
+  );
 
   const hydrateDraft = useCallback((v: StoreAutomationSettingsView | null | undefined) => {
     const normalized = normalizeStoreAutomationSettings(
@@ -487,10 +489,11 @@ export function AutomationApiCenterClient() {
   function warnIfRemovalRuntimeEmptyAfterRun(
     latestView: StoreAutomationSettingsView | null,
     executionUploadId: string | null,
+    accepted?: boolean,
   ) {
-    if (!latestView || executionUploadId) return;
+    if (!latestView || executionUploadId || accepted) return;
     if (removalRuntimeStillEmpty(safeRemovalRecentRuntime(latestView))) {
-      setError("Run request was accepted but no runtime record was created.");
+      setError("Run request was accepted but no runtime record was created yet. Refresh in a moment.");
     }
   }
 
@@ -531,7 +534,7 @@ export function AutomationApiCenterClient() {
         latestView = await refreshView();
       }
       if (opts?.verifyRemovalRuntime) {
-        warnIfRemovalRuntimeEmptyAfterRun(latestView, executionUploadId);
+        warnIfRemovalRuntimeEmptyAfterRun(latestView, executionUploadId, result.accepted);
       }
       return true;
     } finally {
@@ -725,9 +728,13 @@ export function AutomationApiCenterClient() {
         }
       }
 
-      setMessage(messages.join(" "));
+      setMessage(
+        dryRunOnly
+          ? `${messages.join(" ")} Local dev: queued work may not mirror production cron.`
+          : messages.join(" "),
+      );
       const latestView = await pollAutomationRuntimeRefresh(refreshView);
-      warnIfRemovalRuntimeEmptyAfterRun(latestView, executionUploadId);
+      warnIfRemovalRuntimeEmptyAfterRun(latestView, executionUploadId, true);
     } finally {
       setManualBusy(null);
     }

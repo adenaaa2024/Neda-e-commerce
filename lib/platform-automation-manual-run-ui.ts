@@ -214,19 +214,31 @@ export function isAutomationManualRunHttpSuccess(status: number): boolean {
   return status >= 200 && status <= 202;
 }
 
-export function manualRunAcceptanceMessage(result: Extract<ManualRunPostResult, { ok: true }>): string {
+export function manualRunAcceptanceMessage(
+  result: Extract<ManualRunPostResult, { ok: true }>,
+  opts?: { localhostQueuedOnly?: boolean },
+): string {
+  const state = String(result.data.state ?? result.data.runtime_status ?? "").toLowerCase();
+  if (result.httpStatus === 202 || result.accepted) {
+    if (opts?.localhostQueuedOnly) {
+      return "Run accepted on local dev (queued / in progress). This is not a production cron run — check status below.";
+    }
+    if (!result.has_execution_evidence) {
+      return "Run accepted / started. Check status below.";
+    }
+    if (isTerminalManualRunState(state) && !result.data.needs_resume) {
+      return state === "failed" ? "Manual run failed. See status below." : "Manual run completed.";
+    }
+    return "Run accepted / started. Check status below.";
+  }
   if (!result.has_execution_evidence) {
     return "Run request was accepted but no runtime record was created.";
   }
-  const state = String(result.data.state ?? result.data.runtime_status ?? "").toLowerCase();
   if (isTerminalManualRunState(state) && !result.data.needs_resume) {
     return state === "failed" ? "Manual run failed. See status below." : "Manual run completed.";
   }
   if (state === "synthetic_upload_ready" || result.data.needs_resume) {
     return "Step 1 complete (report ready). Continuing import…";
-  }
-  if (result.httpStatus === 202) {
-    return "Run queued. Continuing…";
   }
   return "Manual run in progress…";
 }
@@ -250,54 +262,35 @@ export async function postAutomationManualRun(
   }
 
   const httpStatus = res.status;
-
-  if (opts?.localhostDryRunOnly) {
-    return {
-      ok: false,
-      error: "Local manual run is dry-run only / cannot execute production sync.",
-      httpStatus,
-      code: "localhost_dry_run_only",
-    };
-  }
-
   const hasEvidence = manualRunHasExecutionEvidence(data, httpStatus);
 
-  if (isAutomationManualRunHttpSuccess(httpStatus) && hasEvidence) {
+  // HTTP 200–202 are success. JSON `ok: false` means import not finished yet (common on 202), not request failure.
+  if (isAutomationManualRunHttpSuccess(httpStatus)) {
+    const accepted = httpStatus >= 202 || Boolean(data.needs_resume);
+    if (opts?.localhostDryRunOnly && !hasEvidence && !accepted) {
+      return {
+        ok: false,
+        error:
+          "Local manual run could not start — missing production env (CRON_SECRET, ORIGINAL_DIRECT_POSTGRES_URL, or production Supabase URL).",
+        httpStatus,
+        code: "localhost_dry_run_only",
+      };
+    }
     return {
       ok: true,
       data,
       httpStatus,
-      accepted: httpStatus === 202 || Boolean(data.needs_resume),
-      has_execution_evidence: true,
+      accepted,
+      has_execution_evidence: hasEvidence,
     };
   }
 
-  if (isAutomationManualRunHttpSuccess(httpStatus) && !hasEvidence) {
-    return {
-      ok: false,
-      error:
-        "Run request returned success HTTP status but no upload/job was created. Check server env flags and SP-API credentials.",
-      code: "no_execution_evidence",
-      httpStatus,
-    };
-  }
-
-  if (!res.ok || data.ok === false) {
-    const err = String(data.error ?? `Request failed (${httpStatus}).`);
-    return {
-      ok: false,
-      error: err,
-      code: typeof data.code === "string" ? data.code : undefined,
-      httpStatus,
-    };
-  }
-
+  const err = String(data.error ?? `Request failed (${httpStatus}).`);
   return {
-    ok: true,
-    data,
+    ok: false,
+    error: err,
+    code: typeof data.code === "string" ? data.code : undefined,
     httpStatus,
-    accepted: false,
-    has_execution_evidence: hasEvidence,
   };
 }
 

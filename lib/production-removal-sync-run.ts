@@ -96,6 +96,64 @@ async function fetchUntilReady(
   return { upload_id: uploadId, ok, state: lastState, error: lastError };
 }
 
+export async function resumeUploadImportPipeline(
+  uploadId: string,
+): Promise<{ ok: boolean; state: string; error?: string }> {
+  bindProductionSupabaseEnv();
+  return runImportPipeline(uploadId);
+}
+
+export type DomainMaxDates = {
+  max_removal_order_date: string | null;
+  max_shipment_domain_date: string | null;
+  max_ep_source_date: string | null;
+  today_utc: string;
+};
+
+export async function queryDomainMaxDates(client: pg.Client, orgId: string): Promise<DomainMaxDates> {
+  const r = await client.query(
+    `SELECT
+      (SELECT MAX(order_date)::text FROM amazon_removals WHERE organization_id=$1::uuid) AS max_removal_order_date,
+      (SELECT MAX(COALESCE(shipment_date, order_date))::text FROM amazon_removal_shipments WHERE organization_id=$1::uuid) AS max_shipment_domain_date,
+      (SELECT MAX(COALESCE(order_date, created_at::date))::text FROM expected_packages
+        WHERE organization_id=$1::uuid AND build_source IN ('detail_shipment','detail_remainder')) AS max_ep_source_date,
+      (SELECT (now() AT TIME ZONE 'UTC')::date::text) AS today_utc`,
+    [orgId],
+  );
+  return r.rows[0] as DomainMaxDates;
+}
+
+export async function queryStuckRemovalUploads(client: pg.Client, orgId: string) {
+  const r = await client.query(
+    `SELECT id::text, report_type, status,
+      metadata->'source_run'->>'state' AS run_state, created_at::text
+    FROM raw_report_uploads
+    WHERE organization_id = $1::uuid AND report_type IN ('REMOVAL_ORDER','REMOVAL_SHIPMENT')
+      AND (
+        metadata->'source_run'->>'state' IN ('polling','synthetic_upload_ready','needs_resume','staging')
+        OR status IN ('pending','processing','mapped')
+      )
+      AND metadata->'source_run'->>'state' NOT IN ('complete')
+      AND status NOT IN ('synced')
+    ORDER BY created_at ASC`,
+    [orgId],
+  );
+  return r.rows as Array<{ id: string; report_type: string; status: string; run_state: string; created_at: string }>;
+}
+
+export async function rebuildExpectedPackagesProduction(client: pg.Client): Promise<{
+  rebuild: Record<string, unknown> | null;
+  rebuild_valid: boolean;
+}> {
+  const rebuildRes = await client.query(
+    `SELECT * FROM public.rebuild_expected_packages_from_removals($1::uuid, $2::uuid)`,
+    [PRODUCTION_ORG_ID, PRODUCTION_STORE_ID],
+  );
+  const rebuild = (rebuildRes.rows[0] as Record<string, unknown>) ?? null;
+  const breakdown = await queryEpAllocationMismatchBreakdown(client, PRODUCTION_ORG_ID, PRODUCTION_STORE_ID);
+  return { rebuild, rebuild_valid: rebuildValidFromBreakdown(breakdown) };
+}
+
 async function runImportPipeline(uploadId: string): Promise<{ ok: boolean; state: string; error?: string }> {
   const { supabaseServer } = await import("./supabase-server");
   const { runReportsApiImportPipeline } = await import("./amazon/reports-api-pipeline-handoff");
