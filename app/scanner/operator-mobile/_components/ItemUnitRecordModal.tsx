@@ -84,6 +84,8 @@ export type ItemUnitScanToCountSession = {
   onBarcodeScan: (code: string) => void;
 } | null;
 
+export type ItemUnitBarcodeCaptureSession = ItemUnitScanToCountSession;
+
 type ItemUnitPhotoMenuTarget = "optional" | "evidence" | "expiry_evidence";
 
 function validateItemUnitBeforeSave(input: {
@@ -274,6 +276,14 @@ type ItemUnitRecordModalProps = {
   onScanToCountSessionChange?: (session: ItemUnitScanToCountSession) => void;
   /** Live batch quantity for parent off-slip allocation preview (create mode). */
   onBatchQuantityPreviewChange?: (qty: number) => void;
+  /** Live barcode for parent off-slip warning gating (create mode). */
+  onBarcodeIdentityChange?: (barcode: string) => void;
+  /** Live add mode for parent off-slip warning copy (create mode). */
+  onAddModeChange?: (mode: ItemUnitAddMode) => void;
+  /** True when batch manual qty or scan-to-count target has been entered. */
+  onBatchQtyEnteredChange?: (entered: boolean) => void;
+  /** Document-level wedge fallback when barcode field is not focused (create mode). */
+  onBarcodeCaptureSessionChange?: (session: ItemUnitBarcodeCaptureSession) => void;
 };
 
 export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
@@ -301,6 +311,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     onUnsavedDraftChange,
     onScanToCountSessionChange,
     onBatchQuantityPreviewChange,
+    onBarcodeIdentityChange,
+    onAddModeChange,
+    onBatchQtyEnteredChange,
+    onBarcodeCaptureSessionChange,
   } = props;
 
   const isEditMode = mode === "edit";
@@ -398,7 +412,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     setScanToCountMismatch(null);
   }, []);
 
-  const productResolvedForBatch = barcode.trim().length >= 3 && !linkageResolving;
+  /** Batch controls depend on scanned item identity only — not slip linkage or resolver completion. */
+  const hasItemIdentityForBatch = barcode.trim().length >= 3;
 
   useEffect(() => {
     if (!open) return;
@@ -505,7 +520,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           if (!cancelled) setLiveLinkage(linkage);
         })
         .finally(() => {
-          if (!cancelled) setLinkageResolving(false);
+          // Always clear — cancelled in-flight requests must not leave resolving stuck true.
+          setLinkageResolving(false);
         });
     }, 400);
     return () => {
@@ -527,6 +543,20 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [scanToCountTarget]);
 
+  const scanToCountCapturing =
+    !isEditMode &&
+    addMode === "batch" &&
+    batchMethod === "scan_to_count" &&
+    hasItemIdentityForBatch &&
+    parsedScanToCountTarget > 0 &&
+    scanToCountCounted < parsedScanToCountTarget;
+
+  const barcodeWedgeReady = !barcodeReadOnly && !isEditMode && !scanToCountCapturing;
+
+  const batchQtyEntered =
+    addMode === "batch" &&
+    (batchMethod === "manual" ? parsedManualBatchQty > 0 : parsedScanToCountTarget > 0);
+
   const effectiveBatchQuantity = useMemo(() => {
     if (isEditMode || addMode !== "batch") return 1;
     if (batchMethod === "manual") return parsedManualBatchQty;
@@ -542,11 +572,35 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const primarySaveLabel = useMemo(() => {
     if (saveLabel) return saveLabel;
     if (isEditMode) return "Save changes";
-    if (addMode === "batch" && effectiveBatchQuantity > 1) {
-      return `Save ${effectiveBatchQuantity} units`;
+    if (addMode === "batch") {
+      const qty = batchMethod === "manual" ? parsedManualBatchQty : parsedScanToCountTarget;
+      if (qty > 0) return `Save ${qty} units`;
+      return "Save units";
     }
     return "Save unit";
-  }, [saveLabel, isEditMode, addMode, effectiveBatchQuantity]);
+  }, [
+    saveLabel,
+    isEditMode,
+    addMode,
+    batchMethod,
+    parsedManualBatchQty,
+    parsedScanToCountTarget,
+  ]);
+
+  const scanToCountFooterHint = useMemo(() => {
+    if (addMode !== "batch" || batchMethod !== "scan_to_count") return null;
+    if (parsedScanToCountTarget < 1) return "Enter a target quantity to start scan-to-count.";
+    if (!scanToCountReady) {
+      return `Scan ${parsedScanToCountTarget - scanToCountCounted} more matching barcode(s) to enable save.`;
+    }
+    return null;
+  }, [
+    addMode,
+    batchMethod,
+    parsedScanToCountTarget,
+    scanToCountReady,
+    scanToCountCounted,
+  ]);
 
   const saveDisabledForScanToCount =
     addMode === "batch" && batchMethod === "scan_to_count" && !scanToCountReady;
@@ -636,8 +690,26 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       return;
     }
     onUnsavedDraftChange?.(unsavedDraft);
-    onBatchQuantityPreviewChange?.(effectiveBatchQuantity);
-  }, [open, unsavedDraft, onUnsavedDraftChange, effectiveBatchQuantity, onBatchQuantityPreviewChange]);
+    const previewQty =
+      !isEditMode && addMode === "batch"
+        ? Math.max(
+            effectiveBatchQuantity,
+            batchMethod === "manual" ? parsedManualBatchQty : parsedScanToCountTarget,
+          )
+        : 1;
+    onBatchQuantityPreviewChange?.(previewQty > 0 ? previewQty : 1);
+  }, [
+    open,
+    unsavedDraft,
+    onUnsavedDraftChange,
+    isEditMode,
+    addMode,
+    batchMethod,
+    effectiveBatchQuantity,
+    parsedManualBatchQty,
+    parsedScanToCountTarget,
+    onBatchQuantityPreviewChange,
+  ]);
 
   useEffect(() => {
     setValidationIssues((prev) => {
@@ -699,6 +771,25 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     if (batchMethod === "scan_to_count") resetScanToCountState();
   }, [scanToCountTarget, batchMethod, resetScanToCountState]);
 
+  const commitBarcodeFromWedge = useCallback(
+    (rawCode: string) => {
+      const trimmed = rawCode.trim();
+      if (!trimmed || busy || barcodeReadOnly || scanToCountCapturing) return;
+      setManualBarcodeEntry(false);
+      setBarcode(trimmed);
+      playScannerFeedback("success");
+      if (!resolveBarcodeLinkage) return;
+      const classified = classifyProductBarcode(trimmed);
+      const mk: "fnsku" | "upc" | "unexpected" =
+        classified.kind === "fnsku" ? "fnsku" : classified.kind === "upc_ean" ? "upc" : "unexpected";
+      setLinkageResolving(true);
+      void resolveBarcodeLinkage(trimmed, mk)
+        .then((linkage) => setLiveLinkage(linkage))
+        .finally(() => setLinkageResolving(false));
+    },
+    [busy, barcodeReadOnly, scanToCountCapturing, resolveBarcodeLinkage],
+  );
+
   const handleScanToCountBarcode = useCallback(
     (scannedCode: string) => {
       const code = scannedCode.trim();
@@ -736,7 +827,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     const active =
       addMode === "batch" &&
       batchMethod === "scan_to_count" &&
-      productResolvedForBatch &&
+      hasItemIdentityForBatch &&
       parsedScanToCountTarget > 0 &&
       scanToCountCounted < parsedScanToCountTarget;
     if (active) {
@@ -750,12 +841,57 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     isEditMode,
     addMode,
     batchMethod,
-    productResolvedForBatch,
+    hasItemIdentityForBatch,
     parsedScanToCountTarget,
     scanToCountCounted,
     handleScanToCountBarcode,
     onScanToCountSessionChange,
   ]);
+
+  useEffect(() => {
+    if (!open || !onBarcodeCaptureSessionChange || !barcodeWedgeReady) {
+      onBarcodeCaptureSessionChange?.(null);
+      return;
+    }
+    onBarcodeCaptureSessionChange({
+      active: true,
+      onBarcodeScan: commitBarcodeFromWedge,
+    });
+    return () => onBarcodeCaptureSessionChange(null);
+  }, [open, barcodeWedgeReady, commitBarcodeFromWedge, onBarcodeCaptureSessionChange]);
+
+  useEffect(() => {
+    if (!open) {
+      onBarcodeIdentityChange?.("");
+      onAddModeChange?.("single");
+      onBatchQtyEnteredChange?.(false);
+      return;
+    }
+    onBarcodeIdentityChange?.(barcode);
+    onAddModeChange?.(addMode);
+    onBatchQtyEnteredChange?.(batchQtyEntered);
+  }, [
+    open,
+    barcode,
+    addMode,
+    batchQtyEntered,
+    onBarcodeIdentityChange,
+    onAddModeChange,
+    onBatchQtyEnteredChange,
+  ]);
+
+  useEffect(() => {
+    if (!open || !barcodeWedgeReady) return;
+    const frame = window.requestAnimationFrame(() => {
+      barcodeInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, barcodeWedgeReady, initialBarcode]);
+
+  useEffect(() => {
+    if (!scanToCountCapturing) return;
+    barcodeInputRef.current?.blur();
+  }, [scanToCountCapturing]);
 
   const validateBatchQuantity = useCallback((): ItemUnitValidationIssue[] => {
     if (isEditMode || addMode !== "batch") return [];
@@ -1129,8 +1265,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 ref={barcodeInputRef}
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
-                onFocus={(e) => {
-                  if (!manualBarcodeEntry) e.currentTarget.blur();
+                onFocus={() => {
+                  if (barcodeReadOnly || scanToCountCapturing) return;
                 }}
                 onBlur={() => {
                   if (!manualBarcodeEntry) return;
@@ -1173,8 +1309,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 }}
                 className="operator-item-unit-record-modal__barcode-input h-[52px] min-w-0 flex-1 rounded-xl border-2 px-3 font-mono text-[15px] outline-none transition duration-150 focus:ring-0"
                 placeholder={manualBarcodeEntry ? "Type barcode…" : "Awaiting scan…"}
-                readOnly={barcodeReadOnly || !manualBarcodeEntry}
-                inputMode={barcodeReadOnly ? "none" : manualBarcodeEntry ? "text" : "none"}
+                readOnly={barcodeReadOnly || scanToCountCapturing}
+                inputMode={
+                  barcodeReadOnly || scanToCountCapturing ? "none" : manualBarcodeEntry ? "text" : "none"
+                }
                 autoComplete="off"
                 enterKeyHint="done"
                 aria-label="Product barcode"
@@ -1197,7 +1335,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             ) : null}
           </form>
 
-          {!isEditMode && productResolvedForBatch ? (
+          {!isEditMode && hasItemIdentityForBatch ? (
             <div className="operator-item-unit-record-modal__batch-section mt-4 rounded-xl border px-3 py-3">
               <p className="operator-item-unit-record-modal__section-label text-xs font-semibold uppercase tracking-wider">
                 Add mode
@@ -1626,6 +1764,11 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               role="alert"
             >
               {deleteError}
+            </p>
+          ) : null}
+          {scanToCountFooterHint ? (
+            <p className="operator-item-unit-record-modal__muted mb-3 text-center text-[11px] font-semibold leading-snug">
+              {scanToCountFooterHint}
             </p>
           ) : null}
           {canDeleteExistingUnit ? (

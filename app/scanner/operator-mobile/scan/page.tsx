@@ -159,9 +159,11 @@ import {
   type ItemUnitRecordSavePayload,
   type ItemUnitRecordSaveResult,
   type ItemUnitScanToCountSession,
+  type ItemUnitBarcodeCaptureSession,
+  type ItemUnitAddMode,
 } from "@/app/scanner/operator-mobile/_components/ItemUnitRecordModal";
 import { playScannerFeedback } from "@/app/scanner/operator-mobile/_lib/scanner-feedback";
-import { summarizeItemBatchAllocation } from "@/lib/scanner/item-batch-allocation";
+import { buildItemUnitModalOffSlipWarning } from "@/lib/scanner/item-unit-off-slip-warning";
 import { OperatorProductLinkageMeta } from "@/app/scanner/operator-mobile/_components/OperatorProductLinkageMeta";
 import { ProductLinkagePrimaryLink } from "@/app/scanner/operator-mobile/_components/ProductLinkagePrimaryLink";
 import {
@@ -196,11 +198,7 @@ import {
   normalizeItemUnitDiscrepancySelection,
   type ItemUnitDiscrepancyTagKey,
 } from "@/lib/scanner/item-unit-discrepancy-tags";
-import {
-  ITEM_SCAN_OFF_SLIP_MODAL_WARNING,
-  itemScanSaveShouldTreatAsOffSlip,
-  returnItemNotesMarkOffSlip,
-} from "@/lib/scanner/item-scan-off-slip";
+import { itemScanSaveShouldTreatAsOffSlip, returnItemNotesMarkOffSlip } from "@/lib/scanner/item-scan-off-slip";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
@@ -4160,6 +4158,7 @@ function OperatorMobileScanPageContent() {
   }, []);
   const modalOpenRef = useRef(false);
   const itemUnitScanToCountSessionRef = useRef<ItemUnitScanToCountSession>(null);
+  const itemUnitModalBarcodeCaptureRef = useRef<ItemUnitBarcodeCaptureSession>(null);
   /** After "all completed" dialog confirm: canonical tracking for the next resolve scan. */
   const postCompleteTrackingRef = useRef<string | null>(null);
   /** One Persian prompt per identification search cycle (reset when a new gate search starts). */
@@ -5062,8 +5061,12 @@ function OperatorMobileScanPageContent() {
       if (busy) return;
       modalOpenRef.current = false;
       itemUnitScanToCountSessionRef.current = null;
+      itemUnitModalBarcodeCaptureRef.current = null;
       itemUnitModalDraftDirtyRef.current = false;
       setItemUnitModalBatchQty(1);
+      setItemUnitModalLiveBarcode("");
+      setItemUnitModalAddMode("single");
+      setItemUnitModalBatchQtyEntered(false);
       setItemUnitModal(null);
       if (cancelled) showScanActionToast("neutral", "Action cancelled.");
       scheduleFocusScanner();
@@ -8615,6 +8618,10 @@ function OperatorMobileScanPageContent() {
     itemUnitScanToCountSessionRef.current = session;
   }, []);
 
+  const handleItemUnitBarcodeCaptureSessionChange = useCallback((session: ItemUnitBarcodeCaptureSession) => {
+    itemUnitModalBarcodeCaptureRef.current = session;
+  }, []);
+
   const saveItemUnitModal = useCallback(
     async (payload: ItemUnitRecordSavePayload): Promise<ItemUnitRecordSaveResult> => {
       const ctx = itemUnitModal;
@@ -8839,6 +8846,11 @@ function OperatorMobileScanPageContent() {
         setScanSuccessFlash(true);
         modalOpenRef.current = false;
         itemUnitScanToCountSessionRef.current = null;
+        itemUnitModalBarcodeCaptureRef.current = null;
+        setItemUnitModalBatchQty(1);
+        setItemUnitModalLiveBarcode("");
+        setItemUnitModalAddMode("single");
+        setItemUnitModalBatchQtyEntered(false);
         setItemUnitModal(null);
         scheduleFocusScanner();
         return { ok: true };
@@ -8860,10 +8872,17 @@ function OperatorMobileScanPageContent() {
   );
 
   const [itemUnitModalBatchQty, setItemUnitModalBatchQty] = useState(1);
+  const [itemUnitModalLiveBarcode, setItemUnitModalLiveBarcode] = useState("");
+  const [itemUnitModalAddMode, setItemUnitModalAddMode] = useState<ItemUnitAddMode>("single");
+  const [itemUnitModalBatchQtyEntered, setItemUnitModalBatchQtyEntered] = useState(false);
 
   const itemUnitOffSlipWarning = useMemo(() => {
     const ctx = itemUnitModal;
     if (!ctx || ctx.mode === "edit") return null;
+
+    const barcodeIdentity =
+      itemUnitModalLiveBarcode.trim() || String(ctx.scannedBarcode ?? "").trim();
+
     const slipId = ctx.slipContentId && isUuidString(ctx.slipContentId) ? ctx.slipContentId : null;
     const slipRow = slipId
       ? itemInspectionSlipLines.find((s) => String(s.id ?? "").trim() === slipId)
@@ -8877,43 +8896,30 @@ function OperatorMobileScanPageContent() {
         expectedPackageRowHasRemainingAllocatable(r as Record<string, unknown>),
       );
     }
-    const batchQty = Math.max(1, Math.floor(itemUnitModalBatchQty));
-    if (batchQty > 1) {
-      const summary = summarizeItemBatchAllocation({
-        batchQuantity: batchQty,
+
+    return buildItemUnitModalOffSlipWarning({
+      barcode: barcodeIdentity,
+      addMode: itemUnitModalAddMode,
+      batchQty: Math.max(1, Math.floor(itemUnitModalBatchQty)),
+      batchQtyEntered: itemUnitModalBatchQtyEntered,
+      allocation: {
+        batchQuantity: Math.max(1, Math.floor(itemUnitModalBatchQty)),
         matchKindPreset: ctx.matchKindPreset,
         slipContentId: slipId,
         slipExpectedQty,
         scannedForSlipQty,
         hasAllocatableExpectedPackageHint,
-      });
-      if (!summary.hasOffSlip) return null;
-      if (summary.offSlipCount === batchQty) {
-        return ITEM_SCAN_OFF_SLIP_MODAL_WARNING;
-      }
-      return {
-        title: "Partial off-slip batch",
-        message: `${summary.offSlipCount} of ${batchQty} units exceed remaining expected quantity and will be saved as off-slip.`,
-      };
-    }
-    if (
-      !itemScanSaveShouldTreatAsOffSlip({
-        matchKindPreset: ctx.matchKindPreset,
-        slipContentId: slipId,
-        slipExpectedQty,
-        scannedForSlipQty,
-        hasAllocatableExpectedPackageHint,
-      })
-    ) {
-      return null;
-    }
-    return ITEM_SCAN_OFF_SLIP_MODAL_WARNING;
+      },
+    });
   }, [
     itemUnitModal,
+    itemUnitModalLiveBarcode,
+    itemUnitModalAddMode,
+    itemUnitModalBatchQty,
+    itemUnitModalBatchQtyEntered,
     itemInspectionSlipLines,
     expectedPkgDetailRows,
     packageItemScanState.bySlipId,
-    itemUnitModalBatchQty,
   ]);
 
   const resolveItemUnitBarcodeLinkage = useCallback(
@@ -9937,6 +9943,12 @@ function OperatorMobileScanPageContent() {
         scheduleFocusScanner();
         return;
       }
+      const barcodeCaptureSession = itemUnitModalBarcodeCaptureRef.current;
+      if (barcodeCaptureSession?.active) {
+        barcodeCaptureSession.onBarcodeScan(code);
+        scheduleFocusScanner();
+        return;
+      }
       if (moveBoxModalOpen) {
         setMoveBoxTargetDraft(code);
         scheduleFocusScanner();
@@ -10181,11 +10193,12 @@ function OperatorMobileScanPageContent() {
 
     const onDocumentKeyDown = (e: KeyboardEvent) => {
       const scanToCountActive = Boolean(itemUnitScanToCountSessionRef.current?.active);
+      const barcodeCaptureActive = Boolean(itemUnitModalBarcodeCaptureRef.current?.active);
       if (
         manualOpen ||
         manualEntryMode ||
         manualEntryModeRef.current ||
-        (modalOpenRef.current && !scanToCountActive) ||
+        (modalOpenRef.current && !scanToCountActive && !barcodeCaptureActive) ||
         !laserEnabled
       ) {
         return;
@@ -12721,8 +12734,12 @@ function OperatorMobileScanPageContent() {
   const dismissItemScanModalDrafts = useCallback(() => {
     modalOpenRef.current = false;
     itemUnitScanToCountSessionRef.current = null;
+    itemUnitModalBarcodeCaptureRef.current = null;
     itemUnitModalDraftDirtyRef.current = false;
     setItemUnitModalBatchQty(1);
+    setItemUnitModalLiveBarcode("");
+    setItemUnitModalAddMode("single");
+    setItemUnitModalBatchQtyEntered(false);
     setItemUnitModal(null);
     setCandidatePicker(null);
     setSlipLineCandidatePicker(null);
@@ -18756,7 +18773,11 @@ function OperatorMobileScanPageContent() {
         }
         onUnsavedDraftChange={handleItemUnitModalUnsavedDraftChange}
         onScanToCountSessionChange={handleItemUnitScanToCountSessionChange}
+        onBarcodeCaptureSessionChange={handleItemUnitBarcodeCaptureSessionChange}
         onBatchQuantityPreviewChange={setItemUnitModalBatchQty}
+        onBarcodeIdentityChange={setItemUnitModalLiveBarcode}
+        onAddModeChange={setItemUnitModalAddMode}
+        onBatchQtyEnteredChange={setItemUnitModalBatchQtyEntered}
       />
 
       {unexpectedPackageItemModal ? (
