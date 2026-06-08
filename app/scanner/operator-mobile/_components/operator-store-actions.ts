@@ -88,6 +88,11 @@ import {
   returnItemNotesMarkOffSlip,
 } from "@/lib/scanner/item-scan-off-slip";
 import {
+  itemBatchUnitSaveAsOffSlip,
+  OPERATOR_ITEM_BATCH_MAX_QUANTITY,
+  type ItemBatchAllocationInput,
+} from "@/lib/scanner/item-batch-allocation";
+import {
   resolveItemBarcodeAgainstSlipRows,
   type SlipBarcodeMatchRow,
 } from "@/lib/scanner/operator-slip-item-resolve";
@@ -3038,6 +3043,326 @@ export async function insertOperatorPackageItemAction(
     );
 
   return { ok: true, id: primaryId, product_linkage };
+}
+
+export type InsertOperatorPackageItemBatchInput = InsertOperatorPackageItemInput & {
+  batchQuantity: number;
+  batchAllocation: ItemBatchAllocationInput;
+};
+
+/**
+ * Batch item-scan save: creates N normal `return_items` rows with per-unit expected/off-slip allocation.
+ */
+export async function insertOperatorPackageItemBatchAction(
+  input: InsertOperatorPackageItemBatchInput,
+): Promise<
+  | { ok: true; ids: string[]; product_linkage: ProductLinkageDisplayContract; offSlipCount: number }
+  | { ok: false; message: string }
+> {
+  const batchQtyRaw = Number(input.batchQuantity);
+  const batchQuantity = Number.isFinite(batchQtyRaw) ? Math.floor(batchQtyRaw) : 0;
+  if (batchQuantity < 1) {
+    return { ok: false, message: "Batch quantity must be at least 1." };
+  }
+  if (batchQuantity > OPERATOR_ITEM_BATCH_MAX_QUANTITY) {
+    return {
+      ok: false,
+      message: `Maximum ${OPERATOR_ITEM_BATCH_MAX_QUANTITY} units per batch save.`,
+    };
+  }
+
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const looseItem = Boolean(input.looseItem);
+  const pkgIdRaw = String(input.packageId ?? "").trim();
+  const pkgId = isUuidString(pkgIdRaw) ? pkgIdRaw : null;
+  if (!looseItem && !pkgId) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const barcode = String(input.scannedBarcode ?? "").trim();
+  if (!barcode) {
+    return { ok: false, message: "Barcode is required." };
+  }
+
+  let pkgStore = "";
+  if (!looseItem && pkgId) {
+    const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+      .from("packages")
+      .select("id, store_id, organization_id")
+      .eq("id", pkgId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+    if (!pkgRow) {
+      return { ok: false, message: "Package not found for this organization." };
+    }
+    const pkgOrg = String((pkgRow as { organization_id?: string | null }).organization_id ?? "").trim();
+    if (pkgOrg && isUuidString(pkgOrg) && pkgOrg !== organizationId) {
+      return { ok: false, message: "Package organization mismatch." };
+    }
+    pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  }
+
+  const scope = String(input.storeId ?? "").trim();
+  const storeIdResolved =
+    scope && isUuidString(scope) ? scope : pkgStore && isUuidString(pkgStore) ? pkgStore : null;
+  if (
+    !looseItem &&
+    scope &&
+    isUuidString(scope) &&
+    pkgStore &&
+    isUuidString(pkgStore) &&
+    pkgStore !== scope
+  ) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  const slipHintBase = String(input.slipContentId ?? "").trim();
+  let slipDescription: string | null = null;
+  let slipLinkageInherit: SlipLinkageInheritRow | null = null;
+  let slipFnsku: string | null = null;
+  let slipUpc: string | null = null;
+  let slipExpectedQuantity: number | null = null;
+  let slipOrderId: string | null = null;
+  if (slipHintBase && isUuidString(slipHintBase)) {
+    if (looseItem) {
+      return { ok: false, message: "Slip line cannot be used for a loose item scan." };
+    }
+    const slipSelectAttempts = [
+      `id, package_id, description, fnsku, upc, ${RETURN_SCANNER_LINKAGE_SELECT}`,
+      "id, package_id, description, fnsku, upc",
+      "id, package_id, description",
+    ];
+    let slipRow: Record<string, unknown> | null = null;
+    let slipErr: { message: string } | null = null;
+    for (const sel of slipSelectAttempts) {
+      const r = await supabaseServer
+        .from("slip_contents")
+        .select(sel)
+        .eq("id", slipHintBase)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      slipErr = r.error;
+      if (!r.error && r.data && typeof r.data === "object") {
+        slipRow = r.data as Record<string, unknown>;
+        break;
+      }
+      if (r.error && !r.error.message.toLowerCase().includes("column")) break;
+    }
+    if (slipErr && !slipRow) return { ok: false, message: slipErr.message };
+    const spkg = String(slipRow?.package_id ?? "").trim();
+    if (!slipRow || !pkgId || spkg !== pkgId) {
+      return { ok: false, message: "Slip line does not belong to this package." };
+    }
+    slipDescription =
+      typeof slipRow.description === "string" ? slipRow.description.trim() : null;
+    slipFnsku = typeof slipRow.fnsku === "string" ? slipRow.fnsku.trim() || null : null;
+    slipUpc = typeof slipRow.upc === "string" ? slipRow.upc.trim() || null : null;
+    slipExpectedQuantity = Math.max(0, Math.floor(Number(slipRow.quantity ?? 0)));
+    slipOrderId = typeof slipRow.order_id === "string" ? slipRow.order_id.trim() || null : null;
+    const slipResolved =
+      typeof slipRow.resolved_product_id === "string" && isUuidString(slipRow.resolved_product_id.trim())
+        ? slipRow.resolved_product_id.trim()
+        : null;
+    const slipCatalog =
+      typeof slipRow.resolved_catalog_product_id === "string" &&
+      isUuidString(slipRow.resolved_catalog_product_id.trim())
+        ? slipRow.resolved_catalog_product_id.trim()
+        : null;
+    slipLinkageInherit = {
+      resolved_product_id: slipResolved,
+      resolved_catalog_product_id: slipCatalog,
+      identifier_resolution_status:
+        typeof slipRow.identifier_resolution_status === "string"
+          ? slipRow.identifier_resolution_status
+          : null,
+      identifier_resolution_confidence: (() => {
+        const n = Number(slipRow?.identifier_resolution_confidence);
+        return Number.isFinite(n) ? n : null;
+      })(),
+    };
+  } else if (slipHintBase) {
+    return { ok: false, message: "Invalid slip line id." };
+  }
+
+  const tags = filterPackageItemDiscrepancyTags(input.discrepancyTags);
+  if (tags.length === 0) {
+    return { ok: false, message: "Select at least one condition for this unit." };
+  }
+
+  const evidence = normalizeEvidenceUrls(input.evidenceUrls);
+  if (packageItemRequiresEvidencePhotos(tags) && evidence.length === 0) {
+    return { ok: false, message: "Add at least one evidence photo for the selected issue(s)." };
+  }
+
+  const exp = normalizeOptionalDate(input.expiryDate ?? null);
+  const lotRaw = String(input.lotNumber ?? "").trim();
+  const lot = lotRaw ? lotRaw.slice(0, 500) : null;
+
+  const traceabilityRequired = Boolean(input.traceabilityRequired);
+  if (traceabilityRequired && !exp) {
+    return { ok: false, message: "Expiration date is required for this item." };
+  }
+
+  if (!storeIdResolved || !isUuidString(storeIdResolved)) {
+    return { ok: false, message: "Store is required to save item scans." };
+  }
+
+  const itemName = (slipDescription || "Scanned unit").slice(0, 500);
+  const optionalItemUrl = String(input.optionalItemPhotoUrl ?? "").trim();
+  const returnLabelUrl = String(input.returnLabelPhotoUrl ?? "").trim();
+  const urlSlots: Partial<Record<"item_url" | "return_label_url", string>> = {};
+  if (optionalItemUrl && /^https?:\/\//i.test(optionalItemUrl)) urlSlots.item_url = optionalItemUrl;
+  if (returnLabelUrl && /^https?:\/\//i.test(returnLabelUrl)) urlSlots.return_label_url = returnLabelUrl;
+  const photo_evidence = mergeReturnPhotoEvidence(null, urlSlots, { galleryUrls: evidence });
+
+  const operatorNotesRaw = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
+
+  const scanIds = buildOperatorBarcodeResolverFields(barcode);
+  const persistFnsku = (scanIds.fnsku ?? slipFnsku ?? "").trim().slice(0, 500) || undefined;
+  const persistSku = (scanIds.sku ?? slipUpc ?? "").trim().slice(0, 500) || undefined;
+  const persistUpc = (scanIds.upc ?? slipUpc ?? "").trim().slice(0, 500) || undefined;
+
+  let packageSlipCode: string | null = null;
+  let packageTrackingNumber: string | null = null;
+  if (!looseItem && pkgId) {
+    const pkgCtx = await fetchPackageReceiveContext(supabaseServer, pkgId);
+    packageSlipCode = pkgCtx.slipCode;
+    packageTrackingNumber = pkgCtx.trackingNumber;
+  }
+
+  let expectedPackageHintIdBase = String(input.expectedPackageHintId ?? "").trim();
+  if (
+    !looseItem &&
+    pkgId &&
+    (!expectedPackageHintIdBase || !isUuidString(expectedPackageHintIdBase))
+  ) {
+    try {
+      const resolved = await resolveAllocatableExpectedPackageHint(supabaseServer, {
+        organizationId,
+        storeId: storeIdResolved,
+        fnsku: persistFnsku ?? slipFnsku,
+        sku: persistSku ?? slipUpc,
+        upc: persistUpc,
+        orderId: slipOrderId,
+        packageSlipCode,
+        packageTrackingNumber,
+        preferredHintId: input.expectedPackageHintId,
+      });
+      if (resolved) expectedPackageHintIdBase = resolved;
+    } catch (e) {
+      return {
+        ok: false,
+        message: humanizeExpectedAllocationError(
+          e instanceof Error ? e.message : "Expected row lookup failed.",
+          {
+            fnsku: persistFnsku ?? slipFnsku,
+            sku: persistSku ?? slipUpc,
+            slipCode: packageSlipCode,
+            trackingNumber: packageTrackingNumber,
+          },
+        ),
+      };
+    }
+  }
+
+  const insertReturnBase = {
+    organization_id: organizationId,
+    store_id: storeIdResolved,
+    marketplace: "amazon" as const,
+    item_name: itemName,
+    conditions: [...tags],
+    expiration_date: exp ?? undefined,
+    batch_number: lot ?? undefined,
+    photo_evidence,
+    actor_profile_id: sessionUserId,
+  };
+
+  const batchAllocation = input.batchAllocation;
+  const insertedIds: string[] = [];
+  let offSlipCount = 0;
+
+  for (let unitIndex = 0; unitIndex < batchQuantity; unitIndex++) {
+    const saveAsOffSlip = itemBatchUnitSaveAsOffSlip(batchAllocation, unitIndex);
+    if (saveAsOffSlip) offSlipCount++;
+
+    const operatorNotes = saveAsOffSlip
+      ? appendOffSlipAuditNote(operatorNotesRaw)
+      : operatorNotesRaw;
+
+    const ins = await insertReturn({
+      ...insertReturnBase,
+      notes: operatorNotes ?? undefined,
+      package_id: looseItem ? undefined : pkgId ?? undefined,
+      fnsku: persistFnsku,
+      sku: persistSku,
+      asin: scanIds.asin?.slice(0, 500),
+      product_identifier: persistUpc,
+      order_id: slipOrderId ?? undefined,
+    });
+
+    if (!ins.ok || !ins.data?.id) {
+      await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
+      return { ok: false, message: ins.error ?? "Failed to save item scan." };
+    }
+
+    const returnItemId = ins.data.id;
+    insertedIds.push(returnItemId);
+
+    const finalizeLinkageParams = {
+      organizationId,
+      storeId: storeIdResolved,
+      packageId: looseItem ? null : pkgId,
+      looseItem,
+      slipLinkage: slipLinkageInherit,
+      slipContentId:
+        saveAsOffSlip || !slipHintBase || !isUuidString(slipHintBase) ? null : slipHintBase,
+      slipExpectedQuantity: saveAsOffSlip ? 0 : slipExpectedQuantity,
+      expectedPackageHintId:
+        saveAsOffSlip || !isUuidString(expectedPackageHintIdBase) ? null : expectedPackageHintIdBase,
+      packageSlipCode,
+      packageTrackingNumber,
+      orderId: slipOrderId,
+      disposition: null as string | null,
+      scanIds: {
+        asin: scanIds.asin ?? null,
+        fnsku: persistFnsku ?? null,
+        sku: persistSku ?? null,
+        upc: persistUpc ?? null,
+      },
+    };
+
+    const finalize = await finalizeOperatorPackageItemLinkage(returnItemId, finalizeLinkageParams);
+    if (!finalize.ok) {
+      await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
+      return { ok: false, message: finalize.error };
+    }
+    await tryPromoteScannerClaimForReturnItem(returnItemId, organizationId, sessionUserId);
+  }
+
+  const primaryId = insertedIds[0]!;
+  const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, primaryId, organizationId);
+  const product_linkage =
+    linkage ??
+    buildProductLinkageDisplayContract(
+      {
+        fnsku: scanIds.fnsku ?? null,
+        sku: scanIds.sku ?? null,
+        product_identifier: scanIds.upc ?? null,
+        item_name: itemName,
+      },
+      new Map(),
+    );
+
+  return { ok: true, ids: insertedIds, product_linkage, offSlipCount };
 }
 
 export type OperatorMobileCorrectionPermissions = {

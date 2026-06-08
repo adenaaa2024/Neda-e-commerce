@@ -133,6 +133,7 @@ import {
   listOperatorPackageItemsForPackageAction,
   lookupShipmentEntryScanCodeAction,
   insertOperatorPackageItemAction,
+  insertOperatorPackageItemBatchAction,
   previewOperatorItemBarcodeLinkageAction,
   previewOperatorSlipLinesIdentifiersLinkageAction,
   updateOperatorIntakeBoxPackageAction,
@@ -157,7 +158,10 @@ import {
   type ItemUnitRecordModalInitialState,
   type ItemUnitRecordSavePayload,
   type ItemUnitRecordSaveResult,
+  type ItemUnitScanToCountSession,
 } from "@/app/scanner/operator-mobile/_components/ItemUnitRecordModal";
+import { playScannerFeedback } from "@/app/scanner/operator-mobile/_lib/scanner-feedback";
+import { summarizeItemBatchAllocation } from "@/lib/scanner/item-batch-allocation";
 import { OperatorProductLinkageMeta } from "@/app/scanner/operator-mobile/_components/OperatorProductLinkageMeta";
 import { ProductLinkagePrimaryLink } from "@/app/scanner/operator-mobile/_components/ProductLinkagePrimaryLink";
 import {
@@ -4155,6 +4159,7 @@ function OperatorMobileScanPageContent() {
     operatorMobileMainScrollRef.current = el;
   }, []);
   const modalOpenRef = useRef(false);
+  const itemUnitScanToCountSessionRef = useRef<ItemUnitScanToCountSession>(null);
   /** After "all completed" dialog confirm: canonical tracking for the next resolve scan. */
   const postCompleteTrackingRef = useRef<string | null>(null);
   /** One Persian prompt per identification search cycle (reset when a new gate search starts). */
@@ -5056,7 +5061,9 @@ function OperatorMobileScanPageContent() {
     (cancelled: boolean) => {
       if (busy) return;
       modalOpenRef.current = false;
+      itemUnitScanToCountSessionRef.current = null;
       itemUnitModalDraftDirtyRef.current = false;
+      setItemUnitModalBatchQty(1);
       setItemUnitModal(null);
       if (cancelled) showScanActionToast("neutral", "Action cancelled.");
       scheduleFocusScanner();
@@ -8604,6 +8611,10 @@ function OperatorMobileScanPageContent() {
     });
   }, [itemScanPackageId, activeBoxSession, busy, queueItemUnitModal]);
 
+  const handleItemUnitScanToCountSessionChange = useCallback((session: ItemUnitScanToCountSession) => {
+    itemUnitScanToCountSessionRef.current = session;
+  }, []);
+
   const saveItemUnitModal = useCallback(
     async (payload: ItemUnitRecordSavePayload): Promise<ItemUnitRecordSaveResult> => {
       const ctx = itemUnitModal;
@@ -8742,6 +8753,9 @@ function OperatorMobileScanPageContent() {
         }
       }
 
+      const batchQuantity = Math.floor(Number(payload.batchQuantity ?? 1));
+      const isBatchSave = batchQuantity > 1;
+
       const saveAsOffSlip = itemScanSaveShouldTreatAsOffSlip({
         matchKindPreset: ctx.matchKindPreset,
         slipContentId: slipIdForSave,
@@ -8749,7 +8763,7 @@ function OperatorMobileScanPageContent() {
         scannedForSlipQty,
         hasAllocatableExpectedPackageHint,
       });
-      if (saveAsOffSlip) {
+      if (!isBatchSave && saveAsOffSlip) {
         slipContentId = null;
         matchKind = "unexpected";
         expectedPackageHintId = null;
@@ -8762,16 +8776,15 @@ function OperatorMobileScanPageContent() {
           ...payload.evidenceUrls,
           ...(payload.expiryEvidenceUrls ?? []),
         ];
-        const res = await insertOperatorPackageItemAction({
+        const sharedInsertInput = {
           requestedOrganizationId: orgId,
           packageId: pkgId,
           storeId: sessionStoreId,
-          slipContentId,
+          slipContentId: isBatchSave ? slipIdForSave : slipContentId,
           expectedPackageHintId,
-          saveAsOffSlip,
+          saveAsOffSlip: isBatchSave ? false : saveAsOffSlip,
           scannedBarcode: trimmed,
           matchKind,
-          quantity: 1,
           discrepancyTags: payload.discrepancyTags,
           expiryDate: payload.expiryDate,
           lotNumber: payload.lotNumber,
@@ -8779,22 +8792,53 @@ function OperatorMobileScanPageContent() {
           optionalItemPhotoUrl: payload.optionalItemPhotoUrl,
           traceabilityRequired: payload.traceabilityRequired,
           operatorNotes: payload.operatorNotes,
-        });
-        if (!res.ok) {
-          const msg = res.message?.trim() || "Item scan not saved.";
-          showScanActionToast("error", msg);
-          return { ok: false, message: msg };
+        };
+
+        if (isBatchSave) {
+          const res = await insertOperatorPackageItemBatchAction({
+            ...sharedInsertInput,
+            batchQuantity,
+            batchAllocation: {
+              batchQuantity,
+              matchKindPreset: ctx.matchKindPreset,
+              slipContentId: slipIdForSave,
+              slipExpectedQty,
+              scannedForSlipQty,
+              hasAllocatableExpectedPackageHint,
+            },
+          });
+          if (!res.ok) {
+            const msg = res.message?.trim() || "Batch item scan not saved.";
+            showScanActionToast("error", msg);
+            return { ok: false, message: msg };
+          }
+          const offPart =
+            res.offSlipCount > 0
+              ? ` (${res.offSlipCount} off-slip, ${res.ids.length - res.offSlipCount} on slip)`
+              : "";
+          showScanActionToast("success", `✓ Saved ${res.ids.length} units${offPart}.`);
+        } else {
+          const res = await insertOperatorPackageItemAction({
+            ...sharedInsertInput,
+            quantity: 1,
+          });
+          if (!res.ok) {
+            const msg = res.message?.trim() || "Item scan not saved.";
+            showScanActionToast("error", msg);
+            return { ok: false, message: msg };
+          }
+          showScanActionToast(
+            "success",
+            saveAsOffSlip
+              ? "✓ Off-slip item saved."
+              : "✓ Item successfully registered and logged.",
+          );
         }
-        showScanActionToast(
-          "success",
-          saveAsOffSlip
-            ? "✓ Off-slip item saved."
-            : "✓ Item successfully registered and logged.",
-        );
         setPackageItemsHydrationNonce((n) => n + 1);
         setItemReceiveCountSyncNonce((n) => n + 1);
         setScanSuccessFlash(true);
         modalOpenRef.current = false;
+        itemUnitScanToCountSessionRef.current = null;
         setItemUnitModal(null);
         scheduleFocusScanner();
         return { ok: true };
@@ -8815,6 +8859,8 @@ function OperatorMobileScanPageContent() {
     ],
   );
 
+  const [itemUnitModalBatchQty, setItemUnitModalBatchQty] = useState(1);
+
   const itemUnitOffSlipWarning = useMemo(() => {
     const ctx = itemUnitModal;
     if (!ctx || ctx.mode === "edit") return null;
@@ -8830,6 +8876,25 @@ function OperatorMobileScanPageContent() {
       hasAllocatableExpectedPackageHint = epRowsMatchingSlipLike(slipRow, epRows).some((r) =>
         expectedPackageRowHasRemainingAllocatable(r as Record<string, unknown>),
       );
+    }
+    const batchQty = Math.max(1, Math.floor(itemUnitModalBatchQty));
+    if (batchQty > 1) {
+      const summary = summarizeItemBatchAllocation({
+        batchQuantity: batchQty,
+        matchKindPreset: ctx.matchKindPreset,
+        slipContentId: slipId,
+        slipExpectedQty,
+        scannedForSlipQty,
+        hasAllocatableExpectedPackageHint,
+      });
+      if (!summary.hasOffSlip) return null;
+      if (summary.offSlipCount === batchQty) {
+        return ITEM_SCAN_OFF_SLIP_MODAL_WARNING;
+      }
+      return {
+        title: "Partial off-slip batch",
+        message: `${summary.offSlipCount} of ${batchQty} units exceed remaining expected quantity and will be saved as off-slip.`,
+      };
     }
     if (
       !itemScanSaveShouldTreatAsOffSlip({
@@ -8848,6 +8913,7 @@ function OperatorMobileScanPageContent() {
     itemInspectionSlipLines,
     expectedPkgDetailRows,
     packageItemScanState.bySlipId,
+    itemUnitModalBatchQty,
   ]);
 
   const resolveItemUnitBarcodeLinkage = useCallback(
@@ -8926,6 +8992,7 @@ function OperatorMobileScanPageContent() {
             [outcome.slip.fnsku, outcome.slip.upc].filter(Boolean).join(" · ") ||
             null,
         });
+        playScannerFeedback("success");
         setScanProgressPhase("needs_review");
         return;
       }
@@ -9864,6 +9931,12 @@ function OperatorMobileScanPageContent() {
     async (raw: string, options?: { clearPackageBuffer?: boolean }) => {
       const code = raw.trim();
       if (!code) return;
+      const scanToCountSession = itemUnitScanToCountSessionRef.current;
+      if (scanToCountSession?.active) {
+        scanToCountSession.onBarcodeScan(code);
+        scheduleFocusScanner();
+        return;
+      }
       if (moveBoxModalOpen) {
         setMoveBoxTargetDraft(code);
         scheduleFocusScanner();
@@ -10107,7 +10180,16 @@ function OperatorMobileScanPageContent() {
     };
 
     const onDocumentKeyDown = (e: KeyboardEvent) => {
-      if (manualOpen || manualEntryMode || manualEntryModeRef.current || modalOpenRef.current || !laserEnabled) return;
+      const scanToCountActive = Boolean(itemUnitScanToCountSessionRef.current?.active);
+      if (
+        manualOpen ||
+        manualEntryMode ||
+        manualEntryModeRef.current ||
+        (modalOpenRef.current && !scanToCountActive) ||
+        !laserEnabled
+      ) {
+        return;
+      }
       if (busy && flowPhase !== "items") return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
 
@@ -12638,7 +12720,9 @@ function OperatorMobileScanPageContent() {
 
   const dismissItemScanModalDrafts = useCallback(() => {
     modalOpenRef.current = false;
+    itemUnitScanToCountSessionRef.current = null;
     itemUnitModalDraftDirtyRef.current = false;
+    setItemUnitModalBatchQty(1);
     setItemUnitModal(null);
     setCandidatePicker(null);
     setSlipLineCandidatePicker(null);
@@ -18671,6 +18755,8 @@ function OperatorMobileScanPageContent() {
             : undefined
         }
         onUnsavedDraftChange={handleItemUnitModalUnsavedDraftChange}
+        onScanToCountSessionChange={handleItemUnitScanToCountSessionChange}
+        onBatchQuantityPreviewChange={setItemUnitModalBatchQty}
       />
 
       {unexpectedPackageItemModal ? (

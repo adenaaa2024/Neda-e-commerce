@@ -18,6 +18,12 @@ import type { ProductLinkageDisplayContract } from "@/lib/scanner/product-linkag
 import { OperatorProductLinkageMeta } from "@/app/scanner/operator-mobile/_components/OperatorProductLinkageMeta";
 import { ProductLinkagePrimaryLink } from "@/app/scanner/operator-mobile/_components/ProductLinkagePrimaryLink";
 import { ScannerPhotoActionSheet } from "@/app/scanner/operator-mobile/_components/ScannerPhotoActionSheet";
+import { operatorBarcodesMatchProduct } from "@/app/scanner/operator-mobile/_lib/operator-barcode-match";
+import { playScannerFeedback } from "@/app/scanner/operator-mobile/_lib/scanner-feedback";
+import {
+  OPERATOR_ITEM_BATCH_CONFIRM_THRESHOLD,
+  OPERATOR_ITEM_BATCH_MAX_QUANTITY,
+} from "@/lib/scanner/item-batch-allocation";
 
 const CHIP_LABEL: Record<ItemUnitDiscrepancyTagKey, string> = {
   damaged_product: "Damaged Product",
@@ -66,7 +72,17 @@ export type ItemUnitRecordSavePayload = {
   optionalItemPhotoUrl: string | null;
   /** Operator prose note on the unit (`return_items.notes`). */
   operatorNotes: string | null;
+  /** When > 1, batch save creates N `return_items` rows (create mode only). */
+  batchQuantity?: number;
 };
+
+export type ItemUnitAddMode = "single" | "batch";
+export type ItemUnitBatchMethod = "manual" | "scan_to_count";
+
+export type ItemUnitScanToCountSession = {
+  active: boolean;
+  onBarcodeScan: (code: string) => void;
+} | null;
 
 type ItemUnitPhotoMenuTarget = "optional" | "evidence" | "expiry_evidence";
 
@@ -254,6 +270,10 @@ type ItemUnitRecordModalProps = {
   onDeleteExistingUnit?: () => Promise<{ ok: boolean; error?: string }>;
   /** Fires when open draft diverges from the modal open snapshot (for scanner back-navigation). */
   onUnsavedDraftChange?: (dirty: boolean) => void;
+  /** Registers scan-to-count wedge handler while modal is open (create + batch scan-to-count only). */
+  onScanToCountSessionChange?: (session: ItemUnitScanToCountSession) => void;
+  /** Live batch quantity for parent off-slip allocation preview (create mode). */
+  onBatchQuantityPreviewChange?: (qty: number) => void;
 };
 
 export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
@@ -279,12 +299,21 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     onSave,
     onDeleteExistingUnit,
     onUnsavedDraftChange,
+    onScanToCountSessionChange,
+    onBatchQuantityPreviewChange,
   } = props;
 
   const isEditMode = mode === "edit";
   const savedReturnItemId = String(existingReturnItemId ?? "").trim();
   const canDeleteExistingUnit = Boolean(savedReturnItemId) && Boolean(onDeleteExistingUnit);
-  const primarySaveLabel = saveLabel ?? (isEditMode ? "Save changes" : "Save unit");
+  const [addMode, setAddMode] = useState<ItemUnitAddMode>("single");
+  const [batchMethod, setBatchMethod] = useState<ItemUnitBatchMethod>("manual");
+  const [manualBatchQty, setManualBatchQty] = useState("");
+  const [scanToCountTarget, setScanToCountTarget] = useState("");
+  const [scanToCountCounted, setScanToCountCounted] = useState(0);
+  const [scanToCountLastScan, setScanToCountLastScan] = useState<string | null>(null);
+  const [scanToCountMismatch, setScanToCountMismatch] = useState<string | null>(null);
+  const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -353,7 +382,23 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     setPhotoMenuTarget(null);
     setDeleteConfirmOpen(false);
     setDeleteError(null);
+    setAddMode("single");
+    setBatchMethod("manual");
+    setManualBatchQty("");
+    setScanToCountTarget("");
+    setScanToCountCounted(0);
+    setScanToCountLastScan(null);
+    setScanToCountMismatch(null);
+    setBatchConfirmOpen(false);
   }, [open, initialBarcode, productLinkage, initialState]);
+
+  const resetScanToCountState = useCallback(() => {
+    setScanToCountCounted(0);
+    setScanToCountLastScan(null);
+    setScanToCountMismatch(null);
+  }, []);
+
+  const productResolvedForBatch = barcode.trim().length >= 3 && !linkageResolving;
 
   useEffect(() => {
     if (!open) return;
@@ -472,6 +517,40 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const normalizedTags = useMemo(() => normalizeItemUnitDiscrepancySelection(selectedTags), [selectedTags]);
   const displayLinkage = liveLinkage ?? productLinkage;
 
+  const parsedManualBatchQty = useMemo(() => {
+    const n = Math.floor(Number(manualBatchQty));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [manualBatchQty]);
+
+  const parsedScanToCountTarget = useMemo(() => {
+    const n = Math.floor(Number(scanToCountTarget));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [scanToCountTarget]);
+
+  const effectiveBatchQuantity = useMemo(() => {
+    if (isEditMode || addMode !== "batch") return 1;
+    if (batchMethod === "manual") return parsedManualBatchQty;
+    return parsedScanToCountTarget;
+  }, [isEditMode, addMode, batchMethod, parsedManualBatchQty, parsedScanToCountTarget]);
+
+  const scanToCountReady =
+    addMode === "batch" &&
+    batchMethod === "scan_to_count" &&
+    parsedScanToCountTarget > 0 &&
+    scanToCountCounted === parsedScanToCountTarget;
+
+  const primarySaveLabel = useMemo(() => {
+    if (saveLabel) return saveLabel;
+    if (isEditMode) return "Save changes";
+    if (addMode === "batch" && effectiveBatchQuantity > 1) {
+      return `Save ${effectiveBatchQuantity} units`;
+    }
+    return "Save unit";
+  }, [saveLabel, isEditMode, addMode, effectiveBatchQuantity]);
+
+  const saveDisabledForScanToCount =
+    addMode === "batch" && batchMethod === "scan_to_count" && !scanToCountReady;
+
   const categoryRequiresExpiry = useMemo(
     () =>
       packageItemRequiresExpiryBlock({
@@ -508,6 +587,14 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     ],
   );
 
+  const batchDraftDirty = useMemo(() => {
+    if (isEditMode) return false;
+    if (addMode !== "single") return true;
+    if (manualBatchQty.trim()) return true;
+    if (scanToCountTarget.trim() || scanToCountCounted > 0) return true;
+    return false;
+  }, [isEditMode, addMode, manualBatchQty, scanToCountTarget, scanToCountCounted]);
+
   const unsavedDraft = useMemo(
     () =>
       open
@@ -523,7 +610,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             optionalItemPhotoUrl,
             operatorNotes,
             manualBarcodeEntry,
-          })
+          }) || batchDraftDirty
         : false,
     [
       open,
@@ -538,16 +625,19 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       optionalItemPhotoUrl,
       operatorNotes,
       manualBarcodeEntry,
+      batchDraftDirty,
     ],
   );
 
   useEffect(() => {
     if (!open) {
       onUnsavedDraftChange?.(false);
+      onBatchQuantityPreviewChange?.(1);
       return;
     }
     onUnsavedDraftChange?.(unsavedDraft);
-  }, [open, unsavedDraft, onUnsavedDraftChange]);
+    onBatchQuantityPreviewChange?.(effectiveBatchQuantity);
+  }, [open, unsavedDraft, onUnsavedDraftChange, effectiveBatchQuantity, onBatchQuantityPreviewChange]);
 
   useEffect(() => {
     setValidationIssues((prev) => {
@@ -600,6 +690,126 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       return [...withoutExclusive, key];
     });
   }, [busy]);
+
+  useEffect(() => {
+    resetScanToCountState();
+  }, [addMode, batchMethod, barcode, resetScanToCountState]);
+
+  useEffect(() => {
+    if (batchMethod === "scan_to_count") resetScanToCountState();
+  }, [scanToCountTarget, batchMethod, resetScanToCountState]);
+
+  const handleScanToCountBarcode = useCallback(
+    (scannedCode: string) => {
+      const code = scannedCode.trim();
+      if (!code || busy) return;
+      const target = parsedScanToCountTarget;
+      if (target < 1) return;
+      if (scanToCountCounted >= target) return;
+
+      if (!operatorBarcodesMatchProduct(barcode, code)) {
+        setScanToCountMismatch(`Scanned "${code}" does not match this product.`);
+        playScannerFeedback("error");
+        return;
+      }
+
+      setScanToCountMismatch(null);
+      setScanToCountLastScan(code);
+      setScanToCountCounted((prev) => {
+        const next = Math.min(target, prev + 1);
+        if (next >= target) {
+          playScannerFeedback("complete");
+        } else {
+          playScannerFeedback("success");
+        }
+        return next;
+      });
+    },
+    [barcode, busy, parsedScanToCountTarget, scanToCountCounted],
+  );
+
+  useEffect(() => {
+    if (!open || !onScanToCountSessionChange || isEditMode) {
+      onScanToCountSessionChange?.(null);
+      return;
+    }
+    const active =
+      addMode === "batch" &&
+      batchMethod === "scan_to_count" &&
+      productResolvedForBatch &&
+      parsedScanToCountTarget > 0 &&
+      scanToCountCounted < parsedScanToCountTarget;
+    if (active) {
+      onScanToCountSessionChange({ active: true, onBarcodeScan: handleScanToCountBarcode });
+      return () => onScanToCountSessionChange(null);
+    }
+    onScanToCountSessionChange(null);
+    return () => onScanToCountSessionChange(null);
+  }, [
+    open,
+    isEditMode,
+    addMode,
+    batchMethod,
+    productResolvedForBatch,
+    parsedScanToCountTarget,
+    scanToCountCounted,
+    handleScanToCountBarcode,
+    onScanToCountSessionChange,
+  ]);
+
+  const validateBatchQuantity = useCallback((): ItemUnitValidationIssue[] => {
+    if (isEditMode || addMode !== "batch") return [];
+    const issues: ItemUnitValidationIssue[] = [];
+    if (batchMethod === "manual") {
+      if (parsedManualBatchQty < 1) {
+        issues.push({
+          code: "batch_quantity",
+          title: "Quantity required",
+          message: "Enter a positive whole number for batch quantity.",
+          target: "allocation",
+        });
+      } else if (parsedManualBatchQty > OPERATOR_ITEM_BATCH_MAX_QUANTITY) {
+        issues.push({
+          code: "batch_quantity_max",
+          title: "Quantity too large",
+          message: `Maximum ${OPERATOR_ITEM_BATCH_MAX_QUANTITY} units per batch save.`,
+          target: "allocation",
+        });
+      }
+    } else {
+      if (parsedScanToCountTarget < 1) {
+        issues.push({
+          code: "batch_target",
+          title: "Target quantity required",
+          message: "Enter a positive target quantity for scan-to-count.",
+          target: "allocation",
+        });
+      } else if (parsedScanToCountTarget > OPERATOR_ITEM_BATCH_MAX_QUANTITY) {
+        issues.push({
+          code: "batch_target_max",
+          title: "Target too large",
+          message: `Maximum ${OPERATOR_ITEM_BATCH_MAX_QUANTITY} units per batch save.`,
+          target: "allocation",
+        });
+      } else if (!scanToCountReady) {
+        issues.push({
+          code: "batch_scan_incomplete",
+          title: "Scan count incomplete",
+          message: `Scan ${parsedScanToCountTarget - scanToCountCounted} more matching barcode(s) before saving.`,
+          target: "allocation",
+        });
+      }
+    }
+    return issues;
+  }, [
+    isEditMode,
+    addMode,
+    batchMethod,
+    parsedManualBatchQty,
+    parsedScanToCountTarget,
+    scanToCountReady,
+    scanToCountCounted,
+  ]);
 
   const uploadFiles = useCallback(
     async (files: FileList | null, mode: "evidence" | "optional" | "expiry_evidence") => {
@@ -713,27 +923,11 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     [evidenceUrls, organizationId, showValidationIssues],
   );
 
-  const handleSave = useCallback(async () => {
+  const performSave = useCallback(async () => {
     const tags = normalizeItemUnitDiscrepancySelection(selectedTags);
-    const clientIssues = validateItemUnitBeforeSave({
-      barcode,
-      tags,
-      hasExpiredTag,
-      noExpiryChecked,
-      expiryDate,
-      needsEvidence,
-      evidenceCount: evidenceUrls.length,
-      expiryEvidenceCount: expiryEvidenceUrls.length,
-    });
-    if (clientIssues.length > 0) {
-      showValidationIssues(clientIssues);
-      return;
-    }
-    setManualBarcodeEntry(false);
-    barcodeInputRef.current?.blur();
-
     const gallery = [...evidenceUrls];
     if (optionalItemPhotoUrl) gallery.push(optionalItemPhotoUrl);
+    const batchQty = !isEditMode && addMode === "batch" ? effectiveBatchQuantity : 1;
 
     const saveResult = await onSave({
       scannedBarcode: barcode.trim(),
@@ -745,8 +939,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       traceabilityRequired: !noExpiryChecked,
       optionalItemPhotoUrl,
       operatorNotes: operatorNotes.trim() || null,
+      batchQuantity: batchQty > 1 ? batchQty : undefined,
     });
     if (!saveResult.ok) {
+      playScannerFeedback("error");
       showValidationIssues([
         {
           code: "save_failed",
@@ -757,11 +953,16 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       ]);
       return;
     }
+    if (offSlipWarning) {
+      playScannerFeedback("warning");
+    } else {
+      playScannerFeedback(batchQty > 1 ? "complete" : "success");
+    }
     setValidationIssues([]);
+    setBatchConfirmOpen(false);
   }, [
     barcode,
     selectedTags,
-    needsEvidence,
     evidenceUrls,
     expiryEvidenceUrls,
     optionalItemPhotoUrl,
@@ -771,7 +972,58 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     noExpiryChecked,
     onSave,
     showValidationIssues,
+    isEditMode,
+    addMode,
+    effectiveBatchQuantity,
+    offSlipWarning,
+  ]);
+
+  const handleSave = useCallback(async () => {
+    const tags = normalizeItemUnitDiscrepancySelection(selectedTags);
+    const clientIssues = [
+      ...validateItemUnitBeforeSave({
+        barcode,
+        tags,
+        hasExpiredTag,
+        noExpiryChecked,
+        expiryDate,
+        needsEvidence,
+        evidenceCount: evidenceUrls.length,
+        expiryEvidenceCount: expiryEvidenceUrls.length,
+      }),
+      ...validateBatchQuantity(),
+    ];
+    if (clientIssues.length > 0) {
+      playScannerFeedback("error");
+      showValidationIssues(clientIssues);
+      return;
+    }
+    if (
+      !isEditMode &&
+      addMode === "batch" &&
+      effectiveBatchQuantity > OPERATOR_ITEM_BATCH_CONFIRM_THRESHOLD
+    ) {
+      setBatchConfirmOpen(true);
+      return;
+    }
+    setManualBarcodeEntry(false);
+    barcodeInputRef.current?.blur();
+    await performSave();
+  }, [
+    barcode,
+    selectedTags,
+    needsEvidence,
+    evidenceUrls,
+    expiryEvidenceUrls,
     hasExpiredTag,
+    noExpiryChecked,
+    expiryDate,
+    validateBatchQuantity,
+    showValidationIssues,
+    isEditMode,
+    addMode,
+    effectiveBatchQuantity,
+    performSave,
   ]);
 
   if (!open) return null;
@@ -944,6 +1196,136 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               </p>
             ) : null}
           </form>
+
+          {!isEditMode && productResolvedForBatch ? (
+            <div className="operator-item-unit-record-modal__batch-section mt-4 rounded-xl border px-3 py-3">
+              <p className="operator-item-unit-record-modal__section-label text-xs font-semibold uppercase tracking-wider">
+                Add mode
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Add mode">
+                {(
+                  [
+                    ["single", "Single unit"],
+                    ["batch", "Batch quantity"],
+                  ] as const
+                ).map(([key, label]) => {
+                  const selected = addMode === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setAddMode(key)}
+                      className={`operator-item-unit-record-modal__chip rounded-full border px-3 py-2 text-[11px] font-bold transition active:scale-[0.98] disabled:opacity-40${
+                        selected ? " operator-item-unit-record-modal__chip--selected" : ""
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {addMode === "batch" ? (
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <p className="operator-item-unit-record-modal__muted text-[10px] font-bold uppercase tracking-wide">
+                      Method
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-2" role="group" aria-label="Batch method">
+                      {(
+                        [
+                          ["manual", "Manual quantity"],
+                          ["scan_to_count", "Scan-to-count"],
+                        ] as const
+                      ).map(([key, label]) => {
+                        const selected = batchMethod === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setBatchMethod(key)}
+                            className={`operator-item-unit-record-modal__chip rounded-full border px-3 py-2 text-[11px] font-bold transition active:scale-[0.98] disabled:opacity-40${
+                              selected ? " operator-item-unit-record-modal__chip--selected" : ""
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {batchMethod === "manual" ? (
+                    <div>
+                      <label className="operator-item-unit-record-modal__muted text-[10px] font-bold uppercase tracking-wide">
+                        Quantity
+                      </label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={OPERATOR_ITEM_BATCH_MAX_QUANTITY}
+                        disabled={busy}
+                        value={manualBatchQty}
+                        onChange={(e) => setManualBatchQty(e.target.value.replace(/[^\d]/g, ""))}
+                        className="operator-item-unit-record-modal__field-input operator-item-unit-record-modal__batch-qty-input mt-1.5 h-11 w-full rounded-lg border px-3 text-sm outline-none disabled:opacity-40"
+                        placeholder="e.g. 50"
+                        aria-label="Batch quantity"
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="operator-item-unit-record-modal__muted text-[10px] font-bold uppercase tracking-wide">
+                          Target quantity
+                        </label>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={OPERATOR_ITEM_BATCH_MAX_QUANTITY}
+                          disabled={busy}
+                          value={scanToCountTarget}
+                          onChange={(e) => setScanToCountTarget(e.target.value.replace(/[^\d]/g, ""))}
+                          className="operator-item-unit-record-modal__field-input operator-item-unit-record-modal__batch-qty-input mt-1.5 h-11 w-full rounded-lg border px-3 text-sm outline-none disabled:opacity-40"
+                          placeholder="e.g. 10"
+                          aria-label="Scan-to-count target quantity"
+                        />
+                      </div>
+                      {parsedScanToCountTarget > 0 ? (
+                        <div className="operator-item-unit-record-modal__scan-count-panel rounded-lg border px-3 py-2.5">
+                          <p className="operator-item-unit-record-modal__scan-count-line text-[13px] font-black">
+                            Counted: {scanToCountCounted} / {parsedScanToCountTarget}
+                          </p>
+                          {scanToCountLastScan ? (
+                            <p className="operator-item-unit-record-modal__muted mt-1 font-mono text-[11px] font-semibold">
+                              Last scan: {scanToCountLastScan}
+                            </p>
+                          ) : (
+                            <p className="operator-item-unit-record-modal__muted mt-1 text-[10px] font-semibold">
+                              Scan the same barcode repeatedly to count units.
+                            </p>
+                          )}
+                          {scanToCountReady ? (
+                            <p className="operator-item-unit-record-modal__scan-count-ready mt-2 text-[11px] font-bold">
+                              Ready to save {parsedScanToCountTarget} units
+                            </p>
+                          ) : null}
+                          {scanToCountMismatch ? (
+                            <p className="operator-item-unit-record-modal__local-error mt-2 rounded-lg border px-2 py-1.5 text-[10px] font-semibold">
+                              {scanToCountMismatch}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="operator-item-unit-record-modal__divider mt-4 border-t pt-4">
             <label className="operator-item-unit-record-modal__section-label text-xs font-semibold uppercase tracking-wider block mb-2">
@@ -1266,7 +1648,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               <button
                 type="submit"
                 form="item-unit-record-barcode-form"
-                disabled={busy}
+                disabled={busy || saveDisabledForScanToCount}
                 className="operator-shipment-flow-modal__btn-primary flex h-12 w-full items-center justify-center gap-2 rounded-xl border text-sm font-black transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {busy ? <Loader2 className="h-5 w-5 animate-spin" strokeWidth={2} /> : null}
@@ -1292,6 +1674,55 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           />
         </div>
       </div>
+
+      {typeof document !== "undefined" && batchConfirmOpen
+        ? createPortal(
+            <div
+              className="operator-shipment-flow-modal fixed inset-0 z-[210] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="item-unit-batch-confirm-title"
+            >
+              <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+                <p
+                  id="item-unit-batch-confirm-title"
+                  className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+                >
+                  Add {effectiveBatchQuantity} units?
+                </p>
+                <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+                  This will create {effectiveBatchQuantity} scanned units for this item.
+                </p>
+                <OperatorScannerFooterActions
+                  className="mt-6"
+                  primary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="operator-shipment-flow-modal__btn-primary h-11 w-full rounded-xl border text-[13px] font-black transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={() => {
+                        void performSave();
+                      }}
+                    >
+                      Add units
+                    </button>
+                  }
+                  secondary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:opacity-40"
+                      onClick={() => setBatchConfirmOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                  }
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {typeof document !== "undefined" && deleteConfirmOpen
         ? createPortal(

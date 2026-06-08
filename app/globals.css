@@ -8195,6 +8195,42 @@ html.light .operator-item-unit-record-modal__notes-input:focus {
   border-color: rgba(138, 104, 31, 0.45) !important;
 }
 
+html.dark .operator-item-unit-record-modal__batch-section {
+  border-color: rgba(214, 183, 110, 0.2) !important;
+  background-color: rgba(18, 24, 32, 0.55) !important;
+}
+
+html.light .operator-item-unit-record-modal__batch-section {
+  border-color: rgba(216, 209, 194, 0.9) !important;
+  background-color: rgba(248, 246, 241, 0.92) !important;
+}
+
+html.dark .operator-item-unit-record-modal__scan-count-panel {
+  border-color: rgba(214, 183, 110, 0.28) !important;
+  background-color: rgba(26, 33, 41, 0.72) !important;
+}
+
+html.light .operator-item-unit-record-modal__scan-count-panel {
+  border-color: rgba(138, 104, 31, 0.22) !important;
+  background-color: #ffffff !important;
+}
+
+html.dark .operator-item-unit-record-modal__scan-count-line {
+  color: #e8d19a !important;
+}
+
+html.light .operator-item-unit-record-modal__scan-count-line {
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-unit-record-modal__scan-count-ready {
+  color: #86efac !important;
+}
+
+html.light .operator-item-unit-record-modal__scan-count-ready {
+  color: #15803d !important;
+}
+
 html.dark .operator-item-unit-record-modal__local-error {
   border: 1px solid rgba(239, 91, 91, 0.42) !important;
   background: rgba(239, 91, 91, 0.1) !important;
