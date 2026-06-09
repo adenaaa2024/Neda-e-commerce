@@ -14,6 +14,15 @@ export const ITEM_UNIT_DAMAGE_TAG_KEYS = [
   "missing_item",
 ] as const;
 
+/** Chips shown in Add / Scan Item — physical units only (no missing_item). */
+export const ITEM_UNIT_ADD_SCAN_DAMAGE_TAG_KEYS = [
+  "damaged_product",
+  "scratched",
+  "wrong_item",
+  "expired",
+  "missing_parts",
+] as const;
+
 export type ItemUnitDamageTagKey = (typeof ITEM_UNIT_DAMAGE_TAG_KEYS)[number];
 
 export type ItemUnitDiscrepancyTagKey = ItemUnitDamageTagKey | typeof ITEM_UNIT_SELLABLE_OK_TAG;
@@ -78,9 +87,6 @@ export function itemUnitDiscrepancyChipDisabled(
   const normalized = normalizeItemUnitDiscrepancySelection(tags);
   if (normalized.includes(ITEM_UNIT_SELLABLE_OK_TAG)) {
     return key !== ITEM_UNIT_SELLABLE_OK_TAG;
-  }
-  if (normalized.includes("missing_item")) {
-    return key !== "missing_item";
   }
   if (key === ITEM_UNIT_SELLABLE_OK_TAG) {
     return normalized.includes("expired") || packageItemDamageTagsSelected(normalized);

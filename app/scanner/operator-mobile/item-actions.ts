@@ -18,6 +18,9 @@ import {
   softVoidReturnItemWithExpectedRelease,
 } from "@/lib/scanner/receive-expected-with-split";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
+import {
+  guardBatchQuantityBackendError,
+} from "@/lib/scanner/batch-quantity-backend-guard";
 
 export type OperatorReceiveItemInput = {
   organization_id?: string;
@@ -38,7 +41,7 @@ export type OperatorReceiveItemInput = {
   notes?: string | null;
   expiration_date?: string | null;
   batch_number?: string | null;
-  /** Item-level receive: must be 1 physical unit per save (no quantity-only counter path). */
+  /** Units in this receive batch (default 1). One `return_items` row with `scanned_quantity`. */
   quantity?: number;
   photo_evidence?: ReturnInsertPayload["photo_evidence"];
   order_id?: string | null;
@@ -170,14 +173,7 @@ export async function operatorReceiveItem(
   payload: OperatorReceiveItemInput,
 ): Promise<OperatorReceiveItemResult> {
   const qtyRaw = Number(payload.quantity ?? 1);
-  const qty = Number.isFinite(qtyRaw) ? Math.floor(qtyRaw) : 1;
-  if (qty !== 1) {
-    return {
-      ok: false,
-      error:
-        "Item-level receive requires quantity=1 per scan. Scan each physical unit separately (no bulk quantity receive).",
-    };
-  }
+  const qty = Number.isFinite(qtyRaw) ? Math.max(1, Math.min(500, Math.floor(qtyRaw))) : 1;
 
   const orgId = await resolveWriteOrganizationId(payload.actor_profile_id ?? null, payload.organization_id);
 
@@ -206,11 +202,16 @@ export async function operatorReceiveItem(
     photo_evidence: payload.photo_evidence ?? null,
     organization_id: orgId,
     actor_profile_id: payload.actor_profile_id ?? null,
+    scanned_quantity: qty,
   };
 
   const res = await insertReturn(basePayload);
   if (!res.ok || !res.data?.id) {
-    return { ok: false, error: res.error ?? "Failed to insert return item." };
+    const guarded = guardBatchQuantityBackendError(qty, res.error);
+    return {
+      ok: false,
+      error: guarded ?? res.error ?? "Failed to insert return item.",
+    };
   }
 
   const returnItemId = res.data.id;

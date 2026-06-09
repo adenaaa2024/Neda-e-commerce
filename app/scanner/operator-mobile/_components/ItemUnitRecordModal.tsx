@@ -7,7 +7,7 @@ import { Camera, ImagePlus, Loader2, Trash2, X } from "lucide-react";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 import { uploadMediaFileAction } from "@/lib/media-upload-actions";
 import {
-  ITEM_UNIT_DAMAGE_TAG_KEYS,
+  ITEM_UNIT_ADD_SCAN_DAMAGE_TAG_KEYS,
   ITEM_UNIT_SELLABLE_OK_TAG,
   type ItemUnitDiscrepancyTagKey,
   normalizeItemUnitDiscrepancySelection,
@@ -116,7 +116,16 @@ function validateItemUnitBeforeSave(input: {
       target: "condition",
     });
   }
-  if (!input.noExpiryChecked && !input.expiryDate.trim()) {
+  if (input.hasExpiredTag) {
+    if (!input.expiryDate.trim()) {
+      issues.push({
+        code: "expiration_date",
+        title: VALIDATION_ISSUE_TITLE.EXPIRATION_DATE,
+        message: "Expiration date is required for Expired items.",
+        target: "expiration",
+      });
+    }
+  } else if (!input.noExpiryChecked && !input.expiryDate.trim()) {
     issues.push({
       code: "expiration_date",
       title: VALIDATION_ISSUE_TITLE.EXPIRATION_DATE,
@@ -167,6 +176,7 @@ function isItemUnitValidationIssueActive(
     case "condition":
       return input.tags.length === 0;
     case "expiration":
+      if (input.hasExpiredTag) return !input.expiryDate.trim();
       return !input.noExpiryChecked && !input.expiryDate.trim();
     case "evidence":
       if (issue.code === "expiry_evidence_photo") return input.hasExpiredTag && input.expiryEvidenceCount === 0;
@@ -614,9 +624,9 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     [normalizedTags, slipDescription],
   );
 
-  const expiryDateRequired = !noExpiryChecked;
-  const needsEvidence = packageItemRequiresEvidencePhotos(normalizedTags);
   const hasExpiredTag = normalizedTags.includes("expired");
+  const expiryDateRequired = hasExpiredTag || !noExpiryChecked;
+  const needsEvidence = packageItemRequiresEvidencePhotos(normalizedTags);
 
   const validationContext = useMemo(
     () => ({
@@ -739,29 +749,35 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const isConditionChipDisabled = useCallback(
     (key: ItemUnitDiscrepancyTagKey) => {
       if (busy) return true;
-      if (selectedTags.includes("missing_item")) return key !== "missing_item";
       return false;
     },
-    [busy, selectedTags],
+    [busy],
   );
 
-  const missingItemActive = selectedTags.includes("missing_item");
+  const legacyMissingItemTag = selectedTags.includes("missing_item");
 
   const toggleTag = useCallback((key: ItemUnitDiscrepancyTagKey) => {
     if (busy) return;
+    if (key === "expired") {
+      setNoExpiryChecked(false);
+    }
     setValidationIssues((prev) => prev.filter((issue) => issue.target === "allocation"));
     setSelectedTags((prev) => {
       if (prev.includes(key)) {
-        if (key === "missing_item") return [ITEM_UNIT_SELLABLE_OK_TAG];
         const next = prev.filter((t) => t !== key);
         return next.length > 0 ? next : [ITEM_UNIT_SELLABLE_OK_TAG];
       }
       if (key === ITEM_UNIT_SELLABLE_OK_TAG) return [ITEM_UNIT_SELLABLE_OK_TAG];
-      if (key === "missing_item") return ["missing_item"];
       const withoutExclusive = prev.filter((t) => t !== ITEM_UNIT_SELLABLE_OK_TAG && t !== "missing_item");
       return [...withoutExclusive, key];
     });
   }, [busy]);
+
+  useEffect(() => {
+    if (hasExpiredTag && noExpiryChecked) {
+      setNoExpiryChecked(false);
+    }
+  }, [hasExpiredTag, noExpiryChecked]);
 
   useEffect(() => {
     resetScanToCountState();
@@ -1068,11 +1084,11 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     const saveResult = await onSave({
       scannedBarcode: barcode.trim(),
       discrepancyTags: tags,
-      expiryDate: noExpiryChecked ? null : expiryDate.trim() || null,
-      lotNumber: noExpiryChecked ? null : lotNumber.trim() || null,
+      expiryDate: hasExpiredTag ? expiryDate.trim() || null : noExpiryChecked ? null : expiryDate.trim() || null,
+      lotNumber: hasExpiredTag || !noExpiryChecked ? lotNumber.trim() || null : null,
       evidenceUrls: gallery,
       expiryEvidenceUrls: [...expiryEvidenceUrls],
-      traceabilityRequired: !noExpiryChecked,
+      traceabilityRequired: hasExpiredTag || !noExpiryChecked,
       optionalItemPhotoUrl,
       operatorNotes: operatorNotes.trim() || null,
       batchQuantity: batchQty > 1 ? batchQty : undefined,
@@ -1106,6 +1122,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     expiryDate,
     lotNumber,
     noExpiryChecked,
+    hasExpiredTag,
     onSave,
     showValidationIssues,
     isEditMode,
@@ -1482,31 +1499,33 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               <input
                 ref={expiryInputRef}
                 type="date"
-                disabled={busy || noExpiryChecked}
+                disabled={busy || (noExpiryChecked && !hasExpiredTag)}
                 value={expiryDate}
                 onChange={(e) => setExpiryDate(e.target.value)}
                 aria-required={expiryDateRequired}
                 aria-invalid={Boolean(expirationInlineError)}
                 className={`operator-item-unit-record-modal__field-input w-full h-12 border rounded-xl px-4 focus:outline-none disabled:opacity-40 transition-all${expirationInlineError ? " operator-item-unit-record-modal__field-input--invalid" : ""}`}
               />
-              <label className="operator-item-unit-record-modal__checkbox-label flex items-center gap-2.5 cursor-pointer text-sm select-none mt-1">
-                <input
-                  type="checkbox"
-                  checked={noExpiryChecked}
-                  disabled={busy}
-                  onChange={(e) => {
-                    setNoExpiryChecked(e.target.checked);
-                    if (e.target.checked) {
-                      setExpiryDate("");
-                      setLotNumber("");
-                    } else {
-                      window.setTimeout(() => expiryInputRef.current?.focus({ preventScroll: true }), 0);
-                    }
-                  }}
-                  className="operator-item-unit-record-modal__checkbox w-4 h-4 rounded focus:ring-0"
-                />
-                <span>No expiration date on packaging</span>
-              </label>
+              {!hasExpiredTag ? (
+                <label className="operator-item-unit-record-modal__checkbox-label flex items-center gap-2.5 cursor-pointer text-sm select-none mt-1">
+                  <input
+                    type="checkbox"
+                    checked={noExpiryChecked}
+                    disabled={busy}
+                    onChange={(e) => {
+                      setNoExpiryChecked(e.target.checked);
+                      if (e.target.checked) {
+                        setExpiryDate("");
+                        setLotNumber("");
+                      } else {
+                        window.setTimeout(() => expiryInputRef.current?.focus({ preventScroll: true }), 0);
+                      }
+                    }}
+                    className="operator-item-unit-record-modal__checkbox w-4 h-4 rounded focus:ring-0"
+                  />
+                  <span>No expiration date on packaging</span>
+                </label>
+              ) : null}
             </div>
             {expirationInlineError ? (
               <p className="operator-item-unit-record-modal__local-error mt-2 rounded-lg border px-3 py-2 text-[11px] font-semibold">
@@ -1536,10 +1555,9 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             What is wrong with this item?
           </p>
           <div className="mt-3 flex flex-wrap gap-2.5" role="group" aria-label="Item condition tags">
-            {([...ITEM_UNIT_DAMAGE_TAG_KEYS, ITEM_UNIT_SELLABLE_OK_TAG] as const).map((key) => {
+            {([...ITEM_UNIT_ADD_SCAN_DAMAGE_TAG_KEYS, ITEM_UNIT_SELLABLE_OK_TAG] as const).map((key) => {
               const selected = selectedTags.includes(key);
               const disabled = isConditionChipDisabled(key);
-              const lockedByMissingItem = missingItemActive && key !== "missing_item";
               return (
                 <button
                   key={key}
@@ -1548,13 +1566,18 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                   onClick={() => toggleTag(key)}
                   className={`operator-item-unit-record-modal__chip rounded-full border px-3.5 py-2 text-[11px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed ${
                     selected ? "operator-item-unit-record-modal__chip--selected" : ""
-                  } ${lockedByMissingItem ? "opacity-50" : "disabled:opacity-40"}`}
+                  } disabled:opacity-40`}
                 >
                   {CHIP_LABEL[key]}
                 </button>
               );
             })}
           </div>
+          {legacyMissingItemTag ? (
+            <p className="operator-item-unit-record-modal__muted mt-2 rounded-lg border border-amber-500/35 bg-amber-950/20 px-3 py-2 text-[10px] font-semibold leading-snug text-amber-200/90">
+              Legacy tag: Missing Item (read-only). Record missing expected units on the package review screen instead.
+            </p>
+          ) : null}
           {conditionInlineError ? (
             <p className="operator-item-unit-record-modal__local-error mt-2 rounded-lg border px-3 py-2 text-[11px] font-semibold">
               {conditionInlineError}

@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -33,7 +34,10 @@ export type OperatorSessionStoreContextValue = {
   /** Updates session store and persists per-org localStorage. */
   selectSessionStoreId: (storeId: string) => void;
   operatorStores: OperatorStoreOption[];
+  /** True only on first store-scope fetch (no cached stores yet). */
   operatorStoresLoading: boolean;
+  /** True during background store-scope refresh while prior stores stay visible. */
+  operatorStoresRefreshing: boolean;
   kioskStoreLocked: boolean;
   activeStoreLabel: string | null;
 };
@@ -70,6 +74,10 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
   const [sessionStoreId, setSessionStoreIdState] = useState<string | null>(null);
   const [operatorStores, setOperatorStores] = useState<OperatorStoreOption[]>([]);
   const [operatorStoresLoading, setOperatorStoresLoading] = useState(false);
+  const [operatorStoresRefreshing, setOperatorStoresRefreshing] = useState(false);
+  /** Ignores stale store-scope fetches when org/profile deps change mid-flight. */
+  const storeScopeLoadGenerationRef = useRef(0);
+  const hasResolvedStoresRef = useRef(false);
 
   const kioskStoreLocked = useMemo(() => Boolean(resolvePublicStoreId()), []);
 
@@ -124,34 +132,47 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     if (!isSupabaseConfigured()) {
       setOperatorStores([]);
       setOperatorStoresLoading(false);
+      setOperatorStoresRefreshing(false);
       setSessionStoreIdState(null);
+      hasResolvedStoresRef.current = false;
       return;
     }
-    if (profileLoading) return;
-    let cancelled = false;
-    setOperatorStores([]);
-    setOperatorStoresLoading(true);
+    if (profileLoading) {
+      return;
+    }
+
+    const loadGeneration = ++storeScopeLoadGenerationRef.current;
+    const isBackgroundRefresh = hasResolvedStoresRef.current || operatorStores.length > 0;
+    if (isBackgroundRefresh) {
+      setOperatorStoresRefreshing(true);
+    } else {
+      setOperatorStores([]);
+      setOperatorStoresLoading(true);
+    }
     void (async () => {
       try {
         const scope = await getOperatorStoreScopeForOrganization(orgId);
+        if (loadGeneration !== storeScopeLoadGenerationRef.current) return;
         if (!scope.ok) {
           throw new Error(scope.error);
         }
-        if (cancelled) return;
         const stores = scope.snapshot.stores;
         const ids = new Set(stores.map((s) => s.id));
         const envId = resolvePublicStoreId();
 
         if (envId) {
           const envStoreRow = stores.find((s) => s.id === envId);
-          setOperatorStores(envStoreRow ? [envStoreRow] : []);
+          const envRows = envStoreRow ? [envStoreRow] : [];
+          setOperatorStores(envRows);
           setSessionStoreIdState(envId);
+          hasResolvedStoresRef.current = envRows.length > 0;
           return;
         }
 
         setOperatorStores(stores);
         if (!stores.length) {
           setSessionStoreIdState(null);
+          hasResolvedStoresRef.current = false;
           return;
         }
 
@@ -164,6 +185,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
           const id = stores[0].id;
           setOperatorSessionStoreIdForOrg(orgId, id);
           setSessionStoreIdState(id);
+          hasResolvedStoresRef.current = true;
           return;
         }
 
@@ -187,19 +209,20 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
           setOperatorSessionStoreIdForOrg(orgId, chosen);
         }
         setSessionStoreIdState(chosen);
+        hasResolvedStoresRef.current = stores.length > 0;
       } catch (e) {
         console.error("[operator session store] init failed:", e);
-        if (!cancelled) {
+        if (loadGeneration === storeScopeLoadGenerationRef.current && !isBackgroundRefresh) {
           setOperatorStores([]);
           setSessionStoreIdState(null);
         }
       } finally {
-        if (!cancelled) setOperatorStoresLoading(false);
+        if (loadGeneration === storeScopeLoadGenerationRef.current) {
+          setOperatorStoresLoading(false);
+          setOperatorStoresRefreshing(false);
+        }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [orgId, profileLoading]);
 
   const selectSessionStoreId = useCallback(
@@ -224,6 +247,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
       selectSessionStoreId,
       operatorStores,
       operatorStoresLoading,
+      operatorStoresRefreshing,
       kioskStoreLocked,
       activeStoreLabel,
     }),
@@ -233,6 +257,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
       selectSessionStoreId,
       operatorStores,
       operatorStoresLoading,
+      operatorStoresRefreshing,
       kioskStoreLocked,
       activeStoreLabel,
     ],

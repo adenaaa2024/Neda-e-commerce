@@ -1,6 +1,7 @@
 "use client";
 
 import { useId } from "react";
+import { Loader2 } from "lucide-react";
 import { useOperatorSessionStore } from "./OperatorSessionStoreProvider";
 import { isSupabaseConfigured } from "@/src/lib/supabase";
 
@@ -18,6 +19,7 @@ export function OperatorStoreBar() {
     selectSessionStoreId,
     operatorStores,
     operatorStoresLoading,
+    operatorStoresRefreshing,
     kioskStoreLocked,
     activeStoreLabel,
   } = useOperatorSessionStore();
@@ -38,16 +40,24 @@ export function OperatorStoreBar() {
     );
   }
 
-  if (operatorStoresLoading) {
+  if (operatorStoresLoading || operatorStoresRefreshing) {
+    const label =
+      activeStoreLabel ??
+      (operatorStores.length === 1 ? operatorStores[0].name : null) ??
+      (operatorStoresRefreshing ? "Refreshing…" : "Loading…");
     return (
       <div className="flex w-full min-w-0 items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-teal-700/90 dark:text-teal-200/70">
           Store
         </span>
         <span
-          className={`${storeGlass} border-teal-600/20 bg-white/75 text-zinc-700 dark:border-teal-400/20 dark:bg-zinc-900/90 dark:text-zinc-400`}
+          className={`${storeGlass} inline-flex min-w-0 items-center gap-1.5 border-teal-600/20 bg-white/75 text-zinc-700 dark:border-teal-400/20 dark:bg-zinc-900/90 dark:text-zinc-400`}
+          title={label}
         >
-          Loading…
+          {(operatorStoresLoading || operatorStoresRefreshing) ? (
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin opacity-80" aria-hidden />
+          ) : null}
+          <span className="truncate">{label}</span>
         </span>
       </div>
     );

@@ -4810,16 +4810,16 @@ html.light [data-receiving-phase="package_scan"] .operator-shipment-entry-header
 }
 
 html.light .operator-stepper-label--active {
-  color: #8a681f !important;
+  color: #7a5b1b !important;
   text-shadow: none;
 }
 
 html.light [data-receiving-phase="package_scan"] .operator-receiving-stepper-step .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
-  color: #66707a !important;
+  color: #4c5661 !important;
 }
 
 html.light [data-receiving-phase="package_scan"] .operator-stepper-label--active {
-  color: #8a681f !important;
+  color: #7a5b1b !important;
   font-weight: 700 !important;
 }
 
@@ -4834,7 +4834,7 @@ html.light .operator-stepper-label--done {
 /* Shipment Entry — order metadata (all phases) */
 html.light .operator-shipment-entry-order-meta,
 html.light .operator-box-info-order-meta {
-  color: #4d5560 !important;
+  color: #4c5661 !important;
   text-shadow: none !important;
 }
 
@@ -4845,12 +4845,12 @@ html.light .operator-box-info-order-meta__tag {
 
 html.light .operator-shipment-entry-order-meta__value,
 html.light .operator-box-info-order-meta__value {
-  color: #16181b !important;
+  color: #171a1e !important;
 }
 
 html.dark .operator-shipment-entry-order-meta,
 html.dark .operator-box-info-order-meta {
-  color: #b9c2cc !important;
+  color: #b8c1cb !important;
   text-shadow: none !important;
 }
 
@@ -4861,7 +4861,28 @@ html.dark .operator-box-info-order-meta__tag {
 
 html.dark .operator-shipment-entry-order-meta__value,
 html.dark .operator-box-info-order-meta__value {
-  color: #faf6ed !important;
+  color: #f7f3ea !important;
+}
+
+/* Shipment Entry header — pallet progress metric labels (Expected / Scanned / Remaining) */
+html.light .operator-shipment-entry-header .operator-shipment-entry-progress .operator-pallet-stat-cell p,
+html.light .operator-shipment-entry-header .operator-shipment-entry-progress-metrics .operator-pallet-stat-cell p {
+  color: #4c5661 !important;
+}
+
+html.light .operator-shipment-entry-header .operator-shipment-entry-progress .operator-pallet-stat-cell span.text-\[8\.5px\],
+html.light .operator-shipment-entry-header .operator-shipment-entry-progress-metrics .operator-pallet-stat-cell span.text-\[8\.5px\] {
+  color: #66707a !important;
+}
+
+html.dark .operator-shipment-entry-header .operator-shipment-entry-progress .operator-pallet-stat-cell p,
+html.dark .operator-shipment-entry-header .operator-shipment-entry-progress-metrics .operator-pallet-stat-cell p {
+  color: #b8c1cb !important;
+}
+
+html.dark .operator-shipment-entry-header .operator-shipment-entry-progress .operator-pallet-stat-cell span.text-\[8\.5px\],
+html.dark .operator-shipment-entry-header .operator-shipment-entry-progress-metrics .operator-pallet-stat-cell span.text-\[8\.5px\] {
+  color: #8a939e !important;
 }
 
 html.dark .operator-shipment-entry-order-conflict,
@@ -5437,11 +5458,11 @@ html.light .operator-shipment-entry-header .operator-stepper-rail[data-rail-done
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-step .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
-  color: rgba(200, 169, 106, 0.52) !important;
+  color: #8a939e !important;
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-receiving-stepper-step .operator-receiving-stepper-label:not(.operator-stepper-label--active):not(.operator-stepper-label--done) {
-  color: #66707a !important;
+  color: #4c5661 !important;
 }
 
 html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--done {
@@ -5463,7 +5484,7 @@ html.dark .operator-shipment-entry-header [data-receiving-phase] .operator-stepp
 }
 
 html.light .operator-shipment-entry-header [data-receiving-phase] .operator-stepper-label--active {
-  color: #8a681f !important;
+  color: #7a5b1b !important;
   font-weight: 800 !important;
   text-shadow: none;
 }
@@ -5520,7 +5541,7 @@ html.light .operator-shipment-entry-header .operator-shipment-box-progress__text
 
 html.light .operator-shipment-entry-progress .operator-shipment-box-progress__label,
 html.light .operator-shipment-entry-header .operator-shipment-box-progress__label {
-  color: #4d5560 !important;
+  color: #4c5661 !important;
 }
 
 html.light .operator-shipment-entry-progress .operator-shipment-box-progress__count,
@@ -5540,7 +5561,7 @@ html.dark .operator-shipment-entry-header .operator-shipment-box-progress__text 
 
 html.dark .operator-shipment-entry-progress .operator-shipment-box-progress__label,
 html.dark .operator-shipment-entry-header .operator-shipment-box-progress__label {
-  color: #b9c2cc !important;
+  color: #b8c1cb !important;
 }
 
 html.dark .operator-shipment-entry-progress .operator-shipment-box-progress__count,
@@ -5573,7 +5594,7 @@ html.dark .operator-shipment-entry-box-count-editor {
 }
 
 html.dark .operator-shipment-entry-box-count-editor__label {
-  color: #b9c2cc !important;
+  color: #b8c1cb !important;
 }
 
 html.light .operator-shipment-entry-box-count-editor {
@@ -5581,7 +5602,7 @@ html.light .operator-shipment-entry-box-count-editor {
 }
 
 html.light .operator-shipment-entry-box-count-editor__label {
-  color: #4d5560 !important;
+  color: #4c5661 !important;
 }
 
 html.dark .operator-shipment-entry-box-count-stepper {
@@ -9646,6 +9667,14 @@ html.light .operator-item-scan-screen .operator-item-scan-stat__label {
   color: #66707a !important;
   letter-spacing: 0.08em;
   font-size: 0.5625rem !important;
+}
+
+html.dark .operator-item-scan-screen .operator-item-scan-middle-chrome .operator-item-scan-stat__label {
+  color: #b8c1cb !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-middle-chrome .operator-item-scan-stat__label {
+  color: #4c5661 !important;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-stat__value {
