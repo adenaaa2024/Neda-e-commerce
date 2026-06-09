@@ -38,7 +38,7 @@ export type OperatorReceiveItemInput = {
   notes?: string | null;
   expiration_date?: string | null;
   batch_number?: string | null;
-  /** Item-level receive: must be 1 physical unit per save (no quantity-only counter path). */
+  /** Units in this save batch (default 1). One return_items row per save. */
   quantity?: number;
   photo_evidence?: ReturnInsertPayload["photo_evidence"];
   order_id?: string | null;
@@ -163,21 +163,14 @@ async function resolveExpectedPackageRowId(
 }
 
 /**
- * Item-level receive: inserts one `return_items` row and allocates one expected unit via
- * `allocate_expected_items_for_return_item_ids`. Does not bump `actual_scanned_count`.
+ * Item-level receive: inserts one `return_items` row (`scanned_quantity` = qty) and allocates
+ * expected units via `allocate_expected_items_for_return_item_ids`.
  */
 export async function operatorReceiveItem(
   payload: OperatorReceiveItemInput,
 ): Promise<OperatorReceiveItemResult> {
   const qtyRaw = Number(payload.quantity ?? 1);
-  const qty = Number.isFinite(qtyRaw) ? Math.floor(qtyRaw) : 1;
-  if (qty !== 1) {
-    return {
-      ok: false,
-      error:
-        "Item-level receive requires quantity=1 per scan. Scan each physical unit separately (no bulk quantity receive).",
-    };
-  }
+  const qty = Number.isFinite(qtyRaw) ? Math.max(1, Math.min(500, Math.floor(qtyRaw))) : 1;
 
   const orgId = await resolveWriteOrganizationId(payload.actor_profile_id ?? null, payload.organization_id);
 
@@ -206,6 +199,7 @@ export async function operatorReceiveItem(
     photo_evidence: payload.photo_evidence ?? null,
     organization_id: orgId,
     actor_profile_id: payload.actor_profile_id ?? null,
+    scanned_quantity: qty,
   };
 
   const res = await insertReturn(basePayload);

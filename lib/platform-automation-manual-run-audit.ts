@@ -1,9 +1,27 @@
 import { supabaseServer } from "./supabase-server";
 import {
+  cronAuditEntry,
   manualRunAuditEntry,
   resolvePlatformAutomationAuditActor,
   writePlatformAutomationAuditLogs,
 } from "./platform-automation-audit-log";
+
+/** Best-effort audit for Vercel removal cron wake / execute. */
+export async function auditRemovalCronEvent(args: {
+  organizationId: string;
+  storeId: string;
+  action: "cron_tick" | "cron_run";
+  gate?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await writePlatformAutomationAuditLogs(supabaseServer, { actor_user_id: null, actor_email: null }, [
+      cronAuditEntry(args),
+    ]);
+  } catch (err) {
+    console.error("[auditRemovalCronEvent]", err);
+  }
+}
 
 /** Best-effort audit for automation manual run / resume API routes. */
 export async function auditPlatformAutomationManualRun(args: {

@@ -8,6 +8,7 @@ import { AppShell } from "../components/AppShell";
 import { PwaStandaloneScannerRedirect } from "../components/PwaStandaloneScannerRedirect";
 import { PwaEarlyInstallCapture } from "../components/PwaEarlyInstallCapture";
 import { PwaServiceWorkerRegister } from "../components/PwaServiceWorkerRegister";
+import { PwaSoftUpdateBanner } from "../components/PwaSoftUpdateBanner";
 import { PWA_APP_NAME } from "../lib/pwa-app-version";
 import { getPlatformAppNameForMetadata } from "../lib/platform-settings-read";
 
@@ -90,6 +91,7 @@ export default function RootLayout({
              */}
             <Suspense fallback={null}>
               <PwaServiceWorkerRegister />
+              <PwaSoftUpdateBanner />
               <PwaStandaloneScannerRedirect />
               <AppShell>{children}</AppShell>
             </Suspense>

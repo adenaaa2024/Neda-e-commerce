@@ -141,6 +141,23 @@ export function diffRemovalAutomationAuditEntries(
   return entries;
 }
 
+export function cronAuditEntry(args: {
+  organizationId: string;
+  storeId: string;
+  action: "cron_tick" | "cron_run";
+  gate?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+}): PlatformAutomationAuditEntry {
+  return {
+    organization_id: args.organizationId,
+    store_id: args.storeId,
+    automation_type: "removal_api_sync",
+    action: args.action,
+    before_json: args.gate ? (stripSecrets(args.gate) as Record<string, unknown>) : null,
+    after_json: args.result ? (stripSecrets(args.result) as Record<string, unknown>) : null,
+    metadata: { source: "vercel_cron", route: "/api/cron/removal-nightly-sync" },
+  };
+}
 export function manualRunAuditEntry(args: {
   organizationId: string;
   storeId: string;

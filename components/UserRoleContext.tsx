@@ -126,7 +126,7 @@ type UserRoleContextValue = {
   setDebugRole: (role: UserRole | null) => void;
   /** Dev-mode only: cycle through all 5 roles in hierarchy order */
   toggleRole: () => void;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: (options?: { background?: boolean }) => Promise<void>;
   /**
    * Shell UI mode for the **effective** `organizationId`: `internal` org → platform
    * (full platform nav); any other org → tenant (hide platform-only nav for internal staff).
@@ -272,10 +272,14 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
 
   /** Increments each time `loadProfile` runs; stale async completions ignore their results. */
   const loadProfileGenerationRef = React.useRef(0);
+  const actorUserIdRef = React.useRef<string | null>(null);
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (options?: { background?: boolean }) => {
     const gen = ++loadProfileGenerationRef.current;
-    setProfileLoading(true);
+    const background = options?.background === true && actorUserIdRef.current != null;
+    if (!background) {
+      setProfileLoading(true);
+    }
     setProfileError(null);
     try {
       if (!isSupabaseConfigured()) {
@@ -304,6 +308,7 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
 
       const authUserId = user?.id ?? null;
       setActorUserId(authUserId);
+      actorUserIdRef.current = authUserId;
 
       if (!authUserId) {
         if (gen !== loadProfileGenerationRef.current) return;
@@ -523,7 +528,12 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       lastSeenAuthUserId = currentUid;
-      void loadProfile();
+      const backgroundRefresh =
+        event !== "SIGNED_OUT"
+        && event !== "SIGNED_IN"
+        && currentUid != null
+        && currentUid === actorUserIdRef.current;
+      void loadProfile({ background: backgroundRefresh });
     });
     return () => {
       subscription.subscription.unsubscribe();

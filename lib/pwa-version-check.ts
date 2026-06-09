@@ -25,7 +25,7 @@ export type PwaVersionCheckResult =
 
 const VERSION_ENDPOINT = "/api/scanner/pwa-version";
 
-/** Hard version block — installed standalone PWA only. Browser tabs always pass. */
+/** @deprecated Hard version blocks removed — use `shouldShowPwaSoftUpdateBanner` in `pwa-version-boot.ts`. */
 export function shouldHardBlockStaleInstalledPwa(
   payload: PwaVersionEndpointPayload,
   isStandalone: boolean,

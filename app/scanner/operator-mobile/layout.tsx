@@ -10,6 +10,7 @@ import { OperatorUtilityRow } from "./_components/OperatorUtilityRow";
 import { OperatorMobileIntroShell } from "./_components/OperatorMobileIntroShell";
 import { OperatorMobileSessionRouteGuard } from "./_components/OperatorMobileSessionRouteGuard";
 import { OperatorMobileStartupGate } from "./_components/OperatorMobileStartupGate";
+import { OperatorMobileFocusInstrumentation } from "./_components/OperatorMobileFocusInstrumentation";
 import { OperatorOrientationLock } from "./_components/OperatorOrientationLock";
 
 const operatorDisplay = Oswald({
@@ -38,6 +39,7 @@ export const metadata: Metadata = {
 export default function OperatorMobileLayout({ children }: { children: ReactNode }) {
   return (
     <OperatorMobileIntroShell>
+      <OperatorMobileFocusInstrumentation />
       <OperatorOrientationLock />
       <OperatorMobileSessionRouteGuard />
     <div

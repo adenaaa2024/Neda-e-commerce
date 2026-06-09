@@ -11,8 +11,10 @@ export const ITEM_UNIT_DAMAGE_TAG_KEYS = [
   "wrong_item",
   "expired",
   "missing_parts",
-  "missing_item",
 ] as const;
+
+/** Package-level shortage — derived at finalize, not persisted on return_items. */
+export const PACKAGE_LEVEL_SHORTAGE_TAG = "missing_item" as const;
 
 export type ItemUnitDamageTagKey = (typeof ITEM_UNIT_DAMAGE_TAG_KEYS)[number];
 
@@ -35,11 +37,16 @@ export function filterPackageItemDiscrepancyTags(raw: unknown): ItemUnitDiscrepa
   const out: ItemUnitDiscrepancyTagKey[] = [];
   for (const x of raw) {
     const k = String(x ?? "").trim();
+    if (k === PACKAGE_LEVEL_SHORTAGE_TAG) continue;
     if (ALLOWED.has(k) && !out.includes(k as ItemUnitDiscrepancyTagKey)) {
       out.push(k as ItemUnitDiscrepancyTagKey);
     }
   }
   return out;
+}
+
+export function isPackageLevelShortageTagBlocked(tags: readonly string[]): boolean {
+  return tags.some((t) => String(t ?? "").trim() === PACKAGE_LEVEL_SHORTAGE_TAG);
 }
 
 export function normalizeItemUnitDiscrepancySelection(tags: ItemUnitDiscrepancyTagKey[]): ItemUnitDiscrepancyTagKey[] {
@@ -78,9 +85,6 @@ export function itemUnitDiscrepancyChipDisabled(
   const normalized = normalizeItemUnitDiscrepancySelection(tags);
   if (normalized.includes(ITEM_UNIT_SELLABLE_OK_TAG)) {
     return key !== ITEM_UNIT_SELLABLE_OK_TAG;
-  }
-  if (normalized.includes("missing_item")) {
-    return key !== "missing_item";
   }
   if (key === ITEM_UNIT_SELLABLE_OK_TAG) {
     return normalized.includes("expired") || packageItemDamageTagsSelected(normalized);

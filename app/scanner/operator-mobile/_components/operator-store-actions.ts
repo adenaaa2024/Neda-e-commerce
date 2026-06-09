@@ -7,8 +7,13 @@ import { canPickWorkspaceOrganizationForTenantBranding } from "@/lib/tenant-bran
 import { isUuidString } from "@/lib/uuid";
 import {
   filterPackageItemDiscrepancyTags,
+  isPackageLevelShortageTagBlocked,
   packageItemRequiresEvidencePhotos,
 } from "@/lib/scanner/item-unit-discrepancy-tags";
+import {
+  buildPackageFinalizeDiscrepancyNote,
+  type FinalizePackageReceiveCloseRpcResult,
+} from "@/lib/scanner/package-finalize-close";
 import type { OperatorStoreOption } from "@/lib/scanner/operator-session";
 import {
   findPalletByIdForOperator,
@@ -1911,6 +1916,99 @@ export async function saveOperatorSlipVisionAction(
   return updateOperatorIntakeBoxPackageAction(input);
 }
 
+export type FinalizeOperatorPackageReceiveInput = {
+  requestedOrganizationId: string;
+  storeId: string;
+  packageId: string;
+  palletId?: string | null;
+  emptyBox?: boolean;
+  expectedUnits?: number;
+  scannedUnits?: number;
+  notesAppend?: string | null;
+};
+
+export type FinalizeOperatorPackageReceiveResult =
+  | ({ ok: true } & FinalizePackageReceiveCloseRpcResult)
+  | { ok: false; message: string; schemaApprovalRequired?: boolean };
+
+/**
+ * Phase 6B — server finalize for item receive close.
+ * Derives shortage claim_lines at close; optional empty_box claim_case + package evidence.
+ */
+export async function finalizeOperatorPackageReceiveAction(
+  input: FinalizeOperatorPackageReceiveInput,
+): Promise<FinalizeOperatorPackageReceiveResult> {
+  const organizationId = String(input.requestedOrganizationId ?? "").trim();
+  const storeId = String(input.storeId ?? "").trim();
+  const packageId = String(input.packageId ?? "").trim();
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Organization is required." };
+  }
+  if (!storeId || !isUuidString(storeId)) {
+    return { ok: false, message: "Store is required." };
+  }
+  if (!packageId || !isUuidString(packageId)) {
+    return { ok: false, message: "Package is required." };
+  }
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_EDIT_ITEM);
+  if (!gate.ok) {
+    return { ok: false, message: gate.message };
+  }
+
+  const expected = Math.max(0, Math.floor(Number(input.expectedUnits) || 0));
+  const scanned = Math.max(0, Math.floor(Number(input.scannedUnits) || 0));
+  const discrepancy = expected !== scanned;
+  const notesAppend =
+    String(input.notesAppend ?? "").trim() ||
+    (discrepancy ? buildPackageFinalizeDiscrepancyNote(expected, scanned) : "");
+
+  const { data, error } = await supabaseServer.rpc("finalize_package_receive_close", {
+    p_organization_id: organizationId,
+    p_package_id: packageId,
+    p_store_id: storeId,
+    p_empty_box: Boolean(input.emptyBox),
+    p_actor_profile_id: gate.userId,
+    p_notes_append: notesAppend || null,
+  });
+
+  if (error) {
+    return { ok: false, message: formatSupabaseActionError(error, "Package finalize failed.") };
+  }
+
+  const payload = (data ?? {}) as FinalizePackageReceiveCloseRpcResult;
+  if (!payload.ok) {
+    if (payload.schema_approval_required) {
+      return {
+        ok: false,
+        message: "Empty box claim requires claim_cases schema approval on this environment.",
+        schemaApprovalRequired: true,
+      };
+    }
+    return { ok: false, message: payload.error ?? "Package finalize failed." };
+  }
+
+  if (input.palletId && isUuidString(input.palletId)) {
+    await syncReturnItemsPalletForPackage(supabaseServer, {
+      organizationId,
+      packageId,
+      palletId: input.palletId,
+    });
+  }
+
+  return {
+    ok: true,
+    package_id: payload.package_id,
+    status: payload.status,
+    shortage_lines_created: payload.shortage_lines_created,
+    shortage_lines_touched: payload.shortage_lines_touched,
+    empty_box_case_id: payload.empty_box_case_id,
+    empty_box_evidence_count: payload.empty_box_evidence_count,
+    claim_cases_available: payload.claim_cases_available,
+    claim_evidence_available: payload.claim_evidence_available,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Item scan units — persisted on `return_items` (live DB); UI adapter shape unchanged.
 // ---------------------------------------------------------------------------
@@ -2719,7 +2817,7 @@ export async function previewOperatorItemBarcodeLinkageAction(
 }
 
 /**
- * Insert one item-scan unit as a `return_items` row (`packages.actual_item_count` via DB trigger).
+ * Insert one scan batch as a single `return_items` row (`scanned_quantity` = unit count; `packages.actual_item_count` via DB trigger).
  */
 export async function insertOperatorPackageItemAction(
   input: InsertOperatorPackageItemInput,
@@ -2854,6 +2952,13 @@ export async function insertOperatorPackageItemAction(
   }
 
   const tags = filterPackageItemDiscrepancyTags(input.discrepancyTags);
+  if (isPackageLevelShortageTagBlocked(input.discrepancyTags ?? [])) {
+    return {
+      ok: false,
+      message:
+        "Missing/shortage is recorded at box finalize — scan received units or mark empty box when closing the package.",
+    };
+  }
   if (tags.length === 0) {
     return { ok: false, message: "Select at least one condition for this unit." };
   }
@@ -2961,6 +3066,7 @@ export async function insertOperatorPackageItemAction(
     asin: scanIds.asin?.slice(0, 500),
     product_identifier: persistUpc,
     order_id: slipOrderId ?? undefined,
+    scanned_quantity: quantity,
   });
 
   if (!ins.ok || !ins.data?.id) {
@@ -2999,30 +3105,6 @@ export async function insertOperatorPackageItemAction(
     return { ok: false, message: finalizePrimary.error };
   }
   await tryPromoteScannerClaimForReturnItem(primaryId, organizationId, sessionUserId);
-
-  if (quantity > 1) {
-    for (let i = 1; i < quantity; i++) {
-      const extra = await insertReturn({
-        ...insertReturnBase,
-        package_id: looseItem ? undefined : pkgId ?? undefined,
-        fnsku: scanIds.fnsku?.slice(0, 500),
-        sku: scanIds.sku?.slice(0, 500),
-        asin: scanIds.asin?.slice(0, 500),
-        product_identifier: scanIds.upc?.slice(0, 500),
-      });
-      if (!extra.ok || !extra.data?.id) {
-        await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
-        return { ok: false, message: extra.error ?? "Failed to save item scan." };
-      }
-      insertedIds.push(extra.data.id);
-      const finalizeExtra = await finalizeOperatorPackageItemLinkage(extra.data.id, finalizeLinkageParams);
-      if (!finalizeExtra.ok) {
-        await rollbackOperatorPackageReturnItemsOnAllocationFailure(insertedIds);
-        return { ok: false, message: finalizeExtra.error };
-      }
-      await tryPromoteScannerClaimForReturnItem(extra.data.id, organizationId, sessionUserId);
-    }
-  }
 
   const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, primaryId, organizationId);
   const product_linkage =
@@ -3467,6 +3549,13 @@ export async function updateOperatorPackageItemAction(
   const tags = normalizeItemUnitDiscrepancySelection(
     filterPackageItemDiscrepancyTags(input.discrepancyTags),
   );
+  if (isPackageLevelShortageTagBlocked(input.discrepancyTags ?? [])) {
+    return {
+      ok: false,
+      message:
+        "Missing/shortage is recorded at box finalize — scan received units or mark empty box when closing the package.",
+    };
+  }
   if (tags.length === 0) {
     return { ok: false, message: "Select at least one condition for this unit." };
   }

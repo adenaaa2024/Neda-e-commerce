@@ -15,6 +15,7 @@ import {
 } from "@/lib/production-removal-sync-run";
 import { PRODUCTION_REF } from "@/lib/production-db-bind";
 import { computeRemovalRecentNextRun } from "@/lib/platform-automation-schedule";
+import { auditRemovalCronEvent } from "@/lib/platform-automation-manual-run-audit";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -59,6 +60,25 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   const gate = await evaluateProductionRemovalCronGate();
+
+  const gateSnapshot = {
+    enabled: gate.enabled,
+    due: gate.due,
+    reason: gate.reason,
+    next_run_at: gate.next_run_at,
+    matched_slot_key: gate.matched_slot_key,
+    settings_source: gate.settings_source,
+    vercel_wake_schedule: gate.vercel_wake_schedule,
+    schedule: gate.schedule,
+  };
+
+  void auditRemovalCronEvent({
+    organizationId: PRODUCTION_ORG_ID,
+    storeId: PRODUCTION_STORE_ID,
+    action: "cron_tick",
+    gate: gateSnapshot,
+    result: { skipped: !gate.enabled || !gate.due, reason: gate.reason },
+  });
 
   if (!gate.enabled) {
     return NextResponse.json({
@@ -120,6 +140,19 @@ export async function GET(req: Request): Promise<Response> {
       },
       loaded.scope,
     );
+
+    void auditRemovalCronEvent({
+      organizationId: PRODUCTION_ORG_ID,
+      storeId: PRODUCTION_STORE_ID,
+      action: "cron_run",
+      gate: gateSnapshot,
+      result: {
+        started_at: startedAt,
+        matched_slot_key: gate.matched_slot_key,
+        rolling_days: loaded.scope.recent_sync.rolling_days,
+        report_types: loaded.scope.recent_sync.report_types,
+      },
+    });
 
     const reportTypes = new Set(loaded.scope.recent_sync.report_types);
     const result = await runProductionRemovalSync({

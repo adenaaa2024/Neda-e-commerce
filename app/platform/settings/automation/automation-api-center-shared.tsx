@@ -11,6 +11,7 @@ import {
   formatAutomationTimestamp,
 } from "@/lib/platform-automation-ui-format";
 import type { AutomationScheduleRuntime } from "@/lib/platform-automation-settings-types";
+import type { RemovalRunSource } from "@/lib/platform-automation-saved-status";
 import { responsiveFormInput } from "@/lib/responsive-page-shell";
 
 export function RollingWindowHelp() {
@@ -105,21 +106,136 @@ export function RuntimeStatsFromView({
   runtime,
   nextRun,
   scheduleSource,
+  savedEnabled,
 }: {
   enabled: boolean;
   runtime: AutomationScheduleRuntime;
   nextRun: Date | null;
   scheduleSource?: string | null;
+  /** When form draft differs from saved DB value, show saved schedule state in label. */
+  savedEnabled?: boolean;
 }) {
+  const scheduleOn = savedEnabled ?? enabled;
   return (
     <ScheduleStats
-      enabled={enabled}
+      enabled={scheduleOn}
       lastRun={runtime.last_run_at}
-      nextRun={nextRun}
+      nextRun={scheduleOn ? nextRun : null}
       status={runtime.last_run_status}
       error={runtime.last_error}
       scheduleSource={scheduleSource}
     />
+  );
+}
+
+export function AutomationSavedStatusSummary({
+  orgId,
+  storeId,
+  removalEnabled,
+  removalNextRun,
+  removalLastRun,
+  removalLastSuccess,
+  removalRunSource,
+  removalStatus,
+  productEnabled,
+  reimbursementsEnabled,
+  settlementEnabled,
+  financesEnabled,
+  hasUnsavedChanges,
+  updatedAt,
+}: {
+  orgId: string;
+  storeId: string;
+  removalEnabled: boolean;
+  removalNextRun: Date | null;
+  removalLastRun: string | null;
+  removalLastSuccess: string | null;
+  removalRunSource: RemovalRunSource;
+  removalStatus: string;
+  productEnabled: boolean;
+  reimbursementsEnabled: boolean;
+  settlementEnabled: boolean;
+  financesEnabled: boolean;
+  hasUnsavedChanges: boolean;
+  updatedAt: string | null;
+}) {
+  const removalNext = removalNextRun ? formatAutomationTimestamp(removalNextRun.toISOString()) : null;
+  const lastRun = formatAutomationTimestamp(removalLastRun);
+  const lastSuccess = formatAutomationTimestamp(removalLastSuccess);
+  const sourceLabel =
+    removalRunSource === "cron"
+      ? "Vercel cron (scheduled)"
+      : removalRunSource === "manual"
+        ? "Manual Run now / import"
+        : "Unknown";
+
+  return (
+    <section className="rounded-2xl border-2 border-emerald-500/25 bg-card p-4 shadow-sm sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Saved automation status</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            From <span className="font-mono">platform_settings.automation_settings</span> for scope{" "}
+            <span className="font-mono">{orgId.slice(0, 8)}…</span> /{" "}
+            <span className="font-mono">{storeId.slice(0, 8)}…</span>
+            {updatedAt ? ` · saved ${updatedAt.slice(0, 10)}` : null}
+          </p>
+        </div>
+        {hasUnsavedChanges ? (
+          <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-900 dark:text-amber-100">
+            Unsaved changes
+          </span>
+        ) : (
+          <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-900 dark:text-emerald-100">
+            Matches saved settings
+          </span>
+        )}
+      </div>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-lg border border-border/70 bg-muted/10 p-3">
+          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Removal / Shipment API
+          </dt>
+          <dd className="mt-1 text-sm font-semibold text-foreground">
+            {removalEnabled ? "Enabled (scheduled)" : "Off"}
+          </dd>
+          <dd className="mt-2 text-xs text-muted-foreground">
+            Next run:{" "}
+            {removalEnabled && removalNext ? (
+              <>
+                {removalNext.primary}
+                {removalNext.secondary ? ` (${removalNext.secondary})` : ""}
+              </>
+            ) : (
+              "Off — not scheduled"
+            )}
+          </dd>
+          <dd className="mt-1 text-xs text-muted-foreground">
+            Last run: {lastRun.primary}
+            {lastRun.secondary ? ` · ${lastRun.secondary}` : ""}
+          </dd>
+          <dd className="mt-1 text-xs text-muted-foreground">
+            Last success: {lastSuccess.primary !== "Never" ? lastSuccess.primary : "—"}
+          </dd>
+          <dd className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Status</span>
+            <StatusPill status={removalStatus} />
+          </dd>
+          <dd className="mt-1 text-[11px] text-muted-foreground">Source: {sourceLabel}</dd>
+        </div>
+        <div className="rounded-lg border border-border/70 bg-muted/10 p-3 sm:col-span-2 lg:col-span-2">
+          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Other schedules (saved)
+          </dt>
+          <dd className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+            <span>Product Data Update: {productEnabled ? "On" : "Off"}</span>
+            <span>Reimbursements API: {reimbursementsEnabled ? "On" : "Off"}</span>
+            <span>Settlement API: {settlementEnabled ? "On" : "Off"}</span>
+            <span>Finances archive API: {financesEnabled ? "On" : "Off"}</span>
+          </dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
@@ -202,7 +318,7 @@ export function ManualDateRangeFields({
           className={`${responsiveFormInput} mt-1.5`}
         />
       </label>
-      {hint ? <p className="col-span-2 text-xs text-muted-foreground">{hint}</p> : null}
+      {hint ? <div className="col-span-2 text-xs text-muted-foreground">{hint}</div> : null}
     </div>
   );
 }

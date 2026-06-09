@@ -42,6 +42,12 @@ import {
   parseLocalRunTimesFromInput,
 } from "@/lib/platform-automation-schedule";
 import {
+  computeSavedScheduleNextRuns,
+  inferRemovalRunSource,
+  storeAutomationSettingsEqual,
+  storeSettingsFromView,
+} from "@/lib/platform-automation-saved-status";
+import {
   dateInputToWindowIso,
   defaultReimbursementWindowDates,
 } from "@/lib/amazon/reports-api-ui";
@@ -91,6 +97,7 @@ import {
   EnabledToggle,
   FeatureFlagBanner,
   ImportResumeNotice,
+  AutomationSavedStatusSummary,
   ManualDateRangeFields,
   ManualRunButtons,
   ManualWindowHelp,
@@ -423,6 +430,23 @@ export function AutomationApiCenterClient() {
       return null;
     }
   }, [draft]);
+
+  const savedSettings = useMemo(() => storeSettingsFromView(view), [view]);
+  const savedNextRuns = useMemo(() => computeSavedScheduleNextRuns(view), [view]);
+  const savedPreview = useMemo(() => {
+    if (!savedSettings) return null;
+    try {
+      return buildStoreAutomationSavePreview(savedSettings);
+    } catch (err) {
+      console.error("[AutomationApiCenterClient] savedPreview", err);
+      return null;
+    }
+  }, [savedSettings]);
+  const hasUnsavedChanges = useMemo(() => {
+    if (!draft || !savedSettings) return false;
+    return !storeAutomationSettingsEqual(draft, savedSettings);
+  }, [draft, savedSettings]);
+  const removalRunSource = useMemo(() => inferRemovalRunSource(view), [view]);
 
   const flags = view?.api_flags ?? null;
   const manualDates = draft ? defaultManualDates(draft) : defaultReimbursementWindowDates();
@@ -828,8 +852,9 @@ export function AutomationApiCenterClient() {
     );
   }
 
-  const scopeReady = Boolean(draft && draftNextRuns && !scopeLoading);
-  const anyEnabled = draft ? isAnyStoreAutomationScheduleEnabled(draft) : false;
+  const scopeReady = Boolean(draft && draftNextRuns && savedNextRuns && !scopeLoading);
+  const savedAnyEnabled = savedSettings ? isAnyStoreAutomationScheduleEnabled(savedSettings) : false;
+  const draftAnyEnabled = draft ? isAnyStoreAutomationScheduleEnabled(draft) : false;
   const scopeRuntime = view?.runtime ?? EMPTY_SCOPE_RUNTIME;
 
   return (
@@ -915,19 +940,39 @@ export function AutomationApiCenterClient() {
           </div>
         ) : null}
 
-        {scopeReady && draft && draftNextRuns ? (
+        {scopeReady && draft && draftNextRuns && savedNextRuns && savedSettings ? (
           <>
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50">
-          <div className="flex gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            <div className="space-y-1">
-              <p className="font-medium">Schedules are off until you enable them</p>
-              <DryRunNote>
-                Manual runs call existing import API routes. Nothing is scheduled automatically from this page alone.
-              </DryRunNote>
+        {!savedAnyEnabled ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-50">
+            <div className="flex gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <div className="space-y-1">
+                <p className="font-medium">Saved schedules are off for this company / store</p>
+                <DryRunNote>
+                  Enable a schedule below and save to start cron. Manual runs call existing import API routes
+                  without changing saved schedule state.
+                </DryRunNote>
+              </div>
             </div>
           </div>
-        </div>
+        ) : null}
+
+        <AutomationSavedStatusSummary
+          orgId={orgId}
+          storeId={storeId}
+          removalEnabled={savedSettings.removal_api_sync.enabled}
+          removalNextRun={savedNextRuns.removal}
+          removalLastRun={effectiveRemovalRuntime.last_run_at}
+          removalLastSuccess={view?.removal_api_sync.cron_runtime?.last_success_at ?? null}
+          removalRunSource={removalRunSource}
+          removalStatus={effectiveRemovalRuntime.last_run_status}
+          productEnabled={savedSettings.product_enrichment.enabled}
+          reimbursementsEnabled={savedSettings.reimbursements_api.enabled}
+          settlementEnabled={savedSettings.settlement_api.enabled}
+          financesEnabled={savedSettings.finances_archive_api.enabled}
+          hasUnsavedChanges={hasUnsavedChanges}
+          updatedAt={view?.updated_at ?? null}
+        />
 
         {error ? (
           <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -1028,8 +1073,9 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.product_enrichment.enabled}
+                savedEnabled={savedSettings.product_enrichment.enabled}
                 runtime={scopeRuntime.product_enrichment}
-                nextRun={draft.product_enrichment.enabled ? draftNextRuns.product : null}
+                nextRun={savedNextRuns.product}
               />
             </div>
           </section>
@@ -1364,9 +1410,10 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.removal_api_sync.enabled}
+                savedEnabled={savedSettings.removal_api_sync.enabled}
                 runtime={effectiveRemovalRuntime}
-                nextRun={draft.removal_api_sync.enabled ? draftNextRuns.removal : null}
-                scheduleSource="Platform settings → removal_api_sync (Vercel daily wake 08:00 UTC on Hobby)"
+                nextRun={savedNextRuns.removal}
+                scheduleSource="Platform settings → removal_api_sync (Vercel daily wake 06:30 UTC on Hobby)"
               />
             </div>
           </section>
@@ -1472,8 +1519,9 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.reimbursements_api.enabled}
+                savedEnabled={savedSettings.reimbursements_api.enabled}
                 runtime={scopeRuntime.reimbursements_api}
-                nextRun={draft.reimbursements_api.enabled ? draftNextRuns.reimbursements : null}
+                nextRun={savedNextRuns.reimbursements}
               />
             </div>
           </section>
@@ -1567,8 +1615,9 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.settlement_api.enabled}
+                savedEnabled={savedSettings.settlement_api.enabled}
                 runtime={scopeRuntime.settlement_api}
-                nextRun={draft.settlement_api.enabled ? draftNextRuns.settlement : null}
+                nextRun={savedNextRuns.settlement}
               />
             </div>
           </section>
@@ -1675,8 +1724,9 @@ export function AutomationApiCenterClient() {
               ) : null}
               <RuntimeStatsFromView
                 enabled={draft.finances_archive_api.enabled}
+                savedEnabled={savedSettings.finances_archive_api.enabled}
                 runtime={scopeRuntime.finances_archive_api}
-                nextRun={draft.finances_archive_api.enabled ? draftNextRuns.finances : null}
+                nextRun={savedNextRuns.finances}
               />
             </div>
           </section>
@@ -1794,37 +1844,78 @@ export function AutomationApiCenterClient() {
                 hint="Manual backfill uses window keys above; orchestrator apply gates still required."
               />
               <RuntimeStatsFromView
-                enabled={draft.removal_api_sync.enabled && draft.removal_api_sync.historical_backfill.enabled}
-                runtime={scopeRuntime.removal_api_sync.historical_backfill}
-                nextRun={
+                enabled={
                   draft.removal_api_sync.enabled && draft.removal_api_sync.historical_backfill.enabled
-                    ? draftNextRuns.historical
-                    : null
                 }
+                savedEnabled={
+                  savedSettings.removal_api_sync.enabled &&
+                  savedSettings.removal_api_sync.historical_backfill.enabled
+                }
+                runtime={scopeRuntime.removal_api_sync.historical_backfill}
+                nextRun={savedNextRuns.historical}
               />
             </div>
           </section>
           ) : null}
 
-          {savePreview ? (
+          {savedPreview || savePreview ? (
             <section className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-4 sm:p-5">
               <div className="flex items-start gap-2">
                 <CalendarClock className="mt-0.5 h-5 w-5 text-violet-600 dark:text-violet-400" aria-hidden />
-                <div className="min-w-0 flex-1 space-y-2 text-sm text-muted-foreground">
-                  <h2 className="text-sm font-semibold text-foreground">Preview before save</h2>
-                  <ul className="space-y-1">
-                    <li>{savePreview.productUpdate}</li>
-                    <li>{savePreview.removalSync}</li>
-                    <li>{savePreview.reimbursements}</li>
-                    <li>{savePreview.settlement}</li>
-                    <li>{savePreview.financesArchive}</li>
-                    <li>{savePreview.historicalBackfill}</li>
-                  </ul>
-                  {!anyEnabled ? (
-                    <p className="text-xs">
-                      <Clock className="mr-1 inline h-3.5 w-3.5" aria-hidden />
-                      All schedules are off — saving will not start cron.
-                    </p>
+                <div className="min-w-0 flex-1 space-y-4 text-sm text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold text-foreground">Preview before save</h2>
+                    {hasUnsavedChanges ? (
+                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-100">
+                        Unsaved changes
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:text-emerald-100">
+                        Form matches saved settings
+                      </span>
+                    )}
+                  </div>
+                  {savedPreview ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Current saved schedule
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        <li>{savedPreview.productUpdate}</li>
+                        <li>{savedPreview.removalSync}</li>
+                        <li>{savedPreview.reimbursements}</li>
+                        <li>{savedPreview.settlement}</li>
+                        <li>{savedPreview.financesArchive}</li>
+                        <li>{savedPreview.historicalBackfill}</li>
+                      </ul>
+                      {!savedAnyEnabled ? (
+                        <p className="mt-2 text-xs">
+                          <Clock className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+                          Saved schedules are off — cron will not run until you enable and save.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {hasUnsavedChanges && savePreview ? (
+                    <div className="rounded-lg border border-violet-500/20 bg-background/60 p-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-violet-800 dark:text-violet-200">
+                        If you save (unsaved form changes)
+                      </p>
+                      <ul className="mt-1 space-y-1">
+                        <li>{savePreview.productUpdate}</li>
+                        <li>{savePreview.removalSync}</li>
+                        <li>{savePreview.reimbursements}</li>
+                        <li>{savePreview.settlement}</li>
+                        <li>{savePreview.financesArchive}</li>
+                        <li>{savePreview.historicalBackfill}</li>
+                      </ul>
+                      {!draftAnyEnabled ? (
+                        <p className="mt-2 text-xs">
+                          <Clock className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+                          After save, all schedules would be off — cron would not start.
+                        </p>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               </div>

@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/removal-nightly-sync",
-      "schedule": "0 8 * * *"
+      "schedule": "30 6 * * *"
     }
   ]
 }

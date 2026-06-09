@@ -1342,6 +1342,9 @@ export async function updateReturn(
     delete safeUpdates.updated_by;
     const patch: Record<string, unknown> = { ...safeUpdates };
     delete patch.created_by;
+    if (!("scanned_quantity" in updates)) {
+      delete patch.scanned_quantity;
+    }
     // Remove post-migration columns from patch — they may not be in the DB yet
     delete patch.inherited_tracking_number;
     delete patch.inherited_carrier;

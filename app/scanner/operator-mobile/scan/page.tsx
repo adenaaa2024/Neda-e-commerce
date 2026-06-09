@@ -118,6 +118,7 @@ import {
 } from "@/lib/storage-helpers";
 import { operatorReceiveItem } from "@/app/scanner/operator-mobile/item-actions";
 import { allowOperatorUnknownPackageCreate } from "@/lib/scanner/operator-unknown-package";
+import { packageFinalizeEmptyBoxHeuristic } from "@/lib/scanner/package-finalize-close";
 import {
   commitOperatorPalletShipmentStepAction,
   createOperatorPalletAction,
@@ -136,6 +137,7 @@ import {
   previewOperatorItemBarcodeLinkageAction,
   previewOperatorSlipLinesIdentifiersLinkageAction,
   updateOperatorIntakeBoxPackageAction,
+  finalizeOperatorPackageReceiveAction,
   saveOperatorSlipVisionAction,
   checkOperatorSlipCodeDuplicateAction,
   getOperatorIntakeBoxPackageRowAction,
@@ -176,6 +178,10 @@ import {
 } from "@/lib/scanner/expected-packages-read-contract";
 import { buildOperatorBarcodeResolverFields } from "@/lib/scanner/operator-barcode-preview-input";
 import { OperatorCrossStoreScopeBanner } from "@/app/scanner/operator-mobile/_components/OperatorCrossStoreScopeBanner";
+import {
+  logScannerFullscreenLoadingReason,
+  readScannerGateBootCompleteFromSession,
+} from "@/lib/scanner/scanner-focus-instrumentation";
 import { OperatorDuplicatePackingSlipBanner } from "@/app/scanner/operator-mobile/_components/OperatorDuplicatePackingSlipBanner";
 import { OperatorPalletActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorPalletActionsPanel";
 import { OperatorBoxActionsPanel } from "@/app/scanner/operator-mobile/_components/OperatorBoxActionsPanel";
@@ -4257,7 +4263,10 @@ function OperatorMobileScanPageContent() {
   const [palletDocHydrationNonce, setPalletDocHydrationNonce] = useState(0);
   const [boxHydrateNonce, setBoxHydrateNonce] = useState(0);
   const [boxIntakeRestoring, setBoxIntakeRestoring] = useState(false);
-  const [scanPageBootComplete, setScanPageBootComplete] = useState(false);
+  const [scanPageBootComplete, setScanPageBootComplete] = useState(() =>
+    readScannerGateBootCompleteFromSession(),
+  );
+  const scanPageBootLatchedRef = useRef(readScannerGateBootCompleteFromSession());
   /** Re-read sessionStorage after Save & Start marks shipment committed for this pallet. */
   const [palletShipmentCommitVersion, setPalletShipmentCommitVersion] = useState(0);
   /**
@@ -11377,27 +11386,29 @@ function OperatorMobileScanPageContent() {
     if (isSupabaseConfigured() && pkgId && oid && store) {
       setItemsFinalizeBusy(true);
       try {
-        let packageUpdate: { notes?: string | null } = {};
-        if (discrepancy) {
-          const prior = boxNotesRef.current.trim();
-          const autoLine = `System Auto-Note: Discrepancy found (Expected ${totalExp}, Scanned ${totalScn})`;
-          const merged = prior ? `${prior}\n${autoLine}` : autoLine;
-          packageUpdate = { notes: merged };
-          setBoxNotes(merged);
-          boxNotesRef.current = merged;
-        }
-        const res = await updateOperatorIntakeBoxPackageAction({
+        const emptyBox = packageFinalizeEmptyBoxHeuristic({
+          expectedUnits: totalExp,
+          scannedUnits: totalScn,
+        });
+        const res = await finalizeOperatorPackageReceiveAction({
           requestedOrganizationId: oid,
           storeId: store,
           packageId: pkgId,
           palletId: pid && isUuidString(pid) ? pid : null,
-          palletUpdate: null,
-          packageUpdate,
-          slipContents: { mode: "skip" },
+          emptyBox,
+          expectedUnits: totalExp,
+          scannedUnits: totalScn,
         });
         if (!res.ok) {
-          setSyncErrorToast(res.message ?? "Could not update package.");
+          setSyncErrorToast(res.message ?? "Could not finalize package.");
           return;
+        }
+        if (discrepancy && res.ok) {
+          const prior = boxNotesRef.current.trim();
+          const autoLine = `System Auto-Note: Discrepancy found (Expected ${totalExp}, Scanned ${totalScn})`;
+          const merged = prior ? `${prior}\n${autoLine}` : autoLine;
+          setBoxNotes(merged);
+          boxNotesRef.current = merged;
         }
       } finally {
         setItemsFinalizeBusy(false);
@@ -13714,14 +13725,21 @@ function OperatorMobileScanPageContent() {
     if (!orgId?.trim()) return;
     if (liveDb && operatorStoresLoading) return;
     if (blockUntilStoreResolved) return;
+    scanPageBootLatchedRef.current = true;
     setScanPageBootComplete(true);
   }, [orgId, liveDb, operatorStoresLoading, blockUntilStoreResolved]);
 
   const showColdBootLoading =
+    !scanPageBootLatchedRef.current &&
     !scanPageBootComplete &&
     (!orgId?.trim() || (liveDb && operatorStoresLoading) || blockUntilStoreResolved);
 
   if (showColdBootLoading) {
+    logScannerFullscreenLoadingReason("scan_page_cold_boot", {
+      orgId: orgId ?? null,
+      operatorStoresLoading,
+      blockUntilStoreResolved,
+    });
     if (!orgId?.trim()) {
       return <ScanPageLoading message="Missing organization context." />;
     }

@@ -1,6 +1,7 @@
 import { PWA_APP_VERSION } from "./pwa-app-version";
 import { clearCachedPwaVersionPolicy } from "./pwa-version-cache";
-import { setSwUpdateAvailable } from "./pwa-sw-update";
+import { applyWaitingServiceWorkerUpdate, isSwUpdateAvailable, setSwUpdateAvailable } from "./pwa-sw-update";
+import { PWA_UPDATE_RELOAD_SESSION_KEY } from "./pwa-version-boot";
 
 const MENORIX_LS_PREFIXES = ["menorix:", "operatorMobile:pwa", "operatorMobile:startup"];
 
@@ -55,10 +56,23 @@ export function reloadMenorixWithCacheBust(): void {
 }
 
 /**
- * PWA update path: unregister SW, clear caches, reload with cache-bust, then re-check version.
- * Does not ask user to uninstall unless this fails repeatedly (caller handles that).
+ * PWA update path: activate waiting SW when present, else unregister SW, clear caches,
+ * and reload once with cache-bust. Suppresses update banner for the remainder of the tab session.
  */
 export async function performMenorixPwaUpdate(): Promise<void> {
+  if (typeof window !== "undefined") {
+    try {
+      sessionStorage.setItem(PWA_UPDATE_RELOAD_SESSION_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (isSwUpdateAvailable()) {
+    await applyWaitingServiceWorkerUpdate();
+    return;
+  }
+
   await clearMenorixPwaRuntimeCaches();
   reloadMenorixWithCacheBust();
 }

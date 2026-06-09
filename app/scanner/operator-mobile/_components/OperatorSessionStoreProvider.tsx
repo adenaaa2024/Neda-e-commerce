@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -70,6 +71,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
   const [sessionStoreId, setSessionStoreIdState] = useState<string | null>(null);
   const [operatorStores, setOperatorStores] = useState<OperatorStoreOption[]>([]);
   const [operatorStoresLoading, setOperatorStoresLoading] = useState(false);
+  const storesHydratedOrgRef = useRef<string | null>(null);
 
   const kioskStoreLocked = useMemo(() => Boolean(resolvePublicStoreId()), []);
 
@@ -129,8 +131,11 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     }
     if (profileLoading) return;
     let cancelled = false;
-    setOperatorStores([]);
-    setOperatorStoresLoading(true);
+    const silentRefresh = storesHydratedOrgRef.current === orgId && storesHydratedOrgRef.current != null;
+    if (!silentRefresh) {
+      setOperatorStores([]);
+      setOperatorStoresLoading(true);
+    }
     void (async () => {
       try {
         const scope = await getOperatorStoreScopeForOrganization(orgId);
@@ -187,14 +192,17 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
           setOperatorSessionStoreIdForOrg(orgId, chosen);
         }
         setSessionStoreIdState(chosen);
+        storesHydratedOrgRef.current = orgId;
       } catch (e) {
         console.error("[operator session store] init failed:", e);
         if (!cancelled) {
-          setOperatorStores([]);
-          setSessionStoreIdState(null);
+          if (!silentRefresh) {
+            setOperatorStores([]);
+            setSessionStoreIdState(null);
+          }
         }
       } finally {
-        if (!cancelled) setOperatorStoresLoading(false);
+        if (!cancelled && !silentRefresh) setOperatorStoresLoading(false);
       }
     })();
     return () => {

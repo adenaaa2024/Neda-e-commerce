@@ -10,6 +10,7 @@ import {
   ITEM_UNIT_DAMAGE_TAG_KEYS,
   ITEM_UNIT_SELLABLE_OK_TAG,
   type ItemUnitDiscrepancyTagKey,
+  itemUnitDiscrepancyChipDisabled,
   normalizeItemUnitDiscrepancySelection,
   packageItemRequiresEvidencePhotos,
   packageItemRequiresExpiryBlock,
@@ -25,7 +26,6 @@ const CHIP_LABEL: Record<ItemUnitDiscrepancyTagKey, string> = {
   wrong_item: "Wrong Item",
   expired: "Expired",
   missing_parts: "Missing Parts",
-  missing_item: "Missing Item",
   sellable_ok: "Sellable/Ok",
 };
 
@@ -575,28 +575,20 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   }, [categoryRequiresExpiry, noExpiryChecked]);
 
   const isConditionChipDisabled = useCallback(
-    (key: ItemUnitDiscrepancyTagKey) => {
-      if (busy) return true;
-      if (selectedTags.includes("missing_item")) return key !== "missing_item";
-      return false;
-    },
+    (key: ItemUnitDiscrepancyTagKey) => itemUnitDiscrepancyChipDisabled(key, selectedTags, busy),
     [busy, selectedTags],
   );
-
-  const missingItemActive = selectedTags.includes("missing_item");
 
   const toggleTag = useCallback((key: ItemUnitDiscrepancyTagKey) => {
     if (busy) return;
     setValidationIssues((prev) => prev.filter((issue) => issue.target === "allocation"));
     setSelectedTags((prev) => {
       if (prev.includes(key)) {
-        if (key === "missing_item") return [ITEM_UNIT_SELLABLE_OK_TAG];
         const next = prev.filter((t) => t !== key);
         return next.length > 0 ? next : [ITEM_UNIT_SELLABLE_OK_TAG];
       }
       if (key === ITEM_UNIT_SELLABLE_OK_TAG) return [ITEM_UNIT_SELLABLE_OK_TAG];
-      if (key === "missing_item") return ["missing_item"];
-      const withoutExclusive = prev.filter((t) => t !== ITEM_UNIT_SELLABLE_OK_TAG && t !== "missing_item");
+      const withoutExclusive = prev.filter((t) => t !== ITEM_UNIT_SELLABLE_OK_TAG);
       return [...withoutExclusive, key];
     });
   }, [busy]);
@@ -1019,16 +1011,15 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             {([...ITEM_UNIT_DAMAGE_TAG_KEYS, ITEM_UNIT_SELLABLE_OK_TAG] as const).map((key) => {
               const selected = selectedTags.includes(key);
               const disabled = isConditionChipDisabled(key);
-              const lockedByMissingItem = missingItemActive && key !== "missing_item";
               return (
                 <button
                   key={key}
                   type="button"
                   disabled={disabled}
                   onClick={() => toggleTag(key)}
-                  className={`operator-item-unit-record-modal__chip rounded-full border px-3.5 py-2 text-[11px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed ${
+                  className={`operator-item-unit-record-modal__chip rounded-full border px-3.5 py-2 text-[11px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
                     selected ? "operator-item-unit-record-modal__chip--selected" : ""
-                  } ${lockedByMissingItem ? "opacity-50" : "disabled:opacity-40"}`}
+                  }`}
                 >
                   {CHIP_LABEL[key]}
                 </button>
