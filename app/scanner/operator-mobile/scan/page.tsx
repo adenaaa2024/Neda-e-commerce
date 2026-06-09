@@ -39,6 +39,7 @@ import {
   Pencil,
   Plus,
   Puzzle,
+  RefreshCw,
   Save,
   ScanLine,
   Search,
@@ -108,6 +109,7 @@ import {
   normalizePalletDocumentationImageUrls,
 } from "@/lib/media-reference";
 import { deleteOperatorEvidenceStorageByPublicUrlsAction } from "@/lib/scanner/operator-evidence-storage-delete";
+import { capScannerPhotoUrls } from "@/lib/scanner/scanner-photo-section-limit";
 import { isUuidString } from "@/lib/uuid";
 import {
   buildPackageManifestRelativePath,
@@ -146,9 +148,12 @@ import {
   updateOperatorPackageItemAction,
   reconcileReturnItemsSlipContentsAction,
   deleteOperatorPackageItemAction,
-  markOperatorSlipMissingExpectedAction,
   saveOperatorEmptyBoxAction,
   finalizeOperatorPackageItemScanAction,
+  patchPackageMissingReviewAction,
+  reopenOperatorPackageReceiveAction,
+  correctOperatorPackageItemQuantityAction,
+  correctOperatorPackageItemProductAction,
   type DuplicatePackingSlipInfo,
   type OperatorPackageItemRow,
   type OperatorPackageListRow,
@@ -211,7 +216,11 @@ import {
   type SlipLineExpectedVsReceived,
 } from "@/lib/scanner/slip-contents-missing-expected";
 import { packageManifestHasEmptyBox } from "@/lib/scanner/package-empty-box-manifest";
-import { missingReviewRecordedQtyForSlip } from "@/lib/scanner/package-missing-review-manifest";
+import { readPackageReceiveState, type PackageReceiveState } from "@/lib/scanner/package-receive-state-contract";
+import {
+  missingReviewEntryForSlip,
+  missingReviewRecordedQtyForSlip,
+} from "@/lib/scanner/package-missing-review-manifest";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
 import { isPrintedSlipIdScan } from "@/lib/scanner/box-slip-scan";
@@ -378,6 +387,7 @@ const glassCard = "scanner-page-glass-card";
 /** Item scan / slip cards — high-density warehouse typography (inline Tailwind; overrides globals.css leaks). */
 const SLIP_CARD_HEADING =
   "operator-item-scan-product-link line-clamp-2 text-xs font-bold tracking-wide no-underline";
+const SLIP_CARD_OFF_SLIP_TITLE = `${SLIP_CARD_HEADING} operator-item-scan-over-card__title`;
 const SLIP_CARD_SUBTEXT = "text-[11px] leading-tight text-neutral-400";
 const SLIP_CARD_TECH_ID = "font-mono text-[10px] text-neutral-500";
 const SLIP_CARD_STATUS_BADGE =
@@ -1799,6 +1809,19 @@ function itemScanAdaptiveListPanelProps(
   };
 }
 
+function operatorMissingReviewMarkedLabel(
+  expected: number,
+  received: number,
+  recordedMissing: number,
+): string {
+  const computedMissing = Math.max(0, expected - received);
+  if (recordedMissing <= 0) return "Marked missing";
+  if (computedMissing > 0 && recordedMissing < computedMissing) {
+    return `Marked missing: ${recordedMissing} of ${computedMissing}`;
+  }
+  return "Marked missing";
+}
+
 function slipLinePassiveStatusBadge(line: SlipLineExpectedVsReceived): {
   label: string;
   tone: "missing" | "received" | "marked" | "awaiting";
@@ -3173,9 +3196,10 @@ function operatorPackageItemRowToModalInitial(unit: OperatorPackageItemRow): Ite
     lotNumber: unit.lot_number?.trim() ?? "",
     noExpiryChecked: !expiry && !hasExpired,
     evidenceUrls: [...(unit.evidence_urls ?? [])],
-    expiryEvidenceUrls: [],
-    optionalItemPhotoUrl: unit.optional_item_photo_url,
+    expiryEvidenceUrls: [...(unit.expiry_evidence_urls ?? [])],
+    optionalItemPhotoUrls: capScannerPhotoUrls(unit.optional_item_photo_urls ?? (unit.optional_item_photo_url ? [unit.optional_item_photo_url] : [])),
     operatorNotes: unit.operator_notes ?? "",
+    scannedQuantity: Math.max(1, Math.floor(Number(unit.quantity ?? 1))),
   };
 }
 
@@ -4350,6 +4374,10 @@ function OperatorMobileScanPageContent() {
   const [emptyBoxChecked, setEmptyBoxChecked] = useState(false);
   const [emptyBoxSaved, setEmptyBoxSaved] = useState(false);
   const [markAllMissingConfirmOpen, setMarkAllMissingConfirmOpen] = useState(false);
+  const [editMissingReviewCellKey, setEditMissingReviewCellKey] = useState<string | null>(null);
+  const [editMissingReviewQty, setEditMissingReviewQty] = useState("");
+  const [editMissingReviewNote, setEditMissingReviewNote] = useState("");
+  const [editMissingReviewError, setEditMissingReviewError] = useState<string | null>(null);
 
   /** Pending new slip vision data waiting for reconcile confirmation (slip changed with items scanned). */
   const [slipChangeConfirmOpen, setSlipChangeConfirmOpen] = useState(false);
@@ -4913,6 +4941,7 @@ function OperatorMobileScanPageContent() {
   const [itemBarcodeMiss, setItemBarcodeMiss] = useState<string | null>(null);
   /** Item Scan: Edit All unlocks row selection + unit edit (separate from shipment Edit All). */
   const [itemScanEditAllMode, setItemScanEditAllMode] = useState(false);
+  const [itemScanReopenBusy, setItemScanReopenBusy] = useState(false);
   const [itemScanEditPick, setItemScanEditPick] = useState<ItemScanEditPick | null>(null);
   const [itemScanUnitPickerOpen, setItemScanUnitPickerOpen] = useState(false);
   /** Per-slip scanned unit counts for the active item-scan package. */
@@ -6127,6 +6156,30 @@ function OperatorMobileScanPageContent() {
       cancelled = true;
     };
   }, [flowPhase, itemScanPackageId, orgId, sessionStoreId, itemSlipMissingReviewNonce]);
+
+  const packageReceiveState: PackageReceiveState = useMemo(
+    () => readPackageReceiveState(itemScanPackageManifestData),
+    [itemScanPackageManifestData],
+  );
+  const itemScanReceiveFinalized = flowPhase === "items" && packageReceiveState === "finalized";
+  const itemScanReceiveEditable = flowPhase === "items" && packageReceiveState === "open";
+
+  const packageScannedQuantitySum = useMemo(
+    () =>
+      packageItemHydratedRows.reduce(
+        (sum, row) => sum + Math.max(1, Math.floor(Number(row.quantity ?? 1))),
+        0,
+      ),
+    [packageItemHydratedRows],
+  );
+
+  useEffect(() => {
+    if (itemScanReceiveFinalized) {
+      setItemScanEditAllMode(false);
+      setItemScanEditPick(null);
+      setItemScanUnitPickerOpen(false);
+    }
+  }, [itemScanReceiveFinalized]);
 
   /** Hydrate scanned counts from `return_items`, matched to slip lines by barcode. */
   useEffect(() => {
@@ -8503,7 +8556,7 @@ function OperatorMobileScanPageContent() {
         itemScanEditAllMode,
         busy,
       });
-      if (!itemScanEditAllMode || !returnItemId || busy) return;
+      if (!itemScanEditAllMode || !itemScanReceiveEditable || !returnItemId || busy) return;
       const groupIds = (editGroupReturnItemIds ?? [])
         .map((id) => String(id ?? "").trim())
         .filter((id) => isUuidString(id));
@@ -8582,7 +8635,7 @@ function OperatorMobileScanPageContent() {
       slip: Pick<OperatorSlipContentsListRow, "id" | "product_linkage" | "fnsku" | "upc">;
       scanned: number;
     }) => {
-      if (!itemScanEditAllMode || busy || cell.scanned <= 0) return;
+      if (!itemScanEditAllMode || !itemScanReceiveEditable || busy || cell.scanned <= 0) return;
       const slipId = cell.slip.id && isUuidString(String(cell.slip.id)) ? String(cell.slip.id).trim() : "";
       const units = slipId ? packageItemsForSlipContentId(packageItemHydratedRows, slipId) : [];
       const meta = itemScanEditPickMetaFromSlip(cell.slip);
@@ -8595,7 +8648,7 @@ function OperatorMobileScanPageContent() {
   );
 
   const handleItemScanEditSelectUnexpected = useCallback(() => {
-    if (!itemScanEditAllMode || busy) return;
+    if (!itemScanEditAllMode || !itemScanReceiveEditable || busy) return;
     const units = packageItemsUnexpected(packageItemHydratedRows);
     openItemScanUnitPickerForRow(
       {
@@ -8610,7 +8663,7 @@ function OperatorMobileScanPageContent() {
   /** Soft-delete the most recently scanned return_item for a given slip cell (Edit All mode only). */
   const handleDeleteSlipCellUnit = useCallback(
     async (cell: { key: string; scanned: number; slip: OperatorSlipContentsListRow }) => {
-      if (!itemScanEditAllMode || busy) return;
+      if (!itemScanEditAllMode || !itemScanReceiveEditable || busy) return;
       const slipId = String(cell.slip.id ?? "").trim();
       const units = slipId ? packageItemsForSlipContentId(packageItemHydratedRows, slipId) : packageItemsUnexpected(packageItemHydratedRows);
       if (units.length === 0) return;
@@ -8660,7 +8713,7 @@ function OperatorMobileScanPageContent() {
 
   const handleItemScanEditSelectOrphanUnit = useCallback(
     (unit: OperatorPackageItemRow) => {
-      if (!itemScanEditAllMode || busy) return;
+      if (!itemScanEditAllMode || !itemScanReceiveEditable || busy) return;
       if (!unit.id) {
         openItemScanUnitPickerForRow(
           {
@@ -8693,7 +8746,7 @@ function OperatorMobileScanPageContent() {
         count: targets.length,
       });
 
-      if (!itemScanEditAllMode) {
+      if (!itemScanEditAllMode || !itemScanReceiveEditable) {
         logItemUnitDelete("blocked: edit-all off");
         setSyncErrorToast("Turn on Edit All to delete scanned units.");
         return false;
@@ -8804,7 +8857,9 @@ function OperatorMobileScanPageContent() {
         expiry_date: null,
         lot_number: null,
         evidence_urls: null,
+        expiry_evidence_urls: null,
         optional_item_photo_url: null,
+        optional_item_photo_urls: null,
         operator_notes: null,
         created_at: null,
         updated_at: null,
@@ -8830,6 +8885,10 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const openAddScanItemModal = useCallback(() => {
+    if (!itemScanReceiveEditable) {
+      setItemReceiveError("This receive is finalized — tap Reopen to add or edit items.");
+      return;
+    }
     if (!hasReceivableBoxForItems(itemScanPackageId, activeBoxSession)) {
       setItemReceiveError("Select or scan a box before inspecting items.");
       return;
@@ -8844,7 +8903,7 @@ function OperatorMobileScanPageContent() {
       subtitle: "Scan the barcode (UPC / FNSKU), set condition, then save.",
       matchKindPreset: null,
     });
-  }, [itemScanPackageId, activeBoxSession, busy, queueItemUnitModal]);
+  }, [itemScanReceiveEditable, itemScanPackageId, activeBoxSession, busy, queueItemUnitModal]);
 
   const handleItemUnitScanToCountSessionChange = useCallback((session: ItemUnitScanToCountSession) => {
     itemUnitScanToCountSessionRef.current = session;
@@ -8872,6 +8931,11 @@ function OperatorMobileScanPageContent() {
       const editReturnItemId = ctx.returnItemId?.trim() ?? "";
 
       if (isEdit && isUuidString(editReturnItemId)) {
+        if (!itemScanReceiveEditable) {
+          const msg = "This receive is finalized — tap Reopen to edit.";
+          showScanActionToast("error", msg);
+          return { ok: false, message: msg };
+        }
         if (!sessionStoreId) {
           const msg = "Select an active store before saving changes.";
           showScanActionToast("error", msg);
@@ -8881,13 +8945,20 @@ function OperatorMobileScanPageContent() {
           .map((id) => String(id ?? "").trim())
           .filter((id) => isUuidString(id));
         const updateIds = groupIds.length > 0 ? groupIds : [editReturnItemId];
+        const baselineQty = Math.max(
+          1,
+          Math.floor(Number(ctx.initialState?.scannedQuantity ?? 1)),
+        );
+        const qtyCorrection =
+          updateIds.length === 1 &&
+          payload.editScannedQuantity != null &&
+          Math.floor(Number(payload.editScannedQuantity)) !== baselineQty
+            ? Math.max(1, Math.floor(Number(payload.editScannedQuantity)))
+            : null;
+        const productCorrectionId = String(payload.correctedResolvedProductId ?? "").trim();
         setBusy(true);
         setItemReceiveError(null);
         try {
-          const allEvidenceUrls = [
-            ...payload.evidenceUrls,
-            ...(payload.expiryEvidenceUrls ?? []),
-          ];
           for (const returnItemId of updateIds) {
             const res = await updateOperatorPackageItemAction({
               requestedOrganizationId: orgId,
@@ -8896,13 +8967,40 @@ function OperatorMobileScanPageContent() {
               discrepancyTags: payload.discrepancyTags,
               expiryDate: payload.expiryDate,
               lotNumber: payload.lotNumber,
-              evidenceUrls: allEvidenceUrls,
-              optionalItemPhotoUrl: payload.optionalItemPhotoUrl,
+              evidenceUrls: payload.evidenceUrls,
+              expiryEvidenceUrls: payload.expiryEvidenceUrls,
+              optionalItemPhotoUrls: payload.optionalItemPhotoUrls,
               traceabilityRequired: payload.traceabilityRequired,
               operatorNotes: payload.operatorNotes,
             });
             if (!res.ok) {
               const msg = res.message?.trim() || "Could not save changes.";
+              showScanActionToast("error", msg);
+              return { ok: false, message: msg };
+            }
+          }
+          if (qtyCorrection != null) {
+            const qtyRes = await correctOperatorPackageItemQuantityAction({
+              requestedOrganizationId: orgId,
+              returnItemId: updateIds[0]!,
+              storeId: sessionStoreId,
+              scannedQuantity: qtyCorrection,
+            });
+            if (!qtyRes.ok) {
+              const msg = qtyRes.message?.trim() || "Could not correct quantity.";
+              showScanActionToast("error", msg);
+              return { ok: false, message: msg };
+            }
+          }
+          if (productCorrectionId && isUuidString(productCorrectionId) && updateIds.length === 1) {
+            const prodRes = await correctOperatorPackageItemProductAction({
+              requestedOrganizationId: orgId,
+              returnItemId: updateIds[0]!,
+              resolvedProductId: productCorrectionId,
+              storeId: sessionStoreId,
+            });
+            if (!prodRes.ok) {
+              const msg = prodRes.message?.trim() || "Could not correct product linkage.";
               showScanActionToast("error", msg);
               return { ok: false, message: msg };
             }
@@ -9023,10 +9121,6 @@ function OperatorMobileScanPageContent() {
       setBusy(true);
       setItemReceiveError(null);
       try {
-        const allInsertEvidenceUrls = [
-          ...payload.evidenceUrls,
-          ...(payload.expiryEvidenceUrls ?? []),
-        ];
         const res = await insertOperatorPackageItemAction({
           requestedOrganizationId: orgId,
           packageId: pkgId,
@@ -9040,8 +9134,9 @@ function OperatorMobileScanPageContent() {
           discrepancyTags: payload.discrepancyTags,
           expiryDate: payload.expiryDate,
           lotNumber: payload.lotNumber,
-          evidenceUrls: allInsertEvidenceUrls,
-          optionalItemPhotoUrl: payload.optionalItemPhotoUrl,
+          evidenceUrls: payload.evidenceUrls,
+          expiryEvidenceUrls: payload.expiryEvidenceUrls,
+          optionalItemPhotoUrls: payload.optionalItemPhotoUrls,
           traceabilityRequired: payload.traceabilityRequired,
           operatorNotes: payload.operatorNotes,
         });
@@ -11327,7 +11422,18 @@ function OperatorMobileScanPageContent() {
           slipIdForManifest,
         ),
       });
-      return { key, slip, expected, scanned, epScanned, draftExtra, qtyLine };
+      const missingReviewEntry = missingReviewEntryForSlip(itemScanPackageManifestData, slipIdForManifest);
+      return {
+        key,
+        slip,
+        expected,
+        scanned,
+        epScanned,
+        draftExtra,
+        qtyLine,
+        hasMissingReviewEntry: Boolean(missingReviewEntry),
+        missingReviewEntry,
+      };
     });
   }, [
     slipLikeRowsForInspection,
@@ -11337,6 +11443,11 @@ function OperatorMobileScanPageContent() {
     packageItemScanState.bySlipId,
     itemScanPackageManifestData,
   ]);
+
+  const editMissingReviewCell = useMemo(
+    () => itemInspectionSlipCells.find((c) => c.key === editMissingReviewCellKey) ?? null,
+    [itemInspectionSlipCells, editMissingReviewCellKey],
+  );
 
   /** Saved package item scan — slip_contents / BOX vision, not shipment tracking EP aggregate. */
   const itemScanUsesPackageSlipExpectedRows = useMemo(
@@ -11710,7 +11821,7 @@ function OperatorMobileScanPageContent() {
   );
 
   const markAllRemainingMissing = useCallback(async () => {
-    if (!reviewMissingItemsEnabled) return;
+    if (!reviewMissingItemsEnabled || !itemScanReceiveEditable) return;
     const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
     const oid = (orgId ?? "").trim();
     const store = sessionStoreId?.trim() ?? "";
@@ -11721,7 +11832,7 @@ function OperatorMobileScanPageContent() {
     if (itemScanUnresolvedMissingQty <= 0) return;
     setSlipMissingMarkBusy(true);
     try {
-      const res = await markOperatorSlipMissingExpectedAction({
+      const res = await patchPackageMissingReviewAction({
         requestedOrganizationId: oid,
         packageId: pkgId,
         storeId: store || null,
@@ -11751,7 +11862,7 @@ function OperatorMobileScanPageContent() {
 
   const markSlipLineRemainingMissing = useCallback(
     async (cell: (typeof itemInspectionSlipCells)[number]) => {
-      if (!reviewMissingItemsEnabled) return;
+      if (!reviewMissingItemsEnabled || !itemScanReceiveEditable) return;
       const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
       const oid = (orgId ?? "").trim();
       const store = sessionStoreId?.trim() ?? "";
@@ -11764,7 +11875,7 @@ function OperatorMobileScanPageContent() {
       if (remaining <= 0) return;
       setSlipMissingMarkBusy(true);
       try {
-        const res = await markOperatorSlipMissingExpectedAction({
+        const res = await patchPackageMissingReviewAction({
           requestedOrganizationId: oid,
           packageId: pkgId,
           storeId: store || null,
@@ -11787,6 +11898,154 @@ function OperatorMobileScanPageContent() {
     },
     [reviewMissingItemsEnabled, itemScanPackageId, orgId, sessionStoreId],
   );
+
+  const openEditMissingReview = useCallback(
+    (cell: (typeof itemInspectionSlipCells)[number]) => {
+      const entry = cell.missingReviewEntry;
+      setEditMissingReviewCellKey(cell.key);
+      setEditMissingReviewQty(String(entry?.operator_marked_missing_qty ?? cell.qtyLine.recordedMissing));
+      setEditMissingReviewNote(entry?.note?.trim() ?? "");
+      setEditMissingReviewError(null);
+      modalOpenRef.current = true;
+    },
+    [],
+  );
+
+  const closeEditMissingReview = useCallback(() => {
+    setEditMissingReviewCellKey(null);
+    setEditMissingReviewQty("");
+    setEditMissingReviewNote("");
+    setEditMissingReviewError(null);
+    modalOpenRef.current = false;
+    scheduleFocusScanner();
+  }, [scheduleFocusScanner]);
+
+  const undoSlipLineMissingReview = useCallback(
+    async (cell: (typeof itemInspectionSlipCells)[number]) => {
+      const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
+      const oid = (orgId ?? "").trim();
+      const store = sessionStoreId?.trim() ?? "";
+      const slipId = cell.slip.id && isUuidString(String(cell.slip.id)) ? String(cell.slip.id) : null;
+      if (!pkgId || !oid || !slipId) {
+        setSyncErrorToast("Cannot undo missing review — package or slip line is not saved yet.");
+        return;
+      }
+      setSlipMissingMarkBusy(true);
+      try {
+        const res = await patchPackageMissingReviewAction({
+          requestedOrganizationId: oid,
+          packageId: pkgId,
+          storeId: store || null,
+          slipContentId: slipId,
+          operatorMarkedMissingQty: 0,
+        });
+        if (!res.ok) {
+          setSyncErrorToast(res.message);
+          return;
+        }
+        if (editMissingReviewCellKey === cell.key) closeEditMissingReview();
+        setItemSlipMissingReviewNonce((n) => n + 1);
+        playOperatorSuccessBeep();
+        setScanActionToast({ message: "Removed missing review mark.", variant: "success" });
+      } finally {
+        setSlipMissingMarkBusy(false);
+      }
+    },
+    [
+      itemScanPackageId,
+      orgId,
+      sessionStoreId,
+      editMissingReviewCellKey,
+      closeEditMissingReview,
+    ],
+  );
+
+  const saveEditMissingReview = useCallback(async () => {
+    const cell = editMissingReviewCell;
+    if (!cell) return;
+    const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
+    const oid = (orgId ?? "").trim();
+    const store = sessionStoreId?.trim() ?? "";
+    const slipId = cell.slip.id && isUuidString(String(cell.slip.id)) ? String(cell.slip.id) : null;
+    if (!pkgId || !oid || !slipId) {
+      setEditMissingReviewError("Cannot save — package or slip line is not saved yet.");
+      return;
+    }
+    const parsed = Math.floor(Number(editMissingReviewQty));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setEditMissingReviewError("Marked missing quantity must be 0 or greater.");
+      return;
+    }
+    const computedMissing = Math.max(0, cell.expected - cell.scanned);
+    if (parsed > computedMissing) {
+      setEditMissingReviewError("Marked missing quantity cannot exceed computed missing quantity.");
+      return;
+    }
+    setSlipMissingMarkBusy(true);
+    setEditMissingReviewError(null);
+    try {
+      const res = await patchPackageMissingReviewAction({
+        requestedOrganizationId: oid,
+        packageId: pkgId,
+        storeId: store || null,
+        slipContentId: slipId,
+        operatorMarkedMissingQty: parsed,
+        note: editMissingReviewNote.trim() || null,
+      });
+      if (!res.ok) {
+        setEditMissingReviewError(res.message);
+        return;
+      }
+      closeEditMissingReview();
+      setItemSlipMissingReviewNonce((n) => n + 1);
+      playOperatorSuccessBeep();
+      setScanActionToast({
+        message: parsed === 0 ? "Removed missing review mark." : "Updated missing review.",
+        variant: "success",
+      });
+    } finally {
+      setSlipMissingMarkBusy(false);
+    }
+  }, [
+    editMissingReviewCell,
+    itemScanPackageId,
+    orgId,
+    sessionStoreId,
+    editMissingReviewQty,
+    editMissingReviewNote,
+    closeEditMissingReview,
+  ]);
+
+  const handleReopenFinalizedPackageReceive = useCallback(async () => {
+    const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
+    const oid = (orgId ?? "").trim();
+    const store = sessionStoreId?.trim() ?? "";
+    if (!pkgId || !oid) {
+      setSyncErrorToast("Cannot reopen — package is not saved yet.");
+      return;
+    }
+    if (!itemScanReceiveFinalized) return;
+    setItemScanReopenBusy(true);
+    try {
+      const res = await reopenOperatorPackageReceiveAction({
+        requestedOrganizationId: oid,
+        packageId: pkgId,
+        storeId: store || null,
+      });
+      if (!res.ok) {
+        setSyncErrorToast(res.message);
+        return;
+      }
+      setItemScanEditAllMode(false);
+      setItemScanEditPick(null);
+      setItemScanUnitPickerOpen(false);
+      setItemSlipMissingReviewNonce((n) => n + 1);
+      playOperatorSuccessBeep();
+      setScanActionToast({ message: "Receive reopened for correction.", variant: "success" });
+    } finally {
+      setItemScanReopenBusy(false);
+    }
+  }, [itemScanPackageId, orgId, sessionStoreId, itemScanReceiveFinalized]);
 
   const confirmItemsPhaseFinalizeToHub = useCallback(async () => {
     const pid = activePallet?.id?.trim() ?? "";
@@ -12085,8 +12344,10 @@ function OperatorMobileScanPageContent() {
     !activeBoxSession;
   const showShipmentEntryEditAllInHeader =
     showShipmentEntryEditAll && !operatorSavedBoxesHubVisible;
-  const showItemScanEditAllInHeader = flowPhase === "items" && hasItemReceivableBox;
+  const showItemScanEditAllInHeader = flowPhase === "items" && hasItemReceivableBox && itemScanReceiveEditable;
+  const showItemScanReopenInHeader = flowPhase === "items" && hasItemReceivableBox && itemScanReceiveFinalized;
   const showHeaderEditAllButton = showShipmentEntryEditAllInHeader || showItemScanEditAllInHeader;
+  const showHeaderReopenButton = showItemScanReopenInHeader;
   const headerEditAllActive = flowPhase === "items" ? itemScanEditAllMode : editAllMode;
 
   const itemScanEditPickUnits = useMemo(() => {
@@ -13876,7 +14137,10 @@ function OperatorMobileScanPageContent() {
   }, [activePackageSessionResolvedRow]);
 
   const boxIntakeEmptyBoxEligible =
-    Boolean(activeBoxSession?.barcode?.trim()) && boxIntakePhysicalItemCount === 0 && !emptyBoxSaved;
+    Boolean(activeBoxSession?.barcode?.trim()) &&
+    boxIntakePhysicalItemCount === 0 &&
+    packageScannedQuantitySum === 0 &&
+    !emptyBoxSaved;
 
   const saveEmptyBoxFromBoxInfo = useCallback(async () => {
     if (!emptyBoxChecked || emptyBoxSaved) return;
@@ -14326,7 +14590,21 @@ function OperatorMobileScanPageContent() {
                     Box List
                   </button>
                 ) : null}
-                {showHeaderEditAllButton ? (
+                {showHeaderReopenButton ? (
+                  <button
+                    type="button"
+                    disabled={busy || itemScanReopenBusy}
+                    onClick={() => void handleReopenFinalizedPackageReceive()}
+                    className="operator-shipment-edit-all-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border font-bold uppercase tracking-wider shadow-sm transition active:scale-95 gap-1 px-2.5 py-1 text-xs sm:px-3"
+                  >
+                    {itemScanReopenBusy ? (
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                    ) : (
+                      <RefreshCw className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                    )}
+                    Reopen
+                  </button>
+                ) : showHeaderEditAllButton ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -17556,13 +17834,19 @@ function OperatorMobileScanPageContent() {
 
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !itemScanReceiveEditable}
                   onClick={() => openAddScanItemModal()}
                   className={`operator-item-scan-add-btn operator-neda-mechanical-scan-btn shrink-0 flex ${ZEBRA_COMPACT_BTN} w-full items-center justify-center gap-1.5 rounded-xl px-4 transition disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
                   Add / Scan Item
                 </button>
+
+            {itemScanReceiveFinalized ? (
+              <p className={`${OP_SCAN_ALERT_ERROR} mb-2 leading-snug`} role="status">
+                Receive finalized — read-only. Tap <span className="font-bold">Reopen</span> in the header to correct.
+              </p>
+            ) : null}
 
             {itemBarcodeMiss ? (
               <p className={OP_SCAN_ALERT_ERROR}>{itemBarcodeMiss}</p>
@@ -17613,7 +17897,7 @@ function OperatorMobileScanPageContent() {
                         type="checkbox"
                         checked={reviewMissingItemsEnabled}
                         onChange={(e) => setReviewMissingItemsEnabled(e.target.checked)}
-                        disabled={busy || slipMissingMarkBusy}
+                        disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
                         className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded"
                       />
                       <span className="min-w-0">
@@ -17692,7 +17976,7 @@ function OperatorMobileScanPageContent() {
                         const linkage = unit.product_linkage;
                         const bc = unit.scanned_barcode?.trim() || "—";
                         const vis = itemInspectionSlipLinePresentation(0, 1, false);
-                        const rowEditable = itemScanEditAllMode;
+                        const rowEditable = itemScanEditAllMode && itemScanReceiveEditable;
                         const rowInteract = itemScanRowEditInteractProps(rowEditable, false, () =>
                           handleItemScanEditSelectOrphanUnit(unit),
                         );
@@ -17761,7 +18045,7 @@ function OperatorMobileScanPageContent() {
                       const upcLabel = slip.upc?.trim() ? slip.upc.trim() : "—";
                       const fnskuLabel = slip.fnsku?.trim() ? slip.fnsku.trim() : "—";
                       const matchedRing = vis.matchedRing;
-                      const rowEditable = itemScanEditAllMode && cell.scanned > 0;
+                      const rowEditable = itemScanEditAllMode && itemScanReceiveEditable && cell.scanned > 0;
                       const rowSelected =
                         itemScanUnitPickerOpen &&
                         itemScanEditPick?.kind === "slip_cell" &&
@@ -17842,10 +18126,11 @@ function OperatorMobileScanPageContent() {
                           </p>
                           {reviewMissingItemsEnabled &&
                           !itemScanEditAllMode &&
-                          cell.qtyLine.remainingMissing > 0 ? (
+                          cell.qtyLine.remainingMissing > 0 &&
+                          !cell.hasMissingReviewEntry ? (
                             <button
                               type="button"
-                              disabled={busy || slipMissingMarkBusy}
+                              disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 void markSlipLineRemainingMissing(cell);
@@ -17859,12 +18144,43 @@ function OperatorMobileScanPageContent() {
                                   : `Mark remaining ${cell.qtyLine.remainingMissing} as missing`}
                             </button>
                           ) : null}
-                          {reviewMissingItemsEnabled &&
-                          cell.qtyLine.remainingMissing === 0 &&
-                          cell.qtyLine.recordedMissing > 0 ? (
-                            <p className="operator-item-scan-slip-row__marked-missing mt-1 text-center text-[10px] font-bold text-amber-300/95">
-                              Marked missing
-                            </p>
+                          {reviewMissingItemsEnabled && cell.hasMissingReviewEntry ? (
+                            <div className="operator-item-scan-slip-row__marked-missing mt-1 space-y-1">
+                              <p className="text-center text-[10px] font-bold text-amber-300/95">
+                                {operatorMissingReviewMarkedLabel(
+                                  cell.expected,
+                                  cell.scanned,
+                                  cell.qtyLine.recordedMissing,
+                                )}
+                              </p>
+                              {!itemScanEditAllMode ? (
+                                <div className="flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditMissingReview(cell);
+                                    }}
+                                    className="operator-item-scan-edit-missing-btn flex flex-1 items-center justify-center gap-1 rounded-lg border border-amber-500/35 bg-amber-950/15 px-2 py-1 text-[10px] font-bold text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    <Pencil className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void undoSlipLineMissingReview(cell);
+                                    }}
+                                    className="operator-item-scan-undo-missing-btn flex flex-1 items-center justify-center rounded-lg border border-slate-500/35 bg-slate-950/20 px-2 py-1 text-[10px] font-bold text-slate-200 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    Undo
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
                           ) : null}
                           {cell.draftExtra > 0 ? (
                             <p className={`operator-item-scan-slip-row__draft mt-0.5 ${SLIP_CARD_SUBTEXT}`}>
@@ -17969,12 +18285,12 @@ function OperatorMobileScanPageContent() {
                       const qty = rows.reduce((s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))), 0);
                       const { upc: upcLabel, fnsku: fnskuLabel } = itemScanUpcFnskuFromPackageItemRows(rows);
                       const vis = itemInspectionSlipLinePresentation(0, qty, false);
-                      const rowEditable = itemScanEditAllMode && rows.length > 0;
+                      const rowEditable = itemScanEditAllMode && itemScanReceiveEditable && rows.length > 0;
                       const rowInteract = itemScanRowEditInteractProps(
                         rowEditable,
                         false,
                         () => {
-                          if (!itemScanEditAllMode || busy) return;
+                          if (!itemScanEditAllMode || !itemScanReceiveEditable || busy) return;
                           const rowTitle = productLinkageOperatorPrimaryDisplayLabel(linkage);
                           openItemScanUnitPickerForRow(
                             { kind: "unexpected", rowTitle, rowSubtitle: barcode || null, units: rows },
@@ -17986,6 +18302,7 @@ function OperatorMobileScanPageContent() {
                         <div
                           key={barcode}
                           className={`${itemScanSlipRowShellClass(false, true)} ${rowInteract.className}`}
+                          data-off-slip-card="true"
                           data-neda-qty={vis.label}
                           style={itemScanSlipRowStyle(0, qty, false)}
                           role={rowInteract.role}
@@ -17998,7 +18315,7 @@ function OperatorMobileScanPageContent() {
                             linkage={linkage}
                             linkWhenResolved={false}
                             detailFrom="scan"
-                            className={SLIP_CARD_HEADING}
+                            className={SLIP_CARD_OFF_SLIP_TITLE}
                           />
                           <div className={SLIP_CARD_META_LINKAGE}>
                             <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
@@ -18040,10 +18357,13 @@ function OperatorMobileScanPageContent() {
                         <div
                           key="residual-unexpected"
                           className={itemScanSlipRowShellClass(false, true)}
+                          data-off-slip-card="true"
                           data-neda-qty={vis.label}
                           style={itemScanSlipRowStyle(0, residualUnexpected, false)}
                         >
-                          <p className={`operator-item-scan-slip-row__title ${SLIP_CARD_HEADING}`}>Additional unexpected units</p>
+                          <p className={`operator-item-scan-slip-row__title ${SLIP_CARD_OFF_SLIP_TITLE}`}>
+                            Additional unexpected units
+                          </p>
                           <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
                             <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
                               {residualUnexpected} unit{residualUnexpected === 1 ? "" : "s"} — no slip line match
@@ -18074,10 +18394,16 @@ function OperatorMobileScanPageContent() {
                             <div
                               key={`unmatched-ep-${i}`}
                               className={itemScanSlipRowShellClass(false, true)}
+                              data-off-slip-card="true"
                               data-neda-qty="UNEXPECTED"
                               style={itemScanSlipRowStyle(slipQty, 0, false)}
                             >
-                              <ProductLinkagePrimaryLink linkage={linkage} linkWhenResolved={false} detailFrom="scan" className={SLIP_CARD_HEADING} />
+                              <ProductLinkagePrimaryLink
+                                linkage={linkage}
+                                linkWhenResolved={false}
+                                detailFrom="scan"
+                                className={SLIP_CARD_OFF_SLIP_TITLE}
+                              />
                               <div className={SLIP_CARD_META_LINKAGE}>
                                 <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
                               </div>
@@ -18835,6 +19161,96 @@ function OperatorMobileScanPageContent() {
         </div>
       ) : null}
 
+      {editMissingReviewCell ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[142] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-edit-missing-review-title`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-edit-missing-review-title`}
+              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+            >
+              Edit missing review
+            </p>
+            <div className="operator-shipment-flow-modal__body mt-3 space-y-1 text-center text-[12px] font-semibold leading-relaxed tabular-nums">
+              <p>
+                Expected: <span className="font-black">{editMissingReviewCell.expected}</span>
+              </p>
+              <p>
+                Received: <span className="font-black">{editMissingReviewCell.scanned}</span>
+              </p>
+              <p>
+                Computed missing:{" "}
+                <span className="font-black">
+                  {Math.max(0, editMissingReviewCell.expected - editMissingReviewCell.scanned)}
+                </span>
+              </p>
+            </div>
+            <label className="mt-4 block">
+              <span className="text-[11px] font-bold">Operator marked missing qty</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={Math.max(0, editMissingReviewCell.expected - editMissingReviewCell.scanned)}
+                value={editMissingReviewQty}
+                onChange={(e) => {
+                  setEditMissingReviewQty(e.target.value);
+                  setEditMissingReviewError(null);
+                }}
+                disabled={slipMissingMarkBusy}
+                className="mt-1 w-full rounded-xl border border-[rgba(214,183,110,0.25)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-[14px] font-semibold tabular-nums"
+              />
+            </label>
+            <label className="mt-3 block">
+              <span className="text-[11px] font-bold">Note (optional)</span>
+              <textarea
+                value={editMissingReviewNote}
+                onChange={(e) => setEditMissingReviewNote(e.target.value)}
+                disabled={slipMissingMarkBusy}
+                rows={2}
+                className="mt-1 w-full resize-none rounded-xl border border-[rgba(214,183,110,0.25)] bg-[rgba(255,255,255,0.04)] px-3 py-2 text-[13px] font-medium leading-snug"
+                placeholder="Optional operator note"
+              />
+            </label>
+            <p className="mt-2 text-center text-[10px] font-medium leading-snug text-neutral-400">
+              This is operator review metadata only. Final shortage is calculated by the system.
+            </p>
+            {editMissingReviewError ? (
+              <p className="operator-shipment-flow-modal__alert mt-3 rounded-xl px-3 py-2 text-center text-[11px] font-semibold leading-snug">
+                {editMissingReviewError}
+              </p>
+            ) : null}
+            <OperatorScannerFooterActions
+              className="mt-5"
+              primary={
+                <button
+                  type="button"
+                  disabled={slipMissingMarkBusy}
+                  className="operator-shipment-flow-modal__btn-warning h-11 w-full rounded-xl border border-amber-500/60 bg-amber-50 text-[13px] font-bold text-amber-900 transition active:scale-[0.98] dark:bg-amber-900/20 dark:text-amber-300"
+                  onClick={() => void saveEditMissingReview()}
+                >
+                  {slipMissingMarkBusy ? "Saving…" : "Save"}
+                </button>
+              }
+              secondary={
+                <button
+                  type="button"
+                  disabled={slipMissingMarkBusy}
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={closeEditMissingReview}
+                >
+                  Cancel
+                </button>
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
       {markAllMissingConfirmOpen ? (
         <div
           className="operator-shipment-flow-modal fixed inset-0 z-[142] flex items-center justify-center p-4"
@@ -18997,7 +19413,7 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" && hasItemReceivableBox ? (
         <div
-          className="operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(var(--scanner-bottom-nav-height,4.75rem)+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] grid w-full max-w-[430px] -translate-x-1/2 grid-cols-2 items-stretch gap-2 border-t px-3 pb-[var(--op-scan-gap,0.5rem)] pt-1.5 sm:px-4"
+          className="operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(var(--scanner-bottom-nav-height,3.875rem)+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] grid w-full max-w-[430px] -translate-x-1/2 grid-cols-2 items-stretch gap-2 border-t px-3 pb-[var(--op-scan-gap,0.5rem)] pt-1.5 sm:px-4"
           role="region"
           aria-label="Item inspection actions"
         >
@@ -19017,6 +19433,16 @@ function OperatorMobileScanPageContent() {
               modalOpenRef.current = true;
               setItemsBoxFinalizeModalOpen(true);
             }}
+            aria-label={
+              isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
+                ? "Complete with discrepancy"
+                : undefined
+            }
+            title={
+              isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
+                ? "Complete with discrepancy"
+                : undefined
+            }
             className={`operator-item-scan-btn-finalize order-2 inline-flex w-full max-w-none shrink-0 items-center justify-center gap-2 rounded-xl px-3 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
               isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
                 ? "operator-item-scan-btn-finalize--discrepancy"
@@ -19026,7 +19452,7 @@ function OperatorMobileScanPageContent() {
             {isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled) ? (
               <>
                 <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
-                <span className="truncate">Complete w/ discrepancy</span>
+                <span>Close with issue</span>
               </>
             ) : (
               <>
@@ -19316,6 +19742,10 @@ function OperatorMobileScanPageContent() {
         onBarcodeIdentityChange={setItemUnitModalLiveBarcode}
         onAddModeChange={setItemUnitModalAddMode}
         onBatchQtyEnteredChange={setItemUnitModalBatchQtyEntered}
+        quantityEditEnabled={
+          itemUnitModal?.mode === "edit" &&
+          !(itemUnitModal.editGroupReturnItemIds && itemUnitModal.editGroupReturnItemIds.length > 1)
+        }
       />
 
       {unexpectedPackageItemModal ? (

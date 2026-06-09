@@ -8,7 +8,7 @@
  * `variant="compact"` (operator / mobile): tap the card to open a bottom action sheet with
  * camera vs file browse; no large inline buttons on the card.
  */
-import React, { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Webcam from "react-webcam";
 import {
@@ -22,6 +22,8 @@ import {
   VideoOff,
   X,
 } from "lucide-react";
+import { ScannerPhotoLightbox } from "@/components/scanner/ScannerPhotoLightbox";
+import { SCANNER_PHOTO_MAX_HELPER } from "@/lib/scanner/scanner-photo-section-limit";
 import { uploadToMedia, uploadToMediaAligned } from "../lib/supabase/storage";
 import { isUuidString } from "../lib/uuid";
 
@@ -63,6 +65,8 @@ export type MasterUploaderProps = {
    * {@link removeAt} also consults a ref so late clicks cannot remove after lock engages.
    */
   viewLocked?: boolean;
+  /** When true, thumbnail tap opens an in-app lightbox (no new tab / route). Default true. */
+  inAppPreview?: boolean;
 };
 
 function primaryLabelContent(label: ReactNode | undefined, fallback: string): ReactNode {
@@ -139,6 +143,7 @@ export function MasterUploader({
   compactShowTapSubtitle = true,
   alignedUpload = null,
   viewLocked = false,
+  inAppPreview = true,
 }: MasterUploaderProps) {
   /** Latest `viewLocked` for handlers (avoids removes if the UI unmounts the button one frame late). */
   const viewLockedRef = useRef(viewLocked);
@@ -162,6 +167,7 @@ export function MasterUploader({
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetStep, setSheetStep] = useState<"menu" | "webcam">("menu");
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
   useEffect(() => {
     valueRef.current = value;
@@ -199,6 +205,18 @@ export function MasterUploader({
     return () => window.removeEventListener("keydown", onKey);
   }, [sheetOpen]);
 
+  const previewLabel = useMemo(() => {
+    const raw = primaryLabelContent(label, "Photo");
+    return typeof raw === "string" ? raw : "Photo";
+  }, [label]);
+
+  const openPreviewAt = useCallback(
+    (index: number) => {
+      if (!inAppPreview || !value[index]) return;
+      setLightboxIdx(index);
+    },
+    [inAppPreview, value],
+  );
   const canAdd = value.length < maxFiles && !disabled && !viewLocked;
   const isComplete = value.length > 0;
   const accentClass = "border-slate-300 dark:border-slate-700";
@@ -434,8 +452,20 @@ export function MasterUploader({
                   key={`${url}-${i}`}
                   className={`relative aspect-square overflow-hidden border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800 ${thumbRadius}`}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="h-full w-full object-contain" />
+                  {inAppPreview ? (
+                    <button
+                      type="button"
+                      className="h-full w-full"
+                      onClick={() => openPreviewAt(i)}
+                      aria-label={`Preview photo ${i + 1}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="h-full w-full object-contain" />
+                    </button>
+                  ) : (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={url} alt="" className="h-full w-full object-contain" />
+                  )}
                   {!viewLocked ? (
                     <button
                       type="button"
@@ -499,6 +529,9 @@ export function MasterUploader({
 
         {hintProvided(hint) ? (
           <p className="mt-1 px-0.5 text-[10px] leading-snug text-slate-500 dark:text-slate-400">{hint}</p>
+        ) : null}
+        {maxFiles === 3 ? (
+          <p className="mt-1 px-0.5 text-[10px] leading-snug text-slate-500 dark:text-slate-400">{SCANNER_PHOTO_MAX_HELPER}</p>
         ) : null}
 
         {error ? (
@@ -630,6 +663,14 @@ export function MasterUploader({
               document.body,
             )
           : null}
+
+        {inAppPreview && lightboxIdx !== null && typeof document !== "undefined" ? (
+          <ScannerPhotoLightbox
+            photos={value.map((src) => ({ src, label: previewLabel }))}
+            startIdx={lightboxIdx}
+            onClose={() => setLightboxIdx(null)}
+          />
+        ) : null}
       </div>
     );
   }
@@ -807,8 +848,20 @@ export function MasterUploader({
                 key={`${url}-${i}`}
                 className="relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="" className="h-full w-full object-contain" />
+                {inAppPreview ? (
+                  <button
+                    type="button"
+                    className="h-full w-full"
+                    onClick={() => openPreviewAt(i)}
+                    aria-label={`Preview photo ${i + 1}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="" className="h-full w-full object-contain" />
+                  </button>
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={url} alt="" className="h-full w-full object-contain" />
+                )}
                 {!viewLocked ? (
                   <button
                     type="button"
@@ -834,6 +887,14 @@ export function MasterUploader({
         <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
           {error}
         </p>
+      ) : null}
+
+      {inAppPreview && lightboxIdx !== null && typeof document !== "undefined" ? (
+        <ScannerPhotoLightbox
+          photos={value.map((src) => ({ src, label: previewLabel }))}
+          startIdx={lightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+        />
       ) : null}
     </div>
   );

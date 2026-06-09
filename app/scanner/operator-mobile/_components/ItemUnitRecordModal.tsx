@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { classifyProductBarcode } from "@/lib/product-barcode-classify";
-import { Camera, ImagePlus, Loader2, Trash2, X } from "lucide-react";
+import { Loader2, RefreshCw, Trash2, X } from "lucide-react";
+import { ScannerPhotoAddButton } from "@/components/scanner/ScannerPhotoAddButton";
+import { ScannerPhotoLightbox } from "@/components/scanner/ScannerPhotoLightbox";
+import { ScannerPhotoSectionHeader } from "@/components/scanner/ScannerPhotoSectionHeader";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 import { uploadMediaFileAction } from "@/lib/media-upload-actions";
 import {
@@ -24,6 +27,17 @@ import {
   OPERATOR_ITEM_BATCH_CONFIRM_THRESHOLD,
   OPERATOR_ITEM_BATCH_MAX_QUANTITY,
 } from "@/lib/scanner/item-batch-allocation";
+import { isUuidString } from "@/lib/uuid";
+import {
+  OPERATOR_SCANNER_PHOTO_SECTION_MAX,
+  capScannerPhotoUrls,
+} from "@/lib/scanner/scanner-photo-section-limit";
+
+const PHOTO_SECTION_HELPER = {
+  optional: "Optional general item photo. Maximum 3 photos.",
+  evidence: "Capture a photo that shows the item problem. Maximum 3 photos.",
+  expiry: "Capture a clear photo of the expiration date on the packaging. Maximum 3 photos.",
+} as const;
 
 const CHIP_LABEL: Record<ItemUnitDiscrepancyTagKey, string> = {
   damaged_product: "Damaged Product",
@@ -48,7 +62,7 @@ const VALIDATION_ISSUE_TITLE = {
   EVIDENCE: "Evidence photo required",
 } as const;
 
-type ItemUnitValidationTarget = "barcode" | "condition" | "expiration" | "evidence" | "allocation";
+type ItemUnitValidationTarget = "barcode" | "condition" | "expiration" | "evidence" | "expiry_evidence" | "allocation";
 
 export type ItemUnitValidationIssue = {
   code: string;
@@ -68,12 +82,16 @@ export type ItemUnitRecordSavePayload = {
   /** Separate evidence photos specifically for the Expired condition (expiry date label, packaging, etc.). */
   expiryEvidenceUrls: string[];
   traceabilityRequired: boolean;
-  /** Optional item photo (not required for Sellable/Ok). */
-  optionalItemPhotoUrl: string | null;
+  /** Optional item photos (not required for Sellable/Ok). */
+  optionalItemPhotoUrls: string[];
   /** Operator prose note on the unit (`return_items.notes`). */
   operatorNotes: string | null;
   /** When > 1, batch save creates N `return_items` rows (create mode only). */
   batchQuantity?: number;
+  /** Edit mode — correction backend updates scanned_quantity on one row. */
+  editScannedQuantity?: number;
+  /** Edit mode — correction backend when resolved product changes. */
+  correctedResolvedProductId?: string | null;
 };
 
 export type ItemUnitAddMode = "single" | "batch";
@@ -87,6 +105,63 @@ export type ItemUnitScanToCountSession = {
 export type ItemUnitBarcodeCaptureSession = ItemUnitScanToCountSession;
 
 type ItemUnitPhotoMenuTarget = "optional" | "evidence" | "expiry_evidence";
+
+type ItemUnitPhotoRemoveTarget = {
+  bucket: ItemUnitPhotoMenuTarget;
+  url: string;
+};
+
+function ItemUnitPhotoThumb({
+  url,
+  alt,
+  busy,
+  onPreview,
+  onReplace,
+  onRemove,
+}: {
+  url: string;
+  alt: string;
+  busy: boolean;
+  onPreview: () => void;
+  onReplace: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="operator-item-unit-record-modal__photo-thumb relative h-[4.5rem] w-[4.5rem] shrink-0 overflow-hidden rounded-lg border border-white/10">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onPreview}
+        className="h-full w-full disabled:opacity-40"
+        aria-label={`Preview ${alt}`}
+      >
+        <img src={url} alt={alt} className="h-full w-full object-cover" />
+      </button>
+      <div className="absolute inset-x-0 bottom-0 flex justify-center gap-0.5 bg-black/65 px-0.5 py-0.5">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onReplace}
+          className="rounded p-0.5 text-white/90 transition hover:bg-white/15 disabled:opacity-40"
+          aria-label={`Replace ${alt}`}
+          title="Replace"
+        >
+          <RefreshCw className="h-3.5 w-3.5" strokeWidth={2.25} />
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onRemove}
+          className="rounded p-0.5 text-red-300 transition hover:bg-red-950/50 disabled:opacity-40"
+          aria-label={`Remove ${alt}`}
+          title="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" strokeWidth={2.25} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function validateItemUnitBeforeSave(input: {
   barcode: string;
@@ -150,8 +225,8 @@ function validateItemUnitBeforeSave(input: {
     issues.push({
       code: "expiry_evidence_photo",
       title: "Expiry photo required",
-      message: "Add at least one photo showing the expiry date before saving.",
-      target: "evidence",
+      message: "Expiry photo is required when Expired is selected.",
+      target: "expiry_evidence",
     });
   }
   return issues;
@@ -179,8 +254,10 @@ function isItemUnitValidationIssueActive(
       if (input.hasExpiredTag) return !input.expiryDate.trim();
       return !input.noExpiryChecked && !input.expiryDate.trim();
     case "evidence":
-      if (issue.code === "expiry_evidence_photo") return input.hasExpiredTag && input.expiryEvidenceCount === 0;
+      if (issue.code === "expiry_evidence_photo") return false;
       return input.needsEvidence && input.evidenceCount === 0;
+    case "expiry_evidence":
+      return input.hasExpiredTag && input.expiryEvidenceCount === 0;
     case "allocation":
       return true;
     default:
@@ -195,8 +272,9 @@ export type ItemUnitRecordModalInitialState = {
   noExpiryChecked: boolean;
   evidenceUrls: string[];
   expiryEvidenceUrls: string[];
-  optionalItemPhotoUrl: string | null;
+  optionalItemPhotoUrls: string[];
   operatorNotes: string;
+  scannedQuantity?: number;
 };
 
 function normEvidenceUrls(urls: readonly string[]): string[] {
@@ -213,7 +291,8 @@ export function itemUnitRecordModalHasUnsavedDraft(input: {
   lotNumber: string;
   noExpiryChecked: boolean;
   evidenceUrls: readonly string[];
-  optionalItemPhotoUrl: string | null;
+  expiryEvidenceUrls: readonly string[];
+  optionalItemPhotoUrls: readonly string[];
   operatorNotes: string;
   manualBarcodeEntry: boolean;
 }): boolean {
@@ -244,8 +323,23 @@ export function itemUnitRecordModalHasUnsavedDraft(input: {
     return true;
   }
 
-  const baselineOptional = (input.initialState?.optionalItemPhotoUrl ?? "").trim();
-  if ((input.optionalItemPhotoUrl ?? "").trim() !== baselineOptional) return true;
+  const baselineExpiryPhotos = normEvidenceUrls(input.initialState?.expiryEvidenceUrls ?? []);
+  const currentExpiryPhotos = normEvidenceUrls(input.expiryEvidenceUrls);
+  if (
+    baselineExpiryPhotos.length !== currentExpiryPhotos.length ||
+    baselineExpiryPhotos.some((u, i) => u !== currentExpiryPhotos[i])
+  ) {
+    return true;
+  }
+
+  const baselineOptional = normEvidenceUrls(input.initialState?.optionalItemPhotoUrls ?? []);
+  const currentOptional = normEvidenceUrls(input.optionalItemPhotoUrls);
+  if (
+    baselineOptional.length !== currentOptional.length ||
+    baselineOptional.some((u, i) => u !== currentOptional[i])
+  ) {
+    return true;
+  }
 
   const baselineNotes = (input.initialState?.operatorNotes ?? "").trim();
   if (input.operatorNotes.trim() !== baselineNotes) return true;
@@ -276,6 +370,8 @@ type ItemUnitRecordModalProps = {
   busy: boolean;
   /** Saved `return_items.id` when editing an existing scanned unit (create mode omits). */
   existingReturnItemId?: string | null;
+  /** Edit mode — show scanned quantity correction when true (single unit only). */
+  quantityEditEnabled?: boolean;
   onClose: () => void;
   onSave: (payload: ItemUnitRecordSavePayload) => Promise<ItemUnitRecordSaveResult>;
   /** Soft-delete the saved unit currently being edited (edit mode only). */
@@ -325,6 +421,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     onAddModeChange,
     onBatchQtyEnteredChange,
     onBarcodeCaptureSessionChange,
+    quantityEditEnabled = false,
   } = props;
 
   const isEditMode = mode === "edit";
@@ -340,6 +437,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [photoRemoveTarget, setPhotoRemoveTarget] = useState<ItemUnitPhotoRemoveTarget | null>(null);
 
   const [barcode, setBarcode] = useState("");
   const [liveLinkage, setLiveLinkage] = useState<ProductLinkageDisplayContract | null>(productLinkage);
@@ -350,8 +448,15 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const [noExpiryChecked, setNoExpiryChecked] = useState(false);
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
   const [expiryEvidenceUrls, setExpiryEvidenceUrls] = useState<string[]>([]);
-  const [optionalItemPhotoUrl, setOptionalItemPhotoUrl] = useState<string | null>(null);
+  const [optionalItemPhotoUrls, setOptionalItemPhotoUrls] = useState<string[]>([]);
+  const [photoPreview, setPhotoPreview] = useState<{
+    urls: string[];
+    index: number;
+    title: string;
+  } | null>(null);
+  const [photoReplaceUrl, setPhotoReplaceUrl] = useState<string | null>(null);
   const [operatorNotes, setOperatorNotes] = useState("");
+  const [editScannedQty, setEditScannedQty] = useState("1");
   const [validationIssues, setValidationIssues] = useState<ItemUnitValidationIssue[]>([]);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [uploadingExpiryEvidence, setUploadingExpiryEvidence] = useState(false);
@@ -388,8 +493,9 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       setNoExpiryChecked(initialState.noExpiryChecked);
       setEvidenceUrls(initialState.evidenceUrls);
       setExpiryEvidenceUrls(initialState.expiryEvidenceUrls ?? []);
-      setOptionalItemPhotoUrl(initialState.optionalItemPhotoUrl);
+      setOptionalItemPhotoUrls(capScannerPhotoUrls(initialState.optionalItemPhotoUrls ?? []));
       setOperatorNotes(initialState.operatorNotes);
+      setEditScannedQty(String(Math.max(1, Math.floor(Number(initialState.scannedQuantity ?? 1)))));
     } else {
       setSelectedTags([ITEM_UNIT_SELLABLE_OK_TAG]);
       setExpiryDate("");
@@ -397,13 +503,17 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       setNoExpiryChecked(false);
       setEvidenceUrls([]);
       setExpiryEvidenceUrls([]);
-      setOptionalItemPhotoUrl(null);
+      setOptionalItemPhotoUrls([]);
       setOperatorNotes("");
+      setEditScannedQty("1");
     }
     setValidationIssues([]);
     setLinkageResolving(false);
     setManualBarcodeEntry(false);
     setPhotoMenuTarget(null);
+    setPhotoReplaceUrl(null);
+    setPhotoPreview(null);
+    setPhotoRemoveTarget(null);
     setDeleteConfirmOpen(false);
     setDeleteError(null);
     setAddMode("single");
@@ -439,6 +549,65 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     });
   }, [open, mode, isEditMode, existingReturnItemId, savedReturnItemId, onDeleteExistingUnit, canDeleteExistingUnit]);
 
+  useEffect(() => {
+    if (!open || !photoRemoveTarget) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPhotoRemoveTarget(null);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open, photoRemoveTarget]);
+
+  useEffect(() => {
+    if (!open || !photoPreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPhotoPreview(null);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open, photoPreview]);
+
+  const handleRequestPhotoRemove = useCallback((bucket: ItemUnitPhotoMenuTarget, url: string) => {
+    if (busy) return;
+    setPhotoRemoveTarget({ bucket, url });
+  }, [busy]);
+
+  const handleConfirmPhotoRemove = useCallback(() => {
+    if (!photoRemoveTarget) return;
+    const { bucket, url } = photoRemoveTarget;
+    if (bucket === "optional") {
+      setOptionalItemPhotoUrls((prev) => prev.filter((u) => u !== url));
+    } else if (bucket === "evidence") {
+      setEvidenceUrls((prev) => prev.filter((u) => u !== url));
+    } else {
+      setExpiryEvidenceUrls((prev) => prev.filter((u) => u !== url));
+    }
+    setPhotoRemoveTarget(null);
+  }, [photoRemoveTarget]);
+
+  const openReplacePhotoMenu = useCallback((bucket: ItemUnitPhotoMenuTarget, url: string) => {
+    if (busy) return;
+    if (bucket === "optional" && uploadingOptionalPhoto) return;
+    if (bucket === "evidence" && uploadingEvidence) return;
+    if (bucket === "expiry_evidence" && uploadingExpiryEvidence) return;
+    setPhotoReplaceUrl(url);
+    setPhotoMenuTarget(bucket);
+  }, [busy, uploadingOptionalPhoto, uploadingEvidence, uploadingExpiryEvidence]);
+
+  const openPhotoPreview = useCallback((urls: string[], index: number, title: string) => {
+    if (!urls.length) return;
+    setPhotoPreview({
+      urls,
+      index: Math.max(0, Math.min(index, urls.length - 1)),
+      title,
+    });
+  }, []);
   useEffect(() => {
     if (!open || !deleteConfirmOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -485,19 +654,22 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   );
 
   const openOptionalPhotoMenu = useCallback(() => {
-    if (busy || uploadingOptionalPhoto) return;
+    if (busy || uploadingOptionalPhoto || optionalItemPhotoUrls.length >= OPERATOR_SCANNER_PHOTO_SECTION_MAX) return;
+    setPhotoReplaceUrl(null);
     setPhotoMenuTarget("optional");
-  }, [busy, uploadingOptionalPhoto]);
+  }, [busy, uploadingOptionalPhoto, optionalItemPhotoUrls.length]);
 
   const openEvidencePhotoMenu = useCallback(() => {
-    if (busy || uploadingEvidence) return;
+    if (busy || uploadingEvidence || evidenceUrls.length >= OPERATOR_SCANNER_PHOTO_SECTION_MAX) return;
+    setPhotoReplaceUrl(null);
     setPhotoMenuTarget("evidence");
-  }, [busy, uploadingEvidence]);
+  }, [busy, uploadingEvidence, evidenceUrls.length]);
 
   const openExpiryEvidencePhotoMenu = useCallback(() => {
-    if (busy || uploadingExpiryEvidence) return;
+    if (busy || uploadingExpiryEvidence || expiryEvidenceUrls.length >= OPERATOR_SCANNER_PHOTO_SECTION_MAX) return;
+    setPhotoReplaceUrl(null);
     setPhotoMenuTarget("expiry_evidence");
-  }, [busy, uploadingExpiryEvidence]);
+  }, [busy, uploadingExpiryEvidence, expiryEvidenceUrls.length]);
 
   const startManualBarcodeEntry = useCallback(() => {
     if (busy || barcodeReadOnly) return;
@@ -671,7 +843,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             lotNumber,
             noExpiryChecked,
             evidenceUrls,
-            optionalItemPhotoUrl,
+            expiryEvidenceUrls,
+            optionalItemPhotoUrls,
             operatorNotes,
             manualBarcodeEntry,
           }) || batchDraftDirty
@@ -686,7 +859,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       lotNumber,
       noExpiryChecked,
       evidenceUrls,
-      optionalItemPhotoUrl,
+      expiryEvidenceUrls,
+      optionalItemPhotoUrls,
       operatorNotes,
       manualBarcodeEntry,
       batchDraftDirty,
@@ -735,6 +909,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   );
   const expirationInlineError = issueForTarget("expiration")?.message ?? null;
   const evidenceInlineError = issueForTarget("evidence")?.message ?? null;
+  const expiryEvidenceInlineError = issueForTarget("expiry_evidence")?.message ?? null;
   const barcodeInlineError = issueForTarget("barcode")?.message ?? null;
   const conditionInlineError = issueForTarget("condition")?.message ?? null;
   const allocationInlineError = issueForTarget("allocation")?.message ?? null;
@@ -963,6 +1138,34 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     scanToCountCounted,
   ]);
 
+  const applyUploadedPhoto = useCallback(
+    (
+      mode: "evidence" | "optional" | "expiry_evidence",
+      publicUrl: string,
+      replaceUrl: string | null,
+    ) => {
+      if (mode === "optional") {
+        setOptionalItemPhotoUrls((prev) => {
+          const base = replaceUrl ? prev.filter((u) => u !== replaceUrl) : prev;
+          return capScannerPhotoUrls([...base, publicUrl]);
+        });
+        return;
+      }
+      if (mode === "expiry_evidence") {
+        setExpiryEvidenceUrls((prev) => {
+          const base = replaceUrl ? prev.filter((u) => u !== replaceUrl) : prev;
+          return capScannerPhotoUrls([...base, publicUrl]);
+        });
+        return;
+      }
+      setEvidenceUrls((prev) => {
+        const base = replaceUrl ? prev.filter((u) => u !== replaceUrl) : prev;
+        return capScannerPhotoUrls([...base, publicUrl]);
+      });
+    },
+    [],
+  );
+
   const uploadFiles = useCallback(
     async (files: FileList | null, mode: "evidence" | "optional" | "expiry_evidence") => {
       if (!files?.length) return;
@@ -984,11 +1187,24 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           : mode === "expiry_evidence"
             ? setUploadingExpiryEvidence
             : setUploadingOptionalPhoto;
+      const currentCount =
+        mode === "optional"
+          ? optionalItemPhotoUrls.length
+          : mode === "expiry_evidence"
+            ? expiryEvidenceUrls.length
+            : evidenceUrls.length;
+      const replacing = Boolean(photoReplaceUrl);
+      if (!replacing && currentCount >= OPERATOR_SCANNER_PHOTO_SECTION_MAX) return;
+
       setUploading(true);
+      const replaceTarget = photoReplaceUrl;
+      setPhotoReplaceUrl(null);
       try {
-        if (mode === "optional") {
-          const file = files[0];
-          if (!file) return;
+        const batch = Array.from(files).slice(
+          0,
+          replacing ? 1 : Math.max(0, OPERATOR_SCANNER_PHOTO_SECTION_MAX - currentCount),
+        );
+        for (const file of batch) {
           const fd = new FormData();
           fd.append("file", file);
           fd.append("bucket", "media");
@@ -998,63 +1214,26 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           if (!res.ok) {
             showValidationIssues([
               {
-                code: "upload_optional",
+                code:
+                  mode === "optional"
+                    ? "upload_optional"
+                    : mode === "expiry_evidence"
+                      ? "upload_expiry_evidence"
+                      : "upload_evidence",
                 title: "Upload failed",
                 message: res.error,
-                target: "allocation",
+                target:
+                  mode === "expiry_evidence"
+                    ? "expiry_evidence"
+                    : mode === "evidence"
+                      ? "evidence"
+                      : "allocation",
               },
             ]);
-            return;
+            break;
           }
-          setOptionalItemPhotoUrl(res.publicUrl);
-        } else if (mode === "expiry_evidence") {
-          const nextUrls: string[] = [...expiryEvidenceUrls];
-          for (const file of Array.from(files)) {
-            if (nextUrls.length >= 5) break;
-            const fd = new FormData();
-            fd.append("file", file);
-            fd.append("bucket", "media");
-            fd.append("folder", "packages");
-            fd.append("organization_id", oid);
-            const res = await uploadMediaFileAction(fd);
-            if (!res.ok) {
-              showValidationIssues([
-                {
-                  code: "upload_expiry_evidence",
-                  title: "Upload failed",
-                  message: res.error,
-                  target: "evidence",
-                },
-              ]);
-              break;
-            }
-            nextUrls.push(res.publicUrl);
-          }
-          setExpiryEvidenceUrls(nextUrls);
-        } else {
-          const nextUrls: string[] = [...evidenceUrls];
-          for (const file of Array.from(files)) {
-            if (nextUrls.length >= 12) break;
-            const fd = new FormData();
-            fd.append("file", file);
-            fd.append("bucket", "media");
-            fd.append("folder", "packages");
-            fd.append("organization_id", oid);
-            const res = await uploadMediaFileAction(fd);
-            if (!res.ok) {
-              showValidationIssues([
-                {
-                  code: "upload_evidence",
-                  title: "Upload failed",
-                  message: res.error,
-                  target: "evidence",
-                },
-              ]);
-              break;
-            }
-            nextUrls.push(res.publicUrl);
-          }
-          setEvidenceUrls(nextUrls);
+          applyUploadedPhoto(mode, res.publicUrl, replaceTarget);
+          if (replacing) break;
         }
       } finally {
         setUploading(false);
@@ -1072,26 +1251,42 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
         }
       }
     },
-    [evidenceUrls, organizationId, showValidationIssues],
+    [
+      applyUploadedPhoto,
+      evidenceUrls.length,
+      expiryEvidenceUrls.length,
+      optionalItemPhotoUrls.length,
+      organizationId,
+      photoReplaceUrl,
+      showValidationIssues,
+    ],
   );
 
   const performSave = useCallback(async () => {
     const tags = normalizeItemUnitDiscrepancySelection(selectedTags);
-    const gallery = [...evidenceUrls];
-    if (optionalItemPhotoUrl) gallery.push(optionalItemPhotoUrl);
     const batchQty = !isEditMode && addMode === "batch" ? effectiveBatchQuantity : 1;
+    const parsedEditQty = Math.max(1, Math.floor(Number(editScannedQty) || 1));
 
     const saveResult = await onSave({
       scannedBarcode: barcode.trim(),
       discrepancyTags: tags,
       expiryDate: hasExpiredTag ? expiryDate.trim() || null : noExpiryChecked ? null : expiryDate.trim() || null,
       lotNumber: hasExpiredTag || !noExpiryChecked ? lotNumber.trim() || null : null,
-      evidenceUrls: gallery,
-      expiryEvidenceUrls: [...expiryEvidenceUrls],
+      evidenceUrls: capScannerPhotoUrls(evidenceUrls),
+      expiryEvidenceUrls: capScannerPhotoUrls(expiryEvidenceUrls),
       traceabilityRequired: hasExpiredTag || !noExpiryChecked,
-      optionalItemPhotoUrl,
+      optionalItemPhotoUrls: capScannerPhotoUrls(optionalItemPhotoUrls),
       operatorNotes: operatorNotes.trim() || null,
       batchQuantity: batchQty > 1 ? batchQty : undefined,
+      editScannedQuantity:
+        isEditMode && quantityEditEnabled && parsedEditQty > 0 ? parsedEditQty : undefined,
+      correctedResolvedProductId: (() => {
+        if (!isEditMode) return undefined;
+        const nextId = String(displayLinkage?.resolved_product_id ?? "").trim();
+        const prevId = String(productLinkage?.resolved_product_id ?? "").trim();
+        if (!nextId || !isUuidString(nextId) || nextId === prevId) return undefined;
+        return nextId;
+      })(),
     });
     if (!saveResult.ok) {
       playScannerFeedback("error");
@@ -1117,7 +1312,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     selectedTags,
     evidenceUrls,
     expiryEvidenceUrls,
-    optionalItemPhotoUrl,
+    optionalItemPhotoUrls,
     operatorNotes,
     expiryDate,
     lotNumber,
@@ -1225,6 +1420,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             type="button"
             disabled={busy}
             onClick={() => {
+              if (photoRemoveTarget) {
+                setPhotoRemoveTarget(null);
+                return;
+              }
               if (deleteConfirmOpen) {
                 setDeleteConfirmOpen(false);
                 return;
@@ -1351,6 +1550,26 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               </p>
             ) : null}
           </form>
+
+          {isEditMode && quantityEditEnabled ? (
+            <div className="operator-item-unit-record-modal__qty-edit mt-3 rounded-xl border px-3 py-3">
+              <label className="operator-item-unit-record-modal__section-label text-xs font-semibold uppercase tracking-wider">
+                Scanned quantity
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                step={1}
+                inputMode="numeric"
+                disabled={busy}
+                value={editScannedQty}
+                onChange={(e) => setEditScannedQty(e.target.value.replace(/[^\d]/g, ""))}
+                className="operator-item-unit-record-modal__qty-input mt-2 h-11 w-full rounded-xl border-2 px-3 text-[15px] font-bold tabular-nums outline-none"
+                aria-label="Scanned quantity"
+              />
+            </div>
+          ) : null}
 
           {!isEditMode && hasItemIdentityForBatch ? (
             <div className="operator-item-unit-record-modal__batch-section mt-4 rounded-xl border px-3 py-3">
@@ -1584,8 +1803,12 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             </p>
           ) : null}
 
-          <div className="mt-4">
-            <p className="operator-item-unit-record-modal__heading text-[11px] font-bold">Optional item photo (optional)</p>
+          <div className="mt-3">
+            <ScannerPhotoSectionHeader
+              title="Optional item photo"
+              helperText={PHOTO_SECTION_HELPER.optional}
+              count={optionalItemPhotoUrls.length}
+            />
             <input
               ref={optionalCameraInputRef}
               type="file"
@@ -1605,27 +1828,38 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               aria-hidden
               onChange={(e) => void uploadFiles(e.target.files, "optional")}
             />
-            <button
-              type="button"
-              disabled={busy || uploadingOptionalPhoto}
-              onClick={openOptionalPhotoMenu}
-              className="operator-item-unit-record-modal__dropzone mt-2 flex min-h-[52px] w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-2 py-2 text-[10px] font-semibold transition disabled:opacity-40"
-            >
-              {uploadingOptionalPhoto ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                <ImagePlus className="h-4 w-4 opacity-80" aria-hidden />
-              )}
-              {optionalItemPhotoUrl ? "Photo attached — tap to replace" : "Take or upload optional photo"}
-            </button>
+            {optionalItemPhotoUrls.length < OPERATOR_SCANNER_PHOTO_SECTION_MAX ? (
+              <ScannerPhotoAddButton
+                label="Add optional photo"
+                disabled={busy}
+                uploading={uploadingOptionalPhoto}
+                onClick={openOptionalPhotoMenu}
+              />
+            ) : null}
+            {optionalItemPhotoUrls.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {optionalItemPhotoUrls.map((u, i) => (
+                  <ItemUnitPhotoThumb
+                    key={u}
+                    url={u}
+                    alt="Optional item photo"
+                    busy={busy || uploadingOptionalPhoto}
+                    onPreview={() => openPhotoPreview(optionalItemPhotoUrls, i, "Optional item photo")}
+                    onReplace={() => openReplacePhotoMenu("optional", u)}
+                    onRemove={() => handleRequestPhotoRemove("optional", u)}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {needsEvidence ? (
-            <div className="mt-5">
-              <p className="operator-item-unit-record-modal__heading text-[12px] font-bold">Issue evidence</p>
-              <p className="operator-item-unit-record-modal__muted mt-1 text-[10px] font-semibold">
-                Capture at least one photo that shows the specific problem before saving.
-              </p>
+            <div className="mt-3">
+              <ScannerPhotoSectionHeader
+                title="Issue evidence"
+                helperText={PHOTO_SECTION_HELPER.evidence}
+                count={evidenceUrls.length}
+              />
               <input
                 ref={evidenceCameraInputRef}
                 type="file"
@@ -1646,37 +1880,35 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 aria-hidden
                 onChange={(e) => void uploadFiles(e.target.files, "evidence")}
               />
-              <button
-                type="button"
-                disabled={busy || uploadingEvidence}
-                onClick={openEvidencePhotoMenu}
-                className="operator-item-unit-record-modal__evidence-btn mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-bold transition disabled:opacity-40"
-              >
-                {uploadingEvidence ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Camera className="h-5 w-5" strokeWidth={2} />
-                )}
-                Capture evidence photo
-              </button>
+              {evidenceUrls.length < OPERATOR_SCANNER_PHOTO_SECTION_MAX ? (
+                <ScannerPhotoAddButton
+                  label={evidenceUrls.length > 0 ? "Add evidence photo" : "Capture evidence photo"}
+                  disabled={busy}
+                  uploading={uploadingEvidence}
+                  onClick={openEvidencePhotoMenu}
+                />
+              ) : null}
               {evidenceUrls.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {evidenceUrls.map((u) => (
-                    <img
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {evidenceUrls.map((u, i) => (
+                    <ItemUnitPhotoThumb
                       key={u}
-                      src={u}
-                      alt=""
-                      className="h-12 w-12 shrink-0 rounded-md border border-white/10 object-cover"
+                      url={u}
+                      alt="Issue evidence photo"
+                      busy={busy || uploadingEvidence}
+                      onPreview={() => openPhotoPreview(evidenceUrls, i, "Issue evidence photo")}
+                      onReplace={() => openReplacePhotoMenu("evidence", u)}
+                      onRemove={() => handleRequestPhotoRemove("evidence", u)}
                     />
                   ))}
                 </div>
               ) : (
                 <>
-                  <p className="operator-item-unit-record-modal__evidence-warn mt-2 text-[11px] font-semibold">
+                  <p className="operator-item-unit-record-modal__evidence-warn mt-1.5 text-[11px] font-semibold">
                     No photos yet — required for this condition.
                   </p>
                   {evidenceInlineError ? (
-                    <p className="operator-item-unit-record-modal__local-error mt-2 rounded-lg border px-3 py-2 text-[11px] font-semibold">
+                    <p className="operator-item-unit-record-modal__local-error mt-1.5 rounded-lg border px-3 py-2 text-[11px] font-semibold">
                       {evidenceInlineError}
                     </p>
                   ) : null}
@@ -1687,11 +1919,12 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
 
           {/* Separate expiry photo section — only when "Expired" tag is selected */}
           {hasExpiredTag ? (
-            <div className="mt-5">
-              <p className="operator-item-unit-record-modal__heading text-[12px] font-bold">Expiry date photo</p>
-              <p className="operator-item-unit-record-modal__muted mt-1 text-[10px] font-semibold">
-                Capture at least one photo showing the expiry date on the packaging before saving.
-              </p>
+            <div className="mt-3">
+              <ScannerPhotoSectionHeader
+                title="Expiry date photo"
+                helperText={PHOTO_SECTION_HELPER.expiry}
+                count={expiryEvidenceUrls.length}
+              />
               <input
                 ref={expiryEvidenceCameraInputRef}
                 type="file"
@@ -1706,47 +1939,51 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 ref={expiryEvidenceUploadInputRef}
                 type="file"
                 accept="image/*"
-                multiple
                 className="sr-only"
                 tabIndex={-1}
                 aria-hidden
                 onChange={(e) => void uploadFiles(e.target.files, "expiry_evidence")}
               />
-              <button
-                type="button"
-                disabled={busy || uploadingExpiryEvidence}
-                onClick={openExpiryEvidencePhotoMenu}
-                className="operator-item-unit-record-modal__evidence-btn mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-bold transition disabled:opacity-40"
-              >
-                {uploadingExpiryEvidence ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Camera className="h-5 w-5" strokeWidth={2} />
-                )}
-                Capture expiry photo
-              </button>
+              {expiryEvidenceUrls.length < OPERATOR_SCANNER_PHOTO_SECTION_MAX ? (
+                <ScannerPhotoAddButton
+                  label={expiryEvidenceUrls.length > 0 ? "Add expiry photo" : "Capture expiry photo"}
+                  disabled={busy}
+                  uploading={uploadingExpiryEvidence}
+                  onClick={openExpiryEvidencePhotoMenu}
+                />
+              ) : null}
               {expiryEvidenceUrls.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {expiryEvidenceUrls.map((u) => (
-                    <img
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {expiryEvidenceUrls.map((u, i) => (
+                    <ItemUnitPhotoThumb
                       key={u}
-                      src={u}
-                      alt=""
-                      className="h-12 w-12 shrink-0 rounded-md border border-white/10 object-cover"
+                      url={u}
+                      alt="Expiry date photo"
+                      busy={busy || uploadingExpiryEvidence}
+                      onPreview={() => openPhotoPreview(expiryEvidenceUrls, i, "Expiry date photo")}
+                      onReplace={() => openReplacePhotoMenu("expiry_evidence", u)}
+                      onRemove={() => handleRequestPhotoRemove("expiry_evidence", u)}
                     />
                   ))}
                 </div>
               ) : (
-                <p className="operator-item-unit-record-modal__evidence-warn mt-2 text-[11px] font-semibold">
-                  No expiry photo yet — required when Expired is selected.
-                </p>
+                <>
+                  <p className="operator-item-unit-record-modal__evidence-warn mt-1.5 text-[11px] font-semibold">
+                    No expiry photo yet — required when Expired is selected.
+                  </p>
+                  {expiryEvidenceInlineError ? (
+                    <p className="operator-item-unit-record-modal__local-error mt-1.5 rounded-lg border px-3 py-2 text-[11px] font-semibold">
+                      {expiryEvidenceInlineError}
+                    </p>
+                  ) : null}
+                </>
               )}
             </div>
           ) : null}
 
           {offSlipWarning && !allocationInlineError ? (
             <div
-              className="operator-item-unit-record-modal__allocation-warn mt-4 rounded-lg border px-3 py-2 text-[12px] font-semibold leading-snug"
+              className="operator-item-unit-record-modal__allocation-warn mt-3 rounded-lg border px-3 py-2 text-[12px] font-semibold leading-snug"
               role="status"
             >
               <p className="operator-item-unit-record-modal__allocation-warn-title text-[13px] font-black">
@@ -1756,28 +1993,28 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             </div>
           ) : null}
           {allocationInlineError ? (
-            <p className="operator-item-unit-record-modal__local-error mt-4 rounded-lg border px-3 py-2 text-[12px] font-semibold">
+            <p className="operator-item-unit-record-modal__local-error mt-3 rounded-lg border px-3 py-2 text-[12px] font-semibold">
               {allocationInlineError}
             </p>
           ) : null}
-        </div>
 
-        <div className="operator-item-unit-record-modal__notes-footer shrink-0 border-t px-4 pt-3 pb-2">
-          <label
-            htmlFor="item-unit-operator-notes"
-            className="operator-item-unit-record-modal__section-label text-xs font-semibold uppercase tracking-wider block mb-2"
-          >
-            Operator Notes (Optional)
-          </label>
-          <textarea
-            id="item-unit-operator-notes"
-            value={operatorNotes}
-            disabled={busy}
-            onChange={(e) => setOperatorNotes(e.target.value)}
-            rows={2}
-            placeholder="Type any additional details or notes here..."
-            className="operator-item-unit-record-modal__notes-input w-full min-h-[72px] resize-y rounded-xl border px-4 py-3 text-sm focus:outline-none disabled:opacity-40 transition-all"
-          />
+          <div className="operator-item-unit-record-modal__notes-section mt-4 border-t pt-3">
+            <label
+              htmlFor="item-unit-operator-notes"
+              className="operator-item-unit-record-modal__section-label text-xs font-semibold uppercase tracking-wider block mb-2"
+            >
+              Operator Notes (Optional)
+            </label>
+            <textarea
+              id="item-unit-operator-notes"
+              value={operatorNotes}
+              disabled={busy}
+              onChange={(e) => setOperatorNotes(e.target.value)}
+              rows={2}
+              placeholder="Type any additional details or notes here..."
+              className="operator-item-unit-record-modal__notes-input w-full min-h-[64px] resize-y rounded-xl border px-4 py-2.5 text-sm focus:outline-none disabled:opacity-40 transition-all"
+            />
+          </div>
         </div>
 
         <div className="operator-item-unit-record-modal__footer shrink-0 border-t p-4">
@@ -1826,6 +2063,14 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 type="button"
                 disabled={busy}
                 onClick={() => {
+                  if (photoPreview) {
+                    setPhotoPreview(null);
+                    return;
+                  }
+                  if (photoRemoveTarget) {
+                    setPhotoRemoveTarget(null);
+                    return;
+                  }
                   if (deleteConfirmOpen) {
                     setDeleteConfirmOpen(false);
                     return;
@@ -1890,6 +2135,53 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           )
         : null}
 
+      {typeof document !== "undefined" && photoRemoveTarget
+        ? createPortal(
+            <div
+              className="operator-shipment-flow-modal fixed inset-0 z-[210] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="item-unit-photo-remove-title"
+            >
+              <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+                <p
+                  id="item-unit-photo-remove-title"
+                  className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+                >
+                  Remove this photo?
+                </p>
+                <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+                  This removes the photo from this item only. Other photo sections are not affected.
+                </p>
+                <OperatorScannerFooterActions
+                  className="mt-6"
+                  primary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-red-950/30 dark:text-red-300"
+                      onClick={handleConfirmPhotoRemove}
+                    >
+                      Remove photo
+                    </button>
+                  }
+                  secondary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:opacity-40"
+                      onClick={() => setPhotoRemoveTarget(null)}
+                    >
+                      Cancel
+                    </button>
+                  }
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
       {typeof document !== "undefined" && deleteConfirmOpen
         ? createPortal(
             <div
@@ -1941,7 +2233,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
 
       <ScannerPhotoActionSheet
         open={photoMenuTarget !== null}
-        onClose={() => setPhotoMenuTarget(null)}
+        onClose={() => {
+          setPhotoMenuTarget(null);
+          setPhotoReplaceUrl(null);
+        }}
         onTakePhoto={() => {
           const target = photoMenuTarget;
           setPhotoMenuTarget(null);
@@ -1974,6 +2269,14 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
               : "Issue evidence photo"
         }
       />
+
+      {typeof document !== "undefined" && photoPreview ? (
+        <ScannerPhotoLightbox
+          photos={photoPreview.urls.map((src) => ({ src, label: photoPreview.title }))}
+          startIdx={photoPreview.index}
+          onClose={() => setPhotoPreview(null)}
+        />
+      ) : null}
     </div>
   );
 }

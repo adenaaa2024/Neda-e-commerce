@@ -25,7 +25,11 @@ export type AllocationErrorContext = {
 
 /** True when RPC / allocation helper reports no open parent `expected_packages` row to receive against. */
 export function isNoAllocatableExpectedAllocationError(message: string): boolean {
-  return /no_allocatable_expected/i.test(String(message ?? ""));
+  const m = String(message ?? "");
+  return (
+    /no_allocatable_expected/i.test(m) ||
+    /no remaining allocatable expected quantity/i.test(m)
+  );
 }
 
 export function humanizeExpectedAllocationError(

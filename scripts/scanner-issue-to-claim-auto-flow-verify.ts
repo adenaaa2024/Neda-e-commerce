@@ -166,7 +166,7 @@ async function main(): Promise<void> {
     quantity: 1,
     discrepancyTags: ["damaged_product"],
     evidenceUrls: [TEST_PHOTO_URL],
-    optionalItemPhotoUrl: TEST_PHOTO_URL,
+    optionalItemPhotoUrls: [TEST_PHOTO_URL],
     operatorNotes: `${SMOKE_TAG} ${rid}`,
     looseItem: true,
   };

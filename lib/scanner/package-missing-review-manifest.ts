@@ -110,14 +110,22 @@ export function readMissingReviewEntries(raw: unknown): OperatorMissingReviewEnt
   return out;
 }
 
+/** Manifest missing-review entry for one slip line, if present. */
+export function missingReviewEntryForSlip(
+  raw: unknown,
+  slipContentId: string | null | undefined,
+): OperatorMissingReviewEntry | undefined {
+  const slipId = String(slipContentId ?? "").trim();
+  if (!slipId) return undefined;
+  return readMissingReviewEntries(raw).find((e) => e.slip_content_id === slipId);
+}
+
 /** Recorded missing qty for one slip line from manifest; `undefined` when no manifest entry. */
 export function missingReviewRecordedQtyForSlip(
   raw: unknown,
   slipContentId: string | null | undefined,
 ): number | undefined {
-  const slipId = String(slipContentId ?? "").trim();
-  if (!slipId) return undefined;
-  const entry = readMissingReviewEntries(raw).find((e) => e.slip_content_id === slipId);
+  const entry = missingReviewEntryForSlip(raw, slipContentId);
   if (!entry) return undefined;
   return Math.min(entry.expected_qty, entry.operator_marked_missing_qty);
 }
@@ -182,6 +190,26 @@ export function mergePackageManifestMissingReview(
     [PACKAGE_EMPTY_BOX_MANIFEST_KEY]: {
       ...prior,
       missing_review: [...bySlip.values()],
+    },
+  };
+}
+
+/** Remove one slip line's missing-review entry; preserves other manifest keys. */
+export function removeMissingReviewEntryFromManifest(
+  existingManifest: unknown,
+  slipContentId: string,
+): Record<string, unknown> {
+  const md = parseManifestObject(existingManifest);
+  const prior = readOperatorItemScanBlock(existingManifest);
+  const slipId = String(slipContentId ?? "").trim();
+  const remaining = readMissingReviewEntries(existingManifest).filter(
+    (e) => e.slip_content_id !== slipId,
+  );
+  return {
+    ...md,
+    [PACKAGE_EMPTY_BOX_MANIFEST_KEY]: {
+      ...prior,
+      missing_review: remaining,
     },
   };
 }

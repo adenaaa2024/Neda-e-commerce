@@ -18,13 +18,20 @@ import {
   type PackageItemScanEvidenceRefs,
 } from "@/lib/scanner/package-empty-box-manifest";
 import {
+  mergePackageManifestReceiveReopen,
+  packageReceiveStateIsFinalized,
+} from "@/lib/scanner/package-receive-state-contract";
+import { manualOverrideReturnItemProductResolution } from "@/app/scanner/operator-mobile/item-actions";
+import {
   buildOperatorMissingReviewEntry,
   detectMissingReviewConflicts,
   mergePackageManifestMissingReview,
   mergePackageManifestMissingReviewConflicts,
   mergePackageManifestShortageFinalize,
+  missingReviewEntryForSlip,
   missingReviewRecordedQtyForSlip,
   readMissingReviewEntries,
+  removeMissingReviewEntryFromManifest,
   type OperatorMissingReviewEntry,
 } from "@/lib/scanner/package-missing-review-manifest";
 import type { OperatorStoreOption } from "@/lib/scanner/operator-session";
@@ -61,6 +68,7 @@ import {
   humanizeExpectedAllocationError,
   isNoAllocatableExpectedAllocationError,
   moveExpectedItemsForPackageScope,
+  releaseExpectedItemUnit,
   releaseExpectedItemsForPackage,
   resolveAllocatableExpectedPackageHint,
   softVoidPalletWithExpectedRelease,
@@ -91,9 +99,8 @@ import { promoteScannerReturnItemToClaimStructures } from "@/lib/scanner-operato
 import { isExpectedScannerClaimPromoteSkipReason } from "@/lib/scanner-claim-promote-guard";
 import { RETURN_ITEMS_TABLE } from "@/app/returns/returns-constants";
 import {
-  mergeReturnPhotoEvidence,
-  getReturnPhotoEvidenceGalleryUrls,
-  getReturnPhotoEvidenceUrls,
+  buildOperatorItemUnitPhotoEvidence,
+  splitOperatorItemUnitPhotos,
   type ReturnPhotoEvidenceRow,
 } from "@/lib/return-photo-evidence";
 import {
@@ -2053,7 +2060,10 @@ export type OperatorPackageItemRow = {
   expiry_date: string | null;
   lot_number: string | null;
   evidence_urls: string[] | null;
+  /** Expiry label photos (`photo_evidence.expiry_url`). */
+  expiry_evidence_urls: string[] | null;
   optional_item_photo_url: string | null;
+  optional_item_photo_urls: string[] | null;
   operator_notes: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -2175,7 +2185,9 @@ export async function listOperatorPackageItemsForPackageAction(
     expiry_date: string | null;
     lot_number: string | null;
     evidence_urls: string[] | null;
+    expiry_evidence_urls: string[] | null;
     optional_item_photo_url: string | null;
+    optional_item_photo_urls: string[] | null;
     operator_notes: string | null;
     created_at: string | null;
     updated_at: string | null;
@@ -2205,10 +2217,8 @@ export async function listOperatorPackageItemsForPackageAction(
       ? row.conditions.map((x) => String(x ?? "").trim()).filter(Boolean)
       : null;
     const pe = (row.photo_evidence ?? null) as ReturnPhotoEvidenceRow;
-    const urlSlots = getReturnPhotoEvidenceUrls(pe);
-    const optionalItem =
-      urlSlots.item_url && /^https?:\/\//i.test(urlSlots.item_url) ? urlSlots.item_url : null;
-    const ev = getReturnPhotoEvidenceGalleryUrls(pe);
+    const hasExpiredTag = (dt ?? []).includes("expired");
+    const splitPhotos = splitOperatorItemUnitPhotos(pe, { hasExpiredTag });
     const exp =
       row.expiration_date === null || row.expiration_date === undefined
         ? null
@@ -2227,8 +2237,12 @@ export async function listOperatorPackageItemsForPackageAction(
       discrepancy_tags: dt?.length ? dt : null,
       expiry_date: exp,
       lot_number: lot?.length ? lot : null,
-      evidence_urls: ev.length ? ev : null,
-      optional_item_photo_url: optionalItem,
+      evidence_urls: splitPhotos.evidenceUrls.length ? splitPhotos.evidenceUrls : null,
+      expiry_evidence_urls: splitPhotos.expiryEvidenceUrls.length ? splitPhotos.expiryEvidenceUrls : null,
+      optional_item_photo_url: splitPhotos.optionalItemPhotoUrl,
+      optional_item_photo_urls: splitPhotos.optionalItemPhotoUrls.length
+        ? splitPhotos.optionalItemPhotoUrls
+        : null,
       operator_notes,
       created_at:
         typeof row.created_at === "string" && row.created_at.trim() ? row.created_at.trim() : null,
@@ -2333,7 +2347,11 @@ export type InsertOperatorPackageItemInput = {
   expiryDate?: string | null;
   lotNumber?: string | null;
   evidenceUrls?: string[] | null;
-  /** Optional item photo URL (stored in `photo_evidence.item_url`). */
+  /** Expiry label photos (`photo_evidence.expiry_url`). */
+  expiryEvidenceUrls?: string[] | null;
+  /** Optional item photos (stored in `photo_evidence.item_url` + `item_urls`). */
+  optionalItemPhotoUrls?: string[] | null;
+  /** Legacy single optional photo — merged into `optionalItemPhotoUrls`. */
   optionalItemPhotoUrl?: string | null;
   /** When true, expiry date + lot # are required (perishable / grocery path). */
   traceabilityRequired?: boolean;
@@ -2371,9 +2389,21 @@ function normalizeEvidenceUrls(raw: unknown): string[] {
   const out: string[] = [];
   for (const u of raw) {
     const s = String(u ?? "").trim().slice(0, 2000);
-    if (s && /^https?:\/\//i.test(s) && out.length < 24) out.push(s);
+    if (s && /^https?:\/\//i.test(s) && out.length < 3) out.push(s);
   }
   return out;
+}
+
+function normalizeOptionalItemPhotoUrls(
+  urls: unknown,
+  legacySingle?: string | null | undefined,
+): string[] {
+  const merged = normalizeEvidenceUrls(urls);
+  const legacy = String(legacySingle ?? "").trim();
+  if (legacy && /^https?:\/\//i.test(legacy) && !merged.includes(legacy)) {
+    return normalizeEvidenceUrls([legacy, ...merged]);
+  }
+  return merged;
 }
 
 function normalizeOptionalDate(raw: string | null | undefined): string | null {
@@ -2991,12 +3021,24 @@ export async function insertOperatorPackageItemAction(
   }
 
   const itemName = (slipDescription || "Scanned unit").slice(0, 500);
-  const optionalItemUrl = String(input.optionalItemPhotoUrl ?? "").trim();
+  const optionalItemPhotoUrls = normalizeOptionalItemPhotoUrls(
+    input.optionalItemPhotoUrls,
+    input.optionalItemPhotoUrl,
+  );
   const returnLabelUrl = String(input.returnLabelPhotoUrl ?? "").trim();
-  const urlSlots: Partial<Record<"item_url" | "return_label_url", string>> = {};
-  if (optionalItemUrl && /^https?:\/\//i.test(optionalItemUrl)) urlSlots.item_url = optionalItemUrl;
-  if (returnLabelUrl && /^https?:\/\//i.test(returnLabelUrl)) urlSlots.return_label_url = returnLabelUrl;
-  const photo_evidence = mergeReturnPhotoEvidence(null, urlSlots, { galleryUrls: evidence });
+  const expiryEvidence = normalizeEvidenceUrls(input.expiryEvidenceUrls);
+  const hasExpiredTag = tags.includes("expired");
+  if (hasExpiredTag && expiryEvidence.length === 0) {
+    return { ok: false, message: "Expiry photo is required when Expired is selected." };
+  }
+  let photo_evidence = buildOperatorItemUnitPhotoEvidence({
+    evidenceUrls: evidence,
+    expiryEvidenceUrls: expiryEvidence,
+    optionalItemPhotoUrls,
+  });
+  if (returnLabelUrl && /^https?:\/\//i.test(returnLabelUrl)) {
+    photo_evidence = { ...(photo_evidence ?? {}), return_label_url: returnLabelUrl };
+  }
 
   const saveAsOffSlip = Boolean(input.saveAsOffSlip);
   const operatorNotesRaw = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
@@ -3309,12 +3351,24 @@ export async function insertOperatorPackageItemBatchAction(
   }
 
   const itemName = (slipDescription || "Scanned unit").slice(0, 500);
-  const optionalItemUrl = String(input.optionalItemPhotoUrl ?? "").trim();
+  const optionalItemPhotoUrls = normalizeOptionalItemPhotoUrls(
+    input.optionalItemPhotoUrls,
+    input.optionalItemPhotoUrl,
+  );
   const returnLabelUrl = String(input.returnLabelPhotoUrl ?? "").trim();
-  const urlSlots: Partial<Record<"item_url" | "return_label_url", string>> = {};
-  if (optionalItemUrl && /^https?:\/\//i.test(optionalItemUrl)) urlSlots.item_url = optionalItemUrl;
-  if (returnLabelUrl && /^https?:\/\//i.test(returnLabelUrl)) urlSlots.return_label_url = returnLabelUrl;
-  const photo_evidence = mergeReturnPhotoEvidence(null, urlSlots, { galleryUrls: evidence });
+  const expiryEvidence = normalizeEvidenceUrls(input.expiryEvidenceUrls);
+  const hasExpiredTag = tags.includes("expired");
+  if (hasExpiredTag && expiryEvidence.length === 0) {
+    return { ok: false, message: "Expiry photo is required when Expired is selected." };
+  }
+  let photo_evidence = buildOperatorItemUnitPhotoEvidence({
+    evidenceUrls: evidence,
+    expiryEvidenceUrls: expiryEvidence,
+    optionalItemPhotoUrls,
+  });
+  if (returnLabelUrl && /^https?:\/\//i.test(returnLabelUrl)) {
+    photo_evidence = { ...(photo_evidence ?? {}), return_label_url: returnLabelUrl };
+  }
 
   const operatorNotesRaw = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
 
@@ -3836,6 +3890,8 @@ export type UpdateOperatorPackageItemInput = {
   expiryDate?: string | null;
   lotNumber?: string | null;
   evidenceUrls?: string[] | null;
+  expiryEvidenceUrls?: string[] | null;
+  optionalItemPhotoUrls?: string[] | null;
   optionalItemPhotoUrl?: string | null;
   traceabilityRequired?: boolean;
   operatorNotes?: string | null;
@@ -3903,10 +3959,20 @@ export async function updateOperatorPackageItemAction(
     return { ok: false, message: "Expiration date is required for this item." };
   }
 
-  const optionalItemUrl = String(input.optionalItemPhotoUrl ?? "").trim();
-  const urlSlots: Partial<Record<"item_url", string>> = {};
-  if (optionalItemUrl && /^https?:\/\//i.test(optionalItemUrl)) urlSlots.item_url = optionalItemUrl;
-  const photo_evidence = mergeReturnPhotoEvidence(null, urlSlots, { galleryUrls: evidence });
+  const optionalItemPhotoUrls = normalizeOptionalItemPhotoUrls(
+    input.optionalItemPhotoUrls,
+    input.optionalItemPhotoUrl,
+  );
+  const expiryEvidence = normalizeEvidenceUrls(input.expiryEvidenceUrls);
+  const hasExpiredTag = tags.includes("expired");
+  if (hasExpiredTag && expiryEvidence.length === 0) {
+    return { ok: false, message: "Expiry photo is required when Expired is selected." };
+  }
+  const photo_evidence = buildOperatorItemUnitPhotoEvidence({
+    evidenceUrls: evidence,
+    expiryEvidenceUrls: expiryEvidence,
+    optionalItemPhotoUrls,
+  });
 
   const operatorNotes = String(input.operatorNotes ?? "").trim().slice(0, 2000) || null;
 
@@ -4280,6 +4346,210 @@ export async function markOperatorSlipMissingExpectedAction(
   return { ok: true, updated: newEntries.length };
 }
 
+export type UndoOperatorSlipMissingReviewInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  storeId?: string | null;
+  slipContentId: string;
+};
+
+/** Remove one slip line's operator missing-review metadata entry (no return_items changes). */
+export async function undoOperatorSlipMissingReviewAction(
+  input: UndoOperatorSlipMissingReviewInput,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const slipId = String(input.slipContentId ?? "").trim();
+  if (!isUuidString(slipId)) {
+    return { ok: false, message: "Invalid slip line id." };
+  }
+
+  const { data: pkgRow, error: pkgErr } = await supabaseServer
+    .from("packages")
+    .select("id, store_id, manifest_data")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgErr) return { ok: false, message: pkgErr.message };
+  if (!pkgRow) return { ok: false, message: "Package not found for this organization." };
+
+  const scope = String(input.storeId ?? "").trim();
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  const manifestData = (pkgRow as { manifest_data?: unknown }).manifest_data;
+  if (!missingReviewEntryForSlip(manifestData, slipId)) {
+    return { ok: false, message: "No missing review entry on this slip line." };
+  }
+
+  const markedAt = new Date().toISOString();
+  const manifest_data = removeMissingReviewEntryFromManifest(manifestData, slipId);
+  const { error: updErr } = await supabaseServer
+    .from("packages")
+    .update({ manifest_data, updated_at: markedAt })
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId);
+  if (updErr) return { ok: false, message: updErr.message };
+
+  return { ok: true };
+}
+
+export type EditOperatorSlipMissingReviewInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  storeId?: string | null;
+  slipContentId: string;
+  operatorMarkedMissingQty: number;
+  note?: string | null;
+};
+
+/**
+ * Update operator missing-review metadata for one slip line.
+ * `operatorMarkedMissingQty` of 0 removes the entry (same as undo).
+ */
+export async function editOperatorSlipMissingReviewAction(
+  input: EditOperatorSlipMissingReviewInput,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const slipId = String(input.slipContentId ?? "").trim();
+  if (!isUuidString(slipId)) {
+    return { ok: false, message: "Invalid slip line id." };
+  }
+
+  const qty = Math.max(0, Math.floor(Number(input.operatorMarkedMissingQty ?? 0)));
+  if (!Number.isFinite(Number(input.operatorMarkedMissingQty))) {
+    return { ok: false, message: "Invalid marked missing quantity." };
+  }
+
+  const { data: pkgRow, error: pkgErr } = await supabaseServer
+    .from("packages")
+    .select("id, store_id, manifest_data")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgErr) return { ok: false, message: pkgErr.message };
+  if (!pkgRow) return { ok: false, message: "Package not found for this organization." };
+
+  const scope = String(input.storeId ?? "").trim();
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  const manifestData = (pkgRow as { manifest_data?: unknown }).manifest_data;
+  if (!missingReviewEntryForSlip(manifestData, slipId)) {
+    return { ok: false, message: "No missing review entry on this slip line." };
+  }
+
+  const markedAt = new Date().toISOString();
+
+  if (qty === 0) {
+    const manifest_data = removeMissingReviewEntryFromManifest(manifestData, slipId);
+    const { error: updErr } = await supabaseServer
+      .from("packages")
+      .update({ manifest_data, updated_at: markedAt })
+      .eq("id", pkgId)
+      .eq("organization_id", organizationId);
+    if (updErr) return { ok: false, message: updErr.message };
+    return { ok: true };
+  }
+
+  const slipSelectAttempts = [
+    "id, quantity, fnsku, upc, parsed_asin, sku, resolved_product_id, expected_item_id",
+    "id, quantity, fnsku, upc, resolved_product_id",
+    "id, quantity, fnsku, upc",
+    "id, quantity",
+  ];
+  let slipRes: { data: unknown; error: { message: string } | null } | null = null;
+  for (const sel of slipSelectAttempts) {
+    const r = await supabaseServer
+      .from("slip_contents")
+      .select(sel)
+      .eq("package_id", pkgId)
+      .eq("id", slipId)
+      .maybeSingle();
+    slipRes = r;
+    if (!r.error) break;
+  }
+  if (!slipRes || slipRes.error) {
+    return { ok: false, message: slipRes?.error?.message ?? "slip_contents load failed." };
+  }
+  const row = slipRes.data as Record<string, unknown> | null;
+  if (!row) return { ok: false, message: "Slip line not found." };
+
+  const expected = Math.max(0, Math.floor(Number(row.quantity ?? 0)));
+  const riLoad = await loadPackageReturnItemsForQtyBySlip(pkgId, organizationId, false);
+  if (!riLoad.ok) return { ok: false, message: riLoad.message };
+  const slipMatchRows = slipLinesToBarcodeMatchRows([row]);
+  const { receivedBySlip } = computePackageScannedQtyBySlipFromReturnItems(riLoad.rows, slipMatchRows);
+  const received = receivedBySlip.get(slipId) ?? 0;
+  const computedMissing = Math.max(0, expected - received);
+
+  if (qty > computedMissing) {
+    return {
+      ok: false,
+      message: "Marked missing quantity cannot exceed computed missing quantity.",
+    };
+  }
+
+  const resolvedProductId = String(row.resolved_product_id ?? "").trim() || null;
+  const expectedPackageId = String(row.expected_item_id ?? "").trim() || null;
+  const asin = String(row.parsed_asin ?? "").trim() || null;
+  const fnsku = String(row.fnsku ?? "").trim() || null;
+  const sku = String(row.sku ?? "").trim() || null;
+
+  const entry = buildOperatorMissingReviewEntry({
+    slipContentId: slipId,
+    expectedPackageId,
+    resolvedProductId,
+    asin,
+    fnsku,
+    sku,
+    expectedQty: expected,
+    scannedQty: received,
+    additionalMissingQty: qty,
+    priorMarkedQty: 0,
+    markedBy: sessionUserId,
+    markedAt,
+    note: input.note ?? null,
+  });
+
+  const manifest_data = mergePackageManifestMissingReview(manifestData, [entry]);
+  const { error: updErr } = await supabaseServer
+    .from("packages")
+    .update({ manifest_data, updated_at: markedAt })
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId);
+  if (updErr) return { ok: false, message: updErr.message };
+
+  return { ok: true };
+}
+
 /**
  * Record box as empty: package-level manifest metadata only — no `return_items` rows.
  * Fails when active physical `return_items` exist for the package.
@@ -4628,5 +4898,287 @@ export async function deleteOperatorPackageItemAction(input: {
     updatedBy: actor.userId && isUuidString(actor.userId) ? actor.userId : null,
   });
   if (!voided.ok) return { ok: false, error: voided.error };
+  return { ok: true };
+}
+
+// ─── 6D receive-state correction + missing-review patch ─────────────────────
+
+export type PatchPackageMissingReviewInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  storeId?: string | null;
+  slipContentId?: string | null;
+  /** Adjust existing entry; `0` removes (undo). */
+  operatorMarkedMissingQty?: number;
+  /** Units to mark when creating a new entry. */
+  missingQty?: number;
+  note?: string | null;
+};
+
+/** 6D contract: single patch entry point for operator missing-review metadata. */
+export async function patchPackageMissingReviewAction(
+  input: PatchPackageMissingReviewInput,
+): Promise<{ ok: true; updated?: number } | { ok: false; message: string }> {
+  const pkgId = String(input.packageId ?? "").trim();
+  const slipId = String(input.slipContentId ?? "").trim();
+  const markedQtyRaw = input.operatorMarkedMissingQty;
+
+  if (markedQtyRaw != null && Number.isFinite(Number(markedQtyRaw))) {
+    const markedQty = Math.max(0, Math.floor(Number(markedQtyRaw)));
+    if (markedQty === 0) {
+      if (!slipId || !isUuidString(slipId)) {
+        return { ok: false, message: "Invalid slip line id." };
+      }
+      return undoOperatorSlipMissingReviewAction({
+        requestedOrganizationId: input.requestedOrganizationId,
+        packageId: pkgId,
+        storeId: input.storeId ?? null,
+        slipContentId: slipId,
+      });
+    }
+    if (!slipId || !isUuidString(slipId)) {
+      return { ok: false, message: "Invalid slip line id." };
+    }
+    const edited = await editOperatorSlipMissingReviewAction({
+      requestedOrganizationId: input.requestedOrganizationId,
+      packageId: pkgId,
+      storeId: input.storeId ?? null,
+      slipContentId: slipId,
+      operatorMarkedMissingQty: markedQty,
+      note: input.note ?? null,
+    });
+    return edited.ok ? { ok: true } : edited;
+  }
+
+  return markOperatorSlipMissingExpectedAction({
+    requestedOrganizationId: input.requestedOrganizationId,
+    packageId: pkgId,
+    storeId: input.storeId ?? null,
+    slipContentId: slipId && isUuidString(slipId) ? slipId : null,
+    missingQty: input.missingQty,
+    note: input.note ?? null,
+  });
+}
+
+export type ReopenOperatorPackageReceiveInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  storeId?: string | null;
+};
+
+/** Reopen a finalized package receive for operator correction (manifest-only state flip). */
+export async function reopenOperatorPackageReceiveAction(
+  input: ReopenOperatorPackageReceiveInput,
+): Promise<{ ok: true; receive_state: "open" } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+
+  const { data: pkgRow, error: pkgErr } = await supabaseServer
+    .from("packages")
+    .select("id, store_id, manifest_data, status")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgErr) return { ok: false, message: pkgErr.message };
+  if (!pkgRow) return { ok: false, message: "Package not found for this organization." };
+
+  const scope = String(input.storeId ?? "").trim();
+  const pkgStore = String((pkgRow as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && pkgStore && isUuidString(pkgStore) && pkgStore !== scope) {
+    return { ok: false, message: "This package belongs to another store — select the correct store." };
+  }
+
+  if (!packageReceiveStateIsFinalized((pkgRow as { manifest_data?: unknown }).manifest_data)) {
+    return { ok: false, message: "Package receive is not finalized." };
+  }
+
+  const now = new Date().toISOString();
+  const manifest_data = mergePackageManifestReceiveReopen(
+    (pkgRow as { manifest_data?: unknown }).manifest_data,
+    { reopenedAtIso: now, reopenedBy: sessionUserId },
+  );
+
+  const actor = await resolveAuditActorForSession();
+  const pkgPatch: Record<string, unknown> = {
+    manifest_data,
+    updated_at: now,
+    status: "received",
+  };
+  if (actor.userId && isUuidString(actor.userId)) pkgPatch.updated_by = actor.userId;
+
+  let { error: updErr } = await supabaseServer.from("packages").update(pkgPatch).eq("id", pkgId);
+  if (updErr && isMissingPackageStatusColumnError(updErr.message)) {
+    const { status: _s, ...withoutStatus } = pkgPatch;
+    ({ error: updErr } = await supabaseServer.from("packages").update(withoutStatus).eq("id", pkgId));
+  }
+  if (updErr) return { ok: false, message: updErr.message };
+
+  return { ok: true, receive_state: "open" };
+}
+
+export type CorrectOperatorPackageItemQuantityInput = {
+  requestedOrganizationId: string;
+  returnItemId: string;
+  storeId?: string | null;
+  scannedQuantity: number;
+};
+
+/** Correction backend: adjust `return_items.scanned_quantity` with allocation release/re-allocate. */
+export async function correctOperatorPackageItemQuantityAction(
+  input: CorrectOperatorPackageItemQuantityInput,
+): Promise<{ ok: true; scanned_quantity: number } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const returnItemId = String(input.returnItemId ?? "").trim();
+  if (!isUuidString(returnItemId)) {
+    return { ok: false, message: "Invalid return item id." };
+  }
+
+  const newQtyRaw = Number(input.scannedQuantity ?? 1);
+  const newQty = Number.isFinite(newQtyRaw) ? Math.max(1, Math.min(500, Math.floor(newQtyRaw))) : 1;
+
+  const qtySelectAttempts = [
+    "id, organization_id, store_id, package_id, scanned_quantity, quantity, expected_item_id",
+    "id, organization_id, store_id, package_id, scanned_quantity, expected_item_id",
+    "id, organization_id, store_id, package_id, scanned_quantity, quantity",
+    "id, organization_id, store_id, package_id, scanned_quantity",
+    "id, organization_id, store_id, package_id",
+  ];
+  let row: Record<string, unknown> | null = null;
+  let loadErr: { message: string } | null = null;
+  for (const sel of qtySelectAttempts) {
+    const r = await supabaseServer
+      .from(RETURN_ITEMS_TABLE)
+      .select(sel)
+      .eq("id", returnItemId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    loadErr = r.error;
+    if (!r.error && r.data && typeof r.data === "object") {
+      row = r.data as Record<string, unknown>;
+      break;
+    }
+    if (r.error && !/column.*does not exist|42703|schema cache/i.test(r.error.message)) break;
+  }
+  if (loadErr && !row) return { ok: false, message: loadErr.message };
+  if (!row) return { ok: false, message: "Scanned item not found." };
+
+  const scope = String(input.storeId ?? "").trim();
+  const rowStore = String((row as { store_id?: string | null }).store_id ?? "").trim();
+  if (scope && isUuidString(scope) && rowStore && isUuidString(rowStore) && rowStore !== scope) {
+    return { ok: false, message: "This item belongs to another store — select the correct store." };
+  }
+
+  const oldQty = returnItemUnitQty(row as Record<string, unknown>);
+  if (oldQty === newQty) {
+    return { ok: true, scanned_quantity: newQty };
+  }
+
+  const packageId = String((row as { package_id?: string | null }).package_id ?? "").trim();
+  if (String((row as { expected_item_id?: string | null }).expected_item_id ?? "").trim()) {
+    const released = await releaseExpectedItemUnit(supabaseServer, {
+      returnItemId,
+      organizationId,
+      softDelete: false,
+    });
+    if (!released.ok) return { ok: false, message: released.error };
+  }
+
+  const now = new Date().toISOString();
+  const actor = await resolveAuditActorForSession();
+  const patch: Record<string, unknown> = {
+    scanned_quantity: newQty,
+    updated_at: now,
+  };
+  if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+  const { error: upErr } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .update(patch)
+    .eq("id", returnItemId)
+    .eq("organization_id", organizationId);
+  if (upErr) {
+    const guarded = guardBatchQuantityBackendError(newQty, upErr.message);
+    return { ok: false, message: guarded ?? upErr.message };
+  }
+
+  if (packageId && isUuidString(packageId)) {
+    const pkgCtx = await fetchPackageReceiveContext(supabaseServer, packageId);
+    const receiveScopeKey = buildReceiveScopeKey({
+      organizationId,
+      storeId: rowStore,
+      packageId,
+      slipCode: pkgCtx.slipCode,
+    });
+    const alloc = await allocateExpectedItemsForReturnItemIds(supabaseServer, {
+      returnItemIds: [returnItemId],
+      receiveScopeKey,
+    });
+    if (!alloc.ok && !isNoAllocatableExpectedAllocationError(alloc.error)) {
+      return { ok: false, message: alloc.error };
+    }
+  }
+
+  await supabaseServer.from("return_audit_log").insert({
+    organization_id: organizationId,
+    return_id: returnItemId,
+    pallet_id: null,
+    action: "updated",
+    field: "scanner_quantity_correction",
+    old_value: String(oldQty),
+    new_value: String(newQty),
+    actor: sessionUserId,
+  });
+
+  return { ok: true, scanned_quantity: newQty };
+}
+
+export type CorrectOperatorPackageItemProductInput = {
+  requestedOrganizationId: string;
+  returnItemId: string;
+  resolvedProductId: string;
+  storeId?: string | null;
+};
+
+/** Correction backend: manual product resolution override (no product create/merge). */
+export async function correctOperatorPackageItemProductAction(
+  input: CorrectOperatorPackageItemProductInput,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_EDIT_ITEM);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const res = await manualOverrideReturnItemProductResolution({
+    return_item_id: input.returnItemId,
+    resolved_product_id: input.resolvedProductId,
+    actor_profile_id: sessionUserId,
+    actor: "operator_correction",
+  });
+  if (!res.ok) return { ok: false, message: res.error ?? "Product correction failed." };
   return { ok: true };
 }

@@ -2846,12 +2846,12 @@ html.light .menorix-admin-shell .cc-scroll-subtle::-webkit-scrollbar-thumb {
 
 html.dark .operator-mobile-canvas {
   --op-canvas-bg: #050607;
-  --scanner-bottom-nav-height: 4.75rem;
+  --scanner-bottom-nav-height: 3.875rem;
 }
 
 html.light .operator-mobile-canvas {
   --op-canvas-bg: #ebe7df;
-  --scanner-bottom-nav-height: 4.75rem;
+  --scanner-bottom-nav-height: 3.875rem;
 }
 
 html.dark .operator-mobile-app-shell {
@@ -2931,7 +2931,7 @@ html.light .operator-mobile-app-shell {
 
 .operator-mobile-app-shell {
   position: relative;
-  --scanner-bottom-nav-height: 4.75rem;
+  --scanner-bottom-nav-height: 3.875rem;
   /* Scan tab — stable spacing / card sizing (zoom-safe min/max, not rigid fixed heights) */
   --op-scan-gap: 0.5rem;
   --op-scan-inset-x: 0.75rem;
@@ -3053,7 +3053,7 @@ html.light .operator-mobile-app-shell .scanner-ocr-action-sheet {
   margin-inline: auto;
   max-height: min(
     17.5rem,
-    calc(100dvh - var(--scanner-bottom-nav-height, 4.75rem) - env(safe-area-inset-bottom, 0px) - 6rem)
+    calc(100dvh - var(--scanner-bottom-nav-height, 3.875rem) - env(safe-area-inset-bottom, 0px) - 6rem)
   );
   overflow-x: hidden;
   overflow-y: auto;
@@ -3084,9 +3084,9 @@ html.light .scanner-photo-action-sheet-panel {
 
 .scanner-photo-action-sheet-panel--webcam {
   top: auto;
-  bottom: calc(var(--scanner-bottom-nav-height, 4.75rem) + env(safe-area-inset-bottom, 0px) + 3rem);
+  bottom: calc(var(--scanner-bottom-nav-height, 3.875rem) + env(safe-area-inset-bottom, 0px) + 3rem);
   transform: none;
-  max-height: calc(100dvh - var(--scanner-bottom-nav-height, 4.75rem) - env(safe-area-inset-bottom, 0px) - 5rem);
+  max-height: calc(100dvh - var(--scanner-bottom-nav-height, 3.875rem) - env(safe-area-inset-bottom, 0px) - 5rem);
   padding: 0.75rem;
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }
@@ -8180,12 +8180,64 @@ html.light .operator-item-unit-record-modal__evidence-warn {
   color: #b4232f !important;
 }
 
-html.dark .operator-item-unit-record-modal__notes-footer {
+html.dark .operator-item-unit-record-modal__notes-section {
   border-color: rgba(214, 183, 110, 0.12) !important;
 }
 
-html.light .operator-item-unit-record-modal__notes-footer {
+html.light .operator-item-unit-record-modal__notes-section {
   border-color: rgba(216, 209, 194, 0.85) !important;
+}
+
+html.dark .operator-item-unit-record-modal__photo-info-btn {
+  border-color: rgba(185, 194, 204, 0.28) !important;
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  color: #b9c2cc !important;
+}
+
+html.dark .operator-item-unit-record-modal__photo-info-btn:hover,
+html.dark .operator-item-unit-record-modal__photo-info-btn:focus-visible {
+  border-color: rgba(214, 183, 110, 0.45) !important;
+  color: #d6b76e !important;
+}
+
+html.light .operator-item-unit-record-modal__photo-info-btn {
+  border-color: #d8d1c2 !important;
+  background-color: rgba(248, 246, 241, 0.9) !important;
+  color: #66707a !important;
+}
+
+html.light .operator-item-unit-record-modal__photo-info-btn:hover,
+html.light .operator-item-unit-record-modal__photo-info-btn:focus-visible {
+  border-color: rgba(138, 104, 31, 0.4) !important;
+  color: #8a681f !important;
+}
+
+html.dark .operator-item-unit-record-modal__photo-help-tooltip {
+  border-color: rgba(214, 183, 110, 0.22) !important;
+  background-color: #1a2129 !important;
+  color: #e8e2d4 !important;
+}
+
+html.light .operator-item-unit-record-modal__photo-help-tooltip {
+  border-color: #d8d1c2 !important;
+  background-color: #fffdf8 !important;
+  color: #3d4349 !important;
+}
+
+html.dark .operator-item-unit-record-modal__photo-count {
+  color: #b9c2cc !important;
+}
+
+html.light .operator-item-unit-record-modal__photo-count {
+  color: #66707a !important;
+}
+
+html.dark .operator-item-unit-record-modal__photo-count--max {
+  color: #d6b76e !important;
+}
+
+html.light .operator-item-unit-record-modal__photo-count--max {
+  color: #8a681f !important;
 }
 
 html.dark .operator-item-unit-record-modal__notes-input {
@@ -10023,6 +10075,29 @@ html.dark
   ) !important;
 }
 
+/* Off-slip card titles — gold in dark mode only (must follow progressive color-mix rules) */
+html.dark
+  .operator-item-scan-screen
+  .operator-item-scan-over-panel__list-shell
+  .operator-item-scan-slip-row--off-slip[data-off-slip-card="true"]
+  .operator-item-scan-over-card__title {
+  color: #facc15 !important;
+  -webkit-text-fill-color: #facc15 !important;
+  background: none !important;
+  background-image: none !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
+  font-weight: 800 !important;
+}
+
+html.dark
+  .operator-item-scan-screen
+  .operator-item-scan-over-panel__list-shell
+  .operator-item-scan-slip-row--off-slip[data-off-slip-card="true"]
+  .operator-item-scan-over-card__title.operator-item-scan-product-link {
+  text-decoration-color: rgba(250, 204, 21, 0.55) !important;
+}
+
 /* OVER / UNEXPECTED pill — sharp red ring, pale red fill, saturated red label (day + night, all panels) */
 html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="OVER"],
 html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="UNEXPECTED"],
@@ -10853,26 +10928,23 @@ html.dark .operator-status-pill--progress {
   transform: scale(0.95);
 }
 
-/* Bottom nav */
+/* Bottom nav — compact operator mobile (~62px + safe-area) */
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] {
-  padding-top: 0.125rem !important;
-  padding-bottom: max(0.2rem, env(safe-area-inset-bottom)) !important;
+  padding-top: 0.1875rem !important;
+  padding-bottom: max(0.125rem, env(safe-area-inset-bottom)) !important;
 }
 
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] > div > a,
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] > div > span {
-  gap: 0.125rem;
-  padding-top: 0.125rem;
+  gap: 0.0625rem;
+  padding-top: 0.0625rem;
   padding-bottom: 0;
+  min-height: 2.75rem;
 }
 
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap + span {
-  font-size: 11px;
-}
-
-.operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap + span + span {
-  height: 0.125rem;
-  width: 0.125rem;
+  font-size: 10px;
+  line-height: 1.1;
 }
 
 .operator-nav-icon-wrap {
@@ -10896,13 +10968,13 @@ html.dark .operator-status-pill--progress {
 }
 
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap {
-  height: 1.625rem;
-  width: 1.75rem;
+  height: 1.5rem;
+  width: 1.625rem;
 }
 
 .operator-mobile-app-shell nav[aria-label="Scanner navigation"] .operator-nav-icon-wrap .lucide {
-  height: 1.125rem;
-  width: 1.125rem;
+  height: 1.25rem;
+  width: 1.25rem;
 }
 
 .operator-nav-icon-wrap--active {
@@ -11805,7 +11877,7 @@ html.light .operator-home-page .operator-home-recent-action-btn:hover {
   margin-inline: auto;
   max-height: min(
     17.5rem,
-    calc(100dvh - var(--scanner-bottom-nav-height, 4.75rem) - env(safe-area-inset-bottom, 0px) - 6rem)
+    calc(100dvh - var(--scanner-bottom-nav-height, 3.875rem) - env(safe-area-inset-bottom, 0px) - 6rem)
   );
   overflow-x: hidden;
   overflow-y: auto;
