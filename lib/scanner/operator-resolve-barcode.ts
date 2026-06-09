@@ -117,27 +117,7 @@ async function firstPackageByColumn(
   return data?.[0] as Record<string, unknown> | undefined;
 }
 
-/** Case-insensitive / space-insensitive package lookup by carrier tracking. */
-async function firstPackageByTrackingNormalized(supabase: SupabaseClient, organizationId: string, code: string) {
-  const key = normalizeTrackingKey(code);
-  if (!key) return undefined;
-  const PAGE = 200;
-  for (let off = 0; off < 6000; off += PAGE) {
-    const { data, error } = await supabase
-      .from("packages")
-      .select("id, organization_id, pallet_id, package_code, id_slip_contents, tracking_number, rma_number, expected_item_count, actual_item_count, status")
-      .eq("organization_id", organizationId)
-      .is("deleted_at", null)
-      .not("tracking_number", "is", null)
-      .order("id", { ascending: true })
-      .range(off, off + PAGE - 1);
-    if (error) throw error;
-    const hit = (data ?? []).find((row) => normalizeTrackingKey(String(row.tracking_number ?? "")) === key);
-    if (hit) return hit as Record<string, unknown>;
-    if (!data?.length || data.length < PAGE) break;
-  }
-  return undefined;
-}
+import { findFirstPackageByTrackingNormalized } from "@/lib/scanner/package-tracking-lookup";
 
 async function firstProductByIdentifier(supabase: SupabaseClient, organizationId: string, code: string) {
   const cols = ["sku", "barcode", "fnsku", "asin"] as const;
@@ -190,7 +170,7 @@ export async function resolveOperatorBarcode(
     if (bySlip) return { kind: "package", row: bySlip };
     const byTn = await firstPackageByColumn(supabase, organizationId, "tracking_number", code);
     if (byTn) return { kind: "package", row: byTn };
-    const byTnNorm = await firstPackageByTrackingNormalized(supabase, organizationId, code);
+    const byTnNorm = await findFirstPackageByTrackingNormalized(supabase, organizationId, storeId, code);
     if (byTnNorm) return { kind: "package", row: byTnNorm };
     return null;
   };

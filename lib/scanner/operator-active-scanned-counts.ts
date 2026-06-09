@@ -4,9 +4,9 @@ import {
   countsTowardActivePhysicalScan,
   type ActivePhysicalScanCountRow,
 } from "@/lib/return-item-physical-scan";
-import { fetchReturnItemsScannedCountsForTracking } from "@/lib/scanner/operator-tracking-expectations";
+import { fetchReturnItemsScannedCountsForTracking, fetchReturnItemsScannedCountsForPackageIds } from "@/lib/scanner/operator-tracking-expectations";
 import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
-import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
+import { hasActivePackageForScanCode } from "@/lib/scanner/package-tracking-lookup";
 import {
   type InventoryViewMatchField,
   type VInventoryStatusRow,
@@ -35,48 +35,10 @@ async function hasActivePackageForCode(
   storeId: string,
   code: string,
 ): Promise<boolean> {
-  const trimmed = String(code ?? "").trim();
-  if (!trimmed || !isUuidString(organizationId.trim()) || !isUuidString(storeId.trim())) {
+  if (!isUuidString(organizationId.trim()) || !isUuidString(storeId.trim())) {
     return false;
   }
-  const orgId = organizationId.trim();
-  const sid = storeId.trim();
-  const key = normalizeTrackingKey(trimmed);
-
-  for (const column of ["package_code", "tracking_number"] as const) {
-    const { data, error } = await supabase
-      .from("packages")
-      .select("id, tracking_number, package_code")
-      .eq("organization_id", orgId)
-      .eq("store_id", sid)
-      .eq(column, trimmed)
-      .is("deleted_at", null)
-      .limit(5);
-    if (error) throw error;
-    if ((data ?? []).length > 0) return true;
-  }
-
-  if (!key) return false;
-
-  const PAGE = 250;
-  for (let off = 0; off < 4000; off += PAGE) {
-    const { data: page, error } = await supabase
-      .from("packages")
-      .select("id, tracking_number")
-      .eq("organization_id", orgId)
-      .eq("store_id", sid)
-      .is("deleted_at", null)
-      .not("tracking_number", "is", null)
-      .range(off, off + PAGE - 1);
-    if (error) throw error;
-    for (const row of page ?? []) {
-      if (normalizeTrackingKey(String((row as { tracking_number?: string | null }).tracking_number ?? "")) === key) {
-        return true;
-      }
-    }
-    if (!page?.length || page.length < PAGE) break;
-  }
-  return false;
+  return hasActivePackageForScanCode(supabase, organizationId, storeId, code);
 }
 
 async function loadActivePackageIdSet(
@@ -118,7 +80,7 @@ export async function countActiveReturnItemsForIdentifierScan(
 
   const { data: items, error } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("id, package_id, pallet_id, expected_item_id, notes, item_name, sku, fnsku, product_identifier")
+    .select("id, package_id, pallet_id, expected_item_id, notes, item_name, sku, fnsku, product_identifier, scanned_quantity")
     .eq("organization_id", orgId)
     .eq("store_id", sid)
     .eq(field, v)
@@ -143,11 +105,27 @@ export async function countActiveReturnItemsForIdentifierScan(
     activeItems.map((item) => String((item as { package_id?: string | null }).package_id ?? "")),
   );
 
+  const baselineTns = [
+    ...new Set(
+      activeItems
+        .map((item) => baselineTrackingFromNotes((item as { notes?: string | null }).notes))
+        .filter((tn): tn is string => !!tn),
+    ),
+  ];
+  const activeBaselineTns = new Set<string>();
+  if (baselineTns.length) {
+    const checks = await Promise.all(
+      baselineTns.map((tn) => hasActivePackageForCode(supabase, orgId, sid, tn)),
+    );
+    baselineTns.forEach((tn, i) => {
+      if (checks[i]) activeBaselineTns.add(tn);
+    });
+  }
+
   let count = 0;
   for (const item of activeItems) {
     const baselineTn = baselineTrackingFromNotes((item as { notes?: string | null }).notes);
-    const hasActiveBaseline =
-      !!baselineTn && (await hasActivePackageForCode(supabase, orgId, sid, baselineTn));
+    const hasActiveBaseline = !!baselineTn && activeBaselineTns.has(baselineTn);
     if (
       countsTowardActivePhysicalScan(item as ActivePhysicalScanCountRow, {
         activePackageIds,
@@ -155,7 +133,8 @@ export async function countActiveReturnItemsForIdentifierScan(
         hasActivePackageForBaselineTracking: hasActiveBaseline,
       })
     ) {
-      count++;
+      const qtyRaw = Number((item as { scanned_quantity?: number | null }).scanned_quantity ?? 1);
+      count += Number.isFinite(qtyRaw) && qtyRaw > 0 ? Math.trunc(qtyRaw) : 1;
     }
   }
   return count;
@@ -199,12 +178,7 @@ export async function scrubInventoryRowsExcludingVoidedPackages(
     const scanned = await countActiveReturnItemsForIdentifierScan(supabase, orgId, sid, "fnsku", searchCode);
     adjusted = rows.map((row) => ({ ...row, total_scanned: scanned }));
   } else if (matchedField === "id_slip_contents") {
-    const code = String(searchCode ?? "").trim();
-    const hasActive = code ? await hasActivePackageForCode(supabase, orgId, sid, code) : false;
-    adjusted = rows.map((row) => ({
-      ...row,
-      total_scanned: hasActive ? row.total_scanned : 0,
-    }));
+    adjusted = rows.map((row) => ({ ...row }));
   } else {
     adjusted = rows.map((row) => ({ ...row }));
     const activePackageIds = await loadActivePackageIdSet(

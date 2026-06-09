@@ -257,6 +257,25 @@ export async function buildStoreAutomationSettingsView(
       ? new Date(cronRt.next_run_at)
       : computeRemovalRecentNextRun(settings.removal_api_sync, now);
 
+  function apiCardRuntime(
+    uploads: typeof enrichmentJob,
+    cardSchedule: typeof settings.reimbursements_api,
+    nextComputed: Date | null,
+  ): AutomationScheduleRuntime {
+    const crt = cardSchedule.cron_runtime;
+    const base =
+      crt?.last_run_at != null
+        ? {
+            last_run_at: crt.last_run_at,
+            last_run_status: crt.last_run_status,
+            last_error: crt.last_error,
+          }
+        : uploads;
+    const next =
+      crt?.next_run_at != null ? new Date(crt.next_run_at) : nextComputed;
+    return withNextRun(base, next);
+  }
+
   return {
     ...settings,
     organization_id: organizationId,
@@ -276,16 +295,19 @@ export async function buildStoreAutomationSettingsView(
           computeRemovalHistoricalNextRun(settings.removal_api_sync, now),
         ),
       },
-      reimbursements_api: withNextRun(
+      reimbursements_api: apiCardRuntime(
         reimbursements,
+        settings.reimbursements_api,
         computeApiCardNextRun(settings.reimbursements_api, now),
       ),
-      settlement_api: withNextRun(
+      settlement_api: apiCardRuntime(
         settlement,
+        settings.settlement_api,
         computeApiCardNextRun(settings.settlement_api, now),
       ),
-      finances_archive_api: withNextRun(
+      finances_archive_api: apiCardRuntime(
         financesRuntime,
+        settings.finances_archive_api,
         computeApiCardNextRun(settings.finances_archive_api, now),
       ),
     },

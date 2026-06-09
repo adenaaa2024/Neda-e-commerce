@@ -14,6 +14,7 @@ export type PimCatalogEnrichmentRequestBody = {
   retry_missing_prices_only?: boolean;
   product_ids?: string[];
   include_enrichment_debug?: boolean;
+  allow_suspicious_image_overwrite?: boolean;
 };
 
 export type PimCatalogEnrichmentBatchParams = {
@@ -27,6 +28,7 @@ export type PimCatalogEnrichmentBatchParams = {
   retryMissingPrices: boolean;
   retryIds: string[];
   allowEnrichmentDebug: boolean;
+  allowSuspiciousImageOverwrite: boolean;
 };
 
 export type PimCatalogEnrichmentBatchError = { ok: false; error: string; status: number };
@@ -85,6 +87,7 @@ export function parsePimCatalogEnrichmentBatchParams(
     retryMissingPrices: Boolean(body.retry_missing_prices_only),
     retryIds,
     allowEnrichmentDebug: Boolean(body.include_enrichment_debug),
+    allowSuspiciousImageOverwrite: Boolean(body.allow_suspicious_image_overwrite),
   };
 }
 

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
-import { mockExpectedPackageDetailRows } from "@/lib/scanner/operator-tracking-expectations";
+import { mockExpectedPackageDetailRows, type FetchExpectedPackagesOptions } from "@/lib/scanner/operator-tracking-expectations";
+import { fetchIdentityStatusForScanCode } from "@/lib/scanner/scanner-identity-lookup";
 import { normalizeTrackingKey, slipIdLookupCandidates, trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 
 /** Readable message from Supabase/PostgREST throws (plain objects or Error). */
@@ -332,14 +333,6 @@ export function mockVInventoryRowsForScanCode(rawCode: string): {
   if (!trimmed || /^NEW-/i.test(trimmed) || trimmed.length < 3) return { rows: [], matchedField: null };
 
   const base = mockExpectedPackageDetailRows();
-  const byFnsku = base.filter((r) => String((r as { fnsku?: string | null }).fnsku ?? "").trim() === trimmed);
-  if (byFnsku.length) {
-    return { rows: byFnsku.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>)), matchedField: "fnsku" };
-  }
-  const bySku = base.filter((r) => String((r as { sku?: string | null }).sku ?? "").trim() === trimmed);
-  if (bySku.length) {
-    return { rows: bySku.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>)), matchedField: "sku" };
-  }
   const byTn = base.filter((r) => String(r.tracking_number ?? "").trim() === trimmed);
   if (byTn.length) {
     return { rows: byTn.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>)), matchedField: "tracking_number" };
@@ -354,6 +347,14 @@ export function mockVInventoryRowsForScanCode(rawCode: string): {
   });
   if (bySlip.length) {
     return { rows: bySlip.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>)), matchedField: "id_slip_contents" };
+  }
+  const byFnsku = base.filter((r) => String((r as { fnsku?: string | null }).fnsku ?? "").trim() === trimmed);
+  if (byFnsku.length) {
+    return { rows: byFnsku.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>)), matchedField: "fnsku" };
+  }
+  const bySku = base.filter((r) => String((r as { sku?: string | null }).sku ?? "").trim() === trimmed);
+  if (bySku.length) {
+    return { rows: bySku.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>)), matchedField: "sku" };
   }
   return { rows: [], matchedField: null };
 }
@@ -513,31 +514,9 @@ export async function fetchVInventoryItemStatusByTracking(
   return fetchVInventoryItemStatusLinesExact(supabase, organizationId, storeId, "tracking_number", rawTracking);
 }
 
-async function fetchInventoryViewExact(
-  supabase: SupabaseClient,
-  viewName: typeof V_INVENTORY_STATUS | typeof V_INVENTORY_ITEM_STATUS,
-  organizationId: string,
-  storeId: string,
-  field: InventoryViewMatchField,
-  code: string,
-): Promise<{ rows: VInventoryStatusRow[]; raw: unknown }> {
-  const res = await supabase
-    .from(viewName)
-    .select(INVENTORY_VIEW_GATE_SELECT)
-    .eq("organization_id", organizationId)
-    .eq("store_id", storeId)
-    .eq(field, code);
-  if (res.error) throw res.error;
-  const arr: unknown[] = Array.isArray(res.data) ? res.data : [];
-  const out: VInventoryStatusRow[] = [];
-  for (const raw of arr) {
-    if (raw && typeof raw === "object") out.push(rowFromRecord(raw as Record<string, unknown>));
-  }
-  return { rows: mergeUniqueByPackageId(out), raw: res.data };
-}
-
 /**
- * Shipment Entry gate: query `v_inventory_status` then `v_inventory_item_status` (exact equality).
+ * Shipment Entry gate: indexed `expected_packages` identity lookup (Phase 9B).
+ * Aggregate views (`v_inventory_*`) are reserved for progress/claims/dashboard reads.
  * Slip “ASIN” column values are FNSKUs — match `fnsku` before `sku` before carrier tracking.
  */
 export async function fetchVInventoryStatusForScanCode(
@@ -545,51 +524,13 @@ export async function fetchVInventoryStatusForScanCode(
   organizationId: string,
   storeId: string,
   rawCode: string,
-): Promise<{ rows: VInventoryStatusRow[]; raw: unknown; matchedField: InventoryViewMatchField | null }> {
-  const code = String(rawCode ?? "")
-    .trim()
-    .replace(/^[\s\uFEFF\xA0\u200B-\u200D]+|[\s\uFEFF\xA0\u200B-\u200D]+$/g, "");
-  if (!code) return { rows: [], raw: null, matchedField: null };
-
-  const orgId = organizationId.trim();
-  const sid = storeId.trim();
-  if (!orgId || !sid) return { rows: [], raw: null, matchedField: null };
-
-  const fieldOrder: InventoryViewMatchField[] = ["fnsku", "sku", "tracking_number", "id_slip_contents"];
-  const views: (typeof V_INVENTORY_STATUS | typeof V_INVENTORY_ITEM_STATUS)[] = [
-    V_INVENTORY_STATUS,
-    V_INVENTORY_ITEM_STATUS,
-  ];
-
-  let matchedField: InventoryViewMatchField | null = null;
-  let rows: VInventoryStatusRow[] = [];
-  let raw: unknown = null;
-
-  for (const field of fieldOrder) {
-    for (const view of views) {
-      if (view === V_INVENTORY_STATUS && field === "id_slip_contents") continue;
-      try {
-        const hit = await fetchInventoryViewExact(supabase, view, orgId, sid, field, code);
-        if (hit.rows.length) {
-          rows = await scrubInventoryRowsExcludingVoidedPackages(
-            supabase,
-            orgId,
-            sid,
-            hit.rows,
-            field,
-            code,
-          );
-          raw = hit.raw;
-          matchedField = field;
-          return { rows, raw, matchedField };
-        }
-      } catch (e) {
-        const msg = formatSupabaseActionError(e, "");
-        if (/does not exist|42P01|42703|column/i.test(msg)) continue;
-        throw e;
-      }
-    }
-  }
-
-  return { rows: [], raw: null, matchedField: null };
+  options?: FetchExpectedPackagesOptions,
+): Promise<{
+  rows: VInventoryStatusRow[];
+  raw: unknown;
+  matchedField: InventoryViewMatchField | null;
+  matchType?: import("@/lib/scanner/scanner-identity-gate-rpc").ScannerIdentityGateMatchType | null;
+  scrubApplied?: boolean;
+}> {
+  return fetchIdentityStatusForScanCode(supabase, organizationId, storeId, rawCode, options);
 }

@@ -5,9 +5,12 @@ import {
   computeRemovalRecentNextRun,
 } from "./platform-automation-schedule";
 import type {
+  ApiAutomationCardSchedule,
+  FinancesArchiveApiSchedule,
   PlatformAutomationSettings,
   ProductEnrichmentSchedule,
   RemovalApiSyncSchedule,
+  StoreAutomationSettings,
 } from "./platform-automation-settings-types";
 
 export type ScheduleDueResult = {
@@ -118,6 +121,59 @@ export function evaluateRemovalAutomationSchedule(
       run_day_of_week: hb.run_day_of_week,
       run_hour_utc: hb.run_hour_utc,
     },
+  };
+}
+
+export type ApiCardScheduleEvaluation = {
+  settings_source:
+    | "platform_settings.automation_settings.reimbursements_api"
+    | "platform_settings.automation_settings.settlement_api"
+    | "platform_settings.automation_settings.finances_archive_api";
+  card: "reimbursements_api" | "settlement_api" | "finances_archive_api";
+  enabled: boolean;
+  rolling_days: number;
+  schedule: ScheduleDueResult;
+};
+
+export function evaluateApiCardSchedule(
+  card: ApiCardScheduleEvaluation["card"],
+  schedule: ApiAutomationCardSchedule | FinancesArchiveApiSchedule,
+  now: Date = new Date(),
+): ApiCardScheduleEvaluation {
+  const settings_source =
+    card === "reimbursements_api"
+      ? "platform_settings.automation_settings.reimbursements_api"
+      : card === "settlement_api"
+        ? "platform_settings.automation_settings.settlement_api"
+        : "platform_settings.automation_settings.finances_archive_api";
+  return {
+    settings_source,
+    card,
+    enabled: schedule.enabled,
+    rolling_days: schedule.rolling_days,
+    schedule: evaluateDailyScheduleDue(schedule.enabled, schedule.run_hours_utc, now),
+  };
+}
+
+export function evaluateAllApiCardSchedules(
+  settings: Pick<
+    StoreAutomationSettings,
+    "reimbursements_api" | "settlement_api" | "finances_archive_api"
+  >,
+  now: Date = new Date(),
+): {
+  reimbursements_api: ApiCardScheduleEvaluation;
+  settlement_api: ApiCardScheduleEvaluation;
+  finances_archive_api: ApiCardScheduleEvaluation;
+} {
+  return {
+    reimbursements_api: evaluateApiCardSchedule("reimbursements_api", settings.reimbursements_api, now),
+    settlement_api: evaluateApiCardSchedule("settlement_api", settings.settlement_api, now),
+    finances_archive_api: evaluateApiCardSchedule(
+      "finances_archive_api",
+      settings.finances_archive_api,
+      now,
+    ),
   };
 }
 

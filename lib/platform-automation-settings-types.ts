@@ -20,6 +20,8 @@ export interface ApiAutomationCardSchedule extends ManualWindowFields {
   run_hours_utc: number[];
   /** Rolling SP-API fetch window for scheduled runs (1–90 days). */
   rolling_days: number;
+  /** Updated by scheduled cron executor (health dashboard read path). */
+  cron_runtime?: RemovalCronRuntimeState;
 }
 
 export interface FinancesArchiveApiSchedule extends ApiAutomationCardSchedule {

@@ -155,12 +155,14 @@ function normalizeProductEnrichment(raw: unknown): ProductEnrichmentSchedule {
 function normalizeApiCard(raw: unknown, fallback: ApiAutomationCardSchedule): ApiAutomationCardSchedule {
   const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const runsPerDay = clampInt(src.runs_per_day, 1, 24, fallback.runs_per_day);
+  const cronRaw = src.cron_runtime;
   return {
     enabled: src.enabled === true,
     runs_per_day: runsPerDay,
     run_hours_utc: normalizeHours(src.run_hours_utc, runsPerDay),
     rolling_days: clampInt(src.rolling_days, 1, 90, fallback.rolling_days),
     ...normalizeManualWindow(src),
+    ...(cronRaw != null ? { cron_runtime: normalizeRemovalCronRuntime(cronRaw) } : {}),
   };
 }
 

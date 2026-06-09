@@ -45,6 +45,12 @@ import {
   detectProductPricesInsertShape,
   insertAmazonEnrichmentProductPrice,
 } from "./pim-product-prices-insert";
+import {
+  buildImageProvenance,
+  evaluateSuspiciousMainImage,
+  mergeImageProvenanceIntoAmazonRaw,
+  shouldAllowMainImageOverwrite,
+} from "./pim-image-suspicious-policy";
 import { supabaseServer } from "./supabase-server";
 import { getPimFieldProvenanceObject } from "./pim-field-provenance";
 import { isUuidString } from "./uuid";
@@ -297,6 +303,7 @@ export async function runPimCatalogEnrichmentBatch(
     retryMissingPrices,
     retryIds,
     allowEnrichmentDebug,
+    allowSuspiciousImageOverwrite,
   } = params;
 
   const priceDedupe: { skipRecentDuplicateCheck?: boolean } = forceFreshPriceRows
@@ -438,6 +445,8 @@ export async function runPimCatalogEnrichmentBatch(
   let category_retry_success = 0;
   let image_retry_attempted = 0;
   let image_retry_success = 0;
+  let fnsku_map_asin_mismatch_skipped = 0;
+  let suspicious_image_overwritten = 0;
   let still_missing_category = 0;
   let still_missing_image = 0;
 
@@ -902,7 +911,13 @@ export async function runPimCatalogEnrichmentBatch(
           fnsku: fnSku,
         });
         if (mappedAsin) {
-          await tryMergeSupplementalBody(mappedAsin, { pim_enrichment_supplement: "fnsku_identifier_map" });
+          const prodAsinNorm = String(row.asin ?? "").trim().toUpperCase();
+          const mapAsinNorm = mappedAsin.trim().toUpperCase();
+          if (prodAsinNorm && prodAsinNorm !== mapAsinNorm) {
+            fnsku_map_asin_mismatch_skipped += 1;
+          } else {
+            await tryMergeSupplementalBody(mappedAsin, { pim_enrichment_supplement: "fnsku_identifier_map" });
+          }
         }
       }
 
@@ -1057,6 +1072,34 @@ export async function runPimCatalogEnrichmentBatch(
       if (bestMain && isMissingMainImage(row.main_image_url)) {
         patch.main_image_url = bestMain;
         didImage = true;
+        const prov = buildImageProvenance({
+          source: "catalog_items_api",
+          sourceAsin: asin,
+          fetchPath: "pim_catalog_enrichment_batch",
+        });
+        mergedAmazonRaw.pim_image_provenance = prov;
+        mergedAmazonRaw.image_source = prov.image_source;
+        mergedAmazonRaw.image_source_asin = prov.image_source_asin;
+        mergedAmazonRaw.image_fetch_path = prov.image_fetch_path;
+        mergedAmazonRaw.image_updated_at = prov.image_updated_at;
+      } else if (
+        bestMain &&
+        allowSuspiciousImageOverwrite &&
+        shouldAllowMainImageOverwrite(row) &&
+        row.main_image_url?.trim() &&
+        bestMain.trim() !== row.main_image_url.trim()
+      ) {
+        const suspicious = evaluateSuspiciousMainImage(row);
+        patch.main_image_url = bestMain;
+        didImage = true;
+        suspicious_image_overwritten += 1;
+        const prov = buildImageProvenance({
+          source: "catalog_items_api",
+          sourceAsin: asin,
+          fetchPath: "pim_catalog_enrichment_batch_suspicious_overwrite",
+          overwriteReason: suspicious.reasons.join("|"),
+        });
+        Object.assign(mergedAmazonRaw, mergeImageProvenanceIntoAmazonRaw(mergedAmazonRaw, prov));
       } else if (!bestMain && isMissingMainImage(row.main_image_url)) {
         skipped_no_image_found += 1;
       }
@@ -1549,6 +1592,8 @@ export async function runPimCatalogEnrichmentBatch(
       category_retry_success,
       image_retry_attempted,
       image_retry_success,
+      fnsku_map_asin_mismatch_skipped,
+      suspicious_image_overwritten,
       still_missing_category,
       still_missing_image,
       rows_saved,

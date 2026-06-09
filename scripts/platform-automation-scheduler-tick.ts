@@ -10,8 +10,9 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import pg from "pg";
 
-import { readPlatformAutomationSettingsFromPg } from "../lib/platform-automation-settings-read";
+import { readStoreAutomationSettingsFromPg } from "../lib/platform-automation-settings-read";
 import {
+  evaluateAllApiCardSchedules,
   evaluateProductEnrichmentSchedule,
   evaluateRemovalAutomationSchedule,
   resolveSchedulerAction,
@@ -61,19 +62,22 @@ async function main(): Promise<void> {
   const dbUrl = process.env.STAGING_DIRECT_POSTGRES_URL?.trim() ?? "";
   if (!dbUrl) blockers.push("STAGING_DIRECT_POSTGRES_URL unset");
 
-  let settings = null as Awaited<ReturnType<typeof readPlatformAutomationSettingsFromPg>> | null;
+  let storeSettings = null as Awaited<ReturnType<typeof readStoreAutomationSettingsFromPg>> | null;
   if (dbUrl && !blockers.length) {
     const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
     await client.connect();
-    settings = await readPlatformAutomationSettingsFromPg(client);
+    storeSettings = await readStoreAutomationSettingsFromPg(client, ORG_ID, STORE_ID);
     await client.end();
   }
 
   const now = new Date();
-  const peEval = settings
-    ? evaluateProductEnrichmentSchedule(settings.product_enrichment, now)
+  const peEval = storeSettings
+    ? evaluateProductEnrichmentSchedule(storeSettings.product_enrichment, now)
     : null;
-  const remEval = settings ? evaluateRemovalAutomationSchedule(settings.removal_api_sync, now) : null;
+  const remEval = storeSettings
+    ? evaluateRemovalAutomationSchedule(storeSettings.removal_api_sync, now)
+    : null;
+  const apiEvals = storeSettings ? evaluateAllApiCardSchedules(storeSettings, now) : null;
 
   if (forceDue && peEval) {
     peEval.schedule.due = true;
@@ -82,6 +86,13 @@ async function main(): Promise<void> {
   if (forceDue && remEval) {
     remEval.recent.due = true;
     remEval.recent.reason = "force_due_test";
+  }
+
+  if (forceDue && apiEvals) {
+    for (const key of ["reimbursements_api", "settlement_api", "finances_archive_api"] as const) {
+      apiEvals[key].schedule.due = true;
+      apiEvals[key].schedule.reason = "force_due_test";
+    }
   }
 
   const peAction = peEval
@@ -108,7 +119,7 @@ async function main(): Promise<void> {
     evaluation: peEval,
   };
 
-  if (peAction.action === "apply" && settings?.product_enrichment.enabled) {
+  if (peAction.action === "apply" && storeSettings?.product_enrichment.enabled) {
     enrichmentLog.would_enqueue = {
       job_type: "product_enrichment",
       organization_id: ORG_ID,
@@ -148,6 +159,48 @@ async function main(): Promise<void> {
     };
   }
 
+  let apiCardsOrchestrator: Record<string, unknown> = { note: "see per-card actions below" };
+  const apiCardActions: Record<string, unknown> = {};
+  if (apiEvals) {
+    for (const card of ["reimbursements_api", "settlement_api", "finances_archive_api"] as const) {
+      const ev = apiEvals[card];
+      const act = resolveSchedulerAction({
+        enabled: ev.enabled,
+        due: ev.schedule.due,
+        applyRequested: apply,
+        confirmApply: confirmApplyOk(),
+      });
+      apiCardActions[card] = { evaluation: ev, action: act };
+    }
+    const shouldSpawn = Object.values(apiCardActions).some(
+      (x) =>
+        x &&
+        typeof x === "object" &&
+        (x as { action?: { action?: string } }).action?.action !== "noop",
+    );
+    if (shouldSpawn) {
+      const orchArgs = [
+        "tsx",
+        "scripts/platform-automation-api-cards-orchestrator.ts",
+        `--run-id=${runId}-api-cards`,
+        "--from-scheduler",
+      ];
+      if (apply && confirmApplyOk()) orchArgs.push("--apply");
+      if (forceDue) orchArgs.push("--force-due");
+      const res = spawnSync("npx", orchArgs, {
+        cwd: process.cwd(),
+        env: process.env,
+        shell: true,
+        encoding: "utf8",
+      });
+      apiCardsOrchestrator = {
+        orchestrator_exit: res.status,
+        stdout: res.stdout?.slice(-2000) ?? "",
+        stderr: res.stderr?.slice(-2000) ?? "",
+      };
+    }
+  }
+
   const historicalNote = remEval
     ? {
         window_keys: remEval.historical.window_keys,
@@ -161,9 +214,14 @@ async function main(): Promise<void> {
     prompt: "AUTOMATION-SETTINGS-ORCHESTRATOR-WIRING-DRYRUN",
     run_id: runId,
     staging_ref: STAGING_REF,
-    settings_read_path: "public.platform_settings.automation_settings",
-    settings,
+    settings_read_path: "public.platform_settings.automation_settings.scopes[org:store]",
+    store_settings: storeSettings,
     product_enrichment: enrichmentLog,
+    api_cards: {
+      evaluations: apiEvals,
+      actions: apiCardActions,
+      orchestrator: apiCardsOrchestrator,
+    },
     removal_api_sync: {
       evaluation: remEval,
       orchestrator: removalOrchestrator,

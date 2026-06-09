@@ -100,17 +100,19 @@ export function computeSavedScheduleNextRuns(
     }),
     reimbursements: resolveDisplayNextRun({
       scheduleEnabled: saved.reimbursements_api.enabled,
-      runtimeNextAt: rt.reimbursements_api.next_run_at,
+      runtimeNextAt:
+        saved.reimbursements_api.cron_runtime?.next_run_at ?? rt.reimbursements_api.next_run_at,
       computedNext: computeApiCardNextRun(saved.reimbursements_api, now),
     }),
     settlement: resolveDisplayNextRun({
       scheduleEnabled: saved.settlement_api.enabled,
-      runtimeNextAt: rt.settlement_api.next_run_at,
+      runtimeNextAt: saved.settlement_api.cron_runtime?.next_run_at ?? rt.settlement_api.next_run_at,
       computedNext: computeApiCardNextRun(saved.settlement_api, now),
     }),
     finances: resolveDisplayNextRun({
       scheduleEnabled: saved.finances_archive_api.enabled,
-      runtimeNextAt: rt.finances_archive_api.next_run_at,
+      runtimeNextAt:
+        saved.finances_archive_api.cron_runtime?.next_run_at ?? rt.finances_archive_api.next_run_at,
       computedNext: computeApiCardNextRun(saved.finances_archive_api, now),
     }),
   };

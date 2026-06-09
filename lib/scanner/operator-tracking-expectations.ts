@@ -13,6 +13,7 @@ import {
   scanQuantityVariance,
 } from "@/lib/scanner/expected-packages-read-contract";
 import { isUuidString } from "@/lib/uuid";
+import { findPackageIdsByTrackingForStore } from "@/lib/scanner/package-tracking-lookup";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
 function formatLoadErrorMessage(err: unknown): string {
@@ -98,6 +99,7 @@ function accumulateReturnItemScannedCounts(
         sku?: string | null;
         fnsku?: string | null;
         resolved_product_id?: string | null;
+        scanned_quantity?: number | null;
         item_name?: string | null;
         product_identifier?: string | null;
         notes?: string | null;
@@ -122,10 +124,12 @@ function accumulateReturnItemScannedCounts(
     const sku = String(r.sku ?? "").trim();
     const fnsku = String(r.fnsku ?? "").trim();
     const k = sfKey(sku, fnsku);
-    bySkuFnsku.set(k, (bySkuFnsku.get(k) ?? 0) + 1);
+    const qtyRaw = Number(r.scanned_quantity ?? 1);
+    const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? Math.trunc(qtyRaw) : 1;
+    bySkuFnsku.set(k, (bySkuFnsku.get(k) ?? 0) + qty);
     const pid = String(r.resolved_product_id ?? "").trim();
     if (isUuidString(pid)) {
-      byProductId.set(pid, (byProductId.get(pid) ?? 0) + 1);
+      byProductId.set(pid, (byProductId.get(pid) ?? 0) + qty);
     }
   }
   return { bySkuFnsku, byProductId };
@@ -903,55 +907,51 @@ export async function fetchReturnItemsScannedBySkuFnskuForTracking(
   return maps.bySkuFnsku;
 }
 
-export async function fetchReturnItemsScannedCountsForTracking(
+export async function fetchReturnItemsScannedCountsForPackageIds(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
-  trackingNumber: string,
+  packageIds: string[],
 ): Promise<ReturnItemsScannedCountMaps> {
-  const key = normalizeTrackingKey(trackingNumber);
   const empty = (): ReturnItemsScannedCountMaps => ({
     bySkuFnsku: new Map(),
     byProductId: new Map(),
   });
-  if (!key) return empty();
-
-  const pkgIds: string[] = [];
-  const PAGE = 250;
-  for (let off = 0; off < 8000; off += PAGE) {
-    const { data: page, error: pkgErr } = await supabase
-      .from("packages")
-      .select("id, store_id, tracking_number")
-      .eq("organization_id", organizationId)
-      .is("deleted_at", null)
-      .not("tracking_number", "is", null)
-      .order("id", { ascending: true })
-      .range(off, off + PAGE - 1);
-
-    if (pkgErr) throw pkgErr;
-    for (const p of page ?? []) {
-      const sid = (p as { store_id?: string | null }).store_id;
-      if (sid != null && sid !== storeId) continue;
-      if (normalizeTrackingKey(String((p as { tracking_number?: string | null }).tracking_number ?? "")) === key) {
-        pkgIds.push(String((p as { id: string }).id));
-      }
-    }
-    if (!page?.length || page.length < PAGE) break;
-  }
-
+  const pkgIds = [...new Set(packageIds.filter(Boolean))];
   if (!pkgIds.length) return empty();
 
   const { data: retRows, error: retErr } = await supabase
     .from(RETURN_ITEMS_TABLE)
-    .select("sku, fnsku, resolved_product_id, item_name, product_identifier, notes")
+    .select("sku, fnsku, resolved_product_id, scanned_quantity, item_name, product_identifier, notes")
     .eq("organization_id", organizationId)
     .eq("store_id", storeId)
     .is("deleted_at", null)
     .in("package_id", pkgIds);
 
   if (retErr) throw retErr;
-
   return accumulateReturnItemScannedCounts(retRows ?? []);
+}
+
+export async function fetchReturnItemsScannedCountsForTracking(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string,
+  trackingNumber: string,
+): Promise<ReturnItemsScannedCountMaps> {
+  const empty = (): ReturnItemsScannedCountMaps => ({
+    bySkuFnsku: new Map(),
+    byProductId: new Map(),
+  });
+
+  const pkgIds = await findPackageIdsByTrackingForStore(
+    supabase,
+    organizationId,
+    storeId,
+    trackingNumber,
+  );
+  if (!pkgIds.length) return empty();
+
+  return fetchReturnItemsScannedCountsForPackageIds(supabase, organizationId, storeId, pkgIds);
 }
 
 /**

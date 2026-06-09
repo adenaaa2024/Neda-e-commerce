@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { supabaseServer } from "@/lib/supabase-server";
+import { resolvePimDisplayImageUrl } from "@/lib/pim-display-image";
 import { isUuidString } from "@/lib/uuid";
 
 type Row = Record<string, unknown>;
@@ -186,6 +187,7 @@ export default async function ProductProfilePage({
 
   const rows = await loadRows(product, productId);
   const title = productTitle(product);
+  const displayImageUrl = resolvePimDisplayImageUrl(product.main_image_url, product.amazon_raw);
   const backHref = back && back.startsWith("/") && !back.startsWith("//") ? back : "/dashboard/products";
   const backLabel = backHref.includes("/returns") ? "Back to returns" : "Back to products";
 
@@ -199,10 +201,10 @@ export default async function ProductProfilePage({
           <h1 className="mt-2 text-2xl font-bold text-foreground">{title}</h1>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{productId}</p>
         </div>
-        {text(product.main_image_url) || text(product.image_url) ? (
+        {displayImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={text(product.main_image_url) ?? text(product.image_url) ?? ""}
+            src={displayImageUrl}
             alt={title}
             className="h-24 w-24 rounded-xl border border-border object-contain"
           />

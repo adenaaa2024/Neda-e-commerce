@@ -1,10 +1,30 @@
 import { supabaseServer } from "./supabase-server";
 import {
+  apiCardCronAuditEntry,
   cronAuditEntry,
   manualRunAuditEntry,
   resolvePlatformAutomationAuditActor,
   writePlatformAutomationAuditLogs,
 } from "./platform-automation-audit-log";
+
+/** Best-effort audit for API card scheduled executor (reimbursements / settlement / finances). */
+export async function auditApiCardCronEvent(args: {
+  organizationId: string;
+  storeId: string;
+  automationType: "reimbursements_api" | "settlement_api" | "finances_archive_api";
+  action: "cron_tick" | "cron_run";
+  gate?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  source?: string;
+}): Promise<void> {
+  try {
+    await writePlatformAutomationAuditLogs(supabaseServer, { actor_user_id: null, actor_email: null }, [
+      apiCardCronAuditEntry(args),
+    ]);
+  } catch (err) {
+    console.error("[auditApiCardCronEvent]", err);
+  }
+}
 
 /** Best-effort audit for Vercel removal cron wake / execute. */
 export async function auditRemovalCronEvent(args: {

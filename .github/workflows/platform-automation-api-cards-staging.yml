@@ -1,0 +1,86 @@
+# API card automation — staging only (reimbursements / settlement / finances archive).
+# Default: DRY-RUN (schedule evaluation + audit only; no SP-API worker calls).
+#
+# Apply requires:
+#   GitHub secret PLATFORM_AUTOMATION_API_CARDS_APPLY_ENABLED=true
+#   workflow_dispatch with apply=true
+
+name: Platform API cards automation (staging)
+
+on:
+  schedule:
+    # Hourly evaluation wake (executes only when schedule hour matches + apply enabled)
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Run with --apply (SP-API workers). Requires PLATFORM_AUTOMATION_API_CARDS_APPLY_ENABLED secret."
+        type: boolean
+        default: false
+      force_due:
+        description: "Treat all API card schedules as due (staging test)"
+        type: boolean
+        default: false
+      run_id:
+        description: "Optional UTC run id"
+        type: string
+        required: false
+
+concurrency:
+  group: platform-automation-api-cards-staging
+  cancel-in-progress: false
+
+jobs:
+  api-cards-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run API cards orchestrator
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_DIRECT_POSTGRES_URL: ${{ secrets.STAGING_DIRECT_POSTGRES_URL }}
+          ENABLE_AMAZON_REPORTS_API_WORKER: "true"
+          ENABLE_AMAZON_REPORTS_API_REIMBURSEMENTS: "true"
+          ENABLE_AMAZON_REPORTS_API_SETTLEMENT: "true"
+          ENABLE_AMAZON_FINANCES_API_WORKER: "true"
+          ENABLE_AMAZON_FINANCES_API_INGEST: "true"
+          PLATFORM_AUTOMATION_API_CARDS_CONFIRM_APPLY: ${{ secrets.PLATFORM_AUTOMATION_API_CARDS_APPLY_ENABLED }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.apply }}" = "true" ]; then
+            if [ "${{ secrets.PLATFORM_AUTOMATION_API_CARDS_APPLY_ENABLED }}" != "true" ]; then
+              echo "BLOCKED: set GitHub secret PLATFORM_AUTOMATION_API_CARDS_APPLY_ENABLED=true for apply runs"
+              exit 1
+            fi
+            ARGS+=(--apply)
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_due }}" = "true" ]; then
+            ARGS+=(--force-due)
+          fi
+          if [ -n "${{ inputs.run_id }}" ]; then
+            ARGS+=(--run-id=${{ inputs.run_id }})
+          fi
+          npx tsx scripts/platform-automation-api-cards-orchestrator.ts "${ARGS[@]}"
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-automation-api-cards-${{ github.run_id }}
+          path: |
+            .cursor/audit-reports/platform-automation-api-cards-run/**/*
+          if-no-files-found: ignore

@@ -158,6 +158,29 @@ export function cronAuditEntry(args: {
     metadata: { source: "vercel_cron", route: "/api/cron/removal-nightly-sync" },
   };
 }
+
+export function apiCardCronAuditEntry(args: {
+  organizationId: string;
+  storeId: string;
+  automationType: "reimbursements_api" | "settlement_api" | "finances_archive_api";
+  action: "cron_tick" | "cron_run";
+  gate?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  source?: string;
+}): PlatformAutomationAuditEntry {
+  return {
+    organization_id: args.organizationId,
+    store_id: args.storeId,
+    automation_type: args.automationType,
+    action: args.action,
+    before_json: args.gate ? (stripSecrets(args.gate) as Record<string, unknown>) : null,
+    after_json: args.result ? (stripSecrets(args.result) as Record<string, unknown>) : null,
+    metadata: {
+      source: args.source ?? "platform_automation_api_cards_orchestrator",
+      route: "/api/cron/platform-automation-api-cards",
+    },
+  };
+}
 export function manualRunAuditEntry(args: {
   organizationId: string;
   storeId: string;

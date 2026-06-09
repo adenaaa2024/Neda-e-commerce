@@ -14,6 +14,11 @@ import {
   buildPackageFinalizeDiscrepancyNote,
   type FinalizePackageReceiveCloseRpcResult,
 } from "@/lib/scanner/package-finalize-close";
+import { parseOperatorItemScanFromManifestData } from "@/lib/scanner/package-operator-item-scan";
+import {
+  assertPackageReceiveOpenForEdits,
+  loadPackageOperatorItemScanManifest,
+} from "@/lib/scanner/package-receive-edit-guard";
 import type { OperatorStoreOption } from "@/lib/scanner/operator-session";
 import {
   findPalletByIdForOperator,
@@ -1928,7 +1933,19 @@ export type FinalizeOperatorPackageReceiveInput = {
 };
 
 export type FinalizeOperatorPackageReceiveResult =
-  | ({ ok: true } & FinalizePackageReceiveCloseRpcResult)
+  | {
+      ok: true;
+      package_id?: string;
+      status?: string;
+      receive_state?: string;
+      finalize_revision?: number;
+      shortage_lines_created?: number;
+      shortage_lines_touched?: number;
+      empty_box_case_id?: string | null;
+      empty_box_evidence_count?: number;
+      claim_cases_available?: boolean;
+      claim_evidence_available?: boolean;
+    }
   | { ok: false; message: string; schemaApprovalRequired?: boolean };
 
 /**
@@ -2000,12 +2017,143 @@ export async function finalizeOperatorPackageReceiveAction(
     ok: true,
     package_id: payload.package_id,
     status: payload.status,
+    receive_state: payload.receive_state,
+    finalize_revision: payload.finalize_revision,
     shortage_lines_created: payload.shortage_lines_created,
     shortage_lines_touched: payload.shortage_lines_touched,
     empty_box_case_id: payload.empty_box_case_id,
     empty_box_evidence_count: payload.empty_box_evidence_count,
     claim_cases_available: payload.claim_cases_available,
     claim_evidence_available: payload.claim_evidence_available,
+  };
+}
+
+async function assertPackageReceiveOpenForPackageEdits(
+  organizationId: string,
+  packageId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const loaded = await loadPackageOperatorItemScanManifest(supabaseServer, organizationId, packageId);
+  if (!loaded.ok) return { ok: false, message: loaded.error };
+  const gate = assertPackageReceiveOpenForEdits(loaded.operator_item_scan);
+  if (!gate.ok) return { ok: false, message: gate.error };
+  return { ok: true };
+}
+
+export type PatchPackageMissingReviewInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  slipContentId?: string | null;
+  marked?: boolean;
+  markedMissingQty?: number;
+  bulkRemaining?: boolean;
+};
+
+export type PatchPackageMissingReviewResult =
+  | { ok: true; operator_item_scan: ReturnType<typeof parseOperatorItemScanFromManifestData> }
+  | { ok: false; message: string };
+
+export async function patchPackageMissingReviewAction(
+  input: PatchPackageMissingReviewInput,
+): Promise<PatchPackageMissingReviewResult> {
+  const organizationId = String(input.requestedOrganizationId ?? "").trim();
+  const packageId = String(input.packageId ?? "").trim();
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Organization is required." };
+  }
+  if (!packageId || !isUuidString(packageId)) {
+    return { ok: false, message: "Package is required." };
+  }
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_EDIT_ITEM);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const slipContentId = String(input.slipContentId ?? "").trim();
+  const bulkRemaining = Boolean(input.bulkRemaining);
+  if (!bulkRemaining && (!slipContentId || !isUuidString(slipContentId))) {
+    return { ok: false, message: "Slip line id is required for per-line missing review." };
+  }
+
+  const { data, error } = await supabaseServer.rpc("patch_package_missing_review", {
+    p_organization_id: organizationId,
+    p_package_id: packageId,
+    p_slip_content_id: bulkRemaining ? null : slipContentId,
+    p_marked: input.marked !== false,
+    p_marked_missing_qty: Math.max(1, Math.floor(Number(input.markedMissingQty) || 1)),
+    p_bulk_remaining: bulkRemaining,
+    p_actor_profile_id: gate.userId,
+  });
+
+  if (error) {
+    return { ok: false, message: formatSupabaseActionError(error, "Missing review update failed.") };
+  }
+
+  const payload = (data ?? {}) as { ok?: boolean; error?: string; operator_item_scan?: unknown };
+  if (!payload.ok) {
+    if (payload.error === "package_finalized") {
+      return { ok: false, message: "Package is finalized — reopen for correction first." };
+    }
+    return { ok: false, message: payload.error ?? "Missing review update failed." };
+  }
+
+  const ois = parseOperatorItemScanFromManifestData({
+    operator_item_scan: payload.operator_item_scan,
+  });
+  return { ok: true, operator_item_scan: ois };
+}
+
+export type ReopenPackageReceiveCorrectionInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  reason?: string | null;
+};
+
+export type ReopenPackageReceiveCorrectionResult =
+  | { ok: true; finalize_revision: number; operator_item_scan: ReturnType<typeof parseOperatorItemScanFromManifestData> }
+  | { ok: false; message: string };
+
+export async function reopenPackageReceiveCorrectionAction(
+  input: ReopenPackageReceiveCorrectionInput,
+): Promise<ReopenPackageReceiveCorrectionResult> {
+  const organizationId = String(input.requestedOrganizationId ?? "").trim();
+  const packageId = String(input.packageId ?? "").trim();
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Organization is required." };
+  }
+  if (!packageId || !isUuidString(packageId)) {
+    return { ok: false, message: "Package is required." };
+  }
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_EDIT_ITEM);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const { data, error } = await supabaseServer.rpc("reopen_package_receive_correction", {
+    p_organization_id: organizationId,
+    p_package_id: packageId,
+    p_actor_profile_id: gate.userId,
+    p_reason: String(input.reason ?? "").trim() || null,
+  });
+
+  if (error) {
+    return { ok: false, message: formatSupabaseActionError(error, "Reopen failed.") };
+  }
+
+  const payload = (data ?? {}) as {
+    ok?: boolean;
+    error?: string;
+    finalize_revision?: number;
+    operator_item_scan?: unknown;
+  };
+  if (!payload.ok) {
+    return { ok: false, message: payload.error ?? "Reopen failed." };
+  }
+
+  const ois = parseOperatorItemScanFromManifestData({
+    operator_item_scan: payload.operator_item_scan,
+  });
+  return {
+    ok: true,
+    finalize_revision: Number(payload.finalize_revision ?? ois.finalize_revision),
+    operator_item_scan: ois,
   };
 }
 
@@ -2862,6 +3010,9 @@ export async function insertOperatorPackageItemAction(
       return { ok: false, message: "Package not found for this organization." };
     }
 
+    const receiveGate = await assertPackageReceiveOpenForPackageEdits(organizationId, pkgId);
+    if (!receiveGate.ok) return { ok: false, message: receiveGate.message };
+
     const pkgOrg = String((pkgRow as { organization_id?: string | null }).organization_id ?? "").trim();
     if (pkgOrg && isUuidString(pkgOrg) && pkgOrg !== organizationId) {
       return { ok: false, message: "Package organization mismatch." };
@@ -3546,6 +3697,12 @@ export async function updateOperatorPackageItemAction(
     return { ok: false, message: "This item belongs to another store — select the correct store." };
   }
 
+  const rowPackageId = String((row as { package_id?: string | null }).package_id ?? "").trim();
+  if (rowPackageId && isUuidString(rowPackageId)) {
+    const receiveGate = await assertPackageReceiveOpenForPackageEdits(organizationId, rowPackageId);
+    if (!receiveGate.ok) return { ok: false, message: receiveGate.message };
+  }
+
   const tags = normalizeItemUnitDiscrepancySelection(
     filterPackageItemDiscrepancyTags(input.discrepancyTags),
   );
@@ -3838,6 +3995,9 @@ export async function deleteOperatorPackageItemAction(input: {
   if (!isUuidString(riId) || !isUuidString(pkgId)) {
     return { ok: false, error: "Invalid item or package id." };
   }
+
+  const receiveGate = await assertPackageReceiveOpenForPackageEdits(organizationId, pkgId);
+  if (!receiveGate.ok) return { ok: false, error: receiveGate.message };
 
   const actor = await resolveAuditActorForSession();
   const voided = await softVoidReturnItemWithExpectedRelease(supabaseServer, {

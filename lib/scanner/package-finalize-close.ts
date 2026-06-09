@@ -1,5 +1,11 @@
 /** Phase 6B — server finalize package receive (shortage + empty box). */
 
+export type ReconcilePackageFinalizeClaimsStubResult = {
+  ok: boolean;
+  stub?: boolean;
+  phase?: string;
+};
+
 export type FinalizePackageReceiveCloseRpcResult = {
   ok: boolean;
   error?: string;
@@ -12,6 +18,10 @@ export type FinalizePackageReceiveCloseRpcResult = {
   empty_box_evidence_count?: number;
   claim_cases_available?: boolean;
   claim_evidence_available?: boolean;
+  receive_state?: string;
+  finalize_revision?: number;
+  scanned_sum?: number;
+  reconcile_hook?: ReconcilePackageFinalizeClaimsStubResult;
 };
 
 export function packageFinalizeEmptyBoxHeuristic(args: {

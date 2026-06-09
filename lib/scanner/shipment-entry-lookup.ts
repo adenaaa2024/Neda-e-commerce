@@ -16,7 +16,6 @@ import { trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
 import {
   aggregateInventoryStatus,
-  fetchVInventoryItemStatusLinesForTrackingNormalized,
   fetchVInventoryStatusForScanCode,
   mockVInventoryRowsForScanCode,
   resolveInventoryGateVisualStatus,
@@ -153,11 +152,7 @@ function manifestStatusFromLookup(r: ShipmentEntryLookupResult): ShipmentEntryGa
 function gateSourceFromLookup(r: ShipmentEntryLookupResult): ShipmentEntryGateResult["source"] {
   if (isShipmentEntryOffManifest(r)) return "none";
   if (r.inventory_rows.length > 0) {
-    return r.inventory_matched_field === "id_slip_contents" ||
-      r.inventory_matched_field === "fnsku" ||
-      r.inventory_matched_field === "sku"
-      ? "v_inventory_item_status"
-      : "v_inventory_status";
+    return "expected_packages";
   }
   if (r.barcode.kind === "package" || r.barcode.kind === "slip") return "packages";
   if (r.barcode.kind === "pallet") return "pallets";
@@ -327,25 +322,6 @@ async function inventoryRowsFromExpectedPackagesFallback(
     rows: exactEp.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>, orgId, storeId)),
     matchedField: "tracking_number",
   };
-}
-
-function trackingScopedInventoryRows(rows: VInventoryStatusRow[], trackingNumber: string): VInventoryStatusRow[] {
-  return rows.filter((row) => trackingKeysEqual(row.tracking_number, trackingNumber));
-}
-
-async function fetchTrackingScopedInventoryItemRows(
-  supabase: SupabaseClient,
-  orgId: string,
-  storeId: string,
-  trackingNumber: string,
-): Promise<VInventoryStatusRow[]> {
-  const { rows } = await fetchVInventoryItemStatusLinesForTrackingNormalized(
-    supabase,
-    orgId,
-    storeId,
-    trackingNumber,
-  );
-  return trackingScopedInventoryRows(rows, trackingNumber);
 }
 
 function trackingFromBarcode(barcode: OperatorResolveResult): string | null {
@@ -551,25 +527,48 @@ export async function lookupShipmentEntryScanCode(
 
   let inventory_rows: VInventoryStatusRow[] = [];
   let inventory_matched_field: InventoryViewMatchField | null = null;
+  let identityScrubApplied = false;
 
-  try {
-    const inv = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, normalized_code);
-    inventory_rows = inv.rows;
-    inventory_matched_field = inv.matchedField;
-    if (inventory_matched_field === "tracking_number") {
-      try {
-        const itemRows = await fetchTrackingScopedInventoryItemRows(supabase, orgId, sid, normalized_code);
-        inventory_rows = itemRows.length ? itemRows : trackingScopedInventoryRows(inventory_rows, normalized_code);
-      } catch {
-        inventory_rows = trackingScopedInventoryRows(inventory_rows, normalized_code);
-      }
-    }
-  } catch {
+  const invResult = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, normalized_code, opts).catch(
+    () => ({
+      rows: [] as VInventoryStatusRow[],
+      matchedField: null as InventoryViewMatchField | null,
+      matchType: null as null,
+      scrubApplied: false,
+    }),
+  );
+
+  inventory_rows = invResult.rows;
+  inventory_matched_field = invResult.matchedField;
+  identityScrubApplied = Boolean(invResult.scrubApplied);
+
+  const identityMatchType = "matchType" in invResult ? invResult.matchType ?? null : null;
+  if (
+    identityMatchType === "product_identifier_fallback" ||
+    inventory_matched_field === "fnsku" ||
+    inventory_matched_field === "sku"
+  ) {
     inventory_rows = [];
     inventory_matched_field = null;
   }
 
-  const barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code, opts);
+  let barcode: OperatorResolveResult;
+  if (inventory_rows.length > 0 && inventory_matched_field) {
+    if (inventory_matched_field === "tracking_number") {
+      const first = inventory_rows[0]!;
+      barcode = {
+        kind: "tracking",
+        row: {
+          id: first.expected_package_id,
+          tracking_number: first.tracking_number ?? normalized_code,
+        } as Record<string, unknown>,
+      };
+    } else {
+      barcode = { kind: "unknown", code: normalized_code };
+    }
+  } else {
+    barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code, opts);
+  }
 
   if (!inventory_rows.length && barcode.kind === "tracking") {
     const epRows = await fetchExpectedPackagesForTracking(supabase, orgId, sid, normalized_code, undefined, opts);
@@ -581,20 +580,12 @@ export async function lookupShipmentEntryScanCode(
 
   if (!inventory_rows.length && barcode.kind !== "unknown") {
     const tn = trackingFromBarcode(barcode);
-    if (tn) {
+    if (tn && tn !== normalized_code) {
       try {
-        const inv2 = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, tn);
+        const inv2 = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, tn, opts);
         if (inv2.rows.length) {
           inventory_rows = inv2.rows;
           inventory_matched_field = inv2.matchedField ?? "tracking_number";
-          if (inventory_matched_field === "tracking_number") {
-            try {
-              const itemRows = await fetchTrackingScopedInventoryItemRows(supabase, orgId, sid, tn);
-              inventory_rows = itemRows.length ? itemRows : trackingScopedInventoryRows(inventory_rows, tn);
-            } catch {
-              inventory_rows = trackingScopedInventoryRows(inventory_rows, tn);
-            }
-          }
         }
       } catch {
         /* keep package-only path */
@@ -648,14 +639,16 @@ export async function lookupShipmentEntryScanCode(
   }
 
   try {
-    inventory_rows = await scrubInventoryRowsExcludingVoidedPackages(
-      supabase,
-      orgId,
-      sid,
-      inventory_rows,
-      inventory_matched_field,
-      normalized_code,
-    );
+    if (!identityScrubApplied) {
+      inventory_rows = await scrubInventoryRowsExcludingVoidedPackages(
+        supabase,
+        orgId,
+        sid,
+        inventory_rows,
+        inventory_matched_field,
+        normalized_code,
+      );
+    }
   } catch {
     /* keep pre-scrub rows on failure */
   }
