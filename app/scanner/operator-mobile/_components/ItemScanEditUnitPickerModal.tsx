@@ -1,8 +1,14 @@
 "use client";
 
+import { useMemo } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import type { OperatorPackageItemRow } from "@/app/scanner/operator-mobile/_components/operator-store-actions";
 import { auditUserDisplayLabel } from "@/lib/operator-audit-display";
+import {
+  groupItemScanUnitsForEditPicker,
+  itemScanUnitGroupCountLabel,
+  type ItemScanUnitGroup,
+} from "@/lib/scanner/item-scan-unit-groups";
 import {
   filterPackageItemDiscrepancyTags,
   ITEM_UNIT_SELLABLE_OK_TAG,
@@ -131,14 +137,51 @@ export function itemScanUnitAuditLines(unit: OperatorPackageItemRow): ItemScanUn
   return { created, edited };
 }
 
+function groupRepresentativeUnit(group: ItemScanUnitGroup): OperatorPackageItemRow {
+  return group.units[0]!;
+}
+
+function groupConditionLabel(group: ItemScanUnitGroup): string {
+  const rep = groupRepresentativeUnit(group);
+  const selected = unitConditionTags(rep);
+  return selected.map(titleCaseConditionTag).join(", ");
+}
+
+function groupExpiryLabel(group: ItemScanUnitGroup): string {
+  const rep = groupRepresentativeUnit(group);
+  const selected = unitConditionTags(rep);
+  const hasExpired = selected.includes("expired");
+  const exp = rep.expiry_date?.trim() ?? "";
+  if (exp) return `Expiry: ${formatExpiryDateLabel(exp)}`;
+  if (hasExpired) return "Expiry: no date on packaging";
+  return "Expiry: not recorded";
+}
+
+function groupEvidenceLabel(group: ItemScanUnitGroup): string {
+  const rep = groupRepresentativeUnit(group);
+  const evidenceCount = (rep.evidence_urls ?? []).length;
+  const evidencePart =
+    evidenceCount === 0
+      ? "Evidence: none"
+      : evidenceCount === 1
+        ? "Evidence: 1 photo"
+        : `Evidence: ${evidenceCount} photos`;
+  const notesPart = rep.operator_notes?.trim() ? "Notes: yes" : null;
+  return [evidencePart, notesPart].filter(Boolean).join(" · ");
+}
+
+function groupAuditLines(group: ItemScanUnitGroup): ItemScanUnitAuditLines {
+  return itemScanUnitAuditLines(groupRepresentativeUnit(group));
+}
+
 type ItemScanEditUnitPickerModalProps = {
   open: boolean;
   rowTitle: string;
   rowSubtitle: string | null;
   units: OperatorPackageItemRow[];
   busy: boolean;
-  onEditUnit: (unit: OperatorPackageItemRow) => void;
-  onDeleteUnit: (unit: OperatorPackageItemRow) => void;
+  onEditGroup: (group: ItemScanUnitGroup) => void;
+  onDeleteGroup: (group: ItemScanUnitGroup) => void;
   onClose: () => void;
 };
 
@@ -148,13 +191,17 @@ export function ItemScanEditUnitPickerModal({
   rowSubtitle,
   units,
   busy,
-  onEditUnit,
-  onDeleteUnit,
+  onEditGroup,
+  onDeleteGroup,
   onClose,
 }: ItemScanEditUnitPickerModalProps) {
+  const groups = useMemo(() => groupItemScanUnitsForEditPicker(units), [units]);
+
   if (!open) return null;
 
   const empty = units.length === 0;
+  const totalUnits = units.length;
+  const groupCount = groups.length;
 
   return (
     <div
@@ -169,7 +216,7 @@ export function ItemScanEditUnitPickerModal({
             id="item-scan-unit-picker-title"
             className="operator-shipment-flow-modal__title operator-item-scan-unit-picker__title text-center text-[16px] font-black leading-snug tracking-tight"
           >
-            Choose unit to edit
+            Choose batch to edit
           </p>
           <p className="operator-item-scan-unit-picker__product mt-2 text-center text-[13px] font-semibold leading-snug">
             {rowTitle}
@@ -177,6 +224,13 @@ export function ItemScanEditUnitPickerModal({
           {rowSubtitle ? (
             <p className="operator-item-scan-unit-picker__fnsku mt-1.5 text-center font-mono text-[10px] font-medium leading-snug tracking-wide">
               {rowSubtitle}
+            </p>
+          ) : null}
+          {!empty && groupCount > 0 ? (
+            <p className="operator-item-scan-unit-picker__summary mt-2 text-center text-[11px] font-semibold leading-snug">
+              {totalUnits === 1
+                ? "1 unit in 1 group"
+                : `${totalUnits} units in ${groupCount} group${groupCount === 1 ? "" : "s"}`}
             </p>
           ) : null}
         </div>
@@ -191,15 +245,21 @@ export function ItemScanEditUnitPickerModal({
             </p>
           ) : (
             <ul className="operator-item-scan-unit-picker__list space-y-2.5">
-              {units.map((unit, index) => {
-                const summary = itemScanUnitSummaryLines(unit);
-                const audit = itemScanUnitAuditLines(unit);
+              {groups.map((group) => {
+                const condition = groupConditionLabel(group);
+                const countLabel = itemScanUnitGroupCountLabel(group.units.length);
+                const expiryLabel = groupExpiryLabel(group);
+                const evidenceLabel = groupEvidenceLabel(group);
+                const audit = groupAuditLines(group);
                 return (
-                  <li key={unit.id}>
+                  <li key={group.id}>
                     <div className="operator-item-scan-unit-picker__unit-card flex w-full min-h-[52px] flex-col gap-1 rounded-lg border px-3 py-2.5 text-left">
                       <span className="operator-item-scan-unit-picker__unit-head flex min-w-0 flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
-                        <span className="operator-item-scan-unit-picker__unit-label shrink-0 text-[12px] font-black leading-none">
-                          Unit {index + 1}
+                        <span className="operator-item-scan-unit-picker__unit-label shrink-0 text-[12px] font-black leading-snug">
+                          {condition}
+                          <span className="operator-item-scan-unit-picker__summary ml-1.5 font-bold">
+                            · {countLabel}
+                          </span>
                         </span>
                         <span className="operator-item-scan-unit-picker__unit-actions flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                           <button
@@ -208,12 +268,12 @@ export function ItemScanEditUnitPickerModal({
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              onEditUnit(unit);
+                              onEditGroup(group);
                             }}
                             className="operator-item-scan-unit-picker__edit-btn inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide transition active:scale-95 disabled:opacity-40"
                           >
                             <Pencil className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                            Edit
+                            Edit group
                           </button>
                           <button
                             type="button"
@@ -221,21 +281,21 @@ export function ItemScanEditUnitPickerModal({
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              onDeleteUnit(unit);
+                              onDeleteGroup(group);
                             }}
                             className="operator-item-scan-unit-picker__delete-btn inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide transition active:scale-95 disabled:opacity-40"
-                            aria-label="Delete this scanned unit"
+                            aria-label={`Delete ${countLabel}`}
                           >
                             <Trash2 className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                            Delete
+                            Delete group
                           </button>
                         </span>
                       </span>
                       <span className="operator-item-scan-unit-picker__summary text-[10px] font-medium leading-snug">
-                        {summary.line1}
+                        {expiryLabel}
                       </span>
                       <span className="operator-item-scan-unit-picker__summary operator-item-scan-unit-picker__summary--muted text-[9px] leading-snug">
-                        {summary.line2}
+                        {evidenceLabel}
                       </span>
                       <span className="operator-item-scan-unit-picker__audit mt-0.5 text-[9px] leading-snug">
                         {audit.created}

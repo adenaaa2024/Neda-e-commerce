@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, Loader2, Share } from "lucide-react";
 import { useUserRole } from "@/components/UserRoleContext";
 import { PWA_APP_NAME } from "@/lib/pwa-app-version";
@@ -18,14 +18,8 @@ import {
 import type { PwaVersionEndpointPayload } from "@/lib/pwa-settings-types";
 import { DEFAULT_PLATFORM_PWA_SETTINGS } from "@/lib/pwa-settings-types";
 import { buildPwaVersionEndpointPayload } from "@/lib/pwa-settings-payload";
-import { runPwaVersionBootCheckOnce } from "@/lib/pwa-version-boot";
-import {
-  clearScannerGateBootCompleteInSession,
-  logScannerFullscreenLoadingReason,
-  logScannerGateRerunReason,
-  markScannerGateBootCompleteInSession,
-  readScannerGateBootCompleteFromSession,
-} from "@/lib/scanner/scanner-focus-instrumentation";
+import { readCachedPwaVersionPolicy } from "@/lib/pwa-version-cache";
+import { checkPwaVersionPolicy, type PwaVersionCheckResult } from "@/lib/pwa-version-check";
 import { useOperatorSessionStore } from "./OperatorSessionStoreProvider";
 import { OperatorMobileBlockingOverlay } from "./OperatorMobileBlockingOverlay";
 
@@ -55,14 +49,48 @@ function shouldHardBlockPwaInstall(payload: PwaVersionEndpointPayload): boolean 
   return false;
 }
 
+function resolveSyncPwaPolicyPayload(): PwaVersionEndpointPayload {
+  const cached = readCachedPwaVersionPolicy();
+  if (cached?.payload) return cached.payload;
+  return buildPwaVersionEndpointPayload(DEFAULT_PLATFORM_PWA_SETTINGS);
+}
+
+function payloadFromVersionCheckResult(result: PwaVersionCheckResult): PwaVersionEndpointPayload {
+  if (result.status === "ok" || result.status === "cache") return result.payload;
+  return result.cached ?? buildPwaVersionEndpointPayload(DEFAULT_PLATFORM_PWA_SETTINGS);
+}
+
 type OperatorMobileStartupGateProps = {
   children: ReactNode;
 };
 
+function OperatorGateInlineBanner({ message }: { message: string }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 z-[450] flex justify-center px-3 pt-[max(0.25rem,env(safe-area-inset-top))]"
+      aria-live="polite"
+    >
+      <div
+        className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-semibold shadow-lg"
+        style={{
+          borderColor: "var(--scanner-border, #323c48)",
+          background: "var(--scanner-card, #0f1419)",
+          color: "var(--scanner-text, #faf6ed)",
+        }}
+      >
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" style={{ color: "var(--op-accent-gold, #d6b76e)" }} />
+        {message}
+      </div>
+    </div>
+  );
+}
+
 /**
- * Session + store startup gate for operator mobile.
- * Version updates use the global soft banner — never hard-block scanning here.
- * After first successful boot, focus/visibility/store revalidation must not unmount scanner UI.
+ * Startup validation — session, store, and optional PWA-install policy only.
+ * Version updates are handled by the global soft banner (non-blocking).
+ *
+ * Once the gate reaches `ready`, scanner children stay mounted; background profile/store
+ * refresh shows a small inline banner instead of replacing the whole screen.
  */
 export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGateProps) {
   const { actorUserId, profileLoading } = useUserRole();
@@ -70,107 +98,90 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
     sessionStoreId,
     operatorStores,
     operatorStoresLoading,
+    operatorStoresRefreshing,
     kioskStoreLocked,
     selectSessionStoreId,
   } = useOperatorSessionStore();
 
-  const bootCompleteRef = useRef(readScannerGateBootCompleteFromSession());
-  const [initialBootComplete, setInitialBootComplete] = useState(bootCompleteRef.current);
-  const pwaPolicyCheckedRef = useRef(false);
-
-  const [phase, setPhase] = useState<GatePhase>(() => (bootCompleteRef.current ? "ready" : "loading"));
-  const [, setPolicy] = useState<PwaVersionEndpointPayload>(() =>
-    buildPwaVersionEndpointPayload(DEFAULT_PLATFORM_PWA_SETTINGS),
-  );
+  const [phase, setPhase] = useState<GatePhase>("loading");
+  const [readyLatched, setReadyLatched] = useState(false);
   const [standalone, setStandalone] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
   const [installing, setInstalling] = useState(false);
 
-  const profileLoadingRef = useRef(profileLoading);
-  profileLoadingRef.current = profileLoading;
-  const operatorStoresLoadingRef = useRef(operatorStoresLoading);
-  operatorStoresLoadingRef.current = operatorStoresLoading;
-  const actorUserIdRef = useRef(actorUserId);
-  actorUserIdRef.current = actorUserId;
-  const sessionStoreIdRef = useRef(sessionStoreId);
-  sessionStoreIdRef.current = sessionStoreId;
+  /** Session/store gate — synchronous; never awaits version policy. */
+  const evaluateSessionStoreGate = useCallback(() => {
+    const installed = isStandalonePwa();
+    setStandalone(installed);
 
-  const markBootComplete = useCallback(() => {
-    if (bootCompleteRef.current) return;
-    bootCompleteRef.current = true;
-    markScannerGateBootCompleteInSession();
-    setInitialBootComplete(true);
-  }, []);
+    if (!profileLoading && !actorUserId) {
+      setPhase("blocked_session");
+      return;
+    }
 
-  const evaluateGate = useCallback(
-    async (reason: string) => {
-      logScannerGateRerunReason(reason, {
-        profileLoading: profileLoadingRef.current,
-        operatorStoresLoading: operatorStoresLoadingRef.current,
-        actorUserId: actorUserIdRef.current,
-        sessionStoreId: sessionStoreIdRef.current,
-        initialBootComplete: bootCompleteRef.current,
-      });
+    if (!readyLatched && !operatorStoresLoading && !sessionStoreId) {
+      setPhase("blocked_store");
+      return;
+    }
 
+    if (profileLoading || operatorStoresLoading) {
+      if (!readyLatched) {
+        setPhase("loading");
+      }
+      return;
+    }
+
+    setPhase("ready");
+    setReadyLatched(true);
+  }, [actorUserId, operatorStoresLoading, profileLoading, readyLatched, sessionStoreId]);
+
+  const applyPwaInstallPolicy = useCallback(
+    (payload: PwaVersionEndpointPayload) => {
       const installed = isStandalonePwa();
       setStandalone(installed);
-
-      if (!pwaPolicyCheckedRef.current) {
-        pwaPolicyCheckedRef.current = true;
-        const boot = await runPwaVersionBootCheckOnce();
-        setPolicy(boot.payload);
-        if (!installed && shouldHardBlockPwaInstall(boot.payload)) {
-          setPhase("blocked_pwa");
-          return;
-        }
-      }
-
-      if (!profileLoadingRef.current && !actorUserIdRef.current) {
-        clearScannerGateBootCompleteInSession();
-        bootCompleteRef.current = false;
-        setInitialBootComplete(false);
-        setPhase("blocked_session");
+      if (readyLatched || installed || !shouldHardBlockPwaInstall(payload)) {
+        evaluateSessionStoreGate();
         return;
       }
-
-      if (!operatorStoresLoadingRef.current && !sessionStoreIdRef.current) {
-        if (!bootCompleteRef.current) {
-          setPhase("blocked_store");
-        }
-        return;
-      }
-
-      if (!bootCompleteRef.current && (profileLoadingRef.current || operatorStoresLoadingRef.current)) {
-        logScannerFullscreenLoadingReason("initial_boot_wait", {
-          profileLoading: profileLoadingRef.current,
-          operatorStoresLoading: operatorStoresLoadingRef.current,
-        });
-        setPhase("loading");
-        return;
-      }
-
-      markBootComplete();
-      setPhase("ready");
+      setPhase("blocked_pwa");
     },
-    [markBootComplete],
+    [evaluateSessionStoreGate, readyLatched],
   );
 
   useEffect(() => {
-    void evaluateGate("mount_or_identity_change");
-  }, [actorUserId, sessionStoreId, evaluateGate]);
+    const installed = isStandalonePwa();
+    setStandalone(installed);
+    if (installed) {
+      evaluateSessionStoreGate();
+      return;
+    }
+    applyPwaInstallPolicy(resolveSyncPwaPolicyPayload());
+  }, [applyPwaInstallPolicy, evaluateSessionStoreGate]);
 
   useEffect(() => {
-    if (bootCompleteRef.current) return;
-    if (!profileLoading && !operatorStoresLoading) {
-      void evaluateGate("initial_loading_cleared");
-    }
-  }, [profileLoading, operatorStoresLoading, evaluateGate]);
+    if (isStandalonePwa() || readyLatched) return;
+    void checkPwaVersionPolicy().then((result) => {
+      applyPwaInstallPolicy(payloadFromVersionCheckResult(result));
+    });
+  }, [applyPwaInstallPolicy, readyLatched]);
 
   useEffect(() => {
     if (phase === "blocked_store" && sessionStoreId) {
-      void evaluateGate("store_selected");
+      evaluateSessionStoreGate();
     }
-  }, [phase, sessionStoreId, evaluateGate]);
+  }, [phase, sessionStoreId, evaluateSessionStoreGate]);
+
+  useEffect(() => {
+    if (phase !== "loading" || readyLatched) return;
+    if (profileLoading || operatorStoresLoading) return;
+    evaluateSessionStoreGate();
+  }, [phase, profileLoading, operatorStoresLoading, readyLatched, evaluateSessionStoreGate]);
+
+  useEffect(() => {
+    if (readyLatched) {
+      evaluateSessionStoreGate();
+    }
+  }, [readyLatched, profileLoading, operatorStoresLoading, sessionStoreId, actorUserId, evaluateSessionStoreGate]);
 
   useEffect(() => {
     if (phase !== "blocked_pwa") return;
@@ -181,23 +192,23 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
 
   useEffect(() => {
     const onInstalled = () => {
-      void evaluateGate("pwa_installed");
+      evaluateSessionStoreGate();
     };
     window.addEventListener("appinstalled", onInstalled);
     return () => window.removeEventListener("appinstalled", onInstalled);
-  }, [evaluateGate]);
+  }, [evaluateSessionStoreGate]);
 
   const handleInstall = useCallback(async () => {
     setInstalling(true);
     try {
       const outcome = await runDeferredInstallPrompt();
       if (outcome === "accepted") {
-        await evaluateGate("install_accepted");
+        evaluateSessionStoreGate();
       }
     } finally {
       setInstalling(false);
     }
-  }, [evaluateGate]);
+  }, [evaluateSessionStoreGate]);
 
   const iosManual = useMemo(() => !standalone && isIosSafari(), [standalone]);
   const androidMenu = useMemo(
@@ -212,25 +223,53 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
     background: "var(--op-accent-gold, #d6b76e)",
   };
 
-  const showBlockingLoading =
-    !initialBootComplete && phase === "loading" && (profileLoading || operatorStoresLoading);
-  const showSilentRevalidation =
-    initialBootComplete && phase === "ready" && (profileLoading || operatorStoresLoading);
+  const backgroundRefreshing =
+    readyLatched && (profileLoading || operatorStoresLoading || operatorStoresRefreshing);
+  const initialBooting =
+    !readyLatched && phase === "loading" && (profileLoading || operatorStoresLoading);
 
-  if (showBlockingLoading) {
-    return (
-      <div
-        className="flex min-h-dvh items-center justify-center px-6 text-center text-[13px] font-semibold"
-        style={{ color: "var(--op-text-secondary, #b9c2cc)" }}
-      >
-        Loading scanner…
-      </div>
-    );
-  }
+  const inlineBannerMessage = useMemo(() => {
+    if (backgroundRefreshing) return "Refreshing session in background…";
+    if (initialBooting) return "Starting scanner…";
+    return "";
+  }, [backgroundRefreshing, initialBooting]);
 
-  if (phase === "blocked_pwa") {
-    return (
-      <OperatorMobileBlockingOverlay
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" && (backgroundRefreshing || initialBooting)) {
+      console.log("[scanner gate]", {
+        phase,
+        readyLatched,
+        profileLoading,
+        operatorStoresLoading,
+        operatorStoresRefreshing,
+        actorUserIdExists: Boolean(actorUserId),
+        sessionStoreId,
+        operatorStoresCount: operatorStores.length,
+      });
+    }
+  }, [
+    backgroundRefreshing,
+    initialBooting,
+    phase,
+    readyLatched,
+    profileLoading,
+    operatorStoresLoading,
+    operatorStoresRefreshing,
+    actorUserId,
+    sessionStoreId,
+    operatorStores.length,
+  ]);
+
+  const showBlockedPwa = phase === "blocked_pwa" && !readyLatched;
+  const showBlockedSession = phase === "blocked_session";
+  const showBlockedStore = phase === "blocked_store" && !readyLatched;
+
+  return (
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {children}
+      {inlineBannerMessage ? <OperatorGateInlineBanner message={inlineBannerMessage} /> : null}
+      {showBlockedPwa ? (
+        <OperatorMobileBlockingOverlay
           title="Install Menorix to continue"
           ariaLabel="PWA install required"
           message={
@@ -264,12 +303,9 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
             </p>
           ) : null}
         </OperatorMobileBlockingOverlay>
-    );
-  }
-
-  if (phase === "blocked_session") {
-    return (
-      <OperatorMobileBlockingOverlay
+      ) : null}
+      {showBlockedSession ? (
+        <OperatorMobileBlockingOverlay
           title="Sign in required"
           ariaLabel="Session required"
           message="You must sign in before using the Menorix scanner."
@@ -278,12 +314,9 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
             Sign in
           </Link>
         </OperatorMobileBlockingOverlay>
-    );
-  }
-
-  if (phase === "blocked_store" && !initialBootComplete) {
-    return (
-      <OperatorMobileBlockingOverlay
+      ) : null}
+      {showBlockedStore ? (
+        <OperatorMobileBlockingOverlay
           title="Select a store"
           ariaLabel="Store selection required"
           message={
@@ -317,7 +350,7 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
           {sessionStoreId ? (
             <button
               type="button"
-              onClick={() => void evaluateGate("store_continue")}
+              onClick={evaluateSessionStoreGate}
               className={actionButtonClass}
               style={actionButtonStyle}
             >
@@ -325,30 +358,7 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
             </button>
           ) : null}
         </OperatorMobileBlockingOverlay>
-    );
-  }
-
-  return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      {showSilentRevalidation ? (
-        <div
-          className="pointer-events-none absolute inset-x-0 top-[max(0.25rem,env(safe-area-inset-top))] z-[500] flex justify-center px-3"
-          aria-live="polite"
-        >
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold shadow-sm"
-            style={{
-              background: "rgba(10, 14, 20, 0.92)",
-              color: "var(--op-text-secondary, #b9c2cc)",
-              border: "1px solid var(--scanner-border, #323c48)",
-            }}
-          >
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-            Reconnecting…
-          </span>
-        </div>
       ) : null}
-      {children}
     </div>
   );
 }

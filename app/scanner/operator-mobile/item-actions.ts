@@ -18,6 +18,9 @@ import {
   softVoidReturnItemWithExpectedRelease,
 } from "@/lib/scanner/receive-expected-with-split";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
+import {
+  guardBatchQuantityBackendError,
+} from "@/lib/scanner/batch-quantity-backend-guard";
 
 export type OperatorReceiveItemInput = {
   organization_id?: string;
@@ -38,7 +41,7 @@ export type OperatorReceiveItemInput = {
   notes?: string | null;
   expiration_date?: string | null;
   batch_number?: string | null;
-  /** Units in this save batch (default 1). One return_items row per save. */
+  /** Units in this receive batch (default 1). One `return_items` row with `scanned_quantity`. */
   quantity?: number;
   photo_evidence?: ReturnInsertPayload["photo_evidence"];
   order_id?: string | null;
@@ -204,7 +207,11 @@ export async function operatorReceiveItem(
 
   const res = await insertReturn(basePayload);
   if (!res.ok || !res.data?.id) {
-    return { ok: false, error: res.error ?? "Failed to insert return item." };
+    const guarded = guardBatchQuantityBackendError(qty, res.error);
+    return {
+      ok: false,
+      error: guarded ?? res.error ?? "Failed to insert return item.",
+    };
   }
 
   const returnItemId = res.data.id;

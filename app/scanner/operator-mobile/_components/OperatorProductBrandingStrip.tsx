@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Check, ChevronDown, Lock, Search } from "lucide-react";
+import { Check, ChevronDown, Loader2, Lock, Search } from "lucide-react";
 import { useBranding } from "@/components/BrandingContext";
 import { useOperatorSessionStore } from "./OperatorSessionStoreProvider";
 import { isSupabaseConfigured } from "@/src/lib/supabase";
@@ -100,6 +100,7 @@ function InlineStoreSelector() {
     selectSessionStoreId,
     operatorStores,
     operatorStoresLoading,
+    operatorStoresRefreshing,
     kioskStoreLocked,
     activeStoreLabel,
   } = useOperatorSessionStore();
@@ -125,19 +126,25 @@ function InlineStoreSelector() {
     );
   }
 
-  if (operatorStoresLoading) {
+  if (operatorStoresLoading || operatorStoresRefreshing) {
+    const chipLabel =
+      activeStoreLabel ??
+      (operatorStores.length === 1 ? operatorStores[0].name : null) ??
+      (operatorStoresRefreshing ? "…" : "…");
     return (
       <div className="flex shrink-0 items-center gap-1.5">
         <span className={labelClass}>Store</span>
         <span
-          className={baseChip}
+          className={`${baseChip} inline-flex items-center gap-1`}
           style={{
             borderColor: "var(--scanner-border)",
             backgroundColor: "var(--scanner-card)",
             color: "var(--scanner-text)",
           }}
+          title={activeStoreLabel ?? undefined}
         >
-          …
+          <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin opacity-80" aria-hidden />
+          <span className="truncate">{chipLabel}</span>
         </span>
       </div>
     );
