@@ -95,6 +95,8 @@ import {
 } from "@/lib/scanner/v-inventory-status";
 import { resolveItemBarcodeAgainstExpectedRows, type ItemResolveTier } from "@/lib/scanner/operator-item-resolve";
 import {
+  coalesceSlipRowFnsku,
+  coalesceSlipRowUpc,
   resolveItemBarcodeAgainstSlipRows,
   type SlipBarcodeMatchRow,
   type SlipItemResolveTier,
@@ -204,18 +206,22 @@ import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_com
 import { ItemScanEditUnitPickerModal } from "@/app/scanner/operator-mobile/_components/ItemScanEditUnitPickerModal";
 import { SlipShipmentValidationChip } from "@/app/scanner/operator-mobile/_components/SlipShipmentValidationChip";
 import { SlipShipmentValidationShipmentOnlyHint } from "@/app/scanner/operator-mobile/_components/SlipShipmentValidationShipmentOnlyHint";
-import { SlipShipmentValidationFinalizeSummary } from "@/app/scanner/operator-mobile/_components/SlipShipmentValidationFinalizeSummary";
+import { BoxCloseReviewModal } from "@/app/scanner/operator-mobile/_components/BoxCloseReviewModal";
 import type {
   SlipShipmentValidationLine,
   SlipShipmentValidationPreview,
 } from "@/lib/scanner/slip-shipment-validation-types";
 import {
-  buildFinalizeValidationSummary,
   buildValidationLineBySlipId,
   resolveValidationLineForSlipRow,
   shipmentOnlyValidationLines,
   shouldShowValidationChipOnRow,
 } from "@/lib/scanner/slip-shipment-validation-ui-helpers";
+import {
+  buildBoxCloseReviewModel,
+  buildBoxCloseReviewSnapshot,
+} from "@/lib/scanner/box-close-review";
+import { readMissingReviewEntries } from "@/lib/scanner/package-missing-review-manifest";
 import {
   itemScanUnitGroupCountLabel,
   type ItemScanUnitGroup,
@@ -228,8 +234,13 @@ import {
 } from "@/lib/scanner/item-unit-discrepancy-tags";
 import { itemScanSaveShouldTreatAsOffSlip, returnItemNotesMarkOffSlip } from "@/lib/scanner/item-scan-off-slip";
 import {
+  resolveItemScanOverLimitContext,
+  shouldRequireItemScanOverLimitConfirmation,
+} from "@/lib/scanner/item-scan-over-limit-confirm";
+import {
   computeSlipLineExpectedVsReceived,
   formatSlipLineQtySummary,
+  slipLineStatusBadgeState,
   type SlipLineExpectedVsReceived,
 } from "@/lib/scanner/slip-contents-missing-expected";
 import { packageManifestHasEmptyBox } from "@/lib/scanner/package-empty-box-manifest";
@@ -762,7 +773,12 @@ function mapSlipContentRowToVisionLine(row: Record<string, unknown>): BoxSlipVis
     slipContentsNotesToMissingFlag(row.notes);
   return {
     upc: typeof row.upc === "string" && row.upc.trim() ? row.upc.trim() : null,
-    fnsku: typeof row.fnsku === "string" && row.fnsku.trim() ? row.fnsku.trim() : null,
+    fnsku:
+      typeof row.fnsku === "string" && row.fnsku.trim()
+        ? row.fnsku.trim()
+        : typeof row.parsed_fnsku === "string" && row.parsed_fnsku.trim()
+          ? row.parsed_fnsku.trim()
+          : null,
     printed_asin:
       typeof row.parsed_asin === "string" && row.parsed_asin.trim()
         ? row.parsed_asin.trim()
@@ -1858,25 +1874,6 @@ function operatorMissingReviewMarkedLabel(
   return "Marked missing";
 }
 
-function expectedSlipLineStatusBadge(
-  line: SlipLineExpectedVsReceived,
-  hasMissingReviewEntry: boolean,
-): {
-  label: string;
-  tone: "missing" | "received" | "marked" | "awaiting";
-} {
-  if (line.expected > 0 && line.received >= line.expected) {
-    return { label: "Received", tone: "received" };
-  }
-  if (hasMissingReviewEntry && line.recordedMissing > 0) {
-    return { label: "Marked missing", tone: "marked" };
-  }
-  if (line.expected > 0) {
-    return { label: "Pending", tone: "awaiting" };
-  }
-  return { label: "—", tone: "awaiting" };
-}
-
 function packageItemRowUnitQty(row: OperatorPackageItemRow): number {
   return Math.max(1, Math.floor(Number(row.quantity ?? 1)));
 }
@@ -1885,7 +1882,18 @@ function SlipLinePassiveStatusBadge(props: {
   line: SlipLineExpectedVsReceived;
   hasMissingReviewEntry: boolean;
 }) {
-  const { label, tone } = expectedSlipLineStatusBadge(props.line, props.hasMissingReviewEntry);
+  const { label, tone } = slipLineStatusBadgeState(props.line, props.hasMissingReviewEntry);
+  if (tone === "over") {
+    // Reuse the existing OVER pill styling (same CSS tokens as off-slip/unexpected rows).
+    return (
+      <span
+        className="operator-item-scan-slip-passive-badge operator-item-scan-slip-status shrink-0 rounded border px-1 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide"
+        data-neda-qty="OVER"
+      >
+        {label}
+      </span>
+    );
+  }
   const toneClass =
     tone === "marked"
       ? "text-amber-300"
@@ -3844,7 +3852,14 @@ function ExpectedInventoryLineRow(props: {
           <p className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">Scan</p>
           <p
             className="mt-0.5 text-base font-bold tabular-nums leading-none"
-            style={{ color: line.scannedQty >= line.expectedQty && line.expectedQty > 0 ? SUCCESS : TEXT_PRIMARY }}
+            style={{
+              color:
+                line.expectedQty > 0 && line.scannedQty > line.expectedQty
+                  ? "#fca5a5"
+                  : line.expectedQty > 0 && line.scannedQty === line.expectedQty
+                    ? SUCCESS
+                    : TEXT_PRIMARY,
+            }}
           >
             {line.scannedQty}
           </p>
@@ -5019,14 +5034,6 @@ function OperatorMobileScanPageContent() {
     null,
   );
 
-  /** Blocking dialog state when operator tries to scan a slip line that's already at/over expected. */
-  const [overscanConfirmOpen, setOverscanConfirmOpen] = useState(false);
-  const overscanConfirmCtxRef = useRef<{
-    slipId: string | null;
-    expected: number;
-    current: number;
-    args: Parameters<typeof queueItemUnitModalInner>[0];
-  } | null>(null);
   const [syncErrorToast, setSyncErrorToast] = useState<string | null>(null);
 
   const [expectedPkgLines, setExpectedPkgLines] = useState<TrackingOperatorLine[]>([]);
@@ -8755,25 +8762,12 @@ function OperatorMobileScanPageContent() {
     [itemInspectionSlipLines],
   );
 
-  /** Entry point — checks for overscan and shows a blocking confirm dialog before opening the record modal. */
+  /** Entry point — opens record modal; over-limit confirmation runs at save time. */
   const queueItemUnitModal = useCallback(
     (args: QueueItemUnitModalArgs) => {
-      const slip = args.slip;
-      if (slip) {
-        const slipId = slip.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
-        const expectedQty = Math.max(0, Math.floor(Number(slip.quantity ?? 0)));
-        const currentForSlip = slipId ? (packageItemScanState.bySlipId[slipId] ?? 0) : 0;
-        if (expectedQty > 0 && currentForSlip >= expectedQty) {
-          // Show blocking confirmation before proceeding — scan CAN still happen but operator must confirm
-          overscanConfirmCtxRef.current = { slipId, expected: expectedQty, current: currentForSlip, args };
-          modalOpenRef.current = true;
-          setOverscanConfirmOpen(true);
-          return;
-        }
-      }
       queueItemUnitModalInner(args);
     },
-    [packageItemScanState.bySlipId, queueItemUnitModalInner],
+    [queueItemUnitModalInner],
   );
 
   const openEditScannedItemModal = useCallback(
@@ -9333,11 +9327,11 @@ function OperatorMobileScanPageContent() {
         ctx.matchKindPreset != null ? ctx.matchKindPreset : resolverFields.matchKind;
       if (ctx.matchKindPreset == null) {
         const slipRowsForMatch: SlipBarcodeMatchRow[] = itemInspectionSlipLines
-          .filter((r) => Boolean(r.fnsku?.trim() || r.upc?.trim()))
+          .filter((r) => Boolean(coalesceSlipRowFnsku(r) || coalesceSlipRowUpc(r)))
           .map((r) => ({
             id: r.id,
-            upc: r.upc,
-            fnsku: r.fnsku,
+            upc: coalesceSlipRowUpc(r),
+            fnsku: coalesceSlipRowFnsku(r),
             description: r.description,
             quantity: r.quantity,
             sort_index: r.sort_index,
@@ -9353,38 +9347,6 @@ function OperatorMobileScanPageContent() {
             if (sid && isUuidString(sid)) slipContentId = sid;
           }
         }
-      }
-
-      if (!isSupabaseConfigured() || !pkgId) {
-        const demoQty = Math.max(1, Math.floor(Number(payload.batchQuantity ?? 1)));
-        const sid = ctx.slipContentId;
-        if (sid && isUuidString(sid)) {
-          setPackageItemScanState((prev) => ({
-            ...prev,
-            bySlipId: {
-              ...prev.bySlipId,
-              [sid]: (prev.bySlipId[sid] ?? 0) + demoQty,
-            },
-          }));
-        } else {
-          setPackageItemScanState((prev) => ({
-            ...prev,
-            unexpectedUnits: prev.unexpectedUnits + demoQty,
-          }));
-        }
-        setItemReceiveDemoScannedUnits((u) => u + demoQty);
-        setScanSuccessFlash(true);
-        showScanActionToast("success", "✓ Item successfully registered and logged.");
-        modalOpenRef.current = false;
-        setItemUnitModal(null);
-        scheduleFocusScanner();
-        return { ok: true };
-      }
-
-      if (!sessionStoreId) {
-        const msg = "Select an active store before saving scans.";
-        showScanActionToast("error", msg);
-        return { ok: false, message: msg };
       }
 
       let expectedPackageHintId: string | null = null;
@@ -9421,6 +9383,82 @@ function OperatorMobileScanPageContent() {
         slipContentId = null;
         matchKind = "unexpected";
         expectedPackageHintId = null;
+      }
+
+      const allocationSlipId =
+        batchQuantity > 1 || !saveAsOffSlip
+          ? slipIdForSave ?? (slipContentId && isUuidString(slipContentId) ? slipContentId : null)
+          : null;
+      const allocationSlipRow = allocationSlipId
+        ? itemInspectionSlipLines.find((s) => String(s.id ?? "").trim() === allocationSlipId)
+        : null;
+      const allocationSlipExpectedQty = allocationSlipRow
+        ? Math.max(0, Math.floor(Number(allocationSlipRow.quantity ?? 0)))
+        : 0;
+      const allocationScannedForSlip = allocationSlipId
+        ? (packageItemScanState.bySlipId[allocationSlipId] ?? 0)
+        : 0;
+      const overLimitCtx = resolveItemScanOverLimitContext({
+        saveAsOffSlip: batchQuantity > 1 ? false : saveAsOffSlip,
+        matchKind,
+        scannedBarcode: trimmed,
+        slipContentId: allocationSlipId,
+        slipExpectedQty: allocationSlipExpectedQty,
+        scannedForSlipQty: allocationScannedForSlip,
+        expectedPkgDetailRows: Array.isArray(expectedPkgDetailRows) ? expectedPkgDetailRows : [],
+      });
+      if (
+        overLimitCtx.scope !== "none" &&
+        shouldRequireItemScanOverLimitConfirmation({
+          currentReceived: overLimitCtx.currentReceived,
+          incomingQty: batchQuantity,
+          expectedLimit: overLimitCtx.expectedLimit,
+          overLimitConfirmed: payload.overLimitConfirmed,
+        })
+      ) {
+        return {
+          ok: false,
+          message: "",
+          needsOverLimitConfirm: true,
+          overLimitConfirm: {
+            scope: overLimitCtx.scope === "shipment" ? "shipment" : "slip",
+            expected: overLimitCtx.expectedLimit,
+            current: overLimitCtx.currentReceived,
+            incoming: batchQuantity,
+          },
+        };
+      }
+
+      if (!isSupabaseConfigured() || !pkgId) {
+        const demoQty = batchQuantity;
+        const sid = allocationSlipId;
+        if (sid && isUuidString(sid)) {
+          setPackageItemScanState((prev) => ({
+            ...prev,
+            bySlipId: {
+              ...prev.bySlipId,
+              [sid]: (prev.bySlipId[sid] ?? 0) + demoQty,
+            },
+          }));
+        } else {
+          setPackageItemScanState((prev) => ({
+            ...prev,
+            unexpectedUnits: prev.unexpectedUnits + demoQty,
+          }));
+        }
+        setItemReceiveDemoScannedUnits((u) => u + demoQty);
+        setScanSuccessFlash(true);
+        showScanActionToast("success", "✓ Item successfully registered and logged.");
+        modalOpenRef.current = false;
+        setItemUnitModal(null);
+        scheduleFocusScanner();
+        return { ok: true };
+      }
+
+      if (!sessionStoreId) {
+        const msg = "Select an active store before saving scans.";
+        showScanActionToast("error", msg);
+        return { ok: false, message: msg };
       }
 
       setBusy(true);
@@ -9575,11 +9613,11 @@ function OperatorMobileScanPageContent() {
       setScanProgressPhase("loading_expected_lines");
 
       const slipRowsForMatch: SlipBarcodeMatchRow[] = itemInspectionSlipLines
-        .filter((r) => Boolean(r.fnsku?.trim() || r.upc?.trim()))
+        .filter((r) => Boolean(coalesceSlipRowFnsku(r) || coalesceSlipRowUpc(r)))
         .map((r) => ({
           id: r.id,
-          upc: r.upc,
-          fnsku: r.fnsku,
+          upc: coalesceSlipRowUpc(r),
+          fnsku: coalesceSlipRowFnsku(r),
           description: r.description,
           quantity: r.quantity,
           sort_index: r.sort_index,
@@ -11765,10 +11803,27 @@ function OperatorMobileScanPageContent() {
     [slipShipmentValidationPreview],
   );
 
-  const slipValidationFinalizeSummary = useMemo(
-    () => buildFinalizeValidationSummary(slipShipmentValidationPreview),
-    [slipShipmentValidationPreview],
+  const boxCloseReviewModel = useMemo(
+    () =>
+      buildBoxCloseReviewModel({
+        preview: slipShipmentValidationPreview,
+        missingReviewEntries: readMissingReviewEntries(itemScanPackageManifestData),
+        packageItems: packageItemHydratedRows,
+      }),
+    [slipShipmentValidationPreview, itemScanPackageManifestData, packageItemHydratedRows],
   );
+
+  const openBoxCloseReviewModal = useCallback(() => {
+    const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
+    const oid = (orgId ?? "").trim();
+    modalOpenRef.current = true;
+    setItemsBoxFinalizeModalOpen(true);
+    if (pkgId && oid) {
+      void computeSlipShipmentValidationPreviewAction(oid, pkgId).then((res) => {
+        if (res.ok) setSlipShipmentValidationPreview(res.preview);
+      });
+    }
+  }, [itemScanPackageId, orgId]);
 
   const editMissingReviewCell = useMemo(
     () => itemInspectionSlipCells.find((c) => c.key === editMissingReviewCellKey) ?? null,
@@ -12373,12 +12428,23 @@ function OperatorMobileScanPageContent() {
     }
   }, [itemScanPackageId, orgId, sessionStoreId, itemScanReceiveFinalized]);
 
-  const confirmItemsPhaseFinalizeToHub = useCallback(async () => {
+  const confirmItemsPhaseFinalizeToHub = useCallback(
+    async (reviewArgs?: { criticalIssuesAcknowledged: boolean; auditNote: string | null }) => {
     const pid = activePallet?.id?.trim() ?? "";
     const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
     const oid = (orgId ?? "").trim();
     const store = sessionStoreId?.trim() ?? "";
     let discrepancy = isItemsQtyDiscrepancy;
+
+    const boxReviewSnapshot =
+      reviewArgs != null
+        ? buildBoxCloseReviewSnapshot(boxCloseReviewModel, {
+            confirmedAtIso: new Date().toISOString(),
+            confirmedBy: null,
+            criticalIssuesAcknowledged: reviewArgs.criticalIssuesAcknowledged,
+            auditNote: reviewArgs.auditNote,
+          })
+        : null;
 
     if (isSupabaseConfigured() && pkgId && oid && store) {
       setItemsFinalizeBusy(true);
@@ -12394,6 +12460,7 @@ function OperatorMobileScanPageContent() {
             inside_photo_urls: insideBoxPhotoUrlsRef.current,
             slip_photo_urls: slipBoxPhotoUrlsRef.current,
           },
+          boxReviewSnapshot,
         });
         if (!res.ok) {
           setSyncErrorToast(res.message ?? "Could not finalize package.");
@@ -12443,7 +12510,8 @@ function OperatorMobileScanPageContent() {
     }
     playOperatorSuccessBeep();
     router.push(SCANNER_OPERATOR_HOME_PATH);
-  }, [
+  },
+  [
     isItemsQtyDiscrepancy,
     itemScanPackageId,
     orgId,
@@ -12454,6 +12522,7 @@ function OperatorMobileScanPageContent() {
     resetItemInspectionForm,
     loadPalletDetail,
     router,
+    boxCloseReviewModel,
   ]);
 
   const itemsIdentifierPerfect =
@@ -19398,65 +19467,6 @@ function OperatorMobileScanPageContent() {
         </div>
       ) : null}
 
-      {overscanConfirmOpen && overscanConfirmCtxRef.current ? (
-        <div
-          className="operator-shipment-flow-modal fixed inset-0 z-[147] flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={`${formId}-overscan-confirm-title`}
-        >
-          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
-            <p
-              id={`${formId}-overscan-confirm-title`}
-              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
-            >
-              Over-scan warning
-            </p>
-            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
-              This slip line already has{" "}
-              <span className="font-mono font-bold">{overscanConfirmCtxRef.current.current}</span>{" "}
-              unit{overscanConfirmCtxRef.current.current !== 1 ? "s" : ""} scanned (expected{" "}
-              <span className="font-mono font-bold">{overscanConfirmCtxRef.current.expected}</span>).
-            </p>
-            <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
-              Adding another unit will mark this line as OVER. Are you sure?
-            </p>
-            <OperatorScannerFooterActions
-              className="mt-6"
-              primary={
-                <button
-                  type="button"
-                  className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] dark:bg-red-950/30 dark:text-red-300"
-                  onClick={() => {
-                    const ctx = overscanConfirmCtxRef.current;
-                    overscanConfirmCtxRef.current = null;
-                    setOverscanConfirmOpen(false);
-                    modalOpenRef.current = false;
-                    if (ctx) queueItemUnitModalInner(ctx.args);
-                  }}
-                >
-                  Yes, add anyway (OVER)
-                </button>
-              }
-              secondary={
-                <button
-                  type="button"
-                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-                  onClick={() => {
-                    overscanConfirmCtxRef.current = null;
-                    setOverscanConfirmOpen(false);
-                    modalOpenRef.current = false;
-                    scheduleFocusScanner();
-                  }}
-                >
-                  Cancel
-                </button>
-              }
-            />
-          </div>
-        </div>
-      ) : null}
-
       {slipChangeConfirmOpen ? (
         <div
           className="operator-shipment-flow-modal fixed inset-0 z-[145] flex items-center justify-center p-4"
@@ -19649,97 +19659,22 @@ function OperatorMobileScanPageContent() {
       ) : null}
 
       {itemsBoxFinalizeModalOpen ? (
-        <div
-          className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={`${formId}-items-finalize-title`}
-        >
-          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
-            <p
-              id={`${formId}-items-finalize-title`}
-              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
-            >
-              {CONFIRM_SAVE_MESSAGE}
-            </p>
-            <p className="operator-shipment-flow-modal__body mt-2 text-center text-[13px] font-semibold leading-snug">
-              Finalize this box and return to the pallet hub?
-            </p>
-            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed tabular-nums">
-              Items:{" "}
-              <span className="font-mono font-bold">
-                {itemsPhaseLiveTotalScanned}/{itemInspectionQtyBasisExpected}
-              </span>
-              . Status:{" "}
-              <span className="font-bold">{itemInspectionAggregateStatusLabel}</span>
-            </p>
-            {slipValidationFinalizeSummary.length > 0 ? (
-              <SlipShipmentValidationFinalizeSummary rows={slipValidationFinalizeSummary} />
-            ) : null}
-            {itemDraft ? (
-              <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
-                You still have an item draft open — it will be cleared when you finalize.
-              </p>
-            ) : null}
-            {isItemsQtyDiscrepancy || itemScanUnresolvedMissingQty > 0 ? (
-              <p className="operator-shipment-flow-modal__alert mt-3 rounded-xl px-3 py-2.5 text-center text-[11px] font-semibold leading-snug">
-                <strong>Warning:</strong>{" "}
-                {itemScanUnresolvedMissingQty > 0 ? (
-                  <>
-                    {itemScanUnresolvedMissingQty} expected unit{itemScanUnresolvedMissingQty === 1 ? "" : "s"}{" "}
-                    still missing (expected {itemInspectionQtyBasisExpected}, scanned{" "}
-                    {itemsPhaseLiveTotalScanned}). Mark remaining as missing or continue scanning.
-                  </>
-                ) : (
-                  <>
-                    Expected <span className="font-mono font-bold">{itemInspectionQtyBasisExpected}</span> units vs
-                    scanned <span className="font-mono font-bold">{itemsPhaseLiveTotalScanned}</span>. Continue anyway?
-                  </>
-                )}
-              </p>
-            ) : null}
-            <OperatorScannerFooterActions
-              className="mt-6"
-              primary={
-                <button
-                  type="button"
-                  disabled={busy || itemsFinalizeBusy}
-                  className={`flex w-full items-center justify-center gap-2 rounded-xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
-                    isItemsQtyDiscrepancy || itemScanUnresolvedMissingQty > 0
-                      ? "border-amber-500/50 bg-amber-100 text-amber-950"
-                      : "border-[#C8A96A]/55 bg-gradient-to-b from-[#3d4550] to-[#171c22] text-[#faf6ed]"
-                  }`}
-                  onClick={() => void confirmItemsPhaseFinalizeToHub()}
-                >
-                  {isItemsQtyDiscrepancy || itemScanUnresolvedMissingQty > 0 ? (
-                    <>
-                      <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
-                      {itemsFinalizeBusy ? "Saving…" : "Confirm save"}
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
-                      {itemsFinalizeBusy ? "Working…" : "Confirm save"}
-                    </>
-                  )}
-                </button>
-              }
-              secondary={
-                <button
-                  type="button"
-                  className={`w-full rounded-xl border border-[var(--scanner-border)] bg-[var(--scanner-card)] text-[var(--scanner-text)] transition active:scale-[0.98] ${ZEBRA_COMPACT_BTN}`}
-                  onClick={() => {
-                    setItemsBoxFinalizeModalOpen(false);
-                    modalOpenRef.current = false;
-                    scheduleFocusScanner();
-                  }}
-                >
-                  Go Back
-                </button>
-              }
-            />
-          </div>
-        </div>
+        <BoxCloseReviewModal
+          formId={formId}
+          model={boxCloseReviewModel}
+          liveScanned={itemsPhaseLiveTotalScanned}
+          liveExpected={itemInspectionQtyBasisExpected}
+          aggregateStatusLabel={itemInspectionAggregateStatusLabel}
+          busy={busy}
+          finalizeBusy={itemsFinalizeBusy}
+          hasItemDraft={Boolean(itemDraft)}
+          onCancel={() => {
+            setItemsBoxFinalizeModalOpen(false);
+            modalOpenRef.current = false;
+            scheduleFocusScanner();
+          }}
+          onConfirm={(args) => void confirmItemsPhaseFinalizeToHub(args)}
+        />
       ) : null}
 
       {packageSaveSuccessOverlay ? (
@@ -19779,10 +19714,7 @@ function OperatorMobileScanPageContent() {
           <button
             type="button"
             disabled={busy || itemsFinalizeBusy || slipMissingMarkBusy}
-            onClick={() => {
-              modalOpenRef.current = true;
-              setItemsBoxFinalizeModalOpen(true);
-            }}
+            onClick={() => openBoxCloseReviewModal()}
             aria-label={
               isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
                 ? "Complete with discrepancy"

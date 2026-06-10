@@ -20,7 +20,10 @@ import {
 } from "@/lib/scanner/package-receive-edit-guard";
 import { guardBatchQuantityBackendError } from "@/lib/scanner/batch-quantity-backend-guard";
 import { computeSlipLineExpectedVsReceived } from "@/lib/scanner/slip-contents-missing-expected";
+import { buildPalletShipmentReviewPreview } from "@/lib/scanner/pallet-shipment-review-preview";
+import type { PalletShipmentReviewPreview } from "@/lib/scanner/pallet-shipment-review-types";
 import { buildSlipShipmentValidationPreview } from "@/lib/scanner/slip-shipment-validation";
+import type { BoxCloseReviewSnapshot } from "@/lib/scanner/box-close-review";
 import type { SlipShipmentValidationPreview } from "@/lib/scanner/slip-shipment-validation-types";
 import {
   mergePackageManifestEmptyBox,
@@ -138,6 +141,8 @@ import {
   type ItemBatchAllocationInput,
 } from "@/lib/scanner/item-batch-allocation";
 import {
+  coalesceSlipRowFnsku,
+  coalesceSlipRowUpc,
   resolveItemBarcodeAgainstSlipRows,
   type SlipBarcodeMatchRow,
 } from "@/lib/scanner/operator-slip-item-resolve";
@@ -565,7 +570,7 @@ export async function listOperatorSlipContentsForPackageAction(
   }
 
   const slipSelectAttempts = [
-    "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, order_id, conflicting_order_id, resolved_product_id, resolved_catalog_product_id, identifier_resolution_status, identifier_resolution_confidence",
+    "id, upc, fnsku, parsed_fnsku, parsed_upc, description, quantity, condition, rma_number, sort_index, slip_code, order_id, conflicting_order_id, resolved_product_id, resolved_catalog_product_id, identifier_resolution_status, identifier_resolution_confidence",
     "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, order_id, conflicting_order_id",
     "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, conflicting_order_id",
     "id, upc, fnsku, description, quantity, condition, rma_number, sort_index, slip_code, order_id",
@@ -598,7 +603,11 @@ export async function listOperatorSlipContentsForPackageAction(
     return {
       id: idRaw && isUuidString(idRaw) ? idRaw : null,
       upc: typeof r.upc === "string" && r.upc.trim() ? r.upc.trim() : null,
-      fnsku: typeof r.fnsku === "string" && r.fnsku.trim() ? r.fnsku.trim() : null,
+      fnsku:
+        coalesceSlipRowFnsku({
+          fnsku: typeof r.fnsku === "string" ? r.fnsku : null,
+          parsed_fnsku: typeof r.parsed_fnsku === "string" ? r.parsed_fnsku : null,
+        }),
       description: typeof r.description === "string" && r.description.trim() ? r.description.trim() : null,
       quantity: Number.isFinite(q) && q >= 0 ? Math.floor(q) : 0,
       condition: typeof r.condition === "string" && r.condition.trim() ? r.condition.trim() : null,
@@ -673,6 +682,45 @@ export async function computeSlipShipmentValidationPreviewAction(
   }
 
   const preview = await buildSlipShipmentValidationPreview(supabaseServer, organizationId, pkgId);
+  if ("error" in preview) {
+    return { ok: false, message: preview.error };
+  }
+  return { ok: true, preview };
+}
+
+/** Phase 6E-A — read-only pallet/shipment review preview (no close, no claims). */
+export async function computePalletShipmentReviewPreviewAction(
+  requestedOrganizationId: string,
+  input: {
+    storeId: string;
+    palletId?: string | null;
+    trackingNumber?: string | null;
+  },
+): Promise<{ ok: true; preview: PalletShipmentReviewPreview } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Invalid store id." };
+  }
+  const palletId = String(input.palletId ?? "").trim() || null;
+  const trackingNumber = String(input.trackingNumber ?? "").trim() || null;
+  if (!palletId && !trackingNumber) {
+    return { ok: false, message: "Provide palletId or trackingNumber." };
+  }
+
+  const preview = await buildPalletShipmentReviewPreview(supabaseServer, {
+    organizationId,
+    storeId,
+    palletId,
+    trackingNumber,
+  });
   if ("error" in preview) {
     return { ok: false, message: preview.error };
   }
@@ -2244,8 +2292,14 @@ function slipLinesToBarcodeMatchRows(lines: unknown[]): SlipBarcodeMatchRow[] {
     const row = raw as Record<string, unknown>;
     return {
       id: String(row.id ?? "").trim() || null,
-      upc: typeof row.upc === "string" ? row.upc : null,
-      fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
+      upc: coalesceSlipRowUpc({
+        upc: typeof row.upc === "string" ? row.upc : null,
+        parsed_upc: typeof row.parsed_upc === "string" ? row.parsed_upc : null,
+      }),
+      fnsku: coalesceSlipRowFnsku({
+        fnsku: typeof row.fnsku === "string" ? row.fnsku : null,
+        parsed_fnsku: typeof row.parsed_fnsku === "string" ? row.parsed_fnsku : null,
+      }),
       description: null,
       quantity: Math.max(0, Math.floor(Number(row.quantity ?? 0))),
       sort_index: idx,
@@ -4985,6 +5039,7 @@ export type FinalizeOperatorPackageItemScanInput = {
   emptyBox?: boolean;
   notes?: string | null;
   evidenceRefs?: PackageItemScanEvidenceRefs | null;
+  boxReviewSnapshot?: BoxCloseReviewSnapshot | null;
 };
 
 export type FinalizeOperatorPackageItemScanResult =
@@ -5144,10 +5199,24 @@ export async function finalizeOperatorPackageItemScanAction(
     shortageSource = operatorMarkedTotal > 0 ? "operator_confirmed" : "system_detected";
   }
 
+  const actor = await resolveAuditActorForSession();
+
   let manifest_data = mergePackageManifestItemScanFinalize(manifestData, {
     finalizedAtIso: now,
     emptyBox: emptyBoxFlag,
     evidenceRefs,
+    boxReviewConfirmed: input.boxReviewSnapshot
+      ? {
+          confirmed_at: input.boxReviewSnapshot.confirmed_at,
+          confirmed_by:
+            input.boxReviewSnapshot.confirmed_by ??
+            (actor.userId && isUuidString(actor.userId) ? actor.userId : null),
+          bucket_counts: input.boxReviewSnapshot.bucket_counts,
+          critical_issues_acknowledged: input.boxReviewSnapshot.critical_issues_acknowledged,
+          audit_note: input.boxReviewSnapshot.audit_note,
+          totals: input.boxReviewSnapshot.totals,
+        }
+      : undefined,
   });
   manifest_data = mergePackageManifestShortageFinalize(manifest_data, {
     expected_qty: expectedQty,
@@ -5161,7 +5230,6 @@ export async function finalizeOperatorPackageItemScanAction(
     manifest_data = mergePackageManifestMissingReviewConflicts(manifest_data, conflicts);
   }
 
-  const actor = await resolveAuditActorForSession();
   const pkgPatch: Record<string, unknown> = {
     manifest_data,
     notes: notesOut || null,

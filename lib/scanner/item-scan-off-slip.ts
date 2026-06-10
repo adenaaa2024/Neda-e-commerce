@@ -20,7 +20,11 @@ export const ITEM_SCAN_OFF_SLIP_MODAL_WARNING = {
     "This item was not found on the packing slip or has no remaining expected quantity. It will be saved as an off-slip item.",
 } as const;
 
-/** Item Scan insert path: warehouse-truth off-slip when allocation cannot consume expected qty. */
+/**
+ * Item Scan insert path: off-slip / unexpected when barcode does not map to a slip line
+ * on this box (and no EP-only allocatable hint). Matched slip rows always stay on-slip;
+ * OVER is a quantity UI state, not unexpected.
+ */
 export function itemScanSaveShouldTreatAsOffSlip(input: {
   matchKindPreset: "fnsku" | "upc" | "unexpected" | null;
   slipContentId: string | null;
@@ -30,10 +34,7 @@ export function itemScanSaveShouldTreatAsOffSlip(input: {
 }): boolean {
   if (input.matchKindPreset === "unexpected") return true;
   const slipId = String(input.slipContentId ?? "").trim();
-  if (!slipId) return true;
-  const expected = Math.max(0, Math.floor(input.slipExpectedQty));
-  const scanned = Math.max(0, Math.floor(input.scannedForSlipQty));
-  if (expected > 0 && scanned >= expected) return true;
-  if (!input.hasAllocatableExpectedPackageHint) return true;
-  return false;
+  if (slipId) return false;
+  if (input.hasAllocatableExpectedPackageHint) return false;
+  return true;
 }

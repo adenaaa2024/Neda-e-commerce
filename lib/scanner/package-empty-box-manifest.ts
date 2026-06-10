@@ -26,8 +26,22 @@ export type PackageEmptyBoxValue = PackageEmptyBoxManifest["empty_box"];
 
 export type PackageItemScanFinalizeManifest = {
   empty_box?: PackageEmptyBoxValue | true;
+  receive_state?: "open" | "finalized";
   finalized_at: string;
   evidence_refs?: PackageItemScanEvidenceRefs;
+  box_review_confirmed?: {
+    confirmed_at: string;
+    confirmed_by: string | null;
+    bucket_counts: Record<string, number>;
+    critical_issues_acknowledged: boolean;
+    audit_note: string | null;
+    totals: {
+      slip_units: number;
+      shipment_expected_units: number;
+      scanned_units: number;
+      off_manifest_units: number;
+    };
+  };
   [key: string]: unknown;
 };
 
@@ -105,7 +119,7 @@ export function mergePackageManifestEmptyBox(
   };
 }
 
-/** Item-scan finalize — records close timestamp, optional empty_box, and evidence URL refs. */
+/** Item-scan finalize — records close timestamp, optional empty_box, evidence URL refs, box review snapshot. */
 export function mergePackageManifestItemScanFinalize(
   existingManifest: unknown,
   args: {
@@ -113,6 +127,7 @@ export function mergePackageManifestItemScanFinalize(
     emptyBox?: boolean;
     emptyBoxMarkedAtIso?: string | null;
     evidenceRefs?: PackageItemScanEvidenceRefs | null;
+    boxReviewConfirmed?: PackageItemScanFinalizeManifest["box_review_confirmed"];
   },
 ): Record<string, unknown> {
   const md = parseManifestObject(existingManifest);
@@ -122,6 +137,7 @@ export function mergePackageManifestItemScanFinalize(
 
   const block: PackageItemScanFinalizeManifest = {
     ...prior,
+    receive_state: "finalized",
     finalized_at: args.finalizedAtIso,
   };
 
@@ -178,6 +194,10 @@ export function mergePackageManifestItemScanFinalize(
     if (inside.length) evidence_refs.inside_photo_urls = inside;
     if (slip.length) evidence_refs.slip_photo_urls = slip;
     if (Object.keys(evidence_refs).length > 0) block.evidence_refs = evidence_refs;
+  }
+
+  if (args.boxReviewConfirmed) {
+    block.box_review_confirmed = args.boxReviewConfirmed;
   }
 
   return {

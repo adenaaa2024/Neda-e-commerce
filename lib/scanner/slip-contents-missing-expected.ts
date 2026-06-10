@@ -140,10 +140,13 @@ export function mergeSlipContentsMissingExpectedNotes(
   return { ok: true, notes: buildSlipContentsMissingExpectedNotes(nextQty) };
 }
 
-/** Human-readable counts: expected, received, pending vs operator-marked missing. */
+/** Human-readable counts: expected, received, over vs pending vs operator-marked missing. */
 export function formatSlipLineQtySummary(line: SlipLineExpectedVsReceived): string {
   const base = `Expected ${line.expected} · Received ${line.received}`;
-  if (line.expected > 0 && line.received >= line.expected) {
+  if (line.expected > 0 && line.received > line.expected) {
+    return `${base} · Over ${line.received - line.expected}`;
+  }
+  if (line.expected > 0 && line.received === line.expected) {
     return base;
   }
   if (line.recordedMissing > 0) {
@@ -153,4 +156,38 @@ export function formatSlipLineQtySummary(line: SlipLineExpectedVsReceived): stri
     return `${base} · Pending ${line.remainingMissing}`;
   }
   return base;
+}
+
+export type SlipLineStatusBadgeTone = "over" | "received" | "marked" | "awaiting" | "missing";
+
+export type SlipLineStatusBadgeState = {
+  label: string;
+  tone: SlipLineStatusBadgeTone;
+};
+
+/**
+ * Expected-row status pill precedence (UI display only):
+ * OVER (received > expected) → RECEIVED (received == expected) → Marked missing →
+ * In progress (partial) → Pending.
+ */
+export function slipLineStatusBadgeState(
+  line: SlipLineExpectedVsReceived,
+  hasMissingReviewEntry: boolean,
+): SlipLineStatusBadgeState {
+  if (line.expected > 0 && line.received > line.expected) {
+    return { label: "Over", tone: "over" };
+  }
+  if (line.expected > 0 && line.received === line.expected) {
+    return { label: "Received", tone: "received" };
+  }
+  if (hasMissingReviewEntry && line.recordedMissing > 0) {
+    return { label: "Marked missing", tone: "marked" };
+  }
+  if (line.expected > 0 && line.received > 0) {
+    return { label: "In progress", tone: "awaiting" };
+  }
+  if (line.expected > 0) {
+    return { label: "Pending", tone: "awaiting" };
+  }
+  return { label: "—", tone: "awaiting" };
 }

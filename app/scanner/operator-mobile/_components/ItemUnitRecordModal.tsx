@@ -71,7 +71,21 @@ export type ItemUnitValidationIssue = {
   target: ItemUnitValidationTarget;
 };
 
-export type ItemUnitRecordSaveResult = { ok: true } | { ok: false; message: string };
+export type ItemUnitOverLimitConfirmContext = {
+  scope: "slip" | "shipment";
+  expected: number;
+  current: number;
+  incoming: number;
+};
+
+export type ItemUnitRecordSaveResult =
+  | { ok: true }
+  | {
+      ok: false;
+      message: string;
+      needsOverLimitConfirm?: boolean;
+      overLimitConfirm?: ItemUnitOverLimitConfirmContext;
+    };
 
 export type ItemUnitRecordSavePayload = {
   scannedBarcode: string;
@@ -88,6 +102,8 @@ export type ItemUnitRecordSavePayload = {
   operatorNotes: string | null;
   /** When > 1, batch save creates N `return_items` rows (create mode only). */
   batchQuantity?: number;
+  /** Set after operator confirms over-limit save dialog (create mode only). */
+  overLimitConfirmed?: boolean;
   /** Edit mode — correction backend updates scanned_quantity on one row. */
   editScannedQuantity?: number;
   /** Edit mode — correction backend when resolved product changes. */
@@ -435,6 +451,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
   const [scanToCountLastScan, setScanToCountLastScan] = useState<string | null>(null);
   const [scanToCountMismatch, setScanToCountMismatch] = useState<string | null>(null);
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false);
+  const [overLimitConfirmOpen, setOverLimitConfirmOpen] = useState(false);
+  const [overLimitConfirmCtx, setOverLimitConfirmCtx] = useState<ItemUnitOverLimitConfirmContext | null>(
+    null,
+  );
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [photoRemoveTarget, setPhotoRemoveTarget] = useState<ItemUnitPhotoRemoveTarget | null>(null);
@@ -524,6 +544,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     setScanToCountLastScan(null);
     setScanToCountMismatch(null);
     setBatchConfirmOpen(false);
+    setOverLimitConfirmOpen(false);
+    setOverLimitConfirmCtx(null);
   }, [open, initialBarcode, productLinkage, initialState]);
 
   const resetScanToCountState = useCallback(() => {
@@ -1262,7 +1284,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     ],
   );
 
-  const performSave = useCallback(async () => {
+  const performSave = useCallback(async (opts?: { overLimitConfirmed?: boolean }) => {
     const tags = normalizeItemUnitDiscrepancySelection(selectedTags);
     const batchQty = !isEditMode && addMode === "batch" ? effectiveBatchQuantity : 1;
     const parsedEditQty = Math.max(1, Math.floor(Number(editScannedQty) || 1));
@@ -1278,6 +1300,7 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       optionalItemPhotoUrls: capScannerPhotoUrls(optionalItemPhotoUrls),
       operatorNotes: operatorNotes.trim() || null,
       batchQuantity: batchQty > 1 ? batchQty : undefined,
+      overLimitConfirmed: opts?.overLimitConfirmed,
       editScannedQuantity:
         isEditMode && quantityEditEnabled && parsedEditQty > 0 ? parsedEditQty : undefined,
       correctedResolvedProductId: (() => {
@@ -1289,6 +1312,14 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
       })(),
     });
     if (!saveResult.ok) {
+      if (saveResult.needsOverLimitConfirm) {
+        setBatchConfirmOpen(false);
+        setOverLimitConfirmCtx(saveResult.overLimitConfirm ?? null);
+        setOverLimitConfirmOpen(true);
+        return;
+      }
+      setOverLimitConfirmOpen(false);
+      setOverLimitConfirmCtx(null);
       playScannerFeedback("error");
       showValidationIssues([
         {
@@ -1307,6 +1338,8 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     }
     setValidationIssues([]);
     setBatchConfirmOpen(false);
+    setOverLimitConfirmOpen(false);
+    setOverLimitConfirmCtx(null);
   }, [
     barcode,
     selectedTags,
@@ -1374,6 +1407,24 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
     performSave,
   ]);
 
+  useEffect(() => {
+    if (!open || !overLimitConfirmOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOverLimitConfirmOpen(false);
+      setOverLimitConfirmCtx(null);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open, overLimitConfirmOpen]);
+
+  const dismissOverLimitConfirm = useCallback(() => {
+    setOverLimitConfirmOpen(false);
+    setOverLimitConfirmCtx(null);
+  }, []);
+
   if (!open) return null;
 
   return (
@@ -1420,12 +1471,20 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
             type="button"
             disabled={busy}
             onClick={() => {
+              if (overLimitConfirmOpen) {
+                dismissOverLimitConfirm();
+                return;
+              }
               if (photoRemoveTarget) {
                 setPhotoRemoveTarget(null);
                 return;
               }
               if (deleteConfirmOpen) {
                 setDeleteConfirmOpen(false);
+                return;
+              }
+              if (batchConfirmOpen) {
+                setBatchConfirmOpen(false);
                 return;
               }
               onClose();
@@ -2063,6 +2122,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                 type="button"
                 disabled={busy}
                 onClick={() => {
+                  if (overLimitConfirmOpen) {
+                    dismissOverLimitConfirm();
+                    return;
+                  }
                   if (photoPreview) {
                     setPhotoPreview(null);
                     return;
@@ -2075,6 +2138,10 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
                     setDeleteConfirmOpen(false);
                     return;
                   }
+                  if (batchConfirmOpen) {
+                    setBatchConfirmOpen(false);
+                    return;
+                  }
                   onClose();
                 }}
                 className="operator-shipment-flow-modal__btn-secondary h-12 w-full rounded-xl border text-sm font-bold transition active:scale-[0.98] disabled:opacity-40"
@@ -2085,6 +2152,69 @@ export function ItemUnitRecordModal(props: ItemUnitRecordModalProps) {
           />
         </div>
       </div>
+
+      {typeof document !== "undefined" && overLimitConfirmOpen
+        ? createPortal(
+            <div
+              className="operator-shipment-flow-modal fixed inset-0 z-[210] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="item-unit-over-limit-confirm-title"
+            >
+              <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+                <p
+                  id="item-unit-over-limit-confirm-title"
+                  className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+                >
+                  Over-scan warning
+                </p>
+                <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+                  {overLimitConfirmCtx?.scope === "shipment" ? "Shipment expected" : "Slip line expected"}{" "}
+                  <span className="font-mono font-bold">{overLimitConfirmCtx?.expected ?? "—"}</span>
+                  {" · "}
+                  already received{" "}
+                  <span className="font-mono font-bold">{overLimitConfirmCtx?.current ?? "—"}</span>
+                  {(overLimitConfirmCtx?.incoming ?? 0) > 1 ? (
+                    <>
+                      {" · "}
+                      saving{" "}
+                      <span className="font-mono font-bold">{overLimitConfirmCtx?.incoming ?? 0}</span> units
+                    </>
+                  ) : null}
+                </p>
+                <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
+                  This save will mark the line as OVER. Continue?
+                </p>
+                <OperatorScannerFooterActions
+                  className="mt-6"
+                  primary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="h-11 w-full rounded-xl border border-red-500/60 bg-red-50 text-[13px] font-bold text-red-900 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-red-950/30 dark:text-red-300"
+                      onClick={() => {
+                        void performSave({ overLimitConfirmed: true });
+                      }}
+                    >
+                      Yes, save anyway (OVER)
+                    </button>
+                  }
+                  secondary={
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:opacity-40"
+                      onClick={dismissOverLimitConfirm}
+                    >
+                      Cancel
+                    </button>
+                  }
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {typeof document !== "undefined" && batchConfirmOpen
         ? createPortal(

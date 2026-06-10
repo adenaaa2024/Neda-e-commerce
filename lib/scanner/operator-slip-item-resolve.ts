@@ -22,6 +22,28 @@ function cell(s: string | null | undefined): string {
   return typeof s === "string" ? s.trim() : "";
 }
 
+/** FNSKU on slip row — prefers `fnsku`, falls back to OCR `parsed_fnsku`. */
+export function coalesceSlipRowFnsku(raw: {
+  fnsku?: string | null;
+  parsed_fnsku?: string | null;
+}): string | null {
+  const primary = cell(raw.fnsku);
+  if (primary) return primary;
+  const parsed = cell(raw.parsed_fnsku);
+  return parsed || null;
+}
+
+/** UPC on slip row — prefers `upc`, falls back to OCR `parsed_upc`. */
+export function coalesceSlipRowUpc(raw: {
+  upc?: string | null;
+  parsed_upc?: string | null;
+}): string | null {
+  const primary = cell(raw.upc);
+  if (primary) return primary;
+  const parsed = cell(raw.parsed_upc);
+  return parsed || null;
+}
+
 export type SlipItemResolveOutcome =
   | { kind: "none"; barcode: string }
   | { kind: "single"; tier: SlipItemResolveTier; barcode: string; slip: SlipBarcodeMatchRow }
