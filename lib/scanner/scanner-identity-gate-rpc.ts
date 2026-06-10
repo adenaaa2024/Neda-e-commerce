@@ -10,6 +10,21 @@ export type ScannerIdentityGateMatchType =
   | "shipment_id"
   | "product_identifier_fallback";
 
+const STRONG_SHIPMENT_IDENTITY_MATCH_TYPES: ReadonlySet<ScannerIdentityGateMatchType> = new Set([
+  "tracking",
+  "package_code",
+  "slip_code",
+  "amazon_order_id",
+  "removal_order_id",
+  "shipment_id",
+]);
+
+export function isStrongShipmentIdentityMatchType(
+  matchType: ScannerIdentityGateMatchType | null | undefined,
+): boolean {
+  return matchType != null && STRONG_SHIPMENT_IDENTITY_MATCH_TYPES.has(matchType);
+}
+
 export type ScannerIdentityGateRpcResult = {
   rows: VInventoryStatusRow[];
   matchedField: InventoryViewMatchField | null;

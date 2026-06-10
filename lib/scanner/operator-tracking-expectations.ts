@@ -14,6 +14,11 @@ import {
 } from "@/lib/scanner/expected-packages-read-contract";
 import { isUuidString } from "@/lib/uuid";
 import { findPackageIdsByTrackingForStore } from "@/lib/scanner/package-tracking-lookup";
+import {
+  isLikelyShipmentTrackingCode,
+  resolveExpectedPackagesByTracking,
+  type TrackingResolveOptions,
+} from "@/lib/search/tracking-resolve";
 import { normalizeTrackingKey } from "./tracking-normalize";
 
 function formatLoadErrorMessage(err: unknown): string {
@@ -261,25 +266,7 @@ function expectedPackageSelectFallback(selectColumns: string): string | null {
   return null;
 }
 
-/**
- * Returns true when the code looks like a carrier tracking number (UPS/FedEx/USPS/long alphanumeric).
- * Item barcodes (EAN-13, UPC-12, short GS1) are typically ≤14 chars and all-numeric.
- * When skipExpensiveFallback is requested, this classification avoids the 14k-row ILIKE scan
- * for codes that the indexed exact path already rejected.
- */
-export function isLikelyShipmentTrackingCode(code: string): boolean {
-  const c = String(code ?? "").trim();
-  if (c.length < 8) return false;
-  // UPS: 1Z + 16 alphanumeric chars
-  if (/^1Z[A-Z0-9]{14,}/i.test(c)) return true;
-  // FedEx: 12–22 digit numeric
-  if (/^\d{12,22}$/.test(c)) return true;
-  // USPS IMpb/service indicators
-  if (/^(94|92|93|95|89|91|82)\d{16,}/i.test(c)) return true;
-  // Long mixed alphanumeric (≥15 chars, only letters+digits) — likely tracking, not item barcode
-  if (c.length >= 15 && /^[A-Z0-9]+$/i.test(c)) return true;
-  return false;
-}
+export { isLikelyShipmentTrackingCode };
 
 export type FetchExpectedPackagesOptions = {
   /**
@@ -289,7 +276,20 @@ export type FetchExpectedPackagesOptions = {
    * Defaults to false (existing full-scan behavior preserved).
    */
   skipExpensiveFallback?: boolean;
+  /**
+   * Phase 9H — Shipment Entry gate: after RPC miss, skip legacy multi-query identity
+   * fallback in {@link fetchIdentityStatusForScanCode}. Deep search passes false.
+   */
+  gateFastNegative?: boolean;
 };
+
+function toTrackingResolveOptions(options?: FetchExpectedPackagesOptions): TrackingResolveOptions {
+  const fast = Boolean(options?.skipExpensiveFallback || options?.gateFastNegative);
+  return {
+    deepSearch: !fast,
+    skipExpensiveFallback: fast,
+  };
+}
 
 async function fetchExpectedPackagesForTrackingWithSelect(
   supabase: SupabaseClient,
@@ -299,104 +299,14 @@ async function fetchExpectedPackagesForTrackingWithSelect(
   selectColumns: string,
   options?: FetchExpectedPackagesOptions,
 ): Promise<Record<string, unknown>[]> {
-  const scannedCode = String(trackingNumber ?? "").trim();
-  if (!scannedCode) return [];
-
-  const cleanCode = scannedCode.replace(/[^a-zA-Z0-9]/g, "");
-  /** LIKE-safe form of the scanned string (still reflects original scan, minus % / _). */
-  const patternOriginal = sanitizeTrackingForIlikePattern(scannedCode);
-  const key = normalizeTrackingKey(trackingNumber);
-
-  const matchesExact = (row: { tracking_number?: string | null }) =>
-    key ? trackingRowMatchesScanned(row, key) === "exact" : false;
-
-  // ── Fast path: exact equality on tracking_number — uses idx_expected_packages_tracking (cost ~3.6/page) ──
-  // A single tracking can have up to ~792 expected lines, so we paginate fully — never truncate.
-  // If no exact match, fall through to ILIKE path. Raw scannedCode used (not lowercased) because
-  // DB stores tracking in original case and TypeScript normalizes to lowercase for comparison.
-  if (scannedCode.length > 0) {
-    try {
-      const EXACT_PAGE = 1000;
-      const exactRows: Record<string, unknown>[] = [];
-      for (let from = 0; ; from += EXACT_PAGE) {
-        const { data: exactPage, error: exactPageErr } = await supabase
-          .from("expected_packages")
-          .select(selectColumns)
-          .eq("organization_id", organizationId)
-          .eq("store_id", storeId)
-          .eq("tracking_number", scannedCode)
-          .order("id", { ascending: true })
-          .range(from, from + EXACT_PAGE - 1);
-        if (exactPageErr) throw exactPageErr;
-        const pageRows = asSafeRowArray(exactPage);
-        exactRows.push(...pageRows);
-        if (pageRows.length < EXACT_PAGE) break;
-      }
-      const exactFiltered = exactRows.filter((r) => matchesExact(r as { tracking_number?: string | null }));
-      if (exactFiltered.length) return exactFiltered;
-    } catch {
-      // Fall through to ILIKE path on any exact-query error.
-    }
-  }
-
-  // ── Fast not-found path for shipment tracking codes ────────────────────────
-  // When the caller sets skipExpensiveFallback and the code looks like a carrier
-  // tracking number, skip the expensive ILIKE / 14 000-row scan — the indexed
-  // exact match already rejected it.  The caller should show "No exact shipment
-  // match" copy and offer a manual "Deep search" action that calls this function
-  // again without skipExpensiveFallback.
-  if (options?.skipExpensiveFallback && isLikelyShipmentTrackingCode(scannedCode)) {
-    return [];
-  }
-
-  const BASE_LIMIT = 800;
-
-  let qb = supabase
-    .from("expected_packages")
-    .select(selectColumns)
-    .eq("organization_id", organizationId)
-    .eq("store_id", storeId)
-    .limit(BASE_LIMIT);
-
-  if (cleanCode.length > 0 && patternOriginal.length > 0 && cleanCode !== patternOriginal) {
-    qb = qb.or(
-      `tracking_number.ilike.%${cleanCode}%,tracking_number.ilike.%${patternOriginal}%`,
-    );
-  } else if (cleanCode.length > 0) {
-    qb = qb.ilike("tracking_number", `%${cleanCode}%`);
-  } else if (patternOriginal.length > 0) {
-    qb = qb.ilike("tracking_number", `%${patternOriginal}%`);
-  } else {
-    return [];
-  }
-
-  const { data, error } = await qb;
-  if (error) throw error;
-
-  const rows0 = asSafeRowArray(data);
-
-  const filtered = rows0.filter((r) => matchesExact(r as { tracking_number?: string | null }));
-  if (filtered.length) return filtered;
-
-  const PAGE = 450;
-  for (let off = 0; off < 14000; off += PAGE) {
-    const { data: page, error: pageErr } = await supabase
-      .from("expected_packages")
-      .select(selectColumns)
-      .eq("organization_id", organizationId)
-      .eq("store_id", storeId)
-      .not("tracking_number", "is", null)
-      .order("id", { ascending: true })
-      .range(off, off + PAGE - 1);
-
-    if (pageErr) throw pageErr;
-    const pageRows = asSafeRowArray(page);
-    const hits = pageRows.filter((r) => matchesExact(r as { tracking_number?: string | null }));
-    if (hits.length) return hits;
-    if (!page?.length || page.length < PAGE) break;
-  }
-
-  return [];
+  return resolveExpectedPackagesByTracking(
+    supabase,
+    organizationId,
+    storeId,
+    trackingNumber,
+    selectColumns,
+    toTrackingResolveOptions(options),
+  );
 }
 
 export async function fetchExpectedPackagesForTracking(

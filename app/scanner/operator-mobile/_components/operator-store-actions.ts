@@ -20,6 +20,8 @@ import {
 } from "@/lib/scanner/package-receive-edit-guard";
 import { guardBatchQuantityBackendError } from "@/lib/scanner/batch-quantity-backend-guard";
 import { computeSlipLineExpectedVsReceived } from "@/lib/scanner/slip-contents-missing-expected";
+import { buildSlipShipmentValidationPreview } from "@/lib/scanner/slip-shipment-validation";
+import type { SlipShipmentValidationPreview } from "@/lib/scanner/slip-shipment-validation-types";
 import {
   mergePackageManifestEmptyBox,
   mergePackageManifestItemScanFinalize,
@@ -52,6 +54,7 @@ import {
 } from "@/lib/scanner/operator-pallet-tracking";
 import {
   assertOperatorMobilePermission,
+  isElevatedOperatorMobileCorrectionRole,
   userHasOperatorMobilePermission,
 } from "@/lib/operator-mobile-permission-guard";
 import {
@@ -59,9 +62,17 @@ import {
   OPERATOR_MOBILE_VOID_BOX,
   OPERATOR_MOBILE_EDIT_ITEM,
   OPERATOR_MOBILE_DELETE_ITEM,
+  OPERATOR_MOBILE_DELETE_NOT_SCANNED_UNIT_MESSAGE,
+  OPERATOR_MOBILE_DELETE_ORG_MISMATCH_MESSAGE,
+  OPERATOR_MOBILE_DELETE_OWNERSHIP_MESSAGE,
 } from "@/lib/operator-mobile-permissions";
 import { softDeleteShipmentEntryBaselineReturnItems } from "@/lib/scanner/operator-active-scanned-counts";
 import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
+import {
+  catalogIlikePattern,
+  classifyCatalogSearchQuery,
+  isIdentifierCatalogQuery,
+} from "@/lib/search/catalog-text-search";
 import { normalizeTrackingKey } from "@/lib/scanner/tracking-normalize";
 import { lookupShipmentEntryScanCode, type ShipmentEntryLookupResult } from "@/lib/scanner/shipment-entry-lookup";
 import {
@@ -641,6 +652,31 @@ export async function listOperatorSlipContentsForPackageAction(
   });
 
   return { ok: true, rows: normalized };
+}
+
+/** Phase 6F-B — read-only slip vs shipment vs scan validation preview (no writes). */
+export async function computeSlipShipmentValidationPreviewAction(
+  requestedOrganizationId: string,
+  packageId: string,
+): Promise<{ ok: true; preview: SlipShipmentValidationPreview } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const pkgId = String(packageId ?? "").trim();
+  if (!isUuidString(pkgId)) {
+    return { ok: false, message: "Invalid package id." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const preview = await buildSlipShipmentValidationPreview(supabaseServer, organizationId, pkgId);
+  if ("error" in preview) {
+    return { ok: false, message: preview.error };
+  }
+  return { ok: true, preview };
 }
 
 /**
@@ -3013,30 +3049,53 @@ export async function searchOperatorProductsForStoreAction(input: {
     return { ok: true, rows: [] };
   }
   const limit = Math.min(20, Math.max(1, Math.floor(Number(input.limit) || 20)));
-  const pattern = `%${q.replace(/%/g, "").replace(/_/g, "")}%`;
 
   try {
+    const classified = classifyCatalogSearchQuery(q);
     let data: unknown = null;
     let error: { message: string } | null = null;
-    const primary = await supabaseServer
-      .from("products")
-      .select("id, product_name, name, sku, fnsku, asin")
-      .eq("organization_id", organizationId)
-      .eq("store_id", storeId)
-      .or(`product_name.ilike.${pattern},name.ilike.${pattern},sku.ilike.${pattern},fnsku.ilike.${pattern},asin.ilike.${pattern}`)
-      .limit(limit);
-    data = primary.data;
-    error = primary.error;
-    if (error) {
-      const fallback = await supabaseServer
+
+    if (isIdentifierCatalogQuery(classified.kind)) {
+      const v = classified.normalized;
+      const col =
+        classified.kind === "upc"
+          ? "upc_code"
+          : classified.kind === "sku"
+            ? "sku"
+            : classified.kind === "fnsku"
+              ? "fnsku"
+              : "asin";
+      const primary = await supabaseServer
         .from("products")
-        .select("id, name, sku, fnsku, asin")
+        .select("id, product_name, name, sku, fnsku, asin")
         .eq("organization_id", organizationId)
         .eq("store_id", storeId)
-        .or(`name.ilike.${pattern},sku.ilike.${pattern},fnsku.ilike.${pattern},asin.ilike.${pattern}`)
+        .eq(col, v)
         .limit(limit);
-      data = fallback.data;
-      error = fallback.error;
+      data = primary.data;
+      error = primary.error;
+    } else {
+      const pattern = catalogIlikePattern(q);
+      const primary = await supabaseServer
+        .from("products")
+        .select("id, product_name, name, sku, fnsku, asin")
+        .eq("organization_id", organizationId)
+        .eq("store_id", storeId)
+        .or(`product_name.ilike.${pattern},name.ilike.${pattern}`)
+        .limit(limit);
+      data = primary.data;
+      error = primary.error;
+      if (error) {
+        const fallback = await supabaseServer
+          .from("products")
+          .select("id, name, sku, fnsku, asin")
+          .eq("organization_id", organizationId)
+          .eq("store_id", storeId)
+          .or(`name.ilike.${pattern},product_name.ilike.${pattern}`)
+          .limit(limit);
+        data = fallback.data;
+        error = fallback.error;
+      }
     }
     if (error) return { ok: false, message: error.message };
     const rows: OperatorProductSearchRow[] = [];
@@ -4285,7 +4344,7 @@ export async function lookupShipmentEntryScanCodeAction(
   requestedOrganizationId: string,
   storeId: string,
   code: string,
-  opts?: { skipExpensiveFallback?: boolean },
+  opts?: { skipExpensiveFallback?: boolean; gateFastNegative?: boolean },
 ): Promise<{ ok: true; lookup: ShipmentEntryLookupResult } | { ok: false; error: string }> {
   const sessionUserId = await getSessionUserIdFromCookies();
   if (!sessionUserId || !isUuidString(sessionUserId)) {
@@ -5135,6 +5194,56 @@ export async function finalizeOperatorPackageItemScanAction(
 
 // ─── Item Soft Delete ─────────────────────────────────────────────────────────
 
+function mapScannerDeleteRpcError(message: string): string {
+  const m = String(message ?? "").trim().toLowerCase();
+  if (m === "permission_denied") {
+    return "You do not have permission to delete scanned units.";
+  }
+  if (m === "return_item_not_found") {
+    return "Scanned item not found for this organization.";
+  }
+  if (m === "not_operator_mobile_scanned_unit") {
+    return "Not an operator mobile scanned unit for this box.";
+  }
+  if (m === "active_claim_submission") {
+    return "Cannot delete a scanned unit with an active claim submission.";
+  }
+  return message.trim() || "Could not delete scan record.";
+}
+
+async function assertOperatorMobileScannedUnitDeleteScope(input: {
+  organizationId: string;
+  userId: string;
+  returnItemId: string;
+  packageId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: row, error } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .select("id, organization_id, package_id, created_by, deleted_at")
+    .eq("id", input.returnItemId)
+    .eq("organization_id", input.organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!row) return { ok: false, error: OPERATOR_MOBILE_DELETE_ORG_MISMATCH_MESSAGE };
+
+  const rowPackageId = String((row as { package_id?: string | null }).package_id ?? "").trim();
+  if (!rowPackageId || !isUuidString(rowPackageId)) {
+    return { ok: false, error: OPERATOR_MOBILE_DELETE_NOT_SCANNED_UNIT_MESSAGE };
+  }
+  if (rowPackageId !== input.packageId.trim()) {
+    return { ok: false, error: OPERATOR_MOBILE_DELETE_NOT_SCANNED_UNIT_MESSAGE };
+  }
+
+  const elevated = await isElevatedOperatorMobileCorrectionRole(input.userId);
+  const createdBy = String((row as { created_by?: string | null }).created_by ?? "").trim();
+  if (!elevated && createdBy && isUuidString(createdBy) && createdBy !== input.userId) {
+    return { ok: false, error: OPERATOR_MOBILE_DELETE_OWNERSHIP_MESSAGE };
+  }
+
+  return { ok: true };
+}
+
 /**
  * Soft-delete a single scanned item (return_items row) by setting deleted_at = NOW().
  * Follows the project's soft-delete convention — the row is recoverable via admin tools
@@ -5165,6 +5274,17 @@ export async function deleteOperatorPackageItemAction(input: {
     return { ok: false, error: "Invalid item or package id." };
   }
 
+  const perm = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_DELETE_ITEM);
+  if (!perm.ok) return { ok: false, error: perm.message };
+
+  const scope = await assertOperatorMobileScannedUnitDeleteScope({
+    organizationId,
+    userId: perm.userId,
+    returnItemId: riId,
+    packageId: pkgId,
+  });
+  if (!scope.ok) return { ok: false, error: scope.error };
+
   const receiveGate = await assertPackageReceiveOpenForPackageEdits(organizationId, pkgId);
   if (!receiveGate.ok) return { ok: false, error: receiveGate.message };
 
@@ -5172,9 +5292,9 @@ export async function deleteOperatorPackageItemAction(input: {
   const voided = await softVoidReturnItemWithExpectedRelease(supabaseServer, {
     returnItemId: riId,
     organizationId,
-    updatedBy: actor.userId && isUuidString(actor.userId) ? actor.userId : null,
+    updatedBy: actor.userId && isUuidString(actor.userId) ? actor.userId : perm.userId,
   });
-  if (!voided.ok) return { ok: false, error: voided.error };
+  if (!voided.ok) return { ok: false, error: mapScannerDeleteRpcError(voided.error) };
   return { ok: true };
 }
 
@@ -5327,6 +5447,9 @@ export async function correctOperatorPackageItemQuantityAction(
   if (!isUuidString(returnItemId)) {
     return { ok: false, message: "Invalid return item id." };
   }
+
+  const editPerm = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_EDIT_ITEM);
+  if (!editPerm.ok) return { ok: false, message: editPerm.message };
 
   const newQtyRaw = Number(input.scannedQuantity ?? 1);
   const newQty = Number.isFinite(newQtyRaw) ? Math.max(1, Math.min(500, Math.floor(newQtyRaw))) : 1;

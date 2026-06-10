@@ -73,7 +73,9 @@ import {
 } from "@/lib/scanner/operator-tracking-expectations";
 import { scannerProductResolutionBadges } from "@/lib/scanner/product-resolution-badges";
 import {
+  isShipmentEntryFastNegative,
   isShipmentEntryOffManifest,
+  isStrongShipmentIdentityMatchType,
   lookupShipmentEntryScanCode,
   mockLookupShipmentEntryScanCode,
   type ShipmentEntryLookupResult,
@@ -154,6 +156,7 @@ import {
   reopenOperatorPackageReceiveAction,
   correctOperatorPackageItemQuantityAction,
   correctOperatorPackageItemProductAction,
+  computeSlipShipmentValidationPreviewAction,
   type DuplicatePackingSlipInfo,
   type OperatorPackageItemRow,
   type OperatorPackageListRow,
@@ -199,6 +202,20 @@ import { OperatorVoidBoxModal } from "@/app/scanner/operator-mobile/_components/
 import { OperatorVoidPalletModal } from "@/app/scanner/operator-mobile/_components/OperatorVoidPalletModal";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 import { ItemScanEditUnitPickerModal } from "@/app/scanner/operator-mobile/_components/ItemScanEditUnitPickerModal";
+import { SlipShipmentValidationChip } from "@/app/scanner/operator-mobile/_components/SlipShipmentValidationChip";
+import { SlipShipmentValidationShipmentOnlyHint } from "@/app/scanner/operator-mobile/_components/SlipShipmentValidationShipmentOnlyHint";
+import { SlipShipmentValidationFinalizeSummary } from "@/app/scanner/operator-mobile/_components/SlipShipmentValidationFinalizeSummary";
+import type {
+  SlipShipmentValidationLine,
+  SlipShipmentValidationPreview,
+} from "@/lib/scanner/slip-shipment-validation-types";
+import {
+  buildFinalizeValidationSummary,
+  buildValidationLineBySlipId,
+  resolveValidationLineForSlipRow,
+  shipmentOnlyValidationLines,
+  shouldShowValidationChipOnRow,
+} from "@/lib/scanner/slip-shipment-validation-ui-helpers";
 import {
   itemScanUnitGroupCountLabel,
   type ItemScanUnitGroup,
@@ -456,9 +473,28 @@ function logItemUnitModalDelete(...args: unknown[]) {
 
 type IdentifyGateLookupTimingPath = "exact_hit" | "fast_miss" | "deep_search";
 
-function logIdentifyGateLookupTiming(path: IdentifyGateLookupTimingPath, ms: number, code: string) {
-  if (!SCANNER_BACK_DEBUG) return;
-  console.log(`[scanner-identify-gate] path=${path} ms=${Math.round(ms)} code=${code.slice(0, 32)}`);
+const SCANNER_GATE_TIMING_DEBUG =
+  process.env.NODE_ENV === "development" || SCANNER_BACK_DEBUG;
+
+function logIdentifyGateLookupTiming(
+  path: IdentifyGateLookupTimingPath,
+  code: string,
+  timing: {
+    total_ms: number;
+    rpc_time_ms?: number;
+    fallback_time_ms?: number;
+    fallback_reason?: string | null;
+  },
+) {
+  if (!SCANNER_GATE_TIMING_DEBUG) return;
+  console.log("[scanner-identify-gate-timing]", {
+    path,
+    code: code.slice(0, 32),
+    rpc_time: timing.rpc_time_ms ?? null,
+    fallback_time: timing.fallback_time_ms ?? null,
+    total_time: Math.round(timing.total_ms),
+    fallback_reason: timing.fallback_reason ?? null,
+  });
 }
 
 /** Compare persisted vs current evidence URL lists (order-insensitive). */
@@ -1822,40 +1858,45 @@ function operatorMissingReviewMarkedLabel(
   return "Marked missing";
 }
 
-function slipLinePassiveStatusBadge(line: SlipLineExpectedVsReceived): {
+function expectedSlipLineStatusBadge(
+  line: SlipLineExpectedVsReceived,
+  hasMissingReviewEntry: boolean,
+): {
   label: string;
   tone: "missing" | "received" | "marked" | "awaiting";
 } {
-  if (line.remainingMissing === 0 && line.recordedMissing > 0) {
+  if (line.expected > 0 && line.received >= line.expected) {
+    return { label: "Received", tone: "received" };
+  }
+  if (hasMissingReviewEntry && line.recordedMissing > 0) {
     return { label: "Marked missing", tone: "marked" };
   }
-  const missingCount =
-    line.remainingMissing > 0 ? line.remainingMissing : line.recordedMissing;
-  if (missingCount > 0) {
-    return { label: `Missing ${missingCount}`, tone: "missing" };
-  }
-  if (line.received > 0 && line.expected > 0) {
-    return { label: `Received ${line.received} / ${line.expected}`, tone: "received" };
-  }
   if (line.expected > 0) {
-    return { label: "Awaiting", tone: "awaiting" };
+    return { label: "Pending", tone: "awaiting" };
   }
   return { label: "—", tone: "awaiting" };
 }
 
-function SlipLinePassiveStatusBadge(props: { line: SlipLineExpectedVsReceived }) {
-  const { label, tone } = slipLinePassiveStatusBadge(props.line);
+function packageItemRowUnitQty(row: OperatorPackageItemRow): number {
+  return Math.max(1, Math.floor(Number(row.quantity ?? 1)));
+}
+
+function SlipLinePassiveStatusBadge(props: {
+  line: SlipLineExpectedVsReceived;
+  hasMissingReviewEntry: boolean;
+}) {
+  const { label, tone } = expectedSlipLineStatusBadge(props.line, props.hasMissingReviewEntry);
   const toneClass =
-    tone === "missing"
-      ? "text-red-300"
-      : tone === "marked"
-        ? "text-amber-300"
-        : tone === "received"
-          ? "text-emerald-300"
+    tone === "marked"
+      ? "text-amber-300"
+      : tone === "received"
+        ? "text-emerald-300"
+        : tone === "awaiting"
+          ? "operator-item-scan-slip-passive-badge--pending"
           : "text-slate-400";
   return (
     <span
-      className={`operator-item-scan-slip-passive-badge shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide ${toneClass}`}
+      className={`operator-item-scan-slip-passive-badge shrink-0 rounded border px-1 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide ${toneClass}`}
     >
       {label}
     </span>
@@ -4204,8 +4245,10 @@ function OperatorMobileScanPageContent() {
   const {
     organizationId: orgId,
     sessionStoreId,
+    sessionStoreValidated,
     operatorStores,
     operatorStoresLoading,
+    operatorStoresRefreshing,
     kioskStoreLocked,
     activeStoreLabel,
   } = useOperatorSessionStore();
@@ -4230,6 +4273,10 @@ function OperatorMobileScanPageContent() {
   const postCompleteTrackingRef = useRef<string | null>(null);
   /** One Persian prompt per identification search cycle (reset when a new gate search starts). */
   const completedShipmentDialogShownForKeyRef = useRef<string | null>(null);
+  /** Re-run gate search once store scope stabilizes after org/store refresh. */
+  const pendingGateSearchRef = useRef<string | null>(null);
+  /** One fullSearch retry per code+org+store when RPC reports identity shape but zero rows. */
+  const gateFullSearchRetryRef = useRef<string | null>(null);
   const [flowPhase, setFlowPhase] = useState<FlowPhase>("scan");
   const flowPhasePrevRef = useRef<FlowPhase>("scan");
   const [scanLine, setScanLine] = useState("");
@@ -4368,6 +4415,9 @@ function OperatorMobileScanPageContent() {
   const [itemSlipMissingReviewNonce, setItemSlipMissingReviewNonce] = useState(0);
   /** Package manifest for operator missing review metadata (not return_items). */
   const [itemScanPackageManifestData, setItemScanPackageManifestData] = useState<unknown>(null);
+  /** Phase 6F — read-only slip vs shipment validation preview (chips + finalize summary). */
+  const [slipShipmentValidationPreview, setSlipShipmentValidationPreview] =
+    useState<SlipShipmentValidationPreview | null>(null);
   /** UI-only — show per-line mark-missing actions when enabled. */
   const [reviewMissingItemsEnabled, setReviewMissingItemsEnabled] = useState(false);
   /** Box-level empty flag — declared at Box Info before item scan. */
@@ -5107,6 +5157,10 @@ function OperatorMobileScanPageContent() {
       setGateTrackingHelpOpen(false);
       completedShipmentDialogShownForKeyRef.current = null;
       postCompleteTrackingRef.current = null;
+      pendingGateSearchRef.current = null;
+      if (options?.enteredCode) {
+        gateFullSearchRetryRef.current = null;
+      }
       if (options?.clearScanLine) setScanLine("");
       if (options?.clearResolvedContext) {
         setActivePallet(null);
@@ -5265,7 +5319,11 @@ function OperatorMobileScanPageContent() {
       setBusy(true);
       setScanProgressPhase("checking");
       const lookupStartedAt = performance.now();
-      const useSkipFallback = !runOpts?.fullSearch && isLikelyShipmentTrackingCode(trimmed);
+      const useSkipFallback = !runOpts?.fullSearch;
+      const gateLookupOpts = {
+        skipExpensiveFallback: useSkipFallback,
+        gateFastNegative: useSkipFallback,
+      };
       try {
         if (!isSupabaseConfigured()) {
           const demoLookup = mockLookupShipmentEntryScanCode(trimmed);
@@ -5329,11 +5387,28 @@ function OperatorMobileScanPageContent() {
           return;
         }
 
+        const storeScopeStable =
+          Boolean(orgId.trim()) &&
+          sessionStoreValidated &&
+          !operatorStoresLoading &&
+          !operatorStoresRefreshing &&
+          operatorStores.some((s) => s.id === sessionStoreId);
+
+        if (!storeScopeStable) {
+          pendingGateSearchRef.current = trimmed;
+          setIdentifyGateError(null);
+          setIdentifyGateSlowHint("Checking store…");
+          setIdentifyGatePhase("searching");
+          setScanProgressPhase("checking");
+          return;
+        }
+        pendingGateSearchRef.current = null;
+
         let gateLookup: Awaited<ReturnType<typeof lookupShipmentEntryScanCode>>;
         try {
           if (isSupabaseConfigured()) {
             const gateRes = await withIdentifyGateLookupTimeout(
-              lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed, { skipExpensiveFallback: useSkipFallback }),
+              lookupShipmentEntryScanCodeAction(orgId, sessionStoreId, trimmed, gateLookupOpts),
             );
             if (!gateRes.ok) {
               throw new Error(gateRes.error);
@@ -5341,7 +5416,7 @@ function OperatorMobileScanPageContent() {
             gateLookup = gateRes.lookup;
           } else {
             gateLookup = await withIdentifyGateLookupTimeout(
-              lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed, { skipExpensiveFallback: useSkipFallback }),
+              lookupShipmentEntryScanCode(supabase, orgId, sessionStoreId, trimmed, gateLookupOpts),
             );
           }
         } catch (err) {
@@ -5366,6 +5441,7 @@ function OperatorMobileScanPageContent() {
             inventory_visual: resolveInventoryGateVisualStatus([], emptyAgg),
             barcode: { kind: "unknown", code: trimmed },
             canonical_tracking: null,
+            identity_match_type: null,
           };
         }
 
@@ -5375,10 +5451,16 @@ function OperatorMobileScanPageContent() {
 
         const lookupTimingPath: IdentifyGateLookupTimingPath = runOpts?.fullSearch
           ? "deep_search"
-          : useSkipFallback && isShipmentEntryOffManifest(gateLookup)
+          : isShipmentEntryFastNegative(gateLookup)
             ? "fast_miss"
             : "exact_hit";
-        logIdentifyGateLookupTiming(lookupTimingPath, performance.now() - lookupStartedAt, trimmed);
+        const gateTiming = gateLookup.gate_timing;
+        logIdentifyGateLookupTiming(lookupTimingPath, trimmed, {
+          total_ms: performance.now() - lookupStartedAt,
+          rpc_time_ms: gateTiming?.rpc_ms,
+          fallback_time_ms: gateTiming?.fallback_ms,
+          fallback_reason: gateTiming?.fallback_reason,
+        });
 
         if (gateMatchField === "tracking_number") {
           invRows = trackingScopedInventoryRows(invRows, submittedTrackingForScope);
@@ -5406,7 +5488,24 @@ function OperatorMobileScanPageContent() {
           return;
         }
 
-        if (vis === "manual_new" && isShipmentEntryOffManifest(gateLookup)) {
+        if (
+          useSkipFallback &&
+          !invRows.length &&
+          isStrongShipmentIdentityMatchType(gateLookup.identity_match_type)
+        ) {
+          const retryKey = `${trimmed}::${orgId}::${sessionStoreId}`;
+          if (gateFullSearchRetryRef.current !== retryKey) {
+            gateFullSearchRetryRef.current = retryKey;
+            setIdentifyGateSlowHint("Verifying shipment match…");
+            setIdentifyGatePhase("searching");
+            queueMicrotask(() => {
+              void runIdentificationGateSearchRef.current(trimmed, { fullSearch: true });
+            });
+            return;
+          }
+        }
+
+        if (vis === "manual_new" && isShipmentEntryFastNegative(gateLookup)) {
           if (useSkipFallback) {
             setDeepSearchAvailableFor(trimmed);
           }
@@ -5425,113 +5524,13 @@ function OperatorMobileScanPageContent() {
           return;
         }
 
-        setScanProgressPhase("loading_expected_lines");
-
         const ids = [...new Set(invRows.map((r) => r.expected_package_id).filter(Boolean))];
-        let detailRows: Record<string, unknown>[] = [];
-        if (ids.length) {
-          try {
-            detailRows = await fetchExpectedPackageDetailRowsByIds(supabase, orgId, sessionStoreId, ids);
-          } catch (err) {
-            console.warn("fetchExpectedPackageDetailRowsByIds failed", err);
-          }
-        }
-        if (!detailRows.length) {
-          detailRows = await fetchExpectedPackageDetailRowsForParent(supabase, orgId, sessionStoreId, {
-            trackingNumber: gateLookup.canonical_tracking ?? trimmed,
-            palletId: null,
-          });
-        }
-        const safe = Array.isArray(detailRows) ? detailRows : [];
         const canon =
           gateLookup.canonical_tracking ??
           invRows.map((r) => String(r.tracking_number ?? "").trim()).find(Boolean) ??
-          (String(safe[0]?.tracking_number ?? "").trim() || trimmed);
-        const scopedSafe = gateMatchField === "tracking_number" ? trackingScopedExpectedRows(safe, submittedTrackingForScope) : safe;
-        setIdentifyGateRows(scopedSafe);
-        setIdentifyGateCanonicalTracking(canon);
-
-        let expectationLines: TrackingOperatorLine[] = [];
-        if (sessionStoreId && canon) {
-          try {
-            const snap = await loadTrackingExpectationSnapshot(
-              supabase,
-              orgId,
-              sessionStoreId,
-              gateMatchField === "tracking_number" ? submittedTrackingForScope : canon,
-            );
-            expectationLines = snap.lines;
-          } catch (err) {
-            console.warn("loadTrackingExpectationSnapshot failed", err);
-          }
-        }
-        setIdentifyGateExpectationLines(expectationLines);
+          trimmed;
 
         let shipmentLines: VInventoryStatusRow[] = invRows.length ? invRows : [];
-        if (sessionStoreId && gateMatchField === "tracking_number" && !invRows.length) {
-          try {
-            let rows: VInventoryStatusRow[] = [];
-            if (isSupabaseConfigured()) {
-              const lineRes = await fetchInventoryItemStatusLinesForGateAction(orgId, sessionStoreId, {
-                mode: "tracking",
-                trackingNumber: submittedTrackingForScope,
-              });
-              if (lineRes.ok) rows = lineRes.rows;
-              else console.warn("fetchInventoryItemStatusLinesForGateAction failed", lineRes.error);
-            } else {
-              const fetched = await fetchVInventoryItemStatusLinesForTrackingNormalized(
-                supabase,
-                orgId,
-                sessionStoreId,
-                submittedTrackingForScope,
-              );
-              rows = fetched.rows;
-            }
-            shipmentLines = rows.length ? trackingScopedInventoryRows(rows, submittedTrackingForScope) : shipmentLines;
-          } catch (err) {
-            console.warn("fetchVInventoryItemStatusLinesForTrackingNormalized failed", err);
-          }
-        } else if (!shipmentLines.length && sessionStoreId && gateMatchField) {
-          const narrowFields: InventoryViewMatchField[] = [
-            "fnsku",
-            "sku",
-            "tracking_number",
-            "id_slip_contents",
-          ];
-          if (narrowFields.includes(gateMatchField as InventoryViewMatchField)) {
-            const lineValue =
-              gateMatchField === "id_slip_contents" || gateMatchField === "fnsku" || gateMatchField === "sku"
-                ? trimmed
-                : canon || trimmed;
-            try {
-              let rows: VInventoryStatusRow[] = [];
-              if (isSupabaseConfigured()) {
-                const lineRes = await fetchInventoryItemStatusLinesForGateAction(orgId, sessionStoreId, {
-                  mode: "exact",
-                  field: gateMatchField as InventoryViewMatchField,
-                  value: lineValue,
-                });
-                if (lineRes.ok) rows = lineRes.rows;
-                else console.warn("fetchInventoryItemStatusLinesForGateAction failed", lineRes.error);
-              } else {
-                const fetched = await fetchVInventoryItemStatusLinesExact(
-                  supabase,
-                  orgId,
-                  sessionStoreId,
-                  gateMatchField as InventoryViewMatchField,
-                  lineValue,
-                );
-                rows = fetched.rows;
-              }
-              shipmentLines = rows;
-            } catch (err) {
-              console.warn("fetchVInventoryItemStatusLinesExact failed", err);
-            }
-          }
-        }
-        if (gateMatchField === "tracking_number") {
-          shipmentLines = trackingScopedInventoryRows(shipmentLines, submittedTrackingForScope);
-        }
         const scopedAggregateRows = gateMatchField === "tracking_number" ? shipmentLines : invRows;
         const scopedAgg = aggregateInventoryStatus(scopedAggregateRows);
         const scopedVis =
@@ -5541,8 +5540,8 @@ function OperatorMobileScanPageContent() {
         if (
           gateMatchField === "tracking_number" &&
           shipmentLines.length === 0 &&
-          scopedSafe.length === 0 &&
-          expectationLines.length === 0
+          invRows.length === 0 &&
+          isShipmentEntryFastNegative(gateLookup)
         ) {
           if (useSkipFallback) {
             setDeepSearchAvailableFor(trimmed);
@@ -5565,22 +5564,182 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateInventoryVisual(scopedVis);
         setIdentifyGateViewHints(pickInventoryViewHints(scopedAggregateRows));
         setIdentifyGateShipmentLines(shipmentLines);
+        setIdentifyGateCanonicalTracking(canon);
         setIdentifyGateEntity((prev) =>
           prev ?? identifyGateEntityForManifestMatch(gateMatchField, gateLookup.match_status),
         );
         setIdentifyGatePhase("matched");
         setScanProgressPhase("ready");
-        if (!invRows.length && !shipmentLines.length && !scopedSafe.length) {
+        if (!invRows.length && !shipmentLines.length) {
           setIdentifyGateSlowHint(
             (prev) =>
               prev ??
               "No inventory status rows for this code — continue with Shipment Entry or manual tracking.",
           );
         }
-        const viewNames = collectGateProductNamesFromLines(scopedSafe, shipmentLines);
+        const viewNames = collectGateProductNamesFromLines([], shipmentLines);
         setIdentifyGateBatchProductNames(viewNames);
+
+        const hydrateOrgId = orgId;
+        const hydrateStoreId = sessionStoreId;
+        const hydrateCanon =
+          gateMatchField === "tracking_number" ? submittedTrackingForScope : canon;
+        const hydrateMatchField = gateMatchField;
+        const hydrateInvRows = invRows;
+        void (async () => {
+          try {
+            let hydratedShipmentLines = shipmentLines;
+            if (!hydratedShipmentLines.length && hydrateStoreId && hydrateMatchField) {
+              if (hydrateMatchField === "tracking_number") {
+                try {
+                  let rows: VInventoryStatusRow[] = [];
+                  if (isSupabaseConfigured()) {
+                    const lineRes = await fetchInventoryItemStatusLinesForGateAction(
+                      hydrateOrgId,
+                      hydrateStoreId,
+                      {
+                        mode: "tracking",
+                        trackingNumber: submittedTrackingForScope,
+                      },
+                    );
+                    if (lineRes.ok) rows = lineRes.rows;
+                  } else {
+                    const fetched = await fetchVInventoryItemStatusLinesForTrackingNormalized(
+                      supabase,
+                      hydrateOrgId,
+                      hydrateStoreId,
+                      submittedTrackingForScope,
+                    );
+                    rows = fetched.rows;
+                  }
+                  hydratedShipmentLines = rows.length
+                    ? trackingScopedInventoryRows(rows, submittedTrackingForScope)
+                    : hydratedShipmentLines;
+                } catch (err) {
+                  console.warn("deferred fetchVInventoryItemStatusLinesForTrackingNormalized failed", err);
+                }
+              } else {
+                const narrowFields: InventoryViewMatchField[] = [
+                  "fnsku",
+                  "sku",
+                  "tracking_number",
+                  "id_slip_contents",
+                ];
+                if (narrowFields.includes(hydrateMatchField as InventoryViewMatchField)) {
+                  const lineValue =
+                    hydrateMatchField === "id_slip_contents" ||
+                    hydrateMatchField === "fnsku" ||
+                    hydrateMatchField === "sku"
+                      ? trimmed
+                      : hydrateCanon || trimmed;
+                  try {
+                    let rows: VInventoryStatusRow[] = [];
+                    if (isSupabaseConfigured()) {
+                      const lineRes = await fetchInventoryItemStatusLinesForGateAction(
+                        hydrateOrgId,
+                        hydrateStoreId,
+                        {
+                          mode: "exact",
+                          field: hydrateMatchField as InventoryViewMatchField,
+                          value: lineValue,
+                        },
+                      );
+                      if (lineRes.ok) rows = lineRes.rows;
+                    } else {
+                      const fetched = await fetchVInventoryItemStatusLinesExact(
+                        supabase,
+                        hydrateOrgId,
+                        hydrateStoreId,
+                        hydrateMatchField as InventoryViewMatchField,
+                        lineValue,
+                      );
+                      rows = fetched.rows;
+                    }
+                    hydratedShipmentLines = rows;
+                  } catch (err) {
+                    console.warn("deferred fetchVInventoryItemStatusLinesExact failed", err);
+                  }
+                }
+              }
+              if (hydrateMatchField === "tracking_number") {
+                hydratedShipmentLines = trackingScopedInventoryRows(
+                  hydratedShipmentLines,
+                  submittedTrackingForScope,
+                );
+              }
+              if (hydratedShipmentLines.length) {
+                setIdentifyGateShipmentLines(hydratedShipmentLines);
+                const lineAgg = aggregateInventoryStatus(
+                  hydrateMatchField === "tracking_number" ? hydratedShipmentLines : hydrateInvRows,
+                );
+                const lineVis =
+                  hydrateMatchField === "tracking_number"
+                    ? deriveInventoryGateVisualStatus(lineAgg)
+                    : resolveInventoryGateVisualStatus(hydratedShipmentLines, lineAgg);
+                setIdentifyGateInventoryAgg(lineAgg);
+                setIdentifyGateInventoryVisual(lineVis);
+                setIdentifyGateViewHints(
+                  pickInventoryViewHints(
+                    hydrateMatchField === "tracking_number" ? hydratedShipmentLines : hydrateInvRows,
+                  ),
+                );
+                const deferredNames = collectGateProductNamesFromLines([], hydratedShipmentLines);
+                setIdentifyGateBatchProductNames((prev) => {
+                  const merged = new Map(prev);
+                  for (const [id, nm] of deferredNames) merged.set(id, nm);
+                  return merged;
+                });
+              }
+            }
+
+            let detailRows: Record<string, unknown>[] = [];
+            if (ids.length) {
+              detailRows = await fetchExpectedPackageDetailRowsByIds(
+                supabase,
+                hydrateOrgId,
+                hydrateStoreId,
+                ids,
+              );
+            }
+            if (!detailRows.length) {
+              detailRows = await fetchExpectedPackageDetailRowsForParent(supabase, hydrateOrgId, hydrateStoreId, {
+                trackingNumber: hydrateCanon,
+                palletId: null,
+              });
+            }
+            const safe = Array.isArray(detailRows) ? detailRows : [];
+            const scopedSafe =
+              hydrateMatchField === "tracking_number"
+                ? trackingScopedExpectedRows(safe, submittedTrackingForScope)
+                : safe;
+            let expectationLines: TrackingOperatorLine[] = [];
+            if (hydrateCanon) {
+              try {
+                const snap = await loadTrackingExpectationSnapshot(
+                  supabase,
+                  hydrateOrgId,
+                  hydrateStoreId,
+                  hydrateCanon,
+                );
+                expectationLines = snap.lines;
+              } catch (err) {
+                console.warn("loadTrackingExpectationSnapshot failed", err);
+              }
+            }
+            setIdentifyGateRows(scopedSafe);
+            setIdentifyGateExpectationLines(expectationLines);
+            const hydratedNames = collectGateProductNamesFromLines(scopedSafe, hydratedShipmentLines);
+            setIdentifyGateBatchProductNames((prev) => {
+              const merged = new Map(prev);
+              for (const [id, nm] of hydratedNames) merged.set(id, nm);
+              return merged;
+            });
+          } catch (hydrateErr) {
+            console.warn("identify gate deferred hydration failed", hydrateErr);
+          }
+        })();
         if (isSupabaseConfigured() && sessionStoreId) {
-          const productIds = collectGateResolvedProductIds(scopedSafe, shipmentLines);
+          const productIds = collectGateResolvedProductIds([], shipmentLines);
           const missingIds = productIds.filter((id) => !viewNames.has(id));
           if (missingIds.length) {
             void withIdentifyGateLookupTimeout(
@@ -5624,7 +5783,18 @@ function OperatorMobileScanPageContent() {
         scheduleFocusScanner();
       }
     },
-    [orgId, sessionStoreId, kioskStoreLocked, operatorStores.length, scheduleFocusScanner, clearPreviousLookupResult],
+    [
+      orgId,
+      sessionStoreId,
+      sessionStoreValidated,
+      operatorStores,
+      operatorStoresLoading,
+      operatorStoresRefreshing,
+      kioskStoreLocked,
+      operatorStores.length,
+      scheduleFocusScanner,
+      clearPreviousLookupResult,
+    ],
   );
 
   /**
@@ -6156,6 +6326,35 @@ function OperatorMobileScanPageContent() {
       cancelled = true;
     };
   }, [flowPhase, itemScanPackageId, orgId, sessionStoreId, itemSlipMissingReviewNonce]);
+
+  /** Phase 6F — read-only validation preview for Expected Items chips + finalize summary. */
+  useEffect(() => {
+    if (flowPhase !== "items") {
+      setSlipShipmentValidationPreview(null);
+      return;
+    }
+    const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
+    if (!pkgId) {
+      setSlipShipmentValidationPreview(null);
+      return;
+    }
+    const oid = (orgId ?? "").trim();
+    if (!oid) return;
+    let cancelled = false;
+    void computeSlipShipmentValidationPreviewAction(oid, pkgId).then((res) => {
+      if (cancelled) return;
+      setSlipShipmentValidationPreview(res.ok ? res.preview : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    flowPhase,
+    itemScanPackageId,
+    orgId,
+    packageItemsHydrationNonce,
+    itemSlipMissingReviewNonce,
+  ]);
 
   const packageReceiveState: PackageReceiveState = useMemo(
     () => readPackageReceiveState(itemScanPackageManifestData),
@@ -6800,7 +6999,7 @@ function OperatorMobileScanPageContent() {
   useEffect(() => {
     const raw = searchParams.get("code") ?? searchParams.get("q");
     if (!raw?.trim()) return;
-    if (operatorStoresLoading) return;
+    if (operatorStoresLoading || operatorStoresRefreshing || !sessionStoreValidated) return;
     if (isSupabaseConfigured() && !sessionStoreId) return;
     const code = raw.trim();
     setScanLine(code);
@@ -6808,7 +7007,39 @@ function OperatorMobileScanPageContent() {
     queueMicrotask(() => {
       void runIdentificationGateSearchRef.current(code);
     });
-  }, [searchParams, pathname, router, operatorStoresLoading, sessionStoreId]);
+  }, [
+    searchParams,
+    pathname,
+    router,
+    operatorStoresLoading,
+    operatorStoresRefreshing,
+    sessionStoreValidated,
+    sessionStoreId,
+  ]);
+
+  useEffect(() => {
+    const pending = pendingGateSearchRef.current;
+    if (!pending?.trim()) return;
+    const stable =
+      Boolean(orgId.trim()) &&
+      sessionStoreValidated &&
+      !operatorStoresLoading &&
+      !operatorStoresRefreshing &&
+      Boolean(sessionStoreId) &&
+      operatorStores.some((s) => s.id === sessionStoreId);
+    if (!stable) return;
+    pendingGateSearchRef.current = null;
+    queueMicrotask(() => {
+      void runIdentificationGateSearchRef.current(pending);
+    });
+  }, [
+    orgId,
+    sessionStoreId,
+    sessionStoreValidated,
+    operatorStores,
+    operatorStoresLoading,
+    operatorStoresRefreshing,
+  ]);
 
   useEffect(() => {
     if (identifyGatePhase !== "searching") return;
@@ -8677,23 +8908,48 @@ function OperatorMobileScanPageContent() {
       if (!target?.id || !isUuidString(String(target.id).trim())) return;
       const oid = (orgId ?? "").trim();
       const pkgId = (itemScanPackageId ?? "").trim();
-      if (!oid || !pkgId) return;
+      const storeId = (sessionStoreId ?? "").trim();
+      if (!oid || !pkgId || !storeId) return;
+
+      const targetId = String(target.id).trim();
+      const unitQty = packageItemRowUnitQty(target);
+      const slipContentId = String(target.slip_content_id ?? slipId).trim();
 
       setBusy(true);
       try {
-        const res = await deleteOperatorPackageItemAction({
-          requestedOrganizationId: oid,
-          returnItemId: String(target.id).trim(),
-          packageId: pkgId,
-        });
-        if (!res.ok) {
-          setSyncErrorToast(res.error ?? "Could not delete scan record.");
-          return;
+        if (unitQty > 1) {
+          const res = await correctOperatorPackageItemQuantityAction({
+            requestedOrganizationId: oid,
+            returnItemId: targetId,
+            storeId,
+            scannedQuantity: unitQty - 1,
+          });
+          if (!res.ok) {
+            setSyncErrorToast(res.message?.trim() || "Could not correct quantity.");
+            return;
+          }
+          const nextQty = unitQty - 1;
+          setPackageItemHydratedRows((prev) =>
+            prev.map((r) =>
+              String(r.id ?? "").trim() === targetId
+                ? { ...r, quantity: nextQty }
+                : r,
+            ),
+          );
+        } else {
+          const res = await deleteOperatorPackageItemAction({
+            requestedOrganizationId: oid,
+            returnItemId: targetId,
+            packageId: pkgId,
+          });
+          if (!res.ok) {
+            setSyncErrorToast(res.error ?? "Could not delete scan record.");
+            return;
+          }
+          setPackageItemHydratedRows((prev) => prev.filter((r) => String(r.id ?? "").trim() !== targetId));
         }
-        // Update local state immediately
-        setPackageItemHydratedRows((prev) => prev.filter((r) => r.id !== target.id));
         setPackageItemScanState((prev) => {
-          const sid = slipId || null;
+          const sid = slipContentId || null;
           if (!sid) {
             return { ...prev, unexpectedUnits: Math.max(0, prev.unexpectedUnits - 1) };
           }
@@ -8708,7 +8964,14 @@ function OperatorMobileScanPageContent() {
         setBusy(false);
       }
     },
-    [itemScanEditAllMode, busy, packageItemHydratedRows, orgId, itemScanPackageId],
+    [
+      itemScanEditAllMode,
+      busy,
+      packageItemHydratedRows,
+      orgId,
+      itemScanPackageId,
+      sessionStoreId,
+    ],
   );
 
   const handleItemScanEditSelectOrphanUnit = useCallback(
@@ -8757,39 +9020,73 @@ function OperatorMobileScanPageContent() {
       }
       const oid = (orgId ?? "").trim();
       const pkgId = (itemScanPackageId ?? "").trim();
-      if (!oid || !pkgId) {
-        logItemUnitDelete("blocked: missing org or package", { oid, pkgId });
+      const storeId = (sessionStoreId ?? "").trim();
+      if (!oid || !pkgId || !storeId) {
+        logItemUnitDelete("blocked: missing org, package, or store", { oid, pkgId, storeId });
         setSyncErrorToast("Select a box before deleting scanned units.");
         return false;
       }
 
-      const deleteIds = new Set(targets.map((u) => String(u.id ?? "").trim()));
       logItemUnitDelete("rows before count", packageItemHydratedRows.length);
 
       setBusy(true);
       try {
+        const voidedIds = new Set<string>();
+        const decrementedQtyById = new Map<string, number>();
+
         for (const unit of targets) {
           const unitId = String(unit.id ?? "").trim();
-          const res = await deleteOperatorPackageItemAction({
-            requestedOrganizationId: oid,
-            returnItemId: unitId,
-            packageId: pkgId,
-          });
-          logItemUnitDelete("action result", { returnItemId: unitId, res });
-          if (!res.ok) {
-            setSyncErrorToast(res.error ?? "Could not delete scan record.");
-            return false;
+          const unitQty = packageItemRowUnitQty(unit);
+          if (unitQty > 1) {
+            const res = await correctOperatorPackageItemQuantityAction({
+              requestedOrganizationId: oid,
+              returnItemId: unitId,
+              storeId,
+              scannedQuantity: unitQty - 1,
+            });
+            logItemUnitDelete("quantity correction result", { returnItemId: unitId, res });
+            if (!res.ok) {
+              setSyncErrorToast(res.message?.trim() || "Could not correct quantity.");
+              return false;
+            }
+            decrementedQtyById.set(unitId, unitQty - 1);
+          } else {
+            const res = await deleteOperatorPackageItemAction({
+              requestedOrganizationId: oid,
+              returnItemId: unitId,
+              packageId: pkgId,
+            });
+            logItemUnitDelete("action result", { returnItemId: unitId, res });
+            if (!res.ok) {
+              setSyncErrorToast(res.error ?? "Could not delete scan record.");
+              return false;
+            }
+            voidedIds.add(unitId);
           }
         }
 
         setPackageItemHydratedRows((prev) => {
-          const next = prev.filter((r) => !deleteIds.has(String(r.id ?? "").trim()));
+          const next = prev
+            .filter((r) => !voidedIds.has(String(r.id ?? "").trim()))
+            .map((r) => {
+              const rid = String(r.id ?? "").trim();
+              const nextQty = decrementedQtyById.get(rid);
+              if (nextQty == null) return r;
+              return { ...r, quantity: nextQty };
+            });
           logItemUnitDelete("rows after count", next.length);
           return next;
         });
         setItemScanEditPick((pick) => {
           if (!pick?.units?.length) return pick;
-          const nextUnits = pick.units.filter((u) => !deleteIds.has(String(u.id ?? "").trim()));
+          const nextUnits = pick.units
+            .filter((u) => !voidedIds.has(String(u.id ?? "").trim()))
+            .map((u) => {
+              const uid = String(u.id ?? "").trim();
+              const nextQty = decrementedQtyById.get(uid);
+              if (nextQty == null) return u;
+              return { ...u, quantity: nextQty };
+            });
           return nextUnits.length === pick.units.length ? pick : { ...pick, units: nextUnits };
         });
         for (const unit of targets) {
@@ -8809,7 +9106,15 @@ function OperatorMobileScanPageContent() {
         setBusy(false);
       }
     },
-    [itemScanEditAllMode, busy, orgId, itemScanPackageId, packageItemHydratedRows.length, itemScanEditPick],
+    [
+      itemScanEditAllMode,
+      busy,
+      orgId,
+      itemScanPackageId,
+      sessionStoreId,
+      packageItemHydratedRows.length,
+      itemScanEditPick,
+    ],
   );
 
   const handleDeleteSpecificUnit = useCallback(
@@ -11443,6 +11748,27 @@ function OperatorMobileScanPageContent() {
     packageItemScanState.bySlipId,
     itemScanPackageManifestData,
   ]);
+
+  const slipValidationLineBySlipId = useMemo(
+    () =>
+      slipShipmentValidationPreview
+        ? buildValidationLineBySlipId(slipShipmentValidationPreview)
+        : new Map<string, SlipShipmentValidationLine>(),
+    [slipShipmentValidationPreview],
+  );
+
+  const slipValidationShipmentOnlyLines = useMemo(
+    () =>
+      slipShipmentValidationPreview
+        ? shipmentOnlyValidationLines(slipShipmentValidationPreview)
+        : [],
+    [slipShipmentValidationPreview],
+  );
+
+  const slipValidationFinalizeSummary = useMemo(
+    () => buildFinalizeValidationSummary(slipShipmentValidationPreview),
+    [slipShipmentValidationPreview],
+  );
 
   const editMissingReviewCell = useMemo(
     () => itemInspectionSlipCells.find((c) => c.key === editMissingReviewCellKey) ?? null,
@@ -17954,6 +18280,10 @@ function OperatorMobileScanPageContent() {
                   "operator-item-scan-expected-list-scroll",
                 )}
               >
+                {itemScanExpectedItemsRenderSource === "package_slip_cells" &&
+                slipValidationShipmentOnlyLines.length > 0 ? (
+                  <SlipShipmentValidationShipmentOnlyHint lines={slipValidationShipmentOnlyLines} />
+                ) : null}
                 {itemScanExpectedItemsRenderSource === "loading" ? (
                   <ItemInspectionSlipSkeletonRows />
                 ) : itemScanExpectedItemsRenderSource === "tracking_ep_variance" ? (
@@ -18055,6 +18385,16 @@ function OperatorMobileScanPageContent() {
                         rowSelected,
                         () => handleItemScanEditSelectSlipCell(cell),
                       );
+                      const slipIdForValidation =
+                        slip.id && isUuidString(slip.id) ? slip.id : null;
+                      const validationLine = resolveValidationLineForSlipRow(
+                        slipShipmentValidationPreview,
+                        slip as unknown as Record<string, unknown>,
+                        slipIdForValidation,
+                        slipValidationLineBySlipId,
+                      );
+                      const validationReceiveState =
+                        slipShipmentValidationPreview?.receive_state ?? packageReceiveState;
                       return (
                         <div
                           key={cell.key}
@@ -18115,9 +18455,16 @@ function OperatorMobileScanPageContent() {
                                   <Trash2 className="h-2.5 w-2.5" strokeWidth={2.25} aria-hidden />
                                 </button>
                               ) : null}
-                              {reviewMissingItemsEnabled ? slipCardStatusMark(vis) : null}
-                              {!reviewMissingItemsEnabled ? (
-                                <SlipLinePassiveStatusBadge line={cell.qtyLine} />
+                              <SlipLinePassiveStatusBadge
+                                line={cell.qtyLine}
+                                hasMissingReviewEntry={cell.hasMissingReviewEntry}
+                              />
+                              {validationLine &&
+                              shouldShowValidationChipOnRow(
+                                validationLine.ui_badge,
+                                validationReceiveState,
+                              ) ? (
+                                <SlipShipmentValidationChip badge={validationLine.ui_badge} />
                               ) : null}
                             </div>
                           </div>
@@ -19326,6 +19673,9 @@ function OperatorMobileScanPageContent() {
               . Status:{" "}
               <span className="font-bold">{itemInspectionAggregateStatusLabel}</span>
             </p>
+            {slipValidationFinalizeSummary.length > 0 ? (
+              <SlipShipmentValidationFinalizeSummary rows={slipValidationFinalizeSummary} />
+            ) : null}
             {itemDraft ? (
               <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
                 You still have an item draft open — it will be cleared when you finalize.

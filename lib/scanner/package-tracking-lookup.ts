@@ -1,62 +1,25 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  resolvePackageIdsByTracking,
+  type TrackingResolveOptions,
+} from "@/lib/search/tracking-resolve";
 import { normalizeTrackingKey, slipIdLookupCandidates, trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 
 const PACKAGE_DETAIL_SELECT =
   "id, organization_id, store_id, pallet_id, package_code, id_slip_contents, tracking_number, rma_number, expected_item_count, actual_item_count, status";
 
 /**
- * Indexed package lookup: exact equality on tracking candidates, then case-insensitive ilike fallback.
- * Replaces full-table pagination over `packages`.
+ * Indexed package lookup: exact equality on tracking candidates.
+ * ILIKE fallback only when options.deepSearch is true (admin deep search).
  */
 export async function findPackageIdsByTrackingForStore(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string,
   trackingNumber: string,
+  options?: TrackingResolveOptions,
 ): Promise<string[]> {
-  const trimmed = String(trackingNumber ?? "").trim();
-  const key = normalizeTrackingKey(trimmed);
-  const orgId = organizationId.trim();
-  const sid = storeId.trim();
-  if (!key || !orgId || !sid) return [];
-
-  const ids = new Set<string>();
-
-  for (const candidate of slipIdLookupCandidates(trimmed, key)) {
-    const { data, error } = await supabase
-      .from("packages")
-      .select("id, tracking_number")
-      .eq("organization_id", orgId)
-      .eq("store_id", sid)
-      .eq("tracking_number", candidate)
-      .is("deleted_at", null);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      if (trackingKeysEqual((row as { tracking_number?: string | null }).tracking_number, trimmed)) {
-        ids.add(String((row as { id: string }).id));
-      }
-    }
-    if (ids.size) return [...ids];
-  }
-
-  if (trimmed) {
-    const { data, error } = await supabase
-      .from("packages")
-      .select("id, tracking_number")
-      .eq("organization_id", orgId)
-      .eq("store_id", sid)
-      .is("deleted_at", null)
-      .ilike("tracking_number", trimmed)
-      .limit(50);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      if (trackingKeysEqual((row as { tracking_number?: string | null }).tracking_number, trimmed)) {
-        ids.add(String((row as { id: string }).id));
-      }
-    }
-  }
-
-  return [...ids];
+  return resolvePackageIdsByTracking(supabase, organizationId, storeId, trackingNumber, options);
 }
 
 /** Package ids for an indexed slip / package_code lookup. */
@@ -121,6 +84,7 @@ export async function findFirstPackageByTrackingNormalized(
   organizationId: string,
   storeId: string | null,
   code: string,
+  options?: TrackingResolveOptions,
 ): Promise<Record<string, unknown> | undefined> {
   const trimmed = String(code ?? "").trim();
   if (!trimmed) return undefined;
@@ -129,7 +93,7 @@ export async function findFirstPackageByTrackingNormalized(
   const sid = String(storeId ?? "").trim();
 
   if (sid) {
-    const ids = await findPackageIdsByTrackingForStore(supabase, orgId, sid, trimmed);
+    const ids = await findPackageIdsByTrackingForStore(supabase, orgId, sid, trimmed, options);
     if (ids.length) {
       const { data, error } = await supabase
         .from("packages")

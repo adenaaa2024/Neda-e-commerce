@@ -84,6 +84,8 @@ export async function GET(req: Request) {
 
   const sortColumn = (url.searchParams.get("sort") ?? "updated_at").trim() || "updated_at";
   const sortDir = (url.searchParams.get("dir") ?? "desc").trim() || "desc";
+  const deepSearch =
+    url.searchParams.get("deep_search") === "1" || url.searchParams.get("deep_search") === "true";
 
   const rpcArgs = {
     p_organization_id: organizationId,
@@ -107,6 +109,7 @@ export async function GET(req: Request) {
     p_brand_field_filter: brandFieldFilter,
     p_sort_column: sortColumn,
     p_sort_dir: sortDir,
+    p_deep_search: deepSearch,
   };
 
   const { data, error } = await supabaseServer.rpc("pim_catalog_products_page", rpcArgs);

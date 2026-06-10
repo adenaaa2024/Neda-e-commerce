@@ -5,14 +5,41 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { getSessionUserIdFromCookies } from "@/lib/supabase-server-auth";
 import {
   isOperatorMobilePermissionKey,
+  OPERATOR_MOBILE_DELETE_ITEM,
+  OPERATOR_MOBILE_DELETE_ITEM_DENIED_MESSAGE,
+  OPERATOR_MOBILE_EDIT_ITEM,
+  OPERATOR_MOBILE_EDIT_ITEM_DENIED_MESSAGE,
+  OPERATOR_MOBILE_MOVE_BOX,
   OPERATOR_MOBILE_PERMISSION_DENIED_MESSAGE,
+  OPERATOR_MOBILE_VOID_BOX,
   type OperatorMobilePermissionKey,
 } from "@/lib/operator-mobile-permissions";
 import { normalizeRoleKeyForBranding } from "@/lib/tenant-branding-permissions";
 import { isUuidString } from "@/lib/uuid";
 
 /** Bootstrap until Platform Access grants are configured (also satisfied by explicit permission keys). */
-const BOOTSTRAP_CORRECTION_ROLE_KEYS = new Set(["super_admin", "admin", "tenant_admin"]);
+const BOOTSTRAP_CORRECTION_ROLE_KEYS = new Set([
+  "super_admin",
+  "admin",
+  "tenant_admin",
+  "operator",
+  "system_employee",
+]);
+
+const ELEVATED_CORRECTION_ROLE_KEYS = new Set([
+  "super_admin",
+  "admin",
+  "tenant_admin",
+  "system_employee",
+  "system_admin",
+]);
+
+const PERMISSION_DENIED_MESSAGES: Partial<Record<OperatorMobilePermissionKey, string>> = {
+  [OPERATOR_MOBILE_MOVE_BOX]: OPERATOR_MOBILE_PERMISSION_DENIED_MESSAGE,
+  [OPERATOR_MOBILE_VOID_BOX]: OPERATOR_MOBILE_PERMISSION_DENIED_MESSAGE,
+  [OPERATOR_MOBILE_EDIT_ITEM]: OPERATOR_MOBILE_EDIT_ITEM_DENIED_MESSAGE,
+  [OPERATOR_MOBILE_DELETE_ITEM]: OPERATOR_MOBILE_DELETE_ITEM_DENIED_MESSAGE,
+};
 
 export type AssertOperatorMobilePermissionResult =
   | { ok: true; userId: string }
@@ -128,6 +155,15 @@ export async function loadOperatorMobilePermissionKeysForUser(
   return keys;
 }
 
+export async function resolveOperatorMobileCorrectionRoleKey(userId: string): Promise<string> {
+  return normalizeRoleKeyForBranding(await resolveCanonicalRoleKey(userId));
+}
+
+export async function isElevatedOperatorMobileCorrectionRole(userId: string): Promise<boolean> {
+  const roleKey = await resolveOperatorMobileCorrectionRoleKey(userId);
+  return ELEVATED_CORRECTION_ROLE_KEYS.has(roleKey);
+}
+
 export async function userHasOperatorMobilePermission(
   userId: string,
   organizationId: string,
@@ -136,7 +172,7 @@ export async function userHasOperatorMobilePermission(
   if (!isOperatorMobilePermissionKey(permissionKey)) return false;
   const granted = await loadOperatorMobilePermissionKeysForUser(userId, organizationId);
   if (granted.has(permissionKey)) return true;
-  const roleKey = normalizeRoleKeyForBranding(await resolveCanonicalRoleKey(userId));
+  const roleKey = await resolveOperatorMobileCorrectionRoleKey(userId);
   return BOOTSTRAP_CORRECTION_ROLE_KEYS.has(roleKey);
 }
 
@@ -157,7 +193,10 @@ export async function assertOperatorMobilePermission(
   }
   const allowed = await userHasOperatorMobilePermission(uid, organizationId, permissionKey);
   if (!allowed) {
-    return { ok: false, message: OPERATOR_MOBILE_PERMISSION_DENIED_MESSAGE };
+    return {
+      ok: false,
+      message: PERMISSION_DENIED_MESSAGES[permissionKey] ?? OPERATOR_MOBILE_PERMISSION_DENIED_MESSAGE,
+    };
   }
   return { ok: true, userId: uid };
 }

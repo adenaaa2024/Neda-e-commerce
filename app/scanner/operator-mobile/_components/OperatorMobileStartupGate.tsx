@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Download, Loader2, Share } from "lucide-react";
 import { useUserRole } from "@/components/UserRoleContext";
 import { PWA_APP_NAME } from "@/lib/pwa-app-version";
@@ -96,6 +96,7 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
   const { actorUserId, profileLoading } = useUserRole();
   const {
     sessionStoreId,
+    sessionStoreValidated,
     operatorStores,
     operatorStoresLoading,
     operatorStoresRefreshing,
@@ -119,21 +120,35 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
       return;
     }
 
-    if (!readyLatched && !operatorStoresLoading && !sessionStoreId) {
+    if (readyLatched) {
+      setPhase("ready");
+      return;
+    }
+
+    const storeScopePending =
+      operatorStoresLoading || operatorStoresRefreshing || !sessionStoreValidated;
+
+    if (!operatorStoresLoading && !sessionStoreId && !storeScopePending) {
       setPhase("blocked_store");
       return;
     }
 
-    if (profileLoading || operatorStoresLoading) {
-      if (!readyLatched) {
-        setPhase("loading");
-      }
+    if (profileLoading || storeScopePending) {
+      setPhase("loading");
       return;
     }
 
     setPhase("ready");
     setReadyLatched(true);
-  }, [actorUserId, operatorStoresLoading, profileLoading, readyLatched, sessionStoreId]);
+  }, [
+    actorUserId,
+    operatorStoresLoading,
+    operatorStoresRefreshing,
+    profileLoading,
+    readyLatched,
+    sessionStoreId,
+    sessionStoreValidated,
+  ]);
 
   const applyPwaInstallPolicy = useCallback(
     (payload: PwaVersionEndpointPayload) => {
@@ -181,7 +196,7 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
     if (readyLatched) {
       evaluateSessionStoreGate();
     }
-  }, [readyLatched, profileLoading, operatorStoresLoading, sessionStoreId, actorUserId, evaluateSessionStoreGate]);
+  }, [readyLatched, sessionStoreId, sessionStoreValidated, operatorStoresLoading, operatorStoresRefreshing, actorUserId, evaluateSessionStoreGate]);
 
   useEffect(() => {
     if (phase !== "blocked_pwa") return;
@@ -223,16 +238,34 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
     background: "var(--op-accent-gold, #d6b76e)",
   };
 
-  const backgroundRefreshing =
-    readyLatched && (profileLoading || operatorStoresLoading || operatorStoresRefreshing);
-  const initialBooting =
-    !readyLatched && phase === "loading" && (profileLoading || operatorStoresLoading);
+  const storeScopeUnstable =
+    operatorStoresLoading || operatorStoresRefreshing || !sessionStoreValidated;
+  const backgroundRefreshing = readyLatched && storeScopeUnstable;
+  const initialBooting = !readyLatched && phase === "loading";
+
+  const [showRefreshBanner, setShowRefreshBanner] = useState(false);
+  const refreshBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (refreshBannerTimerRef.current) {
+      clearTimeout(refreshBannerTimerRef.current);
+      refreshBannerTimerRef.current = null;
+    }
+    if (backgroundRefreshing) {
+      refreshBannerTimerRef.current = setTimeout(() => setShowRefreshBanner(true), 400);
+      return () => {
+        if (refreshBannerTimerRef.current) clearTimeout(refreshBannerTimerRef.current);
+      };
+    }
+    setShowRefreshBanner(false);
+    return undefined;
+  }, [backgroundRefreshing]);
 
   const inlineBannerMessage = useMemo(() => {
-    if (backgroundRefreshing) return "Refreshing session in background…";
+    if (showRefreshBanner && backgroundRefreshing) return "Checking store…";
     if (initialBooting) return "Starting scanner…";
     return "";
-  }, [backgroundRefreshing, initialBooting]);
+  }, [showRefreshBanner, backgroundRefreshing, initialBooting]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production" && (backgroundRefreshing || initialBooting)) {
@@ -264,9 +297,10 @@ export function OperatorMobileStartupGate({ children }: OperatorMobileStartupGat
   const showBlockedSession = phase === "blocked_session";
   const showBlockedStore = phase === "blocked_store" && !readyLatched;
 
+
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      {children}
+      <div className="min-h-0 min-w-0 flex-1 flex flex-col">{children}</div>
       {inlineBannerMessage ? <OperatorGateInlineBanner message={inlineBannerMessage} /> : null}
       {showBlockedPwa ? (
         <OperatorMobileBlockingOverlay

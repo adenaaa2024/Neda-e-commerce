@@ -375,6 +375,22 @@ const CORE: PermissionDefinition[] = [
     action: "reset_entry",
     description: "Clear local draft state on mobile receiving (no database delete)",
   }),
+  p({
+    key: "operations.operator_mobile.edit_item",
+    name: "Edit scanned units",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "manage",
+    description: "Correct scanned quantity or product linkage on operator mobile receive",
+  }),
+  p({
+    key: "operations.operator_mobile.delete_item",
+    name: "Delete scanned units",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "manage",
+    description: "Soft-void a package-linked scanned return_items row from operator mobile receive",
+  }),
   // ----- tech debug -----
   p({
     key: "tech_debug.access",

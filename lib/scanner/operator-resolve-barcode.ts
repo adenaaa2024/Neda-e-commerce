@@ -170,7 +170,12 @@ export async function resolveOperatorBarcode(
     if (bySlip) return { kind: "package", row: bySlip };
     const byTn = await firstPackageByColumn(supabase, organizationId, "tracking_number", code);
     if (byTn) return { kind: "package", row: byTn };
-    const byTnNorm = await findFirstPackageByTrackingNormalized(supabase, organizationId, storeId, code);
+    const deepSearch = !(
+      options?.fetchOptions?.skipExpensiveFallback || options?.fetchOptions?.gateFastNegative
+    );
+    const byTnNorm = await findFirstPackageByTrackingNormalized(supabase, organizationId, storeId, code, {
+      deepSearch,
+    });
     if (byTnNorm) return { kind: "package", row: byTnNorm };
     return null;
   };

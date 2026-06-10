@@ -30,3 +30,18 @@ export function isOperatorMobilePermissionKey(v: string): v is OperatorMobilePer
 
 export const OPERATOR_MOBILE_PERMISSION_DENIED_MESSAGE =
   "You do not have permission to move or delete boxes.";
+
+export const OPERATOR_MOBILE_EDIT_ITEM_DENIED_MESSAGE =
+  "You do not have permission to edit scanned units.";
+
+export const OPERATOR_MOBILE_DELETE_ITEM_DENIED_MESSAGE =
+  "You do not have permission to delete scanned units.";
+
+export const OPERATOR_MOBILE_DELETE_ORG_MISMATCH_MESSAGE =
+  "Scanned item not found for this organization.";
+
+export const OPERATOR_MOBILE_DELETE_NOT_SCANNED_UNIT_MESSAGE =
+  "Not an operator mobile scanned unit for this box.";
+
+export const OPERATOR_MOBILE_DELETE_OWNERSHIP_MESSAGE =
+  "You can only delete scanned units you created.";

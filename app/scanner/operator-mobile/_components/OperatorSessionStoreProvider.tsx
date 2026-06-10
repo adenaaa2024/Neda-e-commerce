@@ -31,6 +31,8 @@ import { getOperatorStoreScopeForOrganization } from "./operator-store-actions";
 export type OperatorSessionStoreContextValue = {
   organizationId: string;
   sessionStoreId: string | null;
+  /** True when sessionStoreId is confirmed for the current org's fetched store list (or kiosk env). */
+  sessionStoreValidated: boolean;
   /** Updates session store and persists per-org localStorage. */
   selectSessionStoreId: (storeId: string) => void;
   operatorStores: OperatorStoreOption[];
@@ -61,8 +63,9 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
    * and localStorage writes do not always update `UserRoleContext.organizationId` first).
    */
   const orgId = useMemo(() => {
-    const workspaceOrg =
-      workspaceSwitcherOrganizationId || readWorkspaceSelectedOrganizationIdFromStorage();
+    const workspaceOrg = sessionCanWorkspaceSwitch
+      ? workspaceSwitcherOrganizationId || readWorkspaceSelectedOrganizationIdFromStorage()
+      : "";
     const resolved = resolveActiveTenantOrganizationId({
       workspaceSwitcherOrganizationId: workspaceOrg,
       contextOrganizationId,
@@ -70,14 +73,21 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     });
     if (resolved) return resolved;
     return resolveOrganizationId();
-  }, [workspaceSwitcherOrganizationId, contextOrganizationId, profileOrganizationId]);
+  }, [
+    workspaceSwitcherOrganizationId,
+    contextOrganizationId,
+    profileOrganizationId,
+    sessionCanWorkspaceSwitch,
+  ]);
   const [sessionStoreId, setSessionStoreIdState] = useState<string | null>(null);
+  const [sessionStoreValidated, setSessionStoreValidated] = useState(false);
   const [operatorStores, setOperatorStores] = useState<OperatorStoreOption[]>([]);
   const [operatorStoresLoading, setOperatorStoresLoading] = useState(false);
   const [operatorStoresRefreshing, setOperatorStoresRefreshing] = useState(false);
   /** Ignores stale store-scope fetches when org/profile deps change mid-flight. */
   const storeScopeLoadGenerationRef = useRef(0);
   const hasResolvedStoresRef = useRef(false);
+  const prevOrgIdRef = useRef<string | null>(null);
 
   const kioskStoreLocked = useMemo(() => Boolean(resolvePublicStoreId()), []);
 
@@ -115,18 +125,43 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     };
   }, [sessionCanWorkspaceSwitch]);
 
-  /** Hydrate session store from per-org localStorage before server scope returns (avoids gate race). */
+  /** Reset store scope when tenant org changes — never reuse prior org's sessionStoreId. */
+  useEffect(() => {
+    const prev = prevOrgIdRef.current;
+    if (prev !== null && prev !== orgId) {
+      hasResolvedStoresRef.current = false;
+      storeScopeLoadGenerationRef.current += 1;
+      setSessionStoreValidated(false);
+      setOperatorStores([]);
+      setOperatorStoresRefreshing(false);
+      setOperatorStoresLoading(true);
+      if (!resolvePublicStoreId()) {
+        setSessionStoreIdState(null);
+      }
+    }
+    prevOrgIdRef.current = orgId;
+  }, [orgId]);
+
+  /** Hydrate kiosk env store only — session store for multi-store users is chosen after fetch validates org scope. */
   useEffect(() => {
     const envId = resolvePublicStoreId();
     if (envId) {
       setSessionStoreIdState(envId);
-      return;
-    }
-    const persisted = getOperatorSessionStoreIdForOrg(orgId).trim();
-    if (persisted && isUuidString(persisted)) {
-      setSessionStoreIdState(persisted);
+      setSessionStoreValidated(true);
     }
   }, [orgId]);
+
+  /** Drop stale session store when fetched list does not include the current id. */
+  useEffect(() => {
+    if (kioskStoreLocked) return;
+    if (!hasResolvedStoresRef.current || !operatorStores.length) return;
+    const sid = sessionStoreId?.trim();
+    if (!sid) return;
+    if (operatorStores.some((s) => s.id === sid)) return;
+    setSessionStoreIdState(null);
+    setSessionStoreValidated(false);
+    setOperatorSessionStoreIdForOrg(orgId, "");
+  }, [orgId, kioskStoreLocked, operatorStores, sessionStoreId]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -134,25 +169,35 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
       setOperatorStoresLoading(false);
       setOperatorStoresRefreshing(false);
       setSessionStoreIdState(null);
+      setSessionStoreValidated(false);
       hasResolvedStoresRef.current = false;
       return;
     }
     if (profileLoading) {
+      if (!hasResolvedStoresRef.current) {
+        setSessionStoreValidated(false);
+      }
       return;
     }
 
     const loadGeneration = ++storeScopeLoadGenerationRef.current;
-    const isBackgroundRefresh = hasResolvedStoresRef.current || operatorStores.length > 0;
+    const orgAtFetchStart = orgId;
+    const isBackgroundRefresh = hasResolvedStoresRef.current && operatorStores.length > 0;
     if (isBackgroundRefresh) {
       setOperatorStoresRefreshing(true);
     } else {
       setOperatorStores([]);
       setOperatorStoresLoading(true);
+      setSessionStoreValidated(false);
+      if (!resolvePublicStoreId()) {
+        setSessionStoreIdState(null);
+      }
     }
     void (async () => {
       try {
         const scope = await getOperatorStoreScopeForOrganization(orgId);
         if (loadGeneration !== storeScopeLoadGenerationRef.current) return;
+        if (orgAtFetchStart !== orgId) return;
         if (!scope.ok) {
           throw new Error(scope.error);
         }
@@ -165,6 +210,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
           const envRows = envStoreRow ? [envStoreRow] : [];
           setOperatorStores(envRows);
           setSessionStoreIdState(envId);
+          setSessionStoreValidated(envRows.length > 0);
           hasResolvedStoresRef.current = envRows.length > 0;
           return;
         }
@@ -172,20 +218,8 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
         setOperatorStores(stores);
         if (!stores.length) {
           setSessionStoreIdState(null);
+          setSessionStoreValidated(false);
           hasResolvedStoresRef.current = false;
-          return;
-        }
-
-        const preselected = getOperatorSessionStoreIdForOrg(orgId).trim();
-        if (preselected && isUuidString(preselected) && ids.has(preselected)) {
-          setSessionStoreIdState(preselected);
-        }
-
-        if (stores.length === 1) {
-          const id = stores[0].id;
-          setOperatorSessionStoreIdForOrg(orgId, id);
-          setSessionStoreIdState(id);
-          hasResolvedStoresRef.current = true;
           return;
         }
 
@@ -200,21 +234,30 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
           chosen = persisted;
         }
 
-        const orgDefault = scope.snapshot.defaultStoreId;
-        if (!chosen && orgDefault && ids.has(orgDefault)) {
-          chosen = orgDefault;
+        if (stores.length === 1) {
+          chosen = stores[0]!.id;
+        } else if (!chosen) {
+          const orgDefault = scope.snapshot.defaultStoreId;
+          if (orgDefault && ids.has(orgDefault)) {
+            chosen = orgDefault;
+          }
         }
 
         if (chosen) {
           setOperatorSessionStoreIdForOrg(orgId, chosen);
+          setSessionStoreIdState(chosen);
+          setSessionStoreValidated(true);
+        } else {
+          setSessionStoreIdState(null);
+          setSessionStoreValidated(false);
         }
-        setSessionStoreIdState(chosen);
         hasResolvedStoresRef.current = stores.length > 0;
       } catch (e) {
         console.error("[operator session store] init failed:", e);
-        if (loadGeneration === storeScopeLoadGenerationRef.current && !isBackgroundRefresh) {
+        if (loadGeneration === storeScopeLoadGenerationRef.current && orgAtFetchStart === orgId && !isBackgroundRefresh) {
           setOperatorStores([]);
           setSessionStoreIdState(null);
+          setSessionStoreValidated(false);
         }
       } finally {
         if (loadGeneration === storeScopeLoadGenerationRef.current) {
@@ -228,10 +271,12 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
   const selectSessionStoreId = useCallback(
     (storeId: string) => {
       const id = storeId.trim();
-      setSessionStoreIdState(id || null);
-      if (id) setOperatorSessionStoreIdForOrg(orgId, id);
+      const valid = id && operatorStores.some((s) => s.id === id);
+      setSessionStoreIdState(valid ? id : null);
+      setSessionStoreValidated(Boolean(valid));
+      if (valid) setOperatorSessionStoreIdForOrg(orgId, id);
     },
-    [orgId],
+    [orgId, operatorStores],
   );
 
   const activeStoreLabel = useMemo(() => {
@@ -244,6 +289,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     () => ({
       organizationId: orgId,
       sessionStoreId,
+      sessionStoreValidated,
       selectSessionStoreId,
       operatorStores,
       operatorStoresLoading,
@@ -254,6 +300,7 @@ export function OperatorSessionStoreProvider({ children }: { children: ReactNode
     [
       orgId,
       sessionStoreId,
+      sessionStoreValidated,
       selectSessionStoreId,
       operatorStores,
       operatorStoresLoading,

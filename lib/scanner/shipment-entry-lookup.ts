@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  isStrongShipmentIdentityMatchType,
+  probePackageSlipRmaFast,
+  shouldTryLimitedBarcodeProbe,
+  type ScannerIdentityGateMatchType,
+} from "@/lib/search/shipment-identity-gate";
+import {
   fetchExpectedPackageDetailRowsForParent,
   fetchExpectedPackagesForTracking,
   isLikelyShipmentTrackingCode,
@@ -23,6 +29,8 @@ import {
   type InventoryViewMatchField,
   type VInventoryStatusRow,
 } from "@/lib/scanner/v-inventory-status";
+
+export { isStrongShipmentIdentityMatchType };
 
 /** Normalize operator scan input (BOM / zero-width / outer whitespace). */
 export function normalizeShipmentEntryScanCode(raw: string): string {
@@ -126,16 +134,40 @@ export type ShipmentEntryLookupResult = {
   /** Raw barcode resolution (tracking / package / slip / pallet only — never item). */
   barcode: OperatorResolveResult;
   canonical_tracking: string | null;
+  /** Phase 9D RPC match_type when identity gate resolved the code shape but rows may be empty. */
+  identity_match_type?: ScannerIdentityGateMatchType | null;
+  /** True only when fast-negative path explicitly confirmed off-manifest (not RPC shape-only). */
+  gate_fast_negative_confirmed?: boolean;
+  /** Dev/audit timing for Shipment Entry gate (Phase 9H). */
+  gate_timing?: {
+    rpc_ms: number;
+    fallback_ms: number;
+    total_ms: number;
+    fallback_reason: string | null;
+  };
 };
 
 const SHIPMENT_ENTRY_RESOLVE_ORDER: OperatorResolveKind[] = ["tracking", "package", "slip", "pallet"];
+const SHIPMENT_ENTRY_LIMITED_RESOLVE_ORDER: OperatorResolveKind[] = ["package", "slip"];
 
+/** Gate fast path: one indexed package/slip probe for short codes only — skip for long unknown strings. */
+/** Zero manifest rows — off manifest / add-as-new (excludes RPC match_type-only until fast-negative confirmed). */
 export function isShipmentEntryOffManifest(lookup: ShipmentEntryLookupResult): boolean {
-  return (
-    lookup.match_status === "not_found" &&
-    lookup.barcode.kind === "unknown" &&
-    lookup.inventory_rows.length === 0
-  );
+  if (lookup.inventory_rows.length > 0) return false;
+  if (lookup.inventory_matched_field) return false;
+  if (isStrongShipmentIdentityMatchType(lookup.identity_match_type)) {
+    return Boolean(lookup.gate_fast_negative_confirmed);
+  }
+  if (lookup.barcode.kind === "package" || lookup.barcode.kind === "slip" || lookup.barcode.kind === "pallet") {
+    return true;
+  }
+  if (lookup.barcode.kind !== "unknown") return false;
+  return lookup.match_status === "not_found";
+}
+
+/** Fast negative: RPC or gate lookup finished with no manifest rows — skip post-gate hydration. */
+export function isShipmentEntryFastNegative(lookup: ShipmentEntryLookupResult): boolean {
+  return lookup.inventory_rows.length === 0 && isShipmentEntryOffManifest(lookup);
 }
 
 function manifestStatusFromLookup(r: ShipmentEntryLookupResult): ShipmentEntryGateResult["manifest_status"] {
@@ -240,14 +272,49 @@ function visualFromBarcodeRow(barcode: OperatorResolveResult): InventoryGateVisu
   );
 }
 
+const PACKAGE_PROBE_SELECT =
+  "id, organization_id, pallet_id, package_code, id_slip_contents, tracking_number, rma_number, expected_item_count, actual_item_count, status";
+
+/** Indexed package_code / slip probes only — single round trip, no tracking ILIKE scan (Phase 9H). */
+async function resolveShipmentEntryBarcodeIndexedFast(
+  supabase: SupabaseClient,
+  organizationId: string,
+  storeId: string,
+  code: string,
+): Promise<OperatorResolveResult> {
+  const trimmed = code.trim();
+  const probe = await probePackageSlipRmaFast(supabase, organizationId, storeId, trimmed);
+  if (!probe.found || !probe.package_id) return { kind: "unknown", code: trimmed };
+
+  const { data, error } = await supabase
+    .from("packages")
+    .select(PACKAGE_PROBE_SELECT)
+    .eq("id", probe.package_id)
+    .is("deleted_at", null)
+    .limit(1);
+  if (error) throw error;
+  const row = data?.[0] as Record<string, unknown> | undefined;
+  if (!row) return { kind: "unknown", code: trimmed };
+
+  const pkgCode = String(row.package_code ?? "").trim();
+  const slipId = String(row.id_slip_contents ?? "").trim();
+  const rma = String(row.rma_number ?? "").trim();
+  if (pkgCode === trimmed || slipId === trimmed) {
+    return { kind: "package", row };
+  }
+  if (rma === trimmed) return { kind: "slip", row };
+  return { kind: "package", row };
+}
+
 async function resolveShipmentEntryBarcode(
   supabase: SupabaseClient,
   organizationId: string,
   storeId: string | null,
   code: string,
   opts?: FetchExpectedPackagesOptions,
+  order: OperatorResolveKind[] = SHIPMENT_ENTRY_RESOLVE_ORDER,
 ): Promise<OperatorResolveResult> {
-  for (const only of SHIPMENT_ENTRY_RESOLVE_ORDER) {
+  for (const only of order) {
     const r = await resolveOperatorBarcode(supabase, organizationId, code, {
       only,
       storeId,
@@ -256,6 +323,32 @@ async function resolveShipmentEntryBarcode(
     if (r.kind !== "unknown") return r;
   }
   return { kind: "unknown", code };
+}
+
+function buildFastNegativeShipmentLookup(
+  normalized_code: string,
+  identityMatchType: ScannerIdentityGateMatchType | null,
+): ShipmentEntryLookupResult {
+  const emptyAgg = aggregateInventoryStatus([]);
+  const detail = identityMatchType
+    ? `Identity matched as ${identityMatchType} with no manifest lines.`
+    : "No tracking, slip, package, or pallet match for this store.";
+  return {
+    normalized_code,
+    match_status: "not_found",
+    entity_type: "unknown",
+    entity_id: null,
+    status_label: identityMatchType ? "Not in this shipment" : "Not found",
+    status_detail: detail,
+    next_action: "show_not_found",
+    inventory_rows: [],
+    inventory_matched_field: null,
+    inventory_visual: "manual_new",
+    barcode: { kind: "unknown", code: normalized_code },
+    canonical_tracking: null,
+    identity_match_type: identityMatchType,
+    gate_fast_negative_confirmed: true,
+  };
 }
 
 function epRowToInventoryStatusRow(
@@ -503,13 +596,34 @@ export async function lookupShipmentEntryScanCode(
   rawCode: string,
   opts?: FetchExpectedPackagesOptions,
 ): Promise<ShipmentEntryLookupResult> {
+  const lookupStartedAt = performance.now();
+  let rpcMs = 0;
+  let fallbackMs = 0;
+  let fallbackReason: string | null = null;
+
+  const gateFastNegative = Boolean(opts?.skipExpensiveFallback || opts?.gateFastNegative);
+  const identityOpts: FetchExpectedPackagesOptions = {
+    ...opts,
+    skipExpensiveFallback: gateFastNegative,
+    gateFastNegative,
+  };
+
   const normalized_code = normalizeShipmentEntryScanCode(rawCode);
   const orgId = organizationId.trim();
   const sid = storeId.trim();
 
+  const finishTiming = (result: ShipmentEntryLookupResult): ShipmentEntryLookupResult => ({
+    ...result,
+    gate_timing: {
+      rpc_ms: Math.round(rpcMs),
+      fallback_ms: Math.round(fallbackMs),
+      total_ms: Math.round(performance.now() - lookupStartedAt),
+      fallback_reason: fallbackReason,
+    },
+  });
+
   if (!normalized_code || !orgId || !sid) {
-    const emptyAgg = aggregateInventoryStatus([]);
-    return {
+    return finishTiming({
       normalized_code,
       match_status: "not_found",
       entity_type: "unknown",
@@ -522,14 +636,15 @@ export async function lookupShipmentEntryScanCode(
       inventory_visual: "manual_new",
       barcode: { kind: "unknown", code: normalized_code },
       canonical_tracking: null,
-    };
+    });
   }
 
   let inventory_rows: VInventoryStatusRow[] = [];
   let inventory_matched_field: InventoryViewMatchField | null = null;
   let identityScrubApplied = false;
 
-  const invResult = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, normalized_code, opts).catch(
+  const rpcStartedAt = performance.now();
+  const invResult = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, normalized_code, identityOpts).catch(
     () => ({
       rows: [] as VInventoryStatusRow[],
       matchedField: null as InventoryViewMatchField | null,
@@ -537,6 +652,7 @@ export async function lookupShipmentEntryScanCode(
       scrubApplied: false,
     }),
   );
+  rpcMs = performance.now() - rpcStartedAt;
 
   inventory_rows = invResult.rows;
   inventory_matched_field = invResult.matchedField;
@@ -566,23 +682,42 @@ export async function lookupShipmentEntryScanCode(
     } else {
       barcode = { kind: "unknown", code: normalized_code };
     }
+  } else if (identityMatchType) {
+    barcode = { kind: "unknown", code: normalized_code };
+  } else if (gateFastNegative && !shouldTryLimitedBarcodeProbe(normalized_code)) {
+    barcode = { kind: "unknown", code: normalized_code };
+    fallbackReason = "gate_fast_negative_rpc_miss";
   } else {
-    barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code, opts);
+    const fbStartedAt = performance.now();
+    if (gateFastNegative) {
+      barcode = await resolveShipmentEntryBarcodeIndexedFast(supabase, orgId, sid, normalized_code);
+      fallbackReason = "indexed_package_slip_probe";
+    } else {
+      barcode = await resolveShipmentEntryBarcode(supabase, orgId, sid, normalized_code, identityOpts);
+      fallbackReason = "full_barcode_resolve";
+    }
+    fallbackMs += performance.now() - fbStartedAt;
   }
 
-  if (!inventory_rows.length && barcode.kind === "tracking") {
+  if (!gateFastNegative && !inventory_rows.length && barcode.kind === "tracking") {
+    const fbStartedAt = performance.now();
     const epRows = await fetchExpectedPackagesForTracking(supabase, orgId, sid, normalized_code, undefined, opts);
+    fallbackMs += performance.now() - fbStartedAt;
+    fallbackReason = "tracking_ep_fetch";
     if (epRows.length) {
       inventory_rows = epRows.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>, orgId, sid));
       inventory_matched_field = "tracking_number";
     }
   }
 
-  if (!inventory_rows.length && barcode.kind !== "unknown") {
+  if (!gateFastNegative && !inventory_rows.length && barcode.kind !== "unknown") {
     const tn = trackingFromBarcode(barcode);
     if (tn && tn !== normalized_code) {
       try {
-        const inv2 = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, tn, opts);
+        const fbStartedAt = performance.now();
+        const inv2 = await fetchVInventoryStatusForScanCode(supabase, orgId, sid, tn, identityOpts);
+        fallbackMs += performance.now() - fbStartedAt;
+        fallbackReason = "tracking_relookup";
         if (inv2.rows.length) {
           inventory_rows = inv2.rows;
           inventory_matched_field = inv2.matchedField ?? "tracking_number";
@@ -594,10 +729,15 @@ export async function lookupShipmentEntryScanCode(
   }
 
   if (
+    !gateFastNegative &&
     !inventory_rows.length &&
+    !identityMatchType &&
     !(opts?.skipExpensiveFallback && isLikelyShipmentTrackingCode(normalized_code))
   ) {
+    const fbStartedAt = performance.now();
     const fb = await inventoryRowsFromExpectedPackagesFallback(supabase, orgId, sid, normalized_code);
+    fallbackMs += performance.now() - fbStartedAt;
+    fallbackReason = "ep_parent_fallback";
     if (fb.rows.length) {
       inventory_rows = fb.rows;
       inventory_matched_field = fb.matchedField;
@@ -605,7 +745,9 @@ export async function lookupShipmentEntryScanCode(
   }
 
   if (
+    !gateFastNegative &&
     !inventory_rows.length &&
+    !identityMatchType &&
     (barcode.kind === "package" || barcode.kind === "slip")
   ) {
     const row = barcode.row;
@@ -661,14 +803,15 @@ export async function lookupShipmentEntryScanCode(
   }
   const meta = deriveMatchMetadata(barcode, inventory_rows, inventory_matched_field, inventory_visual, normalized_code);
 
-  return {
+  return finishTiming({
     normalized_code,
     ...meta,
     inventory_rows,
     inventory_matched_field,
     inventory_visual,
     barcode,
-  };
+    identity_match_type: identityMatchType,
+  });
 }
 
 /** Demo / offline lookup — mirrors production order without Supabase. */

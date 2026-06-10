@@ -10350,6 +10350,132 @@ html.light .operator-item-scan-screen .operator-item-scan-slip-status--awaiting 
   color: #4d5560 !important;
 }
 
+/* Expected Items — Pending (not yet reviewed / not received) */
+html.dark .operator-item-scan-screen .operator-item-scan-slip-passive-badge--pending {
+  border-color: rgba(96, 165, 250, 0.65) !important;
+  background-color: rgba(30, 64, 175, 0.38) !important;
+  color: #dbeafe !important;
+}
+
+html.light .operator-item-scan-screen .operator-item-scan-slip-passive-badge--pending {
+  border-color: rgba(29, 78, 216, 0.55) !important;
+  background-color: #dbeafe !important;
+  color: #1e3a8a !important;
+}
+
+/* Phase 6F — additive slip/shipment validation chips (Expected Items + finalize) */
+html.dark .operator-item-scan-screen .operator-slip-validation-chip--confirmed {
+  border-color: rgba(52, 211, 153, 0.55) !important;
+  background-color: rgba(6, 78, 59, 0.38) !important;
+  color: #a7f3d0 !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-chip--confirmed {
+  border-color: rgba(21, 128, 61, 0.5) !important;
+  background-color: #dcfce7 !important;
+  color: #14532d !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-chip--slip-only {
+  border-color: rgba(214, 183, 110, 0.55) !important;
+  background-color: rgba(120, 83, 14, 0.35) !important;
+  color: #fde68a !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-chip--slip-only {
+  border-color: rgba(180, 130, 40, 0.55) !important;
+  background-color: #fef3c7 !important;
+  color: #78350f !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-chip--shipment-only {
+  border-color: rgba(34, 211, 238, 0.55) !important;
+  background-color: rgba(8, 51, 68, 0.42) !important;
+  color: #a5f3fc !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-chip--shipment-only {
+  border-color: rgba(8, 145, 178, 0.5) !important;
+  background-color: #cffafe !important;
+  color: #155e75 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-chip--unresolved {
+  border-color: rgba(148, 163, 184, 0.45) !important;
+  background-color: rgba(30, 41, 59, 0.45) !important;
+  color: #e2e8f0 !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-chip--unresolved {
+  border-color: rgba(100, 116, 139, 0.45) !important;
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-shipment-only-hint {
+  border-color: rgba(34, 211, 238, 0.35) !important;
+  background-color: rgba(8, 51, 68, 0.28) !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-shipment-only-hint {
+  border-color: rgba(8, 145, 178, 0.35) !important;
+  background-color: rgba(207, 250, 254, 0.45) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-shipment-only-hint__title {
+  color: #a5f3fc !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-shipment-only-hint__title {
+  color: #0e7490 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-shipment-only-hint__body {
+  color: rgba(226, 232, 240, 0.82) !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-shipment-only-hint__body {
+  color: #475569 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-shipment-only-hint__row {
+  border-color: rgba(34, 211, 238, 0.28) !important;
+  background-color: rgba(15, 23, 42, 0.35) !important;
+  color: #e2e8f0 !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-shipment-only-hint__row {
+  border-color: rgba(8, 145, 178, 0.25) !important;
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  color: #1e293b !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-finalize-summary {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+  background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-finalize-summary {
+  border-color: rgba(148, 163, 184, 0.4) !important;
+  background-color: rgba(248, 250, 252, 0.95) !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-finalize-summary__title {
+  color: rgba(226, 232, 240, 0.88) !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-finalize-summary__title {
+  color: #475569 !important;
+}
+
+html.dark .operator-item-scan-screen .operator-slip-validation-finalize-summary__row {
+  color: rgba(226, 232, 240, 0.92) !important;
+}
+
+html.light .operator-item-scan-screen .operator-slip-validation-finalize-summary__row {
+  color: #334155 !important;
+}
+
 html.dark .operator-item-scan-screen .operator-item-scan-slip-status[data-neda-qty="RECEIVED"] {
   color: #6ee7b7 !important;
   background-color: rgba(16, 185, 129, 0.1) !important;

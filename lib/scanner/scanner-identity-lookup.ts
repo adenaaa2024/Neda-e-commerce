@@ -7,6 +7,7 @@ import {
 import { findPackageIdsByColumnForStore } from "@/lib/scanner/package-tracking-lookup";
 import {
   fetchIdentityGateViaRpc,
+  isStrongShipmentIdentityMatchType,
   type ScannerIdentityGateMatchType,
 } from "@/lib/scanner/scanner-identity-gate-rpc";
 import { resolveSlipIdentityRows } from "@/lib/scanner/slip-inventory-merge";
@@ -261,19 +262,44 @@ export async function fetchIdentityStatusForScanCode(
   const sid = storeId.trim();
   if (!orgId || !sid) return { rows: [], raw: null, matchedField: null };
 
+  let legacyRpcStrongZero: {
+    matchType: ScannerIdentityGateMatchType;
+    matchedField: InventoryViewMatchField | null;
+  } | null = null;
+
   const rpcHit = await fetchIdentityGateViaRpc(supabase, orgId, sid, code).catch(() => null);
   if (rpcHit) {
+    const rpcStrongZeroRows =
+      !rpcHit.rows.length && isStrongShipmentIdentityMatchType(rpcHit.matchType);
+    const useRpcOnly =
+      rpcHit.rows.length > 0 ||
+      !rpcStrongZeroRows ||
+      options?.gateFastNegative === true;
+    if (useRpcOnly) {
+      return {
+        rows: rpcHit.rows,
+        raw: {
+          phase9d_rpc: true,
+          package_ids: rpcHit.packageIds,
+          tracking_numbers: rpcHit.trackingNumbers,
+          match_type: rpcHit.matchType,
+        },
+        matchedField: rpcHit.matchedField,
+        matchType: rpcHit.matchType,
+        scrubApplied: rpcHit.scrubApplied,
+      };
+    }
+    if (rpcHit.matchType) {
+      legacyRpcStrongZero = { matchType: rpcHit.matchType, matchedField: rpcHit.matchedField };
+    }
+  }
+
+  if (options?.gateFastNegative || options?.skipExpensiveFallback) {
     return {
-      rows: rpcHit.rows,
-      raw: {
-        phase9d_rpc: true,
-        package_ids: rpcHit.packageIds,
-        tracking_numbers: rpcHit.trackingNumbers,
-        match_type: rpcHit.matchType,
-      },
-      matchedField: rpcHit.matchedField,
-      matchType: rpcHit.matchType,
-      scrubApplied: rpcHit.scrubApplied,
+      rows: [],
+      raw: { gate_fast_negative: true },
+      matchedField: null,
+      matchType: null,
     };
   }
 
@@ -371,6 +397,15 @@ export async function fetchIdentityStatusForScanCode(
   const skuRows = await fetchExpectedPackagesByExactField(supabase, orgId, sid, "sku", code, select);
   const skuHit = await tryField("sku", skuRows, "product_identifier_fallback");
   if (skuHit) return skuHit;
+
+  if (legacyRpcStrongZero) {
+    return {
+      rows: [],
+      raw: { phase9d_rpc_strong_zero_legacy: true, match_type: legacyRpcStrongZero.matchType },
+      matchedField: legacyRpcStrongZero.matchedField,
+      matchType: legacyRpcStrongZero.matchType,
+    };
+  }
 
   return { rows: [], raw: null, matchedField: null, matchType: null };
 }

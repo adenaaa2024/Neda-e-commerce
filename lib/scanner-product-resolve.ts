@@ -1,6 +1,6 @@
 /**
  * Deterministic product resolution for scanner flows (return_items, manifest lines,
- * expected_items, slip_contents). Delegates to `resolveProductForScannerItem` (FNSKU → SKU → UPC → ASIN).
+ * expected_items, slip_contents). Delegates to Phase 10 `resolveProductIdentifier` (UPC → SKU → FNSKU → ASIN).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";

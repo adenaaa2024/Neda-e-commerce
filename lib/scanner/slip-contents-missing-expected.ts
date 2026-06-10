@@ -140,11 +140,17 @@ export function mergeSlipContentsMissingExpectedNotes(
   return { ok: true, notes: buildSlipContentsMissingExpectedNotes(nextQty) };
 }
 
-/** Human-readable counts: expected, received, missing (remaining or recorded). */
+/** Human-readable counts: expected, received, pending vs operator-marked missing. */
 export function formatSlipLineQtySummary(line: SlipLineExpectedVsReceived): string {
-  const missingDisplay =
-    line.remainingMissing > 0 ? line.remainingMissing : line.recordedMissing;
-  const suffix =
-    line.remainingMissing === 0 && line.recordedMissing > 0 ? " (recorded)" : "";
-  return `Expected ${line.expected} · Received ${line.received} · Missing ${missingDisplay}${suffix}`;
+  const base = `Expected ${line.expected} · Received ${line.received}`;
+  if (line.expected > 0 && line.received >= line.expected) {
+    return base;
+  }
+  if (line.recordedMissing > 0) {
+    return `${base} · Marked missing ${line.recordedMissing}`;
+  }
+  if (line.remainingMissing > 0) {
+    return `${base} · Pending ${line.remainingMissing}`;
+  }
+  return base;
 }

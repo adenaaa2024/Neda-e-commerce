@@ -12,6 +12,10 @@ import {
   classifyViewLinkage,
   type InventoryViewDbRow,
 } from "@/lib/inventory-views-product-linkage";
+import {
+  preferExactTrackingFilter,
+  resolveShipmentIdentityForTrackingPanel,
+} from "@/lib/search/shipment-identity-gate";
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
@@ -60,7 +64,13 @@ async function fetchPackageStatusRow(
     .eq("organization_id", opts.organizationId)
     .limit(5);
   if (opts.storeId?.trim()) q = q.eq("store_id", opts.storeId.trim());
-  if (tn) q = q.ilike("tracking_number", `%${tn}%`);
+  if (tn) {
+    if (preferExactTrackingFilter(tn)) {
+      q = q.eq("tracking_number", tn);
+    } else {
+      q = q.ilike("tracking_number", `%${tn}%`);
+    }
+  }
   const sc = opts.slipCode?.trim();
   if (sc) q = q.eq("slip_code", sc);
   if (pc) q = q.eq("package_code", pc);
@@ -138,7 +148,25 @@ export async function fetchInventoryItemStatusForNeda(opts: {
       .limit(limit);
     if (opts.storeId?.trim()) q = q.eq("store_id", opts.storeId.trim());
     const tn = opts.trackingNumber?.trim();
-    if (tn) q = q.ilike("tracking_number", `%${tn}%`);
+    if (tn) {
+      let trackingEq = tn;
+      if (opts.storeId?.trim() && preferExactTrackingFilter(tn)) {
+        const identity = await resolveShipmentIdentityForTrackingPanel(
+          supabase,
+          opts.organizationId,
+          opts.storeId.trim(),
+          tn,
+        );
+        if (identity.tracking_numbers.length === 1) {
+          trackingEq = identity.tracking_numbers[0]!;
+        }
+      }
+      if (preferExactTrackingFilter(trackingEq)) {
+        q = q.eq("tracking_number", trackingEq);
+      } else {
+        q = q.ilike("tracking_number", `%${tn}%`);
+      }
+    }
     const sc = opts.slipCode?.trim();
     if (sc) q = q.eq("slip_code", sc);
     const pc = opts.packageCode?.trim();

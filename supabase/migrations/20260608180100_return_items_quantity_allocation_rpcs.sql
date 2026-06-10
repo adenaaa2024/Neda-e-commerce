@@ -40,7 +40,7 @@ DECLARE
   v_norm_tracking     text;
   v_qty               integer;
 BEGIN
-  SELECT ri.expected_item_id, ri.resolved_product_id, GREATEST(COALESCE(ri.scanned_quantity, 1), 1)
+  SELECT ri.expected_item_id, ri.resolved_product_id, GREATEST(COALESCE(ri.scanned_quantity, 1), 1) AS scanned_quantity
     INTO v_existing_ep, v_scanned_product, v_qty
   FROM public.return_items ri
   WHERE ri.id = p_return_item_id
@@ -206,7 +206,11 @@ DECLARE
   v_other_links bigint;
   v_qty integer;
 BEGIN
-  SELECT ri.id, ri.expected_item_id, ri.deleted_at, GREATEST(COALESCE(ri.scanned_quantity, 1), 1)
+  SELECT
+    ri.id,
+    ri.expected_item_id,
+    ri.deleted_at,
+    GREATEST(COALESCE(ri.scanned_quantity, 1), 1) AS scanned_quantity
     INTO v_ri
   FROM public.return_items ri
   WHERE ri.id = p_return_item_id
