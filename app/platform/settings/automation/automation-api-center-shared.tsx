@@ -12,7 +12,111 @@ import {
 } from "@/lib/platform-automation-ui-format";
 import type { AutomationScheduleRuntime } from "@/lib/platform-automation-settings-types";
 import type { RemovalRunSource } from "@/lib/platform-automation-saved-status";
+import type { AutomationApiReportType } from "@/lib/platform-automation-api-report-type";
+import { AUTOMATION_API_REPORT_TYPE_OPTIONS } from "@/lib/platform-automation-api-report-type";
 import { responsiveFormInput } from "@/lib/responsive-page-shell";
+
+export type SavedStatusCardSnapshot = {
+  label: string;
+  enabled: boolean;
+  lastRun: string | null;
+  nextRun: Date | null;
+  status: string;
+  lastSuccess?: string | null;
+  runSource?: RemovalRunSource;
+};
+
+function removalSourceLabel(source: RemovalRunSource | undefined): string | null {
+  if (!source) return null;
+  if (source === "cron") return "Vercel cron (scheduled)";
+  if (source === "manual") return "Manual Run now / import";
+  return "Unknown";
+}
+
+type CardKey = "product" | "removal" | "historical" | "reimbursements" | "settlement" | "finances";
+
+const CARD_KEYS_BY_REPORT_TYPE: Record<AutomationApiReportType, CardKey> = {
+  product_data_update: "product",
+  removal_shipment: "removal",
+  reimbursements: "reimbursements",
+  settlement: "settlement",
+  finances_archive: "finances",
+  older_backfill: "historical",
+};
+
+function primaryCardForReportType(apiReportType: AutomationApiReportType): CardKey {
+  return CARD_KEYS_BY_REPORT_TYPE[apiReportType];
+}
+
+function SavedStatusPrimaryPanel({ card }: { card: SavedStatusCardSnapshot }) {
+  const lastRun = formatAutomationTimestamp(card.lastRun);
+  const lastSuccess = card.lastSuccess != null ? formatAutomationTimestamp(card.lastSuccess) : null;
+  const nextRun = card.nextRun ? formatAutomationTimestamp(card.nextRun.toISOString()) : null;
+  const sourceLabel = removalSourceLabel(card.runSource);
+
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/10 p-3 sm:col-span-2 lg:col-span-3">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{card.label}</dt>
+      <dd className="mt-1 text-sm font-semibold text-foreground">
+        {card.enabled ? "Enabled (scheduled)" : "Off"}
+      </dd>
+      <dd className="mt-2 text-xs text-muted-foreground">
+        Next run:{" "}
+        {card.enabled && nextRun ? (
+          <>
+            {nextRun.primary}
+            {nextRun.secondary ? ` (${nextRun.secondary})` : ""}
+          </>
+        ) : (
+          "Off — not scheduled"
+        )}
+      </dd>
+      <dd className="mt-1 text-xs text-muted-foreground">
+        Last run: {lastRun.primary}
+        {lastRun.secondary ? ` · ${lastRun.secondary}` : ""}
+      </dd>
+      {lastSuccess ? (
+        <dd className="mt-1 text-xs text-muted-foreground">
+          Last success: {lastSuccess!.primary !== "Never" ? lastSuccess!.primary : "—"}
+        </dd>
+      ) : null}
+      <dd className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Status</span>
+        <StatusPill status={card.status} />
+      </dd>
+      {sourceLabel ? (
+        <dd className="mt-1 text-[11px] text-muted-foreground">Source: {sourceLabel}</dd>
+      ) : null}
+    </div>
+  );
+}
+
+function SavedStatusSecondarySchedules({
+  cards,
+  primaryKey,
+}: {
+  cards: Record<CardKey, SavedStatusCardSnapshot>;
+  primaryKey: CardKey;
+}) {
+  const entries = (Object.entries(cards) as [CardKey, SavedStatusCardSnapshot][]).filter(
+    ([key]) => key !== primaryKey,
+  );
+
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/10 p-3 sm:col-span-2 lg:col-span-3">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Other saved schedules
+      </dt>
+      <dd className="mt-2 grid gap-1.5 text-xs text-muted-foreground sm:grid-cols-2">
+        {entries.map(([key, card]) => (
+          <span key={key}>
+            {card.label}: {card.enabled ? "On" : "Off"}
+          </span>
+        ))}
+      </dd>
+    </div>
+  );
+}
 
 export function RollingWindowHelp() {
   return (
@@ -129,45 +233,42 @@ export function RuntimeStatsFromView({
 }
 
 export function AutomationSavedStatusSummary({
+  apiReportType,
   orgId,
   storeId,
-  removalEnabled,
-  removalNextRun,
-  removalLastRun,
-  removalLastSuccess,
-  removalRunSource,
-  removalStatus,
-  productEnabled,
-  reimbursementsEnabled,
-  settlementEnabled,
-  financesEnabled,
+  product,
+  removal,
+  historical,
+  reimbursements,
+  settlement,
+  finances,
   hasUnsavedChanges,
   updatedAt,
 }: {
+  apiReportType: AutomationApiReportType;
   orgId: string;
   storeId: string;
-  removalEnabled: boolean;
-  removalNextRun: Date | null;
-  removalLastRun: string | null;
-  removalLastSuccess: string | null;
-  removalRunSource: RemovalRunSource;
-  removalStatus: string;
-  productEnabled: boolean;
-  reimbursementsEnabled: boolean;
-  settlementEnabled: boolean;
-  financesEnabled: boolean;
+  product: SavedStatusCardSnapshot;
+  removal: SavedStatusCardSnapshot;
+  historical: SavedStatusCardSnapshot;
+  reimbursements: SavedStatusCardSnapshot;
+  settlement: SavedStatusCardSnapshot;
+  finances: SavedStatusCardSnapshot;
   hasUnsavedChanges: boolean;
   updatedAt: string | null;
 }) {
-  const removalNext = removalNextRun ? formatAutomationTimestamp(removalNextRun.toISOString()) : null;
-  const lastRun = formatAutomationTimestamp(removalLastRun);
-  const lastSuccess = formatAutomationTimestamp(removalLastSuccess);
-  const sourceLabel =
-    removalRunSource === "cron"
-      ? "Vercel cron (scheduled)"
-      : removalRunSource === "manual"
-        ? "Manual Run now / import"
-        : "Unknown";
+  const primaryKey = primaryCardForReportType(apiReportType);
+  const cards: Record<CardKey, SavedStatusCardSnapshot> = {
+    product,
+    removal,
+    historical,
+    reimbursements,
+    settlement,
+    finances,
+  };
+  const primaryCard = cards[primaryKey];
+  const selectedTypeLabel =
+    AUTOMATION_API_REPORT_TYPE_OPTIONS.find((o) => o.value === apiReportType)?.label ?? apiReportType;
 
   return (
     <section className="rounded-2xl border-2 border-emerald-500/25 bg-card p-4 shadow-sm sm:p-5">
@@ -175,7 +276,8 @@ export function AutomationSavedStatusSummary({
         <div>
           <h2 className="text-base font-semibold text-foreground">Saved automation status</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            From <span className="font-mono">platform_settings.automation_settings</span> for scope{" "}
+            {selectedTypeLabel} · from{" "}
+            <span className="font-mono">platform_settings.automation_settings</span> for scope{" "}
             <span className="font-mono">{orgId.slice(0, 8)}…</span> /{" "}
             <span className="font-mono">{storeId.slice(0, 8)}…</span>
             {updatedAt ? ` · saved ${updatedAt.slice(0, 10)}` : null}
@@ -192,48 +294,8 @@ export function AutomationSavedStatusSummary({
         )}
       </div>
       <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-lg border border-border/70 bg-muted/10 p-3">
-          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Removal / Shipment API
-          </dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {removalEnabled ? "Enabled (scheduled)" : "Off"}
-          </dd>
-          <dd className="mt-2 text-xs text-muted-foreground">
-            Next run:{" "}
-            {removalEnabled && removalNext ? (
-              <>
-                {removalNext.primary}
-                {removalNext.secondary ? ` (${removalNext.secondary})` : ""}
-              </>
-            ) : (
-              "Off — not scheduled"
-            )}
-          </dd>
-          <dd className="mt-1 text-xs text-muted-foreground">
-            Last run: {lastRun.primary}
-            {lastRun.secondary ? ` · ${lastRun.secondary}` : ""}
-          </dd>
-          <dd className="mt-1 text-xs text-muted-foreground">
-            Last success: {lastSuccess.primary !== "Never" ? lastSuccess.primary : "—"}
-          </dd>
-          <dd className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">Status</span>
-            <StatusPill status={removalStatus} />
-          </dd>
-          <dd className="mt-1 text-[11px] text-muted-foreground">Source: {sourceLabel}</dd>
-        </div>
-        <div className="rounded-lg border border-border/70 bg-muted/10 p-3 sm:col-span-2 lg:col-span-2">
-          <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Other schedules (saved)
-          </dt>
-          <dd className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-            <span>Product Data Update: {productEnabled ? "On" : "Off"}</span>
-            <span>Reimbursements API: {reimbursementsEnabled ? "On" : "Off"}</span>
-            <span>Settlement API: {settlementEnabled ? "On" : "Off"}</span>
-            <span>Finances archive API: {financesEnabled ? "On" : "Off"}</span>
-          </dd>
-        </div>
+        <SavedStatusPrimaryPanel card={primaryCard} />
+        <SavedStatusSecondarySchedules cards={cards} primaryKey={primaryKey} />
       </dl>
     </section>
   );

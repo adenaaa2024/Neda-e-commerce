@@ -391,6 +391,38 @@ const CORE: PermissionDefinition[] = [
     action: "manage",
     description: "Soft-void a package-linked scanned return_items row from operator mobile receive",
   }),
+  p({
+    key: "operations.operator_mobile.close_pallet",
+    name: "Close pallet review",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "close_pallet",
+    description: "Close pallet-level warehouse receive review on operator mobile",
+  }),
+  p({
+    key: "operations.operator_mobile.reopen_pallet",
+    name: "Reopen pallet review",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "reopen_pallet",
+    description: "Reopen a closed pallet for editing on operator mobile",
+  }),
+  p({
+    key: "operations.operator_mobile.close_shipment_review",
+    name: "Close shipment receive review",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "close_shipment_review",
+    description: "Final warehouse receive review close for a shipment tracking scope",
+  }),
+  p({
+    key: "operations.operator_mobile.reopen_shipment_review",
+    name: "Reopen shipment receive review",
+    module: "operations",
+    feature_key: "operator_mobile",
+    action: "reopen_shipment_review",
+    description: "Reopen a closed shipment warehouse receive review",
+  }),
   // ----- tech debug -----
   p({
     key: "tech_debug.access",

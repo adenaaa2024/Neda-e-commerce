@@ -8,13 +8,23 @@ export const OPERATOR_MOBILE_VOID_BOX = "operations.operator_mobile.void_box" as
 export const OPERATOR_MOBILE_RESET_ENTRY = "operations.operator_mobile.reset_entry" as const;
 export const OPERATOR_MOBILE_EDIT_ITEM = "operations.operator_mobile.edit_item" as const;
 export const OPERATOR_MOBILE_DELETE_ITEM = "operations.operator_mobile.delete_item" as const;
+export const OPERATOR_MOBILE_CLOSE_PALLET = "operations.operator_mobile.close_pallet" as const;
+export const OPERATOR_MOBILE_REOPEN_PALLET = "operations.operator_mobile.reopen_pallet" as const;
+export const OPERATOR_MOBILE_CLOSE_SHIPMENT_REVIEW =
+  "operations.operator_mobile.close_shipment_review" as const;
+export const OPERATOR_MOBILE_REOPEN_SHIPMENT_REVIEW =
+  "operations.operator_mobile.reopen_shipment_review" as const;
 
 export type OperatorMobilePermissionKey =
   | typeof OPERATOR_MOBILE_MOVE_BOX
   | typeof OPERATOR_MOBILE_VOID_BOX
   | typeof OPERATOR_MOBILE_RESET_ENTRY
   | typeof OPERATOR_MOBILE_EDIT_ITEM
-  | typeof OPERATOR_MOBILE_DELETE_ITEM;
+  | typeof OPERATOR_MOBILE_DELETE_ITEM
+  | typeof OPERATOR_MOBILE_CLOSE_PALLET
+  | typeof OPERATOR_MOBILE_REOPEN_PALLET
+  | typeof OPERATOR_MOBILE_CLOSE_SHIPMENT_REVIEW
+  | typeof OPERATOR_MOBILE_REOPEN_SHIPMENT_REVIEW;
 
 const KEY_SET = new Set<string>([
   OPERATOR_MOBILE_MOVE_BOX,
@@ -22,6 +32,10 @@ const KEY_SET = new Set<string>([
   OPERATOR_MOBILE_RESET_ENTRY,
   OPERATOR_MOBILE_EDIT_ITEM,
   OPERATOR_MOBILE_DELETE_ITEM,
+  OPERATOR_MOBILE_CLOSE_PALLET,
+  OPERATOR_MOBILE_REOPEN_PALLET,
+  OPERATOR_MOBILE_CLOSE_SHIPMENT_REVIEW,
+  OPERATOR_MOBILE_REOPEN_SHIPMENT_REVIEW,
 ]);
 
 export function isOperatorMobilePermissionKey(v: string): v is OperatorMobilePermissionKey {
@@ -45,3 +59,15 @@ export const OPERATOR_MOBILE_DELETE_NOT_SCANNED_UNIT_MESSAGE =
 
 export const OPERATOR_MOBILE_DELETE_OWNERSHIP_MESSAGE =
   "You can only delete scanned units you created.";
+
+export const OPERATOR_MOBILE_CLOSE_PALLET_DENIED_MESSAGE =
+  "You do not have permission to close pallets.";
+
+export const OPERATOR_MOBILE_REOPEN_PALLET_DENIED_MESSAGE =
+  "You do not have permission to reopen closed pallets.";
+
+export const OPERATOR_MOBILE_CLOSE_SHIPMENT_REVIEW_DENIED_MESSAGE =
+  "You do not have permission to close shipment warehouse receive review.";
+
+export const OPERATOR_MOBILE_REOPEN_SHIPMENT_REVIEW_DENIED_MESSAGE =
+  "You do not have permission to reopen shipment warehouse receive review.";

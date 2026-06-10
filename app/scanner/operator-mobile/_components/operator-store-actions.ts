@@ -24,6 +24,23 @@ import { buildPalletShipmentReviewPreview } from "@/lib/scanner/pallet-shipment-
 import type { PalletShipmentReviewPreview } from "@/lib/scanner/pallet-shipment-review-types";
 import { buildSlipShipmentValidationPreview } from "@/lib/scanner/slip-shipment-validation";
 import type { BoxCloseReviewSnapshot } from "@/lib/scanner/box-close-review";
+import type { PalletCloseReviewSnapshot } from "@/lib/scanner/pallet-close-review";
+import { buildPalletCloseReviewModelFromPreview } from "@/lib/scanner/pallet-close-review";
+import type { ShipmentCloseReviewSnapshot } from "@/lib/scanner/shipment-close-review";
+import { buildShipmentCloseReviewModelFromPreview } from "@/lib/scanner/shipment-close-review";
+import {
+  mergePalletPhotoEvidenceFinalize,
+  mergePalletPhotoEvidenceReopen,
+  readPalletCloseState,
+} from "@/lib/scanner/pallet-operator-close-manifest";
+import {
+  mergePackageManifestShipmentCloseFinalize,
+  mergePackageManifestShipmentCloseReopen,
+  mergePalletPhotoEvidenceShipmentCloseFinalize,
+  mergePalletPhotoEvidenceShipmentCloseReopen,
+  readShipmentCloseFromPackageManifest,
+  readShipmentCloseFromPalletPhotoEvidence,
+} from "@/lib/scanner/shipment-operator-close-manifest";
 import type { SlipShipmentValidationPreview } from "@/lib/scanner/slip-shipment-validation-types";
 import {
   mergePackageManifestEmptyBox,
@@ -65,6 +82,10 @@ import {
   OPERATOR_MOBILE_VOID_BOX,
   OPERATOR_MOBILE_EDIT_ITEM,
   OPERATOR_MOBILE_DELETE_ITEM,
+  OPERATOR_MOBILE_CLOSE_PALLET,
+  OPERATOR_MOBILE_REOPEN_PALLET,
+  OPERATOR_MOBILE_CLOSE_SHIPMENT_REVIEW,
+  OPERATOR_MOBILE_REOPEN_SHIPMENT_REVIEW,
   OPERATOR_MOBILE_DELETE_NOT_SCANNED_UNIT_MESSAGE,
   OPERATOR_MOBILE_DELETE_ORG_MISMATCH_MESSAGE,
   OPERATOR_MOBILE_DELETE_OWNERSHIP_MESSAGE,
@@ -259,6 +280,8 @@ export type OperatorPackageListRow = {
   updated_by_display?: string | null;
   /** Number of distinct packing-slip lines (SKUs) for this package — filled by {@link listOperatorPackagesForPalletAction}. */
   slip_line_count?: number | null;
+  /** Item-scan receive lock — read from `packages.manifest_data` for picker UI only. */
+  manifest_data?: unknown;
 };
 
 async function enrichOperatorPackageItemRowsWithAuditLabels(
@@ -370,7 +393,7 @@ export async function listOperatorPackagesForPalletAction(
     .from("packages")
     .select(
       // `notes` = packages.notes (plural). Do not use legacy discrepancy_note / operator_note column names.
-      "id, package_code, tracking_number, order_id, id_slip_contents, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, expected_item_count, actual_item_count, created_at, updated_at, created_by, updated_by",
+      "id, package_code, tracking_number, order_id, id_slip_contents, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, expected_item_count, actual_item_count, manifest_data, created_at, updated_at, created_by, updated_by",
     )
     .eq("organization_id", organizationId)
     .eq("pallet_id", pid)
@@ -725,6 +748,750 @@ export async function computePalletShipmentReviewPreviewAction(
     return { ok: false, message: preview.error };
   }
   return { ok: true, preview };
+}
+
+async function insertOperatorPalletAuditLog(args: {
+  organizationId: string;
+  palletId: string;
+  action: string;
+  field?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+  actor: string;
+}): Promise<void> {
+  await supabaseServer.from("pallet_audit_log").insert({
+    organization_id: args.organizationId,
+    pallet_id: args.palletId,
+    action: args.action,
+    field: args.field ?? null,
+    old_value: args.oldValue ?? null,
+    new_value: args.newValue ?? null,
+    actor: args.actor,
+  });
+}
+
+export type OperatorPalletCloseState = {
+  close_state: "open" | "finalized";
+  status: string | null;
+  review_snapshot: PalletCloseReviewSnapshot | null;
+};
+
+/** Read pallet close state from status + photo_evidence manifest (no writes). */
+export async function getOperatorPalletCloseStateAction(
+  requestedOrganizationId: string,
+  palletId: string,
+): Promise<{ ok: true; state: OperatorPalletCloseState } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const pid = String(palletId ?? "").trim();
+  if (!isUuidString(pid)) {
+    return { ok: false, message: "Invalid pallet id." };
+  }
+
+  const { data, error } = await supabaseServer
+    .from("pallets")
+    .select("id, status, photo_evidence")
+    .eq("id", pid)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  if (!data) return { ok: false, message: "Pallet not found for this organization." };
+
+  const row = data as { status?: string | null; photo_evidence?: unknown };
+  const read = readPalletCloseState(row.photo_evidence, row.status);
+  return {
+    ok: true,
+    state: {
+      close_state: read.close_state,
+      status: row.status ?? null,
+      review_snapshot: read.manifest?.review_confirmed ?? null,
+    },
+  };
+}
+
+export type FinalizeOperatorPalletCloseInput = {
+  requestedOrganizationId: string;
+  storeId: string;
+  palletId: string;
+  reviewSnapshot: PalletCloseReviewSnapshot;
+};
+
+export type FinalizeOperatorPalletCloseResult =
+  | { ok: true; status: "closed"; close_state: "finalized" }
+  | { ok: false; message: string };
+
+/**
+ * Phase 6D — Pallet close: review snapshot on manifest + status closed.
+ * Does not create claim_cases or claim_candidates.
+ */
+export async function finalizeOperatorPalletCloseAction(
+  input: FinalizeOperatorPalletCloseInput,
+): Promise<FinalizeOperatorPalletCloseResult> {
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_CLOSE_PALLET);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Invalid store id." };
+  }
+  const palletId = String(input.palletId ?? "").trim();
+  if (!isUuidString(palletId)) {
+    return { ok: false, message: "Invalid pallet id." };
+  }
+
+  const preview = await buildPalletShipmentReviewPreview(supabaseServer, {
+    organizationId,
+    storeId,
+    palletId,
+  });
+  if ("error" in preview) {
+    return { ok: false, message: preview.error };
+  }
+  void buildPalletCloseReviewModelFromPreview(preview);
+
+  const { data: row, error: selErr } = await supabaseServer
+    .from("pallets")
+    .select("id, organization_id, store_id, status, photo_evidence")
+    .eq("id", palletId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (selErr) return { ok: false, message: selErr.message };
+  if (!row) return { ok: false, message: "Pallet not found for this organization." };
+
+  const palletStore = String((row as { store_id?: string | null }).store_id ?? "").trim();
+  if (palletStore && isUuidString(palletStore) && palletStore !== storeId) {
+    return { ok: false, message: "This pallet belongs to another store." };
+  }
+
+  const statusNorm = String((row as { status?: string | null }).status ?? "").trim().toLowerCase();
+  if (statusNorm === "closed" || statusNorm === "submitted") {
+    return { ok: false, message: "Pallet is already closed." };
+  }
+
+  const now = new Date().toISOString();
+  const actor = await resolveAuditActorForSession();
+  const prior = readPalletCloseState((row as { photo_evidence?: unknown }).photo_evidence, statusNorm);
+  const photo_evidence = mergePalletPhotoEvidenceFinalize((row as { photo_evidence?: unknown }).photo_evidence, {
+    finalizedAtIso: now,
+    finalizedBy: gate.userId,
+    reviewSnapshot: input.reviewSnapshot,
+    priorRevision: prior.manifest?.close_revision,
+  });
+
+  const patch: Record<string, unknown> = {
+    status: "closed",
+    photo_evidence,
+    updated_at: now,
+  };
+  if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+  const { error: updErr } = await supabaseServer
+    .from("pallets")
+    .update(patch)
+    .eq("id", palletId)
+    .eq("organization_id", organizationId);
+  if (updErr) return { ok: false, message: updErr.message };
+
+  await insertOperatorPalletAuditLog({
+    organizationId,
+    palletId,
+    action: "pallet_close",
+    field: "status",
+    oldValue: statusNorm || "open",
+    newValue: JSON.stringify({
+      status: "closed",
+      review_bucket_counts: input.reviewSnapshot.bucket_counts,
+      totals: input.reviewSnapshot.totals,
+      critical_issues_acknowledged: input.reviewSnapshot.critical_issues_acknowledged,
+    }).slice(0, 4000),
+    actor: actor.displayName || gate.userId,
+  });
+
+  return { ok: true, status: "closed", close_state: "finalized" };
+}
+
+export type ReopenOperatorPalletCloseInput = {
+  requestedOrganizationId: string;
+  palletId: string;
+  reason?: string | null;
+};
+
+/** Permission-gated pallet reopen — restores edit capability; audit logged. No claims. */
+export async function reopenOperatorPalletCloseAction(
+  input: ReopenOperatorPalletCloseInput,
+): Promise<{ ok: true; close_state: "open"; status: "open" } | { ok: false; message: string }> {
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_REOPEN_PALLET);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const palletId = String(input.palletId ?? "").trim();
+  if (!isUuidString(palletId)) {
+    return { ok: false, message: "Invalid pallet id." };
+  }
+
+  const { data: row, error: selErr } = await supabaseServer
+    .from("pallets")
+    .select("id, status, photo_evidence")
+    .eq("id", palletId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (selErr) return { ok: false, message: selErr.message };
+  if (!row) return { ok: false, message: "Pallet not found for this organization." };
+
+  const statusNorm = String((row as { status?: string | null }).status ?? "").trim().toLowerCase();
+  const read = readPalletCloseState((row as { photo_evidence?: unknown }).photo_evidence, statusNorm);
+  if (read.close_state !== "finalized" && statusNorm !== "closed" && statusNorm !== "submitted") {
+    return { ok: false, message: "Pallet is not closed." };
+  }
+
+  const now = new Date().toISOString();
+  const actor = await resolveAuditActorForSession();
+  const photo_evidence = mergePalletPhotoEvidenceReopen((row as { photo_evidence?: unknown }).photo_evidence, {
+    reopenedAtIso: now,
+    reopenedBy: gate.userId,
+  });
+
+  const patch: Record<string, unknown> = {
+    status: "open",
+    photo_evidence,
+    updated_at: now,
+  };
+  if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+  const { error: updErr } = await supabaseServer
+    .from("pallets")
+    .update(patch)
+    .eq("id", palletId)
+    .eq("organization_id", organizationId);
+  if (updErr) return { ok: false, message: updErr.message };
+
+  const reason = String(input.reason ?? "").trim();
+  await insertOperatorPalletAuditLog({
+    organizationId,
+    palletId,
+    action: "pallet_reopen",
+    field: "status",
+    oldValue: statusNorm || "closed",
+    newValue: reason || "open",
+    actor: actor.displayName || gate.userId,
+  });
+
+  return { ok: true, close_state: "open", status: "open" };
+}
+
+type ShipmentCloseAnchor =
+  | { kind: "pallet"; palletId: string; packageId: string | null }
+  | { kind: "package"; palletId: null; packageId: string };
+
+async function resolveShipmentCloseAnchor(
+  organizationId: string,
+  storeId: string,
+  trackingNumber: string,
+  preferredPalletId?: string | null,
+): Promise<{ ok: true; anchor: ShipmentCloseAnchor } | { ok: false; message: string }> {
+  const tn = String(trackingNumber ?? "").trim();
+  if (!tn) return { ok: false, message: "Tracking number is required." };
+
+  const { data, error } = await supabaseServer
+    .from("packages")
+    .select("id, pallet_id, created_at")
+    .eq("organization_id", organizationId)
+    .eq("store_id", storeId)
+    .eq("tracking_number", tn)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  if (error) return { ok: false, message: error.message };
+
+  const rows = (data ?? []) as { id?: string; pallet_id?: string | null }[];
+  if (rows.length === 0) {
+    return { ok: false, message: "No boxes found for this shipment tracking number." };
+  }
+
+  const preferred = String(preferredPalletId ?? "").trim();
+  const palletCounts = new Map<string, number>();
+  for (const row of rows) {
+    const pid = String(row.pallet_id ?? "").trim();
+    if (pid && isUuidString(pid)) {
+      palletCounts.set(pid, (palletCounts.get(pid) ?? 0) + 1);
+    }
+  }
+
+  let chosenPallet: string | null = null;
+  if (preferred && isUuidString(preferred) && palletCounts.has(preferred)) {
+    chosenPallet = preferred;
+  } else if (palletCounts.size > 0) {
+    chosenPallet = [...palletCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  }
+
+  const firstPackageId = String(rows[0]?.id ?? "").trim();
+  if (chosenPallet && isUuidString(chosenPallet)) {
+    const pkgOnPallet =
+      rows.find((r) => String(r.pallet_id ?? "").trim() === chosenPallet)?.id ?? firstPackageId;
+    return {
+      ok: true,
+      anchor: {
+        kind: "pallet",
+        palletId: chosenPallet,
+        packageId: isUuidString(String(pkgOnPallet ?? "")) ? String(pkgOnPallet) : null,
+      },
+    };
+  }
+
+  if (!isUuidString(firstPackageId)) {
+    return { ok: false, message: "Could not resolve anchor package for shipment close." };
+  }
+  return { ok: true, anchor: { kind: "package", palletId: null, packageId: firstPackageId } };
+}
+
+async function readShipmentCloseStateForTracking(
+  organizationId: string,
+  storeId: string,
+  trackingNumber: string,
+  preferredPalletId?: string | null,
+): Promise<
+  | {
+      ok: true;
+      close_state: "open" | "finalized";
+      review_snapshot: ShipmentCloseReviewSnapshot | null;
+      anchor: ShipmentCloseAnchor;
+    }
+  | { ok: false; message: string }
+> {
+  const anchorRes = await resolveShipmentCloseAnchor(
+    organizationId,
+    storeId,
+    trackingNumber,
+    preferredPalletId,
+  );
+  if (!anchorRes.ok) return anchorRes;
+
+  const { anchor } = anchorRes;
+  if (anchor.kind === "pallet") {
+    const { data, error } = await supabaseServer
+      .from("pallets")
+      .select("photo_evidence")
+      .eq("id", anchor.palletId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { ok: false, message: error.message };
+    const read = readShipmentCloseFromPalletPhotoEvidence(
+      (data as { photo_evidence?: unknown } | null)?.photo_evidence,
+      trackingNumber,
+    );
+    return {
+      ok: true,
+      close_state: read.close_state,
+      review_snapshot: read.manifest?.review_confirmed ?? null,
+      anchor,
+    };
+  }
+
+  const { data, error } = await supabaseServer
+    .from("packages")
+    .select("manifest_data")
+    .eq("id", anchor.packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  const read = readShipmentCloseFromPackageManifest(
+    (data as { manifest_data?: unknown } | null)?.manifest_data,
+    trackingNumber,
+  );
+  return {
+    ok: true,
+    close_state: read.close_state,
+    review_snapshot: read.manifest?.review_confirmed ?? null,
+    anchor,
+  };
+}
+
+async function insertOperatorPackageAuditLog(args: {
+  organizationId: string;
+  packageId: string;
+  action: string;
+  field?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+  actor: string;
+}): Promise<void> {
+  await supabaseServer.from("package_audit_log").insert({
+    organization_id: args.organizationId,
+    package_id: args.packageId,
+    action: args.action,
+    field: args.field ?? null,
+    old_value: args.oldValue ?? null,
+    new_value: args.newValue ?? null,
+    actor: args.actor,
+  });
+}
+
+export type OperatorShipmentCloseState = {
+  close_state: "open" | "finalized";
+  tracking_number: string;
+  review_snapshot: ShipmentCloseReviewSnapshot | null;
+  storage_kind: "pallet_photo_evidence" | "package_manifest_data" | null;
+};
+
+/** Read shipment close state from pallet photo_evidence or anchor package manifest_data. */
+export async function getOperatorShipmentCloseStateAction(
+  requestedOrganizationId: string,
+  input: {
+    storeId: string;
+    trackingNumber: string;
+    preferredPalletId?: string | null;
+  },
+): Promise<{ ok: true; state: OperatorShipmentCloseState } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Invalid store id." };
+  }
+  const trackingNumber = String(input.trackingNumber ?? "").trim();
+  if (!trackingNumber) {
+    return { ok: false, message: "Tracking number is required." };
+  }
+
+  const read = await readShipmentCloseStateForTracking(
+    organizationId,
+    storeId,
+    trackingNumber,
+    input.preferredPalletId,
+  );
+  if (!read.ok) return read;
+
+  return {
+    ok: true,
+    state: {
+      close_state: read.close_state,
+      tracking_number: trackingNumber,
+      review_snapshot: read.review_snapshot,
+      storage_kind:
+        read.anchor.kind === "pallet" ? "pallet_photo_evidence" : "package_manifest_data",
+    },
+  };
+}
+
+export type FinalizeOperatorShipmentCloseInput = {
+  requestedOrganizationId: string;
+  storeId: string;
+  trackingNumber: string;
+  preferredPalletId?: string | null;
+  reviewSnapshot: ShipmentCloseReviewSnapshot;
+};
+
+/**
+ * Phase 6E — Shipment close: unified review engine shipment scope + audit snapshot.
+ * Does not create claim_cases, claim_candidates, or missing return_items.
+ */
+export async function finalizeOperatorShipmentCloseAction(
+  input: FinalizeOperatorShipmentCloseInput,
+): Promise<
+  { ok: true; close_state: "finalized"; storage_kind: "pallet_photo_evidence" | "package_manifest_data" } | { ok: false; message: string }
+> {
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_CLOSE_SHIPMENT_REVIEW);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Invalid store id." };
+  }
+  const trackingNumber = String(input.trackingNumber ?? "").trim();
+  if (!trackingNumber) {
+    return { ok: false, message: "Tracking number is required." };
+  }
+
+  const existing = await readShipmentCloseStateForTracking(
+    organizationId,
+    storeId,
+    trackingNumber,
+    input.preferredPalletId,
+  );
+  if (!existing.ok) return existing;
+  if (existing.close_state === "finalized") {
+    return { ok: false, message: "Shipment warehouse receive review is already closed." };
+  }
+
+  const preview = await buildPalletShipmentReviewPreview(supabaseServer, {
+    organizationId,
+    storeId,
+    trackingNumber,
+  });
+  if ("error" in preview) {
+    return { ok: false, message: preview.error };
+  }
+  if (preview.scope_kind !== "shipment_tracking") {
+    return { ok: false, message: "Shipment review preview must use shipment tracking scope." };
+  }
+  void buildShipmentCloseReviewModelFromPreview(preview);
+
+  const now = new Date().toISOString();
+  const actor = await resolveAuditActorForSession();
+  const { anchor } = existing;
+
+  if (anchor.kind === "pallet") {
+    const { data: row, error: selErr } = await supabaseServer
+      .from("pallets")
+      .select("id, photo_evidence")
+      .eq("id", anchor.palletId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (selErr) return { ok: false, message: selErr.message };
+    if (!row) return { ok: false, message: "Anchor pallet not found." };
+
+    const prior = readShipmentCloseFromPalletPhotoEvidence(
+      (row as { photo_evidence?: unknown }).photo_evidence,
+      trackingNumber,
+    );
+    const photo_evidence = mergePalletPhotoEvidenceShipmentCloseFinalize(
+      (row as { photo_evidence?: unknown }).photo_evidence,
+      {
+        trackingNumber,
+        storeId,
+        anchorPalletId: anchor.palletId,
+        anchorPackageId: anchor.packageId,
+        finalizedAtIso: now,
+        finalizedBy: gate.userId,
+        reviewSnapshot: input.reviewSnapshot,
+        priorRevision: prior.manifest?.close_revision,
+      },
+    );
+
+    const patch: Record<string, unknown> = { photo_evidence, updated_at: now };
+    if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+    const { error: updErr } = await supabaseServer
+      .from("pallets")
+      .update(patch)
+      .eq("id", anchor.palletId)
+      .eq("organization_id", organizationId);
+    if (updErr) return { ok: false, message: updErr.message };
+
+    await insertOperatorPalletAuditLog({
+      organizationId,
+      palletId: anchor.palletId,
+      action: "shipment_receive_close",
+      field: "operator_shipment_receive_close",
+      oldValue: "open",
+      newValue: JSON.stringify({
+        tracking_number: trackingNumber,
+        review_bucket_counts: input.reviewSnapshot.bucket_counts,
+        totals: input.reviewSnapshot.totals,
+        critical_issues_acknowledged: input.reviewSnapshot.critical_issues_acknowledged,
+      }).slice(0, 4000),
+      actor: actor.displayName || gate.userId,
+    });
+
+    return { ok: true, close_state: "finalized", storage_kind: "pallet_photo_evidence" };
+  }
+
+  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+    .from("packages")
+    .select("id, manifest_data")
+    .eq("id", anchor.packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+  if (!pkgRow) return { ok: false, message: "Anchor package not found." };
+
+  const prior = readShipmentCloseFromPackageManifest(
+    (pkgRow as { manifest_data?: unknown }).manifest_data,
+    trackingNumber,
+  );
+  const manifest_data = mergePackageManifestShipmentCloseFinalize(
+    (pkgRow as { manifest_data?: unknown }).manifest_data,
+    {
+      trackingNumber,
+      storeId,
+      anchorPackageId: anchor.packageId,
+      finalizedAtIso: now,
+      finalizedBy: gate.userId,
+      reviewSnapshot: input.reviewSnapshot,
+      priorRevision: prior.manifest?.close_revision,
+    },
+  );
+
+  const patch: Record<string, unknown> = { manifest_data, updated_at: now };
+  if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+  const { error: pkgUpdErr } = await supabaseServer
+    .from("packages")
+    .update(patch)
+    .eq("id", anchor.packageId)
+    .eq("organization_id", organizationId);
+  if (pkgUpdErr) return { ok: false, message: pkgUpdErr.message };
+
+  await insertOperatorPackageAuditLog({
+    organizationId,
+    packageId: anchor.packageId,
+    action: "shipment_receive_close",
+    field: "operator_shipment_receive_close",
+    oldValue: "open",
+    newValue: JSON.stringify({
+      tracking_number: trackingNumber,
+      review_bucket_counts: input.reviewSnapshot.bucket_counts,
+      totals: input.reviewSnapshot.totals,
+      critical_issues_acknowledged: input.reviewSnapshot.critical_issues_acknowledged,
+    }).slice(0, 4000),
+    actor: actor.displayName || gate.userId,
+  });
+
+  return { ok: true, close_state: "finalized", storage_kind: "package_manifest_data" };
+}
+
+export type ReopenOperatorShipmentCloseInput = {
+  requestedOrganizationId: string;
+  storeId: string;
+  trackingNumber: string;
+  preferredPalletId?: string | null;
+  reason?: string | null;
+};
+
+/** Permission-gated shipment reopen — restores edit capability; audit logged. No claims. */
+export async function reopenOperatorShipmentCloseAction(
+  input: ReopenOperatorShipmentCloseInput,
+): Promise<
+  { ok: true; close_state: "open"; storage_kind: "pallet_photo_evidence" | "package_manifest_data" } | { ok: false; message: string }
+> {
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_REOPEN_SHIPMENT_REVIEW);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const storeId = String(input.storeId ?? "").trim();
+  if (!isUuidString(storeId)) {
+    return { ok: false, message: "Invalid store id." };
+  }
+  const trackingNumber = String(input.trackingNumber ?? "").trim();
+  if (!trackingNumber) {
+    return { ok: false, message: "Tracking number is required." };
+  }
+
+  const existing = await readShipmentCloseStateForTracking(
+    organizationId,
+    storeId,
+    trackingNumber,
+    input.preferredPalletId,
+  );
+  if (!existing.ok) return existing;
+  if (existing.close_state !== "finalized") {
+    return { ok: false, message: "Shipment warehouse receive review is not closed." };
+  }
+
+  const now = new Date().toISOString();
+  const actor = await resolveAuditActorForSession();
+  const { anchor } = existing;
+  const reason = String(input.reason ?? "").trim();
+
+  if (anchor.kind === "pallet") {
+    const { data: row, error: selErr } = await supabaseServer
+      .from("pallets")
+      .select("id, photo_evidence")
+      .eq("id", anchor.palletId)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (selErr) return { ok: false, message: selErr.message };
+    if (!row) return { ok: false, message: "Anchor pallet not found." };
+
+    const photo_evidence = mergePalletPhotoEvidenceShipmentCloseReopen(
+      (row as { photo_evidence?: unknown }).photo_evidence,
+      { reopenedAtIso: now, reopenedBy: gate.userId },
+    );
+    const patch: Record<string, unknown> = { photo_evidence, updated_at: now };
+    if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+    const { error: updErr } = await supabaseServer
+      .from("pallets")
+      .update(patch)
+      .eq("id", anchor.palletId)
+      .eq("organization_id", organizationId);
+    if (updErr) return { ok: false, message: updErr.message };
+
+    await insertOperatorPalletAuditLog({
+      organizationId,
+      palletId: anchor.palletId,
+      action: "shipment_receive_reopen",
+      field: "operator_shipment_receive_close",
+      oldValue: "finalized",
+      newValue: reason || "open",
+      actor: actor.displayName || gate.userId,
+    });
+
+    return { ok: true, close_state: "open", storage_kind: "pallet_photo_evidence" };
+  }
+
+  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+    .from("packages")
+    .select("id, manifest_data")
+    .eq("id", anchor.packageId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+  if (!pkgRow) return { ok: false, message: "Anchor package not found." };
+
+  const manifest_data = mergePackageManifestShipmentCloseReopen(
+    (pkgRow as { manifest_data?: unknown }).manifest_data,
+    { reopenedAtIso: now, reopenedBy: gate.userId },
+  );
+  const patch: Record<string, unknown> = { manifest_data, updated_at: now };
+  if (actor.userId && isUuidString(actor.userId)) patch.updated_by = actor.userId;
+
+  const { error: pkgUpdErr } = await supabaseServer
+    .from("packages")
+    .update(patch)
+    .eq("id", anchor.packageId)
+    .eq("organization_id", organizationId);
+  if (pkgUpdErr) return { ok: false, message: pkgUpdErr.message };
+
+  await insertOperatorPackageAuditLog({
+    organizationId,
+    packageId: anchor.packageId,
+    action: "shipment_receive_reopen",
+    field: "operator_shipment_receive_close",
+    oldValue: "finalized",
+    newValue: reason || "open",
+    actor: actor.displayName || gate.userId,
+  });
+
+  return { ok: true, close_state: "open", storage_kind: "package_manifest_data" };
 }
 
 /**
@@ -3890,6 +4657,10 @@ export type OperatorMobileCorrectionPermissions = {
   voidBox: boolean;
   editItem: boolean;
   deleteItem: boolean;
+  closePallet: boolean;
+  reopenPallet: boolean;
+  closeShipmentReview: boolean;
+  reopenShipmentReview: boolean;
 };
 
 /**
@@ -3913,13 +4684,30 @@ export async function getOperatorMobileCorrectionPermissionsAction(
   if (!org.ok) {
     return { ok: false, message: org.error };
   }
-  const [moveBox, voidBox, editItem, deleteItem] = await Promise.all([
+  const [moveBox, voidBox, editItem, deleteItem, closePallet, reopenPallet, closeShipmentReview, reopenShipmentReview] =
+    await Promise.all([
     userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_MOVE_BOX),
     userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_VOID_BOX),
     userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_EDIT_ITEM),
     userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_DELETE_ITEM),
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_CLOSE_PALLET),
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_REOPEN_PALLET),
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_CLOSE_SHIPMENT_REVIEW),
+    userHasOperatorMobilePermission(sessionUserId, organizationId, OPERATOR_MOBILE_REOPEN_SHIPMENT_REVIEW),
   ]);
-  return { ok: true, permissions: { moveBox, voidBox, editItem, deleteItem } };
+  return {
+    ok: true,
+    permissions: {
+      moveBox,
+      voidBox,
+      editItem,
+      deleteItem,
+      closePallet,
+      reopenPallet,
+      closeShipmentReview,
+      reopenShipmentReview,
+    },
+  };
 }
 
 export type MoveOperatorIntakeBoxToPalletInput = {

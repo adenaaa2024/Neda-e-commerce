@@ -6,7 +6,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { returnItemNotesMarkOffSlip } from "@/lib/scanner/item-scan-off-slip";
 import {
   expectedPackageRowToProductGrain,
-  productGrainConfidence,
   productGrainKey,
   returnItemRowToProductGrain,
   slipRowToProductGrain,
@@ -20,14 +19,12 @@ import {
 } from "@/lib/scanner/operator-slip-item-resolve";
 import { computeSlipLineExpectedVsReceived } from "@/lib/scanner/slip-contents-missing-expected";
 import { shouldExcludeReturnItemFromScannerCounts } from "@/lib/scanner/return-items-test-data-guard";
-import type {
-  SlipShipmentClaimMeaning,
-  SlipShipmentValidationBucket,
-  SlipShipmentValidationLine,
-  SlipShipmentValidationPreview,
-  SlipShipmentValidationSource,
-  SlipShipmentValidationUiBadge,
-} from "@/lib/scanner/slip-shipment-validation-types";
+import type { ReviewGrainRollupInput } from "@/lib/scanner/review-engine/review-engine-types";
+import {
+  buildBoxScopeReview,
+  unifiedReviewToSlipShipmentPreview,
+} from "@/lib/scanner/review-engine";
+import type { SlipShipmentValidationPreview } from "@/lib/scanner/slip-shipment-validation-types";
 import { isUuidString } from "@/lib/uuid";
 
 type SlipAgg = {
@@ -107,132 +104,6 @@ function slipIdForScan(
   if (outcome.kind !== "single") return null;
   const sid = String(outcome.slip.id ?? "").trim();
   return sid && isUuidString(sid) ? sid : null;
-}
-
-function sourcesPresent(slipQty: number, epQty: number, scannedQty: number): SlipShipmentValidationSource[] {
-  const out: SlipShipmentValidationSource[] = [];
-  if (epQty > 0) out.push("shipment_expected");
-  if (slipQty > 0) out.push("packing_slip");
-  if (scannedQty > 0) out.push("operator_scan");
-  return out;
-}
-
-function classifyBucket(input: {
-  slipQty: number;
-  epQty: number;
-  scannedQty: number;
-  offManifestQty: number;
-  remainingMissingQty: number;
-  receiveFinalized: boolean;
-  hasSlipLine: boolean;
-  hasEpLine: boolean;
-}): SlipShipmentValidationBucket {
-  const expectedCap = Math.max(input.slipQty, input.epQty);
-  const hasExpectation = input.hasSlipLine || input.hasEpLine;
-
-  if (
-    input.receiveFinalized &&
-    input.remainingMissingQty > 0 &&
-    (input.hasSlipLine || input.slipQty > 0)
-  ) {
-    return "final_missing_after_pallet_close";
-  }
-
-  if (input.offManifestQty > 0 && !hasExpectation) {
-    return "scanned_off_manifest";
-  }
-
-  if (hasExpectation) {
-    if (input.hasSlipLine && input.hasEpLine) {
-      if (input.scannedQty > expectedCap && input.scannedQty > 0) return "over_scanned";
-      if (input.scannedQty < expectedCap && input.remainingMissingQty > 0) return "pending_under_scanned";
-      return "shipment_and_slip_expected";
-    }
-    if (input.hasSlipLine && !input.hasEpLine) {
-      if (input.offManifestQty > 0 && input.scannedQty > input.slipQty) return "over_scanned";
-      if (input.scannedQty < input.slipQty && input.remainingMissingQty > 0) return "pending_under_scanned";
-      return "slip_only";
-    }
-    if (!input.hasSlipLine && input.hasEpLine) {
-      if (input.scannedQty > input.epQty && input.scannedQty > 0) return "over_scanned";
-      if (input.scannedQty < input.epQty && input.remainingMissingQty > 0) return "pending_under_scanned";
-      return "shipment_only";
-    }
-  }
-
-  if (input.offManifestQty > 0 || (input.scannedQty > 0 && !hasExpectation)) {
-    return "scanned_off_manifest";
-  }
-
-  if (input.scannedQty > expectedCap && input.scannedQty > 0 && expectedCap > 0) {
-    return "over_scanned";
-  }
-
-  if (expectedCap > 0 && input.scannedQty < expectedCap) {
-    return "pending_under_scanned";
-  }
-
-  return input.hasSlipLine && input.hasEpLine
-    ? "shipment_and_slip_expected"
-    : input.hasSlipLine
-      ? "slip_only"
-      : input.hasEpLine
-        ? "shipment_only"
-        : "scanned_off_manifest";
-}
-
-function uiBadgeForBucket(bucket: SlipShipmentValidationBucket): SlipShipmentValidationUiBadge {
-  switch (bucket) {
-    case "shipment_and_slip_expected":
-      return "confirmed";
-    case "slip_only":
-      return "slip_only";
-    case "shipment_only":
-      return "shipment_only";
-    case "scanned_off_manifest":
-      return "off_manifest";
-    case "over_scanned":
-      return "over_scanned";
-    case "pending_under_scanned":
-      return "pending";
-    case "final_missing_after_pallet_close":
-      return "missing_finalized";
-    default:
-      return "unresolved";
-  }
-}
-
-function claimMeaningForBucket(bucket: SlipShipmentValidationBucket): SlipShipmentClaimMeaning {
-  switch (bucket) {
-    case "shipment_and_slip_expected":
-      return "shipment_slip_aligned";
-    case "slip_only":
-      return "slip_without_shipment_manifest";
-    case "shipment_only":
-      return "shipment_without_slip_line";
-    case "scanned_off_manifest":
-      return "warehouse_extra_unit";
-    case "over_scanned":
-      return "quantity_over_received";
-    case "pending_under_scanned":
-      return "quantity_short_pending";
-    case "final_missing_after_pallet_close":
-      return "shortage_locked_after_finalize";
-    default:
-      return "none";
-  }
-}
-
-function emptyBucketCounts(): Record<SlipShipmentValidationBucket, number> {
-  return {
-    shipment_and_slip_expected: 0,
-    slip_only: 0,
-    shipment_only: 0,
-    scanned_off_manifest: 0,
-    over_scanned: 0,
-    pending_under_scanned: 0,
-    final_missing_after_pallet_close: 0,
-  };
 }
 
 export async function buildSlipShipmentValidationPreview(
@@ -411,7 +282,7 @@ export async function buildSlipShipmentValidationPreview(
   }
 
   const allKeys = new Set([...slipByKey.keys(), ...epByKey.keys(), ...scanByKey.keys()]);
-  const lines: SlipShipmentValidationLine[] = [];
+  const grains: ReviewGrainRollupInput[] = [];
 
   for (const key of allKeys) {
     const slip = slipByKey.get(key);
@@ -458,61 +329,41 @@ export async function buildSlipShipmentValidationPreview(
       manifestRecordedMissingQty: recordedMissingQty > 0 ? recordedMissingQty : undefined,
     });
 
-    const bucket = classifyBucket({
-      slipQty,
-      epQty,
-      scannedQty,
-      offManifestQty,
-      remainingMissingQty: qtyLine.remainingMissing,
-      receiveFinalized,
-      hasSlipLine: Boolean(slip),
-      hasEpLine: Boolean(ep),
-    });
-
-    lines.push({
+    grains.push({
       grain_key: key,
-      bucket,
       grain,
-      confidence: productGrainConfidence(grain),
-      sources_present: sourcesPresent(slipQty, epQty, scannedQty),
+      label: slip?.label ?? ep?.label ?? lineLabel(grain),
       slip_qty: slipQty,
       shipment_expected_qty: epQty,
-      scanned_qty: scannedQty,
-      off_manifest_scanned_qty: offManifestQty,
-      recorded_missing_qty: qtyLine.recordedMissing,
+      received_qty: scannedQty,
+      off_manifest_qty: offManifestQty,
+      marked_missing_qty: qtyLine.recordedMissing,
       remaining_missing_qty: qtyLine.remainingMissing,
-      delta_scanned_vs_expected: scannedQty - expectedCap,
-      ui_badge: uiBadgeForBucket(bucket),
-      claim_meaning: claimMeaningForBucket(bucket),
       slip_content_ids: slip?.slip_content_ids ?? [],
       expected_package_ids: ep?.expected_package_ids ?? [],
       return_item_ids: scan?.return_item_ids ?? [],
+      package_ids: [pkgId],
       build_sources: ep?.build_sources ?? [],
-      label: slip?.label ?? ep?.label ?? lineLabel(grain),
+      has_slip: Boolean(slip),
+      has_shipment: Boolean(ep),
+      receive_finalized: receiveFinalized,
     });
   }
 
-  const bucket_counts = emptyBucketCounts();
-  for (const line of lines) {
-    bucket_counts[line.bucket] += 1;
-  }
-
-  return {
-    package_id: pkgId,
+  const unified = buildBoxScopeReview({
     organization_id: orgId,
     store_id: storeId,
-    tracking_number: tracking,
-    slip_code: String(pkgRow.id_slip_contents ?? "").trim() || null,
+    package_ids: [pkgId],
+    pallet_id: null,
+    tracking_numbers: tracking ? [tracking] : [],
+    grains,
+  });
+
+  return unifiedReviewToSlipShipmentPreview(unified, {
+    package_id: pkgId,
     package_code: String(pkgRow.package_code ?? "").trim() || null,
+    slip_code: String(pkgRow.id_slip_contents ?? "").trim() || null,
+    tracking_number: tracking,
     receive_state: operatorScan.receive_state,
-    read_only: true,
-    lines,
-    bucket_counts,
-    totals: {
-      slip_units: lines.reduce((s, l) => s + l.slip_qty, 0),
-      shipment_expected_units: lines.reduce((s, l) => s + l.shipment_expected_qty, 0),
-      scanned_units: lines.reduce((s, l) => s + l.scanned_qty, 0),
-      off_manifest_units: lines.reduce((s, l) => s + l.off_manifest_scanned_qty, 0),
-    },
-  };
+  });
 }

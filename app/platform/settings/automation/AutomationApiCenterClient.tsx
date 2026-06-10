@@ -958,20 +958,57 @@ export function AutomationApiCenterClient() {
         ) : null}
 
         <AutomationSavedStatusSummary
+          apiReportType={apiReportType}
           orgId={orgId}
           storeId={storeId}
-          removalEnabled={savedSettings.removal_api_sync.enabled}
-          removalNextRun={savedNextRuns.removal}
-          removalLastRun={effectiveRemovalRuntime.last_run_at}
-          removalLastSuccess={view?.removal_api_sync.cron_runtime?.last_success_at ?? null}
-          removalRunSource={removalRunSource}
-          removalStatus={effectiveRemovalRuntime.last_run_status}
-          productEnabled={savedSettings.product_enrichment.enabled}
-          reimbursementsEnabled={savedSettings.reimbursements_api.enabled}
-          settlementEnabled={savedSettings.settlement_api.enabled}
-          financesEnabled={savedSettings.finances_archive_api.enabled}
           hasUnsavedChanges={hasUnsavedChanges}
           updatedAt={view?.updated_at ?? null}
+          product={{
+            label: "Product Data Update",
+            enabled: savedSettings.product_enrichment.enabled,
+            lastRun: scopeRuntime.product_enrichment.last_run_at,
+            nextRun: savedNextRuns.product,
+            status: scopeRuntime.product_enrichment.last_run_status,
+          }}
+          removal={{
+            label: "Removal / Shipment Sync",
+            enabled: savedSettings.removal_api_sync.enabled,
+            lastRun: effectiveRemovalRuntime.last_run_at,
+            lastSuccess: view?.removal_api_sync.cron_runtime?.last_success_at ?? null,
+            nextRun: savedNextRuns.removal,
+            status: effectiveRemovalRuntime.last_run_status,
+            runSource: removalRunSource,
+          }}
+          historical={{
+            label: "Older Data Backfill",
+            enabled:
+              savedSettings.removal_api_sync.enabled &&
+              savedSettings.removal_api_sync.historical_backfill.enabled,
+            lastRun: scopeRuntime.removal_api_sync.historical_backfill.last_run_at,
+            nextRun: savedNextRuns.historical,
+            status: scopeRuntime.removal_api_sync.historical_backfill.last_run_status,
+          }}
+          reimbursements={{
+            label: "Reimbursements API",
+            enabled: savedSettings.reimbursements_api.enabled,
+            lastRun: scopeRuntime.reimbursements_api.last_run_at,
+            nextRun: savedNextRuns.reimbursements,
+            status: scopeRuntime.reimbursements_api.last_run_status,
+          }}
+          settlement={{
+            label: "Settlement API",
+            enabled: savedSettings.settlement_api.enabled,
+            lastRun: scopeRuntime.settlement_api.last_run_at,
+            nextRun: savedNextRuns.settlement,
+            status: scopeRuntime.settlement_api.last_run_status,
+          }}
+          finances={{
+            label: "Finances Archive API",
+            enabled: savedSettings.finances_archive_api.enabled,
+            lastRun: scopeRuntime.finances_archive_api.last_run_at,
+            nextRun: savedNextRuns.finances,
+            status: scopeRuntime.finances_archive_api.last_run_status,
+          }}
         />
 
         {error ? (

@@ -1,5 +1,7 @@
 /**
  * Phase 6F-D — Box close review model (read-only sources → finalize gate buckets).
+ * Box review consumes {@link SlipShipmentValidationPreview}, which is produced by the
+ * Phase 6D unified review engine at box scope.
  */
 
 import {

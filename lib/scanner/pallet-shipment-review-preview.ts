@@ -13,12 +13,17 @@ import {
 } from "@/lib/scanner/operator-slip-item-resolve";
 import {
   expectedPackageRowToProductGrain,
-  productGrainConfidence,
   productGrainKey,
   returnItemRowToProductGrain,
   slipRowToProductGrain,
   type ProductGrain,
 } from "@/lib/scanner/product-grain-match";
+import type { ReviewGrainRollupInput } from "@/lib/scanner/review-engine/review-engine-types";
+import {
+  buildPalletScopeReview,
+  buildShipmentScopeReview,
+  unifiedBucketToPalletShipmentBucket,
+} from "@/lib/scanner/review-engine";
 import type {
   PalletShipmentReviewBucket,
   PalletShipmentReviewClaimMeaning,
@@ -176,58 +181,6 @@ function emptyBucketCounts(): Record<PalletShipmentReviewBucket, number> {
     damaged_or_problem_items: 0,
     pending_review: 0,
   };
-}
-
-function classifyReviewBucket(input: {
-  expectedQty: number;
-  slipQty: number;
-  scannedQty: number;
-  offManifestQty: number;
-  problemQty: number;
-  operatorNoteMissingQty: number;
-  confidence: ReturnType<typeof productGrainConfidence>;
-  hasSlip: boolean;
-  hasEp: boolean;
-}): PalletShipmentReviewBucket {
-  if (input.problemQty > 0) return "damaged_or_problem_items";
-
-  const hasExpectation = input.hasSlip || input.hasEp;
-
-  if (input.offManifestQty > 0 && input.expectedQty === 0 && input.slipQty === 0) {
-    return "scanned_off_manifest";
-  }
-
-  if (input.hasSlip && !input.hasEp && input.slipQty > 0) {
-    if (input.offManifestQty > 0 && input.scannedQty > input.slipQty) return "expected_over_received";
-    return "slip_only_evidence";
-  }
-
-  if (input.hasEp && !input.hasSlip && input.expectedQty > 0) {
-    if (input.scannedQty > input.expectedQty) return "expected_over_received";
-    if (input.scannedQty < input.expectedQty) return "expected_under_received";
-    if (input.scannedQty === input.expectedQty) return "expected_received_complete";
-    return "shipment_only_expected";
-  }
-
-  if (input.expectedQty > 0) {
-    if (input.scannedQty > input.expectedQty) return "expected_over_received";
-    if (input.scannedQty < input.expectedQty) return "expected_under_received";
-    return "expected_received_complete";
-  }
-
-  if (input.offManifestQty > 0 || (input.scannedQty > 0 && !hasExpectation)) {
-    return "scanned_off_manifest";
-  }
-
-  if (
-    input.confidence === "unresolved" ||
-    input.confidence === "title_low" ||
-    input.operatorNoteMissingQty > 0
-  ) {
-    return "pending_review";
-  }
-
-  return "pending_review";
 }
 
 function suggestedActionForBucket(bucket: PalletShipmentReviewBucket): PalletShipmentReviewSuggestedAction {
@@ -531,14 +484,14 @@ export async function buildPalletShipmentReviewPreview(
   }
 
   const allKeys = new Set([...slipByKey.keys(), ...epByKey.keys(), ...scanByKey.keys()]);
-  const lines: PalletShipmentReviewLine[] = [];
+  const grains: ReviewGrainRollupInput[] = [];
 
   for (const key of allKeys) {
     const slip = slipByKey.get(key);
     const ep = epByKey.get(key);
     const scan = scanByKey.get(key);
-    const expectedQty = ep?.qty ?? 0;
     const slipQty = slip?.qty ?? 0;
+    const epQty = ep?.qty ?? 0;
     const scannedQty = scan?.qty ?? 0;
     const offManifestQty = scan?.off_manifest_qty ?? 0;
     const problemQty = scan?.problem_qty ?? 0;
@@ -552,24 +505,56 @@ export async function buildPalletShipmentReviewPreview(
       gtin: null,
       title: null,
     };
-    const confidence = productGrainConfidence(grain);
 
-    const bucket = classifyReviewBucket({
-      expectedQty,
-      slipQty,
-      scannedQty,
-      offManifestQty,
-      problemQty,
-      operatorNoteMissingQty,
-      confidence,
-      hasSlip: Boolean(slip),
-      hasEp: Boolean(ep),
+    const packageIdSet = new Set<string>([...(slip?.package_ids ?? []), ...(scan?.package_ids ?? [])]);
+
+    grains.push({
+      grain_key: key,
+      grain,
+      label: slip?.label ?? ep?.label ?? lineLabel(grain),
+      slip_qty: slipQty,
+      shipment_expected_qty: epQty,
+      received_qty: scannedQty,
+      off_manifest_qty: offManifestQty,
+      marked_missing_qty: operatorNoteMissingQty,
+      remaining_missing_qty: Math.max(0, Math.max(slipQty, epQty) - scannedQty - operatorNoteMissingQty),
+      slip_content_ids: slip?.slip_content_ids ?? [],
+      expected_package_ids: ep?.expected_package_ids ?? [],
+      return_item_ids: scan?.return_item_ids ?? [],
+      package_ids: [...packageIdSet],
+      build_sources: [],
+      has_slip: Boolean(slip),
+      has_shipment: Boolean(ep),
+      receive_finalized: false,
+      problem_qty: problemQty,
+    });
+  }
+
+  const scopeReviewInput = {
+    organization_id: orgId,
+    store_id: storeId,
+    package_ids: pkgIds,
+    pallet_id: input.palletId && isUuidString(String(input.palletId)) ? String(input.palletId) : null,
+    tracking_numbers: trackings,
+    grains,
+  };
+
+  const unified =
+    scopeKind === "pallet"
+      ? buildPalletScopeReview(scopeReviewInput)
+      : buildShipmentScopeReview(scopeReviewInput);
+
+  const lines: PalletShipmentReviewLine[] = unified.lines.map((line) => {
+    const scan = scanByKey.get(line.grain_key);
+    const slip = slipByKey.get(line.grain_key);
+    const problemQty = scan?.problem_qty ?? 0;
+    const bucket = unifiedBucketToPalletShipmentBucket(line.bucket, {
+      problem_qty: problemQty,
+      has_slip: line.sources.has_slip,
+      has_shipment: line.sources.has_shipment,
     });
 
-    const packageIdSet = new Set<string>([
-      ...(slip?.package_ids ?? []),
-      ...(scan?.package_ids ?? []),
-    ]);
+    const packageIdSet = new Set<string>(line.package_ids);
     const packageRefs: PalletShipmentReviewPackageRef[] = [...packageIdSet]
       .map((id) => pkgById.get(id))
       .filter(Boolean)
@@ -581,35 +566,35 @@ export async function buildPalletShipmentReviewPreview(
       if (pkg) evidencePhotoCount += packagePhotoCount(pkg);
     }
 
-    lines.push({
-      grain_key: key,
+    return {
+      grain_key: line.grain_key,
       bucket,
-      grain,
-      confidence,
-      resolved_product_id: grain.resolved_product_id,
+      grain: line.grain,
+      confidence: line.confidence,
+      resolved_product_id: line.grain.resolved_product_id,
       identifiers: {
-        upc: grain.upc ?? grain.gtin,
-        sku: grain.sku,
-        fnsku: grain.fnsku,
-        asin: grain.asin,
+        upc: line.grain.upc ?? line.grain.gtin,
+        sku: line.grain.sku,
+        fnsku: line.grain.fnsku,
+        asin: line.grain.asin,
       },
-      expected_qty: expectedQty,
-      slip_qty: slipQty,
-      scanned_qty: scannedQty,
-      delta_qty: scannedQty - expectedQty,
-      off_manifest_scanned_qty: offManifestQty,
-      operator_note_missing_qty: operatorNoteMissingQty,
+      expected_qty: line.quantities.shipment_expected_qty,
+      slip_qty: line.quantities.slip_qty,
+      scanned_qty: line.quantities.received_qty,
+      delta_qty: line.quantities.received_qty - line.quantities.expected_qty,
+      off_manifest_scanned_qty: line.quantities.off_manifest_qty,
+      operator_note_missing_qty: line.quantities.marked_missing_qty,
       problem_item_qty: problemQty,
       packages: packageRefs,
       evidence_photo_count: evidencePhotoCount,
       suggested_review_action: suggestedActionForBucket(bucket),
       claim_meaning: claimMeaningForBucket(bucket),
-      label: slip?.label ?? ep?.label ?? lineLabel(grain),
-      slip_content_ids: slip?.slip_content_ids ?? [],
-      expected_package_ids: ep?.expected_package_ids ?? [],
-      return_item_ids: scan?.return_item_ids ?? [],
-    });
-  }
+      label: line.label,
+      slip_content_ids: line.slip_content_ids,
+      expected_package_ids: line.expected_package_ids,
+      return_item_ids: line.return_item_ids,
+    };
+  });
 
   lines.sort((a, b) => (a.label ?? a.grain_key).localeCompare(b.label ?? b.grain_key));
 
@@ -632,11 +617,11 @@ export async function buildPalletShipmentReviewPreview(
     lines,
     bucket_counts,
     totals: {
-      shipment_expected_units: lines.reduce((s, l) => s + l.expected_qty, 0),
-      slip_units: lines.reduce((s, l) => s + l.slip_qty, 0),
-      scanned_units: lines.reduce((s, l) => s + l.scanned_qty, 0),
-      off_manifest_units: lines.reduce((s, l) => s + l.off_manifest_scanned_qty, 0),
-      operator_note_missing_units: lines.reduce((s, l) => s + l.operator_note_missing_qty, 0),
+      shipment_expected_units: unified.totals.shipment_expected_qty,
+      slip_units: unified.totals.slip_qty,
+      scanned_units: unified.totals.received_qty,
+      off_manifest_units: unified.totals.off_manifest_qty,
+      operator_note_missing_units: unified.totals.marked_missing_qty,
       problem_item_units: lines.reduce((s, l) => s + l.problem_item_qty, 0),
     },
   };
