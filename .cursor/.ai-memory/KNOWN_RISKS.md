@@ -36,6 +36,16 @@
 | missing_product ~7,190 | Regeneration blocked until Wave B + spine stable |
 | missing_source_row ~1,543 | Source orphan cleanup required |
 
+## Security / RLS
+
+| Risk | Detail |
+|------|--------|
+| Import API IDOR | 12 `app/api/settings/imports/*` routes fetch upload by UUID via service_role without `assertUserCanAccessOrganization` |
+| Amazon Allow All policies | `amazon_removals`, `amazon_settlements`, `amazon_transactions`, `amazon_inventory_ledger`, etc. — `USING true` |
+| Storage public read | `Public Access` on storage.objects spans raw-reports + claim-reports + media |
+| workspace_settings singleton | Any authenticated user ALL — not org-scoped |
+| trid/async_jobs no org column | Schema decision before org RLS |
+
 ## Environment
 
 | Risk | Detail |

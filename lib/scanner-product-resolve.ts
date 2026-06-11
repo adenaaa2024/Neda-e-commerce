@@ -43,6 +43,7 @@ export async function resolveScannerProductIdentifiers(
     fnsku?: string | null;
     upc?: string | null;
     gtin?: string | null;
+    ean?: string | null;
     productIdentifier?: string | null;
     legacyProductId?: string | null;
   },
@@ -51,7 +52,7 @@ export async function resolveScannerProductIdentifiers(
   const sku = n(args.sku);
   const asin = n(args.asin);
   const fnsku = n(args.fnsku);
-  const upc = n(args.upc) ?? n(args.gtin) ?? n(args.productIdentifier);
+  const upc = n(args.upc) ?? n(args.gtin) ?? n(args.ean) ?? n(args.productIdentifier);
   const hasAnyId = !!(sku || asin || fnsku || upc);
   if (!hasAnyId) {
     return { ...empty, identifier_resolution_status: "unresolved" };
@@ -68,6 +69,8 @@ export async function resolveScannerProductIdentifiers(
     asin,
     fnsku,
     upc,
+    gtin: n(args.gtin),
+    ean: n(args.ean),
   });
 
   const legacy = n(args.legacyProductId);

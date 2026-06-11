@@ -9,12 +9,13 @@ import {
 } from "./amazon-catalog-image-extract";
 
 /** Worst audit clusters — shared placeholders across unrelated ASINs. */
-export const KNOWN_BAD_IMAGE_SUBSTRINGS = ["31BH1QY2CvL", "4152CsQbheL"] as const;
+export const KNOWN_BAD_IMAGE_SUBSTRINGS = ["31BH1QY2CvL", "4152CsQbheL", "41gCLv9NY9L"] as const;
 
 /** Staging repair waves blocked from production until operator sign-off. */
 export const BLOCKED_PRODUCTION_IMAGE_CLUSTER_NEEDLES = [
   "31BH1QY2CvL",
   "4152CsQbheL",
+  "41gCLv9NY9L",
 ] as const;
 
 export type SuspiciousImageReason =

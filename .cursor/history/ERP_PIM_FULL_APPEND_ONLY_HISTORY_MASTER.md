@@ -230082,3 +230082,416 @@ Vision/OCR lines restored on Item Scan -> Back, but box photo previews still bla
 ================================================================================
 END APPEND SLICE -- 20260604T210000Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T044758Z
+TOPIC: PHASE-PRODUCT-LINKAGE-COMPLETION-PLAN-V2
+================================================================================
+
+### Completed
+- Product linkage hardening modules shipped: identifier normalize, resolution policy, operational resolve, health census, GET /api/dashboard/products/linkage-health.
+- Health report re-run 20260611T044758Z: overall 49.1%, critical paths 67.7%, 24,482 unresolved, 2,583 conflict groups, SAFE_FOR_PRODUCT_STORY=no.
+- Staging resolver wave dry-run 20260611T045000Z: EP map-only tiers 0; RI scanner candidates 26; EP to RI copy 0.
+
+### In Progress
+- Amazon product sync recovery (spine gaps block bulk EP/ARS linkage).
+- Claim pool linkage evidence audit (read-only) before any claim_candidates persist wave.
+
+### Blocked
+- Bulk product creation for linkage (FORBIDDEN_ACTIONS / governed seed only).
+- product_identifier_map bulk insert without operator approval.
+- FNSKU duplicate cluster X003UR3W83 (1 group) before map expansion.
+- 2,413 UPC conflict groups — safe_for_auto_map=false.
+- claim_candidates / claim_candidate_drafts bulk auto-map (~8.7k unresolved) until dry-run classifies 1:1 winners.
+- shipment_box_items bulk backfill (8,134 unresolved) — read-model resolve-at-submit only; no approved bulk persist script.
+
+### Risks
+- Overwriting trusted product_id on return_items if resolver run without preimage/rollback.
+- EP unresolved (240) mostly lack unique map hit — map-only wave yields 0 rows on staging today.
+- amazon_removals 0% resolved (2,719 rows) — large removal backfill out of scope for wave 1.
+- claim_lines not in linkage-health census — track separately via claim-product-linkage-evidence-audit.
+
+### Next Prompt
+PHASE-PRODUCT-LINKAGE-COMPLETION-WAVE-1-RI-SCANNER-RESOLVER-STAGING
+
+================================================================================
+END APPEND SLICE -- 20260611T044758Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T045500Z
+TOPIC: PHASE-SCANNER-FINAL-QA-AND-NEDA-HANDOFF
+================================================================================
+
+### Completed
+- Phase 6D/6E close/reopen backend verify scripts PASS (code inspection).
+- Phase 6D unified review engine verify PASS.
+- Box close review regression PASS (SAFE_FOR_NEDA_PULL yes).
+- 22-flow QA matrix documented for Neda UI handoff.
+
+### In Progress
+- Neda UI polish on operator-mobile modals and scan page (styling/copy only).
+- Runtime staging smoke (neda-pull-gate / neda-6f) — operator execute when ready.
+
+### Blocked
+- Merge to main / Neda merge until PHASE1-FINAL-QA-GATE.
+- Claims returns-first draft E2E.
+- Move item between boxes in operator-mobile (backend RPC exists; UI not wired).
+
+### Risks
+- scan/page.tsx ~21k lines — UI edits must stay presentation-layer only.
+- Missing shortage: manifest at box review; claim_lines at package finalize (6B); pallet/shipment close does not create claims.
+- Product linkage unresolved — UI must not fake resolved labels.
+
+### Next Prompt
+NEDA-OPERATOR-MOBILE-UI-POLISH-WAVE-1 (Box/Pallet/Shipment review modals + finalized banners)
+
+================================================================================
+END APPEND SLICE -- 20260611T045500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T060000Z
+TOPIC: PHASE-CLAIM-CENTER-V1-READ-MODEL (+ prior claim phases context)
+================================================================================
+
+### Completed
+- **PHASE-7J0** legacy claim submission/PDF/agent audit — production path is return_items → claim_cases/claim_submissions; claim_candidates not wired to filing. SAFE_FOR_7J1 yes with bridge blockers documented.
+- **PHASE-CLAIM-DISCOVERY-ENGINE** — incremental discovery into claim_candidates only (9 sources incl. inbound_shipment); watermarks in organization_settings.claim_policy.discovery_index; cron + Automation card.
+- **PHASE-CLAIM-CENTER-V1-READ-MODEL** — architecture plan: 9 Claim Center sections map to existing tables; **new tables: NO**; unified DTO ClaimCenterListRow; badges/filters/routes/APIs; no-write impl prompt PHASE-CLAIM-CENTER-V1-READ-IMPL. Evidence: `.cursor/audit-reports/phase-claim-center-v1-read-model/20260611T060000Z/`.
+
+### In Progress
+- Claim Center V1 read-only UI/API (not started).
+- Candidate → case → submission bridge (separate write phase).
+
+### Blocked
+- Event-based candidates in submission queue until claim_submissions 1:1 return_id bridge resolved.
+- claim_filing_requests worker/agent UI trigger not built.
+- claim_candidate_drafts parallel pool retirement.
+
+### Risks
+- Dual PDF paths (React-PDF legacy vs Phase 7G HTML packet).
+- inbox_queue is projected — must not overwrite candidate_status in UI.
+- legacy_seed quarantined rows (~9k) — hide by default in Claim Center.
+
+### Next Prompt
+PHASE-CLAIM-CENTER-V1-READ-IMPL
+
+================================================================================
+END APPEND SLICE -- 20260611T060000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T070000Z
+TOPIC: PHASE-ORBIT-FRA-CLAIM-TRID-INTEGRATION-AUDIT
+================================================================================
+
+### Completed
+- ORBIT-FRA integration audit: existing generator (18 categories, 9 reports, source_kind orbit_fra), 7B2 pool columns, TRID edges, product linkage reuse mapped.
+- Spreadsheet Fight List → claim_candidates hybrid staged import recommended (NOT drafts pool).
+- Dedupe, TRID edge, product resolution, case carry-forward, settings/feature flags documented.
+- Evidence: `.cursor/audit-reports/phase-orbit-fra-claim-trid-integration/20260611T070000Z/`.
+
+### In Progress
+- ORBIT spreadsheet files not in repo — dry-run parser blocked until files added.
+
+### Blocked
+- SAFE_TO_IMPLEMENT_ORBIT_FRA_IMPORT_STAGING=no (apply writes) until settings contract + operational resolver + 7B2 verify.
+- Hardcoded window_days in claim-orbit-fra-generator.ts vs settings policy.
+- claim_recovery / orbit_fra_import module gates not implemented.
+
+### Risks
+- Dedupe collision spreadsheet fingerprint vs operational UUID.
+- External Case Status must not auto-close internal claims/submissions.
+
+### Next Prompt
+PHASE-ORBIT-FRA-SPREADSHEET-IMPORT-DRY-RUN
+
+================================================================================
+END APPEND SLICE -- 20260611T070000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T175500Z
+TOPIC: PHASE-PRODUCT-LINKAGE-COMPLETION-PLAN-V3
+================================================================================
+
+### Completed
+- Linkage health re-run 20260611T175121Z: 49.1% overall, 24,482 unresolved, 2,583 conflict groups, SAFE_FOR_PRODUCT_STORY=no.
+- Phase5f original vs staging 20260611T175343Z: EP 97.5% staging vs 96.4% original; claim_candidates 46.1% resolved staging vs 0% original.
+- Resolver wave dry-run: EP safe map tiers 0; RI scanner candidates 26.
+
+### In Progress
+- Wave 1 execute prompt drafted (RI scanner resolver, max 25, staging only).
+
+### Blocked
+- product_creation_allowed_now: no (governed seed / Amazon sync only with gates).
+- FNSKU duplicate X003UR3W83 (1 cluster) before map expansion.
+- 2,413 UPC + 169 ASIN conflict groups — no auto-map.
+- EP map-only wave yields 0 rows on staging today.
+
+### Risks
+- Map id fingerprint differs staging vs original despite equal row counts.
+- claim_lines / shipment_box_items not in health census — track via future v3 bucket script.
+
+### Next Prompt
+PHASE-PRODUCT-LINKAGE-COMPLETION-WAVE-1-RI-SCANNER-RESOLVER-STAGING
+
+================================================================================
+END APPEND SLICE -- 20260611T175500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T080000Z
+TOPIC: PHASE-CLAIM-CENTER-V1-READ-MODEL-AFTER-ORBIT-FRA
+================================================================================
+
+### Completed
+- Claim Center V1 read model revised for 10 sections (added Product Linkage + dedicated TRID).
+- v1_status_group taxonomy (10 values), badges, filters, ORBIT-FRA display rules, panel rules for TRID/Product/Evidence.
+- API aggregation preferred over materialized view; new tables/views: NO.
+- SAFE_TO_IMPLEMENT_CLAIM_CENTER_V1_READONLY=yes.
+- Evidence: `.cursor/audit-reports/phase-claim-center-v1-read-model-after-orbit-fra/20260611T080000Z/`.
+
+### In Progress
+- Claim Center V1 read-only implementation (not started).
+
+### Blocked
+- Candidate→submission bridge still legacy return_id 1:1 — filed status for event candidates ORBIT-metadata only in V1.
+- Product Story deep links gated (SAFE_FOR_PRODUCT_STORY=no on staging).
+
+### Next Prompt
+PHASE-CLAIM-CENTER-V1-READ-IMPL-AFTER-ORBIT-FRA
+
+================================================================================
+END APPEND SLICE -- 20260611T080000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260605T120000Z
+TOPIC: PHASE-RLS-ORIGINAL-STAGING-PARITY-AUDIT
+================================================================================
+
+### Completed (read-only)
+- Full RLS parity census: original vs staging.
+- Priority tenant tables RLS enabled on both envs; Phase 8C security_invoker on 10 views both envs.
+- Evidence: .cursor/audit-reports/phase-rls-original-staging-parity-audit/20260605T120000Z/
+
+### Critical gaps
+- 12 import API routes: service_role without assertUserCanAccessOrganization (IDOR).
+- Amazon ingest Allow All policies; storage public SELECT; workspace_settings authenticated ALL.
+- Schema decision: organization_id on async_jobs, trid_*, Amazon ingest.
+
+### Gates
+- SAFE_TO_APPLY_RLS_FIX_STAGING: no
+- SAFE_TO_APPLY_RLS_FIX_ORIGINAL: no
+
+### Next Prompt
+PHASE-8R-RLS-IMPORT-ROUTE-ORG-GUARD-STAGING
+
+================================================================================
+END APPEND SLICE -- 20260605T120000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260521T210500Z
+TOPIC: PHASE-PRODUCT-LINKAGE-COMPLETION-WAVE-1-RI-SCANNER-RESOLVER-STAGING
+================================================================================
+
+### Completed (staging execute)
+- Preflight PASS: staging ref eiqfaapyumhixxoeltgu; approval file valid; ri_resolver_candidates=26; ep_safe tiers=0.
+- Execute --limit=25: ROWS_UPDATED return_items_resolver=0; expected_packages=0; ep_copy=0.
+- products 17058->17058; product_identifier_map 16849->16849; overwritten_existing_links=0.
+- rollback-preimage.json=[]; rollback.sql header-only; SAFE_TO_CONTINUE=yes.
+- Per-row diagnostic: 0/25 resolver hits (14 X006* fixture FNSKUs, 9 test SKUs, 2 real FNSKU no spine match).
+- Linkage health unchanged: 49.1% overall, SAFE_FOR_PRODUCT_STORY=no.
+- Evidence: .cursor/audit-reports/product-linkage-resolver-wave-staging-execute/20260521T210500Z/
+
+### In Progress
+- Wave 2 planning: slip_contents scanner resolver (5 rows, 2 ambiguous).
+
+### Blocked (unchanged)
+- RI unresolved rows need spine/map coverage or manual review -- not resolver-only wave.
+- FNSKU duplicate X003UR3W83; EP Class C governed seed; claim bulk linkage separate track.
+
+### Next Prompt
+PHASE-PRODUCT-LINKAGE-COMPLETION-WAVE-2-SLIP-CONTENTS-SCANNER-RESOLVER-STAGING
+
+================================================================================
+END APPEND SLICE -- 20260521T210500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260521T223000Z
+TOPIC: PHASE-PRODUCT-IMAGE-QA-AND-AMAZON-SYNC-RECOVERY-PLAN
+================================================================================
+
+### Completed (read-only audit + plan)
+- Phase5e image QA plan 20260521T220000Z: 4046 missing images, 113 blocked 1883 cluster (41gCLv9NY9L), 247 manual review.
+- Phase5b linkage audit 20260611T182002Z: 13010 suspicious staging, 158 duplicate URL clusters.
+- Amazon sync recovery dry-run: scheduler disabled, 14 cancelled jobs since 2026-06-01, 15717 stale, 1 missing spine ASIN, SP-API OK.
+- Image source priority + confidence model + GPT vision design (not implemented, not called).
+- Staging smoke plan: 1 image repair + promote-limit=1 + enrich-batches=1 before cron enable.
+- Evidence: .cursor/audit-reports/phase-product-image-qa-and-amazon-sync-recovery-plan/20260521T223000Z/
+
+### Gates
+- SAFE_TO_RUN_IMAGE_QA_SMOKE_STAGING: yes
+- SAFE_TO_RUN_PRODUCT_SYNC_SMOKE_STAGING: yes
+- SAFE_TO_ENABLE_DAILY_PRODUCT_SYNC: yes_with_conditions
+- SAFE_TO_APPLY_IMAGE_FIX_PRODUCTION: no
+
+### Next Prompt
+PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SMOKE
+
+================================================================================
+END APPEND SLICE -- 20260521T223000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T090000Z
+TOPIC: PHASE-CLAIM-CENTER-PRODUCT-UX-AND-SETTINGS-BLUEPRINT
+================================================================================
+
+### Completed
+- Claim Center product UX blueprint: 12-section standalone app (not legacy patch).
+- Settings audit: 15 groups mapped; hardcoded ORBIT windows + stale intake catalog flagged.
+- UX vocabulary (Task D), mobile/theme/module gate requirements, legacy redirect map.
+- SAFE_TO_IMPLEMENT_CLAIM_CENTER_UI_SHELL=yes.
+- Evidence: `.cursor/audit-reports/phase-claim-center-product-ux-and-settings-blueprint/20260611T090000Z/`.
+
+### In Progress
+- Claim Center V1 UI shell (not started).
+
+### Blocked
+- claim_recovery module master toggle not in settings yet.
+- Settings fragmented across /settings and /platform/settings/automation.
+
+### Next Prompt
+PHASE-CLAIM-CENTER-V1-UI-SHELL-READONLY
+
+================================================================================
+END APPEND SLICE -- 20260611T090000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260521T231500Z
+TOPIC: PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SMOKE
+================================================================================
+
+### Completed (staging smoke apply)
+- Preflight PASS: ref eiqfaapyumhixxoeltgu, SP-API OK, PLATFORM_AUTOMATION_CONFIRM_APPLY session, scheduler disabled.
+- Catch-up apply: promote 0/1 (FBA-only B07X13VS51 outside listMissing scan window limit*3=3).
+- Enrich batch: 80 rows_saved, enriched_images=7, suspicious_image_overwritten=0, trusted overwrite 0.
+- products 17058 unchanged; map 16849 unchanged; missing images 4046->4039.
+- Worker smoke PASS (product_enrichment job tick + metrics).
+- Evidence: .cursor/audit-reports/phase-amazon-product-sync-recovery-staging-smoke/20260521T231500Z/
+
+### Blocked
+- Promote path not exercised; spine gap B07X13VS51 remains.
+- Daily scheduler not enabled (by design).
+
+### Next Prompt
+PHASE-AMAZON-PRODUCT-SYNC-PROMOTE-FBA-ONLY-FIX-AND-SMOKE
+
+================================================================================
+END APPEND SLICE -- 20260521T231500Z
+================================================================================
+
+
+================================================================================
+APPEND SLICE -- 20260611T184755Z
+TOPIC: PHASE-5E-PRODUCT-IMAGE-QA-STAGING-SAMPLE
+================================================================================
+
+### Completed (staging sample apply — max 1 write)
+- Added `41gCLv9NY9L` to `KNOWN_BAD_IMAGE_SUBSTRINGS` + `BLOCKED_PRODUCTION_IMAGE_CLUSTER_NEEDLES`.
+- Script: `scripts/phase5e-product-image-qa-staging-sample.ts`
+- **1 row updated** staging: product `3f6e55bd-9030-457a-a71e-f5067cda1b6b` ASIN `B0923C5KVS` SL75→SL500 catalog upgrade.
+- `provenance_written`: yes; `candidate_in_amazon_raw`: yes.
+- Rollback: `.cursor/audit-reports/phase5e-product-image-qa-staging-sample/20260611T184755Z/`
+- 1883 cluster (`41gCLv9NY9L`, 113 ASINs): **not touched**.
+
+### Gates
+- SAFE_TO_RUN_NEXT_IMAGE_SAMPLE: **yes**
+- SAFE_TO_SCALE_IMAGE_REPAIR: **yes_with_conditions**
+- SAFE_TO_APPLY_IMAGE_FIX_PRODUCTION: **no**
+
+### Next Prompt
+PHASE-5E-PRODUCT-IMAGE-VISUAL-QA-STAGING-SAMPLE
+
+================================================================================
+END APPEND SLICE -- 20260611T184755Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T190000Z
+TOPIC: PHASE-CLAIM-LEGACY-SUBMISSION-PDF-AGENT-BRIDGE-AUDIT
+================================================================================
+
+### Completed (audit + bridge design only � no code/DB/agent/PDF)
+- Mapped legacy submission paths: claim_submissions, claim_history_logs, claim_filing_requests, status lifecycle ready_to_send?submitted?accepted/rejected/closed (UI tab).
+- Mapped PDF paths: react-pdf + claim-reports bucket + Python ReportLab; evidence packet composer (V2).
+- Mapped agent/RPA: Python Selenium/Playwright Seller Central (default OFF); Next.js filing handoff stubs only.
+- Classified reusable vs unsafe vs obsolete; org/store scoping gaps; missing module gates on Claim Engine bulk submit.
+- Bridge design: claim_candidate ? claim_case ? evidence ? claim_filing_request ? claim_submission ? claim_history_logs ? recovery match.
+- Human approval model + settings_needed catalog documented.
+- SAFE_TO_BUILD_CANDIDATE_CASE_SUBMISSION_BRIDGE: **yes_with_conditions** (read-only scaffold first; no live agent).
+- Evidence: `.cursor/audit-reports/phase-claim-legacy-submission-pdf-agent-bridge-audit/20260611T190000Z/`
+
+### In Progress
+- Candidate ? case ? submission bridge **not built** (design only).
+
+### Blocked
+- Python browser agent + bulk marketplace submit until org/store + entitlement gates wired.
+- claim_filing_requests worker (Agent 04 absent).
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260611T190000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T193000Z
+TOPIC: PHASE-CLAIM-CENTER-V1-READ-IMPL-PROFESSIONAL-UX
+================================================================================
+
+### Completed (read-only UI + API — no migrations/writes)
+- lib/claims/center/* read model, badges, window, module gate, API handlers
+- GET APIs: /api/claims/center/{dashboard,opportunities,review,references,product-linkage,recovery,runs,submissions,cases,module-access}
+- Extended GET /api/claims/inbox?view=center_v1
+- app/claim-center/** — 12 routes (dashboard-first, mobile cards, dark/light theme)
+- components/claim-center/** — shell, scope bar, hub nav, KPI dashboard, table, mobile cards, detail drawer, panels
+- scripts/phase-claim-center-v1-read-staging-smoke.ts — zero_writes PASS 20260611T190639Z
+- npm run build PASS
+
+### Constraints honored
+- No claim_candidates/cases/lines/submissions writes; no PDF/submit/promote; no product linkage writes; no legacy UI patch
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260611T193000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T210000Z
+TOPIC: PHASE-MENORIX-CLAIM-CENTER-SHELL
+================================================================================
+
+### Completed (design system + read-only shell � no DB/writes)
+- components/menorix/* � 12 reusable Menorix Command Apps pattern components
+- lib/menorix/evaluate-menorix-ai-module-access.ts � read-only AI gate (no HTTP)
+- Claim Center on MenorixModuleAppShell; legacy /claim-engine untouched
+- GET /api/claims/center/ai-access + /automation-health
+- Dashboard tiles + AI slots + automation health; settings 15-row read-only overview
+- smoke PASS zero_writes
+
+### Next Prompt
+PHASE-CLAIM-CENTER-V1-WRITE-ACTIONS-GATED
+
+================================================================================
+END APPEND SLICE -- 20260611T210000Z
+================================================================================

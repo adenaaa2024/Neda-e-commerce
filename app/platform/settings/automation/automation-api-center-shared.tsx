@@ -33,7 +33,15 @@ function removalSourceLabel(source: RemovalRunSource | undefined): string | null
   return "Unknown";
 }
 
-type CardKey = "product" | "removal" | "historical" | "reimbursements" | "settlement" | "finances";
+type CardKey =
+  | "product"
+  | "removal"
+  | "historical"
+  | "reimbursements"
+  | "settlement"
+  | "finances"
+  | "claim_pool"
+  | "claim_discovery";
 
 const CARD_KEYS_BY_REPORT_TYPE: Record<AutomationApiReportType, CardKey> = {
   product_data_update: "product",
@@ -42,6 +50,8 @@ const CARD_KEYS_BY_REPORT_TYPE: Record<AutomationApiReportType, CardKey> = {
   settlement: "settlement",
   finances_archive: "finances",
   older_backfill: "historical",
+  claim_pool_generation: "claim_pool",
+  claim_discovery: "claim_discovery",
 };
 
 function primaryCardForReportType(apiReportType: AutomationApiReportType): CardKey {
@@ -242,6 +252,8 @@ export function AutomationSavedStatusSummary({
   reimbursements,
   settlement,
   finances,
+  claimPool,
+  claimDiscovery,
   hasUnsavedChanges,
   updatedAt,
 }: {
@@ -254,6 +266,8 @@ export function AutomationSavedStatusSummary({
   reimbursements: SavedStatusCardSnapshot;
   settlement: SavedStatusCardSnapshot;
   finances: SavedStatusCardSnapshot;
+  claimPool?: SavedStatusCardSnapshot;
+  claimDiscovery?: SavedStatusCardSnapshot;
   hasUnsavedChanges: boolean;
   updatedAt: string | null;
 }) {
@@ -265,6 +279,22 @@ export function AutomationSavedStatusSummary({
     reimbursements,
     settlement,
     finances,
+    claim_pool:
+      claimPool ?? {
+        label: "Claim Pool Generation",
+        enabled: false,
+        lastRun: null,
+        nextRun: null,
+        status: "never",
+      },
+    claim_discovery:
+      claimDiscovery ?? {
+        label: "Claim Discovery Engine",
+        enabled: false,
+        lastRun: null,
+        nextRun: null,
+        status: "never",
+      },
   };
   const primaryCard = cards[primaryKey];
   const selectedTypeLabel =

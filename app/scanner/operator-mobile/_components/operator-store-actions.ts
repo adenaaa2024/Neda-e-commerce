@@ -1,6 +1,11 @@
 "use server";
 
 import { supabaseServer } from "@/lib/supabase-server";
+import {
+  emitBoxCloseCandidates,
+  emitPerProblemScanCandidate,
+  emitShipmentReviewCloseCandidates,
+} from "@/lib/claims/intake/claim-live-trigger-emitters";
 import { getSessionUserIdFromCookies } from "@/lib/supabase-server-auth";
 import { loadTenantProfile, resolveWriteOrganizationId } from "@/lib/server-tenant";
 import { canPickWorkspaceOrganizationForTenantBranding } from "@/lib/tenant-branding-permissions";
@@ -1314,6 +1319,17 @@ export async function finalizeOperatorShipmentCloseAction(
       actor: actor.displayName || gate.userId,
     });
 
+    // Phase 7F — shipment_review_close live candidate emitter (policy-gated; never blocks close).
+    try {
+      await emitShipmentReviewCloseCandidates(supabaseServer, {
+        organizationId,
+        storeId,
+        trackingNumber,
+      });
+    } catch (e) {
+      console.error("[claim-live-emitter shipment_review_close]", e instanceof Error ? e.message : e);
+    }
+
     return { ok: true, close_state: "finalized", storage_kind: "pallet_photo_evidence" };
   }
 
@@ -1368,6 +1384,17 @@ export async function finalizeOperatorShipmentCloseAction(
     }).slice(0, 4000),
     actor: actor.displayName || gate.userId,
   });
+
+  // Phase 7F — shipment_review_close live candidate emitter (policy-gated; never blocks close).
+  try {
+    await emitShipmentReviewCloseCandidates(supabaseServer, {
+      organizationId,
+      storeId,
+      trackingNumber,
+    });
+  } catch (e) {
+    console.error("[claim-live-emitter shipment_review_close]", e instanceof Error ? e.message : e);
+  }
 
   return { ok: true, close_state: "finalized", storage_kind: "package_manifest_data" };
 }
@@ -2877,6 +2904,13 @@ export async function finalizeOperatorPackageReceiveAction(
     });
   }
 
+  // Phase 7F — box_close live candidate emitter (policy-gated; never blocks finalize).
+  try {
+    await emitBoxCloseCandidates(supabaseServer, { organizationId, packageId });
+  } catch (e) {
+    console.error("[claim-live-emitter box_close]", e instanceof Error ? e.message : e);
+  }
+
   return {
     ok: true,
     package_id: payload.package_id,
@@ -4301,6 +4335,16 @@ export async function insertOperatorPackageItemAction(
     return { ok: false, message: finalizePrimary.error };
   }
   await tryPromoteScannerClaimForReturnItem(primaryId, organizationId, sessionUserId);
+
+  // Phase 7F — per_problem_scan live candidate emitter (policy-gated; never blocks the scan).
+  try {
+    await emitPerProblemScanCandidate(supabaseServer, {
+      organizationId,
+      returnItemId: primaryId,
+    });
+  } catch (e) {
+    console.error("[claim-live-emitter per_problem_scan]", e instanceof Error ? e.message : e);
+  }
 
   const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, primaryId, organizationId);
   const product_linkage =

@@ -1,0 +1,252 @@
+/**
+ * Claim Center V1 — scoped premium styling (dark/light).
+ * Prefix: `.claim-center-view`
+ */
+
+html.dark .claim-center-view {
+  background: #0b0e12 !important;
+  color: #e8ecf0;
+}
+
+html.light .claim-center-view {
+  background: #f4f1ea !important;
+  color: #171a1e;
+}
+
+html.dark .claim-center-view .claim-center-hub-nav {
+  background: #151a20;
+  border: 1px solid rgba(214, 183, 110, 0.2);
+  border-radius: 14px;
+  padding: 0.375rem;
+}
+
+html.light .claim-center-view .claim-center-hub-nav {
+  background: #ffffff;
+  border: 1px solid rgba(138, 104, 31, 0.18);
+  border-radius: 14px;
+  padding: 0.375rem;
+}
+
+html.dark .claim-center-view .claim-center-hub-nav a {
+  color: #b8c1cb;
+  border-radius: 10px;
+  padding: 0.4rem 0.65rem;
+  font-weight: 600;
+}
+
+html.light .claim-center-view .claim-center-hub-nav a {
+  color: #4c5661;
+  border-radius: 10px;
+  padding: 0.4rem 0.65rem;
+  font-weight: 600;
+}
+
+html.dark .claim-center-view .claim-center-hub-nav a.claim-center-hub-nav__link--active {
+  background: rgba(214, 183, 110, 0.18);
+  border: 1px solid rgba(214, 183, 110, 0.35);
+  color: #f1d58a;
+}
+
+html.light .claim-center-view .claim-center-hub-nav a.claim-center-hub-nav__link--active {
+  background: #f8f4ea;
+  border: 1px solid rgba(138, 104, 31, 0.25);
+  color: #6b4f12;
+}
+
+html.dark .claim-center-view .claim-center-card,
+html.dark .claim-center-view .claim-center-kpi {
+  background: #151a20;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html.light .claim-center-view .claim-center-card,
+html.light .claim-center-view .claim-center-kpi {
+  background: #ffffff;
+  border: 1px solid rgba(22, 24, 27, 0.08);
+}
+
+html.dark .claim-center-view .claim-center-table-card {
+  background: #12161c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+}
+
+html.light .claim-center-view .claim-center-table-card {
+  background: #ffffff;
+  border: 1px solid rgba(22, 24, 27, 0.08);
+  border-radius: 14px;
+}
+
+html.dark .claim-center-view .claim-center-input,
+html.dark .claim-center-view .claim-center-select {
+  background: #0f1318;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8ecf0;
+}
+
+html.light .claim-center-view .claim-center-input,
+html.light .claim-center-view .claim-center-select {
+  background: #ffffff;
+  border: 1px solid rgba(22, 24, 27, 0.12);
+  color: #171a1e;
+}
+
+html.dark .claim-center-view .claim-center-drawer {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html.light .claim-center-view .claim-center-drawer {
+  background: #ffffff;
+  border-color: rgba(22, 24, 27, 0.1);
+}
+
+.claim-center-view .claim-center-badge--success {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.claim-center-view .claim-center-badge--warning {
+  background: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+}
+
+.claim-center-view .claim-center-badge--danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.claim-center-view .claim-center-badge--info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.claim-center-view .claim-center-badge--neutral {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+html.dark .claim-center-view .claim-center-mobile-card {
+  background: #151a20;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+html.light .claim-center-view .claim-center-mobile-card {
+  background: #ffffff;
+  border: 1px solid rgba(22, 24, 27, 0.08);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.claim-center-view .claim-center-btn--disabled {
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+/* Menorix module shell tokens (scoped under claim-center-view) */
+html.dark .claim-center-view .menorix-module-card,
+html.dark .claim-center-view .menorix-module-kpi,
+html.dark .claim-center-view .menorix-module-tile {
+  background: #151a20;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html.light .claim-center-view .menorix-module-card,
+html.light .claim-center-view .menorix-module-kpi,
+html.light .claim-center-view .menorix-module-tile {
+  background: #ffffff;
+  border: 1px solid rgba(22, 24, 27, 0.08);
+}
+
+html.dark .claim-center-view .menorix-module-rail {
+  background: #0f1318;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html.light .claim-center-view .menorix-module-rail {
+  background: #faf8f4;
+  border-color: rgba(22, 24, 27, 0.08);
+}
+
+html.dark .claim-center-view .menorix-module-section-tabs {
+  background: #151a20;
+  border: 1px solid rgba(214, 183, 110, 0.2);
+  border-radius: 14px;
+}
+
+html.light .claim-center-view .menorix-module-section-tabs {
+  background: #ffffff;
+  border: 1px solid rgba(138, 104, 31, 0.18);
+  border-radius: 14px;
+}
+
+html.dark .claim-center-view .menorix-module-section-tabs__link--active {
+  background: rgba(214, 183, 110, 0.18);
+  color: #f1d58a;
+}
+
+html.light .claim-center-view .menorix-module-section-tabs__link--active {
+  background: #f8f4ea;
+  color: #6b4f12;
+}
+
+html.dark .claim-center-view .menorix-module-bottom-nav {
+  background: #12161c;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html.light .claim-center-view .menorix-module-bottom-nav {
+  background: #ffffff;
+  border-color: rgba(22, 24, 27, 0.1);
+}
+
+html.dark .claim-center-view .menorix-module-bottom-nav__link--active {
+  color: #f1d58a;
+}
+
+html.light .claim-center-view .menorix-module-bottom-nav__link--active {
+  color: #6b4f12;
+}
+
+html.dark .claim-center-view .menorix-module-drawer {
+  background: #12161c;
+}
+
+html.light .claim-center-view .menorix-module-drawer {
+  background: #ffffff;
+}
+
+html.dark .claim-center-view .menorix-module-select {
+  background: #0f1318;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8ecf0;
+}
+
+html.light .claim-center-view .menorix-module-select {
+  background: #ffffff;
+  border: 1px solid rgba(22, 24, 27, 0.12);
+}
+
+.claim-center-view .menorix-module-badge--success {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.claim-center-view .menorix-module-badge--warning {
+  background: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+}
+
+.claim-center-view .menorix-module-badge--danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.claim-center-view .menorix-module-badge--neutral {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}

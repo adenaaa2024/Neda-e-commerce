@@ -68,6 +68,7 @@ import { FALLBACK_ORGANIZATION_ID } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
 import { DatabaseTag } from "../../components/DatabaseTag";
 import { ClaimEngineHubNavShell } from "../../components/claim-engine/ClaimEngineHubNavShell";
+import { ClaimCandidateIntakePolicyPanel } from "../../components/claim-engine/ClaimCandidateIntakePolicyPanel";
 import type { AdapterProviderKey } from "../../lib/adapters";
 import {
   listMarketplaces, listStores, insertStore, insertMarketplace,
@@ -3152,6 +3153,16 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </div>
+
+                {organizationId?.trim() && isUuidString(organizationId.trim()) ? (
+                  <ClaimCandidateIntakePolicyPanel
+                    organizationId={organizationId.trim()}
+                    editableScopes={["company"]}
+                    actorProfileId={actorUserId}
+                    showStoreScope={false}
+                    className={`claim-engine-settings-card ${mockPlan === "Free Tier" ? "opacity-50 pointer-events-none select-none" : ""}`}
+                  />
+                ) : null}
 
                 <div className="claim-engine-settings-card p-6 space-y-4">
                   <div>

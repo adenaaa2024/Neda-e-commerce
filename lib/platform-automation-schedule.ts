@@ -6,6 +6,7 @@ import {
   parseLocalRunTimes,
   parseLocalRunTimesFromInput,
 } from "./automation-timezone-schedule";
+import { normalizeClaimCandidateIntakePolicy } from "./claim-candidate-intake-policy";
 import { readLegacyPlatformAutomationSettings } from "./platform-automation-scope-storage";
 import {
   applyRemovalScheduleHobbyClamp,
@@ -13,7 +14,11 @@ import {
 } from "./platform-automation-removal-schedule-clamp";
 import { isAutomationHobbyCronTierClient } from "./platform-automation-run-environment-client";
 import {
+  CLAIM_DISCOVERY_SOURCE_KINDS,
+  CLAIM_POOL_SOURCE_KINDS,
   DEFAULT_API_CARD_SCHEDULE,
+  DEFAULT_CLAIM_DISCOVERY_SCHEDULE,
+  DEFAULT_CLAIM_POOL_GENERATION_SCHEDULE,
   DEFAULT_PLATFORM_AUTOMATION_SETTINGS,
   DEFAULT_PRODUCT_ENRICHMENT_SCHEDULE,
   DEFAULT_REMOVAL_API_SYNC_SCHEDULE,
@@ -21,6 +26,8 @@ import {
   DEFAULT_STORE_AUTOMATION_SETTINGS,
   EMPTY_REMOVAL_CRON_RUNTIME,
   type ApiAutomationCardSchedule,
+  type ClaimDiscoverySchedule,
+  type ClaimPoolGenerationSchedule,
   type FinancesArchiveApiSchedule,
   type ManualWindowFields,
   type PlatformAutomationSettings,
@@ -176,6 +183,131 @@ function normalizeFinancesArchive(raw: unknown): FinancesArchiveApiSchedule {
   };
 }
 
+function normalizeClaimDiscovery(raw: unknown): ClaimDiscoverySchedule {
+  const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const fallback = DEFAULT_CLAIM_DISCOVERY_SCHEDULE;
+  const runsPerDay = clampInt(src.runs_per_day, 1, 24, fallback.runs_per_day);
+
+  const tzRaw = typeof src.timezone === "string" ? src.timezone.trim() : "";
+  const timezone = tzRaw && isValidIanaTimeZone(tzRaw) ? tzRaw : fallback.timezone;
+
+  let runTimesLocal: string[] = Array.isArray(src.run_times_local)
+    ? parseLocalRunTimes(src.run_times_local, [])
+    : [];
+  runTimesLocal = runTimesLocal.slice(0, runsPerDay);
+  if (!runTimesLocal.length) runTimesLocal = fallback.run_times_local.slice(0, runsPerDay);
+
+  let runHoursUtc = deriveUtcHoursFromLocalRunTimes(timezone, runTimesLocal).slice(0, runsPerDay);
+  if (!runHoursUtc.length) {
+    runHoursUtc = normalizeHours(src.run_hours_utc, runsPerDay).slice(0, runsPerDay);
+  }
+
+  const allowedKinds = new Set<string>(CLAIM_DISCOVERY_SOURCE_KINDS);
+  const kindsRaw = Array.isArray(src.enabled_source_kinds) ? src.enabled_source_kinds : null;
+  const enabledKinds = kindsRaw
+    ? [...new Set(kindsRaw.filter((k): k is string => typeof k === "string" && allowedKinds.has(k)))]
+    : [...fallback.enabled_source_kinds];
+
+  const purchased: Record<string, boolean> = {};
+  const purchasedRaw =
+    src.purchased_source_kinds && typeof src.purchased_source_kinds === "object" && !Array.isArray(src.purchased_source_kinds)
+      ? (src.purchased_source_kinds as Record<string, unknown>)
+      : {};
+  for (const k of CLAIM_DISCOVERY_SOURCE_KINDS) {
+    if (purchasedRaw[k] === true || purchasedRaw[k] === false) purchased[k] = purchasedRaw[k] === true;
+  }
+
+  const cronRaw = src.cron_runtime;
+  return {
+    enabled: src.enabled === true,
+    runs_per_day: runsPerDay,
+    run_hours_utc: runHoursUtc,
+    timezone,
+    run_times_local: runTimesLocal,
+    initial_lookback_days: clampInt(src.initial_lookback_days, 1, 90, fallback.initial_lookback_days),
+    incremental_overlap_days: clampInt(src.incremental_overlap_days, 0, 14, fallback.incremental_overlap_days),
+    enabled_source_kinds: enabledKinds.length ? enabledKinds : [...fallback.enabled_source_kinds],
+    purchased_source_kinds: purchased,
+    max_runtime_seconds: clampInt(src.max_runtime_seconds, 60, 3600, fallback.max_runtime_seconds),
+    scheduled_mode: src.scheduled_mode === "apply" ? "apply" : "dry_run",
+    ...normalizeManualWindow(src),
+    ...(cronRaw != null ? { cron_runtime: normalizeRemovalCronRuntime(cronRaw) } : {}),
+  };
+}
+
+export function computeClaimDiscoveryNextRun(
+  schedule: ClaimDiscoverySchedule,
+  now: Date = new Date(),
+): Date | null {
+  if (!schedule?.enabled) return null;
+  if (schedule.run_times_local.length) {
+    return computeNextLocalDailyRunUtc(schedule.timezone, schedule.run_times_local, now);
+  }
+  return computeNextDailyRunUtc(true, schedule.run_hours_utc, now);
+}
+
+function normalizeClaimPoolGeneration(raw: unknown): ClaimPoolGenerationSchedule {
+  const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const fallback = DEFAULT_CLAIM_POOL_GENERATION_SCHEDULE;
+  const runsPerDay = clampInt(src.runs_per_day, 1, 24, fallback.runs_per_day);
+
+  const tzRaw = typeof src.timezone === "string" ? src.timezone.trim() : "";
+  const timezone = tzRaw && isValidIanaTimeZone(tzRaw) ? tzRaw : fallback.timezone;
+
+  let runTimesLocal: string[] = Array.isArray(src.run_times_local)
+    ? parseLocalRunTimes(src.run_times_local, [])
+    : [];
+  runTimesLocal = runTimesLocal.slice(0, runsPerDay);
+  if (!runTimesLocal.length) runTimesLocal = fallback.run_times_local.slice(0, runsPerDay);
+
+  let runHoursUtc = deriveUtcHoursFromLocalRunTimes(timezone, runTimesLocal).slice(0, runsPerDay);
+  if (!runHoursUtc.length) {
+    runHoursUtc = normalizeHours(src.run_hours_utc, runsPerDay).slice(0, runsPerDay);
+  }
+
+  const allowedKinds = new Set<string>(CLAIM_POOL_SOURCE_KINDS);
+  const kindsRaw = Array.isArray(src.enabled_source_kinds) ? src.enabled_source_kinds : null;
+  const enabledKinds = kindsRaw
+    ? [...new Set(kindsRaw.filter((k): k is string => typeof k === "string" && allowedKinds.has(k)))]
+    : [...fallback.enabled_source_kinds];
+
+  const purchased: Record<string, boolean> = {};
+  const purchasedRaw =
+    src.purchased_source_kinds && typeof src.purchased_source_kinds === "object" && !Array.isArray(src.purchased_source_kinds)
+      ? (src.purchased_source_kinds as Record<string, unknown>)
+      : {};
+  for (const k of CLAIM_POOL_SOURCE_KINDS) {
+    if (purchasedRaw[k] === true || purchasedRaw[k] === false) purchased[k] = purchasedRaw[k] === true;
+  }
+
+  const cronRaw = src.cron_runtime;
+  return {
+    enabled: src.enabled === true,
+    runs_per_day: runsPerDay,
+    run_hours_utc: runHoursUtc,
+    timezone,
+    run_times_local: runTimesLocal,
+    rolling_days: clampInt(src.rolling_days, 1, 365, fallback.rolling_days),
+    enabled_source_kinds: enabledKinds.length ? enabledKinds : [...fallback.enabled_source_kinds],
+    purchased_source_kinds: purchased,
+    max_runtime_seconds: clampInt(src.max_runtime_seconds, 60, 3600, fallback.max_runtime_seconds),
+    scheduled_mode: src.scheduled_mode === "apply" ? "apply" : "dry_run",
+    ...normalizeManualWindow(src),
+    ...(cronRaw != null ? { cron_runtime: normalizeRemovalCronRuntime(cronRaw) } : {}),
+  };
+}
+
+export function computeClaimPoolGenerationNextRun(
+  schedule: ClaimPoolGenerationSchedule,
+  now: Date = new Date(),
+): Date | null {
+  if (!schedule?.enabled) return null;
+  if (schedule.run_times_local.length) {
+    return computeNextLocalDailyRunUtc(schedule.timezone, schedule.run_times_local, now);
+  }
+  return computeNextDailyRunUtc(true, schedule.run_hours_utc, now);
+}
+
 /** Parse + validate one org/store scope; never enables schedules unless explicitly true. */
 export function normalizeStoreAutomationSettings(
   raw: unknown,
@@ -200,6 +332,12 @@ export function normalizeStoreAutomationSettings(
     reimbursements_api: normalizeApiCard(src.reimbursements_api, DEFAULT_STORE_AUTOMATION_SETTINGS.reimbursements_api),
     settlement_api: normalizeApiCard(src.settlement_api, DEFAULT_STORE_AUTOMATION_SETTINGS.settlement_api),
     finances_archive_api: normalizeFinancesArchive(src.finances_archive_api),
+    claim_pool_generation: normalizeClaimPoolGeneration(src.claim_pool_generation),
+    claim_discovery: normalizeClaimDiscovery(src.claim_discovery),
+    claim_candidate_intake:
+      src.claim_candidate_intake != null
+        ? normalizeClaimCandidateIntakePolicy(src.claim_candidate_intake)
+        : null,
   };
 }
 

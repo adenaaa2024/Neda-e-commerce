@@ -13,6 +13,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  expandBarcodeLookupValues,
+  normalizeLinkageAsin,
+  normalizeLinkageFnsku,
+  normalizeLinkageSku,
+} from "./product-linkage-identifier-normalize";
+
 /** Shape returned from `product_identifier_map` selects used by matchers and resolvers. */
 export type ProductIdentifierMapRow = {
   id: string;
@@ -65,26 +72,64 @@ function n(v: unknown): string | null {
   return s === "" ? null : s;
 }
 
+/** Normalize hint values before tier scoring (case/barcode hardened). */
+function normalizeHintValue(
+  key: "fnsku" | "msku" | "asin" | "upc" | "gtin",
+  v: unknown,
+): string | null {
+  if (key === "fnsku") return normalizeLinkageFnsku(v);
+  if (key === "asin") return normalizeLinkageAsin(v);
+  if (key === "msku") return normalizeLinkageSku(v);
+  if (key === "upc" || key === "gtin") {
+    const variants = expandBarcodeLookupValues(v);
+    return variants[0] ?? null;
+  }
+  return n(v);
+}
+
+function normalizeRowValue(
+  key: "fnsku" | "seller_sku" | "msku" | "asin" | "upc_code",
+  v: unknown,
+): string | null {
+  if (key === "fnsku") return normalizeLinkageFnsku(v);
+  if (key === "asin") return normalizeLinkageAsin(v);
+  if (key === "seller_sku" || key === "msku") return normalizeLinkageSku(v);
+  if (key === "upc_code") {
+    const variants = expandBarcodeLookupValues(v);
+    return variants[0] ?? null;
+  }
+  return n(v);
+}
+
 type Scored = { row: ProductIdentifierMapRow; tier: IdentifierMatchTier; sub: number };
 
 function scoreCandidate(row: ProductIdentifierMapRow, h: IdentifierLookupHints): Scored | null {
-  const fnsku = n(h.fnsku);
-  const msku = n(h.msku);
-  const asin = n(h.asin);
-  const upc = n(h.upc) ?? n(h.gtin);
+  const fnsku = normalizeHintValue("fnsku", h.fnsku);
+  const msku = normalizeHintValue("msku", h.msku);
+  const asin = normalizeHintValue("asin", h.asin);
+  const upcHint = normalizeHintValue("upc", h.upc) ?? normalizeHintValue("gtin", h.gtin);
+  const upcVariants = new Set([
+    ...expandBarcodeLookupValues(h.upc),
+    ...expandBarcodeLookupValues(h.gtin),
+  ]);
+  if (upcHint) upcVariants.add(upcHint);
 
-  const rowF = n(row.fnsku);
-  const rowSku = n(row.seller_sku) ?? n(row.msku);
-  const rowMsku = n(row.msku);
-  const rowAsin = n(row.asin);
-  const rowUpc = n(row.upc_code);
+  const rowF = normalizeRowValue("fnsku", row.fnsku);
+  const rowSku = normalizeRowValue("seller_sku", row.seller_sku) ?? normalizeRowValue("msku", row.msku);
+  const rowMsku = normalizeRowValue("msku", row.msku);
+  const rowAsin = normalizeRowValue("asin", row.asin);
+  const rowUpc = normalizeRowValue("upc_code", row.upc_code);
+  const upc = upcHint;
 
   const fnskuEq = !!(fnsku && rowF && fnsku === rowF);
   const skuEq = !!(msku && rowSku && msku === rowSku);
   const mskuEq = !!(msku && rowMsku && msku === rowMsku);
   const skuOrMskuEq = skuEq || mskuEq;
   const asinEq = !!(asin && rowAsin && asin === rowAsin);
-  const upcEq = !!(upc && rowUpc && upc === rowUpc);
+  const upcEq = !!(
+    rowUpc &&
+    (upcVariants.has(rowUpc) || (upc && upc === rowUpc))
+  );
 
   let best: Scored | null = null;
   const consider = (cand: Scored) => {
@@ -248,10 +293,16 @@ export async function fetchProductIdentifierMapCandidates(
     throw new Error("fetchProductIdentifierMapCandidates requires hints.storeId (imports target store).");
   }
 
-  const fnsku = n(hints.fnsku);
-  const msku = n(hints.msku);
-  const asin = n(hints.asin);
-  const upc = n(hints.upc) ?? n(hints.gtin);
+  const fnsku = normalizeHintValue("fnsku", hints.fnsku);
+  const msku = normalizeHintValue("msku", hints.msku);
+  const asin = normalizeHintValue("asin", hints.asin);
+  const upcVariants = [
+    ...new Set([
+      ...expandBarcodeLookupValues(hints.upc),
+      ...expandBarcodeLookupValues(hints.gtin),
+    ]),
+  ];
+  const upc = upcVariants[0] ?? null;
 
   const collected: ProductIdentifierMapRow[] = [];
   const seen = new Set<string>();
@@ -310,13 +361,13 @@ export async function fetchProductIdentifierMapCandidates(
     pushRows(data);
   }
 
-  if (upc) {
+  for (const barcode of upcVariants) {
     const { data, error } = await supabase
       .from("product_identifier_map")
       .select(baseSelect)
       .eq("organization_id", organizationId)
       .eq("store_id", storeId)
-      .eq("upc_code", upc)
+      .eq("upc_code", barcode)
       .limit(200);
     if (error) throw new Error(`fetchProductIdentifierMapCandidates upc: ${error.message}`);
     pushRows(data);
@@ -342,7 +393,11 @@ export async function prefetchIdentifierMapCandidatesForBatch(
   const fnskus = [...new Set(keys.map((k) => n(k.fnsku)).filter(Boolean))] as string[];
   const mskus = [...new Set(keys.map((k) => n(k.msku)).filter(Boolean))] as string[];
   const asins = [...new Set(keys.map((k) => n(k.asin)).filter(Boolean))] as string[];
-  const upcs = [...new Set(keys.map((k) => n(k.upc) ?? n(k.gtin)).filter(Boolean))] as string[];
+  const upcs = [
+    ...new Set(
+      keys.flatMap((k) => [...expandBarcodeLookupValues(k.upc), ...expandBarcodeLookupValues(k.gtin)]),
+    ),
+  ] as string[];
 
   const seen = new Set<string>();
   const out: ProductIdentifierMapRow[] = [];

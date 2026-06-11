@@ -55,6 +55,49 @@ export interface RemovalRecentSyncSchedule extends ManualWindowFields {
   max_runtime_seconds: number;
 }
 
+import type { ClaimCandidateIntakePolicy } from "@/lib/claim-candidate-intake-policy";
+
+/** Claim Discovery Engine — incremental per-source discovery into claim_candidates. */
+export interface ClaimDiscoverySchedule extends ManualWindowFields {
+  enabled: boolean;
+  runs_per_day: number;
+  run_hours_utc: number[];
+  timezone: string;
+  run_times_local: string[];
+  /** Max lookback on first run when no per-source watermark exists. */
+  initial_lookback_days: number;
+  /** Overlap days when advancing watermarks (catch late-arriving source rows). */
+  incremental_overlap_days: number;
+  enabled_source_kinds: string[];
+  purchased_source_kinds: Record<string, boolean>;
+  max_runtime_seconds: number;
+  scheduled_mode: "dry_run" | "apply";
+  cron_runtime?: RemovalCronRuntimeState;
+}
+
+/** Phase 7D — unified claim pool generation card (claim_candidates only; never cases/lines). */
+export interface ClaimPoolGenerationSchedule extends ManualWindowFields {
+  enabled: boolean;
+  runs_per_day: number;
+  /** Legacy UTC hour slots; derived from run_times_local when present. */
+  run_hours_utc: number[];
+  /** IANA timezone for local run times. */
+  timezone: string;
+  /** Local HH:MM slots, preferred over run_hours_utc when non-empty. */
+  run_times_local: string[];
+  /** Rolling source window in days when no manual window set. */
+  rolling_days: number;
+  /** Trusted source kinds the scheduler may run (subset of registry). */
+  enabled_source_kinds: string[];
+  /** SaaS purchase gate per source kind; absent = purchased. */
+  purchased_source_kinds: Record<string, boolean>;
+  max_runtime_seconds: number;
+  /** Scheduled runs write candidates only in apply mode; dry_run logs counts. */
+  scheduled_mode: "dry_run" | "apply";
+  /** Updated by scheduler/manual runs (status card read path). */
+  cron_runtime?: RemovalCronRuntimeState;
+}
+
 export interface RemovalHistoricalBackfillSchedule {
   enabled: boolean;
   runs_per_week: number;
@@ -78,6 +121,10 @@ export interface StoreAutomationSettings {
   reimbursements_api: ApiAutomationCardSchedule;
   settlement_api: ApiAutomationCardSchedule;
   finances_archive_api: FinancesArchiveApiSchedule;
+  claim_pool_generation: ClaimPoolGenerationSchedule;
+  claim_discovery: ClaimDiscoverySchedule;
+  /** Optional store-level candidate intake override (Phase 7E). Null = inherit company. */
+  claim_candidate_intake: ClaimCandidateIntakePolicy | null;
 }
 
 /** v2 persisted document shape. */
@@ -244,12 +291,71 @@ export const DEFAULT_REMOVAL_API_SYNC_SCHEDULE: RemovalApiSyncSchedule = {
   historical_backfill: DEFAULT_REMOVAL_HISTORICAL_BACKFILL,
 };
 
+export const CLAIM_POOL_SOURCE_KINDS = [
+  "scanner_physical_review",
+  "amazon_removal_api",
+  "reimbursement",
+  "settlement",
+  "transaction",
+  "inventory_ledger",
+  "safet",
+  "delayed_not_received",
+  "shipment_discrepancy",
+  "inbound_shipment",
+  "manual_import",
+  "orbit_fra",
+] as const;
+
+export const CLAIM_DISCOVERY_SOURCE_KINDS = [
+  "reimbursement",
+  "transaction",
+  "inventory_ledger",
+  "safet",
+  "delayed_not_received",
+  "shipment_discrepancy",
+  "amazon_removal_api",
+  "inbound_shipment",
+  "scanner_physical_review",
+] as const;
+
+export const DEFAULT_CLAIM_DISCOVERY_SCHEDULE: ClaimDiscoverySchedule = {
+  enabled: false,
+  runs_per_day: 1,
+  run_hours_utc: [11],
+  timezone: "America/Los_Angeles",
+  run_times_local: ["03:00"],
+  initial_lookback_days: 7,
+  incremental_overlap_days: 1,
+  enabled_source_kinds: [...CLAIM_DISCOVERY_SOURCE_KINDS],
+  purchased_source_kinds: {},
+  max_runtime_seconds: 900,
+  scheduled_mode: "dry_run",
+  ...DEFAULT_MANUAL_WINDOW,
+};
+
+export const DEFAULT_CLAIM_POOL_GENERATION_SCHEDULE: ClaimPoolGenerationSchedule = {
+  enabled: false,
+  runs_per_day: 1,
+  run_hours_utc: [10],
+  timezone: "America/Los_Angeles",
+  run_times_local: ["02:30"],
+  rolling_days: 90,
+  enabled_source_kinds: [...CLAIM_POOL_SOURCE_KINDS],
+  purchased_source_kinds: {},
+  max_runtime_seconds: 900,
+  scheduled_mode: "dry_run",
+  ...DEFAULT_MANUAL_WINDOW,
+};
+
 export const DEFAULT_STORE_AUTOMATION_SETTINGS: StoreAutomationSettings = {
   product_enrichment: DEFAULT_PRODUCT_ENRICHMENT_SCHEDULE,
   removal_api_sync: DEFAULT_REMOVAL_API_SYNC_SCHEDULE,
   reimbursements_api: { ...DEFAULT_API_CARD_SCHEDULE },
   settlement_api: { ...DEFAULT_API_CARD_SCHEDULE, run_hours_utc: [7] },
   finances_archive_api: { ...DEFAULT_FINANCES_ARCHIVE_SCHEDULE },
+  claim_pool_generation: { ...DEFAULT_CLAIM_POOL_GENERATION_SCHEDULE },
+  claim_discovery: { ...DEFAULT_CLAIM_DISCOVERY_SCHEDULE },
+  claim_candidate_intake: null,
 };
 
 export const DEFAULT_PLATFORM_AUTOMATION_SETTINGS: PlatformAutomationSettings = {
@@ -270,4 +376,6 @@ export type AutomationApiCardId =
   | "reimbursements_api"
   | "settlement_api"
   | "finances_archive_api"
-  | "historical_backfill";
+  | "historical_backfill"
+  | "claim_pool_generation"
+  | "claim_discovery";

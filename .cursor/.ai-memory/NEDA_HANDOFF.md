@@ -149,6 +149,25 @@ When merge is approved, Neda integration **must preserve**:
 
 **Demo readiness:** [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
 
+## Scanner final QA handoff (2026-06-11)
+
+**Mode:** QA + UI polish only — do not rewrite scanner architecture, resolver, or schema.
+
+| Verify script | Result |
+|---------------|--------|
+| `phase6d-pallet-close-reopen-verify.ts` | PASS |
+| `phase6e-shipment-close-reopen-verify.ts` | PASS (code; `--skip-build`) |
+| `phase6d-unified-review-engine-verify.ts` | PASS |
+| `scanner-box-close-review-regression.ts` | PASS — SAFE_FOR_NEDA_PULL yes |
+
+**Neda may edit:** `app/scanner/operator-mobile/_components/*`, scan page UI sections, `ProductLinkagePrimaryLink`, scanner CSS/classes.
+
+**Neda must not edit:** `operator-store-actions.ts`, `app/returns/actions.ts`, `lib/scanner/*` review/receive core, migrations, product resolver modules.
+
+**Not wired in operator-mobile:** move item between boxes (delete + move box only). Missing shortage → manifest at box review; `claim_lines` at package finalize (6B); pallet/shipment close does **not** create claims.
+
+**Next Neda prompt:** `NEDA-OPERATOR-MOBILE-UI-POLISH-WAVE-1`
+
 ## Evidence
 
 `NEDA_FINAL_BACKEND_HANDOFF_V193.md` · `history-v196/20260522T230000Z/` · `history-memory-v196-closeout/20260522T230000Z/` · `v196-item-name-upc-ambiguous-lookup-fix/20260519T223000Z/` · `v197-product-linkage-table-census/20260522T120000Z/` · `product-linkage-browser-proof-signoff-v202/20260522T195000Z/` · `v200-product-lookup-browser-proof-complete/20260522T195000Z/`

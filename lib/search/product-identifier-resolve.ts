@@ -1,11 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUuidString } from "@/lib/uuid";
+import {
+  expandBarcodeLookupValues,
+  normalizeLinkageAsin,
+  normalizeLinkageFnsku,
+  normalizeLinkageSku,
+} from "@/lib/product-linkage-identifier-normalize";
+import {
+  RESOLUTION_ORDER_SCANNER,
+  computeProductLinkageConfidence,
+} from "@/lib/product-linkage-resolution-policy";
 
 /**
  * Phase 10 — canonical exact product identifier resolution.
- * Order: UPC → SKU → FNSKU → ASIN (product_identifier_map tier, then products direct).
+ * Order: UPC/EAN/GTIN → SKU → FNSKU → ASIN (product_identifier_map tier, then products direct).
+ * @see lib/product-linkage-resolution-policy.ts RESOLUTION_ORDER_SCANNER
  * No OCR/title matches, no product creation, no external API calls.
  */
+export const PRODUCT_IDENTIFIER_RESOLUTION_ORDER = RESOLUTION_ORDER_SCANNER;
 export type ResolveProductIdentifierInput = {
   organization_id: string;
   store_id: string | null;
@@ -17,6 +29,8 @@ export type ResolveProductIdentifierInput = {
   msku?: string | null;
   sku?: string | null;
   upc?: string | null;
+  gtin?: string | null;
+  ean?: string | null;
   ocr_product_name?: string | null;
   raw_text?: string | null;
   source_table?: string | null;
@@ -62,6 +76,17 @@ function firstCatalogId(rows: Record<string, unknown>[]): string | null {
 
 type MapColumn = "fnsku" | "seller_sku" | "msku" | "upc_code" | "asin";
 
+function finalizeResolveResult(r: ResolveProductIdentifierResult): ResolveProductIdentifierResult {
+  return {
+    ...r,
+    confidence: computeProductLinkageConfidence({
+      status: r.status,
+      baseConfidence: r.confidence,
+      matchedVia: r.matched_via,
+    }),
+  };
+}
+
 export async function resolveProductIdentifier(
   supabase: SupabaseClient,
   input: ResolveProductIdentifierInput,
@@ -90,10 +115,16 @@ export async function resolveProductIdentifier(
     meta.expected_packages_id = epHint;
   }
 
-  const fnsku = trimOrNull(input.fnsku);
-  const asin = trimOrNull(input.asin);
-  const sku = trimOrNull(input.sku) ?? trimOrNull(input.msku);
-  const upc = trimOrNull(input.upc);
+  const fnsku = normalizeLinkageFnsku(input.fnsku);
+  const asin = normalizeLinkageAsin(input.asin);
+  const sku = normalizeLinkageSku(input.sku) ?? normalizeLinkageSku(input.msku);
+  const barcodeVariants = [
+    ...new Set([
+      ...expandBarcodeLookupValues(input.upc),
+      ...expandBarcodeLookupValues(input.gtin),
+      ...expandBarcodeLookupValues(input.ean),
+    ]),
+  ];
 
   const mapSelect = "product_id, catalog_product_id, fnsku, asin, seller_sku";
 
@@ -203,37 +234,37 @@ export async function resolveProductIdentifier(
     return null;
   };
 
-  // Phase 10 order: UPC → SKU → FNSKU → ASIN (map tier then products at each step)
-  if (upc) {
+  // Phase 10 order: UPC/EAN/GTIN → SKU → FNSKU → ASIN (map tier then products at each step)
+  for (const upc of barcodeVariants) {
     const upcMap = await fromMap("upc_code", upc, "product_identifier_map.upc", 0.9);
-    if (upcMap) return upcMap;
+    if (upcMap) return finalizeResolveResult(upcMap);
     const upcDirect =
       (await fromProducts("upc_code", upc, "products.upc_code", 0.85)) ??
       (await fromProducts("barcode", upc, "products.barcode", 0.85));
-    if (upcDirect) return upcDirect;
+    if (upcDirect) return finalizeResolveResult(upcDirect);
   }
 
   if (sku) {
     const skuMap =
       (await fromMap("seller_sku", sku, "product_identifier_map.seller_sku", 0.9)) ??
       (await fromMap("msku", sku, "product_identifier_map.msku", 0.88));
-    if (skuMap) return skuMap;
+    if (skuMap) return finalizeResolveResult(skuMap);
     const directSku = await fromProducts("sku", sku, "products.sku", 0.85, asin && sku ? asin : null);
-    if (directSku) return directSku;
+    if (directSku) return finalizeResolveResult(directSku);
   }
 
   if (fnsku) {
     const hit =
       (await fromMap("fnsku", fnsku, "product_identifier_map.fnsku", 0.95)) ??
       (await fromProducts("fnsku", fnsku, "products.fnsku", 0.9));
-    if (hit) return hit;
+    if (hit) return finalizeResolveResult(hit);
   }
 
   if (asin) {
     const asinMap = await fromMap("asin", asin, "product_identifier_map.asin", 0.8);
-    if (asinMap) return asinMap;
+    if (asinMap) return finalizeResolveResult(asinMap);
     const asinDirect = await fromProducts("asin", asin, "products.asin", 0.75);
-    if (asinDirect) return asinDirect;
+    if (asinDirect) return finalizeResolveResult(asinDirect);
   }
 
   if (trimOrNull(input.ocr_product_name) || trimOrNull(input.raw_text)) {
@@ -246,7 +277,7 @@ export async function resolveProductIdentifier(
     status: "unresolved",
     confidence: 0,
     matched_via: "none",
-    review_required: Boolean(fnsku || asin || sku || upc),
+    review_required: Boolean(fnsku || asin || sku || barcodeVariants.length > 0),
     meta,
   };
 }

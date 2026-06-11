@@ -2,7 +2,7 @@
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765`  
 **Staging:** `eiqfaapyumhixxoeltgu`  
-**Last updated:** 2026-06-17 (`phase1-demo-ready-history-memory-sync` `20260617T120000Z`)
+**Last updated:** 2026-06-11 (`phase-scanner-final-qa-neda-handoff` `20260611T045500Z`)
 
 Contract reference: [SCANNER_OPERATOR_CONTRACTS.md](SCANNER_OPERATOR_CONTRACTS.md) · [SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md](SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md) · [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
 
@@ -37,4 +37,20 @@ Merge **must preserve** scanner UX + Phase1 governed allocation/release rules. S
 
 ## P0 next
 
-**PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE**
+**PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE** · **PHASE-SCANNER-FINAL-QA-AND-NEDA-HANDOFF** (2026-06-11)
+
+## Scanner QA handoff (2026-06-11)
+
+| Item | Status |
+|------|--------|
+| Phase 6D pallet close/reopen | **VERIFY PASS** (code) |
+| Phase 6E shipment close/reopen | **VERIFY PASS** (code; build gate skipped) |
+| Phase 6D unified review engine | **VERIFY PASS** |
+| Box close review regression | **PASS** — SAFE_FOR_NEDA_PULL yes |
+| Backend receive path | **~90–95%** — Neda UI polish lane |
+| Move item (operator-mobile) | **NOT WIRED** — delete + move box only |
+| Runtime staging smoke | **Operator `--execute`** — not re-run this session |
+
+**Neda:** polish UI only on modals + scan page; do not touch server actions, resolver, migrations.
+
+Evidence: `phase6d-pallet-close-reopen-verify` · `phase6e-shipment-close-reopen-verify` · `scanner-box-close-review-regression`

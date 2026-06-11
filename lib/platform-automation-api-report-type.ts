@@ -6,7 +6,9 @@ export type AutomationApiReportType =
   | "reimbursements"
   | "settlement"
   | "finances_archive"
-  | "older_backfill";
+  | "older_backfill"
+  | "claim_pool_generation"
+  | "claim_discovery";
 
 export const AUTOMATION_API_REPORT_TYPE_OPTIONS: {
   value: AutomationApiReportType;
@@ -18,6 +20,8 @@ export const AUTOMATION_API_REPORT_TYPE_OPTIONS: {
   { value: "settlement", label: "Settlement API" },
   { value: "finances_archive", label: "Finances Archive API" },
   { value: "older_backfill", label: "Older Data Backfill" },
+  { value: "claim_pool_generation", label: "Claim Pool Generation" },
+  { value: "claim_discovery", label: "Claim Discovery Engine" },
 ];
 
 export const AUTOMATION_API_REPORT_TYPE_STORAGE_KEY = "platform-automation-report-type-v1";

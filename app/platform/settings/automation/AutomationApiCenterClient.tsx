@@ -36,6 +36,8 @@ import {
   deriveUtcRunTimesDisplayFromLocal,
   formatHoursUtcForInput,
   formatLocalRunTimesForInput,
+  computeClaimDiscoveryNextRun,
+  computeClaimPoolGenerationNextRun,
   isAnyStoreAutomationScheduleEnabled,
   normalizeStoreAutomationSettings,
   parseHoursUtcFromInput,
@@ -92,6 +94,8 @@ import {
 import { responsiveFormInput, responsivePageInner, responsivePageOuter } from "@/lib/responsive-page-shell";
 import { PageHeaderWithInfo } from "../../components/page-header-with-info";
 import { AutomationScopeBar } from "./AutomationScopeBar";
+import { ClaimDiscoveryCard } from "./ClaimDiscoveryCard";
+import { ClaimPoolGenerationCard } from "./ClaimPoolGenerationCard";
 import {
   DryRunNote,
   EnabledToggle,
@@ -147,6 +151,28 @@ function resolveWindow(startDate: string, endDate: string): { window_start: stri
 function isBrowserLocalhost(): boolean {
   if (typeof window === "undefined") return false;
   return /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+}
+
+function selectedTypeEnabled(
+  v: StoreAutomationSettingsView,
+  rt: AutomationApiReportType,
+): boolean {
+  switch (rt) {
+    case "product_data_update":
+      return Boolean(v.product_enrichment.enabled);
+    case "removal_shipment":
+      return Boolean(v.removal_api_sync.enabled);
+    case "reimbursements":
+      return Boolean(v.reimbursements_api.enabled);
+    case "settlement":
+      return Boolean(v.settlement_api.enabled);
+    case "finances_archive":
+      return Boolean(v.finances_archive_api.enabled);
+    case "older_backfill":
+      return Boolean(v.removal_api_sync.enabled && v.removal_api_sync.historical_backfill.enabled);
+    default:
+      return false;
+  }
 }
 
 function mergeManualRunState(
@@ -497,7 +523,7 @@ export function AutomationApiCenterClient() {
     }
     setView(res.view);
     hydrateDraft(res.view);
-    const enabled = res.view.removal_api_sync.enabled;
+    const enabled = selectedTypeEnabled(res.view, apiReportType);
     setMessage(
       enabled
         ? "Settings saved. Schedule is enabled — next run is shown below."
@@ -1008,6 +1034,20 @@ export function AutomationApiCenterClient() {
             lastRun: scopeRuntime.finances_archive_api.last_run_at,
             nextRun: savedNextRuns.finances,
             status: scopeRuntime.finances_archive_api.last_run_status,
+          }}
+          claimPool={{
+            label: "Claim Pool Generation",
+            enabled: savedSettings.claim_pool_generation.enabled,
+            lastRun: savedSettings.claim_pool_generation.cron_runtime?.last_run_at ?? null,
+            nextRun: computeClaimPoolGenerationNextRun(savedSettings.claim_pool_generation),
+            status: savedSettings.claim_pool_generation.cron_runtime?.last_run_status ?? "never",
+          }}
+          claimDiscovery={{
+            label: "Claim Discovery Engine",
+            enabled: savedSettings.claim_discovery.enabled,
+            lastRun: savedSettings.claim_discovery.cron_runtime?.last_run_at ?? null,
+            nextRun: computeClaimDiscoveryNextRun(savedSettings.claim_discovery),
+            status: savedSettings.claim_discovery.cron_runtime?.last_run_status ?? "never",
           }}
         />
 
@@ -1893,6 +1933,14 @@ export function AutomationApiCenterClient() {
               />
             </div>
           </section>
+          ) : null}
+
+          {apiReportType === "claim_pool_generation" ? (
+            <ClaimPoolGenerationCard orgId={orgId} storeId={storeId} />
+          ) : null}
+
+          {apiReportType === "claim_discovery" ? (
+            <ClaimDiscoveryCard orgId={orgId} storeId={storeId} />
           ) : null}
 
           {savedPreview || savePreview ? (

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { assertUserCanAccessOrganization } from "../../../dashboard/products/pim-actions";
+import { fetchCenterCandidateRows, centerModuleGateOrThrow, CenterApiError } from "../../../../lib/claims/center/claim-center-api-handlers";
+import { parseBoolParam } from "../../../../lib/claims/center/claim-center-api-shared";
 import {
   claimInboxStr,
   projectClaimCandidatesBatch,
@@ -122,6 +124,31 @@ export async function GET(req: Request) {
     const storeOk = await assertStoreBelongsToOrganization(organizationId, storeIdParam);
     if (!storeOk.ok) {
       return NextResponse.json({ error: storeOk.error }, { status: storeOk.status });
+    }
+  }
+
+  const view = String(url.searchParams.get("view") ?? "").trim();
+  if (view === "center_v1") {
+    try {
+      await centerModuleGateOrThrow(organizationId);
+      const limit = Math.min(200, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
+      const includeQuarantined = parseBoolParam(url, "include_quarantined", false);
+      const includeLegacySeed = parseBoolParam(url, "include_legacy_seed", false);
+      const statusGroupRaw = String(url.searchParams.get("status_group") ?? "").trim();
+      const items = await fetchCenterCandidateRows(organizationId, {
+        storeId: storeIdParam || null,
+        limit,
+        includeQuarantined,
+        includeLegacySeed,
+        statusGroup: statusGroupRaw ? (statusGroupRaw as import("../../../../lib/claims/center/claim-center-v1-types").ClaimCenterV1StatusGroup) : null,
+      });
+      return NextResponse.json({ view: "center_v1", items, count: items.length });
+    } catch (e) {
+      if (e instanceof CenterApiError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      const msg = e instanceof Error ? e.message : "Query failed.";
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
   }
 
