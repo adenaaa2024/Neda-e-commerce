@@ -1,17 +1,26 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-13 (`phase-shipment25-no-link-screenshot-specific-audit-v1` `20260613T055446Z`)
+**Last updated:** 2026-06-13 (`phase-shipment-entry-product-linkage-all-paths-original-verify-v1` `20260613T062152Z`)
 
 ---
 
-## P0 — Shipment #25 screenshot items (governed map plan)
+## P0 — Original runtime + browser verify
 
-1. **PHASE-SHIPMENT25-UNMAPPED-IDENTIFIER-GOVERNED-MAP-PLAN-V1** — ZZQDPD4GHB + ZZQCP25AW3 are **true unmapped** on original (0 map hits); visible names = slip OCR description; No Link is **correct**; governed manual map only — no auto-create  
-2. ~~**PHASE-SHIPMENT25-NO-LINK-SCREENSHOT-SPECIFIC-AUDIT-V1**~~ — **DONE** `20260613T055446Z`  
-3. Env swap still recommended for other linked samples (X004LKS4VD etc.) — see bind verify
+1. **PHASE-ORIGINAL-RUNTIME-ENV-SWAP-AND-RESTART-V1** — `.env.local` still staging; dev on 3000/3001 must restart after swap  
+2. **PHASE-SHIPMENT-ENTRY-LINKAGE-UI-BROWSER-SMOKE-V1** — after env swap + deploy parity fix  
+3. ~~**PHASE-SHIPMENT-ENTRY-PRODUCT-LINKAGE-ALL-PATHS-ORIGINAL-VERIFY-V1**~~ — **DONE** `20260613T062152Z` — original readmodel PASS; runtime mismatch blocks UI claim path  
+4. **PHASE-SHIPMENT25-UNMAPPED-IDENTIFIER-GOVERNED-MAP-PLAN-V1** — ZZQDPD4GHB / ZZQCP25AW3 governed map (no auto-create)
 
-Evidence: `.cursor/audit-reports/phase-shipment25-no-link-screenshot-specific-audit-v1/20260613T055446Z/`
+Evidence: `.cursor/audit-reports/phase-shipment-entry-product-linkage-all-paths-original-verify-v1/20260613T062152Z/`
+
+---
+
+## P0 — Shipment Entry linkage parity (deploy verify)
+
+1. ~~**PHASE-SHIPMENT-ENTRY-PRODUCT-LINKAGE-ALL-PATHS-PARITY-FIX-V1**~~ — **DONE** `20260613T061122Z`  
+
+Evidence: `.cursor/audit-reports/phase-shipment-entry-product-linkage-all-paths-parity-fix-v1/20260613T061122Z/`
 
 ---
 

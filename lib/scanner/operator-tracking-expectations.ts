@@ -12,6 +12,7 @@ import {
   primaryLabelForExpectedPackageLinkage,
   scanQuantityVariance,
 } from "@/lib/scanner/expected-packages-read-contract";
+import { normalizeScannerProductLinkageDisplay } from "@/lib/scanner/normalize-scanner-product-linkage-display";
 import { isUuidString } from "@/lib/uuid";
 import { findPackageIdsByTrackingForStore } from "@/lib/scanner/package-tracking-lookup";
 import {
@@ -611,6 +612,8 @@ export async function enrichTrackingOperatorLinesWithProductLinkage(
   supabase: SupabaseClient,
   lines: TrackingOperatorLine[],
   rawExpectedRows: Record<string, unknown>[],
+  organizationId: string,
+  storeId: string | null,
 ): Promise<TrackingOperatorLine[]> {
   const nameMap = await fetchResolvedProductNamesForExpectedRows(
     supabase as unknown as ProductsLookupClient,
@@ -623,16 +626,40 @@ export async function enrichTrackingOperatorLinesWithProductLinkage(
     arr.push(r);
     rowsByKey.set(key, arr);
   }
-  return lines.map((line) => {
-    const bucket = rowsByKey.get(line.groupKey) ?? [];
-    const product_linkage = mergeExpectedPackageRowsProductLinkage(bucket, nameMap);
-    const label = primaryLabelForExpectedPackageLinkage(product_linkage);
-    return {
-      ...line,
-      product_linkage,
-      productLabel: label && label !== "Line item" ? label : line.productLabel,
-    };
-  });
+  const org = String(organizationId ?? "").trim();
+  return Promise.all(
+    lines.map(async (line) => {
+      const bucket = rowsByKey.get(line.groupKey) ?? [];
+      const merged = mergeExpectedPackageRowsProductLinkage(bucket, nameMap);
+      const head = bucket[0] ?? {};
+      const product_linkage =
+        org && isUuidString(org)
+          ? await normalizeScannerProductLinkageDisplay(supabase, {
+              organizationId: org,
+              storeId: (storeId ?? String(head.store_id ?? "").trim()) || null,
+              sourceTable: "expected_packages",
+              sourceRowId: typeof head.id === "string" ? head.id : null,
+              row: {
+                resolved_product_id: merged.resolved_product_id,
+                product_id: deriveExpectedPackageEffectiveProductId(head),
+                identifier_resolution_status: merged.identifier_resolution_status,
+                identifier_resolution_confidence: merged.identifier_resolution_confidence,
+                product_name: merged.product_name,
+                fnsku: typeof head.fnsku === "string" ? head.fnsku : null,
+                sku: typeof head.sku === "string" ? head.sku : null,
+                asin: typeof head.asin === "string" ? head.asin : null,
+                description: merged.fallback_display_name,
+              },
+            })
+          : merged;
+      const label = primaryLabelForExpectedPackageLinkage(product_linkage);
+      return {
+        ...line,
+        product_linkage,
+        productLabel: label && label !== "Line item" ? label : line.productLabel,
+      };
+    }),
+  );
 }
 
 export async function loadPalletExpectationSnapshot(
@@ -675,7 +702,13 @@ export async function loadPalletExpectationSnapshot(
     scannedMaps.bySkuFnsku,
     scannedMaps.byProductId,
   );
-  const lines = await enrichTrackingOperatorLinesWithProductLinkage(supabase, baseLines, raw);
+  const lines = await enrichTrackingOperatorLinesWithProductLinkage(
+    supabase,
+    baseLines,
+    raw,
+    organizationId,
+    storeId,
+  );
   return {
     lines,
     totals,
@@ -1048,7 +1081,13 @@ export async function loadTrackingExpectationSnapshot(
     scannedMaps.bySkuFnsku,
     scannedMaps.byProductId,
   );
-  const lines = await enrichTrackingOperatorLinesWithProductLinkage(supabase, baseLines, raw);
+  const lines = await enrichTrackingOperatorLinesWithProductLinkage(
+    supabase,
+    baseLines,
+    raw,
+    organizationId,
+    storeId,
+  );
   return {
     lines,
     totals,

@@ -185,6 +185,7 @@ import {
   buildProductLinkageFromResolveResult,
   hydrateReturnItemProductLinkage,
 } from "@/lib/scanner/hydrate-return-item-product-linkage";
+import { normalizeScannerProductLinkageDisplay, productLinkageShowsLinkedStatus } from "@/lib/scanner/normalize-scanner-product-linkage-display";
 import { applyReturnItemProductEnrichmentAfterInsert } from "@/lib/scanner/apply-return-item-product-enrichment";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
@@ -662,31 +663,29 @@ export async function listOperatorSlipContentsForPackageAction(
     };
   });
 
-  const productIds = linkageStubs
-    .map((s) => s.resolved_product_id)
-    .filter((id): id is string => Boolean(id));
-  const productNameById = await fetchProductNamesByResolvedIds(
-    supabaseServer as unknown as ProductsLookupClient,
-    productIds,
-  );
+  const effectiveStore =
+    scope && isUuidString(scope) ? scope : pkgStore && isUuidString(pkgStore) ? pkgStore : null;
 
-  const normalized: OperatorSlipContentsListRow[] = linkageStubs.map((stub) => {
-    const { resolved_product_id, identifier_resolution_status, identifier_resolution_confidence, ...rest } = stub;
-    return {
-      ...rest,
-      product_linkage: buildProductLinkageDisplayContract(
-        {
-          resolved_product_id,
-          identifier_resolution_status,
-          identifier_resolution_confidence,
-          description: stub.description,
-          fnsku: stub.fnsku,
-          upc: stub.upc,
-        },
-        productNameById,
-      ),
-    };
-  });
+  const normalized: OperatorSlipContentsListRow[] = [];
+  for (const stub of linkageStubs) {
+    const { resolved_product_id, identifier_resolution_status, identifier_resolution_confidence, ...rest } =
+      stub;
+    const product_linkage = await normalizeScannerProductLinkageDisplay(supabaseServer, {
+      organizationId,
+      storeId: effectiveStore,
+      sourceTable: "slip_contents",
+      sourceRowId: stub.id,
+      row: {
+        resolved_product_id,
+        identifier_resolution_status,
+        identifier_resolution_confidence,
+        description: stub.description,
+        fnsku: stub.fnsku,
+        upc: stub.upc,
+      },
+    });
+    normalized.push({ ...rest, product_linkage });
+  }
 
   return { ok: true, rows: normalized };
 }
@@ -3411,18 +3410,11 @@ export async function listOperatorPackageItemsForPackageAction(
     }
   }
 
-  const productIds = stubs
-    .flatMap((s) => {
-      const slipLink = s.slip_content_id ? slipLinkageById.get(s.slip_content_id) : undefined;
-      return [s.resolved_product_id, slipLink?.resolved_product_id ?? null];
-    })
-    .filter((id): id is string => Boolean(id));
-  const productNameById = await fetchProductNamesByResolvedIds(
-    supabaseServer as unknown as ProductsLookupClient,
-    productIds,
-  );
+  const effectiveStore =
+    scope && isUuidString(scope) ? scope : pkgStore && isUuidString(pkgStore) ? pkgStore : null;
 
-  const rows: OperatorPackageItemRow[] = stubs.map((stub) => {
+  const rows: OperatorPackageItemRow[] = [];
+  for (const stub of stubs) {
     const {
       resolved_product_id: riResolvedId,
       identifier_resolution_status: riStatus,
@@ -3432,6 +3424,7 @@ export async function listOperatorPackageItemsForPackageAction(
       sku,
       product_identifier,
       slip_content_id,
+      id,
       ...rest
     } = stub;
     const slipLink = slip_content_id ? slipLinkageById.get(slip_content_id) : undefined;
@@ -3442,29 +3435,40 @@ export async function listOperatorPackageItemsForPackageAction(
     const identifier_resolution_confidence = riResolvedId
       ? riConfidence
       : (slipLink?.identifier_resolution_confidence ?? riConfidence);
-    return {
+
+    const product_linkage =
+      slipLink && productLinkageShowsLinkedStatus(slipLink)
+        ? slipLink
+        : await normalizeScannerProductLinkageDisplay(supabaseServer, {
+            organizationId,
+            storeId: effectiveStore,
+            sourceTable: RETURN_ITEMS_TABLE,
+            sourceRowId: id,
+            row: {
+              resolved_product_id,
+              identifier_resolution_status,
+              identifier_resolution_confidence,
+              item_name,
+              fnsku,
+              sku,
+              product_identifier,
+              upc: product_identifier,
+              description: slipLink?.fallback_display_name ?? item_name,
+            },
+          });
+
+    rows.push({
       ...rest,
+      id,
       slip_content_id,
       fnsku: fnsku?.trim() ? fnsku.trim() : null,
       sku: sku?.trim() ? sku.trim() : null,
       product_identifier: product_identifier?.trim() ? product_identifier.trim() : null,
       created_by_display: null,
       updated_by_display: null,
-      product_linkage: buildProductLinkageDisplayContract(
-        {
-          resolved_product_id,
-          identifier_resolution_status,
-          identifier_resolution_confidence,
-          item_name,
-          fnsku,
-          sku,
-          product_identifier,
-          description: slipLink?.fallback_display_name ?? null,
-        },
-        productNameById,
-      ),
-    };
-  });
+      product_linkage,
+    });
+  }
 
   const filtered = rows.filter((r) => r.id);
   const enriched = await enrichOperatorPackageItemRowsWithAuditLabels(filtered);

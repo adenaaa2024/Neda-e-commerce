@@ -233999,3 +233999,48 @@ Product names on screen = slip OCR description, **not** catalog linkage.
 ================================================================================
 END APPEND SLICE -- 20260613T055446Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T061122Z -- PHASE-SHIPMENT-ENTRY-PRODUCT-LINKAGE-ALL-PATHS-PARITY-FIX-V1
+================================================================================
+
+### Fix (display/readmodel only — no DB writes, no scanner save logic)
+- lib/scanner/normalize-scanner-product-linkage-display.ts — single normalize + resolveIfNeeded + status labels
+- Wired: listOperatorSlipContentsForPackageAction, listOperatorPackageItemsForPackageAction, hydrateReturnItemProductLinkage, enrichTrackingOperatorLinesWithProductLinkage
+- productLinkageOperatorPrimaryDisplayLabel — slip description as title when unmapped (chip still No Link)
+
+### Smoke (staging + original read-only)
+- X004LKS4VD, X003VSWH37 → Linked
+- X000NOMAP99 → No product link yet
+- ZZQDPD4GHB, ZZQCP25AW3 → No Link (true unmapped — correct)
+- build PASS; SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/phase-shipment-entry-product-linkage-all-paths-parity-fix-v1/20260613T061122Z/
+
+### Next Prompt
+PHASE-SHIPMENT-ENTRY-LINKAGE-UI-BROWSER-SMOKE-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T061122Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T062152Z -- PHASE-SHIPMENT-ENTRY-PRODUCT-LINKAGE-ALL-PATHS-ORIGINAL-VERIFY-V1
+================================================================================
+
+### Original read-only verify (no DB writes, no code changes)
+- Script: scripts/phase-shipment-entry-product-linkage-all-paths-original-verify-v1.ts
+- Original DB kxsvedvpjldygtdbylsy readmodel PASS via normalizeScannerProductLinkageDisplay
+- Controls: X004LKS4VD Linked; X000NOMAP99 No Link; X003UR3W83 Needs product review
+- Shipment #25 ZZQDPD4GHB / ZZQCP25AW3: 0 map hits; slip_contents source; No Link correct
+- Runtime NEXT_PUBLIC still staging eiqfaapyumhixxoeltgu; dev servers active — restart after swap
+- save_mutations_unchanged: yes (display-only uncommitted list diffs)
+- SAFE_TO_CONTINUE_CLAIM_WORK: no (runtime mismatch)
+- NEXT: PHASE-ORIGINAL-RUNTIME-ENV-SWAP-AND-RESTART-V1
+
+Evidence: .cursor/audit-reports/phase-shipment-entry-product-linkage-all-paths-original-verify-v1/20260613T062152Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T062152Z
+================================================================================
