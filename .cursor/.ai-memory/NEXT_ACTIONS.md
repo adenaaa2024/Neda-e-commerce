@@ -1,14 +1,23 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-13 (`phase-product-linkage-operational-rows-backfill-dryrun-v1` `20260613T052709Z`)
+**Last updated:** 2026-06-13 (`phase-original-product-no-link-emergency-readonly-diagnose-v1` `20260613T053153Z`)
 
 ---
 
-## P0 — Wave 1 operational linkage backfill
+## P0 — Original product No Link (blocks all claim/linkage work)
+
+1. **PHASE-ORIGINAL-RUNTIME-ENV-BIND-AND-LINKAGE-FIX-DEPLOY-VERIFY-V1** — bind original deploy to `kxsvedvpjldygtdbylsy` (`ORIGINAL_*` env); deploy readmodel fix (`effectiveResolvedProductId` / enrich); verify samples show **Linked** on original URL; no DB writes  
+2. Wave 1 backfill write — **BLOCKED** until P0 verified
+
+Evidence: `.cursor/audit-reports/phase-original-product-no-link-emergency-readonly-diagnose-v1/20260613T053153Z/`
+
+---
+
+## P1 — Wave 1 operational linkage backfill (blocked)
 
 1. ~~**PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-DRYRUN-V1**~~ — **DONE** `20260613T052709Z` — 9831 resolvable / 0 ambiguous; preimage+rollback ready  
-2. **PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-STAGING-WRITE-V1** — staging write with preimage export; tables wave1 only; **no claim_candidates**; Maysam approval required  
+2. **PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-STAGING-WRITE-V1** — **BLOCKED** until P0 original No Link resolved; staging write with preimage export; tables wave1 only; **no claim_candidates**; Maysam approval required  
 3. Original write: **blocked** until staging write verified
 
 Evidence: `.cursor/audit-reports/phase-product-linkage-operational-rows-backfill-dryrun-v1/20260613T052709Z/`

@@ -233882,3 +233882,45 @@ PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-STAGING-WRITE-V1
 ================================================================================
 END APPEND SLICE -- 20260613T052709Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T053153Z -- PHASE-ORIGINAL-PRODUCT-NO-LINK-EMERGENCY-READONLY-DIAGNOSE-V1
+================================================================================
+
+### Mode
+Emergency read-only diagnosis only. No DB writes. No backfills. No scanner/resolver/RBAC changes.
+
+### Samples (original kxsvedvpjldygtdbylsy + staging eiqfaapyumhixxoeltgu compare)
+| Sample | Original map | product_id | store_match |
+| B0000B11UX | 1 | 8beddd08-4133-48fb-abc1-279e61af8caf | yes |
+| X004LKS4VD | 1 | 7e5e05f7-c98a-41a7-85e8-62720ffdc8de | yes |
+| X003VSWH37 | 1 | 4730d58a-237a-4960-9152-0f40af45640d | yes |
+| X000NOMAP99 (control) | 0 | — | no |
+
+Staging mirror: identical map rows/IDs for linked samples.
+
+### Product detail API simulation (X004LKS4VD, org+store correct)
+- Original bound: product_found=true, map_rows=1, derived_linkage **Linked**
+- Staging bound: same
+- Wrong store sim: product_found=false, map_rows=0
+
+### Root cause
+**runtime_env_mismatch_original_ui_hits_staging_or_wrong_ref** + **cache/deploy mismatch** (readmodel fix may not be on original bundle).
+
+### Verdict flags
+- whether_data_is_intact: **yes**
+- whether_RLS_blocks_linkage: service_role **no**; anon **yes by design** for product_identifier_map
+- whether_UI_payload_mismatch: **no** (when bound correctly)
+- whether_cache_or_deploy_mismatch: **yes**
+- SAFE_TO_FIX_WITH_CODE_ONLY: **yes**
+- NO_DATA_MUTATION_VERIFICATION: **PASS**
+
+### Evidence
+- .cursor/audit-reports/phase-original-product-no-link-emergency-readonly-diagnose-v1/20260613T053153Z/
+
+### Next Prompt
+PHASE-ORIGINAL-RUNTIME-ENV-BIND-AND-LINKAGE-FIX-DEPLOY-VERIFY-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T053153Z
+================================================================================
