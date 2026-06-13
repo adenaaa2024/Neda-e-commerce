@@ -153,6 +153,8 @@ import {
   reconcileReturnItemsSlipContentsAction,
   deleteOperatorPackageItemAction,
   saveOperatorEmptyBoxAction,
+  saveOperatorBoxSlipEvidenceReviewAction,
+  logOperatorBoxSlipOcrAuditAction,
   finalizeOperatorPackageItemScanAction,
   patchPackageMissingReviewAction,
   reopenOperatorPackageReceiveAction,
@@ -167,6 +169,7 @@ import {
   reopenOperatorShipmentCloseAction,
   getOperatorShipmentCloseStateAction,
   type DuplicatePackingSlipInfo,
+  type OperatorMobileCorrectionPermissions,
   type OperatorPackageItemRow,
   type OperatorPackageListRow,
   type OperatorSlipContentsListRow,
@@ -216,6 +219,8 @@ import { SlipShipmentValidationShipmentOnlyHint } from "@/app/scanner/operator-m
 import { BoxCloseReviewModal } from "@/app/scanner/operator-mobile/_components/BoxCloseReviewModal";
 import { PalletCloseReviewModal } from "@/app/scanner/operator-mobile/_components/PalletCloseReviewModal";
 import { ShipmentCloseReviewModal } from "@/app/scanner/operator-mobile/_components/ShipmentCloseReviewModal";
+import { ShipmentExpectedCompactCard } from "@/app/scanner/operator-mobile/_components/ShipmentExpectedCompactCard";
+import { ShipmentExpectedReviewModal } from "@/app/scanner/operator-mobile/_components/ShipmentExpectedReviewModal";
 import type {
   SlipShipmentValidationLine,
   SlipShipmentValidationPreview,
@@ -238,6 +243,17 @@ import {
   buildShipmentCloseReviewModelFromPreview,
   buildShipmentCloseReviewSnapshot,
 } from "@/lib/scanner/shipment-close-review";
+import {
+  buildShipmentExpectedContextFromGate,
+  buildShipmentExpectedContextFromTrackingLines,
+  clearShipmentExpectedContext,
+  loadShipmentExpectedContext,
+  enrichShipmentExpectedContextCarrier,
+  mergeLiveTrackingLinesIntoContext,
+  persistShipmentExpectedContext,
+  resolveCarrierFromExpectedRecords,
+  type ShipmentExpectedContext,
+} from "@/lib/scanner/shipment-expected-context";
 import type { PalletShipmentReviewPreview } from "@/lib/scanner/pallet-shipment-review-types";
 import { readMissingReviewEntries } from "@/lib/scanner/package-missing-review-manifest";
 import {
@@ -252,6 +268,26 @@ import {
 } from "@/lib/scanner/item-unit-discrepancy-tags";
 import { itemScanSaveShouldTreatAsOffSlip, returnItemNotesMarkOffSlip } from "@/lib/scanner/item-scan-off-slip";
 import {
+  boxScopedExpectedQtyForReferenceRow,
+  buildItemScanReferenceBucketsClientSide,
+  coalesceShipmentExpectedRowsForReferenceMerge,
+  itemScanReferenceBucketsUseMergedDisplay,
+  itemScanReferenceHasSlipSources,
+  itemScanReferenceSourceBadgeLabel,
+  itemScanReferenceTopRowsWithScans,
+  itemScanReferenceUsesMergedRender,
+  mergedReferenceBoxScopedExpectedQty,
+  qtyLineForReferenceRow,
+  type ItemScanReferenceDisplayRow,
+  type ItemScanReferenceSourceBadge,
+} from "@/lib/scanner/item-scan-reference-buckets";
+import {
+  expectedPackageRowToProductGrain,
+  productGrainKey,
+  productGrainsMatch,
+  slipRowToProductGrain,
+} from "@/lib/scanner/product-grain-match";
+import {
   resolveItemScanOverLimitContext,
   shouldRequireItemScanOverLimitConfirmation,
 } from "@/lib/scanner/item-scan-over-limit-confirm";
@@ -261,12 +297,46 @@ import {
   slipLineStatusBadgeState,
   type SlipLineExpectedVsReceived,
 } from "@/lib/scanner/slip-contents-missing-expected";
-import { packageManifestHasEmptyBox } from "@/lib/scanner/package-empty-box-manifest";
+import { readBoxIntakeManifestFlags } from "@/lib/scanner/package-empty-box-manifest";
 import {
+  buildEvidenceLinesWithAudit,
+  cloneBoxSlipEvidenceLines,
+  evidenceLinesFromVisionLines,
+  mergeBoxSlipEvidenceReview,
+  readBoxSlipEvidenceReview,
+  resolveBoxSlipEvidenceDisplay,
+  type BoxSlipEvidenceLine,
+  type BoxSlipEvidenceReview,
+} from "@/lib/scanner/package-box-slip-evidence";
+import { BoxSlipLinesEditModal } from "@/app/scanner/operator-mobile/_components/BoxSlipLinesEditModal";
+import {
+  BoxSlipCorrectionActionSheet,
+  type BoxSlipCorrectionSheetMode,
+} from "@/app/scanner/operator-mobile/_components/BoxSlipCorrectionActionSheet";
+import {
+  computeSlipOcrEditStats,
+  OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS,
+} from "@/lib/scanner/package-box-slip-ocr-audit";
+import {
+  formatSystemNoteForDisplay,
+  mergePackageBoxNotesForPersist,
+  packageOperatorNotesIndicateManualDiscrepancyHold,
+  splitPackageBoxNotes,
+} from "@/lib/scanner/package-box-operator-notes";
+import {
+  mergePackageManifestReceiveFinalize,
   packageReceiveStateIsFinalized,
   readPackageReceiveState,
   type PackageReceiveState,
 } from "@/lib/scanner/package-receive-state-contract";
+import {
+  mergeOperatorItemScanIntakeCommitted,
+  mergeOperatorItemScanStarted,
+  operatorPackageReceivingInProgress,
+  packageExplicitBoxIntakeSaved,
+  packageLegacyItemScanWorkflowTouched,
+  readOperatorItemScanStartedAt,
+} from "@/lib/scanner/package-operator-item-scan";
 import {
   missingReviewEntryForSlip,
   missingReviewRecordedQtyForSlip,
@@ -354,10 +424,9 @@ type OperatorActivePallet = {
   carrier_name?: string | null;
   /** `pallets.order_id` when known from resolve / persist (hydrate is authoritative for display state). */
   order_id?: string | null;
+  /** `pallets.tracking_number` — read-only fallback for shipment scope when session tracking fields are empty. */
+  tracking_number?: string | null;
 };
-
-const DISCREPANCY_AUTO_NOTE =
-  "Discrepancy detected: Physical count does not match slip count.";
 
 /** Theme tokens — defined on `.operator-mobile-app-shell` (see globals.css). */
 const BG = "var(--scanner-bg)";
@@ -693,6 +762,7 @@ type HydratedBoxSlipVisionSnapshot = {
   slipOrderId: string;
   slipConflictingOrderId: string;
   packageOrderId: string;
+  evidenceReview: BoxSlipEvidenceReview | null;
 };
 
 /** DB + manifest → BOX slip vision UI snapshot (`slip_contents` preferred over manifest JSON). */
@@ -734,6 +804,7 @@ async function loadHydratedBoxSlipVisionSnapshot(input: {
 
   const slipCode = sidRow || fromManifest.slipCode || slipCodeFromContents || "";
   const norm = normalizeSlipOrderConflictPair(slipOrder, slipConflicting);
+  const evidenceReview = readBoxSlipEvidenceReview(input.manifestRaw);
   return {
     lines,
     slipCode,
@@ -741,6 +812,7 @@ async function loadHydratedBoxSlipVisionSnapshot(input: {
     slipOrderId: norm.slip,
     slipConflictingOrderId: norm.conflicting,
     packageOrderId: String(input.packageOrderId ?? "").trim(),
+    evidenceReview,
   };
 }
 
@@ -844,6 +916,7 @@ function mergeManifestMissingIntoVisionLines(
 
 type OperatorPackagePickerStatus = "discrepancy" | "complete" | "partial" | "finalized";
 
+const OP_LABEL_REVIEW_CLOSE_BOX = "Review & Close Box";
 const OP_LABEL_CLOSE_BOX = "Close Box";
 const OP_LABEL_CLOSE_PALLET = "Close Pallet";
 const OP_LABEL_CLOSE_SHIPMENT = "Close Shipment";
@@ -851,8 +924,478 @@ const OP_LABEL_REOPEN_BOX = "Reopen Box";
 const OP_LABEL_REOPEN_PALLET = "Reopen Pallet";
 const OP_LABEL_REOPEN_SHIPMENT = "Reopen Shipment";
 const OP_BANNER_BOX_FINALIZED = "Box finalized — tap Reopen Box to edit.";
+const BOX_EMPTY_BOX_TAP_EDIT_HELPER = "Tap Edit to change empty-box status.";
+const BOX_SLIP_OCR_TAP_EDIT_HELPER = "Tap Edit to change packing slip review.";
+const BOX_EMPTY_BOX_SCANNED_ITEMS_BLOCK =
+  "Remove scanned items before marking this box empty.";
 const OP_BANNER_PALLET_FINALIZED = "Pallet finalized — tap Reopen Pallet to edit.";
 const OP_BANNER_SHIPMENT_FINALIZED = "Shipment finalized — tap Reopen Shipment to edit.";
+const OP_SECTION_FINISH_RECEIVE = "Finish receive";
+const OP_SECTION_NEXT_STEP = "Next step";
+const OP_HUB_FINISH_NO_PERMISSION =
+  "You do not have permission to close this shipment.";
+const OP_HUB_FINISH_LOADING = "Loading receive actions...";
+const OP_HUB_FINISH_LOAD_FAILED = "Could not load receive actions. Retry or refresh.";
+const OP_HUB_FINISH_HELPER = "Review and close the shipment.";
+const OP_HUB_FINISH_SHIPMENT_CLOSED = "Shipment closed.";
+const OP_HUB_FINISH_SHIPMENT_TRACKING_MISSING =
+  "Shipment tracking is missing. Rescan the shipment tracking to close shipment.";
+const OP_HUB_FINISH_SHIPMENT_ALREADY_FINALIZED = "Shipment is already finalized.";
+const OP_HUB_ADD_UNEXPECTED_BOX_HINT = "Only use this if another physical box was found.";
+const OP_HUB_ADD_UNEXPECTED_BOX_BLOCKED = "Reopen shipment to add another box.";
+const OP_HUB_FINISH_NOT_READY_TITLE = "Shipment is not ready to close.";
+const OP_HUB_FINISH_SCAN_BOXES_FIRST = "Scan all expected boxes before closing shipment.";
+const OP_HUB_FINISH_CLOSE_BOXES_FIRST = "Finalize all boxes before closing shipment.";
+const OP_HUB_FINISH_UNKNOWN_EXPECTED =
+  "No expected box count is available. Close shipment only if all physical boxes have been scanned.";
+const OP_HUB_FINISH_READY_UNKNOWN_TITLE = "Ready to close shipment?";
+const OP_HUB_CLOSE_SHIPMENT_LOCKED_HINT =
+  "Close Shipment unlocks after all expected boxes are scanned and closed.";
+const OP_HUB_LABEL_ADD_SCAN_NEXT_BOX = "Add / Scan Next Box";
+const OP_HUB_LABEL_VIEW_CLOSE_OPEN_BOX = "View & Close Open Box";
+const OP_HUB_LABEL_SCAN_BOXES_FIRST = "Scan all boxes first";
+const BOX_INTAKE_PACKING_SLIP_REQUIRED_ERROR =
+  "Add at least one packing slip photo, or check 'No packing slip available'.";
+
+type ShipmentCloseReadinessCase =
+  | "not_pallet"
+  | "boxes_not_scanned"
+  | "boxes_not_closed"
+  | "all_finalized"
+  | "unknown_expected"
+  | "not_ready";
+
+type ShipmentCloseReadiness = {
+  ready: boolean;
+  uiCase: ShipmentCloseReadinessCase;
+  title: string;
+  detail: string;
+  summary: string | null;
+  expectedBoxCount: number;
+  registeredBoxCount: number;
+  finalizedBoxCount: number;
+  openBoxCount: number;
+  expectedKnown: boolean;
+};
+
+function countPalletHubOpenBoxes(
+  list: OperatorPackageListRow[],
+  treatAsFinalizedPackageId: string | null,
+): number {
+  let count = 0;
+  for (const p of list) {
+    if (!palletPackageRowIsHubFinalized(p, treatAsFinalizedPackageId)) count++;
+  }
+  return count;
+}
+
+function formatShipmentCloseRemainingHeadline(
+  count: number,
+  verb: "scan" | "close",
+): string {
+  const n = Math.max(0, Math.floor(count));
+  if (verb === "scan") {
+    return n === 1 ? "Scan the remaining box." : "Scan the remaining boxes.";
+  }
+  return formatCloseOpenBoxHeadline(n);
+}
+
+function formatCloseOpenBoxHeadline(openCount: number): string {
+  const n = Math.max(0, Math.floor(openCount));
+  if (n === 1) return "Close the open box.";
+  if (n <= 0) return "Close the remaining boxes.";
+  return `Close ${n} open boxes.`;
+}
+
+function formatOpenBoxCloseHelper(boxCode: string): string {
+  const code = boxCode.trim() || "—";
+  return `Box ${code} still needs to be reviewed and closed before closing shipment.`;
+}
+
+function hubViewOpenBoxButtonLabel(box: OperatorPackageListRow | null): string {
+  const code = String(box?.package_code ?? "").trim();
+  return code ? `Continue Box ${code}` : OP_HUB_LABEL_VIEW_CLOSE_OPEN_BOX;
+}
+
+function boxIntakePackingSlipRequirementMet(
+  boxHasNoPackingSlip: boolean,
+  slipBoxPhotoUrls: readonly string[],
+): boolean {
+  return (
+    boxHasNoPackingSlip || slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)
+  );
+}
+
+function formatShipmentCloseBoxCountMessage(count: number, verb: "scanned" | "closed"): string {
+  const n = Math.max(0, Math.floor(count));
+  if (n === 1) {
+    return verb === "scanned"
+      ? "1 box still needs to be scanned before closing shipment."
+      : "1 box still needs to be closed before closing shipment.";
+  }
+  return verb === "scanned"
+    ? `${n} boxes still need to be scanned before closing shipment.`
+    : `${n} boxes still need to be closed before closing shipment.`;
+}
+
+function resolveShipmentCloseReadiness(input: {
+  hasPersistedPallet: boolean;
+  expectedBoxCount: number;
+  registeredBoxCount: number;
+  finalizedBoxCount: number;
+  openBoxCount: number;
+  allOnListFinalized: boolean;
+}): ShipmentCloseReadiness {
+  const expected = Math.max(0, Math.floor(input.expectedBoxCount));
+  const registered = Math.max(0, Math.floor(input.registeredBoxCount));
+  const finalized = Math.max(0, Math.floor(input.finalizedBoxCount));
+  const open = Math.max(0, Math.floor(input.openBoxCount));
+  const expectedKnown = expected > 0;
+  const base = {
+    expectedBoxCount: expected,
+    registeredBoxCount: registered,
+    finalizedBoxCount: finalized,
+    openBoxCount: open,
+    expectedKnown,
+  };
+
+  if (!input.hasPersistedPallet) {
+    return {
+      ...base,
+      ready: false,
+      uiCase: "not_pallet",
+      title: OP_HUB_FINISH_NOT_READY_TITLE,
+      detail: "Identify shipment before closing receive.",
+      summary: null,
+    };
+  }
+
+  if (expectedKnown && registered < expected) {
+    const missing = expected - registered;
+    return {
+      ...base,
+      ready: false,
+      uiCase: "boxes_not_scanned",
+      title: formatShipmentCloseRemainingHeadline(missing, "scan"),
+      detail: formatShipmentCloseBoxCountMessage(missing, "scanned"),
+      summary: OP_HUB_CLOSE_SHIPMENT_LOCKED_HINT,
+    };
+  }
+
+  if (registered > 0 && (open > 0 || !input.allOnListFinalized)) {
+    const openCount = Math.max(open, registered - finalized);
+    return {
+      ...base,
+      openBoxCount: openCount,
+      ready: false,
+      uiCase: "boxes_not_closed",
+      title: formatCloseOpenBoxHeadline(openCount),
+      detail: formatShipmentCloseBoxCountMessage(openCount, "closed"),
+      summary: OP_HUB_CLOSE_SHIPMENT_LOCKED_HINT,
+    };
+  }
+
+  if (expectedKnown && registered >= expected && input.allOnListFinalized && finalized >= expected) {
+    return {
+      ...base,
+      ready: true,
+      uiCase: "all_finalized",
+      title: "All known boxes are closed.",
+      detail: OP_HUB_FINISH_HELPER,
+      summary: null,
+    };
+  }
+
+  if (!expectedKnown && registered > 0 && input.allOnListFinalized) {
+    return {
+      ...base,
+      ready: true,
+      uiCase: "unknown_expected",
+      title: OP_HUB_FINISH_READY_UNKNOWN_TITLE,
+      detail: OP_HUB_FINISH_UNKNOWN_EXPECTED,
+      summary: null,
+    };
+  }
+
+  return {
+    ...base,
+    ready: false,
+    uiCase: "not_ready",
+    title: OP_HUB_FINISH_NOT_READY_TITLE,
+    detail: "Scan and close all boxes before closing shipment.",
+    summary: null,
+  };
+}
+
+type PostBoxCloseRoute = "single_box_finish" | "pallet_next_box" | "pallet_all_done";
+
+type PostBoxCloseContext = {
+  route: PostBoxCloseRoute;
+  closedPackageId: string | null;
+  headline: string;
+  detail: string;
+};
+
+function resolvePostBoxCloseExpectedBoxCount(
+  boxScanTargetDenominator: number | null,
+  physicalBoxCount: number | null,
+): number {
+  if (boxScanTargetDenominator != null && boxScanTargetDenominator > 0) return boxScanTargetDenominator;
+  if (typeof physicalBoxCount === "number" && physicalBoxCount > 0) return physicalBoxCount;
+  return 0;
+}
+
+function resolvePostBoxCloseRoute(input: {
+  directBox: boolean;
+  activePalletId: string | null;
+  expectedBoxCount: number;
+  palletPackagePickerList: OperatorPackageListRow[];
+  closedPackageId: string | null;
+}): PostBoxCloseRoute {
+  const palletId = (input.activePalletId ?? "").trim();
+  const hasPersistedPallet = Boolean(palletId && isUuidString(palletId)) && !input.directBox;
+  if (!hasPersistedPallet) return "single_box_finish";
+
+  const closedId = (input.closedPackageId ?? "").trim();
+  const list = input.palletPackagePickerList;
+  const others = list.filter((p) => p.id !== closedId);
+  const otherOpen = others.filter((p) => !operatorPackageReceiveIsFinalized(p));
+  const onList = closedId ? list.some((p) => p.id === closedId) : false;
+  const registered = onList ? list.length : list.length + (closedId ? 1 : 0);
+  const finalizedCount = list.filter(
+    (p) => (closedId && p.id === closedId) || operatorPackageReceiveIsFinalized(p),
+  ).length + (closedId && !onList ? 1 : 0);
+  const expected = Math.max(0, input.expectedBoxCount);
+
+  let moreBoxesRemaining = otherOpen.length > 0;
+  if (!moreBoxesRemaining && expected > 0) {
+    moreBoxesRemaining = finalizedCount < expected || registered < expected;
+  }
+
+  if (moreBoxesRemaining) return "pallet_next_box";
+  return "pallet_all_done";
+}
+
+function countPalletHubFinalizedBoxes(
+  list: OperatorPackageListRow[],
+  treatAsFinalizedPackageId: string | null,
+): number {
+  const seen = new Set<string>();
+  let count = 0;
+  for (const p of list) {
+    const id = String(p.id ?? "").trim();
+    if (!id) continue;
+    const fin = operatorPackageReceiveIsFinalized(p) || id === treatAsFinalizedPackageId;
+    if (fin && !seen.has(id)) {
+      seen.add(id);
+      count++;
+    }
+  }
+  const opt = (treatAsFinalizedPackageId ?? "").trim();
+  if (opt && !seen.has(opt)) count++;
+  return count;
+}
+
+function palletPackageRowIsHubFinalized(
+  p: OperatorPackageListRow,
+  treatAsFinalizedPackageId: string | null,
+): boolean {
+  const id = String(p.id ?? "").trim();
+  const opt = (treatAsFinalizedPackageId ?? "").trim();
+  return operatorPackageReceiveIsFinalized(p) || (Boolean(id) && id === opt);
+}
+
+function postBoxCloseCopy(route: PostBoxCloseRoute): { headline: string; detail: string } {
+  switch (route) {
+    case "single_box_finish":
+      return {
+        headline: "Box closed",
+        detail: "This shipment has one box. Review and close the shipment when ready.",
+      };
+    case "pallet_next_box":
+      return {
+        headline: "Box closed",
+        detail: "Scan the next box when ready.",
+      };
+    case "pallet_all_done":
+      return {
+        headline: "Box closed",
+        detail: "All known boxes are closed. Review and close the shipment.",
+      };
+  }
+}
+
+function resolveHubFinishReceiveBlockerMessages(input: {
+  hubShipmentCloseReady: boolean;
+  hubFinishReceiveHasAction: boolean;
+  correctionPermsLoaded: boolean;
+  correctionPermsLoadFailed: boolean;
+  parentIdentified: boolean;
+  correctionPerms: {
+    closeShipmentReview: boolean;
+    reopenShipmentReview: boolean;
+  };
+  shipmentReviewIsFinalized: boolean;
+  effectiveShipmentTracking: string | null;
+}): string[] {
+  if (!input.hubShipmentCloseReady || input.hubFinishReceiveHasAction) return [];
+  if (!input.correctionPermsLoaded) return [OP_HUB_FINISH_LOADING];
+  if (input.correctionPermsLoadFailed) return [OP_HUB_FINISH_LOAD_FAILED];
+  if (!input.parentIdentified) {
+    return ["Select a saved shipment before closing receive."];
+  }
+
+  const shipmentTracking = (input.effectiveShipmentTracking ?? "").trim();
+  if (!shipmentTracking) {
+    return [OP_HUB_FINISH_SHIPMENT_TRACKING_MISSING];
+  }
+  if (input.shipmentReviewIsFinalized) {
+    return input.correctionPerms.reopenShipmentReview
+      ? []
+      : [OP_HUB_FINISH_SHIPMENT_ALREADY_FINALIZED];
+  }
+  if (!input.correctionPerms.closeShipmentReview) {
+    return [OP_HUB_FINISH_NO_PERMISSION];
+  }
+  return [];
+}
+
+function resolveHubShipmentActionBlockerMessage(input: {
+  showFinishReceiveCloseActionsOnHub: boolean;
+  correctionPermsLoaded: boolean;
+  correctionPermsLoadFailed: boolean;
+  shipmentReviewIsFinalized: boolean;
+  effectiveShipmentTracking: string | null;
+  correctionPerms: { closeShipmentReview: boolean; reopenShipmentReview: boolean };
+  showShipmentCloseButtonOnHub: boolean;
+  showShipmentCloseOnHub: boolean;
+  showShipmentReopenOnHub: boolean;
+  shipmentCloseReadiness: ShipmentCloseReadiness;
+}): string | null {
+  if (!input.showFinishReceiveCloseActionsOnHub) return null;
+  if (input.showShipmentCloseOnHub || input.showShipmentReopenOnHub) return null;
+  if (!input.correctionPermsLoaded) return OP_HUB_FINISH_LOADING;
+  if (input.correctionPermsLoadFailed) return OP_HUB_FINISH_LOAD_FAILED;
+  const shipmentTracking = (input.effectiveShipmentTracking ?? "").trim();
+  if (!shipmentTracking) return OP_HUB_FINISH_SHIPMENT_TRACKING_MISSING;
+  if (input.shipmentReviewIsFinalized) {
+    return input.correctionPerms.reopenShipmentReview ? null : OP_HUB_FINISH_SHIPMENT_ALREADY_FINALIZED;
+  }
+  if (!input.correctionPerms.closeShipmentReview) return OP_HUB_FINISH_NO_PERMISSION;
+  if (input.showShipmentCloseButtonOnHub) return null;
+  if (!input.shipmentCloseReadiness.ready && input.shipmentCloseReadiness.summary) {
+    return input.shipmentCloseReadiness.summary;
+  }
+  return null;
+}
+
+const EMPTY_OPERATOR_CORRECTION_PERMS: OperatorMobileCorrectionPermissions = {
+  moveBox: false,
+  voidBox: false,
+  editItem: false,
+  deleteItem: false,
+  closePallet: false,
+  reopenPallet: false,
+  closeShipmentReview: false,
+  reopenShipmentReview: false,
+};
+
+type PalletPackagesResumeDecision = {
+  packages: OperatorPackageListRow[];
+  itemScanResumeRow: OperatorPackageListRow | null;
+  allKnownFinalized: boolean;
+};
+
+async function resolvePalletPackagesResumeDecision(
+  oid: string,
+  palletId: string,
+  storeId: string | null,
+): Promise<PalletPackagesResumeDecision> {
+  const empty: PalletPackagesResumeDecision = {
+    packages: [],
+    itemScanResumeRow: null,
+    allKnownFinalized: false,
+  };
+  if (!oid || !palletId || !isUuidString(palletId) || !isSupabaseConfigured()) return empty;
+  const pkgRes = await listOperatorPackagesForPalletAction(oid, palletId, storeId);
+  if (!pkgRes.ok || pkgRes.packages.length === 0) return empty;
+  const packages = pkgRes.packages;
+  const allKnownFinalized = packages.every((p) => operatorPackageReceiveIsFinalized(p));
+  if (allKnownFinalized) {
+    return { packages, itemScanResumeRow: null, allKnownFinalized: true };
+  }
+  const itemScanResumeRow = packages.find((p) => operatorPackageShouldResumeItemScan(p)) ?? null;
+  return { packages, itemScanResumeRow, allKnownFinalized: false };
+}
+
+/** Resolver priority for saved-box open routing (UI only). */
+type SavedBoxOpenScope =
+  | "exact_package"
+  | "single_package_tracking"
+  | "pallet_scope"
+  | "shipment_scope"
+  | "unknown";
+
+function savedPackageRowMatchesExactEnteredCode(
+  pkg: Record<string, unknown>,
+  enteredCode: string,
+): boolean {
+  const c = String(enteredCode ?? "").trim().toLowerCase();
+  if (!c) return false;
+  const code = String(pkg.package_code ?? "").trim().toLowerCase();
+  const slip = String(
+    (pkg as { slip_id?: unknown }).slip_id ?? pkg.id_slip_contents ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  const lpn = String((pkg as { lpn?: unknown }).lpn ?? "").trim().toLowerCase();
+  return (
+    (Boolean(code) && code === c) ||
+    (Boolean(slip) && slip === c) ||
+    (Boolean(lpn) && lpn === c)
+  );
+}
+
+function applyPalletAllKnownFinalizedHubRoute(): PostBoxCloseContext {
+  const copy = postBoxCloseCopy("pallet_all_done");
+  return {
+    route: "pallet_all_done",
+    closedPackageId: null,
+    headline: copy.headline,
+    detail: copy.detail,
+  };
+}
+
+function applyFinalizedPackageToPickerList(
+  list: OperatorPackageListRow[],
+  packageId: string,
+  finalizedAtIso: string,
+): OperatorPackageListRow[] {
+  const id = packageId.trim();
+  if (!id) return list;
+  if (!list.some((p) => p.id === id)) return list;
+  return list.map((p) =>
+    p.id === id
+      ? {
+          ...p,
+          manifest_data: mergePackageManifestReceiveFinalize(p.manifest_data, { finalizedAtIso }),
+        }
+      : p,
+  );
+}
+
+async function refreshPalletPackagePickerListAfterBoxClose(
+  organizationId: string,
+  palletId: string,
+  storeId: string | null,
+  closedPackageId: string | null,
+): Promise<OperatorPackageListRow[]> {
+  const res = await listOperatorPackagesForPalletAction(organizationId, palletId, storeId);
+  const base = res.ok ? res.packages : [];
+  const closedId = (closedPackageId ?? "").trim();
+  if (!closedId) return base;
+  return applyFinalizedPackageToPickerList(base, closedId, new Date().toISOString());
+}
 
 function operatorPackageReceiveIsFinalized(p: OperatorPackageListRow): boolean {
   return p.manifest_data != null && packageReceiveStateIsFinalized(p.manifest_data);
@@ -899,9 +1442,11 @@ function packageHasSlipContentsSaved(
   pickerRow: OperatorPackageListRow,
   slipLineCount?: number | null,
 ): boolean {
+  const pickerSlipCount = pickerRow.slip_line_count;
   if (typeof slipLineCount === "number" && slipLineCount > 0) return true;
+  if (typeof pickerSlipCount === "number" && pickerSlipCount > 0) return true;
   if (String(row.id_slip_contents ?? pickerRow.id_slip_contents ?? "").trim()) return true;
-  const manifest = parseBoxSlipManifestData(row.manifest_data);
+  const manifest = parseBoxSlipManifestData(row.manifest_data ?? pickerRow.manifest_data);
   if (manifest.lines.length > 0) return true;
   const expRaw = pickerRow.expected_item_count ?? row.expected_item_count;
   if (typeof expRaw === "number" && Number.isFinite(expRaw) && Math.floor(expRaw) > 0) return true;
@@ -951,7 +1496,7 @@ function packageItemScanFinalized(pickerRow: OperatorPackageListRow): boolean {
   return exp != null && exp > 0 && act != null && act === exp;
 }
 
-/** Resume Item Scan when box intake is saved and item receiving is not finalized. */
+/** Resume Item Scan when intake was explicitly committed or item scan already started — not OCR-only drafts. */
 function shouldResumePackageToItemScan(input: {
   row: Record<string, unknown>;
   pickerRow: OperatorPackageListRow;
@@ -959,23 +1504,45 @@ function shouldResumePackageToItemScan(input: {
   slipLineCount?: number | null;
 }): boolean {
   const { row, pickerRow, directBox = false, slipLineCount } = input;
-  const notes = String(pickerRow.notes ?? row.notes ?? "").toLowerCase();
-  if (notes.includes("discrepancy")) return false;
+  const manifest = row.manifest_data ?? pickerRow.manifest_data;
+  const notesRaw = String(pickerRow.notes ?? row.notes ?? "");
+  if (operatorPackageReceiveIsFinalized(pickerRow)) return false;
   if (packageItemScanFinalized(pickerRow)) return false;
 
   const pkgId = String(row.id ?? pickerRow.id ?? "").trim();
   if (!pkgId || !isUuidString(pkgId)) return false;
 
-  const hasSlipPhoto = countOperatorPackagePhotoSlotsFilled(row.slip_photo_urls ?? pickerRow.slip_photo_urls) >= 1;
+  const resolvedSlipLineCount =
+    typeof slipLineCount === "number"
+      ? slipLineCount
+      : typeof pickerRow.slip_line_count === "number"
+        ? pickerRow.slip_line_count
+        : null;
+
   const actRaw = pickerRow.actual_item_count ?? row.actual_item_count;
   const actStarted =
     typeof actRaw === "number" && Number.isFinite(actRaw) && Math.floor(actRaw) > 0;
-  const intakeSaved =
-    packageBoxIntakeManifestSaved(row) ||
-    packageHasSlipContentsSaved(row, pickerRow, slipLineCount) ||
-    actStarted;
+  const actForProgress =
+    typeof actRaw === "number" && Number.isFinite(actRaw) ? Math.floor(actRaw) : null;
 
-  if (hasSlipPhoto && !intakeSaved) return false;
+  const scanStarted = Boolean(readOperatorItemScanStartedAt(manifest));
+  if (scanStarted || actStarted) return true;
+
+  const receivingInProgress = operatorPackageReceivingInProgress(manifest, actForProgress);
+
+  // Manual operator discrepancy hold only — system auto-notes must not block in-progress resume.
+  if (
+    !receivingInProgress &&
+    packageOperatorNotesIndicateManualDiscrepancyHold(notesRaw)
+  ) {
+    return false;
+  }
+
+  // OCR-only: slip/OCR evidence without explicit intake commit or scan start → Box Info.
+  if (!receivingInProgress) return false;
+
+  const pickerStatus = resolveOperatorPackagePickerRowStatus(pickerRow);
+  const intakeCommitted = packageExplicitBoxIntakeSaved(manifest);
 
   if (
     !packageBoxDocsCompleteEnough(
@@ -984,16 +1551,28 @@ function shouldResumePackageToItemScan(input: {
         slip_photo_urls: row.slip_photo_urls ?? pickerRow.slip_photo_urls,
       },
       directBox,
-      intakeSaved,
+      true,
     )
   ) {
     return false;
   }
 
   const slipReady =
-    packageHasSlipContentsSaved(row, pickerRow, slipLineCount) ||
+    packageHasSlipContentsSaved(row, pickerRow, resolvedSlipLineCount) ||
     packageUsesManualItemScanMode(row, pickerRow) ||
     actStarted;
+
+  // Rule 3: PARTIAL in-progress boxes resume Item Scan (never Box Info via picker).
+  if (
+    pickerStatus === "partial" &&
+    (intakeCommitted ||
+      Boolean(readOperatorItemScanStartedAt(manifest)) ||
+      actStarted ||
+      packageLegacyItemScanWorkflowTouched(manifest))
+  ) {
+    return true;
+  }
+
   if (!slipReady) return false;
 
   return true;
@@ -1004,11 +1583,13 @@ function operatorPackageShouldResumeItemScan(p: OperatorPackageListRow): boolean
   return shouldResumePackageToItemScan({
     row: p as unknown as Record<string, unknown>,
     pickerRow: p,
+    slipLineCount: p.slip_line_count,
   });
 }
 
 function operatorPackageListRowFromRecord(row: Record<string, unknown>): OperatorPackageListRow {
   const pkgId = String(row.id ?? "").trim();
+  const slipLineRaw = row.slip_line_count;
   return {
     id: pkgId,
     package_code: String(row.package_code ?? row.slip_id ?? row.package_number ?? "").trim() || null,
@@ -1027,6 +1608,8 @@ function operatorPackageListRowFromRecord(row: Record<string, unknown>): Operato
         ? Math.floor(row.actual_item_count)
         : null,
     manifest_data: row.manifest_data,
+    slip_line_count:
+      typeof slipLineRaw === "number" && Number.isFinite(slipLineRaw) ? Math.floor(slipLineRaw) : undefined,
   };
 }
 
@@ -1051,6 +1634,11 @@ function formatOperatorPackagePickerItemLine(p: OperatorPackageListRow): string 
 
 function operatorPackagePickerRowActionLabel(p: OperatorPackageListRow): string {
   if (operatorPackageReceiveIsFinalized(p)) return "View Box";
+  const act =
+    typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
+      ? Math.floor(p.actual_item_count)
+      : 0;
+  if (operatorPackageReceivingInProgress(p.manifest_data, act)) return "Continue Scan";
   if (operatorPackageShouldResumeItemScan(p)) return "Continue Scan";
   return "Start Scan";
 }
@@ -1797,8 +2385,15 @@ function resolveItemScanParentTracking(
   currentPalletTrackingId: string | null,
   activeTracking: string | null,
   identifyGateCanonicalTracking: string | null,
+  activePalletTrackingNumber?: string | null,
 ): string | null {
-  const tn = (currentPalletTrackingId ?? activeTracking ?? identifyGateCanonicalTracking ?? "").trim();
+  const tn = (
+    currentPalletTrackingId ??
+    activeTracking ??
+    identifyGateCanonicalTracking ??
+    activePalletTrackingNumber ??
+    ""
+  ).trim();
   return tn || null;
 }
 
@@ -1963,6 +2558,25 @@ function SlipLinePassiveStatusBadge(props: {
 }
 
 /** Compact status chip for item slip rows (all states show a visible label). */
+function ItemScanReferenceSourceBadgeMark(props: { badge: ItemScanReferenceSourceBadge | null }) {
+  const label = itemScanReferenceSourceBadgeLabel(props.badge);
+  if (!label) return null;
+  const toneClass =
+    props.badge === "confirmed"
+      ? "operator-slip-validation-chip--confirmed"
+      : props.badge === "only_shipment"
+        ? "operator-slip-validation-chip--shipment-only"
+        : "operator-slip-validation-chip--slip-only";
+  return (
+    <span
+      className={`operator-slip-validation-chip shrink-0 rounded border px-1 py-0.5 text-[8px] font-bold uppercase leading-none tracking-wide ${toneClass}`}
+      title={label}
+    >
+      {label}
+    </span>
+  );
+}
+
 function slipCardStatusMark(vis: ReturnType<typeof itemInspectionSlipLinePresentation>) {
   const label = vis.label;
   if (label === "Awaiting") {
@@ -4401,6 +5015,7 @@ function OperatorMobileScanPageContent() {
   );
   /** EP manifest + variance from `loadTrackingExpectationSnapshot` (product_id-first merge). */
   const [identifyGateExpectationLines, setIdentifyGateExpectationLines] = useState<TrackingOperatorLine[]>([]);
+  const [identifyGateSnapshotCarrier, setIdentifyGateSnapshotCarrier] = useState<string | null>(null);
   /** User confirmed adding an off-manifest item after full completion — next scan uses `runResolve` with tracking context. */
   const [awaitingPostCompleteExtraScan, setAwaitingPostCompleteExtraScan] = useState(false);
   const [scanProgressPhase, setScanProgressPhase] = useState<OperatorScanProgressPhase>("idle");
@@ -4420,16 +5035,10 @@ function OperatorMobileScanPageContent() {
    * and package intake when a saved UUID box is open. Persisted pallet / saved box rows default to read-only.
    */
   const [editAllMode, setEditAllMode] = useState(false);
-  const [correctionPerms, setCorrectionPerms] = useState({
-    moveBox: false,
-    voidBox: false,
-    editItem: false,
-    deleteItem: false,
-    closePallet: false,
-    reopenPallet: false,
-    closeShipmentReview: false,
-    reopenShipmentReview: false,
-  });
+  const [correctionPerms, setCorrectionPerms] = useState({ ...EMPTY_OPERATOR_CORRECTION_PERMS });
+  const [correctionPermsLoaded, setCorrectionPermsLoaded] = useState(false);
+  const [correctionPermsLoadFailed, setCorrectionPermsLoadFailed] = useState(false);
+  const correctionPermsFetchGenRef = useRef(0);
   const [moveBoxModalOpen, setMoveBoxModalOpen] = useState(false);
   /** Target pallet for Move Box — filled by page scan capture while {@link moveBoxModalOpen}. */
   const [moveBoxTargetDraft, setMoveBoxTargetDraft] = useState("");
@@ -4463,14 +5072,14 @@ function OperatorMobileScanPageContent() {
   const [confirmSaving, setConfirmSaving] = useState(false);
   const [saveShipmentConfirmOpen, setSaveShipmentConfirmOpen] = useState(false);
   const [cancelShipmentConfirmOpen, setCancelShipmentConfirmOpen] = useState(false);
-  /** Finalize package (Confirm & Save / discrepancy) — shared copy, distinct actions on confirm. */
+  /** Finalize package (Confirm & Save) — shared copy, distinct actions on confirm. */
   const [packageFinalizeConfirmKind, setPackageFinalizeConfirmKind] = useState<
-    null | "save_items" | "save_hub" | "discrepancy"
+    null | "save_items" | "save_hub"
   >(null);
   /** After generic save confirm, second gate when {@link boxSlipConflictingOrderId} is set. */
   const [packageSaveOrderConflictGateOpen, setPackageSaveOrderConflictGateOpen] = useState(false);
   const [pendingConflictPackageSaveKind, setPendingConflictPackageSaveKind] = useState<
-    null | "save_items" | "save_hub" | "discrepancy"
+    null | "save_items" | "save_hub"
   >(null);
   const [pickerDismissConfirmOpen, setPickerDismissConfirmOpen] = useState(false);
   /** Shared back-navigation gate for unsaved box / pallet intake edits. */
@@ -4479,6 +5088,9 @@ function OperatorMobileScanPageContent() {
   const scannerLeavePendingActionRef = useRef<(() => void) | null>(null);
   /** Exit active box intake without persisting. */
   const [packageSessionCancelConfirmOpen, setPackageSessionCancelConfirmOpen] = useState(false);
+  /** Empty box — review before finalize (no silent close on save). */
+  const [emptyBoxCloseConfirmOpen, setEmptyBoxCloseConfirmOpen] = useState(false);
+  const [emptyBoxFinalizeBusy, setEmptyBoxFinalizeBusy] = useState(false);
   /** Brief full-screen success after package save (before hub scroll or item phase). */
   const [packageSaveSuccessOverlay, setPackageSaveSuccessOverlay] = useState(false);
   /** Where the UI goes after the success overlay (`saveBoxAndContinue`). */
@@ -4501,6 +5113,9 @@ function OperatorMobileScanPageContent() {
   const [itemsFinalizeBusy, setItemsFinalizeBusy] = useState(false);
   const [slipMissingMarkBusy, setSlipMissingMarkBusy] = useState(false);
   const [itemSlipMissingReviewNonce, setItemSlipMissingReviewNonce] = useState(0);
+  /** Post–box-close routing summary (standalone finish vs pallet hub next step). */
+  const [postBoxCloseContext, setPostBoxCloseContext] = useState<PostBoxCloseContext | null>(null);
+  const postBoxCloseContextRef = useRef<PostBoxCloseContext | null>(null);
   /** Package manifest for operator missing review metadata (not return_items). */
   const [itemScanPackageManifestData, setItemScanPackageManifestData] = useState<unknown>(null);
   /** Phase 6F — read-only slip vs shipment validation preview (chips + finalize summary). */
@@ -4855,7 +5470,21 @@ function OperatorMobileScanPageContent() {
     setBoxSlipVisionLineLinkages([]);
     setBoxSlipOrderId("");
     setBoxSlipConflictingOrderId("");
+    setBoxSlipEvidenceReview(null);
   }, []);
+
+  const [boxSlipEvidenceReview, setBoxSlipEvidenceReview] = useState<BoxSlipEvidenceReview | null>(null);
+  const [boxSlipEditModalOpen, setBoxSlipEditModalOpen] = useState(false);
+  const [boxSlipCorrectionSheetOpen, setBoxSlipCorrectionSheetOpen] = useState(false);
+  const [boxSlipCorrectionSheetMode, setBoxSlipCorrectionSheetMode] =
+    useState<BoxSlipCorrectionSheetMode>("correction");
+  const [boxSlipEvidenceSaveBusy, setBoxSlipEvidenceSaveBusy] = useState(false);
+
+  const boxSlipEvidenceDisplay = useMemo(
+    () => resolveBoxSlipEvidenceDisplay(boxSlipVisionLines, boxSlipEvidenceReview),
+    [boxSlipVisionLines, boxSlipEvidenceReview],
+  );
+  const boxSlipDisplayLines = boxSlipEvidenceDisplay.lines;
 
   const applyHydratedBoxSlipVisionSnapshot = useCallback(
     (snap: HydratedBoxSlipVisionSnapshot) => {
@@ -4873,7 +5502,10 @@ function OperatorMobileScanPageContent() {
         applyPalletOrderIdFromRaIfApplicable(snap.rma);
       }
       commitBoxSlipVisionLinesFromSource(snap.lines);
-      setBoxSlipInvalidFormatBlocksSave(false);
+      setBoxSlipEvidenceReview(snap.evidenceReview);
+      if (snap.evidenceReview?.status === "unreadable") {
+        setBoxSlipInvalidFormatBlocksSave(false);
+      }
     },
     [
       commitBoxSlipVisionLinesFromSource,
@@ -4919,8 +5551,90 @@ function OperatorMobileScanPageContent() {
 
   const [boxSlipVisionBusy, setBoxSlipVisionBusy] = useState(false);
 
+  type BoxSlipEvidenceUiPhase =
+    | "analyzing"
+    | "empty"
+    | "detected"
+    | "reviewed"
+    | "confirmed"
+    | "unreadable";
+
+  const boxSlipEvidenceUiState = useMemo((): {
+    phase: BoxSlipEvidenceUiPhase;
+    lineCount: number;
+    headline: string;
+    hint: string | null;
+  } => {
+    const displayCount = boxSlipDisplayLines.length;
+    const ocrCount = boxSlipVisionLines.length;
+    const lineCount = Math.max(displayCount, ocrCount);
+
+    if (boxSlipEvidenceDisplay.unreadable) {
+      return {
+        phase: "unreadable",
+        lineCount,
+        headline: "Packing slip unreadable",
+        hint: "Slip photo is kept as evidence.",
+      };
+    }
+    if (boxSlipVisionBusy && displayCount === 0 && ocrCount === 0) {
+      return {
+        phase: "analyzing",
+        lineCount: 0,
+        headline: "Analyzing packing slip",
+        hint: "Extracting line items from the slip photo…",
+      };
+    }
+    if (boxSlipEvidenceReview?.status === "confirmed") {
+      const n = displayCount || lineCount;
+      return {
+        phase: "confirmed",
+        lineCount: n,
+        headline: "Packing slip confirmed",
+        hint: `${n} line${n === 1 ? "" : "s"} confirmed by operator.`,
+      };
+    }
+    const reviewStatus = boxSlipEvidenceReview?.status;
+    if (reviewStatus === "draft" || reviewStatus === "needs_review") {
+      const n = displayCount || lineCount;
+      return {
+        phase: "reviewed",
+        lineCount: n,
+        headline: "Packing slip reviewed",
+        hint: "Operator-reviewed slip lines saved.",
+      };
+    }
+    if (lineCount > 0 || boxSlipVisionBusy) {
+      const n = lineCount;
+      return {
+        phase: "detected",
+        lineCount: n,
+        headline: "Packing slip detected",
+        hint:
+          n > 0
+            ? `AI detected ${n} line${n === 1 ? "" : "s"}. Are these details correct?`
+            : "AI detected packing slip lines. Are these details correct?",
+      };
+    }
+    return {
+      phase: "empty",
+      lineCount: 0,
+      headline: "Packing slip lines",
+      hint: "Add a packing slip photo above to detect lines.",
+    };
+  }, [
+    boxSlipEvidenceDisplay.unreadable,
+    boxSlipDisplayLines.length,
+    boxSlipVisionLines.length,
+    boxSlipVisionBusy,
+    boxSlipEvidenceReview?.status,
+  ]);
+
+  const slipEvidenceCanConfirm =
+    boxSlipDisplayLines.length > 0 || boxSlipVisionLines.length > 0;
+
   useEffect(() => {
-    if (!orgId || !sessionStoreId || !isSupabaseConfigured() || boxSlipVisionLines.length === 0) {
+    if (!orgId || !sessionStoreId || !isSupabaseConfigured() || boxSlipDisplayLines.length === 0) {
       boxSlipVisionLineLinkagesRef.current = [];
       setBoxSlipVisionLineLinkages([]);
       return;
@@ -4930,7 +5644,7 @@ function OperatorMobileScanPageContent() {
       const res = await previewOperatorSlipLinesIdentifiersLinkageAction({
         requestedOrganizationId: orgId,
         storeId: sessionStoreId,
-        lines: boxSlipVisionLines.map((line) => ({
+        lines: boxSlipDisplayLines.map((line) => ({
           upc: line.upc,
           fnsku: line.fnsku,
           printed_asin: line.printed_asin,
@@ -4944,7 +5658,216 @@ function OperatorMobileScanPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [boxSlipVisionLines, orgId, sessionStoreId]);
+  }, [boxSlipDisplayLines, orgId, sessionStoreId]);
+
+  const persistBoxSlipEvidenceReview = useCallback(
+    async (
+      review: BoxSlipEvidenceReview,
+      audit?: {
+        auditAction: (typeof OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS)[keyof typeof OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS];
+        auditMetadata?: Record<string, unknown>;
+      },
+    ) => {
+      const oid = (orgId ?? "").trim();
+      const pkgId = String(activeBoxSession?.packageId ?? "").trim();
+      if (!oid || !pkgId || !isUuidString(pkgId)) {
+        setBoxIntakeError("Save the box first before correcting slip evidence.");
+        return false;
+      }
+      if (!isSupabaseConfigured()) return false;
+      setBoxSlipEvidenceSaveBusy(true);
+      try {
+        const auditFields = await resolveOperatorAuditFieldsClient(supabase);
+        const actorId = auditFields.created_by ?? "operator";
+        const stamped: BoxSlipEvidenceReview = {
+          ...review,
+          edited_by: review.edited_by ?? actorId,
+          edited_at: review.edited_at ?? new Date().toISOString(),
+          original_ocr_snapshot:
+            review.original_ocr_snapshot ??
+            (boxSlipVisionLines.length > 0 ? clonePersistBoxSlipVisionLines(boxSlipVisionLines) : []),
+        };
+        const res = await saveOperatorBoxSlipEvidenceReviewAction({
+          requestedOrganizationId: oid,
+          packageId: pkgId,
+          storeId: sessionStoreId ?? null,
+          review: stamped,
+          auditAction: audit?.auditAction ?? null,
+          auditMetadata: audit?.auditMetadata ?? null,
+        });
+        if (!res.ok) {
+          setSyncErrorToast(res.message);
+          return false;
+        }
+        setBoxSlipEvidenceReview(stamped);
+        setItemScanPackageManifestData((prev: unknown) =>
+          mergeBoxSlipEvidenceReview(prev, stamped),
+        );
+        return true;
+      } finally {
+        setBoxSlipEvidenceSaveBusy(false);
+      }
+    },
+    [orgId, sessionStoreId, activeBoxSession?.packageId, boxSlipVisionLines],
+  );
+
+  const handleBoxSlipEvidenceEditSave = useCallback(
+    async (payload: { lines: BoxSlipEvidenceLine[]; note: string | null }) => {
+      const ocrSnapshot = clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+      const prior = cloneBoxSlipEvidenceLines(
+        boxSlipEvidenceReview?.lines?.length
+          ? boxSlipEvidenceReview.lines
+          : evidenceLinesFromVisionLines(ocrSnapshot),
+      );
+      const audited = buildEvidenceLinesWithAudit(payload.lines, ocrSnapshot, prior);
+      const needsReview =
+        audited.some((line) => line.needs_review) || audited.length !== ocrSnapshot.length;
+      const priorLines = cloneBoxSlipEvidenceLines(prior);
+      const editStats = computeSlipOcrEditStats(priorLines, audited);
+      const ok = await persistBoxSlipEvidenceReview(
+        {
+          status: needsReview ? "needs_review" : "draft",
+          lines: audited,
+          edited_by: null,
+          edited_at: null,
+          note: payload.note,
+          original_ocr_snapshot: ocrSnapshot,
+        },
+        {
+          auditAction: OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS.edited,
+          auditMetadata: {
+            line_count: audited.length,
+            ...editStats,
+          },
+        },
+      );
+      if (!ok) throw new Error("Could not save slip evidence.");
+    },
+    [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview],
+  );
+
+  const handleConfirmBoxSlipEvidenceLines = useCallback(async () => {
+    const ocrSnapshot = clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+    const lines =
+      boxSlipEvidenceReview?.lines?.length
+        ? cloneBoxSlipEvidenceLines(boxSlipEvidenceReview.lines)
+        : evidenceLinesFromVisionLines(ocrSnapshot);
+    const auditFields = await resolveOperatorAuditFieldsClient(supabase);
+    const actorId = auditFields.created_by ?? "operator";
+    const now = new Date().toISOString();
+    await persistBoxSlipEvidenceReview(
+      {
+        status: "confirmed",
+        lines,
+        edited_by: actorId,
+        edited_at: now,
+        confirmed_at: now,
+        confirmed_by: actorId,
+        note: boxSlipEvidenceReview?.note ?? null,
+        original_ocr_snapshot:
+          boxSlipEvidenceReview?.original_ocr_snapshot ??
+          (ocrSnapshot.length ? ocrSnapshot : undefined),
+      },
+      {
+        auditAction: OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS.confirmed,
+        auditMetadata: { line_count: lines.length },
+      },
+    );
+  }, [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview]);
+
+  const handleMarkBoxSlipUnreadable = useCallback(async () => {
+    const ocrSnapshot = clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+    const auditFields = await resolveOperatorAuditFieldsClient(supabase);
+    const actorId = auditFields.created_by ?? "operator";
+    const now = new Date().toISOString();
+    const ok = await persistBoxSlipEvidenceReview(
+      {
+        status: "unreadable",
+        lines: [],
+        edited_by: actorId,
+        edited_at: now,
+        marked_by: actorId,
+        marked_at: now,
+        note: boxSlipEvidenceReview?.note ?? "Packing slip unreadable — manual review needed.",
+        original_ocr_snapshot: ocrSnapshot.length ? ocrSnapshot : undefined,
+      },
+      {
+        auditAction: OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS.marked_unreadable,
+        auditMetadata: { line_count: ocrSnapshot.length },
+      },
+    );
+    if (ok) {
+      setBoxSlipInvalidFormatBlocksSave(false);
+    }
+  }, [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview]);
+
+  const handleClearBoxSlipUnreadable = useCallback(async () => {
+    const ocrSnapshot =
+      boxSlipEvidenceReview?.original_ocr_snapshot?.length
+        ? clonePersistBoxSlipVisionLines(boxSlipEvidenceReview.original_ocr_snapshot)
+        : clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+    const lines = evidenceLinesFromVisionLines(ocrSnapshot);
+    const auditFields = await resolveOperatorAuditFieldsClient(supabase);
+    const actorId = auditFields.created_by ?? "operator";
+    const now = new Date().toISOString();
+    await persistBoxSlipEvidenceReview(
+      {
+        status: "detected",
+        lines,
+        edited_by: actorId,
+        edited_at: now,
+        marked_by: null,
+        marked_at: null,
+        note: null,
+        original_ocr_snapshot: ocrSnapshot.length ? ocrSnapshot : undefined,
+      },
+      {
+        auditAction: OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS.unreadable_cleared,
+        auditMetadata: { line_count: lines.length },
+      },
+    );
+  }, [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview]);
+
+  const handleOpenBoxSlipEditModal = useCallback(() => {
+    setBoxSlipEditModalOpen(true);
+    const oid = (orgId ?? "").trim();
+    const pkgId = String(activeBoxSession?.packageId ?? "").trim();
+    if (!oid || !pkgId || !isUuidString(pkgId) || !isSupabaseConfigured()) return;
+    const lineCount = Math.max(boxSlipDisplayLines.length, boxSlipVisionLines.length);
+    void logOperatorBoxSlipOcrAuditAction({
+      requestedOrganizationId: oid,
+      packageId: pkgId,
+      storeId: sessionStoreId ?? null,
+      auditAction: OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS.edit_started,
+      auditMetadata: { line_count: lineCount },
+    });
+  }, [
+    orgId,
+    sessionStoreId,
+    activeBoxSession?.packageId,
+    boxSlipDisplayLines.length,
+    boxSlipVisionLines.length,
+  ]);
+
+  const openSlipCorrectionSheet = useCallback((mode: BoxSlipCorrectionSheetMode) => {
+    setBoxSlipCorrectionSheetMode(mode);
+    setBoxSlipCorrectionSheetOpen(true);
+  }, []);
+
+  const handleSlipCorrectionEditLines = useCallback(() => {
+    setBoxSlipCorrectionSheetOpen(false);
+    handleOpenBoxSlipEditModal();
+  }, [handleOpenBoxSlipEditModal]);
+
+  const handleSlipCorrectionMarkUnreadable = useCallback(() => {
+    setBoxSlipCorrectionSheetOpen(false);
+    void handleMarkBoxSlipUnreadable();
+  }, [handleMarkBoxSlipUnreadable]);
+
+  const handleSlipCorrectionClearUnreadable = useCallback(() => {
+    setBoxSlipCorrectionSheetOpen(false);
+    void handleClearBoxSlipUnreadable();
+  }, [handleClearBoxSlipUnreadable]);
 
   /** Set when /api/scanner/extract-box-slip returns INVALID_SLIP_FORMAT — blocks Save until slip is replaced or removed. */
   const [boxSlipInvalidFormatBlocksSave, setBoxSlipInvalidFormatBlocksSave] = useState(false);
@@ -4953,9 +5876,24 @@ function OperatorMobileScanPageContent() {
   const [boxSaveBusy, setBoxSaveBusy] = useState(false);
   const [boxNotes, setBoxNotes] = useState("");
   const boxNotesRef = useRef("");
+  const [boxSystemNotesSummary, setBoxSystemNotesSummary] = useState<string[]>([]);
+  const boxSystemNotesSummaryRef = useRef<string[]>([]);
   const [palletPackagePickerList, setPalletPackagePickerList] = useState<OperatorPackageListRow[]>([]);
   const palletPackagePickerListRef = useRef<OperatorPackageListRow[]>([]);
   palletPackagePickerListRef.current = palletPackagePickerList;
+  const shipmentCloseReadinessRef = useRef<ShipmentCloseReadiness>({
+    ready: false,
+    uiCase: "not_ready",
+    title: OP_HUB_FINISH_NOT_READY_TITLE,
+    detail: "",
+    summary: null,
+    expectedBoxCount: 0,
+    registeredBoxCount: 0,
+    finalizedBoxCount: 0,
+    openBoxCount: 0,
+    expectedKnown: false,
+  });
+  const hasPersistedPalletContextRef = useRef(false);
   const [palletPackagePickerQuery, setPalletPackagePickerQuery] = useState("");
   const palletPackageSearchInputRef = useRef<HTMLInputElement>(null);
   const hydrateBoxPackageIdRef = useRef<string | null>(null);
@@ -5014,6 +5952,22 @@ function OperatorMobileScanPageContent() {
   useEffect(() => {
     boxNotesRef.current = boxNotes;
   }, [boxNotes]);
+
+  const applyHydratedBoxNotesFromStored = useCallback((raw: string | null | undefined) => {
+    const { operatorNotes, systemNotes } = splitPackageBoxNotes(raw);
+    setBoxNotes(operatorNotes);
+    boxNotesRef.current = operatorNotes;
+    setBoxSystemNotesSummary(systemNotes);
+    boxSystemNotesSummaryRef.current = systemNotes;
+    return operatorNotes;
+  }, []);
+
+  const clearBoxOperatorNotesState = useCallback(() => {
+    setBoxNotes("");
+    boxNotesRef.current = "";
+    setBoxSystemNotesSummary([]);
+    boxSystemNotesSummaryRef.current = [];
+  }, []);
 
   /** Carton package receiving item scans (last saved or active locked box). */
   const [itemScanPackageId, setItemScanPackageId] = useState<string | null>(null);
@@ -5110,6 +6064,9 @@ function OperatorMobileScanPageContent() {
   const [syncErrorToast, setSyncErrorToast] = useState<string | null>(null);
 
   const [expectedPkgLines, setExpectedPkgLines] = useState<TrackingOperatorLine[]>([]);
+  const [expectedManifestCarrier, setExpectedManifestCarrier] = useState<string | null>(null);
+  const [shipmentExpectedContext, setShipmentExpectedContext] = useState<ShipmentExpectedContext | null>(null);
+  const [shipmentExpectedReviewOpen, setShipmentExpectedReviewOpen] = useState(false);
   /** Item phase — `loadTrackingExpectationSnapshot` base lines (re-merged on package hydrate). */
   const [itemScanExpectationSnapshotLines, setItemScanExpectationSnapshotLines] = useState<TrackingOperatorLine[]>([]);
   const [itemScanExpectationLoading, setItemScanExpectationLoading] = useState(false);
@@ -5227,6 +6184,7 @@ function OperatorMobileScanPageContent() {
       setIdentifyGateShipmentLines([]);
       setIdentifyGateBatchProductNames(new Map());
       setIdentifyGateExpectationLines([]);
+      setIdentifyGateSnapshotCarrier(null);
       setIdentifyGatePhotoOcrToast(null);
       setIdentifyGatePhotoOcrCandidates([]);
       setIdentifyGateSelectedPhotoOcrCandidate(null);
@@ -5333,6 +6291,59 @@ function OperatorMobileScanPageContent() {
     if (ids.size === 0) return "—";
     return [...ids].join(", ");
   }, [identifyGateShipmentLines, identifyGateRows]);
+
+  const identifyGateCarrierLabel = useMemo(
+    () =>
+      resolveCarrierFromExpectedRecords({
+        explicit: identifyGateSnapshotCarrier ?? identifyGateViewHints?.carrier,
+        inventoryLines: identifyGateShipmentLines,
+        epRows: identifyGateRows,
+      }),
+    [
+      identifyGateSnapshotCarrier,
+      identifyGateViewHints?.carrier,
+      identifyGateShipmentLines,
+      identifyGateRows,
+    ],
+  );
+
+  const identifyGateCanonicalTrackingLabel = useMemo(
+    () => (identifyGateCanonicalTracking ?? identifyGateEnteredCode).trim() || null,
+    [identifyGateCanonicalTracking, identifyGateEnteredCode],
+  );
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (identifyGatePhase !== "matched") return;
+    const rawFromEp = identifyGateRows
+      .map((raw) => String((raw as { carrier?: unknown }).carrier ?? "").trim())
+      .find(Boolean);
+    const rawFromView = identifyGateShipmentLines.map((line) => line.carrier?.trim()).find(Boolean);
+    console.debug("[expected-carrier]", {
+      tracking: identifyGateCanonicalTrackingLabel,
+      rawCarrier: rawFromEp ?? rawFromView ?? identifyGateSnapshotCarrier ?? null,
+      contextCarrier: shipmentExpectedContext?.carrier ?? null,
+      displayedCarrier: identifyGateCarrierLabel,
+      source: identifyGateSnapshotCarrier
+        ? "loadTrackingExpectationSnapshot"
+        : rawFromView
+          ? "v_inventory_item_status"
+          : rawFromEp
+            ? "expected_packages_detail"
+            : identifyGateViewHints?.carrier
+              ? "view_hints"
+              : "none",
+    });
+  }, [
+    identifyGatePhase,
+    identifyGateCanonicalTrackingLabel,
+    identifyGateCarrierLabel,
+    identifyGateSnapshotCarrier,
+    identifyGateRows,
+    identifyGateShipmentLines,
+    identifyGateViewHints?.carrier,
+    shipmentExpectedContext?.carrier,
+  ]);
 
   const identifyGateEpById = useMemo(() => {
     const m = new Map<string, Record<string, unknown>>();
@@ -5601,6 +6612,7 @@ function OperatorMobileScanPageContent() {
           setIdentifyGateCanonicalTracking(trimmed);
           setIdentifyGateShipmentLines([]);
           setIdentifyGateExpectationLines([]);
+      setIdentifyGateSnapshotCarrier(null);
           setIdentifyGateMatchField(null);
           return;
         }
@@ -5638,6 +6650,7 @@ function OperatorMobileScanPageContent() {
           setIdentifyGateCanonicalTracking(trimmed);
           setIdentifyGateShipmentLines([]);
           setIdentifyGateExpectationLines([]);
+      setIdentifyGateSnapshotCarrier(null);
           setIdentifyGateMatchField(null);
           return;
         }
@@ -5670,7 +6683,13 @@ function OperatorMobileScanPageContent() {
         void (async () => {
           try {
             let hydratedShipmentLines = shipmentLines;
-            if (!hydratedShipmentLines.length && hydrateStoreId && hydrateMatchField) {
+            const carrierFromInventoryLines = (lines: VInventoryStatusRow[]) =>
+              resolveCarrierFromExpectedRecords({ inventoryLines: lines });
+            const needsLineHydrate = !hydratedShipmentLines.length;
+            const needsCarrierHydrate =
+              hydrateMatchField === "tracking_number" &&
+              !carrierFromInventoryLines(hydratedShipmentLines);
+            if (hydrateStoreId && hydrateMatchField && (needsLineHydrate || needsCarrierHydrate)) {
               if (hydrateMatchField === "tracking_number") {
                 try {
                   let rows: VInventoryStatusRow[] = [];
@@ -5693,13 +6712,25 @@ function OperatorMobileScanPageContent() {
                     );
                     rows = fetched.rows;
                   }
-                  hydratedShipmentLines = rows.length
+                  const scopedRows = rows.length
                     ? trackingScopedInventoryRows(rows, submittedTrackingForScope)
-                    : hydratedShipmentLines;
+                    : [];
+                  const viewCarrier = carrierFromInventoryLines(scopedRows);
+                  if (needsCarrierHydrate && viewCarrier) {
+                    setIdentifyGateSnapshotCarrier(viewCarrier);
+                    setIdentifyGateViewHints((prev) => ({
+                      productName: prev?.productName ?? pickInventoryViewHints(scopedRows).productName,
+                      carrier: viewCarrier,
+                      slipCode: prev?.slipCode ?? pickInventoryViewHints(scopedRows).slipCode,
+                    }));
+                  }
+                  if (needsLineHydrate && scopedRows.length) {
+                    hydratedShipmentLines = scopedRows;
+                  }
                 } catch (err) {
                   console.warn("deferred fetchVInventoryItemStatusLinesForTrackingNormalized failed", err);
                 }
-              } else {
+              } else if (needsLineHydrate) {
                 const narrowFields: InventoryViewMatchField[] = [
                   "fnsku",
                   "sku",
@@ -5742,13 +6773,13 @@ function OperatorMobileScanPageContent() {
                   }
                 }
               }
-              if (hydrateMatchField === "tracking_number") {
+              if (needsLineHydrate && hydrateMatchField === "tracking_number") {
                 hydratedShipmentLines = trackingScopedInventoryRows(
                   hydratedShipmentLines,
                   submittedTrackingForScope,
                 );
               }
-              if (hydratedShipmentLines.length) {
+              if (needsLineHydrate && hydratedShipmentLines.length) {
                 setIdentifyGateShipmentLines(hydratedShipmentLines);
                 const lineAgg = aggregateInventoryStatus(
                   hydrateMatchField === "tracking_number" ? hydratedShipmentLines : hydrateInvRows,
@@ -5759,11 +6790,16 @@ function OperatorMobileScanPageContent() {
                     : resolveInventoryGateVisualStatus(hydratedShipmentLines, lineAgg);
                 setIdentifyGateInventoryAgg(lineAgg);
                 setIdentifyGateInventoryVisual(lineVis);
-                setIdentifyGateViewHints(
-                  pickInventoryViewHints(
+                setIdentifyGateViewHints((prev) => {
+                  const hints = pickInventoryViewHints(
                     hydrateMatchField === "tracking_number" ? hydratedShipmentLines : hydrateInvRows,
-                  ),
-                );
+                  );
+                  return {
+                    productName: hints.productName ?? prev?.productName ?? null,
+                    carrier: hints.carrier ?? prev?.carrier ?? null,
+                    slipCode: hints.slipCode ?? prev?.slipCode ?? null,
+                  };
+                });
                 const deferredNames = collectGateProductNamesFromLines([], hydratedShipmentLines);
                 setIdentifyGateBatchProductNames((prev) => {
                   const merged = new Map(prev);
@@ -5794,6 +6830,7 @@ function OperatorMobileScanPageContent() {
                 ? trackingScopedExpectedRows(safe, submittedTrackingForScope)
                 : safe;
             let expectationLines: TrackingOperatorLine[] = [];
+            let snapshotCarrier: string | null = null;
             if (hydrateCanon) {
               try {
                 const snap = await loadTrackingExpectationSnapshot(
@@ -5803,12 +6840,23 @@ function OperatorMobileScanPageContent() {
                   hydrateCanon,
                 );
                 expectationLines = snap.lines;
+                snapshotCarrier = snap.carrier;
               } catch (err) {
                 console.warn("loadTrackingExpectationSnapshot failed", err);
               }
             }
             setIdentifyGateRows(scopedSafe);
             setIdentifyGateExpectationLines(expectationLines);
+            const epCarrier = resolveCarrierFromExpectedRecords({ epRows: scopedSafe });
+            const resolvedSnapshotCarrier = snapshotCarrier ?? epCarrier;
+            setIdentifyGateSnapshotCarrier(resolvedSnapshotCarrier);
+            if (resolvedSnapshotCarrier) {
+              setIdentifyGateViewHints((prev) => ({
+                productName: prev?.productName ?? null,
+                carrier: prev?.carrier?.trim() || resolvedSnapshotCarrier,
+                slipCode: prev?.slipCode ?? null,
+              }));
+            }
             const hydratedNames = collectGateProductNamesFromLines(scopedSafe, hydratedShipmentLines);
             setIdentifyGateBatchProductNames((prev) => {
               const merged = new Map(prev);
@@ -5857,6 +6905,7 @@ function OperatorMobileScanPageContent() {
         setIdentifyGateViewHints(null);
         setIdentifyGateShipmentLines([]);
         setIdentifyGateExpectationLines([]);
+      setIdentifyGateSnapshotCarrier(null);
         setIdentifyGateMatchField(null);
       } finally {
         setBusy(false);
@@ -5968,49 +7017,51 @@ function OperatorMobileScanPageContent() {
     if (identifyGateEntity === "pallet") setDirectBox(false);
   }, [identifyGateEntity]);
 
-  useEffect(() => {
+  const fetchCorrectionPerms = useCallback(async () => {
     const oid = (orgId ?? "").trim();
     if (!oid || !isUuidString(oid)) {
-      setCorrectionPerms({
-        moveBox: false,
-        voidBox: false,
-        editItem: false,
-        deleteItem: false,
-        closePallet: false,
-        reopenPallet: false,
-        closeShipmentReview: false,
-        reopenShipmentReview: false,
-      });
+      setCorrectionPerms({ ...EMPTY_OPERATOR_CORRECTION_PERMS });
+      setCorrectionPermsLoaded(false);
+      setCorrectionPermsLoadFailed(false);
       return;
     }
-    let cancelled = false;
-    void getOperatorMobileCorrectionPermissionsAction(oid).then((res) => {
-      if (cancelled) return;
-      if (res.ok) {
-        setCorrectionPerms(res.permissions);
-      } else {
-        // Retry once on failure (e.g. transient server-side permission load error)
-        void getOperatorMobileCorrectionPermissionsAction(oid).then((res2) => {
-          if (cancelled) return;
-          if (res2.ok) setCorrectionPerms(res2.permissions);
-          else
-            setCorrectionPerms({
-              moveBox: false,
-              voidBox: false,
-              editItem: false,
-              deleteItem: false,
-              closePallet: false,
-              reopenPallet: false,
-              closeShipmentReview: false,
-              reopenShipmentReview: false,
-            });
-        });
-      }
-    });
-    return () => {
-      cancelled = true;
+    const gen = ++correctionPermsFetchGenRef.current;
+    setCorrectionPermsLoaded(false);
+    setCorrectionPermsLoadFailed(false);
+
+    const finish = (permissions: OperatorMobileCorrectionPermissions, failed: boolean) => {
+      if (gen !== correctionPermsFetchGenRef.current) return;
+      setCorrectionPerms(permissions);
+      setCorrectionPermsLoaded(true);
+      setCorrectionPermsLoadFailed(failed);
     };
+
+    try {
+      const timeoutMs = 15_000;
+      const res = await Promise.race([
+        getOperatorMobileCorrectionPermissionsAction(oid),
+        new Promise<{ ok: false; message: string }>((resolve) => {
+          window.setTimeout(() => resolve({ ok: false, message: "Permission request timed out." }), timeoutMs);
+        }),
+      ]);
+      if (gen !== correctionPermsFetchGenRef.current) return;
+      if (res.ok) {
+        finish(res.permissions, false);
+        return;
+      }
+      const res2 = await getOperatorMobileCorrectionPermissionsAction(oid);
+      if (gen !== correctionPermsFetchGenRef.current) return;
+      if (res2.ok) finish(res2.permissions, false);
+      else finish({ ...EMPTY_OPERATOR_CORRECTION_PERMS }, true);
+    } catch {
+      if (gen !== correctionPermsFetchGenRef.current) return;
+      finish({ ...EMPTY_OPERATOR_CORRECTION_PERMS }, true);
+    }
   }, [orgId]);
+
+  useEffect(() => {
+    void fetchCorrectionPerms();
+  }, [fetchCorrectionPerms]);
 
   /** Hydrate carrier / order_id / shipment-slip / pallet / BOL photo URLs from the active pallet row. */
   useEffect(() => {
@@ -6098,7 +7149,7 @@ function OperatorMobileScanPageContent() {
     let cancelled = false;
     (async () => {
       const PALLET_DOC_SELECT =
-        "carrier_name, order_id, notes, shipping_label_urls, pallet_photo_urls, bol_photo_urls, created_by, created_at, updated_at, store_id";
+        "carrier_name, order_id, notes, shipping_label_urls, pallet_photo_urls, bol_photo_urls, created_by, created_at, updated_at, store_id, tracking_number";
 
       type HydrateRow = {
         carrier_name?: string | null;
@@ -6111,6 +7162,7 @@ function OperatorMobileScanPageContent() {
         created_at?: string | null;
         updated_at?: string | null;
         store_id?: string | null;
+        tracking_number?: string | null;
       };
 
       let data: HydrateRow | null = null;
@@ -6170,6 +7222,20 @@ function OperatorMobileScanPageContent() {
       if (!data) return;
 
       const row = data;
+      let hydratedTrackingNumber =
+        String((row as { tracking_number?: unknown }).tracking_number ?? "").trim() || null;
+      if (!hydratedTrackingNumber && isSupabaseConfigured()) {
+        const { data: tnOnly } = await supabase
+          .from("pallets")
+          .select("tracking_number")
+          .eq("id", fetchingFor)
+          .maybeSingle();
+        if (cancelled) return;
+        if (hydrateActivePalletIdRef.current !== fetchingFor) return;
+        hydratedTrackingNumber =
+          String((tnOnly as { tracking_number?: unknown } | null)?.tracking_number ?? "").trim() ||
+          null;
+      }
       const createdAtRaw = row.created_at;
       const updatedAtRaw = row.updated_at;
       const activityIso =
@@ -6220,7 +7286,11 @@ function OperatorMobileScanPageContent() {
       lastOrderIdAutoFilledFromRaRef.current = null;
       setActivePallet((p) => {
         if (!p?.id || !isUuidString(p.id) || p.id !== fetchingFor) return p;
-        return { ...p, order_id: rowOrder.length ? rowOrder : null };
+        return {
+          ...p,
+          order_id: rowOrder.length ? rowOrder : null,
+          tracking_number: hydratedTrackingNumber,
+        };
       });
       if (process.env.NODE_ENV === "development") {
         console.log("Current Pallet Data from DB:", { palletId: fetchingFor, ...row });
@@ -6321,25 +7391,38 @@ function OperatorMobileScanPageContent() {
 
   /** Loads `palletPackagePickerList` via {@link listOperatorPackagesForPalletAction} whenever the active pallet (UUID) or scan/box steps change; clears when leaving scan steps or pallet is not persisted yet. */
   useEffect(() => {
+    postBoxCloseContextRef.current = postBoxCloseContext;
+  }, [postBoxCloseContext]);
+
+  useEffect(() => {
     const oid = (orgId ?? "").trim();
     const pid = activePallet?.id?.trim() ?? "";
-    const onPalletBoxSteps = flowPhase === "package_scan" || flowPhase === "scan";
+    const onPalletBoxSteps =
+      flowPhase === "package_scan" ||
+      flowPhase === "scan" ||
+      (flowPhase === "items" && pid && isUuidString(pid));
     if (!isSupabaseConfigured() || !oid || !pid || !isUuidString(pid) || !onPalletBoxSteps) {
       setPalletPackagePickerList([]);
       return;
     }
-    setPalletPackagePickerList([]);
     let cancelled = false;
     void (async () => {
       const res = await listOperatorPackagesForPalletAction(oid, pid, sessionStoreId ?? null);
       if (cancelled) return;
-      if (res.ok) setPalletPackagePickerList(res.packages);
-      else setPalletPackagePickerList([]);
+      if (!res.ok) {
+        setPalletPackagePickerList([]);
+        return;
+      }
+      const optimisticClosedId = (postBoxCloseContextRef.current?.closedPackageId ?? "").trim();
+      const packages = optimisticClosedId
+        ? applyFinalizedPackageToPickerList(res.packages, optimisticClosedId, new Date().toISOString())
+        : res.packages;
+      setPalletPackagePickerList(packages);
     })();
     return () => {
       cancelled = true;
     };
-  }, [flowPhase, orgId, activePallet?.id, palletDocHydrationNonce, sessionStoreId]);
+  }, [flowPhase, orgId, activePallet?.id, palletDocHydrationNonce, sessionStoreId, postBoxCloseContext?.closedPackageId]);
 
   /** After pallet hydration refresh, re-read slip_contents so `conflicting_order_id` matches DB immediately. */
   useEffect(() => {
@@ -6389,26 +7472,39 @@ function OperatorMobileScanPageContent() {
   }, [flowPhase]);
 
   useEffect(() => {
-    setEmptyBoxChecked(false);
-    setEmptyBoxSaved(false);
-    setItemScanPackageManifestData(null);
     const pkgId = activeBoxSession?.packageId?.trim() ?? "";
-    if (!pkgId || !isUuidString(pkgId)) return;
+    if (!pkgId || !isUuidString(pkgId)) {
+      setEmptyBoxChecked(false);
+      setEmptyBoxSaved(false);
+      setBoxHasNoPackingSlip(false);
+      setItemScanPackageManifestData(null);
+      return;
+    }
     const oid = (orgId ?? "").trim();
     if (!oid) return;
     let cancelled = false;
     void getOperatorIntakeBoxPackageRowAction(oid, pkgId, sessionStoreId ?? null).then((res) => {
       if (cancelled || !res.ok) return;
       setItemScanPackageManifestData(res.row.manifest_data ?? null);
-      if (packageManifestHasEmptyBox(res.row.manifest_data)) {
-        setEmptyBoxSaved(true);
-        setEmptyBoxChecked(true);
-      }
+      const flags = readBoxIntakeManifestFlags(res.row.manifest_data);
+      setEmptyBoxChecked(flags.empty_box);
+      setEmptyBoxSaved(flags.empty_box);
+      setBoxHasNoPackingSlip(flags.no_packing_slip);
     });
     return () => {
       cancelled = true;
     };
   }, [activeBoxSession?.packageId, activeBoxSession?.barcode, orgId, sessionStoreId]);
+
+  /** Rehydrate box intake flags from manifest on item scan (e.g. after Reopen Box). */
+  useEffect(() => {
+    if (flowPhase !== "items" && flowPhase !== "package_scan") return;
+    if (itemScanPackageManifestData == null && !activeBoxSession?.packageId) return;
+    const flags = readBoxIntakeManifestFlags(itemScanPackageManifestData);
+    setEmptyBoxChecked(flags.empty_box);
+    setEmptyBoxSaved(flags.empty_box);
+    setBoxHasNoPackingSlip(flags.no_packing_slip);
+  }, [flowPhase, itemScanPackageManifestData, activeBoxSession?.packageId]);
 
   /** Reload package manifest when operator missing review marks change. */
   useEffect(() => {
@@ -6461,7 +7557,13 @@ function OperatorMobileScanPageContent() {
     [itemScanPackageManifestData],
   );
   const itemScanReceiveFinalized = flowPhase === "items" && packageReceiveState === "finalized";
-  const itemScanReceiveEditable = flowPhase === "items" && packageReceiveState === "open";
+  const itemScanUiFinalized =
+    itemScanReceiveFinalized ||
+    (flowPhase === "items" &&
+      postBoxCloseContext?.route === "single_box_finish" &&
+      (postBoxCloseContext.closedPackageId ?? "") === (itemScanPackageId ?? ""));
+  const itemScanReceiveEditable =
+    flowPhase === "items" && packageReceiveState === "open" && !itemScanUiFinalized;
 
   const packageScannedQuantitySum = useMemo(
     () =>
@@ -6473,12 +7575,12 @@ function OperatorMobileScanPageContent() {
   );
 
   useEffect(() => {
-    if (itemScanReceiveFinalized) {
+    if (itemScanUiFinalized) {
       setItemScanEditAllMode(false);
       setItemScanEditPick(null);
       setItemScanUnitPickerOpen(false);
     }
-  }, [itemScanReceiveFinalized]);
+  }, [itemScanUiFinalized]);
 
   /** Hydrate scanned counts from `return_items`, matched to slip lines by barcode. */
   useEffect(() => {
@@ -6641,15 +7743,11 @@ function OperatorMobileScanPageContent() {
       return;
     }
     const pkgScoped = Boolean(itemScanPackageId && isUuidString(itemScanPackageId));
-    if (pkgScoped) {
-      setItemScanExpectationSnapshotLines([]);
-      setItemScanExpectationLoading(false);
-      return;
-    }
     const parentTn = resolveItemScanParentTracking(
       currentPalletTrackingId,
       activeTracking,
       identifyGateCanonicalTracking,
+      activePallet?.tracking_number,
     );
     if (!parentTn) {
       setItemScanExpectationSnapshotLines([]);
@@ -6665,7 +7763,7 @@ function OperatorMobileScanPageContent() {
     }
 
     let cancelled = false;
-    setItemScanExpectationLoading(true);
+    if (!pkgScoped) setItemScanExpectationLoading(true);
     void (async () => {
       try {
         if (!isSupabaseConfigured()) {
@@ -6679,12 +7777,12 @@ function OperatorMobileScanPageContent() {
         console.warn("loadTrackingExpectationSnapshot (item phase) failed", err);
         if (!cancelled) setItemScanExpectationSnapshotLines([]);
       } finally {
-        if (!cancelled) setItemScanExpectationLoading(false);
+        if (!cancelled && !pkgScoped) setItemScanExpectationLoading(false);
       }
     })();
     return () => {
       cancelled = true;
-      setItemScanExpectationLoading(false);
+      if (!pkgScoped) setItemScanExpectationLoading(false);
     };
   }, [
     flowPhase,
@@ -6694,6 +7792,7 @@ function OperatorMobileScanPageContent() {
     currentPalletTrackingId,
     activeTracking,
     identifyGateCanonicalTracking,
+    activePallet?.tracking_number,
   ]);
 
   const itemScanExpectationLinesLive = useMemo(() => {
@@ -6712,6 +7811,7 @@ function OperatorMobileScanPageContent() {
       setExpectedPkgError(null);
       setExpectedPackagesRawRowCount(null);
       setExpectedPkgTrackingNumbers([]);
+      setExpectedManifestCarrier(null);
       return;
     }
 
@@ -6727,6 +7827,7 @@ function OperatorMobileScanPageContent() {
                 setExpectedPkgTotals(snap.totals);
                 setExpectedPackagesRawRowCount(snap.rawRowCount);
                 setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+                setExpectedManifestCarrier(snap.carrier ?? null);
                 setExpectedPkgError(null);
               } else {
                 const snap = mockPalletExpectationSnapshot();
@@ -6734,6 +7835,7 @@ function OperatorMobileScanPageContent() {
                 setExpectedPkgTotals(snap.totals);
                 setExpectedPackagesRawRowCount(snap.rawRowCount);
                 setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+                setExpectedManifestCarrier(snap.carrier ?? null);
                 setExpectedPkgError(null);
               }
             } else if (looseTn) {
@@ -6742,6 +7844,7 @@ function OperatorMobileScanPageContent() {
               setExpectedPkgTotals(snap.totals);
               setExpectedPackagesRawRowCount(snap.rawRowCount);
               setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+              setExpectedManifestCarrier(snap.carrier ?? null);
               setExpectedPkgError(null);
             }
           }
@@ -6779,6 +7882,7 @@ function OperatorMobileScanPageContent() {
             setExpectedPkgTotals(snap.totals);
             setExpectedPackagesRawRowCount(snap.rawRowCount);
             setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+            setExpectedManifestCarrier(snap.carrier ?? null);
             setExpectedPkgError(
               snap.rawRowCount === 0 ? "No expected boxes for this tracking in the current store." : null,
             );
@@ -6790,6 +7894,7 @@ function OperatorMobileScanPageContent() {
           setExpectedPkgTotals(snap.totals);
           setExpectedPackagesRawRowCount(snap.rawRowCount);
           setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+          setExpectedManifestCarrier(snap.carrier ?? null);
           setExpectedPkgError(
             snap.rawRowCount === 0
               ? "No expected boxes for box trackings on this pallet (link trackings on boxes or worklist)."
@@ -6805,6 +7910,7 @@ function OperatorMobileScanPageContent() {
           setExpectedPkgTotals(snap.totals);
           setExpectedPackagesRawRowCount(snap.rawRowCount);
           setExpectedPkgTrackingNumbers(snap.expectedTrackingNumbers);
+          setExpectedManifestCarrier(snap.carrier ?? null);
           setExpectedPkgError(
             snap.rawRowCount === 0 ? "No expected boxes for this tracking in the current store." : null,
           );
@@ -6836,6 +7942,7 @@ function OperatorMobileScanPageContent() {
           setExpectedPkgTotals(null);
           setExpectedPackagesRawRowCount(null);
           setExpectedPkgTrackingNumbers([]);
+          setExpectedManifestCarrier(null);
         }
       }
     })();
@@ -7450,13 +8557,14 @@ function OperatorMobileScanPageContent() {
           debugContext: "reloadBoxPackageIntake",
         });
         pendingEvidenceStorageDeletesRef.current.clear();
-        const hydratedNotes = normBoxScalar(row.notes);
-        setBoxNotes(hydratedNotes);
-        boxNotesRef.current = hydratedNotes;
-        if (packageManifestHasEmptyBox(row.manifest_data)) {
-          setEmptyBoxSaved(true);
-          setEmptyBoxChecked(true);
-        }
+        const hydratedNotes = applyHydratedBoxNotesFromStored(
+          String((row as { notes?: unknown }).notes ?? "").trim() || null,
+        );
+        boxNotesBaselineRef.current = hydratedNotes;
+        const intakeFlags = readBoxIntakeManifestFlags(row.manifest_data);
+        setEmptyBoxChecked(intakeFlags.empty_box);
+        setEmptyBoxSaved(intakeFlags.empty_box);
+        setBoxHasNoPackingSlip(intakeFlags.no_packing_slip);
         const pkgCarrierRaw = String(row.carrier_name ?? "").trim();
         if (pkgCarrierRaw) {
           const normalized = normalizeCarrierLabel(pkgCarrierRaw);
@@ -7536,6 +8644,7 @@ function OperatorMobileScanPageContent() {
       directBox,
       applyHydratedBoxPhotoUrlsFromPackageRow,
       applyHydratedBoxSlipVisionSnapshot,
+      applyHydratedBoxNotesFromStored,
       persistOperatorSessionCarrier,
       mergeCarrierIntoActivePalletState,
       clearBoxIntakeRestoreTimeout,
@@ -7751,6 +8860,7 @@ function OperatorMobileScanPageContent() {
         if (rma) setBoxSlipRma((prev) => (prev.trim() ? prev : rma));
         const items = Array.isArray(json.slip.items) ? json.slip.items : [];
         commitBoxSlipVisionLinesFromSource(items);
+        setBoxSlipEvidenceReview(null);
 
         const slipExplicitOrder = String(json.slip.order_id ?? "").trim();
         const rmaTrim = rma.trim();
@@ -8054,7 +9164,7 @@ function OperatorMobileScanPageContent() {
     setBoxSlipRma("");
     clearPalletOrderIdIfAutoFilledFromRa();
     clearBoxSlipVisionLinesState();
-    setBoxNotes("");
+    clearBoxOperatorNotesState();
   }, [
     activeBoxSession,
     identifyGatePhase,
@@ -8065,6 +9175,7 @@ function OperatorMobileScanPageContent() {
     clearOperatorPhotoArrays,
     clearPalletOrderIdIfAutoFilledFromRa,
     clearBoxSlipVisionLinesState,
+    clearBoxOperatorNotesState,
   ]);
 
   /** Reload persisted package row — deps intentionally exclude `busy` to avoid restore loops. */
@@ -8211,7 +9322,7 @@ function OperatorMobileScanPageContent() {
           setEditAllMode(false);
           setPackageCodeCardOpen(false);
           setCurrentPackageTrackingId(pkgNum);
-          setBoxNotes(String(r.notes ?? "").trim());
+          applyHydratedBoxNotesFromStored(String((r as { notes?: unknown }).notes ?? "").trim() || null);
           const pkgCarrierSlip = String(r.carrier_name ?? "").trim();
           if (pkgCarrierSlip) {
             const normalized = normalizeCarrierLabel(pkgCarrierSlip);
@@ -8353,7 +9464,7 @@ function OperatorMobileScanPageContent() {
       setBusy(true);
       try {
         if (!isSupabaseConfigured()) {
-          setBoxNotes("");
+          clearBoxOperatorNotesState();
           setActiveBoxSession({ barcode: trimmed, packageId: null });
           setPackageCodeCardOpen(false);
           setCurrentPackageTrackingId(trimmed);
@@ -8378,7 +9489,7 @@ function OperatorMobileScanPageContent() {
           setBoxIntakeError("Configure a store before recording boxes.");
           return false;
         }
-        setBoxNotes("");
+        clearBoxOperatorNotesState();
         setActiveBoxSession({ barcode: trimmed, packageId: null });
         setPackageCodeCardOpen(false);
         setCurrentPackageTrackingId(trimmed);
@@ -8421,9 +9532,8 @@ function OperatorMobileScanPageContent() {
 
   const saveBoxAndContinue = useCallback(
     async (opts?: {
-      appendDiscrepancyNote?: boolean;
       stayOnPackageScanAfterSave?: boolean;
-      emptyBox?: boolean;
+      finalizeEmptyBox?: boolean;
     }): Promise<boolean> => {
       if (!activeBoxSession) return false;
       const pkgBarcode = (activeBoxSession.barcode ?? "").trim();
@@ -8440,8 +9550,8 @@ function OperatorMobileScanPageContent() {
         setBoxIntakeError("Enter the carrier name (Other selected) before saving this BOX.");
         return false;
       }
-      if (!boxHasNoPackingSlip && !slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) {
-        setBoxIntakeError("Add at least one packing slip photo, or mark 'No packing slip' before saving this BOX.");
+      if (!boxIntakePackingSlipRequirementMet(boxHasNoPackingSlip, slipBoxPhotoUrls)) {
+        setBoxIntakeError(BOX_INTAKE_PACKING_SLIP_REQUIRED_ERROR);
         return false;
       }
       const directBoxShipmentDocumentation = directBox;
@@ -8452,13 +9562,17 @@ function OperatorMobileScanPageContent() {
         setBoxIntakeError("Add the required shipment photo / shipping label before saving this BOX.");
         return false;
       }
-      if (boxSlipInvalidFormatBlocksSave && !boxHasNoPackingSlip) {
+      if (
+        boxSlipInvalidFormatBlocksSave &&
+        !boxHasNoPackingSlip &&
+        boxSlipEvidenceReview?.status !== "unreadable"
+      ) {
         setBoxIntakeError(
           "INVALID_SLIP_FORMAT — use a clear packing slip photo (slip id, item lines, and barcodes visible).",
         );
         return false;
       }
-      if (boxSlipVisionBusy) {
+      if (boxSlipVisionBusy && !boxHasNoPackingSlip) {
         setBoxIntakeError("Wait for packing slip analysis to finish before saving.");
         return false;
       }
@@ -8468,18 +9582,16 @@ function OperatorMobileScanPageContent() {
       activePallet?.id && isUuidString(activePallet.id) ? activePallet.id : null;
     /** Last successful {@link updateOperatorIntakeBoxPackageAction} result (pallet order re-read). */
     let operatorPackageSaveResult: UpdateOperatorIntakeBoxPackageResult | null = null;
+    let savedPackageId: string | null = null;
     try {
       setDuplicatePackingSlip(null);
       setBoxIntakeError(null);
       const orderPersist = palletOrderId.trim() || null;
       const rmaPersist = boxSlipRma.trim() || null;
-      let notesForSave = boxNotesRef.current.trim();
-      if (opts?.appendDiscrepancyNote && !notesForSave.includes(DISCREPANCY_AUTO_NOTE)) {
-        notesForSave = notesForSave
-          ? `${notesForSave}\n${DISCREPANCY_AUTO_NOTE}`
-          : DISCREPANCY_AUTO_NOTE;
-      }
-      setBoxNotes(notesForSave);
+      const notesForSave = mergePackageBoxNotesForPersist(
+        boxNotesRef.current.trim(),
+        boxSystemNotesSummaryRef.current,
+      );
       const slipLinesForPersist =
         boxSlipVisionLinesPersistRef.current.length > 0
           ? boxSlipVisionLinesPersistRef.current
@@ -8490,14 +9602,21 @@ function OperatorMobileScanPageContent() {
         pkgBarcode ||
         (activeTracking ?? "").trim() ||
         (currentPalletTrackingId ?? "").trim();
-      const manifestPayload = {
+      const priorManifest = coercePackageManifestData(itemScanPackageManifestData);
+      const commitIso = new Date().toISOString();
+      const transitioningToItemScan =
+        !opts?.stayOnPackageScanAfterSave && !opts?.finalizeEmptyBox;
+      let manifestPayload: Record<string, unknown> = {
+        ...(priorManifest && typeof priorManifest === "object" && !Array.isArray(priorManifest)
+          ? (priorManifest as Record<string, unknown>)
+          : {}),
         box_slip_vision: {
           id_slip_contents: slipCodePersist,
           rma_number: rmaPersist,
           items: slipLinesForPersist,
-          captured_at: new Date().toISOString(),
+          captured_at: commitIso,
         },
-        ...(boxHasNoPackingSlip ? { no_packing_slip: true } : {}),
+        ...(boxHasNoPackingSlip ? { no_packing_slip: true } : { no_packing_slip: false }),
         ...(directBoxSave
           ? {
               direct_box_shipment_documentation: {
@@ -8505,11 +9624,20 @@ function OperatorMobileScanPageContent() {
                 bol_photo_urls: bolPhotoUrls,
                 carrier_name: carrierToPersist,
                 order_id: orderPersist,
-                captured_at: new Date().toISOString(),
+                captured_at: commitIso,
               },
             }
           : {}),
       };
+      manifestPayload = mergeOperatorItemScanIntakeCommitted(manifestPayload, { atIso: commitIso });
+      if (transitioningToItemScan) {
+        manifestPayload = mergeOperatorItemScanStarted(manifestPayload, { atIso: commitIso });
+      }
+      const reviewToPersist =
+        boxSlipEvidenceReview ?? readBoxSlipEvidenceReview(itemScanPackageManifestData);
+      if (reviewToPersist && reviewToPersist.status !== "detected") {
+        manifestPayload = mergeBoxSlipEvidenceReview(manifestPayload, reviewToPersist);
+      }
       const oid = orgId?.trim();
 
       if (isSupabaseConfigured()) {
@@ -8571,6 +9699,7 @@ function OperatorMobileScanPageContent() {
           }
           packageId = ins.packageId;
         }
+        savedPackageId = packageId;
         const saveRes = await updateOperatorIntakeBoxPackageAction({
           requestedOrganizationId: oid,
           storeId: sessionStoreId,
@@ -8625,7 +9754,7 @@ function OperatorMobileScanPageContent() {
           setPalletMixedOrderIdsWarning(true);
         }
         operatorPackageSaveResult = saveRes;
-        if (opts?.emptyBox) {
+        if (emptyBoxChecked && oid && packageId) {
           const emptyRes = await saveOperatorEmptyBoxAction({
             requestedOrganizationId: oid,
             packageId,
@@ -8636,6 +9765,25 @@ function OperatorMobileScanPageContent() {
             return false;
           }
           setEmptyBoxSaved(true);
+        }
+
+        if (opts?.finalizeEmptyBox && oid && packageId) {
+          const finRes = await finalizeOperatorPackageItemScanAction({
+            requestedOrganizationId: oid,
+            storeId: sessionStoreId,
+            packageId,
+            emptyBox: true,
+            notes: notesForSave.length ? notesForSave : null,
+            evidenceRefs: {
+              outside_photo_urls: outsideBoxPhotoUrls,
+              inside_photo_urls: insideBoxPhotoUrls,
+              slip_photo_urls: slipBoxPhotoUrls,
+            },
+          });
+          if (!finRes.ok) {
+            setBoxIntakeError(finRes.message);
+            return false;
+          }
         }
         const visionSnap = clonePersistBoxSlipVisionLines(slipLinesForPersist);
         const linkageSnap =
@@ -8704,17 +9852,61 @@ function OperatorMobileScanPageContent() {
         void loadPalletDetail(resolvedPalletIdForDetail);
       }
       setPalletDocHydrationNonce((n) => n + 1);
-      const stay = Boolean(opts?.stayOnPackageScanAfterSave) || Boolean(opts?.emptyBox);
+
+      if (opts?.finalizeEmptyBox && isSupabaseConfigured() && savedPackageId && oid) {
+        const pid = resolvedPalletIdForDetail;
+        let listForRoute = palletPackagePickerListRef.current;
+        if (pid && isUuidString(pid)) {
+          listForRoute = await refreshPalletPackagePickerListAfterBoxClose(
+            oid,
+            pid,
+            sessionStoreId,
+            savedPackageId,
+          );
+          setPalletPackagePickerList(listForRoute);
+          palletPackagePickerListRef.current = listForRoute;
+        }
+        const expectedBoxCount = resolvePostBoxCloseExpectedBoxCount(
+          boxScanTargetDenominator,
+          physicalBoxCount,
+        );
+        const route = resolvePostBoxCloseRoute({
+          directBox: Boolean(directBox),
+          activePalletId: pid || null,
+          expectedBoxCount,
+          palletPackagePickerList: listForRoute,
+          closedPackageId: savedPackageId,
+        });
+        const copy = postBoxCloseCopy(route);
+        setPostBoxCloseContext({
+          route,
+          closedPackageId: savedPackageId,
+          headline: copy.headline,
+          detail: copy.detail,
+        });
+        postBoxCloseContextRef.current = {
+          route,
+          closedPackageId: savedPackageId,
+          headline: copy.headline,
+          detail: copy.detail,
+        };
+        setEmptyBoxChecked(false);
+        setItemScanPackageId(null);
+        setItemScanPackageLabel(null);
+        setReceivingSlipExpectedItemQtyTotal(null);
+      }
+
+      const stay = Boolean(opts?.stayOnPackageScanAfterSave) || Boolean(opts?.finalizeEmptyBox);
       playOperatorSuccessBeep();
       setPackageSaveSuccessDestination(stay ? "hub" : "items");
       setPackageSaveSuccessOverlay(true);
       if (stay) {
         setIntakeToast(
-          opts?.emptyBox
-            ? "Empty box saved — no physical items recorded."
-            : opts?.appendDiscrepancyNote
-              ? "Box saved with discrepancy. Scan the next box, or tap Save & Continue to Items when you are ready."
-              : "Box saved. Back at the pallet hub — scan the next box when you are ready.",
+          opts?.finalizeEmptyBox
+            ? postBoxCloseContextRef.current
+              ? `${postBoxCloseContextRef.current.headline}. ${postBoxCloseContextRef.current.detail}`
+              : "Empty box closed — no physical items recorded."
+            : "Box saved. Back at the pallet hub — scan the next box when you are ready.",
         );
       }
       window.setTimeout(() => {
@@ -8763,17 +9955,22 @@ function OperatorMobileScanPageContent() {
     currentPalletTrackingId,
     directBox,
     flushPendingEvidenceStorageDeletes,
+    boxHasNoPackingSlip,
     boxSlipInvalidFormatBlocksSave,
     boxSlipVisionBusy,
     boxSlipVisionLineLinkages,
     clearOperatorPhotoArrays,
+    boxScanTargetDenominator,
+    physicalBoxCount,
+    emptyBoxChecked,
+    itemScanPackageManifestData,
+    boxSlipEvidenceReview,
   ]);
 
   const dispatchPackageFinalizeSave = useCallback(
-    (kind: "save_items" | "save_hub" | "discrepancy") => {
+    (kind: "save_items" | "save_hub") => {
       if (kind === "save_items") void saveBoxAndContinue();
-      else if (kind === "save_hub") void saveBoxAndContinue({ stayOnPackageScanAfterSave: true });
-      else void saveBoxAndContinue({ appendDiscrepancyNote: true, stayOnPackageScanAfterSave: true });
+      else void saveBoxAndContinue({ stayOnPackageScanAfterSave: true });
     },
     [saveBoxAndContinue],
   );
@@ -8971,7 +10168,7 @@ function OperatorMobileScanPageContent() {
     openItemScanUnitPickerForRow(
       {
         kind: "unexpected",
-        rowTitle: "Not on packing slip",
+        rowTitle: "Not on packing slip and shipment",
         rowSubtitle: null,
       },
       units,
@@ -10028,8 +11225,9 @@ function OperatorMobileScanPageContent() {
         setActiveBoxSession(null);
         setPackageCodeCardOpen(true);
       }
-      const resumeBoxNotes = String(row.notes ?? "").trim();
-      setBoxNotes(resumeBoxNotes);
+      const resumeBoxNotes = applyHydratedBoxNotesFromStored(
+        String((row as { notes?: unknown }).notes ?? "").trim() || null,
+      );
       boxNotesBaselineRef.current = resumeBoxNotes;
       const pkgCarrier = String(row.carrier_name ?? "").trim();
       if (pkgCarrier && opts.directBox) {
@@ -10127,6 +11325,103 @@ function OperatorMobileScanPageContent() {
     ],
   );
 
+  /** Pallet package routing: single in-progress box resumes last page; multi-box tracking opens BOX LIST hub. */
+  const routePalletSavedPackages = useCallback(
+    async (
+      palletId: string,
+      opts?: { exactPackageRow?: Record<string, unknown>; enteredCode?: string },
+    ): Promise<{ resumedItemScan: boolean; nextPhase: "scan" | "package_scan" | "items" }> => {
+      const oid = orgId.trim();
+      let nextPhase: "scan" | "package_scan" | "items" = "package_scan";
+      let resumedItemScan = false;
+      const enteredCode = String(opts?.enteredCode ?? "").trim();
+      const forceExactPackage =
+        Boolean(opts?.exactPackageRow) &&
+        Boolean(enteredCode) &&
+        savedPackageRowMatchesExactEnteredCode(opts!.exactPackageRow!, enteredCode);
+
+      const openExactPackage = async (row: Record<string, unknown>): Promise<boolean> => {
+        const pickerRow = operatorPackageListRowFromRecord(row);
+        if (operatorPackageReceiveIsFinalized(pickerRow)) {
+          setActiveBoxSession(null);
+          setCurrentPackageTrackingId(null);
+          setPackageCodeCardOpen(false);
+          setPalletPackagePickerQuery("");
+          resumeItemScanForPackageRef.current?.(pickerRow);
+          nextPhase = "items";
+          return true;
+        }
+        const resumed = Boolean(
+          await maybeResumeItemScanAfterPackageRowRef.current?.(row, { directBox: false }),
+        );
+        if (resumed) {
+          nextPhase = "items";
+          return true;
+        }
+        hydrateSavedPackageRowIntoBoxIntake(row, { directBox: false });
+        nextPhase = "package_scan";
+        return false;
+      };
+
+      const openBoxListHub = (): { resumedItemScan: false; nextPhase: "package_scan" } => {
+        setActiveBoxSession(null);
+        setCurrentPackageTrackingId(null);
+        setPackageCodeCardOpen(false);
+        setPalletPackagePickerQuery("");
+        return { resumedItemScan: false, nextPhase: "package_scan" };
+      };
+
+      if (!oid || !isUuidString(palletId) || !isSupabaseConfigured()) {
+        if (opts?.exactPackageRow) {
+          resumedItemScan = await openExactPackage(opts.exactPackageRow);
+        }
+        return { resumedItemScan, nextPhase };
+      }
+
+      const decision = await resolvePalletPackagesResumeDecision(
+        oid,
+        palletId,
+        sessionStoreId ?? null,
+      );
+      if (decision.packages.length > 0) {
+        setPalletPackagePickerList(decision.packages);
+      }
+
+      if (decision.packages.length > 1) {
+        if (forceExactPackage && opts?.exactPackageRow) {
+          resumedItemScan = await openExactPackage(opts.exactPackageRow);
+          return { resumedItemScan, nextPhase };
+        }
+        if (decision.allKnownFinalized) {
+          setPostBoxCloseContext(applyPalletAllKnownFinalizedHubRoute());
+        }
+        return openBoxListHub();
+      }
+
+      if (decision.packages.length === 1) {
+        const singleRow = decision.packages[0] as unknown as Record<string, unknown>;
+        if (decision.itemScanResumeRow) {
+          const resumed = Boolean(
+            await maybeResumeItemScanAfterPackageRowRef.current?.(singleRow, { directBox: false }),
+          );
+          if (resumed) {
+            return { resumedItemScan: true, nextPhase: "items" };
+          }
+        }
+        resumedItemScan = await openExactPackage(
+          (opts?.exactPackageRow ?? singleRow) as Record<string, unknown>,
+        );
+        return { resumedItemScan, nextPhase };
+      }
+
+      if (opts?.exactPackageRow) {
+        resumedItemScan = await openExactPackage(opts.exactPackageRow);
+      }
+      return { resumedItemScan, nextPhase };
+    },
+    [orgId, sessionStoreId, hydrateSavedPackageRowIntoBoxIntake],
+  );
+
   const resumeWorkflowFromExistingPalletRow = useCallback(
     async (
       row: OperatorPalletTrackingRow,
@@ -10153,6 +11448,7 @@ function OperatorMobileScanPageContent() {
         pallet_number: row.pallet_number,
         carrier_name: String(row.carrier_name ?? "").trim() || undefined,
         order_id: String(row.order_id ?? "").trim() || null,
+        tracking_number: tracking || null,
       });
       setCurrentPalletTrackingId(tracking);
       if (typeof opCount === "number" && Number.isFinite(opCount) && opCount > 0) {
@@ -10203,32 +11499,14 @@ function OperatorMobileScanPageContent() {
       }
       const hasShip = palletHasPersistedShipmentDetails(row);
       let nextPhase: typeof flowPhase = hasShip ? "package_scan" : "scan";
-      let resumedItemScan = false;
-      if (opts?.packageRow) {
-        hydrateSavedPackageRowIntoBoxIntake(opts.packageRow, { directBox: false });
-        resumedItemScan = Boolean(
-          await maybeResumeItemScanAfterPackageRowRef.current?.(opts.packageRow, { directBox: false }),
-        );
-        if (!resumedItemScan) nextPhase = "package_scan";
-      } else {
-        const oidResume = orgId.trim();
-        if (oidResume && isUuidString(row.id) && isSupabaseConfigured()) {
-          const pkgRes = await listOperatorPackagesForPalletAction(
-            oidResume,
-            row.id,
-            sessionStoreId ?? null,
-          );
-          if (pkgRes.ok && pkgRes.packages.length > 0) {
-            const pkg0 = pkgRes.packages[0] as unknown as Record<string, unknown>;
-            hydrateSavedPackageRowIntoBoxIntake(pkg0, { directBox: false });
-            resumedItemScan = Boolean(
-              await maybeResumeItemScanAfterPackageRowRef.current?.(pkg0, { directBox: false }),
-            );
-            if (!resumedItemScan && hasShip) nextPhase = "package_scan";
-          }
-        }
+      const routed = await routePalletSavedPackages(row.id, {
+        exactPackageRow: opts?.packageRow,
+        enteredCode,
+      });
+      if (!routed.resumedItemScan) {
+        nextPhase = routed.nextPhase === "items" ? "items" : hasShip ? "package_scan" : routed.nextPhase;
+        setFlowPhase(nextPhase);
       }
-      if (!resumedItemScan) setFlowPhase(nextPhase);
       if (hasShip && orgId.trim()) {
         try {
           window.sessionStorage.setItem(
@@ -10256,7 +11534,7 @@ function OperatorMobileScanPageContent() {
       orgId,
       sessionStoreId,
       resetIdentifyGateForm,
-      hydrateSavedPackageRowIntoBoxIntake,
+      routePalletSavedPackages,
       persistOperatorSessionCarrier,
     ],
   );
@@ -10277,7 +11555,21 @@ function OperatorMobileScanPageContent() {
 
       const pkgNum = String(row.package_code ?? row.slip_id ?? row.package_number ?? "").trim();
       const pkgId = String(row.id ?? "").trim();
-      if (pkgId && isUuidString(pkgId) && pkgNum) {
+      const pickerRow = operatorPackageListRowFromRecord(row);
+      const singleBoxFinalized = operatorPackageReceiveIsFinalized(pickerRow);
+
+      if (pkgId && isUuidString(pkgId) && !singleBoxFinalized) {
+        const resumedItemScanEarly = Boolean(
+          await maybeResumeItemScanAfterPackageRowRef.current?.(row, { directBox: true }),
+        );
+        if (resumedItemScanEarly) {
+          setIsIdentified(true);
+          setPalletDocHydrationNonce((n) => n + 1);
+          return;
+        }
+      }
+
+      if (pkgId && isUuidString(pkgId) && pkgNum && !singleBoxFinalized) {
         setActiveBoxSession({ barcode: pkgNum, packageId: pkgId });
         setEditAllMode(false);
         setPackageCodeCardOpen(false);
@@ -10323,8 +11615,9 @@ function OperatorMobileScanPageContent() {
       evidenceBaselineRef.current.bol = [...bolUrls];
       pendingEvidenceStorageDeletesRef.current.clear();
 
-      const directBoxNotes = String(row.notes ?? "").trim();
-      setBoxNotes(directBoxNotes);
+      const directBoxNotes = applyHydratedBoxNotesFromStored(
+        String((row as { notes?: unknown }).notes ?? "").trim() || null,
+      );
       boxNotesBaselineRef.current = directBoxNotes;
       const carrierRaw = String((row as { carrier_name?: unknown }).carrier_name ?? docs.carrierName ?? "").trim();
       if (carrierRaw) {
@@ -10349,10 +11642,25 @@ function OperatorMobileScanPageContent() {
         finalizeBoxIntakeBaselineFromCurrentState();
       }
 
-      const resumedItemScan = Boolean(
-        await maybeResumeItemScanAfterPackageRowRef.current?.(row, { directBox: true }),
-      );
-      if (!resumedItemScan) setFlowPhase("package_scan");
+      if (singleBoxFinalized && pkgId && isUuidString(pkgId)) {
+        setActiveBoxSession(null);
+        setCurrentPackageTrackingId(null);
+        setPackageCodeCardOpen(false);
+        const copy = postBoxCloseCopy("single_box_finish");
+        setPostBoxCloseContext({
+          route: "single_box_finish",
+          closedPackageId: pkgId,
+          headline: copy.headline,
+          detail: copy.detail,
+        });
+        resumeItemScanForPackageRef.current?.(pickerRow);
+        setFlowPhase("items");
+      } else {
+        const resumedItemScan = Boolean(
+          await maybeResumeItemScanAfterPackageRowRef.current?.(row, { directBox: true }),
+        );
+        if (!resumedItemScan) setFlowPhase("package_scan");
+      }
       setIsIdentified(true);
       setPalletDocHydrationNonce((n) => n + 1);
     },
@@ -10413,7 +11721,12 @@ function OperatorMobileScanPageContent() {
             setIdentifyGatePhase("idle");
             setIdentifyGateSlowHint("Loading saved shipment…");
             setIntakeToast("Saved package found — loading pallet shipment...");
-            await resumeWorkflowFromExistingPalletRow(byId.pallet, primary, { packageRow: row });
+            const exactPackage = savedPackageRowMatchesExactEnteredCode(row, candidate);
+            await resumeWorkflowFromExistingPalletRow(
+              byId.pallet,
+              primary,
+              exactPackage ? { packageRow: row } : undefined,
+            );
             setIdentifyGateSlowHint(null);
             return "resumed";
           }
@@ -11028,7 +12341,7 @@ function OperatorMobileScanPageContent() {
     setActiveSlipOrPackage(null);
     setActiveTracking(code);
     setDirectBox(true);
-    setBoxNotes("");
+    clearBoxOperatorNotesState();
     setActiveBoxSession({ barcode: code, packageId: null });
     setCurrentPalletTrackingId(code);
     setCurrentPackageTrackingId(code);
@@ -11203,6 +12516,40 @@ function OperatorMobileScanPageContent() {
     ],
   );
 
+  const commitShipmentExpectedContextFromGate = useCallback(() => {
+    const store = sessionStoreId?.trim() ?? "";
+    const oid = orgId.trim();
+    const tracking = (identifyGateCanonicalTracking ?? identifyGateEnteredCode).trim();
+    if (!oid || !store || !tracking || identifyGatePhase !== "matched") return;
+    if (!identifyGateInventoryAgg || identifyGateInventoryAgg.totalExpected <= 0) return;
+
+    const ctx = buildShipmentExpectedContextFromGate({
+      organizationId: oid,
+      storeId: store,
+      trackingNumber: tracking,
+      carrier: (identifyGateCarrierLabel ?? palletCarrierRef.current.trim()) || null,
+      orderId: identifyGateOrderIdsLabel !== "—" ? identifyGateOrderIdsLabel : null,
+      expectationLines: identifyGateExpectationLines,
+      shipmentLines: identifyGateShipmentLines,
+      epRows: identifyGateRows,
+    });
+    if (!ctx) return;
+    setShipmentExpectedContext(ctx);
+    persistShipmentExpectedContext(ctx);
+  }, [
+    sessionStoreId,
+    orgId,
+    identifyGateCanonicalTracking,
+    identifyGateEnteredCode,
+    identifyGatePhase,
+    identifyGateInventoryAgg,
+    identifyGateCarrierLabel,
+    identifyGateOrderIdsLabel,
+    identifyGateExpectationLines,
+    identifyGateShipmentLines,
+    identifyGateRows,
+  ]);
+
   const handleIdentifyMatchedStartWorkflow = useCallback(async () => {
     if (identifyGatePhase !== "matched") return;
     const entity =
@@ -11293,6 +12640,7 @@ function OperatorMobileScanPageContent() {
           setIdentifyGateGlowFlash(false);
           setIsIdentified(true);
           setPalletDocHydrationNonce((n) => n + 1);
+          commitShipmentExpectedContextFromGate();
           resetIdentifyGateForm();
           return;
         }
@@ -11367,17 +12715,19 @@ function OperatorMobileScanPageContent() {
               id: byId.pallet.id,
               pallet_number: byId.pallet.pallet_number,
               carrier_name: String(byId.pallet.carrier_name ?? "").trim() || undefined,
+              tracking_number:
+                String(byId.pallet.tracking_number ?? "").trim() || effectiveTracking || null,
             });
             setCurrentPalletTrackingId(
               String(byId.pallet.tracking_number ?? "").trim() || effectiveTracking,
             );
-            if (pkgRow) hydrateSavedPackageRowIntoBoxIntake(pkgRow, { directBox: false });
-            const resumedItemScanFromPallet = pkgRow
-              ? Boolean(
-                  await maybeResumeItemScanAfterPackageRowRef.current?.(pkgRow, { directBox: false }),
-                )
-              : false;
-            if (!resumedItemScanFromPallet) setFlowPhase("package_scan");
+            const routed = await routePalletSavedPackages(byId.pallet.id, {
+              exactPackageRow: pkgRow ?? undefined,
+              enteredCode: code,
+            });
+            if (!routed.resumedItemScan && routed.nextPhase !== "items") {
+              setFlowPhase(routed.nextPhase);
+            }
             setPalletDocHydrationNonce((n) => n + 1);
             resumedPalletPackage = true;
           }
@@ -11395,6 +12745,7 @@ function OperatorMobileScanPageContent() {
             setIdentifyGateGlowFlash(false);
             setIsIdentified(true);
             setPalletDocHydrationNonce((n) => n + 1);
+            commitShipmentExpectedContextFromGate();
             resetIdentifyGateForm();
             return;
           }
@@ -11429,7 +12780,7 @@ function OperatorMobileScanPageContent() {
           setActivePallet(null);
           setActiveTracking(effectiveTracking);
           setCurrentPalletTrackingId(effectiveTracking);
-          setBoxNotes("");
+          clearBoxOperatorNotesState();
           setActiveBoxSession({ barcode: code, packageId: null });
           setCurrentPackageTrackingId(code);
           setFlowPhase("package_scan");
@@ -11452,6 +12803,7 @@ function OperatorMobileScanPageContent() {
       setIdentifyGateGlowFlash(false);
       setIsIdentified(true);
       if (isSupabaseConfigured()) setPalletDocHydrationNonce((n) => n + 1);
+      commitShipmentExpectedContextFromGate();
       resetIdentifyGateForm();
     } catch (e) {
       setSyncErrorToast(e instanceof Error ? e.message : "Could not start workflow.");
@@ -11475,10 +12827,11 @@ function OperatorMobileScanPageContent() {
     applyResult,
     ensureReceivingPalletForTracking,
     hydrateMatchedShipmentPalletDraft,
-    hydrateSavedPackageRowIntoBoxIntake,
+    routePalletSavedPackages,
     scheduleFocusScanner,
     resetIdentifyGateForm,
     tryDirectPackageDbFallbackResume,
+    commitShipmentExpectedContextFromGate,
   ]);
 
   const handleIdentifyNewCreateAndStart = useCallback(async () => {
@@ -11517,7 +12870,7 @@ function OperatorMobileScanPageContent() {
         setActiveTracking(code);
         setCurrentPalletTrackingId(code.trim());
         setDirectBox(true);
-        setBoxNotes("");
+        clearBoxOperatorNotesState();
         setModernPalletWorkspace(false);
         setActiveBoxSession({ barcode: code.trim(), packageId: null });
         setCurrentPackageTrackingId(code.trim());
@@ -11528,7 +12881,7 @@ function OperatorMobileScanPageContent() {
         setDirectBox(true);
         setCurrentPalletTrackingId(code.trim());
         setModernPalletWorkspace(false);
-        setBoxNotes("");
+        clearBoxOperatorNotesState();
         setActiveBoxSession({ barcode: code.trim(), packageId: null });
         setCurrentPackageTrackingId(code.trim());
         setFlowPhase("package_scan");
@@ -11602,7 +12955,7 @@ function OperatorMobileScanPageContent() {
       setActiveTracking(code);
       setCurrentPalletTrackingId(code.trim());
       setDirectBox(true);
-      setBoxNotes("");
+      clearBoxOperatorNotesState();
       setModernPalletWorkspace(false);
       setActiveBoxSession({ barcode: code.trim(), packageId: null });
       setCurrentPackageTrackingId(code.trim());
@@ -11626,7 +12979,7 @@ function OperatorMobileScanPageContent() {
         setActiveTracking(code);
         setCurrentPalletTrackingId(code.trim());
         setDirectBox(true);
-        setBoxNotes("");
+        clearBoxOperatorNotesState();
         setModernPalletWorkspace(false);
         setActiveBoxSession({ barcode: code.trim(), packageId: null });
         setCurrentPackageTrackingId(code.trim());
@@ -11934,15 +13287,44 @@ function OperatorMobileScanPageContent() {
     [palletCloseReviewPreview],
   );
 
-  const effectiveShipmentTracking = useMemo(
-    () =>
-      resolveItemScanParentTracking(
-        currentPalletTrackingId,
-        activeTracking,
-        identifyGateCanonicalTracking,
-      ),
-    [currentPalletTrackingId, activeTracking, identifyGateCanonicalTracking],
-  );
+  const effectiveShipmentTracking = useMemo(() => {
+    const fromParent = resolveItemScanParentTracking(
+      currentPalletTrackingId,
+      activeTracking,
+      identifyGateCanonicalTracking,
+      activePallet?.tracking_number,
+    );
+    if (fromParent) return fromParent;
+    const pkgId = (itemScanPackageId ?? "").trim();
+    if (pkgId && isUuidString(pkgId)) {
+      const pkgRow = palletPackagePickerList.find((p) => p.id === pkgId);
+      const pkgTn = String(pkgRow?.tracking_number ?? "").trim();
+      if (pkgTn) return pkgTn;
+    }
+    for (const p of palletPackagePickerList) {
+      const listTn = String(p.tracking_number ?? "").trim();
+      if (listTn) return listTn;
+    }
+    const closedPkgId = (postBoxCloseContext?.closedPackageId ?? "").trim();
+    if (closedPkgId) {
+      const closedRow = palletPackagePickerList.find((p) => p.id === closedPkgId);
+      const closedTn = String(closedRow?.tracking_number ?? "").trim();
+      if (closedTn) return closedTn;
+    }
+    const cartonTn = (currentPackageTrackingId ?? "").trim();
+    if (cartonTn) return cartonTn;
+    const looseTn = (activeTracking ?? "").trim();
+    return looseTn || null;
+  }, [
+    currentPalletTrackingId,
+    activeTracking,
+    identifyGateCanonicalTracking,
+    activePallet?.tracking_number,
+    itemScanPackageId,
+    palletPackagePickerList,
+    currentPackageTrackingId,
+    postBoxCloseContext?.closedPackageId,
+  ]);
 
   const shipmentCloseReviewModel = useMemo(
     () =>
@@ -11951,6 +13333,102 @@ function OperatorMobileScanPageContent() {
         : null,
     [shipmentCloseReviewPreview],
   );
+
+  const shipmentExpectedContextLive = useMemo(() => {
+    if (!shipmentExpectedContext) return null;
+    const carrierPatch =
+      expectedManifestCarrier ??
+      identifyGateCarrierLabel ??
+      (palletCarrierRef.current.trim() || activePallet?.carrier_name?.trim() || null);
+    if (expectedPkgLines.length === 0) {
+      return enrichShipmentExpectedContextCarrier(shipmentExpectedContext, carrierPatch);
+    }
+    return mergeLiveTrackingLinesIntoContext(shipmentExpectedContext, expectedPkgLines, carrierPatch);
+  }, [
+    shipmentExpectedContext,
+    expectedPkgLines,
+    expectedManifestCarrier,
+    identifyGateCarrierLabel,
+    activePallet?.carrier_name,
+  ]);
+
+  useEffect(() => {
+    const tn = (effectiveShipmentTracking ?? "").trim();
+    const store = sessionStoreId?.trim() ?? "";
+    const oid = orgId.trim();
+    if (!tn || !oid || !store) return;
+    if (shipmentExpectedContext?.tracking_number === tn) return;
+
+    const saved = loadShipmentExpectedContext(oid, store, tn);
+    if (saved) {
+      setShipmentExpectedContext(
+        enrichShipmentExpectedContextCarrier(
+          saved,
+          expectedManifestCarrier ??
+            identifyGateCarrierLabel ??
+            (palletCarrierRef.current.trim() || activePallet?.carrier_name?.trim() || null),
+        ),
+      );
+      return;
+    }
+
+    if (expectedPkgLines.length === 0 || !expectedPkgTotals?.expectedUnits) return;
+    const ctx = buildShipmentExpectedContextFromTrackingLines({
+      organizationId: oid,
+      storeId: store,
+      trackingNumber: tn,
+      carrier:
+        expectedManifestCarrier ??
+        identifyGateCarrierLabel ??
+        (palletCarrierRef.current.trim() ||
+          activePallet?.carrier_name?.trim() ||
+          null),
+      orderId: palletOrderIdRef.current.trim() || palletResolvedOrderId.trim() || null,
+      lines: expectedPkgLines,
+    });
+    if (!ctx) return;
+    setShipmentExpectedContext(ctx);
+    persistShipmentExpectedContext(ctx);
+  }, [
+    effectiveShipmentTracking,
+    sessionStoreId,
+    orgId,
+    shipmentExpectedContext?.tracking_number,
+    expectedPkgLines,
+    expectedPkgTotals?.expectedUnits,
+    expectedManifestCarrier,
+    identifyGateCarrierLabel,
+    palletResolvedOrderId,
+    activePallet?.carrier_name,
+  ]);
+
+  useEffect(() => {
+    if (!shipmentExpectedContext) return;
+    const carrierPatch =
+      expectedManifestCarrier ??
+      identifyGateCarrierLabel ??
+      (palletCarrierRef.current.trim() || activePallet?.carrier_name?.trim() || null);
+    const merged =
+      expectedPkgLines.length > 0
+        ? mergeLiveTrackingLinesIntoContext(shipmentExpectedContext, expectedPkgLines, carrierPatch)
+        : enrichShipmentExpectedContextCarrier(shipmentExpectedContext, carrierPatch);
+    const changed =
+      merged.carrier !== shipmentExpectedContext.carrier ||
+      merged.expected_total_units !== shipmentExpectedContext.expected_total_units ||
+      merged.lines.some((line, idx) => {
+        const prev = shipmentExpectedContext.lines[idx];
+        return !prev || prev.scannedQty !== line.scannedQty || prev.expectedQty !== line.expectedQty;
+      });
+    if (!changed) return;
+    setShipmentExpectedContext(merged);
+    persistShipmentExpectedContext(merged);
+  }, [
+    expectedPkgLines,
+    shipmentExpectedContext,
+    expectedManifestCarrier,
+    identifyGateCarrierLabel,
+    activePallet?.carrier_name,
+  ]);
 
   useEffect(() => {
     const oid = (orgId ?? "").trim();
@@ -12103,6 +13581,16 @@ function OperatorMobileScanPageContent() {
   }, [activePallet?.id, orgId, correctionPerms.reopenPallet, showScanActionToast]);
 
   const openShipmentCloseReviewModal = useCallback(async () => {
+    if (hasPersistedPalletContextRef.current) {
+      const readiness = shipmentCloseReadinessRef.current;
+      const boxesReady =
+        readiness.ready &&
+        (readiness.uiCase === "all_finalized" || readiness.uiCase === "unknown_expected");
+      if (!boxesReady) {
+        setSyncErrorToast(readiness.summary ?? readiness.detail);
+        return;
+      }
+    }
     const oid = (orgId ?? "").trim();
     const store = sessionStoreId?.trim() ?? "";
     const tn = (effectiveShipmentTracking ?? "").trim();
@@ -12247,22 +13735,177 @@ function OperatorMobileScanPageContent() {
     [itemScanPackageId],
   );
 
+  const slipRowsForReferenceMerge = useMemo((): OperatorSlipContentsListRow[] => {
+    const carryover = carryoverRowsForActiveItemScanPackage;
+    if (itemInspectionSlipLines.length > 0) {
+      if (carryover.length > 0) {
+        return mergeDbSlipRowsWithCarryoverPreview(itemInspectionSlipLines, carryover);
+      }
+      return slipInspectionRowsWithMergedPreviewLinkages(
+        itemInspectionSlipLines,
+        previewLinkagesForItemScanSlipRows,
+      );
+    }
+    if (carryover.length > 0) return carryover;
+    if (boxSlipVisionLines.length > 0) {
+      return slipRowsFromBoxSlipVision(boxSlipVisionLines, boxSlipVisionLineLinkages);
+    }
+    return [];
+  }, [
+    itemInspectionSlipLines,
+    carryoverRowsForActiveItemScanPackage,
+    previewLinkagesForItemScanSlipRows,
+    boxSlipVisionLines,
+    boxSlipVisionLineLinkages,
+  ]);
+
+  const shipmentExpectedRowsForReferenceMerge = useMemo(
+    () =>
+      coalesceShipmentExpectedRowsForReferenceMerge(
+        expectedPkgDetailRows,
+        shipmentExpectedContextLive?.lines ?? [],
+        itemScanExpectationSnapshotLines,
+      ),
+    [expectedPkgDetailRows, shipmentExpectedContextLive?.lines, itemScanExpectationSnapshotLines],
+  );
+
+  const itemScanHasSlipOrShipmentReferenceSources = useMemo(
+    () =>
+      slipRowsForReferenceMerge.length > 0 || shipmentExpectedRowsForReferenceMerge.length > 0,
+    [slipRowsForReferenceMerge.length, shipmentExpectedRowsForReferenceMerge.length],
+  );
+
+  const itemScanReferenceBuckets = useMemo(() => {
+    if (!itemScanUsesPackageSlipExpectedRows || emptyBoxSaved) return null;
+    const epRows = shipmentExpectedRowsForReferenceMerge;
+    const hasReferenceSources = itemScanHasSlipOrShipmentReferenceSources;
+    if (!hasReferenceSources && packageItemHydratedRows.length === 0) return null;
+
+    let draftExtraByGrainKey: Record<string, number> | undefined;
+    if (itemDraft) {
+      const draftGrain = expectedPackageRowToProductGrain(itemDraft.epRow);
+      const draftKey = productGrainKey(draftGrain);
+      const draftExtra = Math.max(1, Math.min(50, Math.floor(itemQtyStepper)));
+      if (draftKey && draftExtra > 0) {
+        draftExtraByGrainKey = { [draftKey]: draftExtra };
+      }
+    }
+
+    return buildItemScanReferenceBucketsClientSide({
+      slipRows: slipRowsForReferenceMerge,
+      shipmentExpectedRows: epRows,
+      packageItems: packageItemHydratedRows,
+      draftExtraByGrainKey,
+    });
+  }, [
+    itemScanUsesPackageSlipExpectedRows,
+    emptyBoxSaved,
+    slipRowsForReferenceMerge,
+    shipmentExpectedRowsForReferenceMerge,
+    itemScanHasSlipOrShipmentReferenceSources,
+    packageItemHydratedRows,
+    itemDraft,
+    itemQtyStepper,
+  ]);
+
+  const itemScanUsesMergedReferenceDisplay = itemScanReferenceBucketsUseMergedDisplay(
+    itemScanReferenceBuckets,
+    itemScanHasSlipOrShipmentReferenceSources,
+  );
+
+  const itemScanHasSlipOnBox = itemScanReferenceHasSlipSources(slipRowsForReferenceMerge);
+
+  const itemScanMergedReferenceCells = useMemo(() => {
+    if (!itemScanReferenceBuckets?.topRows.length) return [];
+    const scannedTopRows = itemScanReferenceTopRowsWithScans(itemScanReferenceBuckets.topRows);
+    if (scannedTopRows.length === 0) return [];
+    return scannedTopRows.map((row: ItemScanReferenceDisplayRow) => {
+      const boxExpected = boxScopedExpectedQtyForReferenceRow(row, itemScanHasSlipOnBox);
+      const slip =
+        slipRowsForReferenceMerge.find((candidate) =>
+          productGrainsMatch(
+            slipRowToProductGrain(candidate as unknown as Record<string, unknown>),
+            row.grain,
+          ),
+        ) ??
+        slipLikeRowsForInspection.find((candidate) =>
+          productGrainsMatch(
+            slipRowToProductGrain(candidate as unknown as Record<string, unknown>),
+            row.grain,
+          ),
+        ) ??
+        null;
+      const linkage = slip
+        ? slipRowProductLinkage(slip)
+        : buildProductLinkageDisplayContract(
+            {
+              description: row.label,
+              fnsku: row.grain.fnsku,
+              upc: row.grain.upc ?? row.grain.sku,
+            },
+            EMPTY_PRODUCT_NAME_LOOKUP,
+          );
+      const slipIdForManifest = row.primarySlipContentId;
+      const missingReviewEntry = missingReviewEntryForSlip(itemScanPackageManifestData, slipIdForManifest);
+      const qtyLine = qtyLineForReferenceRow(
+        { expectedQty: boxExpected, scannedQty: row.scannedQty },
+        missingReviewRecordedQtyForSlip(itemScanPackageManifestData, slipIdForManifest),
+      );
+      return {
+        key: row.key,
+        row,
+        slip,
+        linkage,
+        expected: boxExpected,
+        scanned: row.scannedQty,
+        sourceBadge: row.sourceBadge,
+        qtyLine,
+        hasMissingReviewEntry: Boolean(missingReviewEntry),
+        missingReviewEntry,
+        draftExtra:
+          itemDraft && productGrainsMatch(expectedPackageRowToProductGrain(itemDraft.epRow), row.grain)
+            ? Math.max(1, Math.min(50, Math.floor(itemQtyStepper)))
+            : 0,
+      };
+    });
+  }, [
+    itemScanReferenceBuckets,
+    slipRowsForReferenceMerge,
+    slipLikeRowsForInspection,
+    itemScanPackageManifestData,
+    itemScanHasSlipOnBox,
+    itemDraft,
+    itemQtyStepper,
+  ]);
+
   type ItemScanExpectedItemsRenderSource =
     | "loading"
     | "tracking_ep_variance"
     | "package_slip_cells"
+    | "merged_reference_cells"
     | "hydrated_return_items_only"
+    | "empty_box"
     | "empty";
+
+  const itemScanExpectedItemsLoading =
+    itemInspectionSlipLinesLoading ||
+    packageItemsHydrating ||
+    (!itemScanUsesPackageSlipExpectedRows && itemScanExpectationLoading);
 
   const itemScanExpectedItemsRenderSource = useMemo((): ItemScanExpectedItemsRenderSource => {
     if (flowPhase !== "items") return "empty";
-    const packageSlipRowsReady =
-      itemInspectionSlipCells.length > 0 || slipLikeRowsForInspection.length > 0;
-    if (
-      itemInspectionSlipLinesLoading ||
-      (itemScanUsesPackageSlipExpectedRows && !packageSlipRowsReady)
-    ) {
+    if (itemScanExpectedItemsLoading) {
       return "loading";
+    }
+    if (emptyBoxSaved) {
+      return "empty_box";
+    }
+    const packageSlipRowsReady =
+      itemScanUsesMergedReferenceDisplay ||
+      itemInspectionSlipCells.length > 0 ||
+      slipLikeRowsForInspection.length > 0;
+    if (itemScanUsesPackageSlipExpectedRows && itemScanReferenceBuckets && itemScanUsesMergedReferenceDisplay) {
+      return "merged_reference_cells";
     }
     if (itemScanUsesPackageSlipExpectedRows && packageSlipRowsReady) {
       return "package_slip_cells";
@@ -12275,8 +13918,11 @@ function OperatorMobileScanPageContent() {
     return "empty";
   }, [
     flowPhase,
-    itemInspectionSlipLinesLoading,
+    itemScanExpectedItemsLoading,
+    emptyBoxSaved,
     itemScanUsesPackageSlipExpectedRows,
+    itemScanReferenceBuckets,
+    itemScanUsesMergedReferenceDisplay,
     itemInspectionSlipCells.length,
     slipLikeRowsForInspection.length,
     itemScanExpectationLinesLive.length,
@@ -12284,6 +13930,14 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const itemInspectionQtyBasisExpected = useMemo(() => {
+    if (itemScanUsesMergedReferenceDisplay && itemScanReferenceBuckets) {
+      const offManifest = itemScanReferenceBuckets.offManifestRows.reduce((s, r) => s + r.scannedQty, 0);
+      return mergedReferenceBoxScopedExpectedQty({
+        topRows: itemScanReferenceBuckets.topRows,
+        slipRows: slipRowsForReferenceMerge,
+        offManifestScannedQty: offManifest,
+      });
+    }
     if (itemScanUsesPackageSlipExpectedRows && itemInspectionSlipCells.length > 0) {
       // Include unlinked/unexpected units so EXPECTED = new_slip_qty + unlinked_scanned
       // This makes REMAINING = new_slip_qty - new_slip_scanned (always non-negative for valid slips)
@@ -12297,6 +13951,9 @@ function OperatorMobileScanPageContent() {
     }
     return itemExpectedUnitsTotal;
   }, [
+    itemScanUsesMergedReferenceDisplay,
+    itemScanReferenceBuckets,
+    slipRowsForReferenceMerge,
     itemScanUsesPackageSlipExpectedRows,
     itemScanExpectationLinesLive,
     itemInspectionSlipCells,
@@ -12305,6 +13962,11 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const itemInspectionQtyBasisScanned = useMemo(() => {
+    if (itemScanUsesMergedReferenceDisplay && itemScanReferenceBuckets) {
+      const topScanned = itemScanReferenceBuckets.topRows.reduce((s, r) => s + r.scannedQty, 0);
+      const offManifest = itemScanReferenceBuckets.offManifestRows.reduce((s, r) => s + r.scannedQty, 0);
+      return topScanned + offManifest;
+    }
     if (itemScanUsesPackageSlipExpectedRows && itemInspectionSlipCells.length > 0) {
       const lineSum = itemInspectionSlipCells.reduce((s, c) => s + c.scanned, 0);
       return lineSum + packageItemScanState.unexpectedUnits;
@@ -12318,6 +13980,8 @@ function OperatorMobileScanPageContent() {
     }
     return itemInspectionEpOnlyQtyRows.reduce((sum, cell) => sum + cell.scanned, 0) + packageItemScanState.unexpectedUnits;
   }, [
+    itemScanUsesMergedReferenceDisplay,
+    itemScanReferenceBuckets,
     itemScanUsesPackageSlipExpectedRows,
     itemScanExpectationLinesLive,
     itemInspectionSlipCells,
@@ -12325,8 +13989,14 @@ function OperatorMobileScanPageContent() {
     packageItemScanState.unexpectedUnits,
   ]);
 
-  /** Expected Items panel header + progress — packing-slip lines only (no off-slip / unexpected units). */
+  /** Expected Items panel header + progress — box-scoped slip expected or scanned units only. */
   const itemInspectionSlipPanelQtyExpected = useMemo(() => {
+    if (itemScanUsesMergedReferenceDisplay && itemScanReferenceBuckets) {
+      return mergedReferenceBoxScopedExpectedQty({
+        topRows: itemScanReferenceBuckets.topRows,
+        slipRows: slipRowsForReferenceMerge,
+      });
+    }
     if (itemInspectionSlipCells.length > 0) {
       return itemInspectionSlipCells.reduce((s, c) => s + c.expected, 0);
     }
@@ -12334,9 +14004,21 @@ function OperatorMobileScanPageContent() {
       return itemScanExpectationLinesLive.reduce((s, line) => s + Math.max(0, line.expectedQty), 0);
     }
     return 0;
-  }, [itemInspectionSlipCells, itemScanExpectationLinesLive]);
+  }, [
+    itemScanUsesMergedReferenceDisplay,
+    itemScanReferenceBuckets,
+    slipRowsForReferenceMerge,
+    itemInspectionSlipCells,
+    itemScanExpectationLinesLive,
+  ]);
 
   const itemInspectionSlipPanelQtyScanned = useMemo(() => {
+    if (itemScanUsesMergedReferenceDisplay && itemScanReferenceBuckets) {
+      return itemScanReferenceTopRowsWithScans(itemScanReferenceBuckets.topRows).reduce(
+        (s, r) => s + r.scannedQty,
+        0,
+      );
+    }
     if (itemInspectionSlipCells.length > 0) {
       return itemInspectionSlipCells.reduce((s, c) => s + c.scanned, 0);
     }
@@ -12351,6 +14033,8 @@ function OperatorMobileScanPageContent() {
     }
     return 0;
   }, [
+    itemScanUsesMergedReferenceDisplay,
+    itemScanReferenceBuckets,
     itemInspectionSlipCells,
     itemScanExpectationLinesLive,
     itemScanExpectedItemsRenderSource,
@@ -12397,9 +14081,14 @@ function OperatorMobileScanPageContent() {
       case "tracking_ep_variance":
         return itemScanExpectationLinesLive.length;
       case "hydrated_return_items_only":
-        return packageItemHydratedRows.length;
+        return 1;
       case "package_slip_cells":
         return itemInspectionSlipCells.length;
+      case "merged_reference_cells":
+        return itemScanMergedReferenceCells.length;
+      case "empty_box":
+      case "empty":
+        return 0;
       default:
         return 0;
     }
@@ -12408,6 +14097,7 @@ function OperatorMobileScanPageContent() {
     itemScanExpectationLinesLive.length,
     packageItemHydratedRows.length,
     itemInspectionSlipCells.length,
+    itemScanMergedReferenceCells.length,
   ]);
 
   /** Packing-slip قلم + off-slip قلم (grouped scans / residual); excludes EP-unmatched slip rows already in slip cells. */
@@ -12421,7 +14111,7 @@ function OperatorMobileScanPageContent() {
         slipLineCount = itemScanExpectationLinesLive.length;
         break;
       case "hydrated_return_items_only":
-        return packageItemHydratedRows.length;
+        return 0;
       case "package_slip_cells":
         slipLineCount = itemInspectionSlipCells.length;
         break;
@@ -12451,15 +14141,23 @@ function OperatorMobileScanPageContent() {
     packageItemScanState.unexpectedUnits,
   ]);
 
-  /** Not on packing slip panel header — scanned units with no slip line (not in Expected totals). */
+  /** Not on packing slip and shipment panel — true off-manifest scans only. */
   const itemInspectionOffSlipPanelQtyScanned = useMemo(() => {
+    if (itemScanReferenceUsesMergedRender(itemScanExpectedItemsRenderSource) && itemScanReferenceBuckets) {
+      return itemScanReferenceBuckets.offManifestRows.reduce((s, r) => s + r.scannedQty, 0);
+    }
     const unlinkedRows = packageItemHydratedRows.filter((r) => !r.slip_content_id);
     const fromUnlinked = unlinkedRows.reduce(
       (s, r) => s + Math.max(1, Math.floor(Number(r.quantity ?? 1))),
       0,
     );
     return fromUnlinked + Math.max(0, packageItemScanState.unexpectedUnits - fromUnlinked);
-  }, [packageItemHydratedRows, packageItemScanState.unexpectedUnits]);
+  }, [
+    itemScanExpectedItemsRenderSource,
+    itemScanReferenceBuckets,
+    packageItemHydratedRows,
+    packageItemScanState.unexpectedUnits,
+  ]);
 
   const itemInspectionOffSlipPanelQtyExpected = 0;
 
@@ -12480,6 +14178,9 @@ function OperatorMobileScanPageContent() {
   );
 
   const itemScanOverListItemCount = useMemo(() => {
+    if (itemScanReferenceUsesMergedRender(itemScanExpectedItemsRenderSource) && itemScanReferenceBuckets) {
+      return itemScanReferenceBuckets.offManifestRows.length;
+    }
     const showOverPanel =
       packageItemHydratedRows.some((r) => !r.slip_content_id) ||
       packageItemScanState.unexpectedUnits > 0 ||
@@ -12502,10 +14203,29 @@ function OperatorMobileScanPageContent() {
     ).length;
     return count;
   }, [
+    itemScanExpectedItemsRenderSource,
+    itemScanReferenceBuckets,
     packageItemHydratedRows,
     packageItemScanState.unexpectedUnits,
     slipEpCompare.unmatchedSlipIds,
     slipLikeRowsForInspection,
+  ]);
+
+  const itemScanShowOffManifestPanel = useMemo(() => {
+    if (itemScanReferenceUsesMergedRender(itemScanExpectedItemsRenderSource) && itemScanReferenceBuckets) {
+      return itemScanReferenceBuckets.offManifestRows.length > 0;
+    }
+    return (
+      packageItemHydratedRows.some((r) => !r.slip_content_id) ||
+      packageItemScanState.unexpectedUnits > 0 ||
+      slipEpCompare.unmatchedSlipIds.size > 0
+    );
+  }, [
+    itemScanExpectedItemsRenderSource,
+    itemScanReferenceBuckets,
+    packageItemHydratedRows,
+    packageItemScanState.unexpectedUnits,
+    slipEpCompare.unmatchedSlipIds,
   ]);
 
   const itemScanStatScannedTone = useMemo(() => {
@@ -12545,6 +14265,19 @@ function OperatorMobileScanPageContent() {
   const isItemsQtyDiscrepancy = itemInspectionQtyBasisExpected !== itemInspectionQtyBasisScanned;
 
   const itemInspectionDiscrepancyKinds = useMemo(() => {
+    if (itemScanUsesMergedReferenceDisplay && itemScanReferenceBuckets) {
+      const scannedTopRows = itemScanReferenceTopRowsWithScans(itemScanReferenceBuckets.topRows);
+      const hasShortage = scannedTopRows.some((row) => {
+        const boxExpected = boxScopedExpectedQtyForReferenceRow(row, itemScanHasSlipOnBox);
+        return row.scannedQty < boxExpected;
+      });
+      const hasSurplus =
+        scannedTopRows.some((row) => {
+          const boxExpected = boxScopedExpectedQtyForReferenceRow(row, itemScanHasSlipOnBox);
+          return row.scannedQty > boxExpected;
+        }) || itemScanReferenceBuckets.offManifestRows.some((row) => row.scannedQty > 0);
+      return { hasShortage, hasSurplus };
+    }
     if (!itemScanUsesPackageSlipExpectedRows && itemScanExpectationLinesLive.length > 0) {
       const hasShortage = itemScanExpectationLinesLive.some((line) => line.scannedQty < line.expectedQty);
       const hasSurplus = itemScanExpectationLinesLive.some((line) => line.scannedQty > line.expectedQty);
@@ -12559,6 +14292,9 @@ function OperatorMobileScanPageContent() {
       src.some((x) => x.scanned > x.expected) || packageItemScanState.unexpectedUnits > 0;
     return { hasShortage, hasSurplus };
   }, [
+    itemScanUsesMergedReferenceDisplay,
+    itemScanReferenceBuckets,
+    itemScanHasSlipOnBox,
     itemScanUsesPackageSlipExpectedRows,
     itemScanExpectationLinesLive,
     itemInspectionSlipCells,
@@ -12591,13 +14327,19 @@ function OperatorMobileScanPageContent() {
   ]);
 
   const itemScanUnresolvedMissingQty = useMemo(() => {
+    if (itemScanUsesMergedReferenceDisplay && itemScanMergedReferenceCells.length > 0) {
+      return itemScanMergedReferenceCells.reduce((s, c) => s + c.qtyLine.remainingMissing, 0);
+    }
     if (itemInspectionSlipCells.length === 0) return 0;
     return itemInspectionSlipCells.reduce((s, c) => s + c.qtyLine.remainingMissing, 0);
-  }, [itemInspectionSlipCells]);
+  }, [itemScanUsesMergedReferenceDisplay, itemScanMergedReferenceCells, itemInspectionSlipCells]);
 
   const itemScanStaleMissingReview = useMemo(
-    () => itemInspectionSlipCells.some((c) => c.qtyLine.staleMissingReview),
-    [itemInspectionSlipCells],
+    () =>
+      itemScanUsesMergedReferenceDisplay && itemScanMergedReferenceCells.length > 0
+        ? itemScanMergedReferenceCells.some((c) => c.qtyLine.staleMissingReview)
+        : itemInspectionSlipCells.some((c) => c.qtyLine.staleMissingReview),
+    [itemScanUsesMergedReferenceDisplay, itemScanMergedReferenceCells, itemInspectionSlipCells],
   );
 
   const itemScanHasOffSlipPhysicalItems = itemInspectionOffSlipPanelQtyScanned > 0;
@@ -12608,8 +14350,11 @@ function OperatorMobileScanPageContent() {
     !itemScanStaleMissingReview;
 
   const itemScanLinesWithRemainingMissing = useMemo(
-    () => itemInspectionSlipCells.filter((c) => c.qtyLine.remainingMissing > 0).length,
-    [itemInspectionSlipCells],
+    () =>
+      itemScanUsesMergedReferenceDisplay && itemScanMergedReferenceCells.length > 0
+        ? itemScanMergedReferenceCells.filter((c) => c.qtyLine.remainingMissing > 0).length
+        : itemInspectionSlipCells.filter((c) => c.qtyLine.remainingMissing > 0).length,
+    [itemScanUsesMergedReferenceDisplay, itemScanMergedReferenceCells, itemInspectionSlipCells],
   );
 
   const markAllRemainingMissing = useCallback(async () => {
@@ -12816,7 +14561,7 @@ function OperatorMobileScanPageContent() {
       setSyncErrorToast("Cannot reopen — package is not saved yet.");
       return;
     }
-    if (!itemScanReceiveFinalized) return;
+    if (!itemScanReceiveFinalized && !itemScanUiFinalized) return;
     setItemScanReopenBusy(true);
     try {
       const res = await reopenOperatorPackageReceiveAction({
@@ -12832,12 +14577,23 @@ function OperatorMobileScanPageContent() {
       setItemScanEditPick(null);
       setItemScanUnitPickerOpen(false);
       setItemSlipMissingReviewNonce((n) => n + 1);
+      setPostBoxCloseContext(null);
+      if (oid && pkgId) {
+        void getOperatorIntakeBoxPackageRowAction(oid, pkgId, store || null).then((res) => {
+          if (!res.ok) return;
+          setItemScanPackageManifestData(res.row.manifest_data ?? null);
+          const flags = readBoxIntakeManifestFlags(res.row.manifest_data);
+          setEmptyBoxChecked(flags.empty_box);
+          setEmptyBoxSaved(flags.empty_box);
+          setBoxHasNoPackingSlip(flags.no_packing_slip);
+        });
+      }
       playOperatorSuccessBeep();
       setScanActionToast({ message: "Receive reopened for correction.", variant: "success" });
     } finally {
       setItemScanReopenBusy(false);
     }
-  }, [itemScanPackageId, orgId, sessionStoreId, itemScanReceiveFinalized]);
+  }, [itemScanPackageId, orgId, sessionStoreId, itemScanReceiveFinalized, itemScanUiFinalized]);
 
   const confirmItemsPhaseFinalizeToHub = useCallback(
     async (reviewArgs?: { criticalIssuesAcknowledged: boolean; auditNote: string | null }) => {
@@ -12883,7 +14639,83 @@ function OperatorMobileScanPageContent() {
       }
     }
 
+    const expectedBoxCount = resolvePostBoxCloseExpectedBoxCount(boxScanTargetDenominator, physicalBoxCount);
+    const finalizedAtIso = new Date().toISOString();
+    let listForRoute = palletPackagePickerListRef.current;
+    if (pkgId) {
+      if (isSupabaseConfigured() && pid && isUuidString(pid) && oid) {
+        listForRoute = await refreshPalletPackagePickerListAfterBoxClose(
+          oid,
+          pid,
+          store || null,
+          pkgId,
+        );
+      } else {
+        listForRoute = applyFinalizedPackageToPickerList(listForRoute, pkgId, finalizedAtIso);
+      }
+      setPalletPackagePickerList(listForRoute);
+      palletPackagePickerListRef.current = listForRoute;
+    }
+    const route = resolvePostBoxCloseRoute({
+      directBox,
+      activePalletId: pid || null,
+      expectedBoxCount,
+      palletPackagePickerList: listForRoute,
+      closedPackageId: pkgId,
+    });
+    const copy = postBoxCloseCopy(route);
+    const discrepancySuffix = discrepancy
+      ? " Item quantity discrepancies recorded for manager review."
+      : "";
+
     resetItemInspectionForm();
+    setItemsBoxFinalizeModalOpen(false);
+    setItemScanEditAllMode(false);
+    setEditAllMode(false);
+    setReviewMissingItemsEnabled(false);
+    modalOpenRef.current = false;
+    setPalletDocHydrationNonce((n) => n + 1);
+    if (isSupabaseConfigured() && pid && isUuidString(pid)) {
+      void loadPalletDetail(pid);
+    }
+
+    if (route === "single_box_finish") {
+      setPostBoxCloseContext({
+        route,
+        closedPackageId: pkgId,
+        headline: copy.headline,
+        detail: copy.detail,
+      });
+      setItemSlipMissingReviewNonce((n) => n + 1);
+      setPackageItemsHydrationNonce((n) => n + 1);
+      setItemBarcodeMiss(null);
+      setItemReceiveError(null);
+      setCandidatePicker(null);
+      setSlipLineCandidatePicker(null);
+      setUnexpectedPackageItemModal(null);
+      setItemOverscanWarning(null);
+      setFlowPhase("items");
+      playOperatorSuccessBeep();
+      setScanActionToast({
+        message: `${copy.headline}.${discrepancySuffix}`.trim(),
+        variant: "success",
+      });
+      scheduleFocusScanner();
+      return;
+    }
+
+    setPostBoxCloseContext({
+      route,
+      closedPackageId: pkgId,
+      headline: copy.headline,
+      detail: copy.detail,
+    });
+    postBoxCloseContextRef.current = {
+      route,
+      closedPackageId: pkgId,
+      headline: copy.headline,
+      detail: copy.detail,
+    };
     setItemScanPackageId(null);
     setItemScanPackageLabel(null);
     setReceivingSlipExpectedItemQtyTotal(null);
@@ -12895,32 +14727,32 @@ function OperatorMobileScanPageContent() {
     setItemReceiveError(null);
     setCandidatePicker(null);
     setPackageItemScanState({ bySlipId: {}, unexpectedUnits: 0 });
+    setPackageItemHydratedRows([]);
+    setPackageItemsHydrating(false);
     setPackageItemsHydrationNonce(0);
     setSlipLineCandidatePicker(null);
     setUnexpectedPackageItemModal(null);
     setItemOverscanWarning(null);
-    setItemsBoxFinalizeModalOpen(false);
-    setItemScanEditAllMode(false);
-    setEditAllMode(false);
-    setReviewMissingItemsEnabled(false);
-    modalOpenRef.current = false;
-    setFlowPhase("scan");
-    setPalletDocHydrationNonce((n) => n + 1);
-    if (isSupabaseConfigured() && pid && isUuidString(pid)) {
-      void loadPalletDetail(pid);
-    }
-    try {
-      sessionStorage.setItem(
-        "operatorMobile:hubToast",
-        discrepancy
-          ? "Box closed — item quantity discrepancies recorded for manager review."
-          : "Box closed — item inspection complete.",
-      );
-    } catch {
-      /* ignore */
-    }
+    setItemScanPackageManifestData(null);
+    setActiveBoxSession(null);
+    setCurrentPackageTrackingId(null);
+    setPackageCodeCardOpen(false);
+    setPalletPackagePickerQuery("");
+    setBoxIntakeError(null);
+    setFlowPhase("package_scan");
+    setIsIdentified(true);
     playOperatorSuccessBeep();
-    router.push(SCANNER_OPERATOR_HOME_PATH);
+    setIntakeToast(`${copy.headline}. ${copy.detail}${discrepancySuffix}`.trim());
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (route === "pallet_all_done") {
+          document.getElementById("operator-receive-unit-actions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+          document.getElementById("operator-saved-boxes-hub")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+    });
+    scheduleFocusScanner();
   },
   [
     isItemsQtyDiscrepancy,
@@ -12932,8 +14764,11 @@ function OperatorMobileScanPageContent() {
     emptyBoxChecked,
     resetItemInspectionForm,
     loadPalletDetail,
-    router,
     boxCloseReviewModel,
+    directBox,
+    boxScanTargetDenominator,
+    physicalBoxCount,
+    scheduleFocusScanner,
   ]);
 
   const itemsIdentifierPerfect =
@@ -13145,32 +14980,78 @@ function OperatorMobileScanPageContent() {
     ((flowPhase === "scan" && Boolean(activePallet?.id?.trim())) ||
       (flowPhase === "package_scan" &&
         (Boolean(activePallet?.id?.trim()) || Boolean(directBox))));
+  const hasPersistedPalletContext = useMemo(() => {
+    const palletId = (activePallet?.id ?? "").trim();
+    return Boolean(palletId && isUuidString(palletId)) && !directBox;
+  }, [activePallet?.id, directBox]);
+  hasPersistedPalletContextRef.current = hasPersistedPalletContext;
+
   /** Box Info hub (+ Add New Box / saved-boxes filter): hide top Edit All; pallet scan step unchanged. */
   const operatorSavedBoxesHubVisible =
     operatorSavedBoxSearchAvailable &&
     !(packageCodeCardOpen && !activeBoxSession) &&
     !activeBoxSession;
+  const showFinishReceiveCloseActionsOnHub =
+    flowPhase === "package_scan" &&
+    parentIdentified &&
+    hasPersistedPalletContext &&
+    operatorSavedBoxSearchAvailable &&
+    !activeBoxSession &&
+    !(packageCodeCardOpen && !activeBoxSession);
   const showShipmentEntryEditAllInHeader =
     showShipmentEntryEditAll && !operatorSavedBoxesHubVisible && !palletIsFinalized;
   const showItemScanEditAllInHeader = flowPhase === "items" && hasItemReceivableBox && itemScanReceiveEditable;
-  const showItemScanReopenInHeader = flowPhase === "items" && hasItemReceivableBox && itemScanReceiveFinalized;
   const showPalletCloseInHeader =
     flowPhase === "scan" && parentIdentified && correctionPerms.closePallet && !palletIsFinalized;
   const showPalletReopenInHeader =
     flowPhase === "scan" && parentIdentified && correctionPerms.reopenPallet && palletIsFinalized;
-  const showShipmentCloseInHeader =
-    isIdentified &&
-    parentIdentified &&
-    Boolean((effectiveShipmentTracking ?? "").trim()) &&
-    correctionPerms.closeShipmentReview &&
-    !shipmentReviewIsFinalized;
+  /** Close Shipment lives on the Box Hub finish-receive panel only — never in the page header. */
+  const showShipmentCloseInHeader = false;
   const showShipmentReopenInHeader =
     isIdentified &&
     Boolean((effectiveShipmentTracking ?? "").trim()) &&
     correctionPerms.reopenShipmentReview &&
+    shipmentReviewIsFinalized &&
+    flowPhase !== "items" &&
+    flowPhase !== "scan" &&
+    !(flowPhase === "package_scan" && operatorSavedBoxesHubVisible);
+  const showReceiveUnitActionsOnHub =
+    showFinishReceiveCloseActionsOnHub && operatorSavedBoxesHubVisible;
+  const showPalletCloseOnHub =
+    showFinishReceiveCloseActionsOnHub &&
+    correctionPermsLoaded &&
+    !correctionPermsLoadFailed &&
+    correctionPerms.closePallet &&
+    !palletIsFinalized;
+  const showPalletReopenOnHub =
+    showFinishReceiveCloseActionsOnHub &&
+    correctionPermsLoaded &&
+    !correctionPermsLoadFailed &&
+    correctionPerms.reopenPallet &&
+    palletIsFinalized;
+  const showShipmentReopenOnHub =
+    showFinishReceiveCloseActionsOnHub &&
+    correctionPermsLoaded &&
+    !correctionPermsLoadFailed &&
+    Boolean((effectiveShipmentTracking ?? "").trim()) &&
+    correctionPerms.reopenShipmentReview &&
+    shipmentReviewIsFinalized;
+  const showItemScanContextualReceiveActions =
+    flowPhase === "items" && hasItemReceivableBox && itemScanUiFinalized;
+  const itemScanStandaloneShipmentFinish =
+    flowPhase === "items" &&
+    itemScanUiFinalized &&
+    (postBoxCloseContext?.route === "single_box_finish" || !hasPersistedPalletContext);
+  const showPalletCloseOnItemScan =
+    showItemScanContextualReceiveActions && parentIdentified && correctionPerms.closePallet && !palletIsFinalized;
+  const showPalletReopenOnItemScan =
+    showItemScanContextualReceiveActions && parentIdentified && correctionPerms.reopenPallet && palletIsFinalized;
+  const showShipmentReopenOnItemScan =
+    showItemScanContextualReceiveActions &&
+    Boolean((effectiveShipmentTracking ?? "").trim()) &&
+    correctionPerms.reopenShipmentReview &&
     shipmentReviewIsFinalized;
   const showHeaderEditAllButton = showShipmentEntryEditAllInHeader || showItemScanEditAllInHeader;
-  const showHeaderReopenButton = showItemScanReopenInHeader;
   const headerEditAllActive = flowPhase === "items" ? itemScanEditAllMode : editAllMode;
 
   const itemScanEditPickUnits = useMemo(() => {
@@ -13398,6 +15279,22 @@ function OperatorMobileScanPageContent() {
   ]);
   const boxScanDocumentationLocked =
     flowPhase === "package_scan" && parentIdentified && !activeBoxSession;
+  /** BOX intake reference fields: Order / RMA / notes — locked for saved UUID boxes until Edit All; editable for drafts. */
+  const boxIntakeReferenceEditable =
+    !activeBoxSession
+      ? slipCarrierOrderEditable && !boxScanDocumentationLocked
+      : !savedBoxIntakeViewLocked && !boxScanDocumentationLocked;
+  const slipOcrReviewIsNewDraftBox =
+    Boolean(activeBoxSession) && !isUuidString((activeBoxSession?.packageId ?? "").trim());
+  const slipOcrReviewEditable =
+    Boolean(activeBoxSession) &&
+    !boxScanDocumentationLocked &&
+    (slipOcrReviewIsNewDraftBox || boxIntakeReferenceEditable);
+  const slipOcrReviewSavedLocked =
+    Boolean(activeBoxSession) && savedBoxIntakeViewLocked && !boxScanDocumentationLocked;
+  const showSlipOcrTapEditHelper = slipOcrReviewSavedLocked;
+  const slipEvidenceActionsDisabled =
+    boxSlipEvidenceSaveBusy || boxScanDocumentationLocked || !slipOcrReviewEditable;
   const showBoxIntakeShipmentDocumentation =
     flowPhase === "package_scan" && directBox;
   const directBoxShipmentLabelUploaded = shippingLabelPhotoUrls.some(
@@ -13406,23 +15303,20 @@ function OperatorMobileScanPageContent() {
   const directBoxShipmentDocsSubtitle = directBoxShipmentLabelUploaded
     ? "Shipment documents saved"
     : "Required for direct box intake";
-  /** BOX intake reference fields: Order / RMA / notes — locked for saved UUID boxes until Edit All; editable for drafts. */
-  const boxIntakeReferenceEditable =
-    !activeBoxSession
-      ? slipCarrierOrderEditable && !boxScanDocumentationLocked
-      : !savedBoxIntakeViewLocked && !boxScanDocumentationLocked;
   const canSaveBoxScan =
     !boxScanDocumentationLocked &&
     Boolean(activeBoxSession?.barcode?.trim()) &&
     !busy &&
     !boxSaveBusy &&
-    !boxSlipVisionBusy &&
-    !boxSlipInvalidFormatBlocksSave &&
+    (boxHasNoPackingSlip || !boxSlipVisionBusy) &&
+    (boxHasNoPackingSlip ||
+      !boxSlipInvalidFormatBlocksSave ||
+      boxSlipEvidenceReview?.status === "unreadable") &&
     Boolean(palletCarrier.trim()) &&
     (!showBoxIntakeShipmentDocumentation ||
       shippingLabelPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) &&
     // Slip photo required unless operator checked "No packing slip"
-    (boxHasNoPackingSlip || slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)) &&
+    boxIntakePackingSlipRequirementMet(boxHasNoPackingSlip, slipBoxPhotoUrls) &&
     (!isSupabaseConfigured() || Boolean(sessionStoreId)) &&
     !duplicatePackingSlip;
   /** Primary CTA: save current box and go to items, or resume items when a box is already saved. */
@@ -13575,15 +15469,237 @@ function OperatorMobileScanPageContent() {
     palletDashboardScannedBoxCount,
     Math.max(boxProgressExpectedY, 0),
   );
-  const singleBoxShipmentReviewReady =
-    flowPhase === "scan" &&
-    parentIdentified &&
-    !palletIsFinalized &&
-    boxProgressExpectedY === 1 &&
-    palletRegisteredBoxCount >= 1;
+  const palletHubOptimisticClosedPackageId =
+    postBoxCloseContext &&
+    (postBoxCloseContext.route === "pallet_all_done" || postBoxCloseContext.route === "pallet_next_box")
+      ? postBoxCloseContext.closedPackageId
+      : null;
+
+  const palletHubFinalizedBoxCount = useMemo(
+    () => countPalletHubFinalizedBoxes(palletPackagePickerList, palletHubOptimisticClosedPackageId),
+    [palletPackagePickerList, palletHubOptimisticClosedPackageId],
+  );
+
+  const palletHubOpenBoxCount = useMemo(
+    () => countPalletHubOpenBoxes(palletPackagePickerList, palletHubOptimisticClosedPackageId),
+    [palletPackagePickerList, palletHubOptimisticClosedPackageId],
+  );
+
+  const palletHubAllOnListFinalized = useMemo(() => {
+    if (palletPackagePickerList.length === 0) return false;
+    return palletPackagePickerList.every((p) =>
+      palletPackageRowIsHubFinalized(p, palletHubOptimisticClosedPackageId),
+    );
+  }, [palletPackagePickerList, palletHubOptimisticClosedPackageId]);
+
+  const shipmentCloseReadiness = useMemo(
+    () =>
+      resolveShipmentCloseReadiness({
+        hasPersistedPallet: hasPersistedPalletContext,
+        expectedBoxCount: boxProgressExpectedY,
+        registeredBoxCount: palletRegisteredBoxCount,
+        finalizedBoxCount: palletHubFinalizedBoxCount,
+        openBoxCount: palletHubOpenBoxCount,
+        allOnListFinalized: palletHubAllOnListFinalized,
+      }),
+    [
+      hasPersistedPalletContext,
+      boxProgressExpectedY,
+      palletRegisteredBoxCount,
+      palletHubFinalizedBoxCount,
+      palletHubOpenBoxCount,
+      palletHubAllOnListFinalized,
+    ],
+  );
+
+  const hubExpectsMoreBoxes =
+    shipmentCloseReadiness.expectedKnown &&
+    shipmentCloseReadiness.registeredBoxCount < shipmentCloseReadiness.expectedBoxCount;
+
+  const hubFirstOpenBox = useMemo(
+    () =>
+      palletPackagePickerList.find(
+        (p) => !palletPackageRowIsHubFinalized(p, palletHubOptimisticClosedPackageId),
+      ) ?? null,
+    [palletPackagePickerList, palletHubOptimisticClosedPackageId],
+  );
+
+  const hubFinishReceiveDetail = useMemo(() => {
+    if (
+      shipmentCloseReadiness.uiCase === "boxes_not_closed" &&
+      hubFirstOpenBox
+    ) {
+      const code = String(hubFirstOpenBox.package_code ?? "").trim();
+      if (code) return formatOpenBoxCloseHelper(code);
+    }
+    return shipmentCloseReadiness.detail;
+  }, [shipmentCloseReadiness.uiCase, shipmentCloseReadiness.detail, hubFirstOpenBox]);
+
+  const hubViewOpenBoxLabel = useMemo(
+    () => hubViewOpenBoxButtonLabel(hubFirstOpenBox),
+    [hubFirstOpenBox],
+  );
+
+  const boxIntakePackingSlipValidationError = useMemo(() => {
+    if (boxScanDocumentationLocked || savedBoxIntakeViewLocked || !activeBoxSession) return null;
+    if (boxIntakePackingSlipRequirementMet(boxHasNoPackingSlip, slipBoxPhotoUrls)) return null;
+    return BOX_INTAKE_PACKING_SLIP_REQUIRED_ERROR;
+  }, [
+    activeBoxSession,
+    boxHasNoPackingSlip,
+    boxScanDocumentationLocked,
+    savedBoxIntakeViewLocked,
+    slipBoxPhotoUrls,
+  ]);
+
+  const hubShipmentCloseReady =
+    shipmentCloseReadiness.ready &&
+    (shipmentCloseReadiness.uiCase === "all_finalized" ||
+      shipmentCloseReadiness.uiCase === "unknown_expected");
+
+  const hubFinishReceiveSectionTitle = hubShipmentCloseReady
+    ? OP_SECTION_FINISH_RECEIVE
+    : OP_SECTION_NEXT_STEP;
+
+  shipmentCloseReadinessRef.current = shipmentCloseReadiness;
+
+  const showShipmentCloseButtonOnHub =
+    showFinishReceiveCloseActionsOnHub && !shipmentReviewIsFinalized;
+
+  const showShipmentCloseOnHub =
+    showShipmentCloseButtonOnHub &&
+    hubShipmentCloseReady &&
+    correctionPermsLoaded &&
+    !correctionPermsLoadFailed &&
+    Boolean((effectiveShipmentTracking ?? "").trim()) &&
+    correctionPerms.closeShipmentReview;
+
+  /** Close Shipment is Box Hub only — not on item inspection. */
+  const showShipmentCloseOnItemScan = false;
+
+  const palletHubAllKnownBoxesClosed = useMemo(() => {
+    if (!hasPersistedPalletContext) return false;
+    if (postBoxCloseContext?.route === "pallet_all_done") return true;
+    if (!palletHubAllOnListFinalized) return false;
+    if (boxProgressExpectedY > 0) {
+      return palletHubFinalizedBoxCount >= boxProgressExpectedY;
+    }
+    return palletRegisteredBoxCount > 0;
+  }, [
+    hasPersistedPalletContext,
+    postBoxCloseContext?.route,
+    palletHubAllOnListFinalized,
+    boxProgressExpectedY,
+    palletHubFinalizedBoxCount,
+    palletRegisteredBoxCount,
+  ]);
+
+  const palletHubProgressLabel =
+    boxProgressExpectedY > 0
+      ? `${palletHubFinalizedBoxCount} of ${boxProgressExpectedY} boxes completed`
+      : palletRegisteredBoxCount > 0
+        ? `${palletHubFinalizedBoxCount} of ${palletRegisteredBoxCount} saved boxes completed`
+        : null;
+
+  const hubAddUnexpectedBoxBlocked = hubShipmentCloseReady && shipmentReviewIsFinalized;
+
+  const showFinishReceiveSectionOnHub = showReceiveUnitActionsOnHub;
+
+  const hubFinishReceiveHasAction = showShipmentCloseButtonOnHub || showShipmentReopenOnHub;
+
+  const hubFinishReceiveBlockerMessages = useMemo(
+    () =>
+      resolveHubFinishReceiveBlockerMessages({
+        hubShipmentCloseReady,
+        hubFinishReceiveHasAction,
+        correctionPermsLoaded,
+        correctionPermsLoadFailed,
+        parentIdentified,
+        correctionPerms,
+        shipmentReviewIsFinalized,
+        effectiveShipmentTracking,
+      }),
+    [
+      hubShipmentCloseReady,
+      hubFinishReceiveHasAction,
+      correctionPermsLoaded,
+      correctionPermsLoadFailed,
+      parentIdentified,
+      correctionPerms,
+      shipmentReviewIsFinalized,
+      effectiveShipmentTracking,
+    ],
+  );
+
+  const hubShipmentActionBlockerMessage = useMemo(
+    () =>
+      resolveHubShipmentActionBlockerMessage({
+        showFinishReceiveCloseActionsOnHub,
+        correctionPermsLoaded,
+        correctionPermsLoadFailed,
+        shipmentReviewIsFinalized,
+        effectiveShipmentTracking,
+        correctionPerms,
+        showShipmentCloseButtonOnHub,
+        showShipmentCloseOnHub,
+        showShipmentReopenOnHub,
+        shipmentCloseReadiness,
+      }),
+    [
+      showFinishReceiveCloseActionsOnHub,
+      correctionPermsLoaded,
+      correctionPermsLoadFailed,
+      shipmentReviewIsFinalized,
+      effectiveShipmentTracking,
+      correctionPerms,
+      showShipmentCloseButtonOnHub,
+      showShipmentCloseOnHub,
+      showShipmentReopenOnHub,
+      shipmentCloseReadiness,
+    ],
+  );
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (!showFinishReceiveSectionOnHub) return;
+    console.debug("[operator-mobile:finish-receive]", {
+      correctionPermsLoaded,
+      correctionPermsLoadFailed,
+      closePallet: correctionPerms.closePallet,
+      closeShipmentReview: correctionPerms.closeShipmentReview,
+      effectiveShipmentTracking: (effectiveShipmentTracking ?? "").trim() || null,
+      palletIsFinalized,
+      shipmentReviewIsFinalized,
+      flowPhase,
+      parentIdentified,
+      activeBoxSession: resolvedActiveBoxPackageId || null,
+      showFinishReceiveCloseActionsOnHub,
+      showPalletCloseOnHub: false,
+      showShipmentCloseButtonOnHub,
+      showShipmentCloseOnHub,
+      hubShipmentCloseReady,
+      shipmentCloseReadiness,
+    });
+  }, [
+    showFinishReceiveSectionOnHub,
+    correctionPermsLoaded,
+    correctionPermsLoadFailed,
+    correctionPerms.closeShipmentReview,
+    effectiveShipmentTracking,
+    palletIsFinalized,
+    shipmentReviewIsFinalized,
+    flowPhase,
+    parentIdentified,
+    resolvedActiveBoxPackageId,
+    showFinishReceiveCloseActionsOnHub,
+    showShipmentCloseButtonOnHub,
+    showShipmentCloseOnHub,
+    hubShipmentCloseReady,
+    shipmentCloseReadiness,
+  ]);
 
   const handlePickExistingPalletPackage = useCallback(
-    (p: OperatorPackageListRow) => {
+    async (p: OperatorPackageListRow) => {
       const code = String(p.package_code ?? "").trim();
       if (!code) {
         setBoxIntakeError("This package has no package code — fix the record before resuming.");
@@ -13594,6 +15710,11 @@ function OperatorMobileScanPageContent() {
         return;
       }
       setBoxIntakeError(null);
+      setPostBoxCloseContext(null);
+      const pickerFlags = readBoxIntakeManifestFlags(p.manifest_data);
+      setEmptyBoxChecked(pickerFlags.empty_box);
+      setEmptyBoxSaved(pickerFlags.empty_box);
+      setBoxHasNoPackingSlip(pickerFlags.no_packing_slip);
       if (operatorPackageReceiveIsFinalized(p)) {
         if (resumeItemScanForPackageRef.current(p)) {
           setIntakeToast(OP_BANNER_BOX_FINALIZED);
@@ -13601,10 +15722,15 @@ function OperatorMobileScanPageContent() {
         }
         return;
       }
-      if (operatorPackageShouldResumeItemScan(p)) {
-        void maybeResumeItemScanAfterPackageRowRef.current?.(p as unknown as Record<string, unknown>);
-        palletPackageSearchInputRef.current?.blur();
-        return;
+      const forceBoxInfoForEdit = editAllMode || itemScanEditAllMode;
+      if (!forceBoxInfoForEdit) {
+        const resumed = await maybeResumeItemScanAfterPackageRowRef.current?.(
+          p as unknown as Record<string, unknown>,
+        );
+        if (resumed) {
+          palletPackageSearchInputRef.current?.blur();
+          return;
+        }
       }
       // Synchronously pre-fill photos from cached picker row so UI shows immediately
       // while the full async reload (vision lines, slip code, notes) completes in the background.
@@ -13620,7 +15746,10 @@ function OperatorMobileScanPageContent() {
       pendingEvidenceStorageDeletesRef.current.clear();
       setBoxSlipInvalidFormatBlocksSave(false);
       clearBoxSlipVisionLinesState();
-      setBoxNotes(normBoxScalar(p.notes));
+      const pickerOperatorNotes = applyHydratedBoxNotesFromStored(
+        String((p as { notes?: unknown }).notes ?? "").trim() || null,
+      );
+      boxNotesBaselineRef.current = pickerOperatorNotes;
       const slipCodeRow = normBoxScalar(p.id_slip_contents);
       setBoxSlipCode(slipCodeRow);
       boxSlipCodeRef.current = slipCodeRow;
@@ -13628,7 +15757,7 @@ function OperatorMobileScanPageContent() {
       setPackageCodeCardOpen(false);
       setCurrentPackageTrackingId(code);
       setReceivingSlipExpectedItemQtyTotal(null);
-      setEditAllMode(false);
+      if (!forceBoxInfoForEdit) setEditAllMode(false);
       boxIntakeBaselineReadyRef.current = false;
       setBoxIntakeRestoreWarning(null);
       setActiveBoxSession({ barcode: code, packageId: p.id });
@@ -13643,7 +15772,7 @@ function OperatorMobileScanPageContent() {
         });
       });
     },
-    [activeBoxSession, clearBoxSlipVisionLinesState],
+    [activeBoxSession, clearBoxSlipVisionLinesState, editAllMode, itemScanEditAllMode],
   );
 
   const closeActiveBoxPackageSession = useCallback(() => {
@@ -13678,7 +15807,7 @@ function OperatorMobileScanPageContent() {
     setBoxSlipRma("");
     clearPalletOrderIdIfAutoFilledFromRa();
     clearBoxSlipVisionLinesState();
-    setBoxNotes("");
+    clearBoxOperatorNotesState();
     boxNotesBaselineRef.current = "";
     boxIntakeFieldsBaselineRef.current = { slipCode: "", rma: "", orderId: "", carrier: "" };
     scheduleFocusScanner();
@@ -13741,6 +15870,7 @@ function OperatorMobileScanPageContent() {
     },
     [closeBoxSessionForItemScan, resetItemInspectionForm, scheduleFocusScanner],
   );
+  resumeItemScanForPackageRef.current = resumeItemScanForPackage;
 
   const maybeResumeItemScanAfterPackageRow = useCallback(
     async (
@@ -13751,29 +15881,31 @@ function OperatorMobileScanPageContent() {
       if (!pkgId || !isUuidString(pkgId)) return false;
       let mergedRow = row;
       let pickerRow = operatorPackageListRowFromRecord(row);
+      const preservedSlipLineCount =
+        typeof pickerRow.slip_line_count === "number"
+          ? pickerRow.slip_line_count
+          : typeof (row as { slip_line_count?: unknown }).slip_line_count === "number"
+            ? Math.floor(Number((row as { slip_line_count?: unknown }).slip_line_count))
+            : null;
       const palletId = String(row.pallet_id ?? "").trim();
       const directBox =
         opts?.directBox ?? !(palletId && isUuidString(palletId));
 
-      const needsSupplementalFetch =
-        isSupabaseConfigured() &&
-        (mergedRow.manifest_data == null ||
-          (pickerRow.expected_item_count == null && pickerRow.actual_item_count == null));
-      if (needsSupplementalFetch) {
+      const oid = (orgId ?? "").trim();
+      if (oid && isSupabaseConfigured()) {
         try {
-          const { data } = await supabase
-            .from("packages")
-            .select(
-              "expected_item_count, actual_item_count, notes, outside_photo_urls, inside_photo_urls, slip_photo_urls, manifest_data, carrier_name, id_slip_contents, pallet_id",
-            )
-            .eq("id", pkgId)
-            .maybeSingle();
-          if (data && typeof data === "object") {
-            mergedRow = { ...mergedRow, ...(data as Record<string, unknown>) };
+          const serverRes = await getOperatorIntakeBoxPackageRowAction(
+            oid,
+            pkgId,
+            sessionStoreId ?? null,
+          );
+          if (serverRes.ok) {
+            mergedRow = { ...mergedRow, ...serverRes.row };
             pickerRow = {
               ...pickerRow,
-              ...operatorPackageListRowFromRecord(data as Record<string, unknown>),
+              ...operatorPackageListRowFromRecord(serverRes.row),
               id: pkgId,
+              slip_line_count: preservedSlipLineCount ?? pickerRow.slip_line_count,
             };
           }
         } catch {
@@ -13781,13 +15913,23 @@ function OperatorMobileScanPageContent() {
         }
       }
 
-      if (!shouldResumePackageToItemScan({ row: mergedRow, pickerRow, directBox })) return false;
+      if (
+        !shouldResumePackageToItemScan({
+          row: mergedRow,
+          pickerRow,
+          directBox,
+          slipLineCount: preservedSlipLineCount ?? pickerRow.slip_line_count,
+        })
+      ) {
+        return false;
+      }
       resumeItemScanForPackage(pickerRow);
       setIntakeToast("Resuming item scan where you left off.");
       return true;
     },
-    [resumeItemScanForPackage],
+    [resumeItemScanForPackage, orgId, sessionStoreId],
   );
+  maybeResumeItemScanAfterPackageRowRef.current = maybeResumeItemScanAfterPackageRow;
 
   useEffect(() => {
     maybeResumeItemScanAfterPackageRowRef.current = maybeResumeItemScanAfterPackageRow;
@@ -14291,6 +16433,16 @@ function OperatorMobileScanPageContent() {
     setIsIdentified(false);
     completedShipmentDialogShownForKeyRef.current = null;
     setCompletedShipmentModal(null);
+    if (shipmentExpectedContext) {
+      clearShipmentExpectedContext(
+        orgId.trim(),
+        sessionStoreId?.trim() ?? "",
+        shipmentExpectedContext.tracking_number,
+      );
+    }
+    setShipmentExpectedContext(null);
+    setShipmentExpectedReviewOpen(false);
+    setExpectedManifestCarrier(null);
     clearPreviousLookupResult({ clearResolvedContext: true, phase: "idle" });
     scheduleFocusScanner();
   }, [
@@ -14299,6 +16451,9 @@ function OperatorMobileScanPageContent() {
     resetItemInspectionForm,
     clearPreviousLookupResult,
     scheduleFocusScanner,
+    orgId,
+    sessionStoreId,
+    shipmentExpectedContext,
   ]);
 
   const performBoxIntakeBackNavigation = useCallback(() => {
@@ -14952,46 +17107,100 @@ function OperatorMobileScanPageContent() {
     return { status: st, ...operatorPackagePickerStatusBadge(st) };
   }, [activeBoxSession?.barcode, activePackageSessionResolvedRow]);
 
-  /** Show “Complete with Discrepancy” only when closing intake for a measurable mismatch. */
-  const boxIntakeDiscrepancyEligible = useMemo(() => {
+  const boxIntakeIsNewDraftBox = useMemo(() => {
     if (!activeBoxSession) return false;
-    if (boxSlipVisionLines.some((l) => Boolean(l.missing))) return true;
-    const p = activePackageSessionResolvedRow;
-    if (!p || p.id === "__draft__") return false;
-    const notes = String(p.notes ?? "").toLowerCase();
-    if (notes.includes("discrepancy")) return true;
-    const exp =
-      typeof p.expected_item_count === "number" && Number.isFinite(p.expected_item_count)
-        ? Math.floor(p.expected_item_count)
-        : null;
-    const act =
-      typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
-        ? Math.floor(p.actual_item_count)
-        : null;
-    return exp != null && exp > 0 && act != null && act !== exp;
-  }, [activeBoxSession, activePackageSessionResolvedRow, boxSlipVisionLines]);
+    const pkgId = (activeBoxSession.packageId ?? "").trim();
+    return !isUuidString(pkgId);
+  }, [activeBoxSession]);
 
-  const boxIntakePhysicalItemCount = useMemo(() => {
+  /** Physical received units only — slip OCR / expected rows do not count. */
+  const boxIntakePhysicalScannedCount = useMemo(() => {
     const p = activePackageSessionResolvedRow;
-    if (!p || p.id === "__draft__") return 0;
-    const act =
-      typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
-        ? Math.floor(p.actual_item_count)
-        : 0;
-    return Math.max(0, act);
-  }, [activePackageSessionResolvedRow]);
+    let fromSavedRow = 0;
+    if (p && p.id !== "__draft__") {
+      fromSavedRow =
+        typeof p.actual_item_count === "number" && Number.isFinite(p.actual_item_count)
+          ? Math.max(0, Math.floor(p.actual_item_count))
+          : 0;
+    }
+    const sessionPkgId = (activeBoxSession?.packageId ?? "").trim();
+    const itemPkgId = (itemScanPackageId ?? "").trim();
+    let fromLiveReceive = 0;
+    if (sessionPkgId && itemPkgId && sessionPkgId === itemPkgId) {
+      fromLiveReceive = Math.max(
+        packageScannedQuantitySum,
+        typeof itemReceivePackageActualCount === "number" &&
+          Number.isFinite(itemReceivePackageActualCount)
+          ? Math.max(0, Math.floor(itemReceivePackageActualCount))
+          : 0,
+      );
+    }
+    return Math.max(fromSavedRow, fromLiveReceive);
+  }, [
+    activePackageSessionResolvedRow,
+    activeBoxSession?.packageId,
+    itemScanPackageId,
+    packageScannedQuantitySum,
+    itemReceivePackageActualCount,
+  ]);
+
+  const boxIntakeEmptyBoxCanCheck =
+    Boolean(activeBoxSession?.barcode?.trim()) &&
+    !boxScanDocumentationLocked &&
+    (boxIntakeIsNewDraftBox || boxIntakeReferenceEditable) &&
+    boxIntakePhysicalScannedCount === 0;
+
+  const boxIntakeEmptyBoxCanUncheck =
+    Boolean(activeBoxSession?.barcode?.trim()) &&
+    !boxScanDocumentationLocked &&
+    (boxIntakeIsNewDraftBox || boxIntakeReferenceEditable) &&
+    (emptyBoxChecked || emptyBoxSaved);
+
+  const boxIntakeEmptyBoxEditable = boxIntakeEmptyBoxCanCheck || boxIntakeEmptyBoxCanUncheck;
+
+  const boxIntakeEmptyBoxSavedLocked =
+    Boolean(activeBoxSession) && savedBoxIntakeViewLocked && !boxScanDocumentationLocked;
+
+  const showEmptyBoxTapEditHelper =
+    boxIntakeEmptyBoxSavedLocked && boxIntakePhysicalScannedCount === 0;
+
+  const showEmptyBoxScannedItemsGuard = boxIntakePhysicalScannedCount > 0;
 
   const boxIntakeEmptyBoxEligible =
-    Boolean(activeBoxSession?.barcode?.trim()) &&
-    boxIntakePhysicalItemCount === 0 &&
-    packageScannedQuantitySum === 0 &&
-    !emptyBoxSaved;
+    Boolean(activeBoxSession?.barcode?.trim()) && boxIntakePhysicalScannedCount === 0;
 
-  const saveEmptyBoxFromBoxInfo = useCallback(async () => {
-    if (!emptyBoxChecked || emptyBoxSaved) return;
-    await saveBoxAndContinue({ emptyBox: true, stayOnPackageScanAfterSave: true });
-    setEmptyBoxChecked(false);
-  }, [emptyBoxChecked, emptyBoxSaved, saveBoxAndContinue]);
+  const openEmptyBoxCloseConfirm = useCallback(() => {
+    if (!emptyBoxChecked) return;
+    if (!boxIntakeEmptyBoxEligible) {
+      setBoxIntakeError(BOX_EMPTY_BOX_SCANNED_ITEMS_BLOCK);
+      return;
+    }
+    if (!boxIntakePackingSlipRequirementMet(boxHasNoPackingSlip, slipBoxPhotoUrls)) {
+      setBoxIntakeError(BOX_INTAKE_PACKING_SLIP_REQUIRED_ERROR);
+      return;
+    }
+    if (!canSaveBoxScan) return;
+    setBoxIntakeError(null);
+    modalOpenRef.current = true;
+    setEmptyBoxCloseConfirmOpen(true);
+  }, [
+    emptyBoxChecked,
+    boxIntakeEmptyBoxEligible,
+    boxHasNoPackingSlip,
+    slipBoxPhotoUrls,
+    canSaveBoxScan,
+  ]);
+
+  const confirmEmptyBoxClose = useCallback(async () => {
+    setEmptyBoxCloseConfirmOpen(false);
+    modalOpenRef.current = false;
+    setEmptyBoxFinalizeBusy(true);
+    try {
+      await saveBoxAndContinue({ finalizeEmptyBox: true, stayOnPackageScanAfterSave: true });
+    } finally {
+      setEmptyBoxFinalizeBusy(false);
+    }
+  }, [saveBoxAndContinue]);
 
   const operatorPalletAlignedUploadPaths = useMemo(() => {
     const sid = sessionStoreId?.trim() ?? "";
@@ -15445,38 +17654,6 @@ function OperatorMobileScanPageContent() {
                     Box List
                   </button>
                 ) : null}
-                {showPalletCloseInHeader ? (
-                  <button
-                    type="button"
-                    disabled={busy || palletCloseBusy || palletReopenBusy}
-                    onClick={() => void openPalletCloseReviewModal()}
-                    aria-label={OP_LABEL_CLOSE_PALLET}
-                    className="operator-shipment-edit-all-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border font-bold uppercase tracking-wider shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 gap-0.5 px-2 py-0.5 text-[10px] sm:px-2.5 sm:text-xs"
-                  >
-                    {palletCloseBusy ? (
-                      <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" aria-hidden />
-                    ) : (
-                      <CheckCircle2 className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                    )}
-                    {OP_LABEL_CLOSE_PALLET}
-                  </button>
-                ) : null}
-                {showPalletReopenInHeader ? (
-                  <button
-                    type="button"
-                    disabled={busy || palletReopenBusy || palletCloseBusy}
-                    onClick={() => void handleReopenClosedPallet()}
-                    aria-label={OP_LABEL_REOPEN_PALLET}
-                    className="operator-shipment-edit-all-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border font-bold uppercase tracking-wider shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 gap-0.5 px-2 py-0.5 text-[10px] sm:px-2.5 sm:text-xs"
-                  >
-                    {palletReopenBusy ? (
-                      <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" aria-hidden />
-                    ) : (
-                      <RefreshCw className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                    )}
-                    {OP_LABEL_REOPEN_PALLET}
-                  </button>
-                ) : null}
                 {showShipmentCloseInHeader ? (
                   <button
                     type="button"
@@ -15509,22 +17686,7 @@ function OperatorMobileScanPageContent() {
                     {OP_LABEL_REOPEN_SHIPMENT}
                   </button>
                 ) : null}
-                {showHeaderReopenButton ? (
-                  <button
-                    type="button"
-                    disabled={busy || itemScanReopenBusy}
-                    onClick={() => void handleReopenFinalizedPackageReceive()}
-                    aria-label={OP_LABEL_REOPEN_BOX}
-                    className="operator-shipment-edit-all-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border font-bold uppercase tracking-wider shadow-sm transition active:scale-95 gap-1 px-2.5 py-1 text-xs sm:px-3"
-                  >
-                    {itemScanReopenBusy ? (
-                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-                    ) : (
-                      <RefreshCw className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden />
-                    )}
-                    {OP_LABEL_REOPEN_BOX}
-                  </button>
-                ) : showHeaderEditAllButton ? (
+                {showHeaderEditAllButton ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -16343,16 +18505,50 @@ function OperatorMobileScanPageContent() {
                         </p>
                       )}
                       {identifyGatePhase === "matched" ? (
-                        <div className="mt-1.5 flex items-baseline justify-between gap-2">
-                          <p className="shrink text-[12px] leading-snug" style={{ color: MUTED_LABEL }}>
-                            Order ID{" "}
-                            <span className="font-mono font-semibold text-white">{identifyGateOrderIdsLabel}</span>
-                          </p>
-                          {identifyGateShipmentLines.length > 0 ? (
-                            <span className="shrink-0 text-[11px] font-semibold" style={{ color: "#86efac" }}>
-                              {identifyGateShipmentLines.length} item type{identifyGateShipmentLines.length !== 1 ? "s" : ""}
-                            </span>
+                        <div className="mt-1.5 space-y-1.5">
+                          {identifyGateCanonicalTrackingLabel &&
+                          identifyGateMatchField !== "tracking_number" ? (
+                            <p className="text-[12px] leading-snug" style={{ color: MUTED_LABEL }}>
+                              Tracking number{" "}
+                              <span className="font-mono font-semibold text-white">
+                                {identifyGateCanonicalTrackingLabel}
+                              </span>
+                            </p>
                           ) : null}
+                          {identifyGateCarrierLabel ? (
+                            <p className="text-[12px] leading-snug" style={{ color: MUTED_LABEL }}>
+                              Carrier{" "}
+                              <span className="font-semibold text-white">{identifyGateCarrierLabel}</span>
+                            </p>
+                          ) : null}
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="shrink text-[12px] leading-snug" style={{ color: MUTED_LABEL }}>
+                              Order ID{" "}
+                              <span className="font-mono font-semibold text-white">{identifyGateOrderIdsLabel}</span>
+                            </p>
+                            {identifyGateInventoryAgg && identifyGateInventoryAgg.totalExpected > 0 ? (
+                              <span className="shrink-0 text-[11px] font-semibold" style={{ color: "#86efac" }}>
+                                {identifyGateShipmentLines.length > 0
+                                  ? identifyGateShipmentLines.length
+                                  : identifyGateExpectationLines.length > 0
+                                    ? identifyGateExpectationLines.length
+                                    : identifyGateInventoryAgg.rowCount} item type
+                                {(identifyGateShipmentLines.length > 0
+                                  ? identifyGateShipmentLines.length
+                                  : identifyGateExpectationLines.length > 0
+                                    ? identifyGateExpectationLines.length
+                                    : identifyGateInventoryAgg.rowCount) !== 1
+                                  ? "s"
+                                  : ""}{" "}
+                                / {identifyGateInventoryAgg.totalExpected} units
+                              </span>
+                            ) : identifyGateShipmentLines.length > 0 ? (
+                              <span className="shrink-0 text-[11px] font-semibold" style={{ color: "#86efac" }}>
+                                {identifyGateShipmentLines.length} item type
+                                {identifyGateShipmentLines.length !== 1 ? "s" : ""}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       ) : null}
                     </div>
@@ -16404,6 +18600,7 @@ function OperatorMobileScanPageContent() {
                       <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-bold tabular-nums text-white">
                         <span style={{ color: MUTED_LABEL }}>Scan progress</span>
                         <span>
+                          Scanned{" "}
                           {formatInventoryProgressLabel(
                             identifyGateInventoryAgg.totalScanned,
                             identifyGateInventoryAgg.totalExpected,
@@ -16429,15 +18626,6 @@ function OperatorMobileScanPageContent() {
                           }}
                         />
                       </div>
-                    </div>
-                  ) : null}
-
-                  {identifyGateInventoryVisual !== "manual_new" && identifyGateViewHints?.carrier?.trim() ? (
-                    <div className="mt-3 flex items-center gap-2 text-[11px] leading-snug">
-                      <span style={{ color: MUTED_LABEL }}>Carrier</span>
-                      <span className="inline-flex max-w-[80%] truncate rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-semibold text-white/90">
-                        {identifyGateViewHints.carrier}
-                      </span>
                     </div>
                   ) : null}
 
@@ -17095,19 +19283,6 @@ function OperatorMobileScanPageContent() {
               </div>
             ) : null}
 
-            {singleBoxShipmentReviewReady ? (
-              <div
-                className="operator-pallet-single-box-hint mb-2 rounded-xl border px-3 py-2 text-[11px] font-semibold leading-snug"
-                style={{
-                  borderColor: "rgba(52,211,153,0.28)",
-                  backgroundColor: "rgba(6,78,59,0.12)",
-                  color: "#bbf7d0",
-                }}
-              >
-                Single-box shipment — use {OP_LABEL_CLOSE_SHIPMENT} for final warehouse receive review (same flow as
-                multi-box shipments).
-              </div>
-            ) : null}
             {shipmentReviewIsFinalized ? (
               <div
                 className="mb-2 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug"
@@ -17123,28 +19298,6 @@ function OperatorMobileScanPageContent() {
             ) : null}
 
             <div className="operator-pallet-actions mb-[calc(1rem+env(safe-area-inset-bottom,0px))] flex w-full flex-col items-stretch gap-2 px-4 pb-0">
-              {showPalletCloseInHeader ? (
-                <button
-                  type="button"
-                  disabled={confirmSaving || palletCloseBusy || palletReopenBusy || busy}
-                  onClick={() => void openPalletCloseReviewModal()}
-                  className={`flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-500/45 bg-emerald-950/30 px-4 text-emerald-100 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
-                >
-                  <CheckCircle2 className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
-                  {palletCloseBusy ? "Loading review…" : OP_LABEL_CLOSE_PALLET}
-                </button>
-              ) : null}
-              {showPalletReopenInHeader ? (
-                <button
-                  type="button"
-                  disabled={confirmSaving || palletReopenBusy || palletCloseBusy || busy}
-                  onClick={() => void handleReopenClosedPallet()}
-                  className={`flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/45 bg-amber-950/25 px-4 text-amber-100 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
-                >
-                  <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
-                  {palletReopenBusy ? "Reopening…" : OP_LABEL_REOPEN_PALLET}
-                </button>
-              ) : null}
               {showShipmentCloseInHeader ? (
                 <button
                   type="button"
@@ -17376,6 +19529,18 @@ function OperatorMobileScanPageContent() {
                   />
                   <h3 className="text-sm font-bold tracking-tight text-slate-400">Expected Inventory Summary</h3>
                 </div>
+                {shipmentExpectedContextLive ? (
+                  <div className="mt-1">
+                    <ShipmentExpectedCompactCard
+                      context={shipmentExpectedContextLive}
+                      variant="inline"
+                      onViewExpected={() => {
+                        modalOpenRef.current = true;
+                        setShipmentExpectedReviewOpen(true);
+                      }}
+                    />
+                  </div>
+                ) : null}
                 {parentIdentified ? (
                   <p className="text-[12px] font-semibold" style={{ color: MUTED_LABEL }}>
                     Parent{" "}
@@ -17515,28 +19680,6 @@ function OperatorMobileScanPageContent() {
                   <ScanLine className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
                   Continue to Box Info
                 </button>
-                {correctionPerms.closePallet && palletCloseState !== "finalized" ? (
-                  <button
-                    type="button"
-                    disabled={palletCloseBusy || palletReopenBusy || busy}
-                    onClick={() => void openPalletCloseReviewModal()}
-                    className={`mb-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-500/45 bg-emerald-950/30 px-4 text-emerald-100 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
-                  >
-                    <CheckCircle2 className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-                    {palletCloseBusy ? "Loading review…" : OP_LABEL_CLOSE_PALLET}
-                  </button>
-                ) : null}
-                {correctionPerms.reopenPallet && palletCloseState === "finalized" ? (
-                  <button
-                    type="button"
-                    disabled={palletReopenBusy || palletCloseBusy || busy}
-                    onClick={() => void handleReopenClosedPallet()}
-                    className={`mb-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/45 bg-amber-950/25 px-4 text-amber-100 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
-                  >
-                    <RefreshCw className="h-5 w-5 shrink-0" strokeWidth={2.25} aria-hidden />
-                    {palletReopenBusy ? "Reopening…" : OP_LABEL_REOPEN_PALLET}
-                  </button>
-                ) : null}
               </>
             ) : (
               <button
@@ -17606,26 +19749,205 @@ function OperatorMobileScanPageContent() {
                   </div>
                 ) : null}
 
+                {showFinishReceiveSectionOnHub ? (
+                  <section
+                    id="operator-receive-unit-actions"
+                    className={`operator-receive-unit-actions mb-3 rounded-xl border p-3${
+                      hubShipmentCloseReady ? " ring-2 ring-emerald-500/35" : ""
+                    }`}
+                    style={{ borderColor: BORDER, backgroundColor: CARD_INNER }}
+                    aria-label={hubFinishReceiveSectionTitle}
+                  >
+                    <p className="operator-receive-unit-actions__title mb-2 text-[10px] font-bold uppercase tracking-widest">
+                      {hubFinishReceiveSectionTitle}
+                    </p>
+                    <p className="operator-finish-receive-headline text-[14px] font-black leading-snug">
+                      {shipmentCloseReadiness.title}
+                    </p>
+                    {shipmentReviewIsFinalized && hubShipmentCloseReady ? (
+                      <p className="operator-finish-receive-helper mt-1 text-[12px] font-semibold leading-snug">
+                        {OP_HUB_FINISH_SHIPMENT_CLOSED}
+                      </p>
+                    ) : (
+                      <p className="operator-finish-receive-helper mt-1 text-[12px] font-semibold leading-snug">
+                        {hubFinishReceiveDetail}
+                      </p>
+                    )}
+                    {hubShipmentCloseReady &&
+                    postBoxCloseContext &&
+                    (postBoxCloseContext.route === "pallet_all_done" ||
+                      postBoxCloseContext.route === "pallet_next_box") ? (
+                      <div
+                        className="operator-post-box-close-summary mt-2 rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug"
+                        style={{
+                          borderColor: "rgba(52,211,153,0.28)",
+                          backgroundColor: "rgba(6,78,59,0.12)",
+                          color: TEXT_PRIMARY,
+                        }}
+                        role="status"
+                      >
+                        <p className="font-black">{postBoxCloseContext.headline}</p>
+                        <p className="mt-0.5 opacity-90">{postBoxCloseContext.detail}</p>
+                      </div>
+                    ) : null}
+                    {palletHubProgressLabel && !hubShipmentCloseReady ? (
+                      <p className="operator-finish-receive-progress mt-2 text-[11px] font-bold tabular-nums">
+                        {palletHubProgressLabel}
+                      </p>
+                    ) : null}
+                    {shipmentReviewIsFinalized && !hubShipmentCloseReady ? (
+                      <div
+                        className="mb-2 mt-2 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug"
+                        style={{
+                          borderColor: "rgba(56,189,248,0.28)",
+                          backgroundColor: "rgba(56,189,248,0.08)",
+                          color: TEXT_PRIMARY,
+                        }}
+                      >
+                        <Lock className="mt-0.5 h-4 w-4 shrink-0 opacity-80" strokeWidth={2.25} aria-hidden />
+                        <span>{OP_BANNER_SHIPMENT_FINALIZED}</span>
+                      </div>
+                    ) : null}
+                    {!hubShipmentCloseReady && hubExpectsMoreBoxes ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPostBoxCloseContext(null);
+                          setPackageCodeCardOpen(true);
+                          setBoxIntakeError(null);
+                          setPalletPackagePickerQuery("");
+                        }}
+                        className="operator-box-info-add-btn mt-3 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl border-2 px-4 py-3 text-[14px] font-black uppercase tracking-wide transition active:scale-[0.99]"
+                      >
+                        <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
+                        {OP_HUB_LABEL_ADD_SCAN_NEXT_BOX}
+                      </button>
+                    ) : null}
+                    {!hubShipmentCloseReady &&
+                    shipmentCloseReadiness.uiCase === "boxes_not_closed" &&
+                    hubFirstOpenBox ? (
+                      <button
+                        type="button"
+                        onClick={() => handlePickExistingPalletPackage(hubFirstOpenBox)}
+                        className="operator-box-info-add-btn operator-box-info-view-open-btn mt-3 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl border-2 px-4 py-3 text-[14px] font-black uppercase tracking-wide transition active:scale-[0.99]"
+                      >
+                        <PackageOpen className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
+                        {hubViewOpenBoxLabel}
+                      </button>
+                    ) : null}
+                    <div
+                      className={`flex flex-col gap-2${
+                        hubShipmentCloseReady
+                          ? " mt-3"
+                          : hubExpectsMoreBoxes ||
+                              (shipmentCloseReadiness.uiCase === "boxes_not_closed" && hubFirstOpenBox)
+                            ? " mt-2"
+                            : " mt-3"
+                      }`}
+                    >
+                      {showShipmentReopenOnHub ? (
+                        <button
+                          type="button"
+                          disabled={busy || shipmentReopenBusy || shipmentCloseBusy}
+                          onClick={() => void handleReopenClosedShipment()}
+                          className={`operator-finish-receive-reopen-shipment flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/45 bg-amber-950/25 px-3 text-amber-100 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 ${hubShipmentCloseReady ? "min-h-[3rem] text-[14px] font-black" : ZEBRA_COMPACT_BTN}`}
+                        >
+                          <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+                          {shipmentReopenBusy ? "Reopening…" : OP_LABEL_REOPEN_SHIPMENT}
+                        </button>
+                      ) : showShipmentCloseButtonOnHub ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={
+                              !showShipmentCloseOnHub || busy || shipmentCloseBusy || shipmentReopenBusy
+                            }
+                            onClick={() => {
+                              if (!showShipmentCloseOnHub) return;
+                              void openShipmentCloseReviewModal();
+                            }}
+                            aria-disabled={!showShipmentCloseOnHub}
+                            className={`operator-finish-receive-close-shipment flex w-full items-center justify-center gap-1.5 rounded-xl border px-3 transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 ${
+                              hubShipmentCloseReady
+                                ? "min-h-[3rem] border-sky-500/45 bg-sky-950/30 text-[14px] font-black text-sky-100"
+                                : `${ZEBRA_COMPACT_BTN} border-white/15 bg-white/[0.04] text-white/55`
+                            }`}
+                          >
+                            <Truck className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+                            {shipmentCloseBusy ? "Loading review…" : OP_LABEL_CLOSE_SHIPMENT}
+                          </button>
+                          {!showShipmentCloseOnHub && !hubShipmentCloseReady ? (
+                            <p
+                              className="operator-finish-receive-action-hint px-1 text-[10px] font-semibold leading-snug opacity-80"
+                              role="status"
+                            >
+                              {OP_HUB_CLOSE_SHIPMENT_LOCKED_HINT}
+                            </p>
+                          ) : null}
+                          {!showShipmentCloseOnHub && hubShipmentCloseReady && hubShipmentActionBlockerMessage ? (
+                            <div
+                              className="operator-finish-receive-action-hint rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug"
+                              role="status"
+                            >
+                              <p>{hubShipmentActionBlockerMessage}</p>
+                              {correctionPermsLoadFailed ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void fetchCorrectionPerms()}
+                                  className="operator-finish-receive-retry-btn mt-2 rounded-lg border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition active:scale-[0.98]"
+                                >
+                                  Retry
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : hubShipmentActionBlockerMessage ? (
+                        <div className="operator-finish-receive-action-hint rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug" role="status">
+                          <p>{hubShipmentActionBlockerMessage}</p>
+                          {correctionPermsLoadFailed ? (
+                            <button
+                              type="button"
+                              onClick={() => void fetchCorrectionPerms()}
+                              className="operator-finish-receive-retry-btn mt-2 rounded-lg border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition active:scale-[0.98]"
+                            >
+                              Retry
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : hubFinishReceiveBlockerMessages.length > 0 ? (
+                        <div className="operator-finish-receive-action-hint rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug" role="status">
+                          {hubFinishReceiveBlockerMessages.map((msg) => (
+                            <p key={msg} className={hubFinishReceiveBlockerMessages.length > 1 ? "mt-1 first:mt-0" : undefined}>
+                              {msg}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : null}
+
                 {operatorSavedBoxSearchAvailable &&
                 !(packageCodeCardOpen && !activeBoxSession) &&
                 !activeBoxSession ? (
+                  <>
+                    {shipmentExpectedContextLive ? (
+                      <div className="mb-3">
+                        <ShipmentExpectedCompactCard
+                          context={shipmentExpectedContextLive}
+                          onViewExpected={() => {
+                            modalOpenRef.current = true;
+                            setShipmentExpectedReviewOpen(true);
+                          }}
+                        />
+                      </div>
+                    ) : null}
                   <section
                     id="operator-saved-boxes-hub"
                     className={`operator-box-info-hub relative z-[100] mb-3 overflow-visible rounded-xl p-3 ${glassCard}`}
                   >
                     <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPackageCodeCardOpen(true);
-                            setBoxIntakeError(null);
-                            setPalletPackagePickerQuery("");
-                          }}
-                          className="operator-box-info-add-btn mb-2 flex min-h-[3.25rem] w-full items-center justify-center gap-1.5 rounded-xl border-2 px-4 py-3 text-[14px] font-black uppercase tracking-wide transition active:scale-[0.99]"
-                        >
-                          <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
-                          Add New Box
-                        </button>
                         <div id="operator-saved-boxes-filter" className="scroll-mt-28">
                         <label className="operator-box-info-filter-label mb-1 block text-[9px] font-bold uppercase tracking-widest">
                           Filter saved boxes
@@ -17731,6 +20053,35 @@ function OperatorMobileScanPageContent() {
                         ) : null}
                       </>
                   </section>
+                  </>
+                ) : null}
+
+                {hubShipmentCloseReady &&
+                operatorSavedBoxSearchAvailable &&
+                !(packageCodeCardOpen && !activeBoxSession) &&
+                !activeBoxSession ? (
+                  <div className="operator-box-info-add-secondary mb-3 px-1">
+                    <button
+                      type="button"
+                      disabled={hubAddUnexpectedBoxBlocked}
+                      onClick={() => {
+                        if (hubAddUnexpectedBoxBlocked) return;
+                        setPostBoxCloseContext(null);
+                        setPackageCodeCardOpen(true);
+                        setBoxIntakeError(null);
+                        setPalletPackagePickerQuery("");
+                      }}
+                      className="operator-box-info-add-secondary__btn flex min-h-[2.5rem] w-full items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-bold uppercase tracking-wide transition active:scale-[0.99] disabled:cursor-not-allowed"
+                    >
+                      <Plus className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+                      Add unexpected extra box
+                    </button>
+                    <p className="operator-box-info-add-secondary__hint mt-1.5 text-center text-[10px] font-medium leading-snug">
+                      {hubAddUnexpectedBoxBlocked
+                        ? OP_HUB_ADD_UNEXPECTED_BOX_BLOCKED
+                        : OP_HUB_ADD_UNEXPECTED_BOX_HINT}
+                    </p>
+                  </div>
                 ) : null}
 
                 {/* Inputs: carton lock first, then slip+carrier row, then order+rma row. */}
@@ -18307,10 +20658,17 @@ function OperatorMobileScanPageContent() {
                         viewLocked={savedBoxIntakeViewLocked}
                         className="operator-shipment-docs-uploader"
                       />
-                      {boxSlipInvalidFormatBlocksSave && !boxHasNoPackingSlip ? (
+                      {boxSlipInvalidFormatBlocksSave &&
+                      !boxHasNoPackingSlip &&
+                      boxSlipEvidenceReview?.status !== "unreadable" ? (
                         <p className="mt-1.5 px-0.5 text-left text-[11px] font-semibold leading-snug text-amber-200/95">
                           INVALID_SLIP_FORMAT — replace this photo with a clear packing slip (slip id, item lines, and
-                          barcodes). Save stays disabled until the slip is valid.
+                          barcodes). Save stays disabled until the slip is valid, or mark the slip unreadable.
+                        </p>
+                      ) : null}
+                      {boxIntakePackingSlipValidationError ? (
+                        <p className="mt-1.5 px-0.5 text-left text-[11px] font-semibold leading-snug text-amber-700 dark:text-amber-300/90">
+                          {boxIntakePackingSlipValidationError}
                         </p>
                       ) : null}
                       {slipBoxPhotoUrls.length === 0 && !boxScanDocumentationLocked && !savedBoxIntakeViewLocked ? (
@@ -18319,13 +20677,28 @@ function OperatorMobileScanPageContent() {
                             type="checkbox"
                             checked={boxHasNoPackingSlip}
                             onChange={(e) => {
-                              setBoxHasNoPackingSlip(e.target.checked);
-                              if (e.target.checked) setBoxSlipInvalidFormatBlocksSave(false);
+                              const checked = e.target.checked;
+                              setBoxHasNoPackingSlip(checked);
+                              if (checked) {
+                                setBoxSlipInvalidFormatBlocksSave(false);
+                                setBoxIntakeError((prev) => {
+                                  if (!prev) return null;
+                                  const lower = prev.toLowerCase();
+                                  if (
+                                    lower.includes("packing slip") ||
+                                    lower.includes("invalid_slip_format") ||
+                                    lower.includes("slip analysis")
+                                  ) {
+                                    return null;
+                                  }
+                                  return prev;
+                                });
+                              }
                             }}
                             disabled={boxScanDocumentationLocked}
                             className="h-3 w-3 shrink-0 cursor-pointer rounded"
                           />
-                          <span className="opacity-70">No packing slip available (mark as exempt)</span>
+                          <span className="opacity-70">No packing slip available</span>
                         </label>
                       ) : null}
                     </div>
@@ -18425,7 +20798,9 @@ function OperatorMobileScanPageContent() {
                     aria-hidden
                     className="pointer-events-none absolute inset-x-4 top-0 h-[2px] rounded-full bg-gradient-to-r from-transparent via-[rgba(214,183,110,0.38)] to-transparent dark:via-[rgba(214,183,110,0.44)]"
                   />
-                  {boxSlipVisionLines.length > 0 ||
+                  {boxSlipDisplayLines.length > 0 ||
+                  boxSlipEvidenceDisplay.unreadable ||
+                  boxSlipVisionLines.length > 0 ||
                   boxSlipVisionBusy ||
                   boxSlipCode.trim() ||
                   boxSlipRma.trim() ||
@@ -18433,16 +20808,84 @@ function OperatorMobileScanPageContent() {
                   boxSlipConflictingOrderId.trim() ? (
                     <div
                       id="box-slip-verify-table"
-                      className="operator-shipment-slip-panel scroll-mt-4 text-left"
+                      className="operator-shipment-slip-panel operator-slip-evidence-panel scroll-mt-4 text-left"
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[rgba(214,183,110,0.22)] pb-2 text-left dark:border-[rgba(214,183,110,0.28)]">
-                        <h3 className="operator-shipment-slip-title text-left tracking-tight">Slip Content Info</h3>
-                        {boxSlipVisionLines.length > 0 || boxSlipVisionBusy ? (
-                          <span className="operator-shipment-slip-ai-badge shrink-0 rounded-full border px-2 py-0.5 uppercase leading-tight tracking-wide">
-                            ✨ Detected by AI
-                          </span>
-                        ) : null}
+                      <div className="operator-slip-evidence-panel__header" role="status">
+                        <div className="operator-slip-evidence-panel__header-row">
+                          <div className="min-w-0">
+                            <h3 className="operator-slip-evidence-panel__headline text-left tracking-tight">
+                              {boxSlipEvidenceUiState.headline}
+                            </h3>
+                            {boxSlipEvidenceUiState.hint ? (
+                              <p className="operator-slip-evidence-panel__hint operator-slip-evidence-panel__hint--body">
+                                {boxSlipEvidenceUiState.hint}
+                              </p>
+                            ) : null}
+                            <p className="operator-slip-evidence-panel__subtitle">
+                              Slip evidence only — does not change shipment expected.
+                            </p>
+                          </div>
+                          {boxSlipVisionLines.length > 0 || boxSlipVisionBusy ? (
+                            <span className="operator-slip-evidence-panel__ai-badge shrink-0">
+                              <span className="operator-slip-evidence-panel__ai-badge-icon" aria-hidden>
+                                ✨
+                              </span>
+                              <span>AI</span>
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
+                      {showSlipOcrTapEditHelper ? (
+                        <p className="operator-slip-evidence-panel__lock-hint">
+                          {BOX_SLIP_OCR_TAP_EDIT_HELPER}
+                        </p>
+                      ) : null}
+                      {!showSlipOcrTapEditHelper && boxSlipEvidenceUiState.phase === "detected" ? (
+                        <div className="operator-slip-evidence-panel__actions operator-slip-evidence-panel__actions--split">
+                          <button
+                            type="button"
+                            onClick={() => void handleConfirmBoxSlipEvidenceLines()}
+                            disabled={slipEvidenceActionsDisabled || !slipEvidenceCanConfirm}
+                            className="operator-slip-evidence-panel__btn operator-slip-evidence-panel__btn--confirm"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openSlipCorrectionSheet("correction")}
+                            disabled={slipEvidenceActionsDisabled}
+                            className="operator-slip-evidence-panel__btn operator-slip-evidence-panel__btn--secondary"
+                          >
+                            Needs correction
+                          </button>
+                        </div>
+                      ) : null}
+                      {!showSlipOcrTapEditHelper &&
+                      (boxSlipEvidenceUiState.phase === "reviewed" ||
+                        boxSlipEvidenceUiState.phase === "confirmed") ? (
+                        <div className="operator-slip-evidence-panel__actions">
+                          <button
+                            type="button"
+                            onClick={() => openSlipCorrectionSheet("correction")}
+                            disabled={slipEvidenceActionsDisabled}
+                            className="operator-slip-evidence-panel__btn operator-slip-evidence-panel__btn--primary"
+                          >
+                            Change review
+                          </button>
+                        </div>
+                      ) : null}
+                      {!showSlipOcrTapEditHelper && boxSlipEvidenceUiState.phase === "unreadable" ? (
+                        <div className="operator-slip-evidence-panel__actions">
+                          <button
+                            type="button"
+                            onClick={() => openSlipCorrectionSheet("unreadable")}
+                            disabled={slipEvidenceActionsDisabled}
+                            className="operator-slip-evidence-panel__btn operator-slip-evidence-panel__btn--primary"
+                          >
+                            Change review
+                          </button>
+                        </div>
+                      ) : null}
                       {boxSlipCode.trim() ? (
                         <div className={`operator-shipment-slip-meta operator-shipment-slip-meta--code mt-2 px-0 py-1.5 text-left ${BOX_INFO_SLIP_META_DIVIDER}`}>
                           <p className="operator-shipment-slip-meta__label font-bold uppercase tracking-widest">Slip code</p>
@@ -18461,112 +20904,63 @@ function OperatorMobileScanPageContent() {
                           </p>
                         </div>
                       ) : null}
-                      {boxSlipVisionLines.length > 0 || boxSlipVisionBusy ? (
-                        <>
-                          <p className="operator-shipment-detected-heading mb-1.5 mt-3">Detected Items</p>
-                      {boxSlipVisionLines.length > 0 ? (
-                        <div className={`operator-shipment-detected-table-wrap operator-scan-panel__body rounded-md leading-snug ${SLIP_CARD_SECTION}`}>
-                          <table className="operator-shipment-detected-table border-collapse text-left">
-                            <caption className="sr-only">
-                              Line items from packing slip vision. FNSKU, UPC, description, and quantity are read-only.
-                              Removing persisted slip lines (if offered in the UI) requires the can_delete_slip_items permission
-                              (see useRbacPermissions().canDeleteSlipItems).
-                            </caption>
-                            <colgroup>
-                              <col className="operator-shipment-detected-col-fnsku" />
-                              <col className="operator-shipment-detected-col-upc" />
-                              <col className="operator-shipment-detected-col-desc" />
-                              <col className="operator-shipment-detected-col-desc" />
-                              <col className="operator-shipment-detected-col-qty" />
-                            </colgroup>
-                            <thead className="operator-shipment-detected-thead sticky top-0 z-[1]">
-                              <tr>
-                                <th className="operator-shipment-detected-th operator-shipment-detected-th-fnsku font-bold">
-                                  FNSKU
-                                </th>
-                                <th className="operator-shipment-detected-th operator-shipment-detected-th-upc font-bold">
-                                  UPC
-                                </th>
-                                <th className="operator-shipment-detected-th operator-shipment-detected-th-desc font-bold">
-                                  Product
-                                </th>
-                                <th className="operator-shipment-detected-th operator-shipment-detected-th-desc font-bold">
-                                  Description
-                                </th>
-                                <th className="operator-shipment-detected-th operator-shipment-detected-th-qty font-bold tabular-nums">
-                                  Qty
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="select-text">
-                              {boxSlipVisionLines.map((row, i) => {
-                                const fnskuTrim = (row.fnsku ?? "").trim();
-                                const upcTrim = (row.upc ?? "").trim();
-                                const descTrim = (row.description ?? "").trim();
-                                const linkage =
-                                  boxSlipVisionLineLinkages[i] ??
-                                  buildProductLinkageDisplayContract(
-                                    { description: row.description, fnsku: row.fnsku, upc: row.upc },
-                                    EMPTY_PRODUCT_NAME_LOOKUP,
-                                  );
-                                return (
-                                  <tr
-                                    key={`slip-line-${i}`}
-                                    className={`operator-shipment-detected-row cursor-default !rounded-md !border !border-[rgba(214,183,110,0.24)] !bg-[rgba(255,255,255,0.025)] !px-2 !py-1 !shadow-none border-t ${SLIP_CARD_DIVIDER}`}
-                                  >
-                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-fnsku align-top">
-                                      <span className={`operator-shipment-detected-cell-fnsku !font-mono !text-[10px] !font-normal !text-neutral-500 leading-snug`}>
-                                        {fnskuTrim || "—"}
+                      {!boxSlipEvidenceDisplay.unreadable &&
+                      (boxSlipDisplayLines.length > 0 || boxSlipVisionBusy) ? (
+                        <div className="operator-slip-evidence-panel__lines space-y-2">
+                          {boxSlipDisplayLines.length > 0 ? (
+                            boxSlipDisplayLines.map((row, i) => {
+                              const descTrim = (row.description ?? "").trim();
+                              const fnskuTrim = (row.fnsku ?? "").trim();
+                              const upcTrim = (row.upc ?? "").trim();
+                              const skuTrim = String((row as { sku?: string | null }).sku ?? "").trim();
+                              const asinTrim = (row.printed_asin ?? "").trim();
+                              const identLabel = fnskuTrim
+                                ? "FNSKU"
+                                : upcTrim
+                                  ? "UPC"
+                                  : skuTrim
+                                    ? "SKU"
+                                    : asinTrim
+                                      ? "ASIN"
+                                      : "ID";
+                              const identValue = fnskuTrim || upcTrim || skuTrim || asinTrim || "—";
+                              const evidenceLine = boxSlipEvidenceReview?.lines?.[i];
+                              return (
+                                <div key={`slip-preview-line-${i}`} className="operator-slip-evidence-preview-card">
+                                  <div className="operator-slip-evidence-preview-card__main">
+                                    <p className="operator-slip-evidence-preview-card__title">
+                                      {descTrim || "Untitled line"}
+                                    </p>
+                                    <p className="operator-slip-evidence-preview-card__meta">
+                                      <span className="operator-slip-evidence-preview-card__ident-label">
+                                        {identLabel}
                                       </span>
-                                    </td>
-                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-upc align-top">
-                                      <span className={`operator-shipment-detected-cell-upc !font-mono !text-[10px] !font-normal !text-neutral-500 leading-snug`}>
-                                        {upcTrim || "—"}
+                                      <span className="operator-slip-evidence-preview-card__ident-value font-mono">
+                                        {identValue}
                                       </span>
-                                    </td>
-                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-desc operator-shipment-detected-td-product align-top">
-                                      <ProductLinkagePrimaryLink
-                                        linkage={linkage}
-                                        detailFrom="scan"
-                                        className={`operator-shipment-detected-cell-product !text-xs !font-bold !tracking-wide !text-[#FAF6ED] !no-underline hover:!text-[#FAF6ED]`}
-                                      />
-                                      <div className={SLIP_CARD_META_LINKAGE}>
-                                        <OperatorProductLinkageMeta
-                                          linkage={linkage}
-                                          linkResolvedProductId={false}
-                                          detailFrom="scan"
-                                        />
-                                      </div>
-                                    </td>
-                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-desc operator-shipment-detected-td-description align-top">
-                                      <span className={`operator-shipment-detected-cell-desc ${SLIP_CARD_SUBTEXT}`}>
-                                        {descTrim || "—"}
+                                      <span className="operator-slip-evidence-preview-card__qty tabular-nums">
+                                        Qty {row.expected_qty}
                                       </span>
-                                    </td>
-                                    <td className="operator-shipment-detected-td operator-shipment-detected-td-qty align-top">
-                                      <span
-                                        className={`operator-shipment-qty-pill !font-mono !text-[10px] !font-normal !text-neutral-500 !border-0 !bg-transparent !p-0 tabular-nums`}
-                                        aria-label={`Line ${i + 1} quantity`}
-                                      >
-                                        {row.expected_qty}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
+                                    </p>
+                                  </div>
+                                  {evidenceLine?.needs_review ? (
+                                    <span className="operator-slip-evidence-preview-card__flag">Needs review</span>
+                                  ) : null}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="operator-shipment-slip-hint font-medium leading-snug">
+                              Extracting line items from the packing slip…
+                            </p>
+                          )}
                         </div>
-                      ) : boxSlipVisionBusy ? (
-                        <p className="operator-shipment-slip-hint font-medium leading-snug">
-                          Extracting line items from the packing slip…
-                        </p>
-                      ) : (
-                        <p className="operator-shipment-slip-hint font-medium leading-snug">
+                      ) : !boxSlipEvidenceDisplay.unreadable &&
+                        boxSlipVisionLines.length === 0 &&
+                        !boxSlipVisionBusy ? (
+                        <p className="operator-shipment-slip-hint mt-3 font-medium leading-snug">
                           No line items yet — add a packing slip photo above and run detection, or open a saved box.
                         </p>
-                      )}
-                        </>
                       ) : null}
                     </div>
                   ) : null}
@@ -18584,6 +20978,18 @@ function OperatorMobileScanPageContent() {
                   >
                     <div className="mb-2 flex flex-col gap-0.5">
                       <h3 className="text-[14px] font-bold text-zinc-900 dark:text-white">Shipment lines (reference)</h3>
+                      {shipmentExpectedContextLive ? (
+                        <div className="mt-2">
+                          <ShipmentExpectedCompactCard
+                            context={shipmentExpectedContextLive}
+                            variant="box_info"
+                            onViewExpected={() => {
+                              modalOpenRef.current = true;
+                              setShipmentExpectedReviewOpen(true);
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                     <div
                       className="max-h-[min(48vh,260px)] overflow-auto rounded-xl border"
@@ -18666,22 +21072,51 @@ function OperatorMobileScanPageContent() {
                     style={{ color: TEXT_PRIMARY }}
                   />
 
+                  {boxSystemNotesSummary.length > 0 ? (
+                    <section
+                      className="operator-box-info-system-notes mt-2 rounded-lg border border-slate-700/40 bg-slate-950/20 px-2.5 py-2"
+                      aria-label="System notes"
+                    >
+                      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        System notes
+                      </p>
+                      <ul className="mt-1 space-y-0.5 text-[10px] font-medium leading-snug text-slate-600 dark:text-slate-300">
+                        {boxSystemNotesSummary.map((line) => (
+                          <li key={line}>{formatSystemNoteForDisplay(line)}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null}
+
                   {activeBoxSession ? (
                     <section className="operator-box-info-empty-box-panel mt-2 rounded-lg border border-[rgba(214,183,110,0.24)] bg-[rgba(255,255,255,0.025)] px-2.5 py-2">
                       <label
                         className={`flex items-start gap-2 text-[11px] font-semibold leading-snug ${
-                          boxIntakeEmptyBoxEligible ? "cursor-pointer" : "cursor-not-allowed opacity-70"
+                          boxIntakeEmptyBoxEditable ? "cursor-pointer" : "cursor-not-allowed opacity-70"
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={emptyBoxChecked || emptyBoxSaved}
-                          onChange={(e) => setEmptyBoxChecked(e.target.checked)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            if (checked) {
+                              if (boxIntakePhysicalScannedCount > 0) {
+                                setBoxIntakeError(BOX_EMPTY_BOX_SCANNED_ITEMS_BLOCK);
+                                return;
+                              }
+                              if (!boxIntakeEmptyBoxCanCheck) return;
+                            } else if (!boxIntakeEmptyBoxCanUncheck) {
+                              return;
+                            }
+                            setBoxIntakeError(null);
+                            setEmptyBoxChecked(checked);
+                            if (!checked) setEmptyBoxSaved(false);
+                          }}
                           disabled={
                             boxSaveBusy ||
-                            emptyBoxSaved ||
-                            !boxIntakeEmptyBoxEligible ||
-                            boxScanDocumentationLocked
+                            emptyBoxFinalizeBusy ||
+                            !boxIntakeEmptyBoxEditable
                           }
                           className="mt-0.5 h-4 w-4 shrink-0 rounded"
                         />
@@ -18692,34 +21127,38 @@ function OperatorMobileScanPageContent() {
                           </span>
                         </span>
                       </label>
-                      {!boxIntakeEmptyBoxEligible && boxIntakePhysicalItemCount > 0 ? (
+                      {showEmptyBoxScannedItemsGuard ? (
                         <p className="mt-1.5 text-[9px] font-semibold leading-snug text-amber-700 dark:text-amber-300/90">
-                          Cannot mark empty after items have been scanned.
+                          {BOX_EMPTY_BOX_SCANNED_ITEMS_BLOCK}
+                        </p>
+                      ) : showEmptyBoxTapEditHelper ? (
+                        <p className="mt-1.5 text-[9px] font-semibold leading-snug text-slate-600 dark:text-slate-400">
+                          {BOX_EMPTY_BOX_TAP_EDIT_HELPER}
                         </p>
                       ) : null}
                       {emptyBoxSaved ? (
                         <p className="mt-1.5 text-[9px] font-semibold text-emerald-700 dark:text-emerald-300/90">
-                          Empty box recorded.
+                          Empty box recorded in box metadata.
                         </p>
                       ) : null}
                     </section>
                   ) : null}
 
                   <div className="operator-shipment-notes-actions mt-1 space-y-1 pb-2 pt-0.5">
-                    {emptyBoxChecked && !emptyBoxSaved ? (
+                    {emptyBoxChecked ? (
                       <button
                         type="button"
-                        disabled={!canSaveBoxScan || boxSaveBusy}
-                        onClick={() => void saveEmptyBoxFromBoxInfo()}
+                        disabled={!canSaveBoxScan || boxSaveBusy || emptyBoxFinalizeBusy}
+                        onClick={() => openEmptyBoxCloseConfirm()}
                         className="flex !h-11 min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-amber-500/55 bg-gradient-to-b from-amber-200/90 to-amber-500/90 px-3 text-[13px] font-bold text-amber-950 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {boxSaveBusy ? (
+                        {boxSaveBusy || emptyBoxFinalizeBusy ? (
                           <>
                             <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={2.25} aria-hidden />
-                            Saving empty box…
+                            {emptyBoxFinalizeBusy ? "Closing empty box…" : "Saving…"}
                           </>
                         ) : (
-                          <>Save empty box</>
+                          <>Review &amp; Close Empty Box</>
                         )}
                       </button>
                     ) : (
@@ -18781,23 +21220,6 @@ function OperatorMobileScanPageContent() {
                         Save & Exit
                       </button>
                     </div>
-
-                    {boxIntakeDiscrepancyEligible ? (
-                      <div className="flex justify-center pt-0.5">
-                        <button
-                          type="button"
-                          disabled={!canSaveBoxScan || boxSaveBusy}
-                          onClick={() => {
-                            modalOpenRef.current = true;
-                            setPackageFinalizeConfirmKind("discrepancy");
-                          }}
-                          className={`inline-flex w-auto max-w-[min(100%,18.5rem)] items-center justify-center gap-2 rounded-2xl border-2 border-amber-500/60 bg-gradient-to-b from-amber-200 to-amber-500 px-4 text-amber-950 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                          <span className="text-center leading-snug">Complete with Discrepancy</span>
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
                 </section>
               </>
@@ -18883,6 +21305,36 @@ function OperatorMobileScanPageContent() {
                   </div>
                 </div>
 
+            {itemScanUiFinalized ? (
+              <div
+                className="operator-box-locked-banner mb-2 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug"
+                style={{
+                  borderColor: "rgba(56,189,248,0.28)",
+                  backgroundColor: "rgba(56,189,248,0.08)",
+                  color: TEXT_PRIMARY,
+                }}
+                role="status"
+              >
+                <Lock className="mt-0.5 h-4 w-4 shrink-0 opacity-80" strokeWidth={2.25} aria-hidden />
+                <span>{OP_BANNER_BOX_FINALIZED}</span>
+              </div>
+            ) : null}
+
+            {postBoxCloseContext?.route === "single_box_finish" && itemScanUiFinalized ? (
+              <div
+                className="operator-post-box-close-summary mb-2 rounded-xl border px-3 py-2.5 text-[11px] font-semibold leading-snug"
+                style={{
+                  borderColor: "rgba(52,211,153,0.28)",
+                  backgroundColor: "rgba(6,78,59,0.12)",
+                  color: TEXT_PRIMARY,
+                }}
+                role="status"
+              >
+                <p className="font-black">{postBoxCloseContext.headline}</p>
+                <p className="mt-0.5 opacity-90">{postBoxCloseContext.detail}</p>
+              </div>
+            ) : null}
+
                 <button
                   type="button"
                   disabled={busy || !itemScanReceiveEditable}
@@ -18892,12 +21344,6 @@ function OperatorMobileScanPageContent() {
                   <Plus className="h-5 w-5 shrink-0" strokeWidth={2.5} aria-hidden />
                   Add / Scan Item
                 </button>
-
-            {itemScanReceiveFinalized ? (
-              <p className={`${OP_SCAN_ALERT_ERROR} mb-2 leading-snug`} role="status">
-                {OP_BANNER_BOX_FINALIZED}
-              </p>
-            ) : null}
 
             {itemBarcodeMiss ? (
               <p className={OP_SCAN_ALERT_ERROR}>{itemBarcodeMiss}</p>
@@ -18926,6 +21372,8 @@ function OperatorMobileScanPageContent() {
                   <p className="operator-item-scan-expected-panel__hint mt-0.5 line-clamp-2 text-[9px] font-medium leading-snug">
                     {itemScanEditAllMode ? (
                       <>Select an item row with scanned units to edit.</>
+                    ) : itemScanExpectedItemsRenderSource === "merged_reference_cells" ? (
+                      <>Scanned items in this box — matched to shipment expected and/or packing slip.</>
                     ) : (
                       <>
                         Slip lines follow the packing list. Use{" "}
@@ -18934,15 +21382,18 @@ function OperatorMobileScanPageContent() {
                       </>
                     )}
                   </p>
-                  {packageItemsHydrating || itemScanExpectationLoading ? (
+                  {itemScanExpectedItemsLoading ? (
                     <p className="operator-item-scan-expected-panel__loading mt-1 flex items-center gap-1 text-[9px] font-semibold">
                       <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-                      {itemScanExpectationLoading && !packageItemsHydrating
-                        ? "Loading expected lines…"
-                        : "Updating counts…"}
+                      {itemInspectionSlipLinesLoading
+                        ? "Loading slip lines…"
+                        : packageItemsHydrating
+                          ? "Updating counts…"
+                          : "Loading expected lines…"}
                     </p>
                   ) : null}
-                  {itemScanExpectedItemsRenderSource === "package_slip_cells" ? (
+                  {itemScanExpectedItemsRenderSource === "package_slip_cells" ||
+                  (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox) ? (
                     <label className="operator-item-scan-review-missing-toggle mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-[rgba(214,183,110,0.2)] bg-[rgba(255,255,255,0.02)] px-2 py-1.5">
                       <input
                         type="checkbox"
@@ -18961,7 +21412,8 @@ function OperatorMobileScanPageContent() {
                   ) : null}
                   {reviewMissingItemsEnabled &&
                   itemScanUnresolvedMissingQty > 0 &&
-                  itemScanExpectedItemsRenderSource === "package_slip_cells" ? (
+                  (itemScanExpectedItemsRenderSource === "package_slip_cells" ||
+                    (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox)) ? (
                     <button
                       type="button"
                       disabled={busy || slipMissingMarkBusy}
@@ -19005,12 +21457,33 @@ function OperatorMobileScanPageContent() {
                   "operator-item-scan-expected-list-scroll",
                 )}
               >
-                {itemScanExpectedItemsRenderSource === "package_slip_cells" &&
-                slipValidationShipmentOnlyLines.length > 0 ? (
+                {(itemScanExpectedItemsRenderSource === "package_slip_cells" ||
+                  itemScanExpectedItemsRenderSource === "merged_reference_cells") &&
+                slipValidationShipmentOnlyLines.length > 0 &&
+                !itemScanUsesMergedReferenceDisplay ? (
                   <SlipShipmentValidationShipmentOnlyHint lines={slipValidationShipmentOnlyLines} />
                 ) : null}
                 {itemScanExpectedItemsRenderSource === "loading" ? (
                   <ItemInspectionSlipSkeletonRows />
+                ) : itemScanExpectedItemsRenderSource === "empty_box" ? (
+                  <div
+                    className={`operator-item-scan-empty-box-state rounded-md px-2.5 py-2 ${SLIP_CARD_SECTION}`}
+                    role="status"
+                  >
+                    <p className="text-[11px] font-bold leading-snug text-[#FAF6ED]">Empty box</p>
+                    <p className="mt-1 text-[10px] font-semibold leading-snug text-neutral-400">
+                      This box was marked empty. No physical items were scanned.
+                    </p>
+                    {itemScanUiFinalized ? (
+                      <p className="mt-1.5 text-[9px] font-semibold leading-snug text-slate-500 dark:text-slate-400">
+                        Tap Reopen Box to edit this box.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : itemScanExpectedItemsRenderSource === "empty" ? (
+                  <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
+                    No expected items for this box.
+                  </p>
                 ) : itemScanExpectedItemsRenderSource === "tracking_ep_variance" ? (
                   <>
                     {itemScanExpectationLinesLive.map((line) => (
@@ -19022,69 +21495,159 @@ function OperatorMobileScanPageContent() {
                     ))}
                   </>
                 ) : itemScanExpectedItemsRenderSource === "hydrated_return_items_only" ? (
-                  packageItemHydratedRows.length > 0 ? (
-                    <>
-                      <p className={`operator-item-scan-empty-note mb-1 rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
-                        Scanned units (no packing slip lines on this box)
+                  <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
+                    No slip lines yet — add a packing slip on BOX intake (Confirm &amp; Save) or wait for sync. Expected
+                    shipment lines may still appear once expectations load. Off-manifest scans appear below.
+                  </p>
+                ) : itemScanExpectedItemsRenderSource === "merged_reference_cells" ? (
+                  <>
+                    {itemScanMergedReferenceCells.length === 0 ? (
+                      <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
+                        Scan items to add them here. Shipment expected lines for other boxes are not listed until
+                        scanned in this box.
                       </p>
-                      {packageItemHydratedRows.map((unit) => {
-                        const linkage = unit.product_linkage;
-                        const bc = unit.scanned_barcode?.trim() || "—";
-                        const vis = itemInspectionSlipLinePresentation(0, 1, false);
-                        const rowEditable = itemScanEditAllMode && itemScanReceiveEditable;
-                        const rowInteract = itemScanRowEditInteractProps(rowEditable, false, () =>
-                          handleItemScanEditSelectOrphanUnit(unit),
+                    ) : null}
+                    {itemScanMergedReferenceCells.map((cell) => {
+                      const itemScanDiscrepancyUi =
+                        isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen;
+                      const vis = itemInspectionSlipLinePresentation(
+                        cell.expected,
+                        cell.scanned,
+                        itemScanDiscrepancyUi,
+                      );
+                      const linkage = cell.linkage;
+                      const upcLabel = cell.row.grain.upc ?? cell.row.grain.sku ?? "—";
+                      const fnskuLabel = cell.row.grain.fnsku ?? "—";
+                      const matchedRing = vis.matchedRing;
+                      const rowEditable = itemScanEditAllMode && itemScanReceiveEditable && cell.scanned > 0;
+                      const rowSelected =
+                        itemScanUnitPickerOpen &&
+                        itemScanEditPick?.kind === "slip_cell" &&
+                        itemScanEditPick.cellKey === cell.key;
+                      const rowInteract = itemScanRowEditInteractProps(rowEditable, rowSelected, () => {
+                        if (!itemScanEditAllMode || !itemScanReceiveEditable || busy || cell.scanned <= 0) return;
+                        if (cell.slip) {
+                          handleItemScanEditSelectSlipCell({
+                            key: cell.key,
+                            slip: cell.slip,
+                            scanned: cell.scanned,
+                          });
+                          return;
+                        }
+                        const idSet = new Set(cell.row.returnItemIds);
+                        const units = packageItemHydratedRows.filter((r) =>
+                          idSet.has(String(r.id ?? "").trim()),
                         );
-                        return (
-                          <div
-                            key={unit.id}
-                            className={`${itemScanSlipRowShellClass(false)} ${rowInteract.className}`}
-                            data-neda-qty={vis.label}
-                            style={itemScanSlipRowStyle(0, 1, false)}
-                            role={rowInteract.role}
-                            tabIndex={rowInteract.tabIndex}
-                            onClick={rowInteract.onClick}
-                            onKeyDown={rowInteract.onKeyDown}
-                            aria-label={
-                              rowEditable ? "Edit scanned unit for this row" : undefined
-                            }
-                          >
-                            <ProductLinkagePrimaryLink
-                              linkage={linkage}
-                              linkWhenResolved={false}
-                              detailFrom="scan"
-                              className={SLIP_CARD_HEADING}
-                            />
-                            <div className={SLIP_CARD_META_LINKAGE}>
-                              <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
-                            </div>
-                            <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
-                              <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
-                                Barcode {bc}
-                                {unit.match_kind === "unexpected" ? (
-                                  <>
-                                    <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">·</span>
-                                    <span className="operator-item-scan-slip-row__meta-warn text-amber-300">Off-slip</span>
-                                  </>
-                                ) : null}
-                              </p>
-                              <div className="flex shrink-0 items-center gap-1">
-                                {slipCardStatusMark(vis)}
-                                <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
-                                  Qty {Math.max(1, Math.floor(Number(unit.quantity ?? 1)))}
-                                </span>
-                              </div>
+                        const meta = itemScanEditPickMetaFromSlip({
+                          product_linkage: cell.linkage,
+                          fnsku: cell.row.grain.fnsku,
+                          upc: cell.row.grain.upc ?? cell.row.grain.sku,
+                        });
+                        openItemScanUnitPickerForRow({ kind: "unexpected", ...meta, units }, units);
+                      });
+                      const slip = cell.slip;
+                      const slipIdForValidation =
+                        slip?.id && isUuidString(slip.id) ? slip.id : null;
+                      const validationLine = slip
+                        ? resolveValidationLineForSlipRow(
+                            slipShipmentValidationPreview,
+                            slip as unknown as Record<string, unknown>,
+                            slipIdForValidation,
+                            slipValidationLineBySlipId,
+                          )
+                        : null;
+                      const validationReceiveState =
+                        slipShipmentValidationPreview?.receive_state ?? packageReceiveState;
+                      return (
+                        <div
+                          key={cell.key}
+                          className={`${itemScanSlipRowShellClass(matchedRing)} ${rowInteract.className}`}
+                          data-neda-qty={vis.label}
+                          style={itemScanSlipRowStyle(cell.expected, cell.scanned, itemScanDiscrepancyUi)}
+                          role={rowInteract.role}
+                          tabIndex={rowInteract.tabIndex}
+                          onClick={rowInteract.onClick}
+                          onKeyDown={rowInteract.onKeyDown}
+                          aria-label={
+                            rowEditable ? `Edit scanned units for reference row, ${cell.scanned} scanned` : undefined
+                          }
+                        >
+                          <ProductLinkagePrimaryLink
+                            linkage={linkage}
+                            linkWhenResolved={false}
+                            detailFrom="scan"
+                            className={SLIP_CARD_HEADING}
+                          />
+                          <div className={SLIP_CARD_META_LINKAGE}>
+                            <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+                          </div>
+                          {cell.qtyLine.staleMissingReview ? (
+                            <p className="operator-item-scan-slip-row__manifest-note mt-0.5 text-[9px] font-semibold leading-snug text-amber-300">
+                              Missing status may be stale — received quantity changed. Review missing units.
+                            </p>
+                          ) : null}
+                          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                            <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+                              UPC {upcLabel}
+                              <span className="operator-item-scan-slip-row__meta-sep mx-1 text-neutral-600">·</span>
+                              FNSKU {fnskuLabel}
+                            </p>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <ItemScanReferenceSourceBadgeMark badge={cell.sourceBadge} />
+                              <SlipLinePassiveStatusBadge
+                                line={cell.qtyLine}
+                                hasMissingReviewEntry={cell.hasMissingReviewEntry}
+                              />
+                              {validationLine &&
+                              shouldShowValidationChipOnRow(
+                                validationLine.ui_badge,
+                                validationReceiveState,
+                              ) ? (
+                                <SlipShipmentValidationChip badge={validationLine.ui_badge} />
+                              ) : null}
                             </div>
                           </div>
-                        );
-                      })}
+                          <p className={`operator-item-scan-slip-row__qty mt-0.5 ${SLIP_CARD_TECH_ID} text-[10px] font-semibold tabular-nums leading-snug`}>
+                            {formatSlipLineQtySummary(cell.qtyLine)}
+                          </p>
+                          {reviewMissingItemsEnabled &&
+                          !itemScanEditAllMode &&
+                          cell.slip &&
+                          cell.qtyLine.remainingMissing > 0 &&
+                          !cell.hasMissingReviewEntry ? (
+                            <button
+                              type="button"
+                              disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void markSlipLineRemainingMissing({
+                                  key: cell.key,
+                                  slip: cell.slip!,
+                                  expected: cell.expected,
+                                  scanned: cell.scanned,
+                                  qtyLine: cell.qtyLine,
+                                  hasMissingReviewEntry: cell.hasMissingReviewEntry,
+                                  missingReviewEntry: cell.missingReviewEntry,
+                                } as (typeof itemInspectionSlipCells)[number]);
+                              }}
+                              className="operator-item-scan-mark-missing-btn mt-1 flex w-full items-center justify-center rounded-lg border border-amber-500/45 bg-amber-950/25 px-2 py-1.5 text-[10px] font-bold text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {slipMissingMarkBusy
+                                ? "Saving…"
+                                : cell.qtyLine.remainingMissing === 1
+                                  ? "Mark 1 as missing"
+                                  : `Mark remaining ${cell.qtyLine.remainingMissing} as missing`}
+                            </button>
+                          ) : null}
+                          {cell.draftExtra > 0 ? (
+                            <p className={`operator-item-scan-slip-row__draft mt-0.5 ${SLIP_CARD_SUBTEXT}`}>
+                              +{cell.draftExtra} staged (open draft)
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </>
-                  ) : (
-                    <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
-                      No slip lines yet — add a packing slip on BOX intake (Confirm &amp; Save) or wait for sync. Expected
-                      shipment lines may still appear once expectations load.
-                    </p>
-                  )
                 ) : itemScanExpectedItemsRenderSource === "package_slip_cells" ? (
                   <>
                     {itemInspectionSlipCells.map((cell) => {
@@ -19263,14 +21826,26 @@ function OperatorMobileScanPageContent() {
                       );
                     })}
                   </>
-                ) : (
-                  <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
-                    No expected item rows for this package (debug source: {itemScanExpectedItemsRenderSource}).
-                  </p>
-                )}
+                ) : null}
                 {!directBox && parentIdentified && expectedPkgLines.length > 0 ? (
                   <section className="operator-item-scan-shipment-summary mt-2 p-2">
-                    <h3 className="operator-item-scan-shipment-summary__title mb-1 text-[11px] font-bold text-[#FAF6ED]">Shipment summary</h3>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <h3 className="operator-item-scan-shipment-summary__title text-[11px] font-bold text-[#FAF6ED]">
+                        Shipment summary
+                      </h3>
+                      {shipmentExpectedContextLive ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            modalOpenRef.current = true;
+                            setShipmentExpectedReviewOpen(true);
+                          }}
+                          className="shrink-0 rounded-lg border border-sky-400/35 bg-sky-900/35 px-2 py-1 text-[10px] font-bold text-sky-100 transition active:scale-[0.98]"
+                        >
+                          View Expected
+                        </button>
+                      ) : null}
+                    </div>
                     <ul className={`operator-item-scan-shipment-summary__list divide-y ${SLIP_CARD_DIVIDE_Y}`}>
                       {expectedPkgLines.slice(0, 8).map((line) => (
                         <li key={line.groupKey} className="flex flex-col gap-0.5 py-1 text-[11px]">
@@ -19300,18 +21875,21 @@ function OperatorMobileScanPageContent() {
               </div>
             </section>
 
-            {/* "Not on packing slip" / OVER panel — second panel, only shown when unlinked items or unmatched slip rows exist */}
-            {packageItemHydratedRows.some((r) => !r.slip_content_id) || packageItemScanState.unexpectedUnits > 0 || slipEpCompare.unmatchedSlipIds.size > 0 ? (
+            {/* Off-manifest panel — items not found in shipment expected or packing slip */}
+            {itemScanShowOffManifestPanel ? (
               <section
                 className={`operator-item-scan-over-panel mb-0 flex min-h-0 flex-col overflow-visible p-2.5 ${glassCard}`}
               >
                 <div className="operator-item-scan-over-panel__header mb-1.5 flex shrink-0 flex-wrap items-end justify-between gap-2">
                   <div className="min-w-0 pr-2">
                     <h3 className="operator-item-scan-over-panel__title text-[13px] font-bold leading-tight">
-                      Not on packing slip
+                      Not on packing slip and shipment
                     </h3>
                     <p className="operator-item-scan-over-panel__eyebrow mt-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                      Off-slip scan
+                      Off-manifest scan
+                    </p>
+                    <p className="operator-item-scan-over-panel__hint mt-0.5 text-[9px] font-medium leading-snug text-neutral-400">
+                      Items not found in shipment expected or packing slip.
                     </p>
                   </div>
                   <p className="operator-item-scan-over-panel__counts shrink-0 text-right text-[10px] font-semibold leading-snug tabular-nums">
@@ -19340,6 +21918,89 @@ function OperatorMobileScanPageContent() {
                 <div {...itemScanAdaptiveListPanelProps(itemScanOverListItemCount, mainScrollClass)}>
                   {/* Per-item cards for items scanned but not linked to any slip line */}
                   {(() => {
+                    if (
+                      itemScanReferenceUsesMergedRender(itemScanExpectedItemsRenderSource) &&
+                      itemScanReferenceBuckets
+                    ) {
+                      return itemScanReferenceBuckets.offManifestRows.map((offRow) => {
+                        const idSet = new Set(offRow.returnItemIds);
+                        const rows = packageItemHydratedRows.filter((r) =>
+                          idSet.has(String(r.id ?? "").trim()),
+                        );
+                        const linkage =
+                          rows[0]?.product_linkage ??
+                          buildProductLinkageDisplayContract(
+                            {
+                              description: offRow.label,
+                              fnsku: offRow.grain.fnsku,
+                              upc: offRow.grain.upc ?? offRow.grain.sku,
+                            },
+                            EMPTY_PRODUCT_NAME_LOOKUP,
+                          );
+                        const barcode = offRow.barcodes[0] ?? rows[0]?.scanned_barcode?.trim() ?? "";
+                        const qty = offRow.scannedQty;
+                        const { upc: upcLabel, fnsku: fnskuLabel } =
+                          rows.length > 0
+                            ? itemScanUpcFnskuFromPackageItemRows(rows)
+                            : {
+                                upc: offRow.grain.upc ?? offRow.grain.sku ?? "—",
+                                fnsku: offRow.grain.fnsku ?? "—",
+                              };
+                        const vis = itemInspectionSlipLinePresentation(0, qty, false);
+                        const rowEditable = itemScanEditAllMode && itemScanReceiveEditable && rows.length > 0;
+                        const rowInteract = itemScanRowEditInteractProps(rowEditable, false, () => {
+                          if (!itemScanEditAllMode || !itemScanReceiveEditable || busy) return;
+                          const rowTitle = productLinkageOperatorPrimaryDisplayLabel(linkage);
+                          openItemScanUnitPickerForRow(
+                            { kind: "unexpected", rowTitle, rowSubtitle: barcode || null, units: rows },
+                            rows,
+                          );
+                        });
+                        return (
+                          <div
+                            key={offRow.key}
+                            className={`${itemScanSlipRowShellClass(false, true)} ${rowInteract.className}`}
+                            data-off-slip-card="true"
+                            data-neda-qty={vis.label}
+                            style={itemScanSlipRowStyle(0, qty, false)}
+                            role={rowInteract.role}
+                            tabIndex={rowInteract.tabIndex}
+                            onClick={rowInteract.onClick}
+                            onKeyDown={rowInteract.onKeyDown}
+                            aria-label={
+                              rowEditable
+                                ? `Edit ${qty} scanned unit${qty !== 1 ? "s" : ""} for ${barcode || "this item"}`
+                                : undefined
+                            }
+                          >
+                            <ProductLinkagePrimaryLink
+                              linkage={linkage}
+                              linkWhenResolved={false}
+                              detailFrom="scan"
+                              className={SLIP_CARD_OFF_SLIP_TITLE}
+                            />
+                            <div className={SLIP_CARD_META_LINKAGE}>
+                              <OperatorProductLinkageMeta linkage={linkage} linkResolvedProductId={false} detailFrom="scan" />
+                            </div>
+                            <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                              <p className={`operator-item-scan-slip-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+                                {barcode ? `Barcode ${barcode}` : "Scanned unit"}
+                              </p>
+                              <div className="flex shrink-0 items-center gap-1">
+                                {slipCardStatusMark(vis)}
+                                <span className={`operator-item-scan-slip-row__qty whitespace-nowrap tabular-nums ${SLIP_CARD_TECH_ID}`}>
+                                  Qty {qty}/0
+                                </span>
+                              </div>
+                            </div>
+                            {upcLabel || fnskuLabel ? (
+                              <ItemScanSlipRowUpcFnskuMeta upc={upcLabel} fnsku={fnskuLabel} />
+                            ) : null}
+                          </div>
+                        );
+                      });
+                    }
+
                     const unlinkedRows = packageItemHydratedRows.filter((r) => !r.slip_content_id);
                     if (unlinkedRows.length === 0 && packageItemScanState.unexpectedUnits === 0) return null;
 
@@ -19453,8 +22114,9 @@ function OperatorMobileScanPageContent() {
                     return cards;
                   })()}
 
-                  {/* Slip lines not matched to any EP expected line — shown as informational YELLOW cards */}
-                  {slipEpCompare.unmatchedSlipIds.size > 0
+                  {/* Slip lines not matched to any EP expected line — legacy fallback when merged buckets are inactive */}
+                  {!itemScanReferenceUsesMergedRender(itemScanExpectedItemsRenderSource) &&
+                  slipEpCompare.unmatchedSlipIds.size > 0
                     ? slipLikeRowsForInspection
                         .filter((r) => r.id && slipEpCompare.unmatchedSlipIds.has(String(r.id)))
                         .map((r, i) => {
@@ -19777,6 +22439,55 @@ function OperatorMobileScanPageContent() {
         </div>
       ) : null}
 
+      {emptyBoxCloseConfirmOpen ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[142] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-empty-box-close-title`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-empty-box-close-title`}
+              className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
+            >
+              Review &amp; Close Empty Box
+            </p>
+            <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
+              This box is marked empty. Review and close this box?
+            </p>
+            <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
+              No items will be recorded. This saves review evidence only — not a claim.
+            </p>
+            <OperatorScannerFooterActions
+              className="mt-6"
+              primary={
+                <button
+                  type="button"
+                  disabled={boxSaveBusy || emptyBoxFinalizeBusy}
+                  className="operator-shipment-flow-modal__btn-warning h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => void confirmEmptyBoxClose()}
+                >
+                  {emptyBoxFinalizeBusy ? "Closing…" : "Close Empty Box"}
+                </button>
+              }
+              secondary={
+                <button
+                  type="button"
+                  className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                  onClick={() => {
+                    setEmptyBoxCloseConfirmOpen(false);
+                    modalOpenRef.current = false;
+                  }}
+                >
+                  Cancel
+                </button>
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
       {packageFinalizeConfirmKind ? (
         <div
           className="operator-shipment-flow-modal fixed inset-0 z-[142] flex items-center justify-center p-4"
@@ -19792,17 +22503,10 @@ function OperatorMobileScanPageContent() {
               {CONFIRM_SAVE_MESSAGE}
             </p>
             <p className="operator-shipment-flow-modal__body mt-3 text-center text-[13px] font-semibold leading-relaxed">
-              {packageFinalizeConfirmKind === "discrepancy"
-                ? "Photos and notes will be saved. The record will be flagged and you will return to the pallet hub."
-                : packageFinalizeConfirmKind === "save_hub"
-                  ? "Photos and notes will be saved. You will return to the pallet hub."
-                  : "Photos and notes will be saved. You will move on to item inspection for this box."}
+              {packageFinalizeConfirmKind === "save_hub"
+                ? "Photos and notes will be saved. You will return to the pallet hub."
+                : "Photos and notes will be saved. You will move on to item inspection for this box."}
             </p>
-            {packageFinalizeConfirmKind === "discrepancy" ? (
-              <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
-                Use this when counts or slip lines do not match what is on the carton.
-              </p>
-            ) : null}
             <OperatorScannerFooterActions
               className="mt-6"
               primary={
@@ -19824,11 +22528,9 @@ function OperatorMobileScanPageContent() {
                     dispatchPackageFinalizeSave(kind);
                   }}
                 >
-                  {packageFinalizeConfirmKind === "discrepancy"
-                    ? "Save with discrepancy"
-                    : packageFinalizeConfirmKind === "save_hub"
-                      ? "Save & exit to hub"
-                      : "Save & continue"}
+                  {packageFinalizeConfirmKind === "save_hub"
+                    ? "Save & exit to hub"
+                    : "Save & continue"}
                 </button>
               }
               secondary={
@@ -20352,6 +23054,7 @@ function OperatorMobileScanPageContent() {
         <ShipmentCloseReviewModal
           formId={formId}
           model={shipmentCloseReviewModel}
+          expectedContext={shipmentExpectedContextLive}
           busy={shipmentCloseBusy}
           finalizeBusy={shipmentCloseBusy}
           onCancel={() => {
@@ -20360,6 +23063,18 @@ function OperatorMobileScanPageContent() {
             scheduleFocusScanner();
           }}
           onConfirm={(args) => void confirmShipmentClose(args)}
+        />
+      ) : null}
+
+      {shipmentExpectedReviewOpen && shipmentExpectedContextLive ? (
+        <ShipmentExpectedReviewModal
+          open={shipmentExpectedReviewOpen}
+          context={shipmentExpectedContextLive}
+          onClose={() => {
+            setShipmentExpectedReviewOpen(false);
+            modalOpenRef.current = false;
+            scheduleFocusScanner();
+          }}
         />
       ) : null}
 
@@ -20384,51 +23099,147 @@ function OperatorMobileScanPageContent() {
 
       {flowPhase === "items" && hasItemReceivableBox ? (
         <div
-          className="operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(var(--scanner-bottom-nav-height,3.875rem)+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] grid w-full max-w-[430px] -translate-x-1/2 grid-cols-2 items-stretch gap-2 border-t px-3 pb-[var(--op-scan-gap,0.5rem)] pt-1.5 sm:px-4"
+          className={`operator-item-scan-fixed-actions operator-item-scan-actions operator-item-scan-actions--compact fixed bottom-[calc(var(--scanner-bottom-nav-height,3.875rem)+env(safe-area-inset-bottom,0px))] left-1/2 z-[100] w-full max-w-[430px] -translate-x-1/2 border-t px-3 pb-[var(--op-scan-gap,0.5rem)] pt-1.5 sm:px-4 ${
+            itemScanUiFinalized
+              ? "flex flex-col items-stretch gap-2"
+              : "grid grid-cols-2 items-stretch gap-2"
+          }`}
           role="region"
           aria-label="Item inspection actions"
         >
-          <button
-            type="button"
-            disabled={busy || itemsFinalizeBusy || slipMissingMarkBusy}
-            onClick={() => confirmItemsPhaseSaveAndExit()}
-            className={`operator-item-scan-btn-save-exit order-1 flex w-full items-center justify-center gap-2 rounded-xl px-3 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
-          >
-            <PackageOpen className="h-4 w-4 shrink-0 opacity-95" strokeWidth={2.25} aria-hidden />
-            <span className="truncate">Save &amp; Exit</span>
-          </button>
-          <button
-            type="button"
-            disabled={busy || itemsFinalizeBusy || slipMissingMarkBusy}
-            onClick={() => openBoxCloseReviewModal()}
-            aria-label={
-              isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
-                ? "Complete with discrepancy"
-                : undefined
-            }
-            title={
-              isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
-                ? "Complete with discrepancy"
-                : undefined
-            }
-            className={`operator-item-scan-btn-finalize order-2 inline-flex w-full max-w-none shrink-0 items-center justify-center gap-2 rounded-xl px-3 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
-              isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
-                ? "operator-item-scan-btn-finalize--discrepancy"
-                : "operator-item-scan-btn-finalize--ok"
-            }`}
-          >
-            {isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled) ? (
+          {itemScanUiFinalized ? (
+            itemScanStandaloneShipmentFinish && showShipmentCloseOnItemScan ? (
               <>
-                <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
-                <span>Close with issue</span>
+                <button
+                  type="button"
+                  disabled={busy || shipmentCloseBusy || shipmentReopenBusy}
+                  onClick={() => void openShipmentCloseReviewModal()}
+                  aria-label={OP_LABEL_CLOSE_SHIPMENT}
+                  className={`operator-item-scan-btn-close-shipment flex w-full items-center justify-center gap-2 rounded-xl border border-sky-500/45 bg-sky-950/30 px-3 text-sky-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
+                >
+                  {shipmentCloseBusy ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  ) : (
+                    <Truck className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+                  )}
+                  <span className="truncate">{OP_LABEL_CLOSE_SHIPMENT}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || itemScanReopenBusy}
+                  onClick={() => void handleReopenFinalizedPackageReceive()}
+                  aria-label={OP_LABEL_REOPEN_BOX}
+                  className={`operator-item-scan-btn-reopen flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/35 bg-amber-950/15 px-3 text-[12px] font-bold text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
+                >
+                  {itemScanReopenBusy ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+                  )}
+                  <span className="truncate">{OP_LABEL_REOPEN_BOX}</span>
+                </button>
               </>
             ) : (
               <>
-                <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
-                <span className="truncate">Finalize &amp; Close Box</span>
+                <button
+                  type="button"
+                  disabled={busy || itemScanReopenBusy}
+                  onClick={() => void handleReopenFinalizedPackageReceive()}
+                  aria-label={OP_LABEL_REOPEN_BOX}
+                  className={`operator-item-scan-btn-reopen flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/45 bg-amber-950/25 px-3 text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
+                >
+                  {itemScanReopenBusy ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+                  )}
+                  <span className="truncate">{OP_LABEL_REOPEN_BOX}</span>
+                </button>
+                {showShipmentCloseOnItemScan ||
+                showShipmentReopenOnItemScan ? (
+                  <div
+                    className="operator-item-scan-receive-unit-actions grid grid-cols-1 gap-1.5"
+                    aria-label={OP_SECTION_FINISH_RECEIVE}
+                  >
+                    {showShipmentCloseOnItemScan ? (
+                      <button
+                        type="button"
+                        disabled={busy || shipmentCloseBusy || shipmentReopenBusy}
+                        onClick={() => void openShipmentCloseReviewModal()}
+                        className="flex min-h-[2.5rem] items-center justify-center gap-1 rounded-lg border border-sky-500/35 bg-sky-950/20 px-2 text-[11px] font-bold text-sky-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {shipmentCloseBusy ? (
+                          <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                        ) : (
+                          <Truck className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                        )}
+                        <span className="truncate">{OP_LABEL_CLOSE_SHIPMENT}</span>
+                      </button>
+                    ) : null}
+                    {showShipmentReopenOnItemScan ? (
+                      <button
+                        type="button"
+                        disabled={busy || shipmentReopenBusy || shipmentCloseBusy}
+                        onClick={() => void handleReopenClosedShipment()}
+                        className="flex min-h-[2.5rem] items-center justify-center gap-1 rounded-lg border border-amber-500/35 bg-amber-950/15 px-2 text-[11px] font-bold text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {shipmentReopenBusy ? (
+                          <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                        )}
+                        <span className="truncate">{OP_LABEL_REOPEN_SHIPMENT}</span>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </>
-            )}
-          </button>
+            )
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={busy || itemsFinalizeBusy || slipMissingMarkBusy}
+                onClick={() => confirmItemsPhaseSaveAndExit()}
+                className={`operator-item-scan-btn-save-exit order-1 flex w-full items-center justify-center gap-2 rounded-xl px-3 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN}`}
+              >
+                <PackageOpen className="h-4 w-4 shrink-0 opacity-95" strokeWidth={2.25} aria-hidden />
+                <span className="truncate">Save &amp; Exit</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy || itemsFinalizeBusy || slipMissingMarkBusy}
+                onClick={() => openBoxCloseReviewModal()}
+                aria-label={
+                  isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
+                    ? "Review and close with discrepancy"
+                    : OP_LABEL_REVIEW_CLOSE_BOX
+                }
+                title={
+                  isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
+                    ? "Review and close with discrepancy"
+                    : OP_LABEL_REVIEW_CLOSE_BOX
+                }
+                className={`operator-item-scan-btn-finalize order-2 inline-flex w-full max-w-none shrink-0 items-center justify-center gap-2 rounded-xl px-3 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${ZEBRA_COMPACT_BTN} ${
+                  isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled)
+                    ? "operator-item-scan-btn-finalize--discrepancy"
+                    : "operator-item-scan-btn-finalize--ok"
+                }`}
+              >
+                {isItemsQtyDiscrepancy || (itemScanUnresolvedMissingQty > 0 && reviewMissingItemsEnabled) ? (
+                  <>
+                    <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
+                    <span>Review &amp; close with issue</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
+                    <span className="truncate">{OP_LABEL_REVIEW_CLOSE_BOX}</span>
+                  </>
+                )}
+              </button>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -20861,6 +23672,30 @@ function OperatorMobileScanPageContent() {
           </div>
         </div>
       ) : null}
+
+      <BoxSlipCorrectionActionSheet
+        open={boxSlipCorrectionSheetOpen}
+        mode={boxSlipCorrectionSheetMode}
+        onClose={() => setBoxSlipCorrectionSheetOpen(false)}
+        onEditLines={handleSlipCorrectionEditLines}
+        onMarkUnreadable={handleSlipCorrectionMarkUnreadable}
+        onClearUnreadable={handleSlipCorrectionClearUnreadable}
+        disabled={slipEvidenceActionsDisabled}
+      />
+
+      <BoxSlipLinesEditModal
+        open={boxSlipEditModalOpen}
+        onOpenChange={setBoxSlipEditModalOpen}
+        initialLines={
+          boxSlipEvidenceReview?.lines?.length
+            ? cloneBoxSlipEvidenceLines(boxSlipEvidenceReview.lines)
+            : evidenceLinesFromVisionLines(clonePersistBoxSlipVisionLines(boxSlipVisionLines))
+        }
+        ocrSnapshot={clonePersistBoxSlipVisionLines(boxSlipVisionLines)}
+        initialNote={boxSlipEvidenceReview?.note ?? null}
+        busy={boxSlipEvidenceSaveBusy}
+        onSave={handleBoxSlipEvidenceEditSave}
+      />
     </div>
   );
 }

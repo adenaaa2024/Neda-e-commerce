@@ -49,6 +49,18 @@ import {
   type PackageItemScanEvidenceRefs,
 } from "@/lib/scanner/package-empty-box-manifest";
 import {
+  mergeBoxSlipEvidenceReview,
+  readBoxSlipEvidenceReview,
+  type BoxSlipEvidenceReview,
+} from "@/lib/scanner/package-box-slip-evidence";
+import {
+  BOX_SLIP_OCR_AUDIT_FIELD,
+  BOX_SLIP_OCR_AUDIT_SOURCE,
+  serializeBoxSlipOcrAuditPayload,
+  type BoxSlipOcrAuditContext,
+  type OperatorBoxSlipOcrAuditAction,
+} from "@/lib/scanner/package-box-slip-ocr-audit";
+import {
   mergePackageManifestReceiveReopen,
   packageReceiveStateIsFinalized,
 } from "@/lib/scanner/package-receive-state-contract";
@@ -1519,7 +1531,7 @@ export async function getOperatorIntakeBoxPackageRowAction(
   const { data, error } = await supabaseServer
     .from("packages")
     .select(
-      "id, package_code, outside_photo_urls, inside_photo_urls, slip_photo_urls, id_slip_contents, rma_number, manifest_data, notes, carrier_name, order_id, store_id",
+      "id, package_code, pallet_id, outside_photo_urls, inside_photo_urls, slip_photo_urls, id_slip_contents, rma_number, manifest_data, notes, carrier_name, order_id, store_id, expected_item_count, actual_item_count",
     )
     .eq("id", pkgId)
     .eq("organization_id", organizationId)
@@ -2783,6 +2795,211 @@ export async function saveOperatorSlipVisionAction(
   input: UpdateOperatorIntakeBoxPackageInput,
 ): Promise<UpdateOperatorIntakeBoxPackageResult> {
   return updateOperatorIntakeBoxPackageAction(input);
+}
+
+export type SaveOperatorBoxSlipEvidenceReviewInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  storeId?: string | null;
+  review: BoxSlipEvidenceReview;
+  /** When set, writes `package_audit_log` after successful manifest save. */
+  auditAction?: OperatorBoxSlipOcrAuditAction | null;
+  auditMetadata?: Record<string, unknown> | null;
+};
+
+async function writeOperatorBoxSlipOcrPackageAuditLog(args: {
+  organizationId: string;
+  packageId: string;
+  packageRow: {
+    store_id?: string | null;
+    package_code?: string | null;
+    tracking_number?: string | null;
+    manifest_data?: unknown;
+  };
+  auditAction: OperatorBoxSlipOcrAuditAction;
+  actorLabel: string;
+  afterReview: BoxSlipEvidenceReview;
+  auditMetadata?: Record<string, unknown> | null;
+}): Promise<void> {
+  const priorReview = readBoxSlipEvidenceReview(args.packageRow.manifest_data);
+  const storeId = String(args.packageRow.store_id ?? "").trim() || null;
+  const payload: BoxSlipOcrAuditContext = {
+    package_id: args.packageId,
+    organization_id: args.organizationId,
+    store_id: storeId,
+    package_code: String(args.packageRow.package_code ?? "").trim() || null,
+    tracking_number: String(args.packageRow.tracking_number ?? "").trim() || null,
+    line_count: args.afterReview.lines.length,
+    source: BOX_SLIP_OCR_AUDIT_SOURCE,
+    before_status: priorReview?.status ?? "detected",
+    after_status: args.afterReview.status,
+    ...(args.auditMetadata ?? {}),
+  };
+  try {
+    await insertOperatorPackageAuditLog({
+      organizationId: args.organizationId,
+      packageId: args.packageId,
+      action: args.auditAction,
+      field: BOX_SLIP_OCR_AUDIT_FIELD,
+      oldValue: priorReview?.status ?? null,
+      newValue: serializeBoxSlipOcrAuditPayload(payload),
+      actor: args.actorLabel,
+    });
+  } catch {
+    /* audit is best-effort — manifest save already succeeded */
+  }
+}
+
+export type LogOperatorBoxSlipOcrAuditInput = {
+  requestedOrganizationId: string;
+  packageId: string;
+  storeId?: string | null;
+  auditAction: OperatorBoxSlipOcrAuditAction;
+  auditMetadata?: Record<string, unknown> | null;
+};
+
+/** Light-weight slip OCR audit (e.g. edit modal opened) — no manifest write. */
+export async function logOperatorBoxSlipOcrAuditAction(
+  input: LogOperatorBoxSlipOcrAuditInput,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(pkgId)) return { ok: false, message: "Invalid package id." };
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_EDIT_ITEM);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+    .from("packages")
+    .select("id, organization_id, store_id, package_code, tracking_number, manifest_data")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+  if (!pkgRow) return { ok: false, message: "Package not found for this organization." };
+
+  const actor = await resolveAuditActorForSession();
+  const priorReview = readBoxSlipEvidenceReview((pkgRow as { manifest_data?: unknown }).manifest_data);
+  const payload: BoxSlipOcrAuditContext = {
+    package_id: pkgId,
+    organization_id: organizationId,
+    store_id: String((pkgRow as { store_id?: string | null }).store_id ?? "").trim() || null,
+    package_code: String((pkgRow as { package_code?: string | null }).package_code ?? "").trim() || null,
+    tracking_number:
+      String((pkgRow as { tracking_number?: string | null }).tracking_number ?? "").trim() || null,
+    source: BOX_SLIP_OCR_AUDIT_SOURCE,
+    before_status: priorReview?.status ?? "detected",
+    after_status: priorReview?.status ?? "detected",
+    ...(input.auditMetadata ?? {}),
+  };
+
+  try {
+    await insertOperatorPackageAuditLog({
+      organizationId,
+      packageId: pkgId,
+      action: input.auditAction,
+      field: BOX_SLIP_OCR_AUDIT_FIELD,
+      oldValue: priorReview?.status ?? null,
+      newValue: serializeBoxSlipOcrAuditPayload(payload),
+      actor: actor.displayName || gate.userId,
+    });
+  } catch {
+    return { ok: false, message: "Could not write slip OCR audit log." };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Persist operator-reviewed packing slip lines as manifest evidence only.
+ * Does not replace `slip_contents`, shipment expected, `return_items`, or claims.
+ */
+export async function saveOperatorBoxSlipEvidenceReviewAction(
+  input: SaveOperatorBoxSlipEvidenceReviewInput,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sessionUserId = await getSessionUserIdFromCookies();
+  if (!sessionUserId || !isUuidString(sessionUserId)) {
+    return { ok: false, message: "Not signed in." };
+  }
+  const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
+  if (!organizationId || !isUuidString(organizationId)) {
+    return { ok: false, message: "Could not resolve organization." };
+  }
+  const pkgId = String(input.packageId ?? "").trim();
+  if (!isUuidString(pkgId)) return { ok: false, message: "Invalid package id." };
+
+  const gate = await assertOperatorMobilePermission(organizationId, OPERATOR_MOBILE_EDIT_ITEM);
+  if (!gate.ok) return { ok: false, message: gate.message };
+
+  const inputStoreRaw = input.storeId != null ? String(input.storeId).trim() : "";
+  const { data: pkgRow, error: pkgSelErr } = await supabaseServer
+    .from("packages")
+    .select("id, organization_id, store_id, package_code, tracking_number, manifest_data")
+    .eq("id", pkgId)
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pkgSelErr) return { ok: false, message: pkgSelErr.message };
+  if (!pkgRow) return { ok: false, message: "Package not found for this organization." };
+
+  const pkgTyped = pkgRow as {
+    store_id?: string | null;
+    package_code?: string | null;
+    tracking_number?: string | null;
+    manifest_data?: unknown;
+  };
+  const pkgStoreRaw = String(pkgTyped.store_id ?? "").trim();
+  if (inputStoreRaw && isUuidString(inputStoreRaw) && pkgStoreRaw && isUuidString(pkgStoreRaw)) {
+    if (pkgStoreRaw !== inputStoreRaw) {
+      const storeLabel =
+        (await fetchStoreDisplayNameForOrganization(supabaseServer, organizationId, pkgStoreRaw)) ?? "";
+      return {
+        ok: false,
+        message: formatUnauthorizedPackageInStoreMessage(storeLabel),
+      };
+    }
+  }
+
+  const markedAt = new Date().toISOString();
+  const review: BoxSlipEvidenceReview = {
+    ...input.review,
+    edited_by: input.review.edited_by ?? sessionUserId,
+    edited_at: input.review.edited_at ?? markedAt,
+  };
+  const manifest_data = mergeBoxSlipEvidenceReview(pkgTyped.manifest_data, review);
+
+  const { error: updErr } = await supabaseServer
+    .from("packages")
+    .update({
+      manifest_data,
+      updated_at: markedAt,
+      updated_by: sessionUserId,
+    })
+    .eq("id", pkgId);
+  if (updErr) return { ok: false, message: updErr.message };
+
+  if (input.auditAction) {
+    const actor = await resolveAuditActorForSession();
+    await writeOperatorBoxSlipOcrPackageAuditLog({
+      organizationId,
+      packageId: pkgId,
+      packageRow: pkgTyped,
+      auditAction: input.auditAction,
+      actorLabel: actor.displayName || sessionUserId,
+      afterReview: review,
+      auditMetadata: input.auditMetadata,
+    });
+  }
+
+  return { ok: true };
 }
 
 export type FinalizeOperatorPackageReceiveInput = {

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  carrierFromExpectedPackageRow,
   EP_DETAIL_SELECT,
   fetchExpectedPackagesForTracking,
   type FetchExpectedPackagesOptions,
@@ -47,6 +48,7 @@ function aggregateEpRowsLikeInventoryView(
     expected: number;
     scanned: number;
     epIds: Set<string>;
+    carrier: string | null;
     resolved_product_id: string | null;
     resolved_catalog_product_id: string | null;
     identifier_resolution_status: string | null;
@@ -73,6 +75,7 @@ function aggregateEpRowsLikeInventoryView(
       if ((r as { order_id?: string | null }).order_id) {
         prev.orderId = String((r as { order_id?: string | null }).order_id);
       }
+      if (!prev.carrier) prev.carrier = carrierFromExpectedPackageRow(r);
     } else {
       groups.set(key, {
         tracking,
@@ -83,6 +86,7 @@ function aggregateEpRowsLikeInventoryView(
         expected: exp,
         scanned: act,
         epIds: new Set(epId ? [epId] : []),
+        carrier: carrierFromExpectedPackageRow(r),
         resolved_product_id: (r as { resolved_product_id?: string | null }).resolved_product_id ?? null,
         resolved_catalog_product_id:
           (r as { resolved_catalog_product_id?: string | null }).resolved_catalog_product_id ?? null,
@@ -116,7 +120,7 @@ function aggregateEpRowsLikeInventoryView(
       product_linkage_status: g.identifier_resolution_status,
       identifier_resolution_status: g.identifier_resolution_status,
       identifier_resolution_confidence: g.identifier_resolution_confidence,
-      carrier: null,
+      carrier: g.carrier,
       total_expected: g.expected,
       total_scanned: g.scanned,
     });
@@ -181,7 +185,7 @@ export function expectedPackageRowToInventoryStatusRow(
       (r as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? null,
     identifier_resolution_confidence:
       (r as { identifier_resolution_confidence?: number | null }).identifier_resolution_confidence ?? null,
-    carrier: null,
+    carrier: carrierFromExpectedPackageRow(r),
     total_expected: coerceInt((r as { expected_scan_quantity?: number }).expected_scan_quantity),
     total_scanned: coerceInt((r as { actual_scanned_count?: number }).actual_scanned_count),
   };

@@ -163,7 +163,7 @@ function trackingRowMatchesScanned(
  */
 /** Live DB: `expected_packages.asin` is absent — do not select it (PostgREST 42703). */
 const EP_SELECT =
-  "sku, fnsku, disposition, expected_scan_quantity, order_id, tracking_number";
+  "sku, fnsku, disposition, expected_scan_quantity, order_id, tracking_number, carrier";
 
 /**
  * Lightweight EP list select including scanner linkage columns (for tracking/pallet snapshots).
@@ -176,7 +176,7 @@ export const EP_TRACKING_WITH_SCANNER_PRODUCT_SELECT =
 
 /** Full rows for operator item scan (includes PK + warehouse scan counters when present). */
 export const EP_DETAIL_SELECT =
-  "id, sku, fnsku, disposition, expected_scan_quantity, actual_scanned_count, order_id, tracking_number, id_slip_contents";
+  "id, sku, fnsku, disposition, expected_scan_quantity, actual_scanned_count, order_id, tracking_number, id_slip_contents, carrier";
 
 /**
  * After `20260717120000_scanner_product_linkage_columns.sql`, use this select in detail fetches
@@ -267,6 +267,26 @@ function expectedPackageSelectFallback(selectColumns: string): string | null {
 }
 
 export { isLikelyShipmentTrackingCode };
+
+/** First non-empty carrier on a single `expected_packages` row. */
+export function carrierFromExpectedPackageRow(r: Record<string, unknown> | null | undefined): string | null {
+  if (!r || typeof r !== "object") return null;
+  for (const key of [
+    "carrier",
+    "carrier_name",
+    "carrier_name_snapshot",
+    "carrier_code",
+    "carrier_code_snapshot",
+    "shipping_carrier",
+    "ship_carrier",
+    "carrier_service",
+    "fulfillment_carrier",
+  ]) {
+    const value = String(r[key] ?? "").trim();
+    if (value) return value;
+  }
+  return null;
+}
 
 export type FetchExpectedPackagesOptions = {
   /**
@@ -645,6 +665,7 @@ export async function loadPalletExpectationSnapshot(
   totals: TrackingExpectationTotals;
   rawRowCount: number;
   expectedTrackingNumbers: string[];
+  carrier: string | null;
 }> {
   const trackings = await fetchDistinctTrackingNumbersForPallet(supabase, organizationId, palletId);
   if (!trackings.length) {
@@ -653,6 +674,7 @@ export async function loadPalletExpectationSnapshot(
       totals: { expectedUnits: 0, scannedUnits: 0, remainingUnits: 0 },
       rawRowCount: 0,
       expectedTrackingNumbers: [],
+      carrier: null,
     };
   }
 
@@ -681,6 +703,7 @@ export async function loadPalletExpectationSnapshot(
     totals,
     rawRowCount: raw.length,
     expectedTrackingNumbers: distinctTrackingNumbersFromExpectedPackageRows(raw),
+    carrier: resolveCarrierFromExpectedPackageRows(raw),
   };
 }
 
@@ -690,6 +713,7 @@ export function mockPalletExpectationSnapshot(): {
   totals: TrackingExpectationTotals;
   rawRowCount: number;
   expectedTrackingNumbers: string[];
+  carrier: string | null;
 } {
   return mockTrackingExpectationSnapshot("PALLET-DEMO-TRK");
 }
@@ -1020,6 +1044,7 @@ export async function loadTrackingExpectationSnapshot(
   totals: TrackingExpectationTotals;
   rawRowCount: number;
   expectedTrackingNumbers: string[];
+  carrier: string | null;
 }> {
   const raw = await fetchExpectedPackagesForTracking(
     supabase,
@@ -1054,7 +1079,19 @@ export async function loadTrackingExpectationSnapshot(
     totals,
     rawRowCount: raw.length,
     expectedTrackingNumbers: distinctTrackingNumbersFromExpectedPackageRows(raw),
+    carrier: resolveCarrierFromExpectedPackageRows(raw),
   };
+}
+
+/** First non-empty carrier from `expected_packages` rows (and optional snapshot columns). */
+export function resolveCarrierFromExpectedPackageRows(
+  rows: Record<string, unknown>[] | null | undefined,
+): string | null {
+  for (const raw of rows ?? []) {
+    const carrier = carrierFromExpectedPackageRow(raw);
+    if (carrier) return carrier;
+  }
+  return null;
 }
 
 /** Offline demo snapshot (no DB). */
@@ -1063,6 +1100,7 @@ export function mockTrackingExpectationSnapshot(trackingNumber: string): {
   totals: TrackingExpectationTotals;
   rawRowCount: number;
   expectedTrackingNumbers: string[];
+  carrier: string | null;
 } {
   const tn = trackingNumber.trim();
   const groups: TrackingExpectedGroup[] = [
@@ -1105,5 +1143,6 @@ export function mockTrackingExpectationSnapshot(trackingNumber: string): {
     totals,
     rawRowCount: 3,
     expectedTrackingNumbers: tn ? [tn] : [],
+    carrier: "UPS",
   };
 }

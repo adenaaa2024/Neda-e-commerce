@@ -6,6 +6,7 @@ import {
   type ScannerIdentityGateMatchType,
 } from "@/lib/search/shipment-identity-gate";
 import {
+  carrierFromExpectedPackageRow,
   fetchExpectedPackageDetailRowsForParent,
   fetchExpectedPackagesForTracking,
   isLikelyShipmentTrackingCode,
@@ -390,7 +391,7 @@ function epRowToInventoryStatusRow(
       (r as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? null,
     identifier_resolution_confidence:
       (r as { identifier_resolution_confidence?: number | null }).identifier_resolution_confidence ?? null,
-    carrier: null,
+    carrier: carrierFromExpectedPackageRow(r),
     total_expected: Number((r as { expected_scan_quantity?: number }).expected_scan_quantity ?? 0) || 0,
     total_scanned: Number((r as { actual_scanned_count?: number }).actual_scanned_count ?? 0) || 0,
   };

@@ -3,7 +3,12 @@
 import { AlertTriangle, Check } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import type { BoxCloseReviewModel } from "@/lib/scanner/box-close-review";
+import type {
+  BoxCloseReviewBucket,
+  BoxCloseReviewBucketKey,
+  BoxCloseReviewLineSummary,
+  BoxCloseReviewModel,
+} from "@/lib/scanner/box-close-review";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 
 type BoxCloseReviewModalProps = {
@@ -15,9 +20,120 @@ type BoxCloseReviewModalProps = {
   busy: boolean;
   finalizeBusy: boolean;
   hasItemDraft: boolean;
+  isEmptyBox?: boolean;
   onCancel: () => void;
   onConfirm: (args: { criticalIssuesAcknowledged: boolean; auditNote: string | null }) => void;
 };
+
+type BucketDisplay = {
+  title: string;
+  subtext?: string;
+};
+
+type SummaryCard = {
+  key: string;
+  label: string;
+  value: string;
+  issueTone?: boolean;
+};
+
+const BUCKET_DISPLAY: Partial<Record<BoxCloseReviewBucketKey, BucketDisplay>> = {
+  pending_under_scanned: {
+    title: "Pending items",
+    subtext: "These expected units were not scanned.",
+  },
+  marked_missing_operator_note: {
+    title: "Marked missing by operator",
+    subtext: "These were marked missing during review.",
+  },
+  over_scanned: {
+    title: "Over-scanned items",
+    subtext: "More units were scanned than expected.",
+  },
+  scanned_off_manifest: {
+    title: "Off-manifest scans",
+    subtext: "Items scanned that were not on the box manifest.",
+  },
+  slip_only: {
+    title: "Slip-only evidence",
+    subtext: "Items found on packing slip but not on shipment manifest.",
+  },
+  shipment_only: {
+    title: "Shipment-only expected",
+    subtext: "Expected on shipment but not found on packing slip.",
+  },
+  damaged_or_problem_items: {
+    title: "Damaged or problem items",
+    subtext: "Items marked with damage or other problems.",
+  },
+};
+
+const CRITICAL_ISSUE_DISPLAY: Record<string, string> = {
+  "Pending under-scanned lines": "Pending items",
+  "Over scanned lines": "Over-scanned items",
+  "Off manifest scans": "Off-manifest scans",
+  "Slip-only evidence": "Slip-only evidence",
+  "Shipment-only expected": "Shipment-only expected",
+  "Unresolved missing quantity": "Quantity mismatch",
+};
+
+const ISSUE_TABLE_SCROLL_ROW_THRESHOLD = 5;
+
+function bucketDisplayTitle(key: BoxCloseReviewBucketKey, fallback: string): BucketDisplay {
+  return BUCKET_DISPLAY[key] ?? { title: fallback };
+}
+
+function bucketQtySum(bucket: BoxCloseReviewBucket | undefined): number {
+  if (!bucket) return 0;
+  return bucket.lines.reduce((sum, line) => sum + line.qty, 0);
+}
+
+function formatUnresolvedIssueBody(labels: string[]): string {
+  if (labels.length === 0) return "Review required before closing.";
+  return labels.map((label) => CRITICAL_ISSUE_DISPLAY[label] ?? label).join(" · ");
+}
+
+function IssueItemsTable(props: {
+  lines: BoxCloseReviewLineSummary[];
+  bucketKey: string;
+  maxRows?: number;
+}) {
+  const { lines, bucketKey, maxRows = 6 } = props;
+  const visible = lines.slice(0, maxRows);
+  const overflow = lines.length - visible.length;
+
+  return (
+    <div className="operator-shipment-close-review__table-wrap">
+      <table className="operator-shipment-close-review__table w-full border-collapse">
+        <thead>
+          <tr>
+            <th className="operator-shipment-close-review__table-head text-left">Identifier</th>
+            <th className="operator-shipment-close-review__table-head operator-shipment-close-review__table-head--qty">
+              Qty
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map((line) => (
+            <tr key={`${bucketKey}:${line.lineKey}`} className="operator-shipment-close-review__table-row">
+              <td className="operator-shipment-close-review__table-cell">
+                <span className="operator-shipment-close-review__identifier font-mono">{line.label}</span>
+              </td>
+              <td className="operator-shipment-close-review__table-cell operator-shipment-close-review__table-cell--qty">
+                <span className="operator-shipment-close-review__qty-badge tabular-nums">{line.qty}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {overflow > 0 ? (
+        <p className="operator-shipment-close-review__more mt-2 px-2 text-[11px] font-semibold">
+          +{overflow} more item{overflow === 1 ? "" : "s"}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
   const {
@@ -25,166 +141,268 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
     model,
     liveScanned,
     liveExpected,
-    aggregateStatusLabel,
     busy,
     finalizeBusy,
     hasItemDraft,
+    isEmptyBox = false,
     onCancel,
     onConfirm,
   } = props;
 
   const [reviewChecked, setReviewChecked] = useState(false);
-  const [criticalAck, setCriticalAck] = useState(false);
   const [auditNote, setAuditNote] = useState("");
 
-  const confirmDisabled = useMemo(() => {
-    if (!reviewChecked) return true;
-    if (model.has_critical_issues && !criticalAck) return true;
-    return false;
-  }, [reviewChecked, model.has_critical_issues, criticalAck]);
+  const confirmDisabled = !reviewChecked;
+  const showAckHint = confirmDisabled && !busy && !finalizeBusy;
+
+  const pendingBucket = model.buckets.find((bucket) => bucket.key === "pending_under_scanned");
+  const markedMissingBucket = model.buckets.find(
+    (bucket) => bucket.key === "marked_missing_operator_note",
+  );
+  const pendingQty = bucketQtySum(pendingBucket);
+  const markedMissingQty = bucketQtySum(markedMissingBucket);
+
+  const issueBuckets = useMemo(
+    () => model.buckets.filter((bucket) => bucket.key !== "received_complete"),
+    [model.buckets],
+  );
+
+  const ackLabel = model.has_critical_issues
+    ? "I reviewed this box and understand the unresolved issues."
+    : "I reviewed this box and want to close it.";
+
+  const closeButtonLabel =
+    isEmptyBox && !model.has_critical_issues
+      ? "Close Empty Box"
+      : model.has_critical_issues
+        ? "Close Box with Issues"
+        : "Close Box";
+
+  const primaryBtnClass = model.has_critical_issues
+    ? "operator-shipment-flow-modal__btn-warning"
+    : "operator-shipment-flow-modal__btn-primary";
+
+  const summaryCards = useMemo<SummaryCard[]>(
+    () => [
+      { key: "expected", label: "Expected", value: String(liveExpected) },
+      { key: "scanned", label: "Scanned", value: String(liveScanned) },
+      {
+        key: "pending",
+        label: "Pending",
+        value: String(pendingQty),
+        issueTone: pendingQty > 0,
+      },
+      {
+        key: "marked-missing",
+        label: "Marked missing",
+        value: String(markedMissingQty),
+        issueTone: markedMissingQty > 0,
+      },
+    ],
+    [liveExpected, liveScanned, pendingQty, markedMissingQty],
+  );
+
+  const unresolvedIssueBody = useMemo(
+    () => formatUnresolvedIssueBody(model.critical_issue_labels),
+    [model.critical_issue_labels],
+  );
+
+  const totalIssueRows = useMemo(
+    () => issueBuckets.reduce((sum, bucket) => sum + bucket.lines.length, 0),
+    [issueBuckets],
+  );
+
+  const issuesListScrollable = totalIssueRows > ISSUE_TABLE_SCROLL_ROW_THRESHOLD;
 
   return (
     <div
-      className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
+      className={`operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4${
+        model.has_critical_issues ? " operator-shipment-flow-modal--warning" : ""
+      }`}
       role="dialog"
       aria-modal="true"
       aria-labelledby={`${formId}-box-review-title`}
     >
-      <div className="operator-shipment-flow-modal__panel flex max-h-[min(90vh,720px)] w-full max-w-md flex-col rounded-[24px] border p-5">
-        <p
-          id={`${formId}-box-review-title`}
-          className="operator-shipment-flow-modal__title text-center text-[16px] font-black leading-snug"
-        >
-          Box review
-        </p>
-        <p className="operator-shipment-flow-modal__body mt-2 text-center text-[13px] font-semibold leading-snug">
-          Review this box before finalize. Missing is not final until pallet/shipment close.
-        </p>
-        <p className="operator-shipment-flow-modal__body mt-2 text-center text-[13px] font-semibold leading-relaxed tabular-nums">
-          Items{" "}
-          <span className="font-mono font-bold">
-            {liveScanned}/{liveExpected}
-          </span>
-          {" · "}
-          <span className="font-bold">{aggregateStatusLabel}</span>
-        </p>
+      <div className="operator-shipment-flow-modal__panel operator-shipment-close-review__shell flex max-h-[calc(100dvh-32px)] w-full max-w-md flex-col overflow-hidden rounded-[24px] border p-4">
+        <header className="operator-shipment-close-review__header shrink-0 text-center">
+          <p
+            id={`${formId}-box-review-title`}
+            className="operator-shipment-flow-modal__title text-[17px] font-black leading-snug"
+          >
+            Box Review
+          </p>
+          <p className="operator-shipment-flow-modal__body mt-1 text-[13px] font-semibold leading-snug">
+            Review this box before closing.
+          </p>
+          <p className="operator-shipment-close-review__disclaimer mt-1 text-[11px] font-medium leading-snug">
+            Closing this box does not create claims. Issues are saved as review evidence.
+          </p>
+        </header>
 
-        <div className="operator-box-close-review mt-3 min-h-0 flex-1 overflow-y-auto rounded-xl border px-3 py-2.5">
-          {model.buckets.length === 0 ? (
-            <p className="text-center text-[11px] font-semibold leading-snug opacity-80">
-              No validation buckets yet — totals only.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {model.buckets.map((bucket) => (
-                <li key={bucket.key}>
-                  <div className="flex items-center justify-between gap-2 text-[11px] font-bold uppercase tracking-wide">
-                    <span>{bucket.title}</span>
-                    <span className="font-black tabular-nums">{bucket.count}</span>
-                  </div>
-                  {bucket.lines.length > 0 ? (
-                    <ul className="mt-1 space-y-1">
-                      {bucket.lines.slice(0, 6).map((line) => (
-                        <li
-                          key={`${bucket.key}:${line.lineKey}`}
-                          className="flex items-start justify-between gap-2 text-[11px] font-semibold leading-snug"
-                        >
-                          <span className="min-w-0 truncate">{line.label}</span>
-                          <span className="shrink-0 font-mono tabular-nums">{line.qty}</span>
-                        </li>
-                      ))}
-                      {bucket.lines.length > 6 ? (
-                        <li className="text-[10px] font-semibold opacity-70">
-                          +{bucket.lines.length - 6} more line{bucket.lines.length - 6 === 1 ? "" : "s"}
-                        </li>
+        <div className="operator-shipment-close-review__body min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {isEmptyBox ? (
+            <section
+              className="operator-box-close-review__empty-summary mt-3 rounded-xl px-3.5 py-2.5 text-center"
+              aria-label="Empty box summary"
+            >
+              <p className="operator-box-close-review__empty-title text-[13px] font-bold leading-snug">
+                Empty box
+              </p>
+              <p className="operator-box-close-review__empty-body mt-0.5 text-[12px] font-semibold leading-snug">
+                This box was marked as containing no items.
+              </p>
+            </section>
+          ) : null}
+
+          <section
+            className="operator-shipment-close-review__summary mt-3"
+            aria-label="Box summary"
+          >
+            {summaryCards.map((card) => (
+              <article key={card.key} className="operator-shipment-close-review__chip">
+                <p className="operator-shipment-close-review__chip-label">{card.label}</p>
+                <p
+                  className={[
+                    "operator-shipment-close-review__chip-value tabular-nums",
+                    card.issueTone ? "operator-shipment-close-review__chip-value--issue" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {card.value}
+                </p>
+              </article>
+            ))}
+          </section>
+
+          <div
+            className={`operator-shipment-close-review__issues mt-3 rounded-xl${
+              issuesListScrollable ? " operator-shipment-close-review__issues--scrollable" : ""
+            }`}
+          >
+            {issueBuckets.length === 0 ? (
+              <p className="operator-shipment-close-review__empty px-3 py-3 text-center text-[12px] font-semibold leading-snug">
+                No issues found — ready to close.
+              </p>
+            ) : (
+              <ul
+                className={`space-y-3 p-2.5${
+                  issuesListScrollable ? " operator-shipment-close-review__issues-list--scrollable" : ""
+                }`}
+              >
+                {issueBuckets.map((bucket) => {
+                  const display = bucketDisplayTitle(bucket.key, bucket.title);
+                  return (
+                    <li key={bucket.key}>
+                      <div className="operator-shipment-close-review__section-header">
+                        <p className="operator-shipment-close-review__section-title">{display.title}</p>
+                        {display.subtext ? (
+                          <p className="operator-shipment-close-review__section-subtext">{display.subtext}</p>
+                        ) : null}
+                      </div>
+                      {bucket.lines.length > 0 ? (
+                        <IssueItemsTable lines={bucket.lines} bucketKey={bucket.key} />
                       ) : null}
-                    </ul>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {model.has_critical_issues ? (
+            <section
+              className="operator-shipment-close-review__unresolved operator-shipment-close-review__unresolved-card mt-3 rounded-xl px-3.5 py-2.5"
+              aria-label="Unresolved issues"
+            >
+              <p className="operator-shipment-close-review__unresolved-title text-[12px] font-bold leading-snug">
+                Unresolved issues
+              </p>
+              <p className="operator-shipment-close-review__unresolved-body mt-0.5 text-[12px] font-semibold leading-snug">
+                {unresolvedIssueBody}
+              </p>
+            </section>
+          ) : null}
+
+          {hasItemDraft ? (
+            <p className="operator-shipment-flow-modal__note mt-3 text-center text-[11px] font-semibold leading-snug">
+              You still have an item draft open — it will be cleared when you close this box.
+            </p>
+          ) : null}
         </div>
 
-        {model.has_critical_issues ? (
-          <div className="operator-shipment-flow-modal__alert mt-3 rounded-xl px-3 py-2.5 text-[11px] font-semibold leading-snug">
-            <strong>Unresolved issues:</strong> {model.critical_issue_labels.join(" · ")}
-            <label className="mt-2 flex cursor-pointer items-start gap-2">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={criticalAck}
-                onChange={(e) => setCriticalAck(e.target.checked)}
-              />
-              <span>I acknowledge unresolved issues and want to finalize this box anyway.</span>
+        <footer className="operator-shipment-close-review__footer shrink-0 border-t pt-3">
+          <label className="operator-shipment-close-review__ack flex cursor-pointer items-start gap-2.5 text-[12px] font-semibold leading-snug">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0"
+              checked={reviewChecked}
+              onChange={(e) => setReviewChecked(e.target.checked)}
+            />
+            <span>{ackLabel}</span>
+          </label>
+
+          <div className="operator-shipment-close-review__audit mt-2.5">
+            <label
+              htmlFor={`${formId}-box-audit-note`}
+              className="operator-shipment-close-review__audit-label text-[11px] font-semibold"
+            >
+              Optional note
             </label>
             <textarea
-              className="mt-2 w-full rounded-lg border bg-transparent px-2 py-1.5 text-[11px] font-medium"
-              rows={2}
-              placeholder="Optional audit note (visible on package manifest review record)"
+              id={`${formId}-box-audit-note`}
+              className="operator-shipment-close-review__audit-input mt-1 w-full rounded-lg border px-2.5 py-1.5 text-[12px] font-medium"
+              rows={1}
+              placeholder="Add a note for this box close snapshot..."
               value={auditNote}
               onChange={(e) => setAuditNote(e.target.value)}
             />
           </div>
-        ) : null}
 
-        {hasItemDraft ? (
-          <p className="operator-shipment-flow-modal__note mt-2 text-center text-[11px] font-semibold leading-snug">
-            You still have an item draft open — it will be cleared when you finalize.
-          </p>
-        ) : null}
+          {showAckHint ? (
+            <p className="operator-shipment-close-review__ack-hint mt-2 text-center text-[11px] font-semibold leading-snug">
+              Review and acknowledge issues to continue.
+            </p>
+          ) : null}
 
-        <label className="mt-3 flex cursor-pointer items-start gap-2 text-[12px] font-semibold leading-snug">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={reviewChecked}
-            onChange={(e) => setReviewChecked(e.target.checked)}
+          <OperatorScannerFooterActions
+            className="operator-shipment-close-review__footer-actions mt-2.5"
+            primary={
+              <button
+                type="button"
+                disabled={busy || finalizeBusy || confirmDisabled}
+                className={`operator-shipment-close-review__confirm-btn ${primaryBtnClass} flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-[13px] font-bold transition active:scale-[0.98] disabled:cursor-not-allowed`}
+                onClick={() =>
+                  onConfirm({
+                    criticalIssuesAcknowledged: model.has_critical_issues ? reviewChecked : true,
+                    auditNote: auditNote.trim() || null,
+                  })
+                }
+              >
+                {model.has_critical_issues ? (
+                  <>
+                    <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
+                    {finalizeBusy ? "Closing…" : closeButtonLabel}
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
+                    {finalizeBusy ? "Closing…" : closeButtonLabel}
+                  </>
+                )}
+              </button>
+            }
+            secondary={
+              <button
+                type="button"
+                className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                onClick={onCancel}
+              >
+                Cancel
+              </button>
+            }
           />
-          <span>I reviewed this box and want to finalize.</span>
-        </label>
-
-        <OperatorScannerFooterActions
-          className="mt-4 shrink-0"
-          primary={
-            <button
-              type="button"
-              disabled={busy || finalizeBusy || confirmDisabled}
-              className={`flex w-full items-center justify-center gap-2 rounded-xl border transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
-                model.has_critical_issues
-                  ? "border-amber-500/50 bg-amber-100 text-amber-950"
-                  : "border-[#C8A96A]/55 bg-gradient-to-b from-[#3d4550] to-[#171c22] text-[#faf6ed]"
-              } h-11 text-[13px] font-bold`}
-              onClick={() =>
-                onConfirm({
-                  criticalIssuesAcknowledged: model.has_critical_issues ? criticalAck : true,
-                  auditNote: auditNote.trim() || null,
-                })
-              }
-            >
-              {model.has_critical_issues ? (
-                <>
-                  <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.35} aria-hidden />
-                  {finalizeBusy ? "Finalizing…" : "Finalize with issues"}
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} aria-hidden />
-                  {finalizeBusy ? "Finalizing…" : "Finalize box"}
-                </>
-              )}
-            </button>
-          }
-          secondary={
-            <button
-              type="button"
-              className="operator-shipment-flow-modal__btn-secondary h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
-              onClick={onCancel}
-            >
-              Cancel
-            </button>
-          }
-        />
+        </footer>
       </div>
     </div>
   );

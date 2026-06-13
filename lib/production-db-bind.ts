@@ -19,9 +19,11 @@ export function bindProductionSupabaseEnv(): { ref: string; url: string } {
     throw new Error(`Production bind refused: URL ref ${ref ?? "missing"} !== ${PRODUCTION_REF}`);
   }
   if (!key) throw new Error("ORIGINAL_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY required");
-  process.env.NEXT_PUBLIC_SUPABASE_URL = url;
-  process.env.SUPABASE_URL = url;
-  process.env.SUPABASE_SERVICE_ROLE_KEY = key;
+  // Bracket access avoids Next/webpack inlining NEXT_PUBLIC_* as literals (invalid assignment).
+  const env = process.env as Record<string, string | undefined>;
+  env.NEXT_PUBLIC_SUPABASE_URL = url;
+  env.SUPABASE_URL = url;
+  env.SUPABASE_SERVICE_ROLE_KEY = key;
   return { ref, url };
 }
 

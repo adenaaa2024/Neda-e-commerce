@@ -1,5 +1,8 @@
 /** Phase 6D — `packages.manifest_data.operator_item_scan` contract (no new columns). */
 
+import { PACKAGE_EMPTY_BOX_MANIFEST_KEY } from "@/lib/scanner/package-empty-box-manifest";
+import { readOperatorItemScanBlock } from "@/lib/scanner/package-missing-review-manifest";
+
 export type PackageReceiveState = "open" | "finalized";
 
 export type MissingReviewSlipEntry = {
@@ -90,4 +93,105 @@ export function parseOperatorItemScanFromManifestData(manifestData: unknown): Op
 
 export function isPackageReceiveFinalized(manifest: OperatorItemScanManifest): boolean {
   return manifest.receive_state === "finalized";
+}
+
+function parseManifestRoot(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === "object" && !Array.isArray(raw)) return { ...(raw as Record<string, unknown>) };
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s.startsWith("{")) return {};
+    try {
+      const o = JSON.parse(s) as unknown;
+      return o && typeof o === "object" && !Array.isArray(o) ? (o as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/** Explicit operator save on Box Info (Save & Exit / Save & Start Scan) — not OCR auto-persist. */
+export function readOperatorItemScanIntakeCommittedAt(manifestData: unknown): string | null {
+  const at = String(readOperatorItemScanBlock(manifestData).intake_committed_at ?? "").trim();
+  return at || null;
+}
+
+/** Operator entered Item Scan after explicit box save (Save & Start Scan). */
+export function readOperatorItemScanStartedAt(manifestData: unknown): string | null {
+  const at = String(readOperatorItemScanBlock(manifestData).item_scan_started_at ?? "").trim();
+  return at || null;
+}
+
+/** Legacy packages touched in Item Scan before workflow timestamp flags existed. */
+export function packageLegacyItemScanWorkflowTouched(manifestData: unknown): boolean {
+  const block = readOperatorItemScanBlock(manifestData);
+  if (block.empty_box_marked === true) return true;
+  if (String(block.bulk_remaining_marked_at ?? "").trim()) return true;
+  const missingReview = block.missing_review;
+  if (missingReview && typeof missingReview === "object" && !Array.isArray(missingReview)) {
+    const nested = (missingReview as Record<string, unknown>).by_slip_content_id;
+    if (nested && typeof nested === "object" && !Array.isArray(nested) && Object.keys(nested).length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function mergeOperatorItemScanIntakeCommitted(
+  existingManifest: unknown,
+  args: { atIso: string; by?: string | null },
+): Record<string, unknown> {
+  const md = parseManifestRoot(existingManifest);
+  const prior = readOperatorItemScanBlock(existingManifest);
+  return {
+    ...md,
+    [PACKAGE_EMPTY_BOX_MANIFEST_KEY]: {
+      ...prior,
+      intake_committed_at: args.atIso,
+      ...(args.by?.trim() ? { intake_committed_by: args.by.trim() } : {}),
+    },
+  };
+}
+
+export function mergeOperatorItemScanStarted(
+  existingManifest: unknown,
+  args: { atIso: string; by?: string | null },
+): Record<string, unknown> {
+  const md = parseManifestRoot(existingManifest);
+  const prior = readOperatorItemScanBlock(existingManifest);
+  return {
+    ...md,
+    [PACKAGE_EMPTY_BOX_MANIFEST_KEY]: {
+      ...prior,
+      item_scan_started_at: args.atIso,
+      ...(args.by?.trim() ? { item_scan_started_by: args.by.trim() } : {}),
+    },
+  };
+}
+
+/**
+ * True when the operator explicitly saved Box Info (Save & Exit / Save & Start Scan).
+ * OCR auto-persist does not set `intake_committed_at` or root `no_packing_slip`.
+ */
+export function packageExplicitBoxIntakeSaved(manifestData: unknown): boolean {
+  if (readOperatorItemScanIntakeCommittedAt(manifestData)) return true;
+  const md = parseManifestRoot(manifestData);
+  return Object.prototype.hasOwnProperty.call(md, "no_packing_slip");
+}
+
+/** Package is past OCR-only draft — resume Item Scan, not Box Info. */
+export function operatorPackageReceivingInProgress(
+  manifestData: unknown,
+  actualItemCount?: number | null,
+): boolean {
+  const act =
+    typeof actualItemCount === "number" && Number.isFinite(actualItemCount)
+      ? Math.floor(actualItemCount)
+      : 0;
+  if (act > 0) return true;
+  if (Boolean(readOperatorItemScanStartedAt(manifestData))) return true;
+  if (packageExplicitBoxIntakeSaved(manifestData)) return true;
+  if (packageLegacyItemScanWorkflowTouched(manifestData)) return true;
+  return false;
 }
