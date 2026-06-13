@@ -11,12 +11,14 @@ import {
 } from "../pipeline/amazon-report-registry";
 import { isUuidString } from "../uuid";
 import type { SourceRunState } from "./reports-api-source-run";
-import { patchSourceRun } from "./reports-api-source-run";
+import { mergeSourceRunIntoMetadata, patchSourceRun } from "./reports-api-source-run";
 import {
   assessReportsApiPipelineCompletion,
   resolvePipelineEntryState,
 } from "./reports-api-pipeline-completion";
-import { mergeSourceRunIntoMetadata } from "./reports-api-source-run";
+import {
+  maybeRebuildExpectedPackagesAfterRemovalImport,
+} from "../removal/removal-expected-packages-rebuild-orchestrator";
 
 function resolveInternalAppBaseUrl(): string {
   const explicit = process.env.REPORTS_API_INTERNAL_BASE_URL?.trim();
@@ -306,6 +308,16 @@ export async function runReportsApiImportPipeline(params: {
         error_code: "domain_sync_incomplete",
       };
     }
+
+    if (reportType0 === "REMOVAL_ORDER" || reportType0 === "REMOVAL_SHIPMENT") {
+      await maybeRebuildExpectedPackagesAfterRemovalImport({
+        uploadId: params.uploadId,
+        organizationId: params.organizationId,
+        reportType: reportType0,
+        sourceRun: params.sourceRun,
+      });
+    }
+
     return { ok: true, state: "complete" };
   }
 

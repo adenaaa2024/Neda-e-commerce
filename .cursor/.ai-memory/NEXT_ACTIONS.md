@@ -1,7 +1,7 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-12 (`phase-product-amazon-lifecycle-quantity-readmodel-contract-v1` `20260612T234909Z`)
+**Last updated:** 2026-06-13 (`phase-claim-v3-dryrun-source-and-linkage-gated-v1` `20260613T050302Z`)
 
 **Demo checkpoint:** [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
 
@@ -85,6 +85,33 @@ Evidence: `.cursor/audit-reports/phase-claim-physical-return-product-linkage-dat
 | Next | **PHASE-PRODUCT-AMAZON-LIFECYCLE-QUANTITY-READMODEL-IMPLEMENT-V1** |
 
 Evidence: `.cursor/audit-reports/phase-product-amazon-lifecycle-quantity-readmodel-contract-v1/20260612T234909Z/`
+
+### Product linkage health + claim blocker gate (2026-06-13)
+
+| Item | Status |
+|------|--------|
+| Linkage + blocker audit V1 | **DONE** `20260613T044257Z` — read-only |
+| Operational linkage | **45.3%** · grade **critical** |
+| Spine map coverage | **97.9%** · 352 products missing map |
+| Conflict groups | **2,584** |
+| **SAFE_TO_PROCEED_TO_CLAIM_V3_DRYRUN** | **yes** (executed `20260613T100000Z`) |
+| **SAFE_TO_IMPLEMENT_FIRST_CLAIM_PREVIEW** | **yes** |
+| Next | **PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1** — wire Claim Center panel to `GET /api/claims/center/claim-preview`; no apply |
+
+Evidence: `.cursor/audit-reports/phase-product-linkage-health-and-claim-blocker-readmodel-v1/20260613T044257Z/`
+
+### Operational linkage resolution plan (2026-06-13)
+
+| Item | Status |
+|------|--------|
+| Resolution plan V1 | **DONE** `20260613T045948Z` — dry-run proposals only |
+| Resolvable by exact identifier | **791,083** rows |
+| Ambiguous (block auto-map) | **12,892** (ledger 12,877) |
+| Wave 1 (zero ambiguous) | `amazon_removals`, `amazon_removal_shipments`, `expected_packages` |
+| **SAFE_TO_IMPLEMENT_OPERATIONAL_LINKAGE_BACKFILL** | **conditional** |
+| Next | **PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-DRYRUN-V1** |
+
+Evidence: `.cursor/audit-reports/phase-product-linkage-operational-rows-resolution-plan-v1/20260613T045948Z/`
 
 ### Product linkage completion V3 (2026-06-11)
 

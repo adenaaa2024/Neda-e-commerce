@@ -232991,3 +232991,799 @@ PHASE-CLAIM-FAMILY-CALCULATION-READMODEL-IMPLEMENT-V1 - expose CLAIM_FAMILY_FORM
 ================================================================================
 END APPEND SLICE -- 20260613T030000Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T040000Z
+TOPIC: PHASE-AMAZON-FEE-ADJUSTED-REIMBURSEMENT-ESTIMATE-MODEL-V1
+================================================================================
+
+### Scope
+Read-only Amazon fee-adjusted payout model separate from internal COGS/loss lane.
+No DB writes, migrations, claim_candidates mutation, scanner, or RBAC changes.
+
+### Two money lanes (Maysam)
+- Lane A: estimated_amazon_payout = latest_valid_sale_price - estimated_total_amazon_fees (estimate, not guaranteed)
+- Lane B: internal_cost_loss = clean_qty x unit_cost_basis (NULL when COGS unknown; never sale price)
+- Lane C: observed_reimbursement separate; gap = estimated_amazon_payout - observed
+
+### Fee source priority
+Product Fees API > Fee Preview > settlement actual > fee schedule snapshot > manual override
+
+### Staging census (smoke org)
+- amazon_fee_preview: 0 rows
+- amazon_monthly_storage_fees: 0 rows
+- amazon_reimbursements: 36684 rows
+- product_cost_snapshots: table missing
+
+### Sample dry-runs
+- X004LKS4VD: linkage OK; sale 19.99 from product_prices; observed 194.92; payout NULL (no fee source)
+- B0000B11UX: linkage OK; sale 8.19; payout NULL
+- X003VSWH37 (reimbursements): observed 369.25; sale NULL; payout NULL
+
+### Artifacts
+- lib/fees/amazon-fee-adjusted-reimbursement-estimate-model-v1.ts
+- scripts/phase-amazon-fee-adjusted-reimbursement-estimate-model-v1-readonly.ts
+
+### SAFE_TO_IMPLEMENT_FEE_ESTIMATE_READMODEL: yes
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-fee-adjusted-reimbursement-estimate-model-v1/20260613T040000Z/
+
+### Next Prompt
+PHASE-AMAZON-FEE-ADJUSTED-REIMBURSEMENT-READMODEL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T040000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T050000Z
+TOPIC: PHASE-CLAIM-FAMILY-ALGORITHM-MATRIX-V3-OFFICIAL-AMAZON-COVERAGE
+================================================================================
+
+### Scope
+Read-only claim family discovery using official SP-API, Seller Central, AMAZON_REPORT_REGISTRY, normalized amazon_* tables, V1/V2 matrix, fee-adjusted estimate model. No DB writes.
+
+### V3 claim family count: 41
+- V2 base: 34
+- V3 added: 7 (customer_shipment_sales_refund_mismatch, finances_api_event_mismatch, removal_fee_refund_mismatch, long_term_storage_aged_surcharge_issue, storage_utilization_cubic_volume_issue, fba_overage_aged_inventory_fee_issue, recommended_removal_aged_inventory_action)
+- Classifications: claim-capable, review signals, lifecycle grouping
+
+### Removed/merged
+- removal_shipment_missing_damaged split; reimbursement_* renamed; dimension tier merged into dimension_weight_fee_issue; stranded listing merged into stranded_inventory_signal; stranded_expired_review_signal deprecated grouping
+
+### Missing source mapping: 9 gaps
+Product Fees API, Ledger Detail View crosswalk, fee specialty reports, stranded table, product_cost_snapshots, Finances reconciler
+
+### SAFE_TO_IMPLEMENT_V3_CLAIM_READMODEL: yes
+
+### Artifacts
+- lib/claims/contracts/claim-family-algorithm-matrix-v3-official-amazon-coverage.ts
+- scripts/phase-claim-family-algorithm-matrix-v3-official-amazon-coverage.ts
+
+### Evidence
+- .cursor/audit-reports/phase-claim-family-algorithm-matrix-v3-official-amazon-coverage/20260613T050000Z/
+
+### Next Prompt
+PHASE-CLAIM-FAMILY-ALGORITHM-MATRIX-V3-READMODEL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T050000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T033358Z
+TOPIC: PHASE-POST-FIX-DATA-FRESHNESS-AND-EXPECTED-PACKAGES-VERIFY-V1
+================================================================================
+
+### Mode
+Read-only verification on original kxsvedvpjldygtdbylsy after inventory view gating + removal promotion fixes.
+
+### Inventory view (387003587 / X004LKS4VD)
+- expected_qty: **52**, expected_qty_clean: **52**, disputed_expected_qty: **1**, needs_reconciliation: **true** — PASS
+
+### expected_packages
+- clean: **10289** rows / **73638** qty; disputed: **1820** rows / **2454** qty; shipment_overflow_conflict: **557** rows
+- claim-ready filter excludes disputed qty; target case claim-ready **52** + review **1**
+
+### Removal freshness
+- amazon_removals: **3520** rows, max created **2026-06-09**
+- amazon_removal_shipments: **11517** rows, max created **2026-06-09**
+- stuck synthetic_upload_ready: **0**; last uploads state **complete**
+
+### EP rebuild
+- No auto trigger; explicit ebuild_expected_packages_from_removals after domain sync
+- max EP updated **2026-06-10** >= domain **2026-06-09** — fresh within 7d
+
+### claim_candidates
+- **9055** total (unchanged census; no writes this phase)
+
+### AI
+- Core inventory/claim qty paths: no GPT dependency; optional OCR flags exist, not enabled
+
+### SAFE_TO_PROCEED_TO_CLAIM_READMODEL: yes (data layer)
+
+### Evidence
+- .cursor/audit-reports/phase-post-fix-data-freshness-expected-packages-verify-v1/20260613T033358Z/
+
+### Next Prompt
+PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T033358Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T060000Z
+TOPIC: PHASE-AMAZON-FEE-ADJUSTED-REIMBURSEMENT-READMODEL-IMPLEMENT-V1
+================================================================================
+
+### Scope
+Read-model implement only � SELECT joins, no DB writes, no claim_candidates mutation, no scanner changes.
+
+### API
+- GET /api/products/[id]/fee-adjusted-estimate?organization_id=&store_id=
+- GET /api/dashboard/products/[id]/fee-adjusted-estimate (alias)
+
+### Readmodel
+- lib/fees/fee-adjusted-estimate-readmodel.ts
+- buildFeeAdjustedEstimate() uses computeFeeAdjustedMoneyOutput()
+- Sources: product_identifier_map, product_prices, amazon_fee_preview, settlements, reimbursements, manage_fba, listings, FRR, cogs_overrides, return_items.estimated_value fallback
+
+### Staging samples
+- X004LKS4VD: sale 19.99, observed 194.92, payout NULL (fee_preview empty)
+- B0000B11UX: sale 8.19, internal_cost_loss NULL
+
+### Verifications
+- no_db_write: PASS
+- no_claim_candidate_mutation: PASS
+- no_scanner_change: PASS
+- build: PASS; smoke: PASS
+- SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/smoke-fee-adjusted-estimate-readmodel-v1/20260613T060000Z/
+
+### Next Prompt
+PHASE-CLAIM-FAMILY-ALGORITHM-MATRIX-V3-READMODEL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T060000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T071000Z
+PHASE-CLAIM-FAMILY-V3-READMODEL-AND-AI-OPTIONAL-CONTRACT-V1
+================================================================================
+
+### Scope
+Read-model API + AI optional contract only — no DB writes, no claim_candidates mutation, no scanner changes, no claim submission, no PDFs, no RBAC changes.
+
+### API
+- GET /api/claims/center/algorithm-matrix-v3?organization_id=&store_id=
+
+### Files
+- lib/claims/contracts/claim-family-ai-optional-contract-v1.ts
+- lib/claims/center/claim-family-algorithm-v3-readmodel.ts
+- lib/claims/center/claim-center-api-handlers.ts (getCenterAlgorithmMatrixV3Payload)
+- app/api/claims/center/algorithm-matrix-v3/route.ts
+- lib/claims/contracts/claim-family-algorithm-matrix-v3-official-amazon-coverage.ts (V3_CLASSIFICATION_COUNTS)
+- scripts/smoke-claim-family-algorithm-v3-readmodel-v1.ts
+
+### V3 matrix
+- 41 families total
+- classification_counts: claim_capable 32 (claim_family 23 + claim_when_source_available 9), review_signal_only 7, lifecycle_only 2
+
+### AI optional contract
+- 6 optional capabilities: evidence_summary, case_narrative_draft, source_mismatch_explanation, review_reason_classification, human_readable_claim_recommendation, anomaly_explanation
+- 7 not-required guards: source_ingestion, product_linkage, clean_disputed_classification, claim_ready_decision, amount_calculation, deadline_window_enforcement, submission_authorization
+- Feature flags: workspace_settings.module_configs.ai_assistant + Menorix entitlements; ai_required_for_core_readmodel=false; ai_effectively_ready from evaluateMenorixAiModuleAccess
+
+### Verifications
+- no_db_write: PASS
+- no_claim_candidate_mutation: PASS
+- no_scanner_change: PASS
+- build: PASS; smoke: PASS
+- SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/smoke-claim-family-algorithm-v3-readmodel-v1/20260613T071000Z/
+
+### Next Prompt
+PHASE-CLAIM-CENTER-AI-OPTIONAL-OVERLAY-SHELL-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T071000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T080000Z
+PHASE-PRODUCT-COST-MANUAL-INPUT-PLACEHOLDER-CONTRACT-V1
+================================================================================
+
+### Scope
+Read-only contract — manual/upload cost placeholder until Purchase module. No DB, schema, UI, product/claim/scanner/RBAC changes.
+
+### Contract
+- lib/products/contracts/product-cost-manual-input-placeholder-contract-v1.ts
+- scripts/phase-product-cost-manual-input-placeholder-contract-v1-readonly.ts
+
+### Precedence
+purchase_module_unit_cost > purchase_module_landed_cost > sellersnap_cogs > manual_override > upload_batch_fallback > NULL
+
+### Interim
+claim_intake.cogs_overrides JSONB (already wired in fee-adjusted readmodel)
+
+### Integrations
+- fee-adjusted-estimate: unit_cost_basis / internal_cost_loss lanes
+- claim money: actual_loss = claim_quantity x unit_cost_basis; intake snapshot immutability
+
+### Verifications
+- no_schema_change: PASS
+- build: PASS; smoke: PASS
+- SAFE_TO_IMPLEMENT_COST_INPUT_UI_LATER: yes_with_conditions
+
+### Evidence
+- .cursor/audit-reports/phase-product-cost-manual-input-placeholder-contract-v1/20260613T080000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COST-MANUAL-INPUT-UI-SCAFFOLD-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T080000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T040235Z
+TOPIC: PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1
+================================================================================
+
+### Implemented (staging)
+- lib/removal/removal-expected-packages-rebuild-orchestrator.ts
+- Hook: lib/amazon/reports-api-pipeline-handoff.ts after REMOVAL_ORDER/REMOVAL_SHIPMENT pipeline complete
+- Idempotent per upload via metadata import_metrics.expected_packages_rebuild_after_import
+- Fetch-only runs skip (runPipeline:false never invokes pipeline handoff)
+- Direct Postgres rebuild with 900s statement_timeout (PostgREST timeout bypass)
+
+### Staging verify (20260613T035908Z execute + 20260613T040235Z idempotency)
+- Upload 8cccd5ba REMOVAL_SHIPMENT: rebuild matched **10090**, overflow **131**, disputed EP count **231**
+- Second run: skipped already_rebuilt_for_upload
+- claim_candidates delta **0**; scanner untouched; build+smoke PASS
+- v_inventory_item_status clean/disputed gating preserved on sample rows
+
+### SAFE_TO_APPLY_ORIGINAL: yes_pending_maysam
+
+### Evidence
+- .cursor/audit-reports/phase-removal-sync-expected-packages-rebuild-orchestrator-v1/20260613T040235Z/
+
+### Next Prompt
+PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-ORIGINAL-APPLY
+
+================================================================================
+END APPEND SLICE -- 20260613T040235Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T040520Z
+TOPIC: PHASE-RAW-AMAZON-TABLE-NAMING-AND-CLAIM-REIMBURSEMENTS-AUDIT-V1
+================================================================================
+
+### Read-only audit (original kxsvedvpjldygtdbylsy)
+- 27 source-like tables inventoried (amazon_*, raw_report_uploads, claim_reimbursements)
+- amazon_reimbursements: **12711** rows — raw SP-API GET_FBA_REIMBURSEMENTS_DATA domain; used by importers + claim generators
+- claim_reimbursements: **0** rows — claim-layer outcome table; FK claim_candidate_id; source_table/source_row_id pointer; NOT duplicate of amazon_reimbursements
+- claim_reimbursements: not referenced in app/ or lib/ (audit scripts only); no supabase/migrations in repo
+- RLS gaps: claim_reimbursements RLS off; amazon_reimbursements RLS on but 0 policies
+- store_id gaps: amazon_finances_events, amazon_finances_api_pages
+
+### SAFE_TO_KEEP_CLAIM_REIMBURSEMENTS: yes
+
+### Evidence
+- .cursor/audit-reports/phase-raw-amazon-table-naming-claim-reimbursements-audit-v1/20260613T040520Z/
+
+### Next Prompt
+PHASE-RAW-AMAZON-TABLE-NAMING-DOC-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T040520Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T040815Z
+TOPIC: PHASE-LIVE-TABLE-RLS-AND-ORG-SCOPE-AUDIT-V1
+================================================================================
+
+### Read-only audit (original kxsvedvpjldygtdbylsy)
+- **63** in-scope tables: amazon_* (24), claim_* (27), scanner/PIM spine (12)
+- Platform RBAC tables excluded (no changes this phase)
+- Task Center tables not on original (Phase 7A staging-only migration 20260919120000)
+
+### Verdict
+- **SAFE_FOR_LIVE_SECURITY: no**
+- **missing_RLS:** amazon_reimbursements (12,711 rows, RLS on, 0 policies), claim_reimbursements (0 rows, RLS off)
+- **missing_org_scope:** none in scope
+- **missing_store_scope:** none — amazon_finances_events/api_pages org-only by design
+- **high_risk (populated):** amazon_reimbursements only
+- **force RLS:** financial_reference_resolver, product_identifier_map
+
+### Scanner / claims / PIM spine: PASS
+- expected_packages, return_items, packages, pallets, shipment_*, slip_contents, products, product_identifier_map, claim_candidates, financial_reference_resolver — RLS + policies + org/store scope OK
+
+### Evidence
+- .cursor/audit-reports/phase-live-table-rls-org-scope-audit-v1/20260613T040815Z/
+- Script: scripts/phase-live-table-rls-org-scope-audit-v1.ts
+
+### Next Prompt
+PHASE-RLS-POLICY-BATCH-CLAIM-AND-AMAZON-REIMBURSEMENTS-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T040815Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T041615Z
+TOPIC: PHASE-PREDEPLOY-ORIGINAL-API-EXPECTED-PACKAGES-NO-REGRESSION-V1
+================================================================================
+
+### Original read-only snapshot (kxsvedvpjldygtdbylsy) — PASS
+- amazon_removals: **3520** (max created 2026-06-09)
+- amazon_removal_shipments: **11517** (max shipment 2026-06-09)
+- stuck REMOVAL uploads: **0**
+- expected_packages: **12109** rows, max updated_at **2026-06-10**
+- v_inventory_item_status 387003587/X004LKS4VD: **52 clean / 1 disputed / needs_reconciliation true** — PASS
+- claim_candidates: **9055** (unchanged)
+
+### Branch inspection (main @ 11f51c9 + working tree)
+- **scanner_touch_report:** committed HEAD includes app/scanner/operator-mobile/scan/page.tsx (clean/disputed display — aligned with applied view gating); no additional uncommitted scanner changes
+- **removal_worker_change_report (committed):** resolveRemovalReportsRunPipeline — net-new fetch still fetch-only; resume with uploadId promotes import
+- **expected_packages_orchestration (uncommitted only):** reports-api-pipeline-handoff + removal-expected-packages-rebuild-orchestrator — runs rebuild on next REMOVAL_* import complete; idempotent; NOT on deploy idle
+- **migration_risk:** no new migration files in uncommitted diff; view gating migration applied on original manually; schema_migrations tracking gap (269 repo vs 52 recorded) — do not auto db push
+
+### Verdict
+- **original_no_regression_verdict: PASS**
+- **SAFE_TO_PUSH_WITHOUT_ORIGINAL_API_BREAK: conditional_no** (yes for committed HEAD alone; no if uncommitted orchestrator included without Maysam approval)
+
+### Evidence
+- .cursor/audit-reports/phase-predeploy-original-api-expected-packages-no-regression-v1/20260613T041615Z/
+
+### Next Prompt
+PHASE-DEPLOY-ORIGINAL-VERIFY-POST-PUSH-SNAPSHOT-V1 (committed HEAD) OR PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-ORIGINAL-APPLY (if including orchestrator)
+
+================================================================================
+END APPEND SLICE -- 20260613T041615Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T041935Z
+TOPIC: PHASE-RLS-POLICY-BATCH-CLAIM-AND-AMAZON-REIMBURSEMENTS-V1
+================================================================================
+
+### Staging apply (eiqfaapyumhixxoeltgu)
+- Migration: supabase/migrations/20260614120000_phase_rls_policy_batch_claim_amazon_reimbursements_v1.sql
+- amazon_reimbursements: 2 policies (service_role ALL + authenticated org SELECT)
+- claim_reimbursements: RLS enabled + 2 policies (same pattern; 0 rows)
+- Columns verified: amazon_reimbursements org+store; claim_reimbursements org only
+
+### RLS tests — PASS
+- service_role SELECT: 36684 rows
+- authenticated same-org (pg sim): PASS
+- cross-org block: PASS
+- anon block: PASS (PostgREST count 0)
+- no_data_mutation: amazon_reimbursements 36684 unchanged; claim_reimbursements 0
+
+### Readmodel smoke — PASS
+- fee-adjusted observed_reimbursement lane: amazon_reimbursements source
+- source connector reimbursements: fresh, 36684 rows
+
+### SAFE_TO_APPLY_ORIGINAL: yes_pending_maysam
+
+### Evidence
+- .cursor/audit-reports/phase-rls-policy-batch-claim-amazon-reimbursements-v1/20260613T041935Z/
+
+### Next Prompt
+PHASE-RLS-POLICY-BATCH-CLAIM-AMAZON-REIMBURSEMENTS-V1-ORIGINAL-APPLY
+
+================================================================================
+END APPEND SLICE -- 20260613T041935Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T042120Z
+PHASE-RAW-AMAZON-TABLE-NAMING-AND-CLAIM-REIMBURSEMENTS-AUDIT-V1-EXECUTE
+================================================================================
+
+### Scope
+Read-only schema/code audit on original DB (kxsvedvpjldygtdbylsy). No DDL, no data mutation.
+
+### Inventory (27 source-like tables)
+- raw_amazon_tables: 23 (all amazon_* domain normalized)
+- import_ledger_tables: 3 (amazon_staging, raw_report_uploads, amazon_reports_repository)
+- claim_layer_tables: 1 in scope (claim_reimbursements)
+- legacy_or_unclear: 0 populated naming violations in scope
+
+### claim_reimbursements
+- 0 rows; FK claim_candidate_id -> claim_candidates
+- Columns: id, organization_id, claim_candidate_id, reimbursement_amount, currency, reimbursement_date, source_table, source_row_id, created_at
+- Not in lib/claims, lib/fees, or app — audit scripts only
+- SAFE_TO_KEEP_CLAIM_REIMBURSEMENTS: yes
+- Document only — do not rename; populate via submission bridge only
+
+### amazon_reimbursements
+- 12,711 rows — canonical raw SP-API/file domain
+- Generators/readmodels: claim-intake-generators, fee-adjusted-estimate-readmodel, claim-reference-discovery-engine, etc.
+
+### Duplicate risk: low — different layers and schemas
+
+### Evidence
+- .cursor/audit-reports/phase-raw-amazon-table-naming-claim-reimbursements-audit-v1/20260613T042120Z/
+
+### Next Prompt
+PHASE-RAW-AMAZON-TABLE-NAMING-DOC-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T042120Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T042656Z
+TOPIC: PHASE-RLS-POLICY-BATCH-CLAIM-AMAZON-REIMBURSEMENTS-V1-ORIGINAL-APPLY
+================================================================================
+
+### Original apply (kxsvedvpjldygtdbylsy) — Maysam APPROVED_ORIGINAL_RLS_REIMBURSEMENTS_APPLY=yes
+- Migration: 20260614120000_phase_rls_policy_batch_claim_amazon_reimbursements_v1.sql
+- amazon_reimbursements: RLS on, 2 policies (service_role ALL + authenticated org SELECT)
+- claim_reimbursements: RLS on, 2 policies (same pattern)
+
+### Before audit gap (resolved)
+- amazon_reimbursements: was RLS on / 0 policies → now 2 policies
+- claim_reimbursements: was RLS off → now RLS on + 2 policies
+
+### Row counts unchanged
+- amazon_reimbursements: 12711
+- claim_reimbursements: 0
+- claim_candidates: 9055 · products: 17058 · expected_packages: 12109 · amazon_removals: 3520
+
+### Access checks — PASS
+- service_role: 12711 · same-org auth: 12711 · cross-org: 0 · anon: 0
+
+### Readmodel smoke — PASS
+- fee-adjusted observed_reimbursement from amazon_reimbursements
+
+### SAFE_ORIGINAL_RLS_FIXED: yes
+
+### Evidence
+- .cursor/audit-reports/phase-rls-policy-batch-claim-amazon-reimbursements-v1-original-apply/20260613T042656Z/
+
+### Next Prompt
+PHASE-LIVE-TABLE-RLS-AND-ORG-SCOPE-AUDIT-V1-REVERIFY
+
+================================================================================
+END APPEND SLICE -- 20260613T042656Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T042826Z
+TOPIC: PHASE-DEPLOY-ORIGINAL-VERIFY-POST-PUSH-SNAPSHOT-V1
+================================================================================
+
+### Read-only post-push snapshot (kxsvedvpjldygtdbylsy) — PASS
+- amazon_removals: **3520** · amazon_removal_shipments: **11517**
+- stuck REMOVAL uploads: **0**
+- expected_packages: **12109**
+- v_inventory_item_status 387003587/X004LKS4VD: **52 clean / 1 disputed / needs_reconciliation true**
+- claim_candidates: **9055**
+- RLS reimbursements: amazon_reimbursements + claim_reimbursements RLS on, 2 policies each
+- scanner read-only module smoke: PASS
+
+### no_regression_verdict: PASS
+### SAFE_TO_CONTINUE_TO_CLAIM_DRYRUN: yes
+
+### Evidence
+- .cursor/audit-reports/phase-deploy-original-verify-post-push-snapshot-v1/20260613T042826Z/
+
+### Next Prompt
+PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T042826Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T090400Z
+PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1
+================================================================================
+
+### Scope
+Read-only V3 claim family preview on staging (eiqfaapyumhixxoeltgu). No DB writes, no claim_candidates mutation, no AI calls.
+
+### Files
+- lib/claims/center/claim-readmodel-staging-dryrun-v1.ts
+- scripts/phase-claim-readmodel-staging-dryrun-v1.ts
+
+### Staging results (7 priority families, 90d window)
+- physical_return_scanner_issue: 16 candidate preview
+- removal_order_discrepancy: 400 preview; clean EP 78685; disputed excluded 1294
+- missing_reimbursement: 176 preview (ledger generator)
+- customer_return_not_reimbursed: 0 (FBA returns API worker gap)
+- orbit_fra_fight_list: 0 (COGS/XLSX blocked)
+- fba_fee_overcharge / monthly_storage: review signals only (fee_preview empty)
+
+### Money
+- estimated_amazon_payout_sum: NULL all families (fee_preview 0 rows; linkage unresolved)
+- observed_reimbursement_sum: NULL in sample (no linked products in drafts)
+
+### Blockers
+- product_linkage_unresolved on all generator drafts
+- amazon_fee_preview_empty
+- fee spine / COGS spine incomplete
+
+### Verifications
+- no_write: PASS; no_scanner_change: PASS; build: PASS
+- SAFE_TO_IMPLEMENT_FIRST_GENERATOR_PREVIEW: yes
+
+### Evidence
+- .cursor/audit-reports/phase-claim-readmodel-staging-dryrun-v1/20260613T090400Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T090400Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T044257Z
+TOPIC: PHASE-PRODUCT-LINKAGE-HEALTH-AND-CLAIM-BLOCKER-READMODEL-V1
+================================================================================
+
+### Scope
+Read-only Product Linkage health + claim blocker audit. Staging first. Locks linkage as gate before claim money and Product Story.
+
+### Key findings (staging main org)
+- Spine: 17059 products, 16862 map, 29589 prices, 97.9% spine map coverage (352 missing)
+- Operational linkage: 45.3% overall, grade critical, 28567 unresolved rows
+- Conflicts: 2584 groups (170 ASIN, 2413 UPC, 1 FNSKU)
+- SAFE_FOR_PRODUCT_STORY: no
+- SAFE_TO_PROCEED_TO_CLAIM_V3_DRYRUN: conditional (read-only dryrun OK; trusted money blocked)
+- P0 blockers: product_linkage on scanner/removal families, unit_cost_basis, amazon_fee_preview empty, disputed EP qty
+
+### Evidence
+- .cursor/audit-reports/phase-product-linkage-health-and-claim-blocker-readmodel-v1/20260613T044257Z/
+- Script: scripts/phase-product-linkage-health-and-claim-blocker-readmodel-v1-readonly.ts
+
+### NEXT
+PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1 (run) then PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T044257Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T100000Z
+PHASE-CLAIM-V3-READMODEL-DRYRUN-CLEAN-DATA-V1
+================================================================================
+
+### Scope
+Read-only all-41 V3 claim family dry-run on staging (eiqfaapyumhixxoeltgu). Clean quantities only; disputed -> review signals; unknown fee/cost = NULL; product linkage gate for trusted money; no DB writes, no claim_candidates mutation, no AI calls, no scanner/RBAC changes.
+
+### Files
+- lib/claims/center/claim-v3-readmodel-dryrun-clean-data-v1.ts
+- scripts/phase-claim-v3-readmodel-dryrun-clean-data-v1.ts
+
+### Staging results (41 families, 90d window)
+- claim_ready_preview (4): physical_return_scanner_issue, removal_order_discrepancy, removal_shipment_missing, partial_incorrect_reimbursement
+- review_only (7): customer_damaged_return, finances_api_event_mismatch, reserved_inventory_stuck_signal, available_fba_discrepancy, stranded_inventory_signal, expired_inventory_action_signal, catalog_listing_fee_category_mismatch
+- blocked_missing_source (10): safet_followup, fba_fee_overcharge, monthly_storage_fee_overcharge, inbound_placement_fee_issue, long_term_storage_aged_surcharge_issue, storage_utilization_cubic_volume_issue, dimension_weight_fee_issue, low_inventory_fee_issue, returns_processing_fee_issue, reimbursement_clawback (orbit source gate)
+- blocked_missing_linkage (18): customer_return_not_reimbursed, missing_reimbursement, warehouse_lost_inventory, settlement_refund_anomaly, orbit_fra_fight_list, + 13 others
+- lifecycle_only (2): recommended_removal_aged_inventory_action, stranded_expired_review_signal
+
+### Priority family snapshot
+- physical_return_scanner_issue: claim_ready_preview - 23 clean qty, 20 candidate preview, linkage ready
+- removal_order_discrepancy / removal_shipment_missing: claim_ready_preview - 78685 clean EP, 1294 disputed excluded, 400 preview each
+- customer_return_not_reimbursed: blocked_missing_linkage - org_linkage_below_threshold
+- missing_reimbursement / warehouse_lost_inventory: blocked_missing_linkage - 176 preview rows, linkage unresolved
+- settlement_refund_anomaly: blocked_missing_linkage - 474 clean qty, 411 preview, linkage unresolved
+- orbit_fra_fight_list: blocked_missing_linkage - org_linkage_below_threshold
+
+### Money / linkage
+- estimated_amazon_payout_available: false all families (amazon_fee_preview 0 rows)
+- observed_reimbursement_available: true (amazon_reimbursements 36684 staging rows)
+- internal_cost_loss_available: false (COGS spine incomplete)
+- linkage health: 45.3% overall, 64.7% critical paths, grade critical; drafts 853 linked / 823 unlinked (50.9%)
+
+### Top opportunities (by observed recovery_value)
+- settlement_refund_anomaly dominates ranks 1-4, 6-12, 14-15, 18-20 (linkage blocked)
+- partial_incorrect_reimbursement ranks 5, 13, 16 - claim_ready_preview with linkage resolved
+
+### Verifications
+- no_write_verification: PASS
+- no_scanner_change_verification: PASS - operator-mobile untouched
+- no_claim_candidate_mutation: PASS
+- no_ai_calls: PASS
+- build: PASS
+
+### Gates
+- SAFE_TO_IMPLEMENT_FIRST_CLAIM_PREVIEW: yes
+- Rationale: 3 priority families claim_ready_preview with clean generator dry-run (physical_return + removal_order + removal_shipment)
+
+### Evidence
+- .cursor/audit-reports/phase-claim-v3-readmodel-dryrun-clean-data-v1/20260613T100000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1 - Claim Center V3 family dry-run panel; no apply
+
+================================================================================
+END APPEND SLICE -- 20260613T100000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T110000Z
+PHASE-FIRST-CLAIM-PREVIEW-READMODEL-MVP-V1
+================================================================================
+
+### Scope
+Read-only end-to-end Claim Preview MVP for 5 V3-safe-first families. Generator dry-run only — no claim_candidates writes, no cases, no PDFs, no AI, no scanner/RBAC changes.
+
+### Files
+- lib/claims/center/claim-preview-readmodel-mvp-v1.ts
+- lib/claims/center/claim-center-api-handlers.ts (getCenterClaimPreviewPayload)
+- lib/claims/center/claim-readmodel-staging-dryrun-v1.ts (export collectDrafts)
+- app/api/claims/center/claim-preview/route.ts
+- scripts/smoke-claim-preview-readmodel-mvp-v1.ts
+
+### API
+GET /api/claims/center/claim-preview?organization_id=&store_id=&limit=&from=&to=&family=
+
+### MVP families
+removal_order_discrepancy, customer_return_not_reimbursed, physical_return_scanner_issue, missing_reimbursement, settlement_refund_anomaly
+
+### Staging smoke (20260613T110000Z)
+- preview_item_count: 47 (limit 60)
+- claim_ready_preview items: 16
+- removal_order: 12 items (12 claim_ready)
+- physical_return: 11 items (4 claim_ready)
+- missing_reimbursement: 12 items (0 claim_ready — linkage)
+- settlement_refund_anomaly: 12 items (0 claim_ready — linkage)
+- customer_return_not_reimbursed: 0 items (all returns matched reimbursement filter in sample window)
+- top_blockers: product_linkage_unresolved (31), none (16)
+- estimated_amazon_payout: NULL all samples (fee_preview empty)
+- disputed EP excluded total on removal family: 249
+
+### Verifications
+- no_db_write_verification: PASS
+- no_claim_candidate_mutation_verification: PASS
+- no_scanner_change_verification: PASS
+- build: PASS
+- smoke: PASS
+- SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/smoke-claim-preview-readmodel-mvp-v1/20260613T110000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1 — Claim Center preview panel wired to GET /api/claims/center/claim-preview; no apply
+
+================================================================================
+END APPEND SLICE -- 20260613T110000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T045948Z
+TOPIC: PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-RESOLUTION-PLAN-V1
+================================================================================
+
+### Scope
+Read-only exact-identifier operational linkage resolution plan + dry-run proposals. No writes.
+
+### Key findings
+- 791,083 rows resolvable via product_identifier_map exact match (FNSKU/ASIN/SKU/UPC tiers)
+- 12,892 ambiguous (12,877 inventory_ledger) — block auto-backfill
+- amazon_removals: 0% resolved today → 95.1% after backfill (2,847 resolvable)
+- amazon_removal_shipments: 44.1% → 97.7% (+5,734)
+- expected_packages: 86% → 97.3% (+1,250)
+- amazon_settlements: 479,360 resolvable (SKU path; 43k no identifiers)
+- shipment_box_items / amazon_reimbursements: no resolved_product_id column yet
+- SAFE_TO_IMPLEMENT_OPERATIONAL_LINKAGE_BACKFILL: conditional
+
+### NEXT
+PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-DRYRUN-V1 — wave 1 removals/shipments/EP; exclude ambiguous; no claim_candidates
+
+### Evidence
+- .cursor/audit-reports/phase-product-linkage-operational-rows-resolution-plan-v1/20260613T045948Z/
+- Script: scripts/phase-product-linkage-operational-rows-resolution-plan-v1-readonly.ts
+
+================================================================================
+END APPEND SLICE -- 20260613T045948Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T050302Z
+TOPIC: PHASE-CLAIM-V3-DRYRUN-SOURCE-AND-LINKAGE-GATED-V1
+================================================================================
+
+### Scope
+Read-only Claim V3 dry-run for all 41 families with source/linkage/fee/cost gating. No DB writes, no claim_candidates mutation, no AI, no scanner/RBAC changes.
+
+### Files
+- lib/claims/center/claim-v3-dryrun-source-linkage-gated-v1.ts
+- scripts/phase-claim-v3-dryrun-source-and-linkage-gated-v1.ts
+
+### Staging results (20260613T050302Z)
+- families: 41
+- claim_ready_preview: 4 (physical_return_scanner_issue, removal_order_discrepancy, removal_shipment_missing, partial_incorrect_reimbursement)
+- review_only: 7
+- blocked_missing_source: 10 (fee/storage/placement/replacements/grade-resell/SAFE-T)
+- blocked_missing_linkage: 18 (customer_return, missing_reimbursement, warehouse_lost/damaged, settlement_refund, orbit_fra, etc.)
+- blocked_missing_fee: 0
+- blocked_missing_cost: 0
+- lifecycle_only: 2
+- linkage health: 45.3% operational (critical); fee_preview empty → estimated_amazon_payout NULL
+- disputed EP excluded on removal families: 1294
+- claim_candidates delta: 0
+
+### Original comparison
+- FAIL: column `quarantined_at` does not exist on original DB (schema drift)
+
+### Verifications
+- no_db_writes: PASS
+- no_claim_candidate_mutation: PASS (delta 0)
+- no_ai_calls: PASS
+- no_scanner_change: PASS
+- smoke:claim-family-algorithm-readmodel-v1: PASS
+
+### SAFE_TO_IMPLEMENT_FIRST_CLAIM_PREVIEW: yes
+
+### Evidence
+- .cursor/audit-reports/phase-claim-v3-dryrun-source-and-linkage-gated-v1/20260613T050302Z/summary.json
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T050302Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T120000Z
+TOPIC: PHASE-FIRST-CLAIM-PREVIEW-READMODEL-MVP-V1 (re-verify + family alignment)
+================================================================================
+
+### Scope
+Read-only Claim Preview MVP API for 5 V3-safe-first families. Generator dry-run only.
+
+### MVP families (aligned to V3 dry-run)
+removal_order_discrepancy, removal_shipment_missing, physical_return_scanner_issue, missing_reimbursement, settlement_refund_anomaly
+
+### API
+GET /api/claims/center/claim-preview?organization_id=&store_id=&limit=&from=&to=&family=
+
+### Staging smoke (20260613T120000Z)
+- preview_item_count: 59 (limit 60)
+- claim_ready_preview items: 28
+- removal_order: 12 items (12 claim_ready)
+- removal_shipment_missing: 12 items (12 claim_ready)
+- physical_return: 11 items (4 claim_ready)
+- missing_reimbursement: 12 items (0 claim_ready — linkage)
+- settlement_refund_anomaly: 12 items (0 claim_ready — linkage)
+- top_blockers: product_linkage_unresolved (31), none (28)
+- estimated_amazon_payout: NULL all samples (fee_preview empty)
+- disputed EP excluded total on removal families: 249
+- claim_candidates delta: 0
+
+### Verifications
+- no_db_write_verification: PASS
+- no_claim_candidate_mutation_verification: PASS
+- no_scanner_change_verification: PASS
+- build: PASS
+- smoke: PASS
+- SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/smoke-claim-preview-readmodel-mvp-v1/20260613T120000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T120000Z
+================================================================================

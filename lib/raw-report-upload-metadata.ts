@@ -78,6 +78,20 @@ export type ImportRunMetrics = {
   note?: string;
   /** Phase 2 operator-facing line (Import History / importer card). */
   phase2_operator_line?: string;
+  /** Written after REMOVAL_* import completes + rebuild_expected_packages_from_removals. */
+  expected_packages_rebuild_after_import?: {
+    upload_id: string;
+    report_type: string;
+    rebuild_called: boolean;
+    rebuilt_at: string;
+    domain_rows_for_upload: number;
+    detail_lines_in_scope?: number;
+    matched_rows_upserted?: number;
+    remainder_rows_upserted?: number;
+    overflow_lines?: number;
+    obsolete_rows_deleted?: number;
+    disputed_rows_count?: number;
+  };
   /**
    * Phase 2 UI state — Nano retries, deferred DB count verification, batch exhaustion.
    */

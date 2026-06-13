@@ -134,3 +134,15 @@ Then: add source_report edges (candidate -> raw_report_uploads via upload_id) as
 - Product edges stay blocked for 4 physical candidates (FNSKU unresolved — PIM lane).
 - Composer smoke: PASS — references/evidence read materialized edges. Build: PASS. No candidate mutation; no scanner changes; no cases/submissions.
 - SAFE_TO_PUSH=yes. Next: `PHASE-CLAIM-PHYSICAL-RETURN-MVP-CLAIM-CENTER-WIRE-V1`
+
+
+## TRID edge requirements contract V1 (append 2026-06-13)
+
+- **Run:** `20260613T060000Z` — `.cursor/audit-reports/phase-claim-trid-edge-requirements-contract-v1/20260613T060000Z/`
+- **Contract:** `lib/claims/contracts/trid-edge-requirements-contract-v1.ts` — read-only TRID/source lineage for all **41** V3 claim families.
+- **Edge catalog:** 21 canonical edge kinds (product_link, source_report_row, order_id, shipment/removal ids, tracking, package, return_item, ledger, reimbursement, settlement, finances, SAFE-T, fee preview, storage fee, PC04 dimensions, scanner evidence, observed_reimbursement, FRR lanes).
+- **Rules locked:** no title-only product edge; no auto-create; disputed rows → review_signal only; observed reimbursement separate from expected recovery; Product Story money requires product_link + money source edge.
+- **Duplicate key:** `uq_claim_reference_edges_candidate_natural` (org, candidate_id, edge_type, to_source_table, to_source_row_id, reference_kind, reference_value).
+- **orbit_fra return_item gap:** generator fix in code (not regenerated); discovery uses source_row_id fallback.
+- **SAFE_TO_IMPLEMENT_TRID_EDGE_READMODEL:** yes. No DB writes this phase.
+- **Next:** `PHASE-CLAIM-TRID-EDGE-READMODEL-IMPLEMENT-V1`

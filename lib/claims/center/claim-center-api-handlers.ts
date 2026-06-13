@@ -36,6 +36,10 @@ import { evaluateMenorixAiModuleAccess } from "@/lib/menorix/evaluate-menorix-ai
 import { loadDiscoveryIndexState } from "@/lib/claims/discovery/claim-discovery-index";
 import { buildSourceConnectorReadiness } from "@/lib/claims/connectors/source-connector-readmodel";
 import { buildClaimFamilyAlgorithmMatrixPayload } from "@/lib/claims/center/claim-family-algorithm-readmodel";
+import { buildClaimFamilyAlgorithmV3Payload } from "@/lib/claims/center/claim-family-algorithm-v3-readmodel";
+import { buildClaimPreviewReadmodelMvp } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
+import type { ClaimPreviewMvpFamilyKey } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
+import { CLAIM_PREVIEW_MVP_FAMILIES } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
 import { loadMaterializedCandidateEdges } from "@/lib/claims/edges/claim-reference-edge-materializer";
 import { supabaseServer } from "@/lib/supabase-server";
 
@@ -425,4 +429,37 @@ export async function getCenterModuleAccessPayload(organizationId: string) {
 export async function getCenterAlgorithmMatrixPayload(organizationId: string) {
   await centerModuleGateOrThrow(organizationId);
   return buildClaimFamilyAlgorithmMatrixPayload();
+}
+
+/** Read-only V3 algorithm matrix + AI optional contract — SELECT module gate + AI flags only. */
+export async function getCenterAlgorithmMatrixV3Payload(organizationId: string) {
+  await centerModuleGateOrThrow(organizationId);
+  const aiAccess = await evaluateMenorixAiModuleAccess(supabaseServer, organizationId);
+  return buildClaimFamilyAlgorithmV3Payload({ ai_module_access: aiAccess });
+}
+
+/** Read-only MVP claim preview items — generator dry-run only, no claim_candidates writes. */
+export async function getCenterClaimPreviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  limit: number;
+  from?: string | null;
+  to?: string | null;
+  family?: string | null;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  const families =
+    args.family &&
+    (CLAIM_PREVIEW_MVP_FAMILIES as readonly string[]).includes(args.family)
+      ? ([args.family] as ClaimPreviewMvpFamilyKey[])
+      : undefined;
+  return buildClaimPreviewReadmodelMvp({
+    client: supabaseServer,
+    organizationId: args.organizationId,
+    storeId: args.storeId,
+    from: args.from,
+    to: args.to,
+    rowLimit: args.limit,
+    families,
+  });
 }
