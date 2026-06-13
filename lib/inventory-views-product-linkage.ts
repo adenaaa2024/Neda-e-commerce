@@ -13,6 +13,7 @@ import type {
 import { buildExpectedScannedProductComparison } from "./inventory-product-comparison";
 import { mapRowToProductLinkageDisplayContract } from "./product-linkage-display-contract";
 import type { ProductLinkageDisplayContract } from "./product-linkage-display-contract";
+import { normalizeResolutionStatus } from "./scanner-product-linkage-ui";
 import { resolveScannerProductIdentifiers } from "./scanner-product-resolve";
 
 export type InventoryViewDbRow = Record<string, unknown>;
@@ -104,7 +105,10 @@ export async function resolveInventoryViewProductLinkage(
   const persistedStatus = n(row.identifier_resolution_status);
   const productName = n(row.product_name) ?? n(row.item_name) ?? n(row.title);
 
-  if (persistedId && persistedStatus === "resolved") {
+  if (
+    persistedId &&
+    normalizeResolutionStatus(persistedStatus) === "resolved"
+  ) {
     const { data: prod } = await supabase
       .from("products")
       .select("id, product_name, name")

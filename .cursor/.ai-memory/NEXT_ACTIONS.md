@@ -1,13 +1,19 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-13 (`phase-claim-v3-dryrun-source-and-linkage-gated-v1` `20260613T050302Z`)
-
-**Demo checkpoint:** [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
+**Last updated:** 2026-06-13 (`phase-product-linkage-operational-rows-backfill-dryrun-v1` `20260613T052709Z`)
 
 ---
 
-## P0 — Pre-merge gates
+## P0 — Wave 1 operational linkage backfill
+
+1. ~~**PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-DRYRUN-V1**~~ — **DONE** `20260613T052709Z` — 9831 resolvable / 0 ambiguous; preimage+rollback ready  
+2. **PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-STAGING-WRITE-V1** — staging write with preimage export; tables wave1 only; **no claim_candidates**; Maysam approval required  
+3. Original write: **blocked** until staging write verified
+
+Evidence: `.cursor/audit-reports/phase-product-linkage-operational-rows-backfill-dryrun-v1/20260613T052709Z/`
+
+---
 
 1. **PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE**  
 2. **CLAIMS-RETURNS-FIRST-DRAFT-E2E-CLOSED-PACKAGE-EVIDENCE** — `expected_group` + `import_source` remain **blocked**  

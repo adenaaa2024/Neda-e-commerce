@@ -34,9 +34,42 @@ export type ProductLinkageMapperInput = {
   source_table: string;
   source_row_id: string;
   row: Record<string, unknown>;
-  /** Optional joined `products` row for canonical title. */
-  product?: ProductNameFields | null;
+  /** Optional joined `products` row for canonical title (may include `id` for spine display). */
+  product?: (ProductNameFields & { id?: string | null }) | null;
 };
+
+function effectiveResolvedProductId(
+  fields: ProductLinkageFields,
+  row: Record<string, unknown>,
+  product?: (ProductNameFields & { id?: string | null }) | null,
+): string | null {
+  return (
+    fields.resolved_product_id ??
+    str(row, "product_id") ??
+    (product?.id != null ? str({ id: product.id }, "id") : null)
+  );
+}
+
+/** Display-only status: spine id + non-blocking status → resolved (no operational backfill). */
+function displayLinkageStatus(
+  rawStatus: string | null,
+  effectiveProductId: string | null,
+): string | null {
+  const status = normalizeResolutionStatus(rawStatus);
+  if (status === "ambiguous" || status === "mismatch" || status === "unresolved") {
+    return typeof status === "string" ? status : null;
+  }
+  if (!effectiveProductId) {
+    return typeof status === "string" ? status : null;
+  }
+  if (status === "resolved") return "resolved";
+  // EP/view rows often persist `matched` or omit status when spine id is already known.
+  return "resolved";
+}
+
+function isDisplayResolved(effectiveProductId: string | null, displayStatus: string | null): boolean {
+  return !!effectiveProductId && displayStatus === "resolved";
+}
 
 function str(row: Record<string, unknown>, ...keys: string[]): string | null {
   for (const k of keys) {
@@ -81,12 +114,12 @@ export function mapRowToProductLinkageDisplayContract(
 ): ProductLinkageDisplayContract {
   const { source_table, source_row_id, row, product } = input;
   const fields = linkageFieldsFromRow(row);
-  const status = normalizeResolutionStatus(fields.identifier_resolution_status ?? null);
-  const resolvedId = fields.resolved_product_id ?? null;
+  const effectiveProductId = effectiveResolvedProductId(fields, row, product);
   const productName =
     (product ? pickProductRowDisplayName(product) : null) ??
-    str(row, "catalog_product_name");
-  const isResolved = !!resolvedId && status === "resolved";
+    str(row, "catalog_product_name", "product_name", "product_display_name");
+  const displayStatus = displayLinkageStatus(fields.identifier_resolution_status ?? null, effectiveProductId);
+  const isResolved = isDisplayResolved(effectiveProductId, displayStatus);
 
   return {
     source_row_id,
@@ -96,10 +129,10 @@ export function mapRowToProductLinkageDisplayContract(
     sku: fields.sku ?? null,
     upc: str(row, "upc", "upc_code", "product_identifier"),
     product_id: str(row, "product_id"),
-    resolved_product_id: resolvedId,
+    resolved_product_id: effectiveProductId,
     resolved_catalog_product_id: fields.resolved_catalog_product_id ?? null,
     product_name: productName,
-    identifier_resolution_status: typeof status === "string" ? status : null,
+    identifier_resolution_status: displayStatus,
     identifier_resolution_confidence: fields.identifier_resolution_confidence ?? null,
     is_resolved: isResolved,
     fallback_display_name: resolveLinkageDisplayTitle(productName, fields),

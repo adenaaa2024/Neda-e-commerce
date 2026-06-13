@@ -33,10 +33,11 @@ export function productLinkageDisplayHeadline(linkage: ProductLinkageDisplayCont
 export function productLinkageUserStatusLabel(linkage: ProductLinkageDisplayContract): string {
   const status = normalizeResolutionStatus(linkage.identifier_resolution_status);
   if (isAmbiguousLinkageStatus(status)) return PRODUCT_LINKAGE_LABEL_NEEDS_REVIEW;
-  if (isUnresolvedLinkageStatus(status) || (!linkage.is_resolved && !status)) {
+  if (linkage.is_resolved) return resolutionStatusLabel(status ?? "resolved");
+  if (isMismatchLinkageStatus(status)) return "Legacy mismatch";
+  if (isUnresolvedLinkageStatus(status) || !status) {
     return PRODUCT_LINKAGE_LABEL_NO_LINK;
   }
-  if (isMismatchLinkageStatus(status)) return "Legacy mismatch";
   return resolutionStatusLabel(status);
 }
 
@@ -52,10 +53,17 @@ export function productLinkageConfidenceLabel(linkage: ProductLinkageDisplayCont
 export function productLinkageUserStatusLabelFromFields(fields: ProductLinkageFields): string {
   const status = normalizeResolutionStatus(fields.identifier_resolution_status ?? null);
   if (isAmbiguousLinkageStatus(status)) return PRODUCT_LINKAGE_LABEL_NEEDS_REVIEW;
-  if (isUnresolvedLinkageStatus(status) || (!fields.resolved_product_id && !status)) {
+  const effectiveId = fields.resolved_product_id ?? null;
+  const linked =
+    !!effectiveId &&
+    status !== "ambiguous" &&
+    status !== "mismatch" &&
+    status !== "unresolved";
+  if (linked) return resolutionStatusLabel(status ?? "resolved");
+  if (isMismatchLinkageStatus(status)) return "Legacy mismatch";
+  if (isUnresolvedLinkageStatus(status) || (!effectiveId && !status)) {
     return PRODUCT_LINKAGE_LABEL_NO_LINK;
   }
-  if (isMismatchLinkageStatus(status)) return "Legacy mismatch";
   return resolutionStatusLabel(status);
 }
 

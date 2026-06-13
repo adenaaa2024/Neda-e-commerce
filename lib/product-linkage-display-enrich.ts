@@ -7,6 +7,7 @@ import {
   mapRowToProductLinkageDisplayContract,
   type ProductLinkageDisplayContract,
 } from "./product-linkage-display-contract";
+import { resolveScannerProductIdentifiers } from "./scanner-product-resolve";
 import { supabaseServer } from "./supabase-server";
 import { isUuidString } from "./uuid";
 
@@ -15,6 +16,46 @@ export type ProductLinkageDisplayInput = {
   source_row_id: string;
   row: Record<string, unknown>;
 };
+
+function str(row: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = row[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+async function hydrateRowFromSpineMap(
+  organizationId: string,
+  row: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (str(row, "resolved_product_id")) return row;
+
+  const storeId = str(row, "store_id");
+  if (!storeId) return row;
+
+  const resolved = await resolveScannerProductIdentifiers(supabaseServer, {
+    organizationId,
+    storeId,
+    sku: str(row, "sku", "seller_sku", "msku"),
+    asin: str(row, "asin"),
+    fnsku: str(row, "fnsku"),
+    upc: str(row, "upc", "upc_code", "product_identifier"),
+    legacyProductId: str(row, "product_id"),
+  });
+
+  if (!resolved.resolved_product_id || resolved.identifier_resolution_status !== "resolved") {
+    return row;
+  }
+
+  return {
+    ...row,
+    resolved_product_id: resolved.resolved_product_id,
+    resolved_catalog_product_id: resolved.resolved_catalog_product_id,
+    identifier_resolution_status: resolved.identifier_resolution_status,
+    identifier_resolution_confidence: resolved.identifier_resolution_confidence,
+  };
+}
 
 async function loadProductsById(
   organizationId: string,
@@ -63,23 +104,37 @@ export async function buildProductLinkageDisplayContracts(
 ): Promise<ProductLinkageDisplayContract[]> {
   if (!isUuidString(organizationId)) return [];
 
+  const hydratedItems = await Promise.all(
+    items.map(async (item) => ({
+      ...item,
+      row: await hydrateRowFromSpineMap(organizationId, item.row),
+    })),
+  );
+
   const productIds = [
     ...new Set(
-      items
-        .map((i) => {
-          const r = i.row.resolved_product_id;
-          return typeof r === "string" && isUuidString(r) ? r : null;
-        })
-        .filter((x): x is string => !!x),
+      hydratedItems
+        .flatMap((i) => {
+          const ids: string[] = [];
+          const resolved = i.row.resolved_product_id;
+          const legacy = i.row.product_id;
+          if (typeof resolved === "string" && isUuidString(resolved)) ids.push(resolved);
+          if (typeof legacy === "string" && isUuidString(legacy)) ids.push(legacy);
+          return ids;
+        }),
     ),
   ];
 
   const products = await loadProductsById(organizationId, productIds);
 
-  return items.map((item) => {
+  return hydratedItems.map((item) => {
     const rid =
-      typeof item.row.resolved_product_id === "string" ? item.row.resolved_product_id : null;
-    const product = rid ? products.get(rid) ?? null : null;
+      typeof item.row.resolved_product_id === "string"
+        ? item.row.resolved_product_id
+        : typeof item.row.product_id === "string"
+          ? item.row.product_id
+          : null;
+    const product = rid ? { id: rid, ...products.get(rid) } : null;
     return mapRowToProductLinkageDisplayContract({
       source_table: item.source_table,
       source_row_id: item.source_row_id,

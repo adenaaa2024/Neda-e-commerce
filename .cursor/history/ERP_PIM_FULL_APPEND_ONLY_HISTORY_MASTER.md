@@ -233787,3 +233787,98 @@ PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
 ================================================================================
 END APPEND SLICE -- 20260613T120000Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T051948Z -- PHASE-ORIGINAL-PRODUCT-LINK-NO-LINK-REGRESSION-AUDIT-V1
+================================================================================
+
+### Problem
+Maysam reported products show No Link on original. Urgent read-only regression audit before claim preview/backfill.
+
+### Original spine (kxsvedvpjldygtdbylsy) — INTACT
+- products: 17,058
+- product_identifier_map: 16,849
+- product_prices: 29,571
+
+### Root cause
+runtime_env_mismatch — supabaseServer reads NEXT_PUBLIC_SUPABASE_URL (staging eiqfaapyumhixxoeltgu) while ORIGINAL_SUPABASE_URL is separate (kxsvedvpjldygtdbylsy).
+
+Contributing: resolveScannerProductIdentifiers returns unresolved when store_id null.
+
+Not root cause: data deletion, RLS on service-role paths, missing view columns on original.
+
+### Verifications
+- no_data_mutation_verification: PASS
+- no_scanner_change_verification: PASS
+- SAFE_TO_FIX_NO_LINK: no (verify runtime bind first)
+
+### Evidence
+- .cursor/audit-reports/phase-original-product-link-no-link-regression-audit-v1/20260613T051948Z/
+
+### Next Prompt
+PHASE-ORIGINAL-RUNTIME-ENV-BIND-VERIFY-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T051948Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T052400Z -- PHASE-ORIGINAL-PRODUCT-LINK-NO-LINK-MINIMAL-FIX-V1
+================================================================================
+
+### Fix (readmodel only — no DB writes, no scanner changes)
+- lib/product-linkage-display-contract.ts — spine-aware effectiveResolvedProductId; infer display status when id present
+- lib/product-linkage-display-enrich.ts — hydrate from product_identifier_map when operational resolved_product_id missing
+- lib/product-linkage-display-ui.ts — prefer is_resolved for status chip label
+- lib/inventory-views-product-linkage.ts — accept matched→resolved in view fast path
+
+### Smoke (original kxsvedvpjldygtdbylsy, read-only)
+- B0000B11UX, X004LKS4VD, X003VSWH37 → Linked (pure mapper + enrich)
+- X000NOMAP99 control → No product link yet
+- build PASS; SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/phase-original-product-link-no-link-minimal-fix-v1/20260613T052400Z/
+
+### Next Prompt
+PHASE-ORIGINAL-RUNTIME-ENV-BIND-VERIFY-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T052400Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T052709Z -- PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-DRYRUN-V1
+================================================================================
+
+### Mode
+Staging dry-run + preimage/rollback plan only. Wave 1: amazon_removals, amazon_removal_shipments, expected_packages. No writes. No claim_candidates.
+
+### Staging wave1 counts (eiqfaapyumhixxoeltgu)
+| Table | Rows | Resolvable | Ambiguous | After % |
+| amazon_removals | 2993 | 2847 | 0 | 95.1% |
+| amazon_removal_shipments | 10699 | 5734 | 0 | 97.7% |
+| expected_packages | 11046 | 1250 | 0 | 97.3% |
+Projected wave1 linkage: **97.2%** (9831 resolvable)
+
+### Original compare (read-only kxsvedvpjldygtdbylsy)
+| Table | Resolvable | After % |
+| amazon_removals | 3335 | 94.7% |
+| amazon_removal_shipments | 6494 | 97.4% |
+| expected_packages | 75 | 97.1% |
+
+### Artifacts
+- preimage-plan.sql, rollback-plan.sql per table
+- 1500 sample proposals (500/table max)
+
+### Verifications
+- no_write_verification: PASS
+- no_scanner_change_verification: PASS
+- SAFE_TO_IMPLEMENT_WAVE1_BACKFILL_STAGING_WRITE: **yes**
+
+### Next Prompt
+PHASE-PRODUCT-LINKAGE-OPERATIONAL-ROWS-BACKFILL-STAGING-WRITE-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T052709Z
+================================================================================
