@@ -233924,3 +233924,78 @@ PHASE-ORIGINAL-RUNTIME-ENV-BIND-AND-LINKAGE-FIX-DEPLOY-VERIFY-V1
 ================================================================================
 END APPEND SLICE -- 20260613T053153Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T054315Z -- PHASE-ORIGINAL-RUNTIME-ENV-BIND-VERIFY-V1
+================================================================================
+
+### Mode
+Emergency runtime verification only. No DB writes.
+
+### Runtime bind
+- NEXT_PUBLIC_SUPABASE_URL ref: **eiqfaapyumhixxoeltgu** (staging)
+- ORIGINAL_SUPABASE_URL ref: **kxsvedvpjldygtdbylsy**
+- expected_original_ref_match: **no**
+- env_bind_status: **MISMATCH_RUNTIME_POINTS_AT_STAGING**
+- service_role JWT ref: staging (not original)
+- dev_server_restart_needed: **yes** (active on 3000/3001)
+
+### Loaded code
+- git: **412d767** @ main
+- minimal fix files present: product-linkage-display-contract, enrich, ui, inventory-views-product-linkage
+
+### Shipment Entry smoke (fetchInventoryItemStatusForNeda path)
+| Sample | runtime label | original label |
+| X004LKS4VD | Linked | Linked |
+| X003VSWH37 | Linked | Linked |
+| ZQCPD4GHB | no view row | no view row |
+| ZZQCP25AW3 | no view row | no view row |
+
+Note: Shipment Entry operator-mobile also uses lib/scanner/product-linkage-display-contract.ts (separate from dashboard fix path).
+
+### Verdict
+- NO_DATA_MUTATION_VERIFICATION: **PASS**
+- SAFE_TO_CONTINUE_TO_UI_SMOKE: **no** (env not bound to original)
+- NEXT_PROMPT: **PHASE-ORIGINAL-RUNTIME-ENV-SWAP-AND-RESTART-V1**
+
+### Evidence
+- .cursor/audit-reports/phase-original-runtime-env-bind-verify-v1/20260613T054315Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T054315Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T055446Z -- PHASE-SHIPMENT25-NO-LINK-SCREENSHOT-SPECIFIC-AUDIT-V1
+================================================================================
+
+### Screenshot items (Shipment #25 Box List)
+| Item | FNSKU | UPC | Visible name source |
+| 1 | ZZQDPD4GHB | 071662213749 | slip_contents.description (Crayola…) |
+| 2 | ZZQCP25AW3 | 012044000854 | slip_contents.description (Old Spice…) |
+
+### Original DB (kxsvedvpjldygtdbylsy) findings
+- product_identifier_map: **0 hits** both FNSKUs + UPCs (alt ZQCPD4GHB also 0)
+- slip_contents rows exist with description + unresolved status
+- expected_packages: none for these FNSKUs in shipment 25 package context
+- v_inventory_item_status: none
+- resolver (with store): **unresolved** both items
+
+### UI verdict
+**Correct behavior** — "No product link yet" because no spine map / no resolved_product_id.
+Product names on screen = slip OCR description, **not** catalog linkage.
+
+### Classification
+**true_unmapped_product** — NOT runtime env mismatch, NOT UI mapper regression for these rows.
+
+### Verdict
+- NO_DATA_MUTATION_VERIFICATION: PASS
+- SAFE_TO_FIX_WITH_CODE_ONLY: **no** (needs governed map insert, not code)
+- NEXT_PROMPT: PHASE-SHIPMENT25-UNMAPPED-IDENTIFIER-GOVERNED-MAP-PLAN-V1
+
+### Evidence
+- .cursor/audit-reports/phase-shipment25-no-link-screenshot-specific-audit-v1/20260613T055446Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T055446Z
+================================================================================

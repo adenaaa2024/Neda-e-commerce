@@ -1,16 +1,24 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-13 (`phase-original-product-no-link-emergency-readonly-diagnose-v1` `20260613T053153Z`)
+**Last updated:** 2026-06-13 (`phase-shipment25-no-link-screenshot-specific-audit-v1` `20260613T055446Z`)
 
 ---
 
-## P0 — Original product No Link (blocks all claim/linkage work)
+## P0 — Shipment #25 screenshot items (governed map plan)
 
-1. **PHASE-ORIGINAL-RUNTIME-ENV-BIND-AND-LINKAGE-FIX-DEPLOY-VERIFY-V1** — bind original deploy to `kxsvedvpjldygtdbylsy` (`ORIGINAL_*` env); deploy readmodel fix (`effectiveResolvedProductId` / enrich); verify samples show **Linked** on original URL; no DB writes  
-2. Wave 1 backfill write — **BLOCKED** until P0 verified
+1. **PHASE-SHIPMENT25-UNMAPPED-IDENTIFIER-GOVERNED-MAP-PLAN-V1** — ZZQDPD4GHB + ZZQCP25AW3 are **true unmapped** on original (0 map hits); visible names = slip OCR description; No Link is **correct**; governed manual map only — no auto-create  
+2. ~~**PHASE-SHIPMENT25-NO-LINK-SCREENSHOT-SPECIFIC-AUDIT-V1**~~ — **DONE** `20260613T055446Z`  
+3. Env swap still recommended for other linked samples (X004LKS4VD etc.) — see bind verify
 
-Evidence: `.cursor/audit-reports/phase-original-product-no-link-emergency-readonly-diagnose-v1/20260613T053153Z/`
+Evidence: `.cursor/audit-reports/phase-shipment25-no-link-screenshot-specific-audit-v1/20260613T055446Z/`
+
+---
+
+## P1 — Original runtime env (other samples)
+
+1. **PHASE-ORIGINAL-RUNTIME-ENV-SWAP-AND-RESTART-V1** — for linked-sample regression only  
+2. ~~**PHASE-ORIGINAL-RUNTIME-ENV-BIND-VERIFY-V1**~~ — **DONE** `20260613T054315Z`
 
 ---
 
