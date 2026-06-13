@@ -1,99 +1,85 @@
-"use client";
-
-import { X } from "lucide-react";
-import Link from "next/link";
-
-import type { ClaimCenterV1Row } from "@/lib/claims/center/claim-center-v1-types";
-
-import { CLAIM_CENTER_DISABLED_BTN, CLAIM_CENTER_DRAWER_CLASS, claimCenterBadgeTone } from "./claim-center-ui";
-import { EvidenceChecklistPanel } from "./EvidenceChecklistPanel";
-import { OrbitFraCarryForwardBanner } from "./OrbitFraCarryForwardBanner";
-import { ProductLinkagePanel } from "./ProductLinkagePanel";
-import { TridReferenceGraphPanel } from "./TridReferenceGraphPanel";
-
-type Props = {
-  row: ClaimCenterV1Row | null;
-  onClose: () => void;
-};
-
-export function ClaimCenterDetailDrawer({ row, onClose }: Props) {
-  if (!row) return null;
-
-  return (
-    <>
-      <button
-        type="button"
-        className="fixed inset-0 z-[490] bg-black/40"
-        aria-label="Close detail"
-        onClick={onClose}
-      />
-      <aside className={CLAIM_CENTER_DRAWER_CLASS} role="dialog" aria-label="Claim opportunity detail">
-        <div className="flex h-full flex-col overflow-y-auto p-4 sm:p-5">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide opacity-60">Claim opportunity</p>
-              <h2 className="text-lg font-bold">{row.v1_status_label}</h2>
-              <p className="mt-1 text-xs opacity-70">{row.id}</p>
-            </div>
-            <button type="button" onClick={onClose} className="rounded-lg p-1 hover:bg-black/10 dark:hover:bg-white/10">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <div className="mb-4 flex flex-wrap gap-1.5">
-            {row.badges.map((b, i) => (
-              <span key={`${b.kind}-${i}`} className={claimCenterBadgeTone(b.tone)}>
-                {b.label}
-              </span>
-            ))}
-          </div>
-
-          {row.source_kind === "orbit_fra" ? <OrbitFraCarryForwardBanner row={row} /> : null}
-
-          <dl className="mb-4 grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <dt className="text-xs opacity-60">Recovery value</dt>
-              <dd className="font-semibold">
-                {row.recovery_value != null
-                  ? new Intl.NumberFormat("en-US", { style: "currency", currency: row.currency ?? "USD" }).format(row.recovery_value)
-                  : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs opacity-60">Filing deadline</dt>
-              <dd>{row.canonical_window.deadline ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs opacity-60">Claim reason</dt>
-              <dd>{row.claim_reason ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs opacity-60">Amazon reference</dt>
-              <dd>{row.amazon_reference_id ?? row.reference_id ?? "—"}</dd>
-            </div>
-          </dl>
-
-          <ProductLinkagePanel row={row} />
-          <TridReferenceGraphPanel row={row} organizationId={row.organization_id} />
-          <EvidenceChecklistPanel row={row} />
-
-          {row.product_story_href ? (
-            <Link href={row.product_story_href} className="mt-4 text-sm font-medium underline opacity-80">
-              Open product story
-            </Link>
-          ) : null}
-
-          <div className="mt-6 space-y-2 border-t pt-4">
-            <p className="text-xs opacity-60">Actions (bridge phase required)</p>
-            <button type="button" disabled className={CLAIM_CENTER_DISABLED_BTN}>
-              File claim — requires bridge phase
-            </button>
-            <button type="button" disabled className={CLAIM_CENTER_DISABLED_BTN}>
-              Promote to case — requires bridge phase
-            </button>
-          </div>
-        </div>
-      </aside>
-    </>
-  );
-}
+"use client";
+
+import { X } from "lucide-react";
+
+import { MenorixModuleMobileDetailSheet } from "@/components/menorix";
+import { MENORIX_TOUCH_MIN } from "@/components/menorix/menorix-module-ui";
+import type { ClaimCenterV1Row } from "@/lib/claims/center/claim-center-v1-types";
+
+import { ClaimCenterBridgePhaseNotice } from "./ClaimCenterBridgePhaseNotice";
+import { ClaimCenterDetailStory } from "./ClaimCenterDetailStoryBlocks";
+import { ClaimCenterMobileDetailSummary } from "./ClaimCenterMobileDetailSummary";
+import {
+  ClaimCenterFlowStepPill,
+  claimCenterFlowStepIdFromRow,
+} from "./ClaimCenterWorkflowBar";
+
+type Props = {
+  row: ClaimCenterV1Row | null;
+  onClose: () => void;
+};
+
+const DESKTOP_DRAWER_CLASS =
+  "claim-center-drawer claim-center-detail-drawer fixed inset-y-0 right-0 z-[500] flex w-full max-w-3xl flex-col border-l shadow-2xl xl:max-w-5xl";
+
+function sourceLabel(row: ClaimCenterV1Row): string {
+  return row.badges.find((b) => b.kind === "source")?.label ?? row.source_kind ?? "";
+}
+
+export function ClaimCenterDetailDrawer({ row, onClose }: Props) {
+  if (!row) return null;
+
+  const footer = <ClaimCenterBridgePhaseNotice compact />;
+  const flowStepId = claimCenterFlowStepIdFromRow(row);
+  const family = row.claim_family?.replace(/_/g, " ") ?? "Opportunity";
+  const subtitle = [family, sourceLabel(row)].filter(Boolean).join(" · ");
+
+  return (
+    <>
+      <div className="lg:hidden" data-claim-center="mobile-detail-sheet">
+        <MenorixModuleMobileDetailSheet
+          open
+          title={row.v1_status_label}
+          subtitle={subtitle || "Read-only opportunity story"}
+          onClose={onClose}
+          footer={footer}
+        >
+          <ClaimCenterMobileDetailSummary row={row} />
+          <div className="mb-4">
+            <ClaimCenterFlowStepPill stepId={flowStepId} />
+          </div>
+          <ClaimCenterDetailStory row={row} variant="mobile" />
+        </MenorixModuleMobileDetailSheet>
+      </div>
+
+      <div className="hidden lg:block">
+        <button
+          type="button"
+          className="fixed inset-0 z-[490] bg-black/40"
+          aria-label="Close detail"
+          onClick={onClose}
+        />
+        <aside className={DESKTOP_DRAWER_CLASS} role="dialog" aria-label={row.v1_status_label}>
+          <div className="flex items-start justify-between gap-3 border-b px-5 py-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide opacity-60">Claim opportunity</p>
+              <h2 className="truncate text-lg font-bold">{row.v1_status_label}</h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className={`rounded-lg p-2 hover:bg-black/10 dark:hover:bg-white/10 ${MENORIX_TOUCH_MIN}`}
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <ClaimCenterDetailStory row={row} variant="desktop" />
+          </div>
+          <div className="sticky bottom-0 border-t bg-inherit px-5 py-3">{footer}</div>
+        </aside>
+      </div>
+    </>
+  );
+}

@@ -507,14 +507,25 @@ export async function runAmazonProductSyncCatchUp(params: {
     };
   }
 
-  const promoteLimit = Math.min(100, Math.max(1, params.promoteLimit ?? 50));
-  const promoteResult = await promoteMissingAmazonProducts({
-    supabase: params.supabase,
-    organizationId: params.organizationId,
-    storeId: params.storeId,
-    limit: promoteLimit,
-    dryRun: false,
-  });
+  const promoteLimitRaw = params.promoteLimit ?? 50;
+  const promoteResult =
+    promoteLimitRaw <= 0
+      ? {
+          attempted: 0,
+          created: 0,
+          skipped: 0,
+          failed: 0,
+          created_product_ids: [] as string[],
+          errors: [] as Array<{ asin: string; reason: string }>,
+        }
+      : await promoteMissingAmazonProducts({
+          supabase: params.supabase,
+          pgClient: params.pgClient,
+          organizationId: params.organizationId,
+          storeId: params.storeId,
+          limit: Math.min(100, Math.max(1, promoteLimitRaw)),
+          dryRun: false,
+        });
 
   const { runPimCatalogEnrichmentBatch } = await import("./pim-catalog-enrichment-batch");
   const enrichBatches = Math.min(5, Math.max(1, params.enrichBatches ?? 1));

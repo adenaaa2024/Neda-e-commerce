@@ -59,12 +59,31 @@ export const DISCOVERY_SETUP_SQL: string[] = [
      rm.id::text AS removal_row_id,
      rs.id::text AS ship_row_id,
      rs.tracking_number AS ship_tracking,
-     rs.shipment_date AS ship_date
+     rs.shipment_date AS ship_date,
+     -- Physical-return lane (7H-PR): trusted scanner / return_items-backed candidates.
+     (c.source_kind <> 'legacy_seed' AND (
+        c.source_kind = 'scanner_physical_review'
+        OR (c.source_kind = 'orbit_fra' AND c.source_table = 'return_items')
+        OR c.claim_family IN ('physical_return_issue', 'physical_return_off_manifest', 'physical_return_damaged')
+     )) AS is_physical,
+     c.return_item_id::text AS return_item_id_col,
+     ri_any.id::text AS phys_return_item_id,
+     ri_any.order_id AS ri_order_id,
+     ri_any.notes AS ri_notes,
+     CASE WHEN jsonb_typeof(to_jsonb(ri_any.photo_evidence)) = 'array'
+          THEN jsonb_array_length(to_jsonb(ri_any.photo_evidence)) ELSE 0 END AS ri_photos_n,
+     pp.id::text AS phys_pkg_id,
+     pp.package_code AS phys_pkg_code,
+     pp.tracking_number AS phys_pkg_tracking
    FROM public.claim_candidates c
    LEFT JOIN public.amazon_returns ar ON c.source_table = 'amazon_returns' AND ar.id = c.source_row_id
    LEFT JOIN public.amazon_removals rm ON c.source_table = 'amazon_removals' AND rm.id = c.source_row_id
    LEFT JOIN public.amazon_removal_shipments rs ON c.source_table = 'amazon_removal_shipments' AND rs.id = c.source_row_id
-   LEFT JOIN public.return_items ri ON c.source_table = 'return_items' AND ri.id = c.source_row_id`,
+   LEFT JOIN public.return_items ri ON c.source_table = 'return_items' AND ri.id = c.source_row_id
+   LEFT JOIN public.return_items ri_any
+     ON ri_any.id = COALESCE(c.return_item_id, CASE WHEN c.source_table = 'return_items' THEN c.source_row_id END)
+   LEFT JOIN public.packages pp
+     ON pp.id = COALESCE(c.package_id, ri_any.package_id) AND pp.deleted_at IS NULL`,
   `CREATE INDEX ON tmp_disc_cand (organization_id, op_order)`,
   `DROP TABLE IF EXISTS tmp_disc_orders`,
   `CREATE TEMP TABLE tmp_disc_orders AS
@@ -346,6 +365,92 @@ export function buildDiscoveryRules(options: { safetHasOrderId: boolean }): Disc
           jsonb_build_array(jsonb_build_object('table', 'products', 'id', t.resolved_product_id::text))
         FROM tmp_disc_cand t
         WHERE t.resolved_product_id IS NOT NULL`,
+    },
+    /* ── physical-return MVP lane (trusted scanner / return_items candidates) ── */
+    {
+      source: "physical_return_item",
+      edge_type: "source_evidence",
+      sql: `
+        SELECT
+          t.organization_id, t.id, 'source_evidence',
+          'claim_candidate', 'claim_candidates', t.id::text,
+          'return_item', 'return_items', t.phys_return_item_id,
+          'return_item_id', t.phys_return_item_id,
+          CASE WHEN t.return_item_id_col IS NOT NULL THEN 1.0 ELSE 0.95 END,
+          NULL, NULL,
+          'physical return candidate anchored to scanned return item' ||
+            CASE WHEN t.return_item_id_col IS NULL THEN ' (source_row_id fallback)' ELSE '' END,
+          jsonb_build_array(jsonb_build_object('table', 'return_items', 'id', t.phys_return_item_id))
+        FROM tmp_disc_cand t
+        WHERE t.is_physical AND t.phys_return_item_id IS NOT NULL`,
+    },
+    {
+      source: "physical_package",
+      edge_type: "shipment_scope",
+      sql: `
+        SELECT
+          t.organization_id, t.id, 'shipment_scope',
+          'claim_candidate', 'claim_candidates', t.id::text,
+          'package', 'packages', t.phys_pkg_id,
+          'package_code', COALESCE(t.phys_pkg_code, t.phys_pkg_id),
+          CASE WHEN t.package_id IS NOT NULL THEN 1.0 ELSE 0.9 END,
+          NULL, NULL,
+          'physical return candidate package scope',
+          jsonb_build_array(jsonb_build_object('table', 'packages', 'id', t.phys_pkg_id))
+        FROM tmp_disc_cand t
+        WHERE t.is_physical AND t.phys_pkg_id IS NOT NULL`,
+    },
+    {
+      source: "physical_tracking",
+      edge_type: "shipment_scope",
+      sql: `
+        SELECT
+          t.organization_id, t.id, 'shipment_scope',
+          'claim_candidate', 'claim_candidates', t.id::text,
+          'shipment_tracking', CASE WHEN t.phys_pkg_id IS NOT NULL THEN 'packages' END, t.phys_pkg_id,
+          'tracking_number', COALESCE(t.phys_pkg_tracking, t.shipment_scope_key),
+          CASE WHEN t.phys_pkg_tracking IS NOT NULL THEN 1.0 ELSE 0.9 END,
+          NULL, NULL,
+          'physical return candidate shipment tracking',
+          '[]'::jsonb
+        FROM tmp_disc_cand t
+        WHERE t.is_physical AND COALESCE(t.phys_pkg_tracking, t.shipment_scope_key) IS NOT NULL`,
+    },
+    {
+      source: "physical_evidence_note",
+      edge_type: "source_evidence",
+      sql: `
+        SELECT
+          t.organization_id, t.id, 'source_evidence',
+          'claim_candidate', 'claim_candidates', t.id::text,
+          CASE WHEN t.ri_photos_n > 0 THEN 'evidence' ELSE 'source_note' END,
+          'return_items', t.phys_return_item_id,
+          CASE WHEN t.ri_photos_n > 0 THEN 'evidence' ELSE 'scan_note' END,
+          CASE WHEN t.ri_photos_n > 0 THEN t.ri_photos_n || ' photo(s)' ELSE LEFT(t.ri_notes, 120) END,
+          CASE WHEN t.ri_photos_n > 0 THEN 1.0 ELSE 0.5 END,
+          NULL, NULL,
+          CASE WHEN t.ri_photos_n > 0
+               THEN 'photo evidence on scanned return item'
+               ELSE 'operator scan note (low-confidence evidence)' END,
+          jsonb_build_array(jsonb_build_object('table', 'return_items', 'id', t.phys_return_item_id, 'photos', t.ri_photos_n))
+        FROM tmp_disc_cand t
+        WHERE t.is_physical AND t.phys_return_item_id IS NOT NULL
+          AND (t.ri_photos_n > 0 OR (t.ri_notes IS NOT NULL AND TRIM(t.ri_notes) <> ''))`,
+    },
+    {
+      source: "physical_order",
+      edge_type: "order_reference",
+      sql: `
+        SELECT
+          t.organization_id, t.id, 'order_reference',
+          'claim_candidate', 'claim_candidates', t.id::text,
+          'order', 'return_items', t.phys_return_item_id,
+          'amazon_order_id', t.ri_order_id,
+          0.9, NULL, NULL,
+          'order id recorded on scanned return item',
+          jsonb_build_array(jsonb_build_object('table', 'return_items', 'id', t.phys_return_item_id))
+        FROM tmp_disc_cand t
+        WHERE t.is_physical AND t.ri_order_id IS NOT NULL AND TRIM(t.ri_order_id) <> ''`,
     },
   ];
   return rules;

@@ -2,7 +2,7 @@
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765`  
 **Staging:** `eiqfaapyumhixxoeltgu`  
-**Last updated:** 2026-06-11 (`phase-scanner-final-qa-neda-handoff` `20260611T045500Z`)
+**Last updated:** 2026-06-12 (`phase-scanner-shipment-line-aggregation-fix` `20260612T230000Z`)
 
 Contract reference: [SCANNER_OPERATOR_CONTRACTS.md](SCANNER_OPERATOR_CONTRACTS.md) · [SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md](SCANNER_RETURNS_CLAIMS_ARCHITECTURE.md) · [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
 
@@ -29,7 +29,15 @@ Contract reference: [SCANNER_OPERATOR_CONTRACTS.md](SCANNER_OPERATOR_CONTRACTS.m
 | Void box | `voidOperatorIntakeBoxPackageAction` → release all RIs → soft void package | **COMPLETE** |
 | Move box | `moveOperatorIntakeBoxToPalletAction` → `move_expected_item_unit` per RI | **COMPLETE** |
 
-**Remaining (non-demo-blocking):** restore-RPC wiring to `undo_snapshots`; original DB undo migration apply — separate approval.
+**Remaining (non-demo-blocking):** restore-RPC wiring to `undo_snapshots`; original DB undo migration apply — separate approval. Item-scan EP-only fallback (`slipLikeRowsForInspection`) may still show per-EP lines until follow-up prompt.
+
+## Shipment Entry line aggregation (387003587 / X004LKS4VD)
+
+| Item | Status |
+|------|--------|
+| Shipment Entry identify gate display | **FIXED** `20260612T230000Z` — 2 EP rows → 1 card @ 53 expected; overflow/source badges |
+| Raw `expected_packages` rows | **2 preserved** (52 matched + 1 overflow conflict) |
+| Allocation / resolver / DB | **unchanged** |
 
 ## Neda merge contract
 

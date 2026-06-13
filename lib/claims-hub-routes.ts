@@ -18,6 +18,16 @@ export function isClaimsHubRoute(pathname: string): boolean {
   return false;
 }
 
+/** Claim Center V1 read shell — separate sidebar leaf from legacy Claim Engine. */
+export function isClaimCenterRoute(pathname: string): boolean {
+  const path = normalizeAppPath(pathname);
+  return path === "/claim-center" || path.startsWith("/claim-center/");
+}
+
+export function isClaimCenterSidebarActive(pathname: string): boolean {
+  return isClaimCenterRoute(pathname);
+}
+
 export function isClaimsSettingsRoute(pathname: string, settingsTab: string | null | undefined): boolean {
   return normalizeAppPath(pathname) === "/settings" && settingsTab === CLAIMS_SETTINGS_TAB;
 }
@@ -36,5 +46,6 @@ export function isReturnsProcessingRoute(pathname: string): boolean {
 }
 
 export function isClaimsSidebarActive(pathname: string, settingsTab?: string | null): boolean {
+  if (isClaimCenterRoute(pathname)) return false;
   return isClaimsHubRoute(pathname) || isClaimsSettingsRoute(pathname, settingsTab);
 }

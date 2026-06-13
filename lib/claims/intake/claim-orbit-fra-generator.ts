@@ -839,6 +839,15 @@ export const orbitFraGenerator: ClaimGeneratorDefinition = {
               window_status:
                 remaining == null ? "unknown" : remaining < 0 ? "expired" : remaining <= 14 ? "closing_soon" : "open",
               units_affected: hit.units,
+              // Physical linkage for return_items-sourced categories — registry
+              // maps these metadata keys to claim_candidates columns.
+              ...(category.source_table === "return_items"
+                ? {
+                    return_item_id: str(hit.row.id),
+                    package_id: str(hit.row.package_id),
+                    pallet_id: str(hit.row.pallet_id),
+                  }
+                : {}),
             },
           }),
         );

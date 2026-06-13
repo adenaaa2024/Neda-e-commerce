@@ -13,10 +13,13 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function windowStatusFromDaysRemaining(days: number | null): ClaimCenterWindowStatus {
+export function windowStatusFromDaysRemaining(
+  days: number | null,
+  expirationWarningDays = 14,
+): ClaimCenterWindowStatus {
   if (days == null) return "unknown";
   if (days < 0) return "expired";
-  if (days <= 14) return "closing_soon";
+  if (days <= expirationWarningDays) return "closing_soon";
   return "open";
 }
 
@@ -25,14 +28,18 @@ export function computeCanonicalWindow(args: {
   disputeDeadline: string | null;
   daysRemainingSnapshot: number | null;
   claimEligibilityWindowDays: number;
+  expirationWarningDays?: number;
 }): ClaimCenterCanonicalWindow {
   let deadline = str(args.disputeDeadline);
   const eventDate = str(args.eventDate);
 
   if (!deadline && eventDate && args.claimEligibilityWindowDays > 0) {
-    const d = new Date(`${eventDate}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + args.claimEligibilityWindowDays);
-    deadline = d.toISOString().slice(0, 10);
+    const parsed = eventDate.includes("T") ? new Date(eventDate) : new Date(`${eventDate}T00:00:00Z`);
+    if (!Number.isNaN(parsed.getTime())) {
+      const d = new Date(parsed.getTime());
+      d.setUTCDate(d.getUTCDate() + args.claimEligibilityWindowDays);
+      deadline = d.toISOString().slice(0, 10);
+    }
   }
 
   let daysRemaining = args.daysRemainingSnapshot;
@@ -41,8 +48,9 @@ export function computeCanonicalWindow(args: {
     daysRemaining = Math.floor(ms / 86_400_000);
   }
 
+  const warningDays = args.expirationWarningDays ?? 14;
   return {
-    status: windowStatusFromDaysRemaining(daysRemaining),
+    status: windowStatusFromDaysRemaining(daysRemaining, warningDays),
     days_remaining: daysRemaining,
     deadline,
   };
@@ -57,7 +65,7 @@ export function observedWindowFromMetadata(meta: Record<string, unknown>): Claim
     const status =
       ws === "expired" || ws === "closing_soon" || ws === "open"
         ? (ws as ClaimCenterWindowStatus)
-        : windowStatusFromDaysRemaining(dr);
+        : windowStatusFromDaysRemaining(dr, 14);
     return { status, days_remaining: dr, deadline: str(meta.dispute_deadline) };
   }
   const o = observed as Record<string, unknown>;
@@ -66,7 +74,7 @@ export function observedWindowFromMetadata(meta: Record<string, unknown>): Claim
   const status =
     statusRaw === "expired" || statusRaw === "closing_soon" || statusRaw === "open"
       ? statusRaw
-      : windowStatusFromDaysRemaining(dr);
+      : windowStatusFromDaysRemaining(dr, 14);
   return {
     status,
     days_remaining: dr,

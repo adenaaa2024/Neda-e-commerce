@@ -5,8 +5,12 @@ export { MenorixModuleKpiStrip, type MenorixKpiItem } from "./MenorixModuleKpiSt
 export { MenorixModuleScopeBar, type MenorixScopeStoreOption } from "./MenorixModuleScopeBar";
 export { MenorixModuleMobileBottomNav, MenorixModuleSectionTabs, type MenorixModuleNavItem } from "./MenorixModuleSectionTabs";
 export { MenorixModuleDetailDrawer } from "./MenorixModuleDetailDrawer";
+export { MenorixModuleMobileDetailSheet } from "./MenorixModuleMobileDetailSheet";
 export { MenorixModuleEmptyState } from "./MenorixModuleEmptyState";
 export { MenorixModuleFeatureLockedCard } from "./MenorixModuleFeatureLockedCard";
 export { MenorixModuleAiAssistCard, type MenorixAiAssistState } from "./MenorixModuleAiAssistCard";
 export { MenorixModuleAutomationHealthCard, type MenorixAutomationHealth } from "./MenorixModuleAutomationHealthCard";
+export { MenorixModuleViewSwitcher } from "./MenorixModuleViewSwitcher";
+export { MenorixModuleQuickActions, type MenorixQuickAction } from "./MenorixModuleQuickActions";
+export { MenorixModuleMobileFilterSheet } from "./MenorixModuleMobileFilterSheet";
 export * from "./menorix-module-ui";

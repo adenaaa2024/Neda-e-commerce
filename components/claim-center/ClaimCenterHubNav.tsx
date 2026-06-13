@@ -14,10 +14,9 @@ const SECTIONS = [
   { href: "/claim-center/references", label: "References" },
   { href: "/claim-center/product-linkage", label: "Product link" },
   { href: "/claim-center/cases", label: "Cases" },
-  { href: "/claim-center/submissions", label: "Submissions" },
+  { href: "/claim-center/submissions", label: "Submissions (legacy)" },
   { href: "/claim-center/recovery", label: "Recovery" },
   { href: "/claim-center/runs", label: "Runs" },
-  { href: "/claim-center/settings", label: "Settings" },
 ] as const;
 
 export function ClaimCenterHubNav() {

@@ -67,8 +67,6 @@ import { CLAIMS_SETTINGS_TAB } from "../../lib/claims-hub-routes";
 import { FALLBACK_ORGANIZATION_ID } from "../../lib/organization";
 import { isUuidString } from "../../lib/uuid";
 import { DatabaseTag } from "../../components/DatabaseTag";
-import { ClaimEngineHubNavShell } from "../../components/claim-engine/ClaimEngineHubNavShell";
-import { ClaimCandidateIntakePolicyPanel } from "../../components/claim-engine/ClaimCandidateIntakePolicyPanel";
 import type { AdapterProviderKey } from "../../lib/adapters";
 import {
   listMarketplaces, listStores, insertStore, insertMarketplace,
@@ -2975,11 +2973,15 @@ export default function SettingsPage() {
           {/* ══════════════ CLAIM ENGINE (Placeholder) ══════════════ */}
           {activeTab === "claim_engine" && (
             <div className="claim-engine-view claim-engine-settings-panel -mx-4 space-y-6 px-4 py-2 sm:-mx-6 sm:px-6">
-              <ClaimEngineHubNavShell className="claim-engine-hub-nav" />
               <header className="claim-engine-page-header border-b pb-4">
-                <h2 className="text-xl font-bold tracking-tight">Settings</h2>
+                <h2 className="text-xl font-bold tracking-tight">Claims settings</h2>
                 <p className="max-w-3xl text-sm">
-                  Configure automated claim rules, evidence defaults, module scope, and agent sync.
+                  Configure organization claim policy, workflow, evidence defaults, and agent sync. For platform/store
+                  automation and candidate intake policy, use{" "}
+                  <Link href="/platform/settings/automation" className="font-medium text-violet-600 underline dark:text-violet-400">
+                    Automation settings
+                  </Link>
+                  .
                 </p>
               </header>
 
@@ -3155,13 +3157,19 @@ export default function SettingsPage() {
                 </div>
 
                 {organizationId?.trim() && isUuidString(organizationId.trim()) ? (
-                  <ClaimCandidateIntakePolicyPanel
-                    organizationId={organizationId.trim()}
-                    editableScopes={["company"]}
-                    actorProfileId={actorUserId}
-                    showStoreScope={false}
-                    className={`claim-engine-settings-card ${mockPlan === "Free Tier" ? "opacity-50 pointer-events-none select-none" : ""}`}
-                  />
+                  <div className="claim-engine-settings-card space-y-3 p-6">
+                    <h3 className="text-sm font-bold text-foreground">Candidate intake policy</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Platform defaults, company overrides, and per-store intake rules for claim candidate generation
+                      are edited in the Automation Center — not duplicated here.
+                    </p>
+                    <Link
+                      href="/platform/settings/automation"
+                      className="inline-flex items-center rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-muted/40 dark:text-violet-300"
+                    >
+                      Open Automation settings →
+                    </Link>
+                  </div>
                 ) : null}
 
                 <div className="claim-engine-settings-card p-6 space-y-4">

@@ -7,12 +7,11 @@ import type { ReactNode } from "react";
 import {
   MENORIX_MODULE_BOTTOM_NAV_CLASS,
   MENORIX_MODULE_SECTION_TABS_CLASS,
-  MENORIX_MODULE_VIEW_SWITCH_CLASS,
   type MenorixModuleViewMode,
   menorixModuleBottomNavLinkClass,
   menorixModuleSectionTabClass,
-  menorixModuleViewSwitchBtn,
 } from "./menorix-module-ui";
+import { MenorixModuleViewSwitcher } from "./MenorixModuleViewSwitcher";
 
 export type MenorixModuleNavItem = {
   href: string;
@@ -22,22 +21,18 @@ export type MenorixModuleNavItem = {
   icon?: ReactNode;
 };
 
-const VIEW_MODES: { id: MenorixModuleViewMode; label: string }[] = [
-  { id: "command", label: "Command" },
-  { id: "queue", label: "Queue" },
-  { id: "table", label: "Table" },
-];
-
 export function MenorixModuleSectionTabs({
   items,
   viewMode,
   onViewModeChange,
   showViewSwitch = false,
+  viewSwitchCompact,
 }: {
   items: MenorixModuleNavItem[];
   viewMode?: MenorixModuleViewMode;
   onViewModeChange?: (mode: MenorixModuleViewMode) => void;
   showViewSwitch?: boolean;
+  viewSwitchCompact?: boolean;
 }) {
   const pathname = usePathname();
 
@@ -57,18 +52,7 @@ export function MenorixModuleSectionTabs({
         })}
       </nav>
       {showViewSwitch && viewMode && onViewModeChange ? (
-        <div className={MENORIX_MODULE_VIEW_SWITCH_CLASS} role="group" aria-label="View mode">
-          {VIEW_MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              className={menorixModuleViewSwitchBtn(viewMode === m.id)}
-              onClick={() => onViewModeChange(m.id)}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+        <MenorixModuleViewSwitcher value={viewMode} onChange={onViewModeChange} compact={viewSwitchCompact} />
       ) : null}
     </div>
   );

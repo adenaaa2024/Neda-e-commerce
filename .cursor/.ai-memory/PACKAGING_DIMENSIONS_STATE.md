@@ -32,6 +32,8 @@
 | Governed (pilot + W1 + W2) | **441** | `pc05-packaging-full-parity-verify/20260526T214000Z` — **441/441**, drift 0 |
 | Spreadsheet activate | **80** | `spreadsheet-packaging-activate-staging/20260528T050000Z` |
 | Spreadsheet original parity | **80/80** | `spreadsheet-packaging-original-parity-verify/20260528T080000Z` |
+| Fee/dim claim audit V1 | **571 current** | `phase-product-dimensions-shipment-fee-claim-audit-v1/20260612T185018Z` — 80 full L×W×H; SAFE_TO_DESIGN **yes** |
+| PC04 history/evidence contract V1 | **571/571/571** | `phase-pc04-dimensions-history-evidence-contract-v1/20260612T195458Z` — 0 evidence rows; evidence_summary populated; SAFE_TO_USE **yes** |
 
 Batch tag: `SPREADSHEET_DIMENSIONS_20260528T010000Z`
 

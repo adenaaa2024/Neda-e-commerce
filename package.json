@@ -70,6 +70,7 @@
     "smoke:finances-api-archive-06b-flatten-benchmark": "tsx scripts/finances-api-archive-06b-staging-flatten-benchmark.ts",
     "smoke:import-api-09-settlement-preflight": "tsx scripts/import-api-09-settlement-staging-smoke-preflight.ts",
     "smoke:import-api-09-settlement-execute": "tsx scripts/import-api-09-settlement-staging-smoke-execute.ts",
+    "smoke:claim-family-algorithm-readmodel-v1": "tsx scripts/smoke-claim-family-algorithm-readmodel-v1.ts",
     "repair:import-api-09c-settlement-domain": "tsx scripts/import-api-09c-settlement-domain-repair.ts",
     "verify:import-api-09d-settlement-ui": "tsx scripts/import-api-09d-settlement-ui-verify.ts",
     "verify:import-api-09f-settlement-frr-reconcile": "tsx scripts/import-api-09f-settlement-frr-reconcile-verify.ts",

@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+
+import { CLAIMS_SETTINGS_HREF } from "@/lib/claims-hub-routes";
 import type { ClaimPolicyV1 } from "@/lib/claim-policy-types";
 import type { ClaimWorkflowSettings } from "@/lib/claim-effective-settings-shared";
 
@@ -11,6 +14,8 @@ export type ClaimSettingsOverviewRow = {
   editability: "customer-editable" | "admin-only" | "locked" | "read-only";
   featureRequired?: string;
   warning?: string | null;
+  /** Deep link to the single owner surface for edits (Phase 1 — link only). */
+  editHref?: string | null;
 };
 
 function row(
@@ -24,6 +29,10 @@ function row(
   return { id, label, effective, source, editability, ...extra };
 }
 
+const WORKSPACE_CLAIM_SETTINGS = CLAIMS_SETTINGS_HREF;
+const AUTOMATION_SETTINGS = "/platform/settings/automation";
+const PWA_SETTINGS = "/platform/settings/pwa";
+
 export function buildClaimSettingsOverviewRows(input: {
   policy?: ClaimPolicyV1 | null;
   workflow?: ClaimWorkflowSettings | null;
@@ -36,14 +45,6 @@ export function buildClaimSettingsOverviewRows(input: {
 
   return [
     row(
-      "module_enablement",
-      "Module enablement",
-      input.claimRecoveryEnabled ? "Claim Recovery enabled" : "Disabled or domain-only",
-      "platform",
-      "admin-only",
-      { featureRequired: "claim_recovery", warning: input.moduleAccessReason },
-    ),
-    row(
       "sources",
       "Sources",
       Object.entries(p?.enabled_claim_domains ?? {})
@@ -52,6 +53,7 @@ export function buildClaimSettingsOverviewRows(input: {
         .join(", ") || "None enabled",
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "trigger_modes",
@@ -59,6 +61,7 @@ export function buildClaimSettingsOverviewRows(input: {
       input.autoCreateDrafts ? "Auto drafts on scan enabled" : "Manual draft creation",
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "filing_deadlines",
@@ -66,6 +69,7 @@ export function buildClaimSettingsOverviewRows(input: {
       p?.claim_eligibility_window_days != null ? `${p.claim_eligibility_window_days} day window` : "Default policy window",
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "evidence_requirements",
@@ -73,6 +77,7 @@ export function buildClaimSettingsOverviewRows(input: {
       w?.require_evidence === false ? "Optional" : "Required for promotion",
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "product_linkage_requirements",
@@ -80,6 +85,7 @@ export function buildClaimSettingsOverviewRows(input: {
       w?.require_product_link === false ? "Optional" : "Resolved product required",
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "trid_reference_requirements",
@@ -89,6 +95,7 @@ export function buildClaimSettingsOverviewRows(input: {
         : "Standard reference checks",
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "submission_rules",
@@ -96,6 +103,7 @@ export function buildClaimSettingsOverviewRows(input: {
       w?.create_case_when === "manual_only" ? "Manual case creation only" : `Cases when: ${w?.create_case_when ?? "package closed"}`,
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "ai_assistant_rules",
@@ -111,7 +119,7 @@ export function buildClaimSettingsOverviewRows(input: {
       "Agent filing gated — manual approval default",
       "platform",
       "admin-only",
-      { featureRequired: "ai_agents" },
+      { featureRequired: "ai_agents", editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "orbit_fra_import",
@@ -119,6 +127,7 @@ export function buildClaimSettingsOverviewRows(input: {
       p?.enabled_claim_domains?.financial ? "Financial domain enabled" : "Financial / ORBIT lane off",
       "organization",
       "admin-only",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "automation_schedules",
@@ -126,6 +135,23 @@ export function buildClaimSettingsOverviewRows(input: {
       "Platform Automation Center + claim pool generation",
       "platform",
       "admin-only",
+      { editHref: AUTOMATION_SETTINGS },
+    ),
+    row(
+      "candidate_intake_policy",
+      "Candidate intake policy",
+      "Platform / company / store scopes — unified pool generators",
+      "platform",
+      "admin-only",
+      { editHref: AUTOMATION_SETTINGS },
+    ),
+    row(
+      "operator_pwa_gates",
+      "Operator PWA gates",
+      "Install and version policy for warehouse PWA",
+      "platform",
+      "admin-only",
+      { editHref: PWA_SETTINGS },
     ),
     row(
       "approval_thresholds",
@@ -133,6 +159,7 @@ export function buildClaimSettingsOverviewRows(input: {
       (p?.claim_hold_policy ?? []).length ? p!.claim_hold_policy.join(", ") : "Default holds",
       "organization",
       "customer-editable",
+      { editHref: WORKSPACE_CLAIM_SETTINGS },
     ),
     row(
       "store_overrides",
@@ -140,6 +167,7 @@ export function buildClaimSettingsOverviewRows(input: {
       "Per-store automation + intake overrides supported",
       "store",
       "customer-editable",
+      { editHref: AUTOMATION_SETTINGS },
     ),
     row(
       "role_permissions",
@@ -147,6 +175,19 @@ export function buildClaimSettingsOverviewRows(input: {
       "Claims settings manage + operator review roles",
       "organization",
       "admin-only",
+      { editHref: "/platform/users" },
+    ),
+    row(
+      "module_enablement",
+      "Module enablement",
+      input.claimRecoveryEnabled ? "Claim Recovery enabled" : "Disabled or domain-only",
+      "platform",
+      "read-only",
+      {
+        featureRequired: "claim_recovery",
+        warning: input.moduleAccessReason,
+        editHref: "/platform/access",
+      },
     ),
   ];
 }
@@ -161,17 +202,18 @@ export function ClaimSettingsOverviewPanel({
       <div>
         <h3 className="text-sm font-semibold">Settings overview</h3>
         <p className="text-xs opacity-70">
-          Read-only effective policy snapshot. Edits happen in workspace or platform settings — not here in V1.
+          Read-only effective policy snapshot. Use row links to edit on the owning settings page — not here in V1.
         </p>
       </div>
       <div className="overflow-x-auto">
-        <table className="claim-center-table w-full min-w-[640px] text-sm">
+        <table className="claim-center-table w-full min-w-[720px] text-sm">
           <thead className="text-xs uppercase opacity-60">
             <tr>
               <th className="px-3 py-2 text-left">Setting</th>
               <th className="px-3 py-2 text-left">Effective value</th>
               <th className="px-3 py-2 text-left">Source</th>
               <th className="px-3 py-2 text-left">Access</th>
+              <th className="px-3 py-2 text-left">Edit</th>
             </tr>
           </thead>
           <tbody>
@@ -187,6 +229,15 @@ export function ClaimSettingsOverviewPanel({
                 <td className="px-3 py-2.5 align-top">{r.effective}</td>
                 <td className="px-3 py-2.5 align-top capitalize">{r.source}</td>
                 <td className="px-3 py-2.5 align-top capitalize">{r.editability.replace(/-/g, " ")}</td>
+                <td className="px-3 py-2.5 align-top">
+                  {r.editHref ? (
+                    <Link href={r.editHref} className="text-xs font-medium underline opacity-80 hover:opacity-100">
+                      Open owner →
+                    </Link>
+                  ) : (
+                    <span className="text-xs opacity-40">—</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

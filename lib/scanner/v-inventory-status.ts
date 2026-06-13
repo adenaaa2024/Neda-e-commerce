@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  EXPECTED_PACKAGE_UI_COPY,
+  hasAmazonSourceMismatch,
+  splitExpectedQuantityByBuildStatus,
+} from "@/lib/expected-packages-conflict-status";
 import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
 import { mockExpectedPackageDetailRows, type FetchExpectedPackagesOptions } from "@/lib/scanner/operator-tracking-expectations";
 import { fetchIdentityStatusForScanCode } from "@/lib/scanner/scanner-identity-lookup";
@@ -55,8 +60,32 @@ export type VInventoryStatusRow = {
   identifier_resolution_status: string | null;
   identifier_resolution_confidence: number | null;
   carrier: string | null;
+  /** Clean expected quantity for gate progress — excludes disputed/source-conflict EP rows. */
   total_expected: number;
   total_scanned: number;
+  /** Explicit clean expected; mirrors total_expected when conflict gating applied. */
+  expected_clean?: number;
+  /** Disputed quantity requiring source reconciliation; never added into total_expected. */
+  disputed_quantity?: number;
+  needs_reconciliation?: boolean;
+  reconciliation_message?: string | null;
+  /** Present when multiple raw EP/view rows were merged for Shipment Entry display. */
+  display_group?: InventoryDisplayGroupMeta | null;
+};
+
+/** Audit metadata for grouped Shipment Entry line cards (raw EP rows remain unchanged in DB). */
+export type InventoryDisplayGroupMeta = {
+  source_line_count: number;
+  source_expected_package_ids: string[];
+  build_statuses: string[];
+  has_source_split: boolean;
+  has_overflow_conflict: boolean;
+  has_matched: boolean;
+  expected_clean_total?: number;
+  disputed_quantity_total?: number;
+  has_disputed?: boolean;
+  needs_reconciliation?: boolean;
+  amazon_source_mismatch?: boolean;
 };
 
 export type InventoryGateVisualStatus =
@@ -167,18 +196,473 @@ function mergeUniqueByPackageId(rows: VInventoryStatusRow[]): VInventoryStatusRo
   return [...byId.values()];
 }
 
+export function resolveInventoryExpectedClean(row: VInventoryStatusRow): number {
+  if (row.expected_clean != null && Number.isFinite(row.expected_clean)) {
+    return Math.max(0, Math.trunc(row.expected_clean));
+  }
+  return Math.max(0, row.total_expected);
+}
+
+export function resolveInventoryDisputedQuantity(row: VInventoryStatusRow): number {
+  if (row.disputed_quantity != null && Number.isFinite(row.disputed_quantity)) {
+    return Math.max(0, Math.trunc(row.disputed_quantity));
+  }
+  return 0;
+}
+
 export function aggregateInventoryStatus(rows: VInventoryStatusRow[]): {
   rowCount: number;
   totalExpected: number;
   totalScanned: number;
+  totalDisputed: number;
 } {
   let totalExpected = 0;
   let totalScanned = 0;
+  let totalDisputed = 0;
   for (const r of rows) {
-    totalExpected += Math.max(0, r.total_expected);
+    totalExpected += resolveInventoryExpectedClean(r);
     totalScanned += Math.max(0, r.total_scanned);
+    totalDisputed += resolveInventoryDisputedQuantity(r);
   }
-  return { rowCount: rows.length, totalExpected, totalScanned };
+  return { rowCount: rows.length, totalExpected, totalScanned, totalDisputed };
+}
+
+function normId(v: string | null | undefined): string {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+function normProductToken(v: string | null | undefined): string {
+  return String(v ?? "").trim().toUpperCase();
+}
+
+function inventoryProductScopeKey(row: Pick<VInventoryStatusRow, "resolved_product_id" | "product_id" | "fnsku" | "sku" | "asin">): string {
+  const resolved = normId(row.resolved_product_id ?? row.product_id);
+  if (resolved) return `pid:${resolved}`;
+  const fnsku = normProductToken(row.fnsku);
+  const sku = normProductToken(row.sku);
+  const asin = normProductToken(row.asin);
+  return [fnsku, sku, asin].filter(Boolean).join("|") || "unknown";
+}
+
+/**
+ * Display grouping key for Shipment Entry — aligned with `v_inventory_item_status` item_grouped grain
+ * plus order_id and resolved_product_id when present.
+ */
+export function inventoryDisplayGroupKey(row: VInventoryStatusRow): string {
+  const trackingRaw = String(row.tracking_number ?? "").trim();
+  const tracking = normalizeTrackingKey(trackingRaw) || trackingRaw;
+  return [
+    normId(row.organization_id),
+    normId(row.store_id),
+    tracking,
+    normId(row.order_id),
+    inventoryProductScopeKey(row),
+    normId(row.id_slip_contents),
+    normId(row.carrier),
+  ].join("\u0000");
+}
+
+function buildDisplayGroupConflictMeta(
+  buildStatuses: string[],
+  expectedClean: number,
+  disputedQuantity: number,
+): Pick<
+  InventoryDisplayGroupMeta,
+  | "expected_clean_total"
+  | "disputed_quantity_total"
+  | "has_disputed"
+  | "needs_reconciliation"
+  | "amazon_source_mismatch"
+  | "has_overflow_conflict"
+  | "has_matched"
+> {
+  const hasOverflowConflict = buildStatuses.some((s) => s.trim() === "shipment_overflow_conflict");
+  const hasMatched = buildStatuses.some((s) => s.trim() === "matched");
+  const hasDisputed = disputedQuantity > 0 || hasAmazonSourceMismatch(buildStatuses);
+  return {
+    expected_clean_total: expectedClean,
+    disputed_quantity_total: disputedQuantity,
+    has_disputed: hasDisputed,
+    needs_reconciliation: hasDisputed,
+    amazon_source_mismatch: hasAmazonSourceMismatch(buildStatuses),
+    has_overflow_conflict: hasOverflowConflict,
+    has_matched: hasMatched,
+  };
+}
+
+function applyConflictGatingFieldsToRow(
+  row: VInventoryStatusRow,
+  expectedClean: number,
+  disputedQuantity: number,
+  display_group: InventoryDisplayGroupMeta,
+): VInventoryStatusRow {
+  const needsReconciliation = disputedQuantity > 0 || Boolean(display_group.needs_reconciliation);
+  const reconciliationMessage = needsReconciliation
+    ? display_group.amazon_source_mismatch
+      ? EXPECTED_PACKAGE_UI_COPY.amazonSourceMismatch
+      : display_group.has_overflow_conflict
+        ? EXPECTED_PACKAGE_UI_COPY.shipmentDetailQtyDisagree
+        : EXPECTED_PACKAGE_UI_COPY.needsReconciliation
+    : null;
+  return {
+    ...row,
+    expected_clean: expectedClean,
+    disputed_quantity: disputedQuantity,
+    needs_reconciliation: needsReconciliation,
+    reconciliation_message: reconciliationMessage,
+    total_expected: expectedClean,
+    display_group,
+  };
+}
+
+function mergeDisplayGroupMeta(parts: (InventoryDisplayGroupMeta | null | undefined)[]): InventoryDisplayGroupMeta {
+  const epIds = new Set<string>();
+  const buildStatuses = new Set<string>();
+  let sourceLineCount = 0;
+  let expectedCleanTotal = 0;
+  let disputedQuantityTotal = 0;
+  for (const part of parts) {
+    if (!part) continue;
+    sourceLineCount += Math.max(1, part.source_line_count);
+    expectedCleanTotal += Math.max(0, part.expected_clean_total ?? 0);
+    disputedQuantityTotal += Math.max(0, part.disputed_quantity_total ?? 0);
+    for (const id of part.source_expected_package_ids) {
+      const trimmed = id.trim();
+      if (trimmed) epIds.add(trimmed);
+    }
+    for (const status of part.build_statuses) {
+      const trimmed = status.trim();
+      if (trimmed) buildStatuses.add(trimmed);
+    }
+  }
+  const statuses = [...buildStatuses];
+  const hasSourceSplit = sourceLineCount > 1 || epIds.size > 1 || statuses.length > 1;
+  const conflictMeta = buildDisplayGroupConflictMeta(statuses, expectedCleanTotal, disputedQuantityTotal);
+  return {
+    source_line_count: Math.max(sourceLineCount, parts.filter(Boolean).length, epIds.size || 0, 1),
+    source_expected_package_ids: [...epIds],
+    build_statuses: statuses,
+    has_source_split: hasSourceSplit,
+    ...conflictMeta,
+  };
+}
+
+function deriveInventoryLineStatusFromTotals(expected: number, scanned: number): string | null {
+  const te = Math.max(0, coerceInt(expected));
+  const ts = Math.max(0, coerceInt(scanned));
+  if (te <= 0 && ts <= 0) return "not_registered";
+  if (te <= 0 && ts > 0) return "in_progress_not";
+  if (te > 0 && ts === 0) return "expected";
+  if (te > 0 && ts < te) return "in_progress";
+  if (te > 0 && ts === te) return "complete";
+  if (te > 0 && ts > te) return "unexpected";
+  return null;
+}
+
+function pickPreferredInventoryField<T>(values: T[], pick: (v: T) => boolean): T | null {
+  for (const value of values) {
+    if (pick(value)) return value;
+  }
+  return values[0] ?? null;
+}
+
+/** Merge duplicate operational product lines for Shipment Entry display (read-model only). */
+export function groupInventoryStatusRowsForDisplay(rows: VInventoryStatusRow[]): VInventoryStatusRow[] {
+  if (rows.length <= 1) return rows;
+  const groups = new Map<string, VInventoryStatusRow[]>();
+  for (const row of rows) {
+    const key = inventoryDisplayGroupKey(row);
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(row);
+    else groups.set(key, [row]);
+  }
+  if (groups.size === rows.length) return rows;
+
+  const merged: VInventoryStatusRow[] = [];
+  for (const bucket of groups.values()) {
+    if (bucket.length === 1) {
+      merged.push(bucket[0]!);
+      continue;
+    }
+    let totalExpectedClean = 0;
+    let totalDisputed = 0;
+    let totalScanned = 0;
+    for (const row of bucket) {
+      totalExpectedClean += resolveInventoryExpectedClean(row);
+      totalDisputed += resolveInventoryDisputedQuantity(row);
+      totalScanned += Math.max(0, row.total_scanned);
+    }
+    const epIds = bucket
+      .map((row) => row.expected_package_id.trim())
+      .filter(Boolean);
+    const display_group = mergeDisplayGroupMeta(
+      bucket.map((row) =>
+        row.display_group ?? {
+          source_line_count: 1,
+          source_expected_package_ids: row.expected_package_id.trim() ? [row.expected_package_id.trim()] : [],
+          build_statuses: [],
+          has_source_split: false,
+          has_overflow_conflict: false,
+          has_matched: false,
+          expected_clean_total: resolveInventoryExpectedClean(row),
+          disputed_quantity_total: resolveInventoryDisputedQuantity(row),
+        },
+      ),
+    );
+    merged.push(
+      applyConflictGatingFieldsToRow(
+        {
+          ...bucket[0]!,
+          expected_package_id: epIds.length === 1 ? epIds[0]! : "",
+          asin: pickPreferredInventoryField(
+            bucket.map((row) => row.asin),
+            (v) => Boolean(v?.trim()),
+          ),
+          product_name: pickPreferredInventoryField(
+            bucket.map((row) => row.product_name),
+            (v) => Boolean(v?.trim()),
+          ),
+          product_display_name: pickPreferredInventoryField(
+            bucket.map((row) => row.product_display_name),
+            (v) => Boolean(v?.trim()),
+          ),
+          resolved_product_id: pickPreferredInventoryField(
+            bucket.map((row) => row.resolved_product_id),
+            (v) => Boolean(v?.trim()),
+          ),
+          resolved_catalog_product_id: pickPreferredInventoryField(
+            bucket.map((row) => row.resolved_catalog_product_id),
+            (v) => Boolean(v?.trim()),
+          ),
+          product_linkage_status: pickPreferredInventoryField(
+            bucket.map((row) => row.product_linkage_status),
+            (v) => Boolean(v?.trim()),
+          ),
+          identifier_resolution_status: pickPreferredInventoryField(
+            bucket.map((row) => row.identifier_resolution_status),
+            (v) => Boolean(v?.trim()),
+          ),
+          identifier_resolution_confidence: pickPreferredInventoryField(
+            bucket.map((row) => row.identifier_resolution_confidence),
+            (v) => v != null,
+          ),
+          status:
+            pickPreferredInventoryField(
+              bucket.map((row) => row.status),
+              (v) => Boolean(v?.trim()),
+            ) ?? deriveInventoryLineStatusFromTotals(totalExpectedClean, totalScanned),
+          total_expected: totalExpectedClean,
+          total_scanned: totalScanned,
+          display_group,
+        },
+        totalExpectedClean,
+        totalDisputed,
+        display_group,
+      ),
+    );
+  }
+  merged.sort((a, b) => {
+    const af = normProductToken(a.fnsku) || normProductToken(a.sku);
+    const bf = normProductToken(b.fnsku) || normProductToken(b.sku);
+    return af.localeCompare(bf, undefined, { sensitivity: "base" });
+  });
+  return merged;
+}
+
+/** Final Shipment Entry read-model rows — idempotent when view already aggregated. */
+export function finalizeInventoryGateDisplayRows(rows: VInventoryStatusRow[]): VInventoryStatusRow[] {
+  return groupInventoryStatusRowsForDisplay(rows);
+}
+
+/**
+ * Re-apply clean/disputed split from raw expected_packages rows (read-only enrichment).
+ * Preserves scanned totals from inventory view rows when group keys align.
+ */
+export function mergeInventoryRowsWithExpectedPackageBuildStatus(
+  viewRows: VInventoryStatusRow[],
+  epRows: Record<string, unknown>[],
+  orgId: string,
+  storeId: string,
+): VInventoryStatusRow[] {
+  if (!epRows.length || !viewRows.length) return viewRows;
+  const hasBuildStatus = epRows.some((r) =>
+    String((r as { build_status?: string | null }).build_status ?? "").trim(),
+  );
+  if (!hasBuildStatus) return viewRows;
+
+  const aggregated = aggregateExpectedPackageRowsForInventoryDisplay(epRows, orgId, storeId);
+  if (!aggregated.length) return viewRows;
+
+  const scannedByKey = new Map<string, number>();
+  for (const row of viewRows) {
+    const key = inventoryDisplayGroupKey(row);
+    scannedByKey.set(key, (scannedByKey.get(key) ?? 0) + Math.max(0, row.total_scanned));
+  }
+
+  return aggregated.map((row) => {
+    const key = inventoryDisplayGroupKey(row);
+    const scanned = scannedByKey.get(key);
+    if (scanned == null) return row;
+    const clean = resolveInventoryExpectedClean(row);
+    return {
+      ...row,
+      total_scanned: scanned,
+      status: deriveInventoryLineStatusFromTotals(clean, scanned),
+    };
+  });
+}
+
+export function inventoryDisplayGroupBadgeLabels(meta: InventoryDisplayGroupMeta | null | undefined): string[] {
+  if (!meta) return [];
+  const labels: string[] = [];
+  if (meta.has_matched) labels.push("matched");
+  if (meta.needs_reconciliation || meta.has_disputed) {
+    labels.push(EXPECTED_PACKAGE_UI_COPY.needsReconciliation);
+  } else if (meta.has_overflow_conflict) {
+    labels.push(EXPECTED_PACKAGE_UI_COPY.needsReconciliation);
+  }
+  if (meta.amazon_source_mismatch) labels.push(EXPECTED_PACKAGE_UI_COPY.amazonSourceMismatch);
+  if (meta.has_overflow_conflict) labels.push(EXPECTED_PACKAGE_UI_COPY.shipmentDetailQtyDisagree);
+  if (meta.has_source_split) labels.push("source split");
+  return labels;
+}
+
+/** Map raw `expected_packages` rows to grouped gate inventory lines (no DB writes). */
+export function aggregateExpectedPackageRowsForInventoryDisplay(
+  rows: Record<string, unknown>[],
+  orgId: string,
+  storeId: string,
+): VInventoryStatusRow[] {
+  type Acc = {
+    tracking: string;
+    slip: string;
+    sku: string;
+    fnsku: string;
+    asin: string;
+    orderId: string;
+    carrier: string;
+    expectedClean: number;
+    expectedDisputed: number;
+    scanned: number;
+    epIds: Set<string>;
+    buildStatuses: Set<string>;
+    resolved_product_id: string | null;
+    resolved_catalog_product_id: string | null;
+    identifier_resolution_status: string | null;
+    identifier_resolution_confidence: number | null;
+  };
+  const groups = new Map<string, Acc>();
+
+  for (const r of rows) {
+    const trackingRaw = String((r as { tracking_number?: string | null }).tracking_number ?? "").trim();
+    const tracking = normalizeTrackingKey(trackingRaw) || trackingRaw;
+    const slip = String((r as { id_slip_contents?: string | null }).id_slip_contents ?? "").trim();
+    const sku = String((r as { sku?: string | null }).sku ?? "").trim();
+    const fnsku = String((r as { fnsku?: string | null }).fnsku ?? "").trim();
+    const asin = String((r as { asin?: string | null }).asin ?? "").trim();
+    const orderId = String((r as { order_id?: string | null }).order_id ?? "").trim().toLowerCase();
+    const carrier = String((r as { carrier?: string | null }).carrier ?? "").trim().toLowerCase();
+    const resolvedProductId = String((r as { resolved_product_id?: string | null }).resolved_product_id ?? "")
+      .trim()
+      .toLowerCase();
+    const productKey =
+      resolvedProductId ||
+      [fnsku.toUpperCase(), sku.toUpperCase(), asin.toUpperCase()].filter(Boolean).join("|") ||
+      "unknown";
+    const key = [orgId, storeId, tracking, orderId, productKey, slip.toLowerCase(), carrier].join("\u0000");
+    const exp = coerceInt((r as { expected_scan_quantity?: number }).expected_scan_quantity);
+    const act = coerceInt((r as { actual_scanned_count?: number }).actual_scanned_count);
+    const epId = String((r as { id?: string }).id ?? "").trim();
+    const buildStatus = String((r as { build_status?: string | null }).build_status ?? "").trim();
+
+    const split = splitExpectedQuantityByBuildStatus(buildStatus, exp);
+
+    const prev = groups.get(key);
+    if (prev) {
+      prev.expectedClean += split.clean;
+      prev.expectedDisputed += split.disputed;
+      prev.scanned += act;
+      if (epId) prev.epIds.add(epId);
+      if (buildStatus) prev.buildStatuses.add(buildStatus);
+      if (asin && !prev.asin) prev.asin = asin;
+      if ((r as { order_id?: string | null }).order_id) {
+        prev.orderId = String((r as { order_id?: string | null }).order_id);
+      }
+    } else {
+      groups.set(key, {
+        tracking,
+        slip,
+        sku,
+        fnsku,
+        asin,
+        orderId: String((r as { order_id?: string | null }).order_id ?? "").trim(),
+        carrier,
+        expectedClean: split.clean,
+        expectedDisputed: split.disputed,
+        scanned: act,
+        epIds: new Set(epId ? [epId] : []),
+        buildStatuses: new Set(buildStatus ? [buildStatus] : []),
+        resolved_product_id: (r as { resolved_product_id?: string | null }).resolved_product_id ?? null,
+        resolved_catalog_product_id:
+          (r as { resolved_catalog_product_id?: string | null }).resolved_catalog_product_id ?? null,
+        identifier_resolution_status:
+          (r as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? null,
+        identifier_resolution_confidence:
+          (r as { identifier_resolution_confidence?: number | null }).identifier_resolution_confidence ?? null,
+      });
+    }
+  }
+
+  const out: VInventoryStatusRow[] = [];
+  for (const g of groups.values()) {
+    const epIds = [...g.epIds];
+    const buildStatuses = [...g.buildStatuses];
+    const conflictMeta = buildDisplayGroupConflictMeta(buildStatuses, g.expectedClean, g.expectedDisputed);
+    const display_group: InventoryDisplayGroupMeta = {
+      source_line_count: Math.max(epIds.length, 1),
+      source_expected_package_ids: epIds,
+      build_statuses: buildStatuses,
+      has_source_split: epIds.length > 1 || buildStatuses.length > 1,
+      ...conflictMeta,
+    };
+    out.push(
+      applyConflictGatingFieldsToRow(
+        {
+          expected_package_id: epIds.length === 1 ? epIds[0]! : "",
+          organization_id: orgId,
+          store_id: storeId,
+          tracking_number: g.tracking || null,
+          id_slip_contents: g.slip || null,
+          sku: g.sku || null,
+          fnsku: g.fnsku || null,
+          asin: g.asin || null,
+          order_id: g.orderId || null,
+          status: deriveInventoryLineStatusFromTotals(g.expectedClean, g.scanned),
+          product_name: null,
+          product_display_name: null,
+          product_id: null,
+          resolved_product_id: g.resolved_product_id,
+          resolved_catalog_product_id: g.resolved_catalog_product_id,
+          product_linkage_status: g.identifier_resolution_status,
+          identifier_resolution_status: g.identifier_resolution_status,
+          identifier_resolution_confidence: g.identifier_resolution_confidence,
+          carrier: g.carrier || null,
+          total_expected: g.expectedClean,
+          total_scanned: g.scanned,
+          display_group,
+        },
+        g.expectedClean,
+        g.expectedDisputed,
+        display_group,
+      ),
+    );
+  }
+  out.sort((a, b) => {
+    const af = normProductToken(a.fnsku) || normProductToken(a.sku);
+    const bf = normProductToken(b.fnsku) || normProductToken(b.sku);
+    return af.localeCompare(bf, undefined, { sensitivity: "base" });
+  });
+  return out;
 }
 
 /** Map `status` from the unified inventory view to gate glow / badge theme. */
@@ -399,7 +883,7 @@ export async function fetchVInventoryItemStatusLinesExact(
     field,
     v,
   );
-  return { rows, raw: data };
+  return { rows: finalizeInventoryGateDisplayRows(rows), raw: data };
 }
 
 function inventoryRowDedupeKey(row: VInventoryStatusRow, index: number): string {
@@ -462,7 +946,7 @@ export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
       "tracking_number",
       trimmed,
     );
-    return { rows: scrubbed, raw: rawRows };
+    return { rows: finalizeInventoryGateDisplayRows(scrubbed), raw: rawRows };
   }
 
   const rows: VInventoryStatusRow[] = [];
@@ -501,7 +985,7 @@ export async function fetchVInventoryItemStatusLinesForTrackingNormalized(
     "tracking_number",
     trimmed,
   );
-  return { rows: scrubbed, raw: rawRows };
+  return { rows: finalizeInventoryGateDisplayRows(scrubbed), raw: rawRows };
 }
 
 /** @deprecated Use {@link fetchVInventoryItemStatusLinesExact} */

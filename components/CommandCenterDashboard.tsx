@@ -32,6 +32,7 @@ import {
 } from "recharts";
 import type { CommandCenterPayload } from "@/app/returns/returns-action-types";
 import { DashboardDragSlot } from "@/components/DashboardDragSlot";
+import { useRbacPermissions } from "@/hooks/useRbacPermissions";
 import { parseCountUpTarget, useCountUp } from "@/hooks/useCountUp";
 import {
   type BodyWidgetId,
@@ -262,6 +263,7 @@ function CommandCenterDashboardLoaded({
   data: CommandCenterPayload;
   fetchError: string | null;
 }) {
+  const { canSeeClaimEngine } = useRbacPermissions();
   const { snapshot: snap } = data;
   const scanPct =
     data.expectedItems > 0
@@ -540,8 +542,13 @@ function CommandCenterDashboardLoaded({
               Returns
             </Link>
             <Link href="/claim-engine" className="admin-btn-secondary text-xs">
-              Claims
+              Claim Engine
             </Link>
+            {canSeeClaimEngine ? (
+              <Link href="/claim-center" className="admin-btn-secondary text-xs">
+                Claim Center
+              </Link>
+            ) : null}
           </div>
         </footer>
       </section>
@@ -686,6 +693,11 @@ function CommandCenterDashboardLoaded({
             {snap.claimsReadyToSend > 0 ? (
               <Link href="/claim-engine" className="cc-rail-link">
                 Open claim engine <ArrowRight className="h-3 w-3" />
+              </Link>
+            ) : null}
+            {canSeeClaimEngine ? (
+              <Link href="/claim-center" className="cc-rail-link mt-1">
+                Open Claim Center <ArrowRight className="h-3 w-3" />
               </Link>
             ) : null}
           </div>

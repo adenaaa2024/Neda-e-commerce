@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 
 import { ClaimCenterRootClient } from "@/components/claim-center/ClaimCenterRootClient";
 import { resolveOrganizationId } from "@/lib/organization";
@@ -26,8 +27,14 @@ export default async function ClaimCenterLayout({ children }: { children: ReactN
   const defaultStoreId = typeof rawDefault === "string" && isUuidString(rawDefault) ? rawDefault : null;
 
   return (
-    <ClaimCenterRootClient organizationId={organizationId} defaultStoreId={defaultStoreId}>
-      {children}
-    </ClaimCenterRootClient>
+    <Suspense
+      fallback={
+        <div className="flex items-center gap-2 p-6 text-sm opacity-70">Loading Claim Center…</div>
+      }
+    >
+      <ClaimCenterRootClient organizationId={organizationId} defaultStoreId={defaultStoreId}>
+        {children}
+      </ClaimCenterRootClient>
+    </Suspense>
   );
 }

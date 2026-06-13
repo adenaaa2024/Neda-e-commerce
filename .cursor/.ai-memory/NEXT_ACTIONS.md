@@ -1,7 +1,7 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-17 (`phase1-demo-ready-history-memory-sync` `20260617T120000Z`)
+**Last updated:** 2026-06-12 (`phase-product-amazon-lifecycle-quantity-readmodel-contract-v1` `20260612T234909Z`)
 
 **Demo checkpoint:** [PHASE1_DEMO_READY.md](PHASE1_DEMO_READY.md)
 
@@ -23,9 +23,68 @@
 | Stale products | 15,717 |
 | 1883 cluster blocked | 113 products — manual_review only |
 | Amazon API | **OK** · scheduler **disabled** |
-| Next smoke | ~~**PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SMOKE**~~ **DONE** `20260521T231500Z` |
-| Promote gap | FBA-only `B07X13VS51` — fix candidate scan before promote scale |
-| Next | **PHASE-AMAZON-PRODUCT-SYNC-PROMOTE-FBA-ONLY-FIX-AND-SMOKE** then enrich scale from index 80 |
+| Smoke V1 | **DONE** `20260521T231500Z` — enrich OK; promote 0 (scan bug) |
+| Scale batch 2 | **DONE** `20260611T220000Z` — 240 rows @400–639; cursor **640** |
+| Next scale | **PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SCALE** — `--enrich-batches=3 --start-index=640 --promote-limit=0` |
+
+### Dimensions + fee claim schema (2026-06-12)
+
+| Item | Status |
+|------|--------|
+| Dimensions/fee/shipment audit V1 | **DONE** `20260612T185018Z` — read-only |
+| Canonical dims | `product_packaging_dimensions_current` (571 / 17,059 products) |
+| Fee report gap | `amazon_fee_preview` + `amazon_monthly_storage_fees` **empty on staging** |
+| **SAFE_TO_DESIGN_DIMENSION_FEE_SCHEMA** | **yes** |
+| Next | **PHASE-PRODUCT-DIMENSIONS-FEE-CLAIM-SCHEMA-DESIGN-V1** — migration draft only; Maysam approval before apply |
+
+Evidence: `.cursor/audit-reports/phase-product-dimensions-shipment-fee-claim-audit-v1/20260612T185018Z/`
+
+### Physical return MVP product linkage (2026-06-12)
+
+| Item | Status |
+|------|--------|
+| Linkage dry-run V1 | **DONE** `20260612T194815Z` — 4 candidates; 0 deterministic matches |
+| Root cause | QA FNSKU `X006OFFM01` not in `product_identifier_map` |
+| **SAFE_TO_APPLY_PRODUCT_LINKAGE_PILOT** | **no** |
+| Next | **PHASE-PRODUCT-LINKAGE-PHYSICAL-RETURN-MVP-IDENTIFIER-REPAIR-V1** |
+
+Evidence: `.cursor/audit-reports/phase-product-linkage-physical-return-mvp-dryrun-v1/20260612T194815Z/`
+
+### PC04 dimensions history + evidence contract (2026-06-12)
+
+| Item | Status |
+|------|--------|
+| PC04 history/evidence contract V1 | **DONE** `20260612T195458Z` |
+| Evidence table | **0 rows** — use `evidence_summary` on versions today |
+| **new_table_needed** | **no** |
+| **migration_needed** | **conditional_yes** |
+| **SAFE_TO_USE_PC04_FOR_CLAIM_DIMENSIONS** | **yes** |
+| Next | **PHASE-PC04-DIMENSIONS-HISTORY-EVIDENCE-IMPLEMENT-V1** |
+
+Evidence: `.cursor/audit-reports/phase-pc04-dimensions-history-evidence-contract-v1/20260612T195458Z/`
+
+### Physical return linkage data ingest (2026-06-12)
+
+| Item | Status |
+|------|--------|
+| Data ingest V1 | **DONE** `20260612T203117Z` — plan only; 0 rows ingested |
+| Fixture org spine | **empty** (0 products/map) |
+| Amazon import | **blocked** for `X006OFFM01` |
+| **SAFE_TO_RUN_PRODUCT_LINKAGE_APPLY_V1** | **no** |
+| Next | **PHASE-CLAIM-PHYSICAL-RETURN-LINKAGE-FIXTURE-PRODUCT-SEED-APPROVAL-V1** |
+
+Evidence: `.cursor/audit-reports/phase-claim-physical-return-product-linkage-data-ingest-v1/20260612T203117Z/`
+
+### Product lifecycle quantity read-model contract (2026-06-12)
+
+| Item | Status |
+|------|--------|
+| Lifecycle qty contract V1 | **DONE** `20260612T234909Z` — 18 states; source census; X004LKS4VD trace |
+| SAFE-T / fee preview / storage fees | **empty** on staging — show unavailable not zero |
+| **SAFE_TO_IMPLEMENT_LIFECYCLE_READMODEL** | **yes** (SELECT read-model only) |
+| Next | **PHASE-PRODUCT-AMAZON-LIFECYCLE-QUANTITY-READMODEL-IMPLEMENT-V1** |
+
+Evidence: `.cursor/audit-reports/phase-product-amazon-lifecycle-quantity-readmodel-contract-v1/20260612T234909Z/`
 
 ### Product linkage completion V3 (2026-06-11)
 

@@ -230495,3 +230495,2499 @@ PHASE-CLAIM-CENTER-V1-WRITE-ACTIONS-GATED
 ================================================================================
 END APPEND SLICE -- 20260611T210000Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T220000Z
+TOPIC: PHASE-MENORIX-CLAIM-CENTER-SHELL-V2
+================================================================================
+
+### Completed
+- Menorix Module App Pattern V2: 15 components (ViewSwitcher, MobileDetailSheet, QuickActions, MobileFilterSheet)
+- lib/menorix/module-app-contracts.ts � 9 module design contracts (Claim implemented; others contract-only)
+- docs/menorix/returns-center-architecture.md + task-center-architecture.md (planning only)
+- Claim Center mobile: search, filter sheet, card/board views, sticky read-only actions, responsive detail sheet/drawer
+- Smoke: scanner paths untouched, zero_writes PASS, safe_to_push true
+
+### Constraints
+- No scanner mobile changes; no claim writes; no legacy /claim-engine patch
+
+### Next Prompt
+PHASE-CLAIM-CENTER-V1-WRITE-ACTIONS-GATED
+
+================================================================================
+END APPEND SLICE -- 20260611T220000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T195200Z
+TOPIC: PHASE-PWA-SETTINGS-SEPARATION-AND-UX-CLEANUP
+================================================================================
+
+### Completed
+- Dedicated route /platform/settings/pwa with sections: App Identity, Install Experience, Icons and Splash, Colors/Theme, Mobile Behavior, Preview, Advanced/Technical
+- Removed embedded PlatformPwaSettingsPanel from Platform Branding (/platform/settings)
+- Sidebar leaf: PWA / Installable app (platform.branding permission - unchanged RBAC)
+- Writable: platform_settings.pwa_settings policy toggles + version fields (existing backend)
+- Read-only: manifest identity from lib/pwa-manifest-static.ts + public/manifest.json
+- Preview cards: mobile install, desktop app, icon/theme (components/platform/PwaSettingsPreviewCards.tsx)
+- Proposed additive keys documented (no migration): manifest_name, install_prompt_*, pwa_enabled, etc.
+- Smoke: scripts/phase-pwa-settings-separation-smoke.ts PASS; tsc + build PASS
+
+### Constraints honored
+- No changes to app/platform/access/**, scanner mobile, RBAC, RLS, or auth
+- No new tables or schema migrations
+
+### Next Prompt
+PHASE-PWA-MANIFEST-DYNAMIC-WIRE-STAGING (optional) or PHASE-CLAIM-CENTER-V1-WRITE-ACTIONS-GATED
+
+================================================================================
+END APPEND SLICE -- 20260611T195200Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T200000Z
+TOPIC: PHASE-NAVIGATION-SETTINGS-DUPLICATE-SURFACE-AUDIT
+================================================================================
+
+### Mode
+Audit + cleanup plan only — no code, DB, migrations, redirects, or route removal.
+
+### Key findings
+- Claim workflow duplicated: sidebar Claims -> /claim-engine/inbox; Claim Center /claim-center/* not in sidebar; parallel queues (inbox, candidates, review, submissions, cases).
+- Claim settings triple surface: /settings?tab=claim_engine (writable), /platform/settings/automation (schedules + intake policy platform/store), /claim-center/settings (read-only summary).
+- HIGH: ClaimCandidateIntakePolicyPanel writable in both settings claim tab AND automation ClaimPoolGenerationCard.
+- PWA separation OK: branding links only; policy owner /platform/settings/pwa.
+- Branding triple: platform_settings, organization_settings (settings general + /settings/company).
+- Imports: same ImportsClient at /dashboard/file-import, /settings/imports; /imports redirects.
+- Broken sidebar leaves: /inventory, /settlements (no routes).
+- WMS nav Scan Item -> /returns (not scanner).
+- PDF/submission actions owner: /claim-engine only; Claim Center read-only previews.
+
+### Safe cleanup Phase 1
+Link-only + remove duplicate writable controls from /settings claim tab (intake policy); keep automation owner. Do not touch platform/access, scanner mobile, Neda paths.
+
+### Next prompt
+PHASE-NAV-CLEANUP-PHASE-1-LINK-AND-OWNERSHIP
+
+================================================================================
+END APPEND SLICE -- 20260611T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260521T240000Z
+TOPIC: PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SMOKE-V2
+================================================================================
+
+### Completed
+- Fixed promote candidate selection: listMissingAmazonProductCandidatesPg spine anti-join when pgClient passed from recovery catch-up.
+- Smoke apply: promote 1 (B07X13VS51 FBA-only), product_id 843dcf43-6a40-401f-b950-d5dfacf2924c.
+- map match_source=amazon_product_sync_recovery; org+store verified; products 17058->17059; map +1.
+- Enrich batch start_index=80: 80 rows_saved, enriched_images=1, suspicious_image_overwritten=0.
+- Scheduler remains disabled; spine gap 0.
+
+### Root cause (V1 gap)
+- Supabase limit*3 recency scan missed FBA-only missing ASIN outside top 3 rows.
+
+### Next Prompt
+PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SCALE --enrich-batches=3 --start-index=160
+
+================================================================================
+END APPEND SLICE -- 20260521T240000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T201500Z
+TOPIC: PHASE-CLAIM-CENTER-V1-DATA-QUALITY-AND-UX-QA
+================================================================================
+
+QA audit only. Claim Center read shell useful as command home but not trustworthy for write actions yet.
+
+Findings: dashboard KPIs capped at 500-row sample; recoverable_amount includes closed states; legacy_seed/quarantined hidden OK; deadlines from policy OK; ORBIT external banner OK; global sidebar still claim-engine; mobile nav 5/12; locked write buttons visible; references panel shallow; cases/submissions ignore store scope.
+
+Verdict: SAFE_TO_PROCEED_TO_WRITE_ACTIONS = no
+
+Artifact: .cursor/audit-reports/phase-claim-center-v1-data-quality-ux-qa/20260611T201500Z/qa-report.md
+
+Next: PHASE-CLAIM-CENTER-V1-WRITE-BRIDGE-PREP
+
+================================================================================
+END APPEND SLICE -- 20260611T201500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T203500Z
+TOPIC: PHASE-CLAIM-CENTER-V1-DATA-QUALITY-AND-UX-QA
+================================================================================
+
+### Completed (QA audit only)
+- 12-section route review; Menorix module shell mobile/desktop patterns
+- Staging smoke org empty (0 candidates) — rich-data checks code-level only
+- KPI cap 500, semantic mismatches (Ready for review vs Review queue), recovery≠FRR UI
+- Nav: Claim Center not in sidebar; legacy /claim-engine/inbox still primary
+- Candidates legacy/quarantined API filters OK; UI toggles missing
+- SAFE_TO_PROCEED_TO_WRITE_ACTIONS: no
+- Evidence: .cursor/audit-reports/phase-claim-center-v1-data-quality-and-ux-qa/20260611T203500Z/
+
+### Next Prompt
+PHASE-CLAIM-CENTER-V1-DATA-UX-FIX-PACK-BEFORE-WRITE-ACTIONS
+
+================================================================================
+END APPEND SLICE -- 20260611T203500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T212600Z
+TOPIC: PHASE-NAV-CLEANUP-PHASE-1-LINK-AND-OWNERSHIP
+================================================================================
+
+### Completed
+- Removed ClaimCandidateIntakePolicyPanel + ClaimEngineHubNavShell from /settings?tab=claim_engine
+- Link card to /platform/settings/automation for intake policy (single writable owner in automation)
+- Sidebar: Claim Center leaf /claim-center; legacy Claims leaf preserved
+- Hidden inventory + settlements sidebar leaves (no routes)
+- WMS_ONLY_NAV scan -> /scanner/operator-mobile (config only)
+- CommandCenterDashboard secondary Claim Center links (canSeeClaimEngine gate)
+- Claim Center settings overview row deep links (workspace, automation, PWA)
+- Smoke + build PASS; platform/access + scanner untouched
+
+### Next Prompt
+PHASE-NAV-CLEANUP-PHASE-2-SUMMARY-ONLY-SURFACES
+
+================================================================================
+END APPEND SLICE -- 20260611T212600Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T214200Z
+TOPIC: PHASE-CLAIM-CENTER-V1-DATA-UX-FIX-PACK-BEFORE-WRITE-ACTIONS
+================================================================================
+
+### Completed
+- Read-only UX fix pack across all 12 Claim Center sections: professional empty states with data-source + next-step copy (claim-center-ui-copy.ts, ClaimCenterSectionEmptyState)
+- KPI accuracy: open exposure only active statuses; renamed filed/reimbursed to observed external; sample-cap warning banner; file-ready KPI requires evidence+refs in read model
+- Dashboard command tiles: Find Money, Review Opportunities, Build Evidence, Fix Product Links, Track References, File Claims (locked/bridge), Match Reimbursements
+- Candidates: hidden legacy_seed/quarantined notice (no fake toggles); badges show Observed externally for ORBIT statuses
+- Evidence: HTML preview-only copy; search toolbar; bridge notice � not broken when empty
+- References/TRID: ambiguity groups read-only in detail drawer
+- Product linkage: Product Story link gated by isSafeForProductStory(); else catalog search / queue link
+- Submissions: legacy read-only banner + Manage in Claim Engine link only; no create/submit/promote
+- Mobile: card layout default; detail full-screen sheet; tables hidden on small screens
+- Nav: isClaimCenterRoute split from legacy Claims sidebar highlight; finance accordion auto-expands for Claim Center
+- Smoke script extended: zero writes, empty states, bridge copy, write actions hidden, scanner untouched
+- Build PASS; staging smoke PASS (fixture org 0 candidates)
+
+### Verdict
+- SAFE_TO_PROCEED_TO_WRITE_ACTIONS: conditional_yes_read_ux_only (read shell ready; write bridge still separate)
+- SAFE_TO_PUSH: yes (zero writes, static checks pass)
+
+### Next Prompt
+PHASE-CLAIM-CENTER-V1-WRITE-BRIDGE-PROMOTE-FILE-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260611T214200Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260521T250000Z
+TOPIC: PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SCALE
+================================================================================
+
+### Completed
+- Enrich-only scale: promote-limit=0, enrich-batches=3, start_index=160.
+- 240 rows_saved; enriched_images=10; suspicious_image_overwritten=0; trusted overwrite 0.
+- products 17059 unchanged; map 16850 unchanged; next_start_index=400.
+- promote-limit=0 skip wired in runAmazonProductSyncCatchUp.
+- Scheduler remains disabled.
+
+### Next Prompt
+PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SCALE --enrich-batches=3 --enrich-start-index=400 --promote-limit=0
+
+================================================================================
+END APPEND SLICE -- 20260521T250000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T220210Z
+TOPIC: PHASE-CLAIM-CENTER-V1-DATA-UX-FIX-PACK-BEFORE-WRITE-ACTIONS
+================================================================================
+
+### Completed (read-only UX fix pack)
+- Empty states all 12 sections; KPI external labels; sample cap warnings; bridge phase copy
+- Hidden legacy/quarantined notice (no fake toggles); TRID ambiguity read-only; product story gating
+- Submissions legacy copy; mobile cards default; write actions removed/hidden
+- Smoke PASS 20260611T220210Z; build PASS; scanner untouched
+- SAFE_TO_PROCEED_TO_WRITE_ACTIONS: conditional_yes_read_ux_only (bridge not built)
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260611T220210Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T220000Z
+TOPIC: PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SCALE (batch 2)
+================================================================================
+
+### Completed
+- Continued from cursor 400 (batch 1 @160 already done 20260521T250000Z).
+- enrich-batches=3, promote-limit=0; 240 rows_saved (400-639).
+- enriched_images=15; suspicious_image_overwritten=0; products/map unchanged.
+- next_start_index=640; scheduler disabled.
+
+### Next Prompt
+PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SCALE --enrich-batches=3 --enrich-start-index=640 --promote-limit=0
+
+================================================================================
+END APPEND SLICE -- 20260611T220000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260605T140000Z
+TOPIC: PHASE-TASK-ORG-ACCESS-DEEP-INVENTORY-AUDIT
+================================================================================
+
+### Completed (read-only)
+- Deep inventory: org/access/groups/permissions/task-like structures on original+staging.
+- 44 pattern-matched tables; 17 backup tables classified; groups (5 rows), user_groups (0, RLS off).
+- claim_review_work_items is canonical human task queue pattern for claims domain.
+- Evidence: .cursor/audit-reports/phase-task-org-access-deep-inventory-audit/20260605T140000Z/
+
+### Gates
+- SAFE_TO_PROPOSE_TASK_MIGRATION: no
+- APPROVAL_REQUIRED_FROM_MAYSAM: yes
+
+### Next Prompt
+PHASE-TASK-CENTER-SCHEMA-PROPOSAL-FOR-MAYSAM-REVIEW
+
+================================================================================
+END APPEND SLICE -- 20260605T140000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260605T160000Z
+TOPIC: PHASE-MASTER-DATA-NORMALIZATION-INVENTORY-AUDIT
+================================================================================
+
+### Completed (read-only)
+- Master-data inventory: vendors/categories partial FK; brand text-only; carriers Phase 8A staging-only.
+- Original: 16880/17058 vendor_id; 12955 category_id; 13042 brand text; 61 distinct EP carrier tokens; no carriers table.
+- Staging: carriers+carrier_aliases; EP carrier_id 8941/9756 backfilled.
+- Evidence: phase-master-data-normalization-inventory-audit/20260605T160000Z + phase8-canonical audit.
+
+### Gates
+- SAFE_TO_PROPOSE_NORMALIZATION_MIGRATION: no
+- APPROVAL_REQUIRED_FROM_MAYSAM: yes
+
+### Next Prompt
+PHASE-MASTER-DATA-NORMALIZATION-SCHEMA-PROPOSAL-FOR-MAYSAM-REVIEW
+
+================================================================================
+END APPEND SLICE -- 20260605T160000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T220000Z
+TOPIC: PHASE-CLAIM-CENTER-UX-REDESIGN-CONTRACT-WITH-FIGMA-REFERENCE
+================================================================================
+
+### Mode
+UX architecture + design contract only — no code, DB, migrations, scanner, RBAC, or backend changes.
+
+### Deliverable
+12-screen Claim Center IA: single primary nav (no rail+tabs duplicate); full-width desktop; independent mobile; operations vs policies split; legacy Claim Engine link rules; read-only until write bridge.
+
+### Key decisions
+- Remove menu-inside-menu: one nav surface per breakpoint
+- Group Builder: new route contract linking legacy /returns/claims + /claim-engine/cases
+- Settings read-only summary with owner deep links (already Phase 1)
+- Figma: no linked file in repo; contract specifies frames to create before build
+
+### Approval gate
+Do not implement until Maysam approves UX contract.
+
+### Next Prompt
+PHASE-CLAIM-CENTER-UX-REDESIGN-IMPLEMENT-SHELL-V1
+
+================================================================================
+END APPEND SLICE -- 20260611T220000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260605T180000Z
+TOPIC: PHASE-TASK-ORG-SCHEMA-APPROVAL-PACK-V3-SCANNER-AND-RLS-GATED
+================================================================================
+
+### Completed (approval pack only)
+- V3 pack: scanner-originated task_items via source_module=scanner + 13 entity types + source_snapshot.
+- Scanner no-touch boundary locked (operator-mobile untouched).
+- RLS hard gate on task_items, task_comments, task_watchers, task_activity_log.
+- migration_sql_preview.sql + rls_verification_sql_preview.sql (not applied).
+- SAFE_FOR_MAYSAM_APPROVAL: yes
+
+### Evidence
+.cursor/audit-reports/phase-task-org-schema-approval-pack-v3-scanner-rls-gated/20260605T180000Z/
+
+### Next (after Maysam)
+PHASE-TASK-CENTER-V7A-STAGING-APPLY-WITH-RLS-VERIFY
+
+================================================================================
+END APPEND SLICE -- 20260605T180000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260605T200000Z
+TOPIC: PHASE-MASTER-DATA-NORMALIZATION-INVENTORY-AUDIT-V2
+================================================================================
+
+### Completed (read-only)
+- V2 master-data audit: vendors/categories partial; brands text-only; carriers Phase 8A staging-only.
+- Text field census + normalization plans (snapshot rule, mapping candidates, RLS).
+- SAFE_TO_PROPOSE_NORMALIZATION_MIGRATION: no | APPROVAL_REQUIRED_FROM_MAYSAM: yes
+
+### Evidence
+.cursor/audit-reports/phase-master-data-normalization-inventory-audit-v2/20260605T200000Z/
+
+### Next
+PHASE-MASTER-DATA-NORMALIZATION-SCHEMA-PROPOSAL-FOR-MAYSAM-REVIEW
+
+================================================================================
+END APPEND SLICE -- 20260605T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T223000Z
+TOPIC: PHASE-CLAIM-CENTER-UX-REDESIGN-CONTRACT-WITH-FIGMA-REFERENCE-V2
+================================================================================
+
+### Mode
+UX contract V2 only — no code/DB/scanner/RBAC/backend changes.
+
+### V2 deltas from V1
+- Four zones explicit: Operations | Policies | Automation (external) | Reports (legacy external)
+- Candidate Review = /candidates with filter presets; /review becomes alias only
+- Group Builder new route with grouping-warning contract
+- Detail drawer six-block story layout mandatory
+- Reports removed from primary 12-screen ops nav — utility link to /claim-engine/report-history
+- Human-readable label map for all backend enums
+
+### Gate
+Do not implement until Maysam approves UX contract V2.
+
+### Next
+PHASE-CLAIM-CENTER-UX-REDESIGN-IMPLEMENT-SHELL-V1
+
+================================================================================
+END APPEND SLICE -- 20260611T223000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260605T220000Z
+TOPIC: PHASE-MASTER-DATA-NORMALIZATION-APPROVAL-PACK-V3
+================================================================================
+
+### Completed (approval pack only)
+- MD-7A staging proposal: brands, brand_aliases, mapping_candidates, fulfillment_centers, cogs_sources.
+- Additive columns: products.brand_id, claim_candidates.cogs_source_code.
+- Text snapshots preserved; manufacturers/carrier_services/M2M deferred.
+- migration_sql_preview.sql + rls_verification_sql_preview.sql (not applied).
+- SAFE_FOR_MAYSAM_APPROVAL: yes
+
+### Evidence
+.cursor/audit-reports/phase-master-data-normalization-approval-pack-v3/20260605T220000Z/
+
+### Next (after Maysam)
+PHASE-MASTER-DATA-MD7A-STAGING-APPLY-WITH-RLS-VERIFY
+
+================================================================================
+END APPEND SLICE -- 20260605T220000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T230000Z
+TOPIC: PHASE-ROADMAP-RECONCILIATION-AND-CRITICAL-PATH-LOCK
+================================================================================
+
+### Mode
+Roadmap audit + critical path lock only — no DB, migrations, UI, code, scanner mobile, claim data, or product data changes.
+
+### Workspace
+- Git: `main` @ `75f8482` (scanner review stabilization landed; uncommitted Claim Center UX WIP)
+- Memory canon: `.cursor/.ai-memory/` demo-ready checkpoint `20260617T120000Z`
+
+### Reconciliation verdict
+- Bulk orphan RI remediation **closed** (5333 soft-deleted; bulk_orphan active 0; v_scanned_sum 3)
+- Claim sources converge on `claim_candidates` via Discovery Engine **COMPLETE**
+- Claim write bridge **NOT BUILT** — correct gate before promote/file/submit
+- Product Story **NOT SAFE** (49.1% linkage; SAFE_FOR_PRODUCT_STORY no)
+- MD-7A + Task-Org schema packs **await Maysam** — not applied
+- Scanner mobile **no-touch** for next phases unless explicit approval
+
+### Program rollup (~58%)
+| Pillar | % |
+|--------|--:|
+| Scanner / Receiving | 78 |
+| Product Ecosystem / Product Story | 52 |
+| Amazon Source Discovery | 48 |
+| TRID / Reference Spine | 72 |
+| Claim Ecosystem | 64 |
+| Submission / PDF / Agent | 38 |
+| Task / Org / HR KPI | 22 |
+| RLS / Security | 42 |
+| AI Layer | 18 |
+| UX / Navigation / Module | 70 |
+
+### Critical path (locked — anti side-quest)
+1. PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+2. PHASE-PRODUCT-LINKAGE-COMPLETION-WAVE-2-SLIP-CONTENTS-SCANNER-RESOLVER-STAGING
+3. PHASE-8R-RLS-IMPORT-ROUTE-ORG-GUARD-STAGING
+4. PHASE1-FINAL-QA-GATE-BEFORE-NEDA-MERGE
+5. Maysam approval queue → MD-7A + Task-Org v3 (then staged apply with RLS verify)
+
+Parallel non-blocking: PHASE-AMAZON-PRODUCT-SYNC-RECOVERY-STAGING-SCALE @640
+
+### SAFE_TO_CONTINUE
+**conditional_yes** — read UX, bridge readonly scaffold, linkage wave 2 sample, sync scale batch; **no** claim writes, schema apply, scanner mobile, RLS policy apply, UX V2 implement until Maysam.
+
+### Evidence
+.cursor/audit-reports/phase-roadmap-reconciliation-and-critical-path-lock/20260611T230000Z/
+
+### Next
+PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260611T230000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T231500Z
+TOPIC: PHASE-CLAIM-CENTER-UX-REDESIGN-IMPLEMENT-SHELL-V1
+================================================================================
+
+### Completed
+- ClaimCenterAppShell: grouped desktop rail (Recover / Module / External), mobile bottom nav + More sheet, no section tabs duplication
+- MenorixModuleAppShell: fullWidth + showSectionTabs + mobileNavigation props
+- Primary review nav -> /claim-center/candidates?filter=needs_review; /review alias redirect preserved
+- New routes: /claim-center/policies (read-only effective policy), /claim-center/group-builder (read-only shell + legacy links)
+- /claim-center/settings redirects to policies; submissions link -> Continue in Claim Engine
+- claim-center-filter-presets.ts for candidate filter presets
+- Smoke + build PASS; scanner + platform/access untouched; zero writes
+
+### Verdict
+- SAFE_TO_PUSH: yes
+
+### Next Prompt
+PHASE-CLAIM-CENTER-UX-REDESIGN-DETAIL-STORY-SIX-BLOCK-V1
+
+================================================================================
+END APPEND SLICE -- 20260611T231500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T234910Z
+TOPIC: PHASE-CLAIM-CENTER-POLICY-OWNERSHIP-CORRECTION
+================================================================================
+
+### Completed (read-only UI)
+- Renamed Policies/Settings -> Policy snapshot (/claim-center/policies)
+- Grouped read-only ownership sections A-D + platform gates with owner deep links
+- Intro copy: effective rules only; edits in owning settings areas
+- Nav: Policy snapshot moved to Reference utility group; Settings removed from hub nav and module ops
+- Dashboard tile + module contract updated; /claim-center/settings redirect alias kept
+- Smoke policy_ownership_ok + build PASS; scanner + platform/access untouched; zero writes
+
+### Verdict
+- SAFE_TO_PUSH: yes
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260611T234910Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260611T235247Z
+TOPIC: PHASE-CLAIM-CENTER-UX-REDESIGN-IMPLEMENT-SHELL-V1-C1
+================================================================================
+
+### Completed (read-only shell C1)
+- ClaimCenterAppShell: grouped rail + mobile More sheet, fullWidth, no section tabs
+- Review primary nav: /candidates?filter=needs_review; /review read-only alias (no redirect)
+- Group builder read-only shell with warnings + legacy CTAs
+- Policy snapshot read-only (ownership groups from prior correction)
+- Submissions legacy banner + Claim Engine link only; mobile cards default; bridge phase footer
+- Smoke + build PASS; scanner + platform/access untouched; zero writes
+
+### Verdict
+- SAFE_TO_PUSH: yes
+
+### Next Prompt
+PHASE-CLAIM-CENTER-UX-REDESIGN-DETAIL-STORY-SIX-BLOCK-V1
+
+================================================================================
+END APPEND SLICE -- 20260611T235247Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T000431Z
+TOPIC: PHASE-CLAIM-CENTER-UX-REDESIGN-DETAIL-STORY-SIX-BLOCK-V1
+================================================================================
+
+### Completed (read-only detail UX)
+- Six-block detail story: Event, Product, Evidence, Reference/TRID, Policy, Next step
+- Wide desktop drawer (xl:max-w-5xl) + sticky summary header; mobile stacked cards
+- Next-step resolver with safe links + Claim Engine legacy + lock reasons
+- TridReferenceGraphPanel + EvidencePacketPreviewPane summary copy updated
+- Mobile card snippets: family + event date
+- Smoke detail_story_ok + build PASS; zero writes; scanner/platform access untouched
+
+### Verdict
+- SAFE_TO_PUSH: yes
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260612T000431Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T010000Z
+TOPIC: PHASE-NEXT-SPRINT-ROADMAP-LOCK-V1
+================================================================================
+
+### Mode
+Planning only — no DB, migrations, code, UI, scanner mobile, product/claim data changes.
+
+### Sprint inputs locked
+- Roadmap reconciliation 20260611T230000Z
+- Claim Center policy ownership 20260611T234910Z PASS
+- Shell V1 C1 20260611T235247Z PASS
+- Detail six-block 20260612T000431Z PASS
+- MD-7A decision pack SAFE_TO_APPROVE_STAGING yes (not applied)
+- Task-Org pack v3 SAFE_FOR_MAYSAM_APPROVAL yes (not applied)
+- Product sync cursor 640 · linkage 49.1% SAFE_FOR_PRODUCT_STORY no
+- TRID discovery COMPLETE · claim write bridge NOT BUILT
+
+### next_sprint_priority_order
+1. Claim Center read UX commit/push
+2. Bridge readonly scaffold
+3. Linkage wave 2 slip_contents
+4. RLS import route org guard
+5. Maysam approval session MD-7A + Task-Org
+6. Product sync scale @640 (parallel)
+7. PHASE1 final QA gate
+8. ORBIT-FRA dry-run (if file in repo)
+
+### Do-not-do-yet
+Claim writes · MD-7A/Task-Org apply without Maysam · scanner mobile · Product Story UI scale · original apply · AI/agent
+
+### SAFE_TO_CONTINUE
+**yes**
+
+### Evidence
+.cursor/audit-reports/phase-next-sprint-roadmap-lock-v1/20260612T010000Z/
+
+### Next
+PHASE-CLAIM-CANDIDATE-CASE-SUBMISSION-BRIDGE-01-READONLY-SCAFFOLD
+
+================================================================================
+END APPEND SLICE -- 20260612T010000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T010000Z
+TOPIC: PHASE-CLAIM-CENTER-UX-FAILURE-AND-LEGACY-LINK-AUDIT
+================================================================================
+
+### Findings (audit only — no code)
+- Triple nav: ERP sidebar + Claim Center rail + dashboard tiles/More sheet
+- Legacy bleed: External rail links to Claim Engine, Automation, Report History; detail/next-step launchers
+- Staging org 7397edff has 0 claim_candidates — pages feel empty/demo despite real APIs
+- Policy Snapshot: demote to detail embed (B) + hidden route (D); remove from primary nav/tiles
+- Group builder, cases, submissions are launcher/thin legacy mirrors not native CC experiences
+
+### Verdict
+- SAFE_TO_IMPLEMENT_CLAIM_UI_V2: no
+- Next: PHASE-CLAIM-CENTER-UX-V2-NAV-BOUNDARY-AND-POLICY-DEMOTION-CORRECTION
+
+================================================================================
+END APPEND SLICE -- 20260612T010000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T012000Z
+TOPIC: PHASE-CLAIM-CENTER-PRODUCT-UX-CONTRACT-V2-INDEPENDENT-APP
+================================================================================
+
+### Delivered (contract only — no code)
+- Claim Center V2 independent app UX contract: 7-item primary nav, legacy tools overflow only
+- Policy snapshot demoted: Rules used mini-panel + admin deep link
+- Page-by-page data contracts, wireframes, component contract, backend gaps
+- SAFE_TO_IMPLEMENT_V2_SHELL: no until Maysam approval
+
+### Next Implement Prompt (after approval)
+PHASE-CLAIM-CENTER-UX-V2-NAV-BOUNDARY-AND-POLICY-DEMOTION-CORRECTION
+
+### Gate
+Do not implement until Maysam approves Claim Center V2 contract.
+
+================================================================================
+END APPEND SLICE -- 20260612T012000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T001838Z
+TOPIC: PHASE-CLAIM-CENTER-REAL-DATA-CONTRACT-AUDIT
+================================================================================
+
+### Finding
+- Staging claim_candidates: 9055 rows, 100% legacy_seed + quarantined.
+- Claim Center default API pool: 0 operational rows (correct filter).
+- TRID edges: 44566 on legacy pool; FRR: 573533 rows; claim_evidence: 0.
+- recovery_value/cogs_unit: 0 populated; intake_run_id: 0.
+
+### Gate
+SAFE_TO_IMPLEMENT_UI_ON_REAL_DATA: no
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-real-data-contract-audit/20260612T001838Z/
+
+### Next
+PHASE-CLAIM-INTAKE-OPERATIONAL-POOL-STAGING-EMIT
+
+================================================================================
+END APPEND SLICE -- 20260612T001838Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T002821Z
+TOPIC: PHASE-CLAIM-CENTER-LEGACY-BOUNDARY-CLEANUP-V1
+================================================================================
+
+### Completed (read-only UI boundary)
+- Primary nav 4: Home, Opportunities, Review, Evidence
+- Blockers secondary: References, Product match, Recovery, Runs
+- Legacy tools menu; External rail removed
+- Dashboard 4 tiles; Policy snapshot demoted; Rules used detail panel
+- Group builder/cases/submissions demoted; smoke PASS zero writes
+
+### Verdict
+- SAFE_TO_PUSH: yes
+
+### Next Prompt
+PHASE-CLAIM-CENTER-DATA-SOURCE-BANNERS-AND-COMMAND-HOME-V2
+
+================================================================================
+END APPEND SLICE -- 20260612T002821Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T004200Z
+TOPIC: PHASE-CLAIM-CENTER-REAL-DATA-CONTRACT-AND-STAGING-READINESS
+================================================================================
+
+### Finding (read-only staging audit)
+- Smoke org 7397edff: 0 active claim_candidates; 14 return_items; 0 products/PIM/evidence
+- Staging global: 9055 candidates ALL legacy_seed+quarantined -> active pool 0 (correct CC filter)
+- Hidden on default org: 44566 TRID edges, 573533 FRR -- not visible to CC default APIs
+- Recovery API does not join FRR; Evidence page has no dedicated center endpoint
+
+### Gate
+- SAFE_TO_IMPLEMENT_UI_ON_REAL_DATA: no
+- Staging needs trusted generator apply (dry-run first) on smoke org -- not legacy un-quarantine
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-real-data-contract-staging-readiness/20260612T004200Z/
+
+### Next
+PHASE-CLAIM-INTAKE-OPERATIONAL-POOL-STAGING-EMIT -> then PHASE-CLAIM-CENTER-DATA-SOURCE-BANNERS-AND-COMMAND-HOME-V2
+
+================================================================================
+END APPEND SLICE -- 20260612T004200Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T005500Z
+TOPIC: PHASE-CLAIM-CENTER-V2-INDEPENDENT-APP-CONTRACT-FINAL
+================================================================================
+
+### Delivered (contract only -- no code)
+- Final V2 independent Menorix app: 8 workflow pages + controlled Legacy tools overflow
+- Routes: /claim-center/sources canonical (runs redirect); group-builder page removed
+- Dashboard max 4 action tiles; Policy Snapshot demoted to admin utility + Rules used detail panel
+- Cases/submissions in More legacy outcomes; not-built until bridge/native detail
+- data_dependency_matrix tied to staging readiness audit (0 active candidates smoke org)
+
+### Gate
+- SAFE_TO_IMPLEMENT_CLAIM_CENTER_V2: no (Maysam approval required)
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-v2-independent-app-contract-final/20260612T005500Z/
+
+### Next (after Maysam approval)
+PHASE-CLAIM-INTAKE-OPERATIONAL-POOL-STAGING-EMIT -> PHASE-CLAIM-CENTER-V2-SHELL-IMPLEMENT-READONLY
+
+================================================================================
+END APPEND SLICE -- 20260612T005500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T004437Z
+TOPIC: PHASE-CLAIM-INTAKE-OPERATIONAL-POOL-STAGING-EMIT
+================================================================================
+
+### Executed (staging only)
+- Smoke org 7397edff: applied trusted pool generation -- 4 claim_candidates inserted
+- Sources: scanner_physical_review (2), orbit_fra (2) from real return_items
+- No legacy_seed, quarantine, cases, submissions, scanner mutation
+
+### Post-run
+- active_candidates: 4
+- build: PASS
+- CC smoke: FAIL Invalid time value in computeCanonicalWindow (ISO event_date)
+
+### Gate
+- SAFE_TO_EVALUATE_CLAIM_CENTER_UI_ON_REAL_DATA: yes_with_warnings
+
+### Evidence
+.cursor/audit-reports/phase-claim-intake-operational-pool-staging-emit/20260612T004437Z/
+
+### Next
+PHASE-CLAIM-CENTER-WINDOW-ISO-DATE-FIX -> PHASE-CLAIM-CENTER-V2-SHELL-IMPLEMENT-READONLY
+
+================================================================================
+END APPEND SLICE -- 20260612T004437Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T005100Z
+TOPIC: PHASE-CLAIM-CENTER-V2-SHELL-INDEPENDENT-APP-IMPLEMENT
+================================================================================
+
+### Delivered (read-only UI)
+- Claim Center V2 independent app shell: desktop rail (8 workflow pages) + mobile bottom 3 + More sheet
+- Home: 4 action tiles, KPI strip, attention list, source health, data readiness banner
+- Page heading model: H1 user question + data source + helper via ClaimCenterV2PageShell
+- Sources canonical route (/claim-center/sources); runs redirects
+- Legacy tools: single top-right overflow with amber badges; group-builder demoted/hidden
+- ISO event_date window fix in claim-center-v1-window.ts (unblocks dashboard API)
+
+### Staging verification
+- Smoke org 7397edff: 4 active candidates unchanged (zero_writes)
+- build: PASS
+- smoke: PASS 20260612T005055Z
+- scanner + platform access: untouched
+
+### Gate
+- SAFE_TO_PUSH: yes (read-only UX)
+- Write bridge / case creation: still blocked
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-v2-shell-independent-app-implement/20260612T005100Z/
+
+### Next
+PHASE-CLAIM-CENTER-V2-STAGING-UX-VERIFY-AND-MEMORY-APPEND
+
+================================================================================
+END APPEND SLICE -- 20260612T005100Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T005700Z
+TOPIC: PHASE-CLAIM-CENTER-DATA-SOURCE-BANNERS-AND-COMMAND-HOME-V2
+================================================================================
+
+### Delivered (read-only UX)
+- Data readiness banner on empty pool (sources checked, trusted count, Sources link)
+- Pool-empty vs queue-clear empty state templates with distinct copy
+- Page explanation model: question, data source, appears here, next step, why empty
+- Command Home: KPI strip before tiles, plain-language labels, source health
+- Sources human cards: last run, rows scanned, opportunities created, warnings, next step
+- Detail next-step: review now / locked / after bridge (no legacy primary CTA)
+
+### Verification
+- build: PASS
+- smoke: PASS 20260612T005650Z (data_ux_ok)
+- zero_writes, scanner untouched
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-data-source-banners-and-command-home-v2/20260612T005700Z/
+
+### Next
+PHASE-CLAIM-CENTER-V2-STAGING-UX-VERIFY-AND-MEMORY-APPEND
+
+================================================================================
+END APPEND SLICE -- 20260612T005700Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T010000Z
+TOPIC: PHASE-CLAIM-CENTER-FLOW-NAVIGATION-REDESIGN-CONTRACT
+================================================================================
+
+### Delivered (UX contract only)
+- Diagnosed menu-inside-menu: ERP sidebar + Claim Center desktop rail
+- Chosen model: Lifecycle Command Bar + Command Home (hybrid A+C+D)
+- Remove second sidebar; horizontal lifecycle strip; Home command board; mobile Home/Review/Proof/More
+- Breadcrumb, step N of 7, prev/next, icons, motion plan, Figma reference plan
+- Implementation phases F1-F8 defined
+
+### Gate
+- SAFE_TO_IMPLEMENT_FLOW_NAV: no (Maysam approval required)
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-flow-navigation-redesign-contract/20260612T010000Z/
+
+### Next
+PHASE-CLAIM-CENTER-FLOW-NAVIGATION-IMPLEMENT-READONLY (after Maysam approval)
+
+================================================================================
+END APPEND SLICE -- 20260612T010000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T011500Z
+TOPIC: PHASE-CLAIM-CENTER-FLOW-NAVIGATION-IMPLEMENT-V1
+================================================================================
+
+### Delivered (read-only UI navigation)
+- Removed inner desktop rail (hideRail on MenorixModuleAppShell)
+- ClaimCenterWorkflowBar: 7 lifecycle steps with icons, counts, active glow
+- ClaimCenterFlowPositionHeader: you-are-here, step N of 7, prev/next
+- Home: ClaimCenterLifecycleFlowStrip + 4 action cards (no duplicate nav hub)
+- Mobile: Home/Review/Proof/More; More groups Workflow/Blockers/Sources/Admin-Legacy
+- Detail mobile: flow step pill
+
+### Verification
+- build: PASS
+- smoke: PASS 20260612T011442Z
+- zero_writes, scanner untouched
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-flow-navigation-implement-v1/20260612T011500Z/
+
+### Next
+PHASE-CLAIM-CENTER-V2-STAGING-UX-VERIFY-AND-MEMORY-APPEND
+
+================================================================================
+END APPEND SLICE -- 20260612T011500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T011841Z
+TOPIC: PHASE-CLAIM-CENTER-MOBILE-FLOW-POLISH-V1
+================================================================================
+
+### Delivered (read-only mobile UX — Claim Center only)
+- ClaimCenterMobileLifecycleHeader: you-are-here pill + snap-scroll lifecycle chips (lg:hidden)
+- More sheet: Workflow / Blockers / Sources / Admin-Legacy with icon + purpose per item
+- Rich mobile cards: family, exposure, deadline, blocker, product/proof, tap affordance
+- Mobile detail: sticky summary + flow step pill + six-block story; no legacy primary CTA
+- Empty states: pool-empty vs queue-clear + single safe-action CTA
+- Theme polish: lifecycle chips, rich cards, more sheet, detail summary touch targets
+
+### Verification
+- build: PASS
+- smoke: PASS 20260612T011841Z (mobile_polish_ok true)
+- zero_writes, scanner untouched, detail_no_write_buttons
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-mobile-flow-polish-v1/20260612T011841Z/
+
+### Next
+PHASE-CLAIM-CENTER-V2-STAGING-UX-VERIFY-AND-MEMORY-APPEND
+
+================================================================================
+END APPEND SLICE -- 20260612T011841Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T012800Z
+TOPIC: PHASE-CLAIM-CENTER-V2-STAGING-UX-VERIFY-AND-MEMORY-APPEND
+================================================================================
+
+### Staging UX verification (read-only, smoke org 4 candidates)
+- Navigation: ERP sidebar only vertical nav; hideRail shell; workflow bar desktop; mobile lifecycle header; prev/next guidance PASS
+- Mobile: bottom nav, More sheet groups, rich cards, detail sticky summary + 6 blocks PASS
+- Legacy boundary: overflow only, no primary legacy CTA PASS
+- Flow clarity score: 7/10
+
+### Confusing points (staging data + filters)
+- Find Money / Home attention empty while Review/Product/Proof show 4 (blocked_product_link excluded from opportunities filter)
+- Money to recover KPI  — recovery_value 0 or null, no COGS on test FNSKU
+- Twin rows: orbit_fra + scanner_physical_review per return_item (4 cards, 2 physical units)
+- References lists 4 by package_id but reference_edge_count 0
+- Recovery lists financial-source rows but orbit_external_case_status null; no FRR linkage
+
+### Verification
+- smoke: PASS 20260612T012530Z, zero_writes
+- SAFE_TO_CONTINUE_UI_POLISH: yes
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-v2-staging-ux-verify-and-memory-append/20260612T012800Z/
+
+### Next
+PHASE-CLAIM-CENTER-QUEUE-SEMANTICS-AND-MONEY-DISPLAY-POLISH-V1
+
+================================================================================
+END APPEND SLICE -- 20260612T012800Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T012927Z
+TOPIC: PHASE-CLAIM-MONEY-RECOVERY-DATA-CONTRACT-AUDIT
+================================================================================
+
+### Schema truth
+- claim_candidates canonical money: recovery_value, cogs_unit, expected_amount (no estimated_recovery_amount / recoverable_amount columns)
+- observed_external_status: metadata.orbit_external_case_status only
+- cogs_source_code: not migrated
+
+### Staging smoke org (4 active)
+- orbit_fra: recovery_value=0, cogs null (COGS path failed)
+- scanner_physical_review: recovery_value null (generator never sets amount)
+- FRR: 0 rows; reimbursements: 0; edges: 0
+
+### Contract decisions
+- Never sum null recovery_value; separate Unknown vs -unpriced
+- Observed reimbursement from amazon_reimbursements join via order_id/FRR edges
+- ORBIT expected: units*cogs else reportAmount at intake only
+- Recovery page must not use loose candidate filter
+
+### SAFE_TO_IMPLEMENT_MONEY_UI: no (semantics first)
+
+### Evidence
+.cursor/audit-reports/phase-claim-money-recovery-data-contract-audit/20260612T012927Z/
+
+### Next
+PHASE-CLAIM-CENTER-MONEY-DISPLAY-CONTRACT-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260612T012927Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T013747Z
+TOPIC: PHASE-CLAIM-CENTER-COMMAND-HOME-FLOW-CARDS-V2
+================================================================================
+
+### Delivered (read-only command home)
+- ClaimCenterCommandBoard: 7-step lifecycle cards with counts, money lines, next actions
+- ClaimCenterCommandHomeTiles: Money/Review/Proof/Blockers/Recovery + what-to-do-next
+- claim-center-money-contract.ts: aggregateClaimCenterMoney, buildAttentionList, no null-as-zero sums
+- ClaimCenterAttentionList: deduped FNSKU-first ranking by deadline/exposure
+- Dashboard API: kpis.money, attention list replaces opportunity-only filter
+
+### Verification
+- build+smoke PASS 20260612T013747Z, zero_writes
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-command-home-flow-cards-v2/20260612T013747Z/
+
+### Next
+PHASE-CLAIM-CENTER-MONEY-DISPLAY-CONTRACT-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260612T013747Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T021500Z
+TOPIC: PHASE-CLAIM-INTAKE-POLICY-SETTINGS-AUDIT-V1
+================================================================================
+
+### Findings
+- Claim lifecycle partially policy-driven; settings fragmented across 4 JSON stores (org claim_policy, workspace module_configs, platform automation scopes, env flags)
+- Active on staging: org cutoff dates (2026-01-15), 90d window, returns domain only; 4 candidates (orbit_fra + scanner_physical_review twins)
+- Missing: per-source delay days, settings-driven expiration_warning/expire_soon (14 hardcoded), not_yet_claimable, scanner expiration_date derivation, FRR pool source, store-tier generator wiring
+- Store claim_candidate_intake override: UI only — generators use org-level loadClaimCandidateIntakePolicy
+- orbit_fra in pool generators but NOT in discovery catalog (9 sources)
+
+### Contract proposed
+- Unified claim_policy.intake_policy JSONB (activation, eligibility_delay, expiration, source_enablement, scanner, policy_revision)
+- Read model: live policy derivation on API read; generator rerun only for new source rows
+- Scanner expiry: read-only from return_items.expiration_date; never mutate scanner rows
+
+### Gates
+- migration_needed: yes_optional (JSONB extend; optional policy_revision_at_intake column)
+- SAFE_TO_IMPLEMENT_POLICY_READ_MODEL: yes
+- approval_required_from_maysam: yes (status vocabulary, store tier, FRR)
+
+### Evidence
+.cursor/audit-reports/phase-claim-intake-policy-settings-audit-v1/20260612T021500Z/
+
+### Next
+PHASE-CLAIM-INTAKE-POLICY-READ-MODEL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260612T021500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T023000Z
+TOPIC: PHASE-CLAIM-LIFECYCLE-SOURCE-TO-CANDIDATE-API-CONTRACT-V1
+================================================================================
+
+### Pipeline locked
+- Intake: 12 registered source_kind generators + live emitters -> claim_candidates (detected/missing evidence)
+- Enrichment (read-only): inbox projection -> product linkage -> reference edges -> money contract -> v1_status_group
+- Discovery: 9 sources + watermarks in claim_policy.discovery_index; orbit_fra pool-only
+
+### Key contracts
+- dedupe_key: v1:{source_kind}:{org}:{store}:{table}:{row_id}:{claim_family}
+- Twin rows: scanner_physical_review + orbit_fra per return_item (by design)
+- FRR: edge/TRID layer only — not claim_candidates generator
+- amazon_returns: no generator; edge discovery join only
+- Package/pallet/shipment review: triggers emitting scanner_physical_review (not separate source_kind)
+
+### API gaps
+- /api/claims/center/evidence — missing (UI proxies /review)
+- /api/claims/center/sources — missing (UI proxies /runs + /automation-health)
+- opportunities filter excludes blocked_product_link (Find Money empty while Review full)
+
+### Refresh
+- Policy/window: live on API read
+- New source rows: generator rerun
+- TRID edges: materializer/discovery job
+- Scanner expiration_date: not wired (read-model gap)
+
+### Gates
+- SAFE_TO_IMPLEMENT_LIFECYCLE_API_FIXES: yes
+- Next: PHASE-CLAIM-INTAKE-POLICY-READ-MODEL-IMPLEMENT-V1 then PHASE-CLAIM-CENTER-LIFECYCLE-API-ROUTES-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-lifecycle-source-to-candidate-api-contract-v1/20260612T023000Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T023000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T020500Z
+TOPIC: PHASE-CLAIM-CENTER-QUEUE-SEMANTICS-AND-MONEY-DISPLAY-POLISH-V1
+================================================================================
+
+### Scope
+Read-only UI/API read-model polish — no DB, no migrations, no candidate mutation, no scanner changes.
+
+### Money display contract
+- recoverable_known_usd = SUM(recovery_value) where > 0 and recoverable
+- unknown_amount_count / zero_unpriced_count tracked separately
+- Never sum unknowns; never show unknown as 
+- Per-row projection: amount_basis, amount_confidence, amount_display_label, amount_tooltip
+
+### Queue semantics
+- Find Money: recoverable including blocked; twin display dedupe (4 DB → 2 grouped rows)
+- Review: human blockers | Proof: evidence missing | Product: linkage blockers
+- References: materialized edges only + references_not_materialized empty state
+- Recovery: observed filed/reimbursed only
+- Dedicated /api/claims/center/evidence route
+
+### Verification
+- Build PASS; staging smoke 20260612T020046Z PASS; safe_to_push: true
+- zero_writes: 4 candidates unchanged; scanner untouched
+
+### Gates
+- SAFE_TO_PUSH: yes
+- Next: PHASE-CLAIM-INTAKE-POLICY-READ-MODEL-IMPLEMENT-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-center-queue-semantics-and-money-display-polish-v1/20260612T020500Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T020500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T021500Z
+TOPIC: PHASE-CLAIM-INTAKE-POLICY-READ-MODEL-IMPLEMENT-V1
+================================================================================
+
+### Scope
+Read-only policy-driven lifecycle derivation in Claim Center APIs — no DB, no migrations, no candidate mutation.
+
+### Policy contract
+- lib/claims/intake/claim-intake-policy-contract.ts
+- loadEffectiveClaimIntakePolicy: platform -> company -> store merge
+- expiration_warning_days replaces hardcoded 14-day closing_soon
+
+### Lifecycle
+- deriveClaimLifecycleStatus: 15 states on each row
+- policy_warnings: stale, source_disabled, not_yet_claimable_until, expires_soon, expired, unknown_expiry
+- Scanner expiration_date read-only derivation from return_items join
+
+### APIs
+- policy_context on dashboard, opportunities, review, evidence, product-linkage, references, recovery
+- New /api/claims/center/sources
+
+### Verification
+- Build PASS; smoke 20260612T021233Z PASS; 4 candidates unchanged
+
+### Gates
+- SAFE_TO_PUSH: yes
+- Next: PHASE-CLAIM-CENTER-LIFECYCLE-API-ROUTES-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-intake-policy-read-model-implement-v1/20260612T021500Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T021500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T023000Z
+TOPIC: PHASE-CLAIM-MONEY-PRICE-COST-LOSS-CONTRACT-V1
+================================================================================
+
+### Finding
+- Sale price (product_prices, catalog_products, unit_sale_price) != actual cost
+- SellerSnap COGS not wired; ORBIT-FRA wrongly falls back to estimated_value/unit_sale_price for COGS
+- Staging smoke org: 4 candidates, 0 positive recovery, 0 FRR/reimbursement rows
+- Claim Center V1 money polish correct on unknown/zero/known separation
+
+### Contract locked
+- Three lanes: latest Amazon sale price (context), actual cost basis (COGS), observed reimbursement (FRR)
+- actual_loss = units x actual_cost_basis — never sale price
+- Priority stacks documented for price, cost, recovery
+
+### Gates
+- approval_required_from_maysam: yes (SellerSnap, loss formulas, FRR policy)
+- SAFE_TO_IMPLEMENT_MONEY_PRICE_COST_READ_MODEL: conditional_no
+- Next: PHASE-CLAIM-MONEY-PRICE-COST-LOSS-READ-MODEL-IMPLEMENT-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-money-price-cost-loss-contract-v1/20260612T023000Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T023000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T030000Z
+TOPIC: PHASE-TRID-PRODUCT-STORY-SOURCE-MINING-CONTRACT-V2
+================================================================================
+
+### Finding
+- No unified Product Story API; PIM product detail + Claim Center 6-block detail + linkage-health only
+- TRID discovery engine rules cover order/shipment/removal/ledger/reimb/txn/safet/product_link; source_report edges proposed not yet in rules
+- Staging dry-run V1: 44,515 materialized edges, net-new proposals=4; 4889 missing product links, 1352 missing reference links
+- Three-lane money: sale (product_prices/catalog), actual cost (SellerSnap NOT WIRED; ORBIT anti-pattern uses unit_sale_price), observed (FRR/reimbursements)
+- SAFE_FOR_PRODUCT_STORY=no (linkage 49.1%, 2583 identifier conflict groups)
+
+### Contract locked
+- Per-source identity, identifiers, references, claim info, TRID edges, Product Story blocks, API read model requirements
+- reference_edge_contract: candidate anchor only; dedupe uq_claim_reference_edges_candidate_natural; no fake edges
+- product_story_api_contract: proposed GET .../products/[id]/story (derived read-only, no resolver rewrite)
+
+### Gates
+- migration_needed: partial_yes
+- new_tables_or_columns: yes_with_maysam_approval (SellerSnap COGS, amazon_returns fnsku/qty, claim_candidates.cogs_source_code)
+- SAFE_TO_DRYRUN_TRID_PRODUCT_STORY_EDGES: yes
+- SAFE_FOR_FULL_PRODUCT_STORY_API: no
+- Next: PHASE-TRID-PRODUCT-STORY-READ-MODEL-DRYRUN-V2
+
+### Evidence
+.cursor/audit-reports/phase-trid-product-story-source-mining-contract-v2/20260612T030000Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T030000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T024718Z
+TOPIC: PHASE-7A-TASK-CENTER-SCHEMA-MIGRATION-STAGING-ONLY-RLS-HARD-GATED
+================================================================================
+
+### Applied (staging only — eiqfaapyumhixxoeltgu)
+- Migration: supabase/migrations/20260919120000_phase7a_task_center_schema_staging_rls_gated.sql
+- Tables: task_items, task_comments, task_watchers, task_activity_log
+- groups columns: group_type (access_group|team|department|queue), parent_group_id
+- Reuses groups spine — no teams/departments/task_assignments/notifications/task_boards tables
+- Seeded rows: 0
+
+### RLS hard gate
+- RLS enabled same transaction on all 4 task tables
+- service_role ALL; authenticated SELECT only (org-scoped via get_my_organization_id)
+- Child tables SELECT via EXISTS join to task_items.organization_id
+- No authenticated INSERT/UPDATE/DELETE in Phase 7A
+- Partial unique: uq_task_items_active_source_identity (org + source triple, deleted_at IS NULL)
+
+### Verification
+- RLS policy audit: PASS (8 policies)
+- Cross-org read test: PASS (transaction rolled back)
+- Authenticated write policy check: PASS (none)
+- task_items row count: 0
+- Build: PASS
+- Scanner operator-mobile: untouched
+- Platform Access: untouched
+
+### Gates
+- SAFE_TO_PUSH: yes
+- SAFE_FOR_NEDA_UI_START: yes
+- Scanner task bridge: deferred (no scanner code changes)
+- Next: PHASE-TASK-CENTER-UI-READONLY-SCAFFOLD-V1
+
+### Evidence
+- .cursor/audit-reports/phase7a-task-center-schema-staging-apply/20260612T024500Z/
+- .cursor/audit-reports/phase7a-task-center-schema-staging-verify/20260612T024718Z/
+- Rollback: supabase/migrations/rollback/20260919120000_phase7a_task_center_schema_staging_rls_gated_rollback.sql
+
+================================================================================
+END APPEND SLICE -- 20260612T024718Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T025009Z
+TOPIC: PHASE-TASK-CENTER-SCHEMA-VERIFY-AND-NEDA-UI-CONTRACT-V1
+================================================================================
+
+### Schema verification (staging eiqfaapyumhixxoeltgu)
+- task_items, task_comments, task_watchers, task_activity_log: PASS
+- groups.group_type, groups.parent_group_id: PASS
+- RLS: enabled all tables; service_role ALL; authenticated SELECT org-scoped only; child EXISTS join
+- No authenticated mutating policies; cross-org read test PASS
+- Indexes + rollback SQL: PASS
+- task_items rows: 0 (no seed)
+- Scanner + Platform Access: untouched
+
+### Frontend contract locked
+- docs/menorix/task-center-ui-api-contract-v1.md
+- lib/task-center/ (schema, API, UI, scanner display, org display contracts)
+- Screens: Home, My Tasks, Team/Queue, Source Work, Detail, Org Structure
+- Proposed read API: /api/task-center/summary, /tasks, /tasks/[id], /groups, /source-summary
+- Writes deferred to Phase 7B (create, assign, status, comment, watcher, close)
+
+### Gates
+- SAFE_FOR_NEDA_FRONTEND: yes
+- NEXT_PROMPT_FOR_NEDA: PHASE-TASK-CENTER-UI-READONLY-SCAFFOLD-V1
+
+### Evidence
+- .cursor/audit-reports/phase-task-center-schema-verify-neda-ui-contract-v1/20260612T025009Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T025009Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T030045Z
+TOPIC: PHASE-TASK-CENTER-FRONTEND-SHELL-NEDA-V1
+================================================================================
+
+### Implemented
+- Read-only Task Center Menorix shell at /task-center
+- Pages: home, my, queues, sources, org, [id] detail
+- Read API: summary, tasks, tasks/[id], groups, source-summary
+- lib/task-center read model + API handlers
+- components/task-center/* (shell, badges, lists, empty states, write gate footer)
+- Sidebar leaf Task Center
+- No fake tasks; empty states with Phase 7B copy
+- Scanner: source filter + future kinds panel only — operator-mobile untouched
+- Platform Access untouched
+
+### Verification
+- build PASS; smoke PASS
+- SAFE_TO_PUSH: yes
+- NEXT: PHASE-TASK-CENTER-READ-API-POLISH-V1
+
+### Evidence
+- .cursor/audit-reports/phase-task-center-frontend-shell-neda-v1/20260612T030045Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T030045Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T185018Z
+TOPIC: PHASE-PRODUCT-DIMENSIONS-SHIPMENT-FEE-CLAIM-AUDIT-V1
+================================================================================
+
+### Scope
+Read-only audit of product dimensions/spec tables and shipment/fee sources for future FBA fee overcharge, storage/removal fee, and shipment discrepancy claims. No DB writes.
+
+### Key findings
+- **Maysam table confirmed:** PC04 stack — product_packaging_profiles / product_packaging_profile_versions / product_packaging_dimensions_current / product_packaging_evidence
+- Staging: **571** dimensions_current rows (3.3% of 17,059 products); 191 amazon_report + 380 import; only **80** rows with full L×W×H
+- Legacy products flat dim columns: **0 populated**; amazon_raw on **13,206** products (embedded Catalog dims, not normalized)
+- amazon_fee_preview + amazon_monthly_storage_fees: **0 rows** on staging (import gap)
+- amazon_settlements: **585,637** rows — fee columns amount_total, fba_fees, selling_fees; **527,938** with SKU
+- financial_reference_resolver: **573,533** rows; all trid_key; **548,289** with amount
+- amazon_removal_shipments: **9,316** (4,714 RPID); expected_packages: **9,738** (8,946 tracking; removal_fee present)
+- No dedicated amazon_measured_dimensions table; no computed dim_weight column; no carrier dimensional-weight ingest
+
+### Gates
+- SAFE_TO_DESIGN_DIMENSION_FEE_SCHEMA: **yes**
+- NEXT_EXACT_PROMPT: PHASE-PRODUCT-DIMENSIONS-FEE-CLAIM-SCHEMA-DESIGN-V1 (design-only; operator approval before apply)
+
+### Evidence
+- .cursor/audit-reports/phase-product-dimensions-shipment-fee-claim-audit-v1/20260612T185018Z/
+- Script: scripts/phase-product-dimensions-shipment-fee-claim-audit-v1-readonly.ts
+
+================================================================================
+END APPEND SLICE -- 20260612T185018Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T200000Z
+TOPIC: PHASE-PRODUCT-FINANCIAL-SPINE-APPROVAL-QUESTIONS-V1
+================================================================================
+
+### Scope
+Architecture approval decision pack for Maysam before any product financial schema implementation. No DB writes, no code changes, no migrations.
+
+### Prerequisite findings (PHASE-PRODUCT-FINANCIAL-SPINE-ARCHITECTURE-V1)
+- product_prices exists � should remain **latest price cache**; lacks formal versioned history role split
+- products.price legacy cache � no source/timestamp lineage
+- No purchase/invoice cost table; vendors store no cost
+- claim_candidates.cogs_unit only persisted COGS-like value; SellerSnap COGS not wired
+- PC04 packaging stack is canonical dimensions (571 current); raw JSON elsewhere not normalized for fee claims
+- amazon_reimbursements.amount_reimbursed = observed; claim_candidates.recovery_value = expected only
+
+### Recommended approvals (awaiting Maysam)
+| Decision | Recommend |
+|----------|-----------|
+| product_prices = latest cache | **yes** |
+| catalog_products/raw = source snapshot | **yes** |
+| claim_candidates = intake snapshot only | **yes** |
+| product_cost_snapshots | **yes** |
+| product_price_history | **yes** |
+| product_dimensions_snapshots | **defer � reuse PC04 versions** |
+| product_fee_snapshots | **later** |
+| claim_money_snapshots | **defer � candidates + FRR initially** |
+| Purchase module boundary | **confirmed** |
+| Claim money three-lane boundary | **confirmed** |
+| Shipment/fee claim boundary | **confirmed** |
+| Financial tables RLS pattern | **confirmed** |
+
+### Gates
+- SAFE_TO_PROCEED_TO_PHYSICAL_RETURN_CLAIM_MVP: **yes** (existing claim_candidates fields; no new tables required for returns-first intake)
+- SAFE_TO_IMPLEMENT_FINANCIAL_SCHEMA: **no** until operator sign-off
+
+### Evidence
+- .cursor/audit-reports/phase-product-financial-spine-approval-questions-v1/20260612T200000Z/
+- .cursor/operator-approvals/phase-product-financial-spine-v1-approval.md
+- NEXT: PHASE-PRODUCT-FINANCIAL-SPINE-SCHEMA-DESIGN-V1 (design-only after approval)
+
+================================================================================
+END APPEND SLICE -- 20260612T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T024000Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-MVP-SLICE-CONTRACT-V1
+================================================================================
+
+### MVP slice locked
+- Physical return / scanner-origin first — 2 families: physical_return_off_manifest + physical_return_issue
+- Staging: 4 candidates, 2 grouped rows; product_blocked + money unknown/unpriced
+- Queues mapped: Find Money (incl blocked), Review, Proof, Product, References (materialized only), Recovery (observed only)
+
+### Deferred
+- Financial/removal families, filing bridge, PDF, Amazon submission, box-grain missing_units/over_received
+
+### Gates
+- SAFE_TO_DRYRUN_PHYSICAL_RETURN_MVP: yes
+- Next: PHASE-CLAIM-PHYSICAL-RETURN-MVP-READ-MODEL-IMPLEMENT-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-physical-return-mvp-slice-contract-v1/20260612T024000Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T024000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T193200Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-MVP-READMODEL-IMPLEMENT-V1
+================================================================================
+
+### Implemented (read-only)
+- Physical return MVP read-model: claim-center-physical-return-mvp.ts
+- Twin metadata on all rows (attachTwinMetadataToRows); grouped display 4 DB rows -> 2 cards
+- Queue mapping: Find Money incl blocked, Review/Proof/Product/References/Recovery semantics
+- Money copy: Cost unknown, Unpriced — add cost to see recovery; never sum unknowns; no fake 
+- Detail story: physical event, policy, product, proof, TRID, money status, missing next
+- Product story preview: link only when resolved; Product not matched blocker
+- API: filterPhysicalReturnMvpRows default on fetchCenterCandidateRows
+
+### Staging smoke
+- Org 7397edff-7994-4731-8501-55d258d507d2: 4 candidates unchanged, zero writes
+- grouped_physical_rows: 2; build PASS; smoke PASS 20260612T193159Z
+- SAFE_TO_PUSH: yes
+
+### Evidence
+.cursor/audit-reports/phase-claim-physical-return-mvp-readmodel-implement-v1/20260612T193200Z/
+
+### Next
+PHASE-CLAIM-MONEY-PRICE-COST-LOSS-READ-MODEL-IMPLEMENT-V1 (after Maysam approval; latest_sale_price_context join when product linked)
+
+================================================================================
+END APPEND SLICE -- 20260612T193200Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T193528Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-PRODUCT-LINKAGE-PILOT-V1
+================================================================================
+
+### Audit (read-only)
+- Target FNSKU X006OFFM01 on smoke org 7397edff / store 9adfe198
+- 4 claim_candidates + 2 return_items — all product-blocked
+- FNSKU-only scan: no ASIN, no MSKU/SKU on return_items or candidates
+- Org spine empty: products=0, catalog_products=0, product_identifier_map=0, product_prices=0
+- Resolver (resolveProductIdentifier + resolveProductIdentifierMapMatch): unresolved, 0 candidates
+- No conflicts; no deterministic match; no proposed mapping
+
+### Gates
+- SAFE_TO_APPLY_PRODUCT_LINKAGE_PILOT: no
+- APPROVAL_REQUIRED_FROM_MAYSAM: yes
+- Next: PHASE-CLAIM-PHYSICAL-RETURN-PRODUCT-LINKAGE-DATA-INGEST-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-physical-return-product-linkage-pilot-v1/20260612T193528Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T193528Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T194815Z
+TOPIC: PHASE-PRODUCT-LINKAGE-PHYSICAL-RETURN-MVP-DRYRUN-V1
+================================================================================
+
+### Scope
+Read-only product linkage dry-run for physical return MVP candidates only (scanner_physical_review + trustworthy orbit_fra). Exact identifier map matching only; no title/OCR/product create.
+
+### Key findings
+- Smoke org: 7397edff-7994-4731-8501-55d258d507d2 — **4** MVP candidates (2 return_items x twin scanner + orbit rows)
+- Already resolved: **0/4**
+- Deterministic map matches: **0** — FNSKU X006OFFM01 (QA off-manifest test) has no product_identifier_map hit
+- Conflicts: **0**; safe pilot rows: **0**
+- Product Story / Claim Center / TRID / Money all blocked on product spine until spine match exists
+
+### Gates
+- SAFE_TO_APPLY_PRODUCT_LINKAGE_PILOT: **no**
+- APPROVAL_REQUIRED_FROM_MAYSAM: **yes**
+- NEXT_EXACT_PROMPT: PHASE-PRODUCT-LINKAGE-PHYSICAL-RETURN-MVP-IDENTIFIER-REPAIR-V1
+
+### Evidence
+- .cursor/audit-reports/phase-product-linkage-physical-return-mvp-dryrun-v1/20260612T194815Z/
+- Script: scripts/phase-product-linkage-physical-return-mvp-dryrun-v1-readonly.ts
+
+================================================================================
+END APPEND SLICE -- 20260612T194815Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T195458Z
+TOPIC: PHASE-PC04-DIMENSIONS-HISTORY-EVIDENCE-CONTRACT-V1
+================================================================================
+
+### Scope
+Read-only architecture contract for PC04 dimension history + evidence — Financial Spine reuse path (no product_dimensions_snapshots fork).
+
+### Key findings
+- PC04 stack confirmed: profiles (571) -> profile_versions (571, history) -> dimensions_current (571, read model) + evidence (0 rows)
+- Provenance today: evidence_summary jsonb on all 571 versions; product_packaging_evidence table unused
+- Multi-version supersede path untested: 0 profiles with >1 version
+- Contract: INSERT new version on measurement change; current refreshed via trigger only; filing embeds version_id snapshot
+- measured_by maps from source_type (amazon|internal|manual|report); carrier not in CHECK yet
+- Product Story / Claim Center: no packaging history UI wired yet
+
+### Gates
+- new_table_needed: **no**
+- migration_needed: **conditional_yes** (measured_by view, evidence backfill, immutability guard, dim_weight view)
+- SAFE_TO_USE_PC04_FOR_CLAIM_DIMENSIONS: **yes**
+- NEXT_EXACT_PROMPT: PHASE-PC04-DIMENSIONS-HISTORY-EVIDENCE-IMPLEMENT-V1
+
+### Evidence
+- .cursor/audit-reports/phase-pc04-dimensions-history-evidence-contract-v1/20260612T195458Z/
+- Script: scripts/phase-pc04-dimensions-history-evidence-contract-v1-readonly.ts
+
+================================================================================
+END APPEND SLICE -- 20260612T195458Z
+================================================================================
+
+
+================================================================================
+APPEND SLICE -- 20260612T200431Z
+TOPIC: PHASE-AMAZON-ORBIT-FRA-SOURCE-CONNECTOR-READINESS-V1
+================================================================================
+
+### Completed (read-only audit)
+- Script: `scripts/phase-amazon-orbit-fra-source-connector-readiness-v1-readonly.ts`
+- Staging org/store scoped matrix for 17 sources (ORBIT workbook, Amazon reports, FRR, PIM spine, claim pool).
+- Key staging counts: return_items 41; amazon_returns 2574; inventory_ledger 282352; reimbursements 12711; settlements 585637; removals 2719; removal_shipments 9316; SAFE-T 0; product_identifier_map 16850; claim_reference_edges 44566 (9055 candidates).
+- ORBIT live generator over DB tables; XLSX import still blocked.
+- SellerSnap COGS not wired; cogs_unit 0 on active smoke pool at audit time.
+- Evidence: `.cursor/audit-reports/phase-amazon-orbit-fra-source-connector-readiness-v1/20260612T200431Z/`
+
+### Gates
+- SAFE_TO_IMPLEMENT_SOURCE_CONNECTOR_READMODEL: **yes** (read-only GET routes only)
+
+### Next Prompt
+PHASE-SOURCE-CONNECTOR-READMODEL-V1 — GET /api/claims/connectors/readiness aggregate; wire Claim Center /sources banner
+
+================================================================================
+END APPEND SLICE -- 20260612T200431Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T203117Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-PRODUCT-LINKAGE-DATA-INGEST-V1
+================================================================================
+
+### Scope
+Staging data ingest plan for physical return MVP linkage blocker (FNSKU X006OFFM01). No claim_candidates mutation; no scanner changes; no product create.
+
+### Key findings
+- Fixture org 7397edff-7994-4731-8501-55d258d507d2: 0 products, 0 catalog, 0 map, 0 prices
+- X006OFFM01: Zebra fixture FNSKU (neda-6f-zebra-visual-fixture-prep); 0 hits in map/products/catalog/Amazon inventory globally
+- Amazon listing/inventory import path: BLOCKED (nothing to ingest)
+- Rows ingested: 0; deterministic match after: no
+- Main org has spine (17059 products, 16850 map) but fixture org is empty
+
+### Gates
+- SAFE_TO_RUN_PRODUCT_LINKAGE_APPLY_V1: **no**
+- NEXT: PHASE-CLAIM-PHYSICAL-RETURN-LINKAGE-FIXTURE-PRODUCT-SEED-APPROVAL-V1 (Maysam-approved governed map seed OR re-scan with real FNSKU)
+
+### Evidence
+- .cursor/audit-reports/phase-claim-physical-return-product-linkage-data-ingest-v1/20260612T203117Z/
+- Script: scripts/phase-claim-physical-return-product-linkage-data-ingest-v1.ts
+
+================================================================================
+END APPEND SLICE -- 20260612T203117Z
+================================================================================
+
+
+================================================================================
+APPEND SLICE -- 20260612T205500Z
+TOPIC: PHASE-AMAZON-ORBIT-FRA-SOURCE-CONNECTOR-READMODEL-IMPLEMENT-V1
+================================================================================
+
+### Completed (read-only API/read-model)
+- `lib/claims/connectors/source-connector-readmodel.ts` — source health, claim/TRID/Product Story/ORBIT/file-API readiness payloads (SELECT/count only).
+- Extended `GET /api/claims/center/sources` with `connector_readiness` + top-level payload aliases.
+- `ClaimCenterSourcesView` — single sources fetch; connector readiness summary + enriched domain health cards.
+- Smoke: `scripts/phase-source-connector-readmodel-smoke-v1.ts` PASS (14 sources, 12 generators, 44k TRID edges).
+- Build PASS; no DB writes; scanner untouched.
+
+### Gates
+- SAFE_TO_PUSH: **yes**
+
+### Next Prompt
+PHASE-SOURCE-CONNECTOR-TRID-MATERIALIZATION-DRYRUN-V2 — wire TRID edge counts per active candidate on smoke org; still read-only
+
+================================================================================
+END APPEND SLICE -- 20260612T205500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T211257Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-REAL-FNSKU-SMOKE-TARGET-V1
+================================================================================
+
+### Read-only target selection
+- Fixture X006OFFM01 = Zebra QA; fixture org spine 0/0/0/0
+- Main org 00000000-0001: products 17059, pim 16850, prices 29589
+- 30 qualifying real FNSKU targets (no ambiguity); 0 fixture-aligned
+- Best: B0000B11UX → product 8beddd08…, ASIN+MSKU, price .19, store 509ee1f6…
+- cross-org mapping forbidden; existing fixture candidates need re-scan in main org
+
+### Gates
+- SAFE_TO_USE_REAL_FNSKU_FOR_PHYSICAL_RETURN_MVP: yes (main-org re-scan)
+- Next: PHASE-CLAIM-PHYSICAL-RETURN-REAL-FNSKU-RESCAN-SMOKE-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-physical-return-real-fnsku-smoke-target-v1/20260612T211257Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T211257Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T211536Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-REAL-FNSKU-LINKAGE-DRYRUN-V1
+================================================================================
+
+### Dry-run (read-only)
+- Target B0000B11UX @ main org 00000000-0001, store 509ee1f6…, product 8beddd08…
+- Combined identifier bundle: resolved deterministic, product_id match
+- FNSKU-only path: unresolved (ASIN/SKU paths resolve — scan should carry full bundle)
+- Product Story: safe; TRID product_link edge: would materialize
+- Money: Cost unknown; sale .19 context only
+- conflicts: 0; SAFE_TO_APPLY_REAL_FNSKU_PHYSICAL_RETURN_LINKAGE: yes
+
+### Next
+PHASE-CLAIM-PHYSICAL-RETURN-REAL-FNSKU-RESCAN-SMOKE-V1
+
+### Evidence
+.cursor/audit-reports/phase-claim-physical-return-real-fnsku-linkage-dryrun-v1/20260612T211536Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T211536Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T221221Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-REAL-FNSKU-RESCAN-SMOKE-V1
+================================================================================
+
+### Staging operator smoke + read-only verification
+- Target: B0000B11UX @ main org 00000000-0001, store 509ee1f6…, product 8beddd08…
+- Operator scan: **not present** (0 return_items, 0 claim_candidates for target FNSKU)
+- Build PASS; Claim Center v1 read staging smoke PASS
+- No PIM writes (16850 unchanged); no fixture X006OFFM01 mapping; no product auto-create (0 in 2h)
+- Scanner operator-mobile/** unchanged
+- Linkage/TRID/money/Claim Center row verification: **blocked pending operator scan**
+- Fixture org still has 4 X006OFFM01 MVP candidates (untouched)
+
+### Gates
+- SAFE_TO_IMPLEMENT_PHYSICAL_RETURN_TRID_EDGES: **no**
+- Next: OPERATOR-ACTION scan B0000B11UX then re-run rescan smoke; on pass → PHASE-CLAIM-PHYSICAL-RETURN-TRID-EDGES-APPLY-V1
+
+### Evidence
+- .cursor/audit-reports/phase-claim-physical-return-real-fnsku-rescan-smoke-v1/20260612T221221Z/
+- Script: scripts/phase-claim-physical-return-real-fnsku-rescan-smoke-v1.ts
+
+================================================================================
+END APPEND SLICE -- 20260612T221221Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260521T190000Z
+TOPIC: PHASE-SCANNER-SHIPMENT-LINE-AGGREGATION-AUDIT-387003587-X004LKS4VD
+================================================================================
+
+### Read-only audit (production)
+- Shipment/tracking `387003587`, FNSKU `X004LKS4VD`: **2** `expected_packages` rows (qty 52 + 1) from detail-vs-shipment rebuild split (`matched` + `shipment_overflow_conflict`); same product grain; `v_inventory_item_status` **1** row total_expected **53**
+- Root UI split: item-scan `slipLikeRowsForInspection` EP fallback maps one row per `expected_packages.id` (no aggregation); tracking snapshot `aggregateExpectedPackagesBySkuFnskuDisposition` aggregates correctly
+- No packages/return_items/scans yet for this tracking
+- `SAFE_TO_IMPLEMENT_AGGREGATION_FIX: yes` (UI read-layer only; no EP rebuild/allocation change)
+- Next: PHASE-SCANNER-SHIPMENT-LINE-UI-GROUP-DISPLAY-387003587
+
+### Evidence
+- .cursor/audit-reports/phase-scanner-shipment-line-aggregation-audit/20260521T190000Z/
+- Script: scripts/phase-scanner-shipment-line-aggregation-audit.ts
+
+================================================================================
+END APPEND SLICE -- 20260521T190000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T223305Z
+TOPIC: PHASE-SCANNER-SHIPMENT-LINE-AGGREGATION-AUDIT-387003587-X004LKS4VD (re-run)
+================================================================================
+
+### Read-only audit
+- Shipment 387003587, FNSKU X004LKS4VD: 2 expected_packages (52 matched + 1 shipment_overflow_conflict)
+- Same product grain: SKU B01C7G00TA-VEN, disposition Sellable, resolved_product_id 7e5e05f7…, order IxaWHWlopw
+- amazon_removal_shipments shipped_quantity=52; removal-detail totals=53 → overflow split at EP rebuild
+- v_inventory_item_status aggregates to 1 row total_expected=53
+- No packages/pallets/return_items/slip_contents yet for this tracking
+- Item-scan slipLikeRowsForInspection EP fallback maps 1:1 expected_packages.id → duplicate UI lines
+- expectedPkgLines / identify gate use aggregated views (53) — split visible only in item-scan EP fallback
+
+### Gates
+- expected_behavior: yes (DB overflow split intentional)
+- bug: yes (UI display grouping gap)
+- recommended_fix_type: UI grouped display only
+- SAFE_TO_IMPLEMENT_AGGREGATION_FIX: yes
+- Next: PHASE-SCANNER-SHIPMENT-LINE-UI-GROUP-DISPLAY-387003587
+
+### Evidence
+.cursor/audit-reports/phase-scanner-shipment-line-aggregation-audit/20260612T223305Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T223305Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T230000Z
+TOPIC: PHASE-SCANNER-SHIPMENT-LINE-AGGREGATION-FIX-387003587-X004LKS4VD-V1
+================================================================================
+
+### Fix (read-model / UI only)
+- Shipment Entry identify gate grouped duplicate expected_packages lines for same operational product scope
+- Sample 387003587 / X004LKS4VD: 2 raw EP rows (52 matched + 1 shipment_overflow_conflict) -> 1 display card expected 53 scanned 0
+- Root cause: tracking_number identity path mapped EP rows 1:1; non-tracking paths already aggregated
+- New helpers: aggregateExpectedPackageRowsForInventoryDisplay, groupInventoryStatusRowsForDisplay, finalizeInventoryGateDisplayRows, inventoryDisplayGroupBadgeLabels
+- Grouping key: org + store + normalized tracking + order_id + resolved_product_id (else fnsku|sku|asin) + slip + carrier
+- UI badges: matched, overflow/conflict, source split (raw EP detail preserved in identifyGateRows)
+
+### Gates
+- No DB writes, migrations, allocation, resolver, or product/PIM changes
+- build PASS, unit smoke PASS (scripts/test-scanner-shipment-line-aggregation-fix.ts)
+- SAFE_TO_PUSH: yes
+- Next: PHASE-SCANNER-ITEM-SCAN-EP-FALLBACK-GROUP-DISPLAY-387003587 (item-scan slipLikeRowsForInspection EP fallback)
+
+### Evidence
+.cursor/audit-reports/phase-scanner-shipment-line-aggregation-fix/20260612T230000Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T230000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T230103Z
+TOPIC: PHASE-TASK-CENTER-NAVIGATION-INDEPENDENT-MODULE-FIX-V1
+================================================================================
+
+### Nav / IA fix (no DB, no RBAC grants, no writes)
+- Removed Task Center leaf from Finance & Claims accordion (lib/sidebar-config.ts)
+- Added TASK_CENTER_NAV_LEAF — top-level flat link after Dashboard in AppShell
+- Routes preserved: /task-center, /task-center/my, /task-center/queues, /task-center/sources, /task-center/org, /task-center/[id]
+- Copy: module tagline Operations tasks (not Claim tasks); lib/task-center-hub-routes.ts helper
+- Permission prefix unchanged: operations.task_center (catalog sync only; no grant changes)
+- Claim Center + Claims remain under Finance & Claims; scanner/operator-mobile untouched
+
+### Gates
+- build PASS, smoke PASS (scripts/phase-task-center-navigation-fix-v1-smoke.ts)
+- SAFE_TO_PUSH: yes
+- Next: PHASE-TASK-CENTER-READ-API-STAGING-SMOKE
+
+### Evidence
+.cursor/audit-reports/phase-task-center-navigation-fix-v1/20260612T230103Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T230103Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260521T200000Z
+TOPIC: PHASE-EXPECTED-PACKAGES-SHIPMENT-OVERFLOW-CONFLICT-ORIGIN-AUDIT-387003587-X004LKS4VD-V1
+================================================================================
+
+### Read-only overflow origin audit (production)
+- Qty-1 `shipment_overflow_conflict` EP (`ae6d28a9-…`) from **second** `amazon_removals` detail line (`7f5a0285-…`, shipped_qty=1, May 28 upload) matched to same shipment row (52) — NOT remainder split of 53→52+1
+- Builder: `rebuild_expected_packages_from_removals` per-detail rule `shipment_total > detail_total` → `shipment_overflow_conflict`
+- Primary detail (`4e8e4492-…`, shipped 53, Jun 6 upload) → matched EP qty 52
+- No slip/OCR; duplicate detail lines same order/SKU/FNSKU = intake/source staleness pattern
+- `is_conflict_legitimate: yes`; `is_builder_bug: no`; fix = status label/copy + optional intake dedupe review
+- Next: PHASE-EXPECTED-PACKAGES-OVERFLOW-STATUS-LABEL-FIX-V1
+
+### Evidence
+- .cursor/audit-reports/phase-expected-packages-shipment-overflow-conflict-origin-audit/20260521T200000Z/
+- Script: scripts/phase-expected-packages-overflow-conflict-origin-audit.ts
+
+================================================================================
+END APPEND SLICE -- 20260521T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T231544Z
+TOPIC: PHASE-CLAIM-PHYSICAL-RETURN-REAL-FNSKU-CONTROLLED-SEED-V1
+================================================================================
+
+### Staging controlled seed (main org only)
+- Target B0000B11UX → product 8beddd08… @ store 509ee1f6…
+- Precheck PASS: product exists, PIM deterministic, no prior controlled seed
+- Inserted package 8a3eb3f9… + return_item 1960ee2a… (off-manifest notes, raw_return_data.test_seed)
+- Candidate 8e8dc9bd… emitted via emitBoxCloseCandidates (scanner_physical_review)
+- Linkage resolved on ASIN+SKU bundle; FNSKU-only unresolved; money Cost unknown
+- TRID preview: product_link + source_evidence + shipment_scope ready
+- No product/PIM mutation; no claim cases/submissions; build + rescan smoke PASS
+- Rollback: .cursor/audit-reports/phase-claim-physical-return-real-fnsku-controlled-seed-v1/20260612T231544Z/rollback.sql
+
+### Gates
+- SAFE_TO_IMPLEMENT_PHYSICAL_RETURN_TRID_EDGES: yes
+- Next: PHASE-CLAIM-PHYSICAL-RETURN-TRID-EDGES-APPLY-V1
+
+### Evidence
+- Script: scripts/phase-claim-physical-return-real-fnsku-controlled-seed-v1.ts
+- .cursor/audit-reports/phase-claim-physical-return-real-fnsku-controlled-seed-v1/20260612T231544Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T231544Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T232310Z
+TOPIC: PHASE-AMAZON-ITEM-LIFECYCLE-CLAIM-COVERAGE-AUDIT-V1
+================================================================================
+
+### Read-only lifecycle + claim coverage audit (production main org)
+- 19 lifecycle states mapped to sources, generators, TRID edges, claim families
+- 12 registered generators + orbit_fra (18 ORBIT categories)
+- Full claim-path support now: warehouse stock, removal created/shipped, damaged, lost, reimbursed, unreimbursed_gap
+- Gaps: FBA customer returns (amazon_returns import, no generator), sold/refund lifecycle counters, stranded, fee/storage/dimension claims
+- Sample traces: X004LKS4VD/387003587 (14 shipments, 55 ledger, 28 reimbursements); B0000B11UX sparse on production; reimb X002C8YXH5; returns B00MTV7OG6; removal X004EXDJ85
+- Pool: 9055 candidates, 51 TRID edges, 560k FRR rows
+
+### Gates
+- SAFE_TO_IMPLEMENT_LIFECYCLE_READMODEL: yes (read-only per-product qty ledger from existing tables)
+- Next: PHASE-AMAZON-ITEM-LIFECYCLE-READMODEL-IMPLEMENT-V1
+
+### Evidence
+.cursor/audit-reports/phase-amazon-item-lifecycle-claim-coverage-audit-v1/20260612T232310Z/
+
+================================================================================
+END APPEND SLICE -- 20260612T232310Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T000000Z
+TOPIC: PHASE-EXPECTED-PACKAGES-CONFLICT-STATUS-GATING-V1
+================================================================================
+
+### Read-model + display gating (no DB writes)
+- New lib/expected-packages-conflict-status.ts — clean vs disputed build_status classification; source priority rules; claim-ready filter; review-needed signals
+- lib/scanner/v-inventory-status.ts — expected_clean / disputed_quantity on grouped rows; total_expected = clean-only for gate progress; EP enrichment via mergeInventoryRowsWithExpectedPackageBuildStatus
+- lib/scanner/shipment-entry-lookup.ts — tracking lookup enriches view rows from EP build_status before finalize (read-only fetch)
+- app/scanner/operator-mobile/scan/page.tsx — Shipment Entry line items: Expected clean + Needs reconciliation columns (display only)
+- lib/claims/intake/claim-intake-generators.ts — delayed_not_received + shipment_discrepancy exclude disputed EP from claim-ready drafts; review notes only
+
+### Verification target 387003587 / X004LKS4VD (production read-only)
+- EP rows: matched qty 52 (clean) + shipment_overflow_conflict qty 1 (disputed)
+- Old display total (view sum): 53 -> new clean expected 52, disputed 1
+- Claim-ready: 1 EP (2b5bbd1b); review-needed: 1 EP (ae6d28a9, needs_source_reconciliation)
+- Unit smoke + build PASS; no scanner save/allocation/resolver/RBAC changes
+
+### Gates
+- SAFE_TO_PUSH: yes
+- Next: PHASE-EXPECTED-PACKAGES-SOURCE-RECONCILIATION-UI-V1 or PHASE-AMAZON-ITEM-LIFECYCLE-READMODEL-IMPLEMENT-V1
+
+### Evidence
+- .cursor/audit-reports/phase-expected-packages-conflict-status-gating-v1/20260613T000000Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T000000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260612T234909Z
+TOPIC: PHASE-PRODUCT-AMAZON-LIFECYCLE-QUANTITY-READMODEL-CONTRACT-V1
+================================================================================
+
+### Scope
+Read-only per-product Amazon lifecycle quantity read-model contract. 18 states; no DB writes; no new tables.
+
+### Key findings
+- Source census on staging main org: ledger 282k, settlements 585k, FRR 573k, reimbursements 12.7k, removals 9.3k shipments
+- Empty: amazon_safet_claims, amazon_fee_preview, amazon_monthly_storage_fees (show unavailable not zero)
+- X004LKS4VD trace: product_id resolved via map; removed_created 85, removed_shipped 12, available_fba 94, reimbursed 5
+- Disputed EP handling: build_status=shipment_overflow_conflict excluded from primary totals
+- possible_claim_quantity is generator-governed multi-source — never single-source sum
+
+### Gates
+- SAFE_TO_IMPLEMENT_LIFECYCLE_READMODEL: **yes** (SELECT read-model only)
+- NEXT: PHASE-PRODUCT-AMAZON-LIFECYCLE-QUANTITY-READMODEL-IMPLEMENT-V1
+
+### Evidence
+- .cursor/audit-reports/phase-product-amazon-lifecycle-quantity-readmodel-contract-v1/20260612T234909Z/
+- Script: scripts/phase-product-amazon-lifecycle-quantity-readmodel-contract-v1-readonly.ts
+
+================================================================================
+END APPEND SLICE -- 20260612T234909Z
+================================================================================
+
+
+================================================================================
+APPEND SLICE -- 20260612T235331Z
+TOPIC: PHASE-AMAZON-CLAIM-SOURCE-ACQUISITION-CHECKLIST-V1
+================================================================================
+
+### Completed (read-only checklist)
+- Script: `scripts/phase-amazon-claim-source-acquisition-checklist-v1-readonly.ts`
+- 20-source acquisition matrix mapped to 16 claim families; staging row/freshness audit.
+- EMPTY: SAFE-T, Reserved Inventory, Stranded, Shipment Reconciliation, Fee Preview, Monthly Storage, ORBIT XLSX.
+- STALE: FBA Returns, Transactions, Manage FBA Inventory, FBA Inventory Health, Inbound Performance.
+- Maysam download NOW: SAFE-T (7mo); refresh Ledger/Settlements/Reimbursements/Returns.
+- SAFE_TO_USE_CURRENT_DATA_FOR_CLAIM_DISPLAY: **no** (partial physical return + removal only).
+- Evidence: `.cursor/audit-reports/phase-amazon-claim-source-acquisition-checklist-v1/20260612T235331Z/`
+
+### Next Prompt
+PHASE-MAYSAM-SOURCE-ACQUISITION-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260612T235331Z
+================================================================================
+
+
+================================================================================
+APPEND SLICE -- 20260613T001200Z
+TOPIC: PHASE-AMAZON-REMOVAL-SOURCE-SUPERSESSION-AND-CONFIDENCE-V1
+================================================================================
+
+### Completed (read-model only — no DB writes)
+- Helper: `lib/claims/removal/removal-source-supersession-readmodel.ts`
+- Extended `SourceConnectorReadinessPayload.removal_source_supersession` + `removal_source_supersession_payload` on sources API.
+- Supersession rules: newer API detail supersedes older partial (in_process / lower shipped); shipment qty primary physical evidence; source_mismatch when detail≠shipment; no auto claim qty pick.
+- Staging census: 176 duplicate scope groups; 239 in_process partial rows; 176 superseded_stale_partial classified.
+- X004LKS4VD / 387003587 (production trace): detail `4e8e4492` shipped=53 current; `7f5a0285` shipped=1 in_process=52 superseded_stale_partial; shipment 52; clean=52 disputed=2; EP claim-ready qty sum=52.
+- Scripts: `phase-amazon-removal-source-supersession-and-confidence-v1-readonly.ts`, `phase-removal-supersession-readmodel-smoke-v1.ts`
+- build PASS · smoke PASS · no scanner/EP/allocation changes · SAFE_TO_PUSH: yes
+- Evidence: `.cursor/audit-reports/phase-amazon-removal-source-supersession-and-confidence-v1/20260613T001200Z/`
+
+### Next Prompt
+PHASE-REMOVAL-SUPERSESSION-CLAIM-GENERATOR-GATE-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T001200Z
+================================================================================
+
+
+================================================================================
+APPEND SLICE -- 20260613T002000Z
+TOPIC: PHASE-PRODUCT-AMAZON-LIFECYCLE-QUANTITY-READMODEL-IMPLEMENT-V1
+================================================================================
+
+### Completed (read-only API — SELECT only)
+- `lib/product-lifecycle-quantity-contract.ts` — 18 state keys + types
+- `lib/product-lifecycle-quantity-readmodel.ts` — `buildProductLifecycleQuantities`
+- GET `/api/dashboard/products/[id]/lifecycle-quantities` + alias `/api/products/[id]/lifecycle-quantities`
+- Disputed EP + superseded removal detail excluded from primary totals
+- SAFE-T empty → unreimbursed_gap unavailable not zero; stranded unavailable; COGS unknown not zero
+- Smoke: 5 sample products; 18 states; build PASS
+- Evidence: `.cursor/audit-reports/phase-product-lifecycle-quantity-readmodel-smoke-v1/`
+
+### Next Prompt
+PHASE-PRODUCT-LIFECYCLE-QUANTITY-UI-CHIPS-V1 — wire ProductDetailDrawer lifecycle chips from API
+
+================================================================================
+END APPEND SLICE -- 20260613T002000Z
+================================================================================
+
+
+================================================================================
+APPEND SLICE -- 20260613T002003Z
+TOPIC: PHASE-AMAZON-CLAIM-SOURCE-IMPORT-AND-API-PLAN-V1
+================================================================================
+
+### Completed (read-only plan)
+- Script: `phase-amazon-claim-source-import-and-api-plan-v1-readonly.ts`
+- 21 sources × import/API/UI classification matrix on staging census
+- File upload: 16 candidates live in AMAZON_REPORT_REGISTRY
+- API sync: removal order+shipment live; reimbursements+settlements enable Run Now next
+- Missing importers: Stranded, Inbound Shipment Detail, Shipment Reconciliation, SellerSnap COGS, ORBIT XLSX
+- Empty/stale: SAFE-T (0), Reserved, Fee Preview, Monthly Storage; Returns/Transactions/FBA Inventory/Inbound stale
+- Stranded: GET_STRANDED_INVENTORY_UI_DATA — no registry table; proxy amazon_fba_inventory.alert only
+- SAFE_TO_IMPLEMENT_SOURCE_IMPORT_UI: yes · SAFE_TO_IMPLEMENT_API_SYNC_NEXT: yes
+- Evidence: `.cursor/audit-reports/phase-amazon-claim-source-import-and-api-plan-v1/20260613T002003Z/`
+
+### Next Prompt
+PHASE-MAYSAM-SOURCE-ACQUISITION-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T002003Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T003412Z
+TOPIC: PHASE-AMAZON-SAMPLE-ZIP-SOURCE-COVERAGE-AUDIT-V1
+================================================================================
+
+### Completed (read-only zip audit)
+- Script: `scripts/phase-amazon-sample-zip-source-coverage-audit-v1-readonly.ts`
+- Input: `c:\Maysam\Automation\Refund & Claim\Reports\MVP FILES\test.zip` (25 files)
+- 21/25 files map to live AMAZON_REPORT_REGISTRY tables + UniversalImporter
+- 4 unsupported: FBA inbound placement fees, Returns Processing Fee (x2), Low-Inventory-Level Fee (no table)
+- Reports Repository: preamble row mis-scan in auto audit; production importer skips preamble
+- Inventory Ledger sample = Daily Summary View (Lost/Damaged/Disposed columns) not Detail View (reference-id sparse)
+- SAFE-T: 0 data rows � source unavailable not zero claims
+- Misnamed file: `Inbound Placement Service Fees 1_1_2026 - 4_10_2026.csv` = Simple Transactions Summary
+- Open Listings Lite: SKU + product-id only; no UPC � Product Identity CSV still needed
+- Still missing from zip: Stranded Inventory, Daily Inventory History, Shipment Reconciliation, SellerSnap COGS, non-empty SAFE-T
+- SAFE_TO_STOP_RANDOM_FILE_REQUESTS: partial
+- Evidence: `.cursor/audit-reports/phase-amazon-sample-zip-source-coverage-audit-v1/20260613T003412Z/`
+
+### Next Prompt
+PHASE-MAYSAM-TARGETED-SOURCE-GAP-FILL-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T003412Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T003921Z
+TOPIC: PHASE-AMAZON-SPAPI-REPORTS-API-FIRST-SYNC-ROADMAP-V1
+================================================================================
+
+### Completed (read-only API-first roadmap)
+- Script: `scripts/phase-amazon-spapi-reports-api-first-sync-roadmap-v1-readonly.ts`
+- 37 sources across catalog, inventory, returns, removals, financial, fees, inbound, third-party
+- Live Reports API: reimbursements, settlements, removal order, removal shipment (4 workers + routes)
+- Finances API: archive-only (amazon_finances_*); no domain normalization yet
+- Phase 0: enable flags + Run Now backfill � no new code
+- Phase 1: GET_LEDGER_DETAIL_VIEW_DATA + GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA workers
+- File/manual forever: SAFE-T, SellerSnap COGS, Product Identity, internal dims, ORBIT/FRA
+- Architecture law: API ? synthetic upload ? normalized table ? claim generators
+- SAFE_TO_IMPLEMENT_FIRST_API_SYNC_PHASE: yes
+- Evidence: `.cursor/audit-reports/phase-amazon-spapi-reports-api-first-sync-roadmap-v1/20260613T003921Z/`
+
+### Next Prompt
+PHASE-AMAZON-REPORTS-API-PHASE0-ENABLE-AND-BACKFILL-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T003921Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T004313Z
+TOPIC: PHASE-PRODUCT-LINKAGE-API-ENRICHMENT-ROADMAP-V1
+================================================================================
+
+### Completed (read-only linkage enrichment roadmap)
+- Script: `scripts/phase-product-linkage-api-enrichment-roadmap-v1-readonly.ts`
+- Main org: 17059 products, 16850 map rows, 8549 with UPC, 8409 with FNSKU
+- Fixture org 7397edff: 0 spine � QA org has no product spine
+- B0000B11UX ? product 8beddd08 resolves (ASIN+MSKU X0036MJ5ZB)
+- X006OFFM01: 0 global map hits � cross-org seed forbidden
+- Linkage health: critical 49.1%; EP 97.5%; claim_candidates 46.1%; safe_for_product_story: no
+- Duplicate risks: 2583 conflict groups (2413 UPC); safe_for_auto_map: false
+- Phase 1 safe: Product Identity CSV + ledger map enrich + COGS importer design
+- Catalog API Phase 3 evidence-only � never auto-create
+- Existing readmodel: lib/product-linkage-health.ts + GET /api/dashboard/products/linkage-health
+- SAFE_TO_IMPLEMENT_PRODUCT_LINKAGE_ENRICHMENT_READMODEL: yes
+- Evidence: `.cursor/audit-reports/phase-product-linkage-api-enrichment-roadmap-v1/20260613T004313Z/`
+
+### Next Prompt
+PHASE-PRODUCT-LINKAGE-ENRICHMENT-READMODEL-EXTEND-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T004313Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T010000Z
+TOPIC: PHASE-CLAIM-FAMILY-ALGORITHM-MATRIX-V1
+================================================================================
+
+### Read-only claim algorithm contract (no DB, no generators)
+- lib/claims/contracts/claim-family-algorithm-matrix-v1.ts — 23 families with qty/money/source/TRID/evidence/blocker fields
+- Global hard rules: no sale-as-COGS; unknown cost null; disputed EP excluded; observed reimbursement separate lane
+- Support: live 9, partial 9, gap 5 (fee/storage/stranded/customer-return-not-reimbursed/reimbursement-missing)
+- First 3 implement: customer_return_not_reimbursed, physical_return_scanner_issue, removal_order_discrepancy
+- SAFE_TO_IMPLEMENT_CLAIM_ALGORITHM_READMODEL: yes
+- Next: PHASE-CLAIM-FAMILY-ALGORITHM-READMODEL-IMPLEMENT-V1 (API expose contract)
+
+### Evidence
+- .cursor/audit-reports/phase-claim-family-algorithm-matrix-v1/20260613T010000Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T010000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T011840Z
+TOPIC: PHASE-AMAZON-SPAPI-SYNC-PHASE0-RUNNOW-BACKFILL-V1
+================================================================================
+
+### Staging execute (7-month backfill verification)
+- Script: scripts/phase-amazon-spapi-sync-phase0-runnow-backfill-v1-readonly.ts (--execute)
+- Staging ref eiqfaapyumhixxoeltgu; org 00000000-0000-0000-0000-000000000001; store 509ee1f6-622c-46a5-8110-7b889ba46c2c
+- Env flags OFF in .env.local before run; script sets in-process when --execute
+- AWS signing: present in store-linked marketplace credentials (aws_access_key / aws_secret_key blob fields)
+- Approvals: settlement smoke + removal fetch/staging = true
+
+### Worker results
+- Reimbursements: 8/8 chunks complete (synthetic uploads + domain sync)
+- Settlements 7mo: FAIL list_reports_failed HTTP 400 (upload stub created; domain rows unchanged)
+- Removal order/shipment: 16/16 chunks failed or stuck synthetic_upload_ready/failed (uploads created; domain rows unchanged)
+
+### Counts (before -> after)
+- amazon_reimbursements: 12711 -> 35865 (last_created 2026-06-13)
+- amazon_settlements: 585637 -> 585637 (last_row_at still 2026-05-18)
+- amazon_removals: 2719 -> 2719 (last_row_at still 2026-06-01)
+- amazon_removal_shipments: 9316 -> 9316 (last_row_at still 2026-06-01)
+- claim_candidates active: 1 -> 1 (no direct mutation)
+
+### Raw uploads (last 2h)
+- REIMBURSEMENTS +8, SETTLEMENT +1, REMOVAL_ORDER +8, REMOVAL_SHIPMENT +8 (amazon_sp_api provider)
+
+### Claim Center source readiness
+- reimbursements: fresh
+- settlements: upload fresh / domain row date stale
+- removal order/shipment: upload fresh / domain row date stale
+- reports_repository: 163 uploads fresh
+
+### Removal cron
+- .github/workflows/removal-automation-staging.yml — 2x daily UTC 13:00 + 21:00; default dry-run unless dispatch apply
+
+### Supersession (no duplicate explosion)
+- 242 duplicate scope groups; 182 superseded_stale_partial; 1 source_conflict; partial_snapshot 239
+
+### Constraints verified
+- No scanner code changes by this phase (pre-existing operator-mobile dirty file only)
+- No claim_candidates direct mutation
+- Staging only; no migrations
+
+### build/smoke
+- build: PASS
+- smoke preflight: BLOCKED (flags not in .env.local)
+
+### SAFE_TO_PUSH
+- conditional_yes — persist flags to .env.local; fix settlement list window; resume removal FATAL/stuck uploads
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-spapi-sync-phase0-runnow-backfill-v1/20260613T005905Z/
+
+### Next Prompt
+PHASE-AMAZON-SPAPI-SYNC-PHASE0-SETTLEMENT-WINDOW-FIX-AND-REMOVAL-RESUME-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T011840Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T012050Z
+TOPIC: PHASE-AMAZON-SPAPI-NEXT-WORKERS-DESIGN-V1
+================================================================================
+
+### Read-only next API worker design (7 source groups)
+- Script: scripts/phase-amazon-spapi-next-workers-design-v1-readonly.ts
+- Architecture law: API -> synthetic raw_report_upload -> normalized table -> claim generators
+- Phase 0 live: reimbursements, settlements, removal order/shipment (reimbursements backfill PASS)
+
+### Priority order
+1. Phase 1A: GET_LEDGER_DETAIL_VIEW_DATA -> amazon_inventory_ledger (282352 rows; stale May 2026)
+2. Phase 1B: GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA -> amazon_returns (2574 rows; stale Apr 2026)
+3. SellerSnap COGS file importer (not API) -> future cost spine
+4. GET_FBA_STORAGE_FEE_CHARGES_DATA -> amazon_monthly_storage_fees (0 rows)
+5. Manage FBA + Reserved snapshot workers
+6. GET_STRANDED_INVENTORY_UI_DATA -> NEW amazon_stranded_inventory (Maysam approval)
+7. Open Listings + Catalog Items evidence enrichment (no auto-create)
+
+### Reuse vs new table
+- Reuse: amazon_returns, amazon_inventory_ledger, amazon_monthly_storage_fees, amazon_manage_fba_inventory, amazon_reserved_inventory, amazon_listing_report_rows_raw
+- New: amazon_stranded_inventory, product_unit_costs/cost spine (SellerSnap)
+
+### Critical gates
+- Ledger MUST be Detail View not Summary View (sample zip had Summary)
+- Stranded: review signal only — never auto-claim
+- SellerSnap: product_prices != COGS
+- Exact identifier only for catalog enrichment
+
+### SAFE_TO_IMPLEMENT_NEXT_WORKER_PHASE: yes_with_conditions
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-spapi-next-workers-design-v1/20260613T012050Z/
+
+### Next Prompt
+PHASE-AMAZON-SPAPI-WORKER-PHASE1A-LEDGER-DETAIL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T012050Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T020000Z
+TOPIC: PHASE-CLAIM-FAMILY-QUANTITY-AND-MONEY-FORMULA-CONTRACT-V2
+================================================================================
+
+### Exact calculation contract (no DB, no generators)
+- lib/claims/contracts/claim-family-quantity-money-formula-contract-v2.ts
+- 27 families: A quantity (tables, join keys, source priority, exact claim_quantity) + B money (actual_cost_basis, estimated_amazon_reimbursement, observed_reimbursement, reimbursement_gap, fee/storage gaps) + C evidence/TRID
+- Global: actual_loss = claim_quantity * actual_cost_basis; never sale price as COGS; disputed EP excluded
+- Split: removal_shipment_missing vs removal_damaged_during_removal; added low_inventory, returns_processing, inbound_placement fee families
+- Support: live 10, partial 8, gap 9
+- First 5: customer_return_not_reimbursed, physical_return_scanner_issue, removal_order_discrepancy, missing_reimbursement, orbit_fra_fight_list
+- SAFE_TO_IMPLEMENT_CLAIM_CALCULATION_READMODEL: yes
+
+### Evidence
+- .cursor/audit-reports/phase-claim-family-quantity-money-formula-contract-v2/20260613T020000Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T020000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T014104Z
+TOPIC: PHASE-AMAZON-FEE-AND-REIMBURSEMENT-ESTIMATE-MODEL-V1
+================================================================================
+
+### Read-only fee/reimbursement estimate model contract
+- Script: scripts/phase-amazon-fee-and-reimbursement-estimate-model-v1-readonly.ts
+- Builds on claim-family-quantity-money-formula-contract-v2
+
+### Five model lanes
+1. actual_cost_basis — cogs_overrides -> product_cost_snapshots -> manual -> return_items.estimated_value; NEVER sale price
+2. latest_sale_price_context — product_prices/listing/settlements display-only
+3. amazon_fee_estimate — Product Fees API > Fee Preview report > fallback snapshot (effective_date + source_url)
+4. estimated_reimbursement — cost_based | fee_adjusted_sale | observed_benchmark | reimbursement_gap
+5. observed_reimbursement — amazon_reimbursements, settlements, FRR, SAFE-T (separate lane)
+
+### Fee components (7)
+referral, FBA fulfillment, variable closing, monthly storage, returns processing, low inventory, inbound placement
+
+### API vs report priority
+Product Fees API (getMyFeesEstimateForASIN/SKU/batch) > GET_FBA_ESTIMATED_FBA_FEES_TXT_DATA > GET_FBA_STORAGE_FEE_CHARGES_DATA > settlements observed > hardcoded snapshot
+
+### Staging gaps
+fee_preview empty, monthly_storage_fees empty, product_cost_snapshots not migrated, Product Fees API not in repo
+
+### SAFE_TO_IMPLEMENT_FEE_ESTIMATE_READMODEL: yes_with_conditions
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-fee-and-reimbursement-estimate-model-v1/20260613T014104Z/
+
+### Next Prompt
+PHASE-AMAZON-FEE-ESTIMATE-READMODEL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T014104Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T022213Z
+TOPIC: PHASE-AMAZON-REPORTS-API-SAMPLE-PULL-AND-MAPPING-V1
+================================================================================
+
+### Staging 7-day API sample pull + mapping audit
+- Script: scripts/phase-amazon-reports-api-sample-pull-and-mapping-v1.ts (--execute)
+- Window: 2026-06-06 to 2026-06-13 (7 days)
+- Target: staging eiqfaapyumhixxoeltgu only
+
+### Per-report results (9 types)
+| Report | API | Domain rows | Blocker |
+|--------|-----|-------------|---------|
+| GET_FBA_REIMBURSEMENTS_DATA | complete | 819 | none |
+| GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2 | complete | 19246 | none (7d listReports OK) |
+| GET_FBA_FULFILLMENT_REMOVAL_ORDER_DETAIL_DATA | synthetic_upload_ready | 0 | resume/import not finishing |
+| GET_FBA_FULFILLMENT_REMOVAL_SHIPMENT_DETAIL_DATA | synthetic_upload_ready | 0 | resume/import not finishing |
+| GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA | complete | 118 | none |
+| GET_LEDGER_DETAIL_VIEW_DATA | failed status gate | 33690 | Generic phase expects raw_synced; rows written |
+| GET_FBA_STORAGE_FEE_CHARGES_DATA | failed | 0 | worker_failed (monthly cadence) |
+| GET_STRANDED_INVENTORY_UI_DATA | header-only DONE | n/a | no importer; 59 rows |
+| GET_FBA_ESTIMATED_FBA_FEES_TXT_DATA | failed | 0 | assess pipeline domain count failed |
+
+### Verifications
+- claim_candidates: 1 to 1 (delta 0)
+- scanner code: unchanged by this phase
+- permission_or_scope_errors: none
+- build: PASS
+- smoke: preflight_blocked
+
+### SAFE_TO_IMPLEMENT_API_BACKFILL_PHASE: conditional_no
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-reports-api-sample-pull-and-mapping-v1/20260613T014517Z/summary.json
+
+### Next Prompt
+PHASE-AMAZON-SPAPI-WORKER-PHASE1A-LEDGER-DETAIL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T022213Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T023511Z
+TOPIC: PHASE-INVENTORY-STATUS-VIEW-CLEAN-DISPUTED-GATING-V1
+================================================================================
+
+### Problem
+- Original `v_inventory_item_status` summed all `expected_packages.expected_scan_quantity` without `build_status` gating.
+- Tracking `387003587` / FNSKU `X004LKS4VD`: matched qty **52** + `shipment_overflow_conflict` qty **1** -> view showed **53** expected.
+
+### Fix (staging applied)
+- Migration: `supabase/migrations/20260612120000_v_inventory_item_status_clean_disputed_gating_v1.sql`
+- Function: `public.is_clean_expected_package_build_status(text)` mirrors TS conflict gating.
+- Views recreated: `v_scanned_items_counted`, `v_inventory_item_status`, `v_inventory_status`.
+- `total_expected` / `expected_qty` = **clean expected only**; additive columns: `expected_qty_clean`, `disputed_expected_qty`, `needs_reconciliation`, `disputed_statuses`, `clean_expected_qty_source`.
+
+### Staging verification (`20260613T023511Z`)
+- Target case absent on staging; original read-only confirms old **53** -> projected **52** clean + **1** disputed.
+- Staging disputed sample rows show split working (`shipment_overflow_conflict` excluded from `expected_qty`).
+- Claim-ready filter: clean sum **52**, review needed **1**.
+- No EP row mutations; scanner/operator-mobile code unchanged.
+- build: PASS; smoke: PASS.
+
+### SAFE_TO_APPLY_ORIGINAL: yes_pending_maysam
+
+### Evidence
+- `.cursor/audit-reports/phase-inventory-status-view-clean-disputed-gating-v1/20260613T023511Z/`
+
+### Next Prompt
+PHASE-INVENTORY-STATUS-VIEW-CLEAN-DISPUTED-GATING-V1-ORIGINAL-APPLY -- after Maysam approval, apply migration on original and capture before/after view row for 387003587/X004LKS4VD
+
+================================================================================
+END APPEND SLICE -- 20260613T023511Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T025053Z
+TOPIC: PHASE-AMAZON-SPAPI-PHASE0-FRESHNESS-VERIFY-NO-RECONNECT-V1
+================================================================================
+
+### Staging freshness verify — no removal reconnect
+- Script: scripts/phase-amazon-spapi-phase0-freshness-verify-no-reconnect-v1.ts
+- Dry-run: 20260613T024431Z; Execute: 20260613T024537Z
+
+### Worker / domain freshness
+| Source | Domain event | Upload | Status |
+|--------|--------------|--------|--------|
+| Removal order | fresh (May 31, 13d) | stuck synthetic_upload_ready | verify-only, no reconnect |
+| Removal shipment | fresh (May 31, 13d) | stuck synthetic_upload_ready | verify-only |
+| Reimbursements | stale (Apr 10, 63d) | API complete Jun 13 | backfill failed 8/8 chunks |
+| Settlements | stale (Apr 24, 49d) | API complete Jun 13 | 7mo listReports HTTP 400 |
+
+### Env / automation
+- ENABLE_AMAZON_REPORTS_API_* all false in .env.local (in-process override on --execute)
+- removal_api_sync.enabled false in platform_settings; cron workflow configured 2x daily dry-run
+- 9 run/resume routes exist in repo
+
+### Backfill (--execute)
+- Removals excluded (no_reconnect_verification)
+- Financial backfill started but domain rows unchanged (36684 reimb / 604883 settlement)
+- claim_candidates 1→1
+
+### SAFE_TO_PUSH: conditional_yes (build pass; persist env flags; fix settlement listReports 400 + removal resume)
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-spapi-phase0-freshness-verify-no-reconnect-v1/20260613T024537Z/
+
+### Next Prompt
+PHASE-AMAZON-SPAPI-WORKER-PHASE1A-LEDGER-DETAIL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T025053Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T025316Z
+TOPIC: PHASE-CLAIM-FAMILY-ALGORITHM-READMODEL-IMPLEMENT-V1
+================================================================================
+
+### Read-only claim family algorithm API
+- GET /api/claims/center/algorithm-matrix
+- lib/claims/center/claim-family-algorithm-readmodel.ts
+- Wires claim-family-algorithm-matrix-v1.ts (23 families)
+
+### Payload
+- Per-family: qty/money formulas, sources, identifiers, linkage, TRID, evidence, confidence, emit rules, blockers
+- Global: hard_rules, disputed_data_rules, priority_order, first_implement_order (5 P0 targets)
+
+### Status counts (contract)
+- live: 9, partial: 8, gap: 6 (total 23)
+
+### Verifications
+- no_db_writes, no_generator_implementation, scanner unchanged
+- build PASS, smoke:claim-family-algorithm-readmodel-v1 PASS
+
+### SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/phase-claim-family-algorithm-readmodel-implement-v1/20260613T025316Z/
+
+### Next Prompt
+PHASE-CLAIM-FAMILY-GENERATOR-CUSTOMER-RETURN-NOT-REIMBURSED-DRYRUN-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T025316Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T030022Z
+TOPIC: PHASE-INVENTORY-STATUS-VIEW-CLEAN-DISPUTED-GATING-V1-ORIGINAL-APPLY
+================================================================================
+
+### Approval
+- Maysam: APPROVED_ORIGINAL_VIEW_CLEAN_DISPUTED_GATING_APPLY=yes
+- Target: original kxsvedvpjldygtdbylsy
+
+### Before (387003587 / X004LKS4VD)
+- expected_qty: **53**, total_expected: **53**, total_scanned: **0**, status: expected
+
+### Applied
+- supabase/migrations/20260612120000_v_inventory_item_status_clean_disputed_gating_v1.sql
+- NOTIFY pgrst reload schema
+
+### After
+- expected_qty: **52**, expected_qty_clean: **52**, disputed_expected_qty: **1**
+- needs_reconciliation: **true**, disputed_statuses: shipment_overflow_conflict
+
+### Verifications
+- EP rows unchanged (2 rows; checksum match)
+- claim_ready qty sum **52**; review_needed **1**
+- scanner/operator-mobile code unchanged
+- build: PASS; shipment aggregation smoke: PASS
+
+### SAFE_ORIGINAL_VIEW_FIXED: yes
+
+### Evidence
+- .cursor/audit-reports/phase-inventory-status-view-clean-disputed-gating-v1-original-apply/20260613T030022Z/
+
+### Next Prompt
+PHASE-INVENTORY-STATUS-VIEW-CLEAN-DISPUTED-GATING-V1-POST-APPLY-SMOKE -- optional Neda live read-model spot-check on 387003587/X004LKS4VD in operator Shipment Entry
+
+================================================================================
+END APPEND SLICE -- 20260613T030022Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T030638Z
+TOPIC: PHASE-AMAZON-REMOVAL-SYNTHETIC-UPLOAD-PROMOTION-FIX-V1
+================================================================================
+
+### Root cause
+Removal workers defaulted runPipeline=false even on resume with uploadId.
+Fetch-only net-new pulls stop at synthetic_upload_ready by design (REMOVAL_API_INTAKE).
+Resume loops without run_pipeline:true never called runReportsApiImportPipeline.
+
+### Fix
+- lib/amazon/reports-api-removal-pipeline-mode.ts resolveRemovalReportsRunPipeline
+- Resume with uploadId auto-promotes unless runPipeline:false explicitly
+- No connector/rebuild/candidate changes
+
+### Staging reprocess (4 stuck uploads)
+- All 4 final_state complete; stuck_uploads_after 0
+- amazon_removals 2719 to 2993; amazon_removal_shipments 9316 to 10699
+- claim_candidates delta 0; EP dup groups 0
+
+### SAFE_TO_PUSH: yes
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-removal-synthetic-upload-promotion-fix-v1/20260613T030405Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T030638Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T030000Z
+TOPIC: PHASE-CLAIM-FAMILY-ALGORITHM-MATRIX-V2-GAP-EXPANSION
+================================================================================
+
+### Scope
+Read-only claim algorithm contract expansion for Maysam sample-zip fee/report gaps.
+No DB writes, migrations, generators, claim_candidates mutation, scanner, or RBAC changes.
+
+### V2 family count
+- V1 locked: **23**
+- V2 base (formula contract): **27**
+- Gap added: **7**
+- **Full V2: 34**
+
+### Added / reclassified
+- Claim families when source available: low_inventory_fee_issue, returns_processing_fee_issue, inbound_placement_fee_issue, fba_grade_and_resell_anomaly, replacement_mismatch_without_reimbursement
+- Review signals only: reserved_inventory_stuck_signal, available_fba_discrepancy, stranded_inventory_signal, expired_inventory_action_signal, catalog_listing_fee_category_mismatch
+- Umbrella split: stranded_expired_review_signal -> stranded + expired signals (umbrella retained for lifecycle dashboard grouping)
+
+### Claim vs review decisions (10 evaluated)
+- Claim when source: low inventory fee, returns processing fee, inbound placement fee, grade/resell, replacement mismatch
+- Review only: reserved stuck, available FBA discrepancy, stranded, expired/aged, catalog/listing fee category
+
+### First safe new family
+low_inventory_fee_issue (manage_fba live; fee report importer missing)
+
+### Hard rules preserved
+- No sale price as COGS; unknown cost NULL; empty source unavailable not zero
+- Disputed rows review only; product linkage before trusted money; no title-only; no auto-create products
+
+### Artifacts
+- lib/claims/contracts/claim-family-matrix-v2-gap-expansion.ts
+- scripts/phase-claim-family-algorithm-matrix-v2-gap-expansion.ts
+
+### SAFE_TO_IMPLEMENT_V2_READMODEL: yes
+
+### Evidence
+- .cursor/audit-reports/phase-claim-family-algorithm-matrix-v2-gap-expansion/20260613T030000Z/
+
+### Next Prompt
+PHASE-CLAIM-FAMILY-CALCULATION-READMODEL-IMPLEMENT-V1 - expose CLAIM_FAMILY_FORMULA_MATRIX_V2_FULL (34 families) + GAP_FAMILY_EVALUATIONS via calculation-contract API; then PHASE-FEE-REPORT-IMPORTER-SCAFFOLD-V1 for Low-Inventory, Returns Processing Fee, Inbound Placement importers.
+
+================================================================================
+END APPEND SLICE -- 20260613T030000Z
+================================================================================

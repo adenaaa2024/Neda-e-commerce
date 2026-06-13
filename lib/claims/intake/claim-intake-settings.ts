@@ -48,7 +48,7 @@ function parsePositiveInt(v: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function mergeIntakeConfig(
+export function mergeIntakeConfig(
   base: ClaimIntakeSettings,
   raw: unknown,
 ): ClaimIntakeSettings {

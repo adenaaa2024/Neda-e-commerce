@@ -3,17 +3,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
-import {
-  MenorixModuleAppShell,
-  MenorixModuleEmptyState,
-  MenorixModuleScopeBar,
-  type MenorixModuleViewMode,
-} from "@/components/menorix";
+import { MenorixModuleEmptyState, MenorixModuleScopeBar } from "@/components/menorix";
 import type { ClaimCenterV1Row } from "@/lib/claims/center/claim-center-v1-types";
 
-import { CLAIM_CENTER_MOBILE_NAV, CLAIM_CENTER_NAV_ITEMS } from "./claim-center-nav-config";
+import { ClaimCenterAppShell } from "./ClaimCenterAppShell";
 import { CLAIM_CENTER_MAIN_CLASS } from "./claim-center-ui";
 import { ClaimCenterDetailDrawer } from "./ClaimCenterDetailDrawer";
+import { ClaimCenterLegacyToolsMenu } from "./ClaimCenterLegacyToolsMenu";
 
 type ModuleAccess = {
   enabled: boolean;
@@ -35,8 +31,6 @@ type Ctx = {
   moduleAccess: ModuleAccess | null;
   selectedRow: ClaimCenterV1Row | null;
   setSelectedRow: (row: ClaimCenterV1Row | null) => void;
-  viewMode: MenorixModuleViewMode;
-  setViewMode: (mode: MenorixModuleViewMode) => void;
   fetchJson: <T>(path: string, extra?: Record<string, string>) => Promise<T>;
 };
 
@@ -49,8 +43,8 @@ export function useClaimCenter() {
 }
 
 /**
- * Claim Center root shell — uses Menorix Command Apps pattern.
- * Legacy /claim-engine pages are NOT patched here; redirects handled separately after QA.
+ * Claim Center root — flow command bar navigation, full-width surface, read-only V2.
+ * Legacy /claim-engine pages remain separate.
  */
 export function ClaimCenterRootClient({
   organizationId,
@@ -66,7 +60,6 @@ export function ClaimCenterRootClient({
   const [storesLoading, setStoresLoading] = useState(true);
   const [moduleAccess, setModuleAccess] = useState<ModuleAccess | null>(null);
   const [selectedRow, setSelectedRow] = useState<ClaimCenterV1Row | null>(null);
-  const [viewMode, setViewMode] = useState<MenorixModuleViewMode>("command");
 
   const scopeParams = useMemo(() => {
     const p = new URLSearchParams({ organization_id: organizationId });
@@ -138,11 +131,9 @@ export function ClaimCenterRootClient({
       moduleAccess,
       selectedRow,
       setSelectedRow,
-      viewMode,
-      setViewMode,
       fetchJson,
     }),
-    [organizationId, storeId, stores, storesLoading, moduleAccess, selectedRow, viewMode, fetchJson],
+    [organizationId, storeId, stores, storesLoading, moduleAccess, selectedRow, fetchJson],
   );
 
   const lockedOverlay =
@@ -158,27 +149,25 @@ export function ClaimCenterRootClient({
 
   return (
     <ClaimCenterContext.Provider value={value}>
-      <MenorixModuleAppShell
-        namespaceClass={`${CLAIM_CENTER_MAIN_CLASS} claim-center-view`}
-        moduleTitle="Claim Center"
+      <ClaimCenterAppShell
         lockedOverlay={lockedOverlay}
         scopeBar={
           moduleAccess?.enabled ? (
-            <MenorixModuleScopeBar
-              moduleLabel="Claim Center"
-              stores={stores}
-              storeId={storeId}
-              onStoreChange={setStoreId}
-              loading={storesLoading}
-              organizationHint="Organization scoped · read-only V1"
-            />
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <MenorixModuleScopeBar
+                  moduleLabel="Claim Center"
+                  stores={stores}
+                  storeId={storeId}
+                  onStoreChange={setStoreId}
+                  loading={storesLoading}
+                  organizationHint="Organization scoped · read-only V2"
+                />
+              </div>
+              <ClaimCenterLegacyToolsMenu />
+            </div>
           ) : null
         }
-        sectionNav={CLAIM_CENTER_NAV_ITEMS}
-        mobileNav={CLAIM_CENTER_MOBILE_NAV}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        showViewSwitch={false}
         detailDrawer={<ClaimCenterDetailDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />}
       >
         {moduleAccess === null ? (
@@ -188,7 +177,7 @@ export function ClaimCenterRootClient({
         ) : moduleAccess.enabled ? (
           children
         ) : null}
-      </MenorixModuleAppShell>
+      </ClaimCenterAppShell>
     </ClaimCenterContext.Provider>
   );
 }

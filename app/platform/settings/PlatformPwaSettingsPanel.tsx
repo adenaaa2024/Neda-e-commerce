@@ -1,3 +1,4 @@
+/** @deprecated Moved to /platform/settings/pwa — use PlatformPwaSettingsPageClient. Kept for reference only. */
 "use client";
 
 import { useEffect, useState } from "react";

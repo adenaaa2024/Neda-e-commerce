@@ -21,6 +21,7 @@ import {
   Wrench,
   Store,
   Zap,
+  Smartphone,
 } from "lucide-react";
 import type { SidebarIconName } from "./sidebar-config";
 
@@ -46,6 +47,7 @@ export const SIDEBAR_ICONS: Record<SidebarIconName, LucideIcon> = {
   Wrench: Wrench,
   Store: Store,
   Zap: Zap,
+  Smartphone: Smartphone,
 };
 
 export function getSidebarIcon(name: SidebarIconName): LucideIcon {

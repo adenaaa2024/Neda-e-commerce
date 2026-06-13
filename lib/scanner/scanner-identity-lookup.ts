@@ -13,6 +13,8 @@ import {
 import { resolveSlipIdentityRows } from "@/lib/scanner/slip-inventory-merge";
 import { normalizeTrackingKey, slipIdLookupCandidates, trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 import {
+  aggregateExpectedPackageRowsForInventoryDisplay,
+  finalizeInventoryGateDisplayRows,
   type InventoryViewMatchField,
   type VInventoryStatusRow,
 } from "@/lib/scanner/v-inventory-status";
@@ -32,108 +34,13 @@ function identitySelectFallback(select: string): string | null {
   return null;
 }
 
-/** Group raw EP rows to match `v_inventory_item_status` item_grouped grain. */
-function aggregateEpRowsLikeInventoryView(
-  rows: Record<string, unknown>[],
-  orgId: string,
-  storeId: string,
-): VInventoryStatusRow[] {
-  type Acc = {
-    tracking: string;
-    slip: string;
-    sku: string;
-    fnsku: string;
-    orderId: string;
-    expected: number;
-    scanned: number;
-    epIds: Set<string>;
-    resolved_product_id: string | null;
-    resolved_catalog_product_id: string | null;
-    identifier_resolution_status: string | null;
-    identifier_resolution_confidence: number | null;
-  };
-  const groups = new Map<string, Acc>();
-
-  for (const r of rows) {
-    const trackingRaw = String((r as { tracking_number?: string | null }).tracking_number ?? "").trim();
-    const tracking = normalizeTrackingKey(trackingRaw) || trackingRaw;
-    const slip = String((r as { id_slip_contents?: string | null }).id_slip_contents ?? "").trim();
-    const sku = String((r as { sku?: string | null }).sku ?? "").trim();
-    const fnsku = String((r as { fnsku?: string | null }).fnsku ?? "").trim();
-    const key = [tracking, slip, sku, fnsku].join("\u0000");
-    const exp = coerceInt((r as { expected_scan_quantity?: number }).expected_scan_quantity);
-    const act = coerceInt((r as { actual_scanned_count?: number }).actual_scanned_count);
-    const epId = String((r as { id?: string }).id ?? "").trim();
-
-    const prev = groups.get(key);
-    if (prev) {
-      prev.expected += exp;
-      prev.scanned += act;
-      if (epId) prev.epIds.add(epId);
-      if ((r as { order_id?: string | null }).order_id) {
-        prev.orderId = String((r as { order_id?: string | null }).order_id);
-      }
-    } else {
-      groups.set(key, {
-        tracking,
-        slip,
-        sku,
-        fnsku,
-        orderId: String((r as { order_id?: string | null }).order_id ?? "").trim(),
-        expected: exp,
-        scanned: act,
-        epIds: new Set(epId ? [epId] : []),
-        resolved_product_id: (r as { resolved_product_id?: string | null }).resolved_product_id ?? null,
-        resolved_catalog_product_id:
-          (r as { resolved_catalog_product_id?: string | null }).resolved_catalog_product_id ?? null,
-        identifier_resolution_status:
-          (r as { identifier_resolution_status?: string | null }).identifier_resolution_status ?? null,
-        identifier_resolution_confidence:
-          (r as { identifier_resolution_confidence?: number | null }).identifier_resolution_confidence ?? null,
-      });
-    }
-  }
-
-  const out: VInventoryStatusRow[] = [];
-  for (const g of groups.values()) {
-    const epId = g.epIds.size === 1 ? [...g.epIds][0]! : "";
-    out.push({
-      expected_package_id: epId,
-      organization_id: orgId,
-      store_id: storeId,
-      tracking_number: g.tracking || null,
-      id_slip_contents: g.slip || null,
-      sku: g.sku || null,
-      fnsku: g.fnsku || null,
-      asin: null,
-      order_id: g.orderId || null,
-      status: null,
-      product_name: null,
-      product_display_name: null,
-      product_id: null,
-      resolved_product_id: g.resolved_product_id,
-      resolved_catalog_product_id: g.resolved_catalog_product_id,
-      product_linkage_status: g.identifier_resolution_status,
-      identifier_resolution_status: g.identifier_resolution_status,
-      identifier_resolution_confidence: g.identifier_resolution_confidence,
-      carrier: null,
-      total_expected: g.expected,
-      total_scanned: g.scanned,
-    });
-  }
-  return out;
-}
-
 function mapEpRowsForMatchField(
   rows: Record<string, unknown>[],
-  field: InventoryViewMatchField,
+  _field: InventoryViewMatchField,
   orgId: string,
   storeId: string,
 ): VInventoryStatusRow[] {
-  if (field === "tracking_number") {
-    return rows.map((r) => expectedPackageRowToInventoryStatusRow(r, orgId, storeId));
-  }
-  return aggregateEpRowsLikeInventoryView(rows, orgId, storeId);
+  return aggregateExpectedPackageRowsForInventoryDisplay(rows, orgId, storeId);
 }
 
 function asRowArray(data: unknown): Record<string, unknown>[] {
@@ -277,7 +184,7 @@ export async function fetchIdentityStatusForScanCode(
       options?.gateFastNegative === true;
     if (useRpcOnly) {
       return {
-        rows: rpcHit.rows,
+        rows: finalizeInventoryGateDisplayRows(rpcHit.rows),
         raw: {
           phase9d_rpc: true,
           package_ids: rpcHit.packageIds,
@@ -370,7 +277,7 @@ export async function fetchIdentityStatusForScanCode(
     code,
     slipRows,
     packageIds,
-    aggregateEpRowsLikeInventoryView,
+    aggregateExpectedPackageRowsForInventoryDisplay,
   );
   if (merged.length) {
     return { rows: merged, raw: slipRows, matchedField: "id_slip_contents", matchType: "slip_code" };

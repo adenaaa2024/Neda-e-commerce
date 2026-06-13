@@ -51,7 +51,9 @@ export function MenorixModuleTileGrid({ tiles }: { tiles: MenorixModuleTile[] })
                 </span>
               ) : null}
               {tile.locked ? (
-                <span className={menorixModuleBadgeTone("neutral")}>Locked</span>
+                <span className={menorixModuleBadgeTone("neutral")}>
+                  {tile.nextAction ?? "Requires bridge phase"}
+                </span>
               ) : tile.nextAction ? (
                 <span className="text-[11px] font-medium opacity-80">{tile.nextAction}</span>
               ) : null}

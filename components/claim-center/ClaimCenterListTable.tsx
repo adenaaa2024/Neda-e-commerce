@@ -10,14 +10,13 @@ type Props = {
   emptyLabel?: string;
 };
 
-function money(v: number | null): string {
-  if (v == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
+function moneyLabel(row: ClaimCenterV1Row): string {
+  return row.money_display?.amount_display_label ?? "Cost unknown";
 }
 
 export function ClaimCenterListTable({ rows, onSelect, emptyLabel = "No items in scope." }: Props) {
   return (
-    <div className="claim-center-table-card hidden overflow-x-auto md:block">
+    <div className="claim-center-table-card hidden overflow-x-auto lg:block">
       <table className={CLAIM_CENTER_TABLE_CLASS}>
         <thead className={`${CLAIM_CENTER_TABLE_HEAD_CLASS} text-xs uppercase opacity-70`}>
           <tr>
@@ -59,7 +58,9 @@ export function ClaimCenterListTable({ rows, onSelect, emptyLabel = "No items in
                   </td>
                   <td className="px-4 py-3 text-xs">{evidence}</td>
                   <td className="px-4 py-3 text-xs">{deadline}</td>
-                  <td className="px-4 py-3 text-right font-medium">{money(row.recovery_value)}</td>
+                  <td className="px-4 py-3 text-right font-medium" title={row.money_display?.amount_tooltip}>
+                    {moneyLabel(row)}
+                  </td>
                   <td className="px-4 py-3 text-xs">{row.v1_status_label}</td>
                 </tr>
               );

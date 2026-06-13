@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type pg from "pg";
 
 import { AMAZON_PRODUCT_SYNC_MATCH_SOURCE } from "./amazon-product-sync-recovery-types";
 import { upsertPrimaryIdentifierMapForPim } from "./pim-product-map-upsert";
@@ -23,6 +24,90 @@ export type AmazonPromoteBatchResult = {
 function normalizeAsin(v: string | null | undefined): string | null {
   const s = v?.trim().toUpperCase();
   return s && /^[A-Z0-9]{10}$/.test(s) ? s : null;
+}
+
+async function tableExistsPg(client: pg.Client, name: string): Promise<boolean> {
+  const r = await client.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1`,
+    [name],
+  );
+  return r.rowCount === 1;
+}
+
+/**
+ * Spine anti-join: ASINs in catalog/FBA layers but absent from active `products`.
+ * Used by governed recovery apply (pg path) — avoids limit*3 recency scan missing FBA-only gaps.
+ */
+export async function listMissingAmazonProductCandidatesPg(params: {
+  pgClient: pg.Client;
+  organizationId: string;
+  storeId: string;
+  limit: number;
+}): Promise<AmazonPromoteCandidate[]> {
+  const limit = Math.max(1, Math.min(500, params.limit));
+  const hasFba = await tableExistsPg(params.pgClient, "amazon_fba_inventory");
+  const fbaUnion = hasFba
+    ? `
+    UNION ALL
+    SELECT
+      UPPER(BTRIM(afi.asin)) AS asin,
+      NULLIF(BTRIM(afi.sku), '') AS seller_sku,
+      NULLIF(BTRIM(afi.fnsku), '') AS fnsku,
+      COALESCE(NULLIF(BTRIM(afi.product_name), ''), UPPER(BTRIM(afi.asin))) AS product_name,
+      'amazon_fba_inventory'::text AS source_table,
+      afi.updated_at AS sort_ts
+    FROM public.amazon_fba_inventory afi
+    WHERE afi.organization_id = $1::uuid AND afi.store_id = $2::uuid
+      AND afi.asin IS NOT NULL AND BTRIM(afi.asin) <> ''
+  `
+    : "";
+
+  const r = await params.pgClient.query(
+    `
+    WITH layer_rows AS (
+      SELECT
+        UPPER(BTRIM(cp.asin)) AS asin,
+        NULLIF(BTRIM(cp.seller_sku), '') AS seller_sku,
+        NULLIF(BTRIM(cp.fnsku), '') AS fnsku,
+        COALESCE(NULLIF(BTRIM(cp.item_name), ''), UPPER(BTRIM(cp.asin))) AS product_name,
+        'catalog_products'::text AS source_table,
+        cp.last_seen_at AS sort_ts
+      FROM public.catalog_products cp
+      WHERE cp.organization_id = $1::uuid AND cp.store_id = $2::uuid
+        AND cp.asin IS NOT NULL AND BTRIM(cp.asin) <> ''
+      ${fbaUnion}
+    ),
+    missing AS (
+      SELECT DISTINCT ON (lr.asin)
+        lr.asin,
+        lr.seller_sku,
+        lr.fnsku,
+        lr.product_name,
+        lr.source_table
+      FROM layer_rows lr
+      WHERE NOT EXISTS (
+        SELECT 1 FROM public.products p
+        WHERE p.organization_id = $1::uuid AND p.store_id = $2::uuid
+          AND p.deleted_at IS NULL
+          AND UPPER(BTRIM(p.asin)) = lr.asin
+      )
+      ORDER BY lr.asin, lr.sort_ts DESC NULLS LAST
+    )
+    SELECT asin, seller_sku, fnsku, product_name, source_table
+    FROM missing
+    ORDER BY asin
+    LIMIT $3
+    `,
+    [params.organizationId, params.storeId, limit],
+  );
+
+  return r.rows.map((row) => ({
+    asin: String(row.asin),
+    seller_sku: (row.seller_sku as string | null) ?? null,
+    fnsku: (row.fnsku as string | null) ?? null,
+    product_name: String(row.product_name ?? row.asin),
+    source_table: row.source_table as AmazonPromoteCandidate["source_table"],
+  }));
 }
 
 /**
@@ -129,8 +214,17 @@ export async function promoteMissingAmazonProducts(params: {
   storeId: string;
   limit: number;
   dryRun?: boolean;
+  /** When set, use spine anti-join (governed recovery) instead of recency-limited Supabase scan. */
+  pgClient?: pg.Client;
 }): Promise<AmazonPromoteBatchResult> {
-  const candidates = await listMissingAmazonProductCandidates(params);
+  const candidates = params.pgClient
+    ? await listMissingAmazonProductCandidatesPg({
+        pgClient: params.pgClient,
+        organizationId: params.organizationId,
+        storeId: params.storeId,
+        limit: params.limit,
+      })
+    : await listMissingAmazonProductCandidates(params);
   const result: AmazonPromoteBatchResult = {
     attempted: candidates.length,
     created: 0,

@@ -21,8 +21,11 @@ import {
 import { trackingKeysEqual } from "@/lib/scanner/tracking-normalize";
 import { scrubInventoryRowsExcludingVoidedPackages } from "@/lib/scanner/operator-active-scanned-counts";
 import {
+  aggregateExpectedPackageRowsForInventoryDisplay,
   aggregateInventoryStatus,
   fetchVInventoryStatusForScanCode,
+  finalizeInventoryGateDisplayRows,
+  mergeInventoryRowsWithExpectedPackageBuildStatus,
   mockVInventoryRowsForScanCode,
   resolveInventoryGateVisualStatus,
   type InventoryGateVisualStatus,
@@ -412,7 +415,7 @@ async function inventoryRowsFromExpectedPackagesFallback(
   );
   if (!exactEp.length) return { rows: [], matchedField: null };
   return {
-    rows: exactEp.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>, orgId, storeId)),
+    rows: aggregateExpectedPackageRowsForInventoryDisplay(exactEp as Record<string, unknown>[], orgId, storeId),
     matchedField: "tracking_number",
   };
 }
@@ -705,7 +708,11 @@ export async function lookupShipmentEntryScanCode(
     fallbackMs += performance.now() - fbStartedAt;
     fallbackReason = "tracking_ep_fetch";
     if (epRows.length) {
-      inventory_rows = epRows.map((r) => epRowToInventoryStatusRow(r as Record<string, unknown>, orgId, sid));
+      inventory_rows = aggregateExpectedPackageRowsForInventoryDisplay(
+        epRows as Record<string, unknown>[],
+        orgId,
+        sid,
+      );
       inventory_matched_field = "tracking_number";
     }
   }
@@ -795,6 +802,33 @@ export async function lookupShipmentEntryScanCode(
     /* keep pre-scrub rows on failure */
   }
 
+  if (inventory_rows.length > 0 && inventory_matched_field === "tracking_number") {
+    try {
+      const trackingForEp =
+        inventory_rows.map((r) => String(r.tracking_number ?? "").trim()).find(Boolean) ?? normalized_code;
+      const epForGating = await fetchExpectedPackagesForTracking(
+        supabase,
+        orgId,
+        sid,
+        trackingForEp,
+        undefined,
+        opts,
+      );
+      if (epForGating.length) {
+        inventory_rows = mergeInventoryRowsWithExpectedPackageBuildStatus(
+          inventory_rows,
+          epForGating as Record<string, unknown>[],
+          orgId,
+          sid,
+        );
+      }
+    } catch {
+      /* keep view rows on enrichment failure */
+    }
+  }
+
+  inventory_rows = finalizeInventoryGateDisplayRows(inventory_rows);
+
   const agg = aggregateInventoryStatus(inventory_rows);
   let inventory_visual = resolveInventoryGateVisualStatus(inventory_rows, agg);
   if (inventory_rows.length === 0 && barcode.kind !== "unknown") {
@@ -860,12 +894,16 @@ export function mockLookupShipmentEntryScanCode(rawCode: string): ShipmentEntryL
     const base = mockExpectedPackageDetailRows();
     const exactEp = base.filter((r) => trackingKeysEqual(String(r.tracking_number ?? ""), normalized_code));
     if (exactEp.length) {
-      inventory_rows = exactEp.map((r) =>
-        epRowToInventoryStatusRow(r as Record<string, unknown>, "", ""),
+      inventory_rows = aggregateExpectedPackageRowsForInventoryDisplay(
+        exactEp as Record<string, unknown>[],
+        "",
+        "",
       );
       inventory_matched_field = "tracking_number";
     }
   }
+
+  inventory_rows = finalizeInventoryGateDisplayRows(inventory_rows);
 
   const agg = aggregateInventoryStatus(inventory_rows);
   const inventory_visual = resolveInventoryGateVisualStatus(inventory_rows, agg);

@@ -14,7 +14,6 @@ import {
   responsivePageOuter,
 } from "../../../lib/responsive-page-shell";
 import { PageHeaderWithInfo } from "../components/page-header-with-info";
-import { PlatformPwaSettingsPanel } from "./PlatformPwaSettingsPanel";
 
 export default function PlatformSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -117,10 +116,14 @@ export default function PlatformSettingsPage() {
           infoAriaLabel="About platform branding"
         >
           <p>
-            Super-admin-only platform identity. This writes only to{" "}
+            Super-admin-only platform identity (logo and display name). This writes only to{" "}
             <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">
               platform_settings
             </code>
+            . Installable app behavior lives on{" "}
+            <a href="/platform/settings/pwa" className="font-medium text-violet-600 hover:underline dark:text-violet-400">
+              PWA settings
+            </a>
             . Schedule automation on{" "}
             <a href="/platform/settings/automation" className="font-medium text-violet-600 hover:underline dark:text-violet-400">
               Automation settings
@@ -222,8 +225,6 @@ export default function PlatformSettingsPage() {
             </button>
           </div>
         </form>
-
-        <PlatformPwaSettingsPanel />
       </div>
     </div>
   );

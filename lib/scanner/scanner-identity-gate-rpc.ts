@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { InventoryViewMatchField, VInventoryStatusRow } from "@/lib/scanner/v-inventory-status";
+import { finalizeInventoryGateDisplayRows } from "@/lib/scanner/v-inventory-status";
 
 export type ScannerIdentityGateMatchType =
   | "tracking"
@@ -179,7 +180,7 @@ export async function fetchIdentityGateViaRpc(
   }
 
   return {
-    rows,
+    rows: finalizeInventoryGateDisplayRows(rows),
     matchedField: parseMatchedField(payload.matched_field),
     matchType: parseMatchType(payload.match_type),
     packageIds: parseStringArray(payload.package_ids),

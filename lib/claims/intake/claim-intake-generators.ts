@@ -7,6 +7,12 @@
 import { shouldExcludeReturnItemFromScannerCounts } from "../../scanner/return-items-test-data-guard";
 import { returnItemNotesMarkOffSlip } from "../../scanner/item-scan-off-slip";
 import {
+  buildExpectedPackageReviewSignals,
+  filterExpectedPackagesForClaimGeneration,
+  reviewSignalNotes,
+  splitExpectedQuantityByBuildStatus,
+} from "../../expected-packages-conflict-status";
+import {
   candidateTriggerAllowsRun,
   isPhysicalEventClaimable,
   loadClaimCandidateIntakePolicy,
@@ -561,7 +567,7 @@ const delayedNotReceived: ClaimGeneratorDefinition = {
     const { data, error } = await ctx.client
       .from("expected_packages")
       .select(
-        "id, organization_id, store_id, order_id, sku, fnsku, disposition, tracking_number, expected_scan_quantity, actual_scanned_count, shipment_date, carrier, currency, resolved_product_id",
+        "id, organization_id, store_id, order_id, sku, fnsku, disposition, tracking_number, expected_scan_quantity, actual_scanned_count, shipment_date, carrier, currency, resolved_product_id, build_status",
       )
       .eq("organization_id", ctx.organizationId)
       .not("tracking_number", "is", null)
@@ -594,8 +600,15 @@ const delayedNotReceived: ClaimGeneratorDefinition = {
       return t !== null && !received.has(t) && intOrZero(r.actual_scanned_count) === 0;
     });
 
-    const drafts = rows.slice(0, ctx.rowLimit).map((row) =>
-      makeDraft({
+    const { claimReady, reviewNeeded } = filterExpectedPackagesForClaimGeneration(rows);
+    const reviewSignals = buildExpectedPackageReviewSignals(reviewNeeded);
+
+    const drafts = claimReady.slice(0, ctx.rowLimit).map((row) => {
+      const split = splitExpectedQuantityByBuildStatus(
+        str(row.build_status),
+        intOrZero(row.expected_scan_quantity),
+      );
+      return makeDraft({
         ctx,
         source_kind: "delayed_not_received",
         claim_family: "shipment_not_received",
@@ -604,7 +617,7 @@ const delayedNotReceived: ClaimGeneratorDefinition = {
         row,
         reference_key: str(row.tracking_number),
         source_event_key: str(row.tracking_number),
-        expected_quantity: intOrZero(row.expected_scan_quantity),
+        expected_quantity: split.clean,
         actual_quantity: 0,
         event_date: str(row.shipment_date),
         confidence: 0.75,
@@ -616,13 +629,18 @@ const delayedNotReceived: ClaimGeneratorDefinition = {
           expected_package_id: str(row.id),
           carrier: str(row.carrier),
           overdue_days_threshold: ctx.settings.delayed_not_received_days,
+          build_status: str(row.build_status),
         },
-      }),
-    );
+      });
+    });
+    const notes = [
+      "disputed expected_packages excluded from claim-ready drafts",
+      ...reviewSignalNotes(reviewSignals),
+    ];
     return {
       matched_count: rows.length,
       drafts,
-      notes: ["matched against packages by tracking within fetched window cap"],
+      notes,
     };
   },
 };
@@ -707,7 +725,7 @@ const shipmentDiscrepancy: ClaimGeneratorDefinition = {
     const { data, error } = await ctx.client
       .from("expected_packages")
       .select(
-        "id, organization_id, store_id, order_id, sku, fnsku, disposition, tracking_number, expected_scan_quantity, actual_scanned_count, discrepancy_found, shipment_date, currency, resolved_product_id, allocated_package_id, allocated_pallet_id",
+        "id, organization_id, store_id, order_id, sku, fnsku, disposition, tracking_number, expected_scan_quantity, actual_scanned_count, discrepancy_found, shipment_date, currency, resolved_product_id, allocated_package_id, allocated_pallet_id, build_status",
       )
       .eq("organization_id", ctx.organizationId)
       .gte("shipment_date", ctx.window.from)
@@ -723,8 +741,15 @@ const shipmentDiscrepancy: ClaimGeneratorDefinition = {
       return expected > 0 && actual > 0 && actual !== expected;
     });
 
-    const drafts = rows.slice(0, ctx.rowLimit).map((row) => {
-      const expected = intOrZero(row.expected_scan_quantity);
+    const { claimReady, reviewNeeded } = filterExpectedPackagesForClaimGeneration(rows);
+    const reviewSignals = buildExpectedPackageReviewSignals(reviewNeeded);
+
+    const drafts = claimReady.slice(0, ctx.rowLimit).map((row) => {
+      const split = splitExpectedQuantityByBuildStatus(
+        str(row.build_status),
+        intOrZero(row.expected_scan_quantity),
+      );
+      const expected = split.clean;
       const actual = intOrZero(row.actual_scanned_count);
       return makeDraft({
         ctx,
@@ -748,10 +773,17 @@ const shipmentDiscrepancy: ClaimGeneratorDefinition = {
           expected_package_id: str(row.id),
           package_id: str(row.allocated_package_id),
           pallet_id: str(row.allocated_pallet_id),
+          build_status: str(row.build_status),
+          disputed_quantity_excluded: split.disputed,
         },
       });
     });
-    return { matched_count: rows.length, drafts, notes: ["mismatch filter applied in memory"] };
+    const notes = [
+      "mismatch filter applied in memory",
+      "disputed expected_packages excluded from claim-ready drafts",
+      ...reviewSignalNotes(reviewSignals),
+    ];
+    return { matched_count: rows.length, drafts, notes };
   },
 };
 

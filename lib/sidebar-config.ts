@@ -36,7 +36,8 @@ export type SidebarIconName =
   | "LayoutDashboard"
   | "Wrench"
   | "Store"
-  | "Zap";
+  | "Zap"
+  | "Smartphone";
 
 export type SidebarLeaf = {
   kind: "leaf";
@@ -119,6 +120,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             icon: "ClipboardList",
             rbac: "always",
             order: 2,
+            showInSidebar: false,
           },
           {
             kind: "leaf",
@@ -162,6 +164,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             icon: "Banknote",
             rbac: "always",
             order: 1,
+            showInSidebar: false,
           },
           {
             kind: "leaf",
@@ -173,6 +176,17 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             icon: "ShieldAlert",
             rbac: "canSeeClaimEngine",
             order: 2,
+          },
+          {
+            kind: "leaf",
+            id: "claim_center",
+            label: "Claim Center",
+            path: "/claim-center",
+            featureKey: "claims.engine",
+            permissionBase: "claims.engine",
+            icon: "Inbox",
+            rbac: "canSeeClaimEngine",
+            order: 2.005,
           },
           {
             kind: "leaf",
@@ -357,6 +371,17 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
           },
           {
             kind: "leaf",
+            id: "platform_pwa",
+            label: "PWA / Installable app",
+            path: "/platform/settings/pwa",
+            featureKey: "platform.branding",
+            permissionBase: "platform.branding",
+            icon: "Smartphone",
+            rbac: "canSeePlatformAdmin",
+            order: 3,
+          },
+          {
+            kind: "leaf",
             id: "platform_organizations",
             label: "Organizations",
             path: "/platform/organizations",
@@ -364,7 +389,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             permissionBase: "platform.organizations",
             icon: "Building2",
             rbac: "canSeePlatformAdmin",
-            order: 3,
+            order: 4,
           },
           {
             kind: "leaf",
@@ -375,7 +400,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             permissionBase: "platform.users",
             icon: "Users",
             rbac: "canSeePlatformUserDirectory",
-            order: 4,
+            order: 5,
           },
           {
             kind: "leaf",
@@ -386,7 +411,7 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             permissionBase: "platform.access",
             icon: "Shield",
             rbac: "canSeePlatformAccess",
-            order: 5,
+            order: 6,
           },
         ],
       },
@@ -407,6 +432,19 @@ export const DASHBOARD_NAV_LEAF: SidebarLeaf = {
   order: 0,
 };
 
+/** Task Center — standalone module (not under Finance & Claims). */
+export const TASK_CENTER_NAV_LEAF: SidebarLeaf = {
+  kind: "leaf",
+  id: "task_center",
+  label: "Task Center",
+  path: "/task-center",
+  icon: "ClipboardList",
+  featureKey: "operations.task_center",
+  permissionBase: "operations.task_center",
+  rbac: "always",
+  order: 1,
+};
+
 export const WMS_ONLY_NAV: { section: "wms"; label: string; order: number; leaves: SidebarLeaf[] } = {
   section: "wms",
   label: "WMS",
@@ -415,8 +453,8 @@ export const WMS_ONLY_NAV: { section: "wms"; label: string; order: number; leave
     {
       kind: "leaf",
       id: "wms_scan",
-      label: "Scan Item",
-      path: "/returns",
+      label: "Operator Mobile Scan",
+      path: "/scanner/operator-mobile",
       featureKey: "wms.scanner",
       permissionBase: "wms.scanner",
       icon: "ScanLine",
@@ -450,6 +488,7 @@ export function flattenSidebarLeaves(): SidebarLeaf[] {
       out.push(...g.children);
     }
   }
+  out.push(TASK_CENTER_NAV_LEAF);
   out.push(...WMS_ONLY_NAV.leaves);
   out.push(TECH_DEBUG_LEAF);
   return out;
@@ -458,6 +497,8 @@ export function flattenSidebarLeaves(): SidebarLeaf[] {
 /** Display + sort for `public.modules` rows; keys match the first segment of each leaf’s `permissionBase`. */
 export const MODULE_CATALOG: Record<string, { name: string; sort_order: number }> = {
   operations: { name: "Operations", sort_order: 10 },
+  /** Task Center permissions use operations.task_center.* — productivity module, not finance/claims. */
+  task_center: { name: "Task Center", sort_order: 15 },
   finance: { name: "Finance", sort_order: 20 },
   claims: { name: "Claims", sort_order: 30 },
   settings: { name: "Settings", sort_order: 40 },

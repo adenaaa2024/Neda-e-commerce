@@ -1,0 +1,112 @@
+/**
+ * Task Center scoped theme — operations command center (slate / teal accent).
+ */
+
+.task-center-view .task-center-card,
+.task-center-view .task-center-kpi {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.task-center-view .task-center-mobile-card:active {
+  transform: scale(0.99);
+}
+
+html.dark .task-center-view {
+  background: #0a0f14 !important;
+  color: #e6edf3;
+}
+
+html.light .task-center-view {
+  background: #f0f4f8 !important;
+  color: #0f172a;
+}
+
+html.dark .task-center-view .task-center-card {
+  background: #111820;
+  border-color: rgba(94, 234, 212, 0.12);
+}
+
+html.light .task-center-view .task-center-card {
+  background: #ffffff;
+  border-color: rgba(15, 118, 110, 0.12);
+}
+
+html.dark .task-center-view .task-center-kpi {
+  background: linear-gradient(145deg, #121a24 0%, #0e141c 100%);
+  border-color: rgba(94, 234, 212, 0.15);
+}
+
+html.light .task-center-view .task-center-kpi {
+  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+  border-color: rgba(15, 118, 110, 0.14);
+}
+
+.task-center-view .task-center-workflow-bar__step--active {
+  background: rgba(20, 184, 166, 0.15);
+  border: 1px solid rgba(20, 184, 166, 0.35);
+}
+
+html.dark .task-center-view .task-center-badge--open {
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+}
+
+html.dark .task-center-view .task-center-badge--blocked {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fca5a5;
+}
+
+html.dark .task-center-view .task-center-badge--urgent {
+  background: rgba(251, 146, 60, 0.18);
+  color: #fdba74;
+}
+
+html.dark .task-center-view .task-center-badge--scanner {
+  background: rgba(167, 139, 250, 0.15);
+  color: #c4b5fd;
+}
+
+html.dark .task-center-view .task-center-badge--claims {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde047;
+}
+
+html.dark .task-center-view .task-center-badge--product {
+  background: rgba(52, 211, 153, 0.12);
+  color: #6ee7b7;
+}
+
+html.dark .task-center-view .task-center-badge--automation {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+
+html.light .task-center-view .task-center-badge--open {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0369a1;
+}
+
+html.light .task-center-view .task-center-badge--blocked {
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+}
+
+html.light .task-center-view .task-center-badge--urgent {
+  background: rgba(234, 88, 12, 0.1);
+  color: #c2410c;
+}
+
+.task-center-view .task-center-mobile-card {
+  transition: transform 0.15s ease;
+}
+
+.task-center-view .task-center-tree-node {
+  border-left: 2px solid rgba(20, 184, 166, 0.25);
+}
+
+.task-center-view .task-center-btn--disabled {
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+}

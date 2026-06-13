@@ -86,13 +86,17 @@ import {
   fetchVInventoryItemStatusLinesForTrackingNormalized,
   fetchVInventoryItemStatusLinesExact,
   formatInventoryProgressLabel,
+  inventoryDisplayGroupBadgeLabels,
   mockVInventoryItemStatusLinesForExact,
+  resolveInventoryDisputedQuantity,
+  resolveInventoryExpectedClean,
   resolveInventoryGateVisualStatus,
   safeInventoryProgressPercent,
   type InventoryGateVisualStatus,
   type InventoryViewMatchField,
   type VInventoryStatusRow,
 } from "@/lib/scanner/v-inventory-status";
+import { EXPECTED_PACKAGE_UI_COPY } from "@/lib/expected-packages-conflict-status";
 import { resolveItemBarcodeAgainstExpectedRows, type ItemResolveTier } from "@/lib/scanner/operator-item-resolve";
 import {
   coalesceSlipRowFnsku,
@@ -16543,11 +16547,23 @@ function OperatorMobileScanPageContent() {
                         </span>
                       </p>
                       <div className={`operator-shipment-entry-gate__line-items ${SLIP_CARD_SECTION}`}>
-                        <div className={`grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 border-b bg-transparent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-neutral-500 ${SLIP_CARD_DIVIDER}`}>
+                        {(() => {
+                          const gateHasDisputedQty = identifyGateShipmentLines.some(
+                            (r) => resolveInventoryDisputedQuantity(r) > 0,
+                          );
+                          return (
+                        <div className={`grid ${gateHasDisputedQty ? "grid-cols-[minmax(0,1fr)_auto_auto_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto]"} gap-2 border-b bg-transparent px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-neutral-500 ${SLIP_CARD_DIVIDER}`}>
                           <span>Product</span>
-                          <span className="text-right tabular-nums">Expected</span>
+                          <span className="text-right tabular-nums">{EXPECTED_PACKAGE_UI_COPY.expectedClean}</span>
+                          {gateHasDisputedQty ? (
+                            <span className="text-right tabular-nums text-amber-200/90">
+                              {EXPECTED_PACKAGE_UI_COPY.needsReconciliation}
+                            </span>
+                          ) : null}
                           <span className="text-right tabular-nums">Scanned</span>
                         </div>
+                          );
+                        })()}
                         <div
                           className={`operator-shipment-entry-gate__line-items-scroll operator-scan-panel__body${
                             identifyGateShipmentLines.length > 3
@@ -16576,6 +16592,12 @@ function OperatorMobileScanPageContent() {
                             const primaryIdentifierLabel = fnsku ? "FNSKU" : asin ? "ASIN" : sku ? "SKU" : "Identifier";
                             const secondaryIdentifier = fnsku ? asin || sku : "";
                             const secondaryIdentifierLabel = fnsku && asin ? "ASIN" : fnsku && sku ? "SKU" : "";
+                            const sourceBadges = inventoryDisplayGroupBadgeLabels(row.display_group);
+                            const expectedClean = resolveInventoryExpectedClean(row);
+                            const disputedQty = resolveInventoryDisputedQuantity(row);
+                            const showReconciliationColumn = identifyGateShipmentLines.some(
+                              (r) => resolveInventoryDisputedQuantity(r) > 0,
+                            );
 
                             return (
                               <div
@@ -16620,16 +16642,39 @@ function OperatorMobileScanPageContent() {
                                     {shipmentLineStatusLabel(row)}
                                   </span>
                                 </div>
-                                <div className={`mt-1 grid grid-cols-2 gap-1.5 uppercase tracking-wide ${SLIP_CARD_TECH_ID}`}>
+                                <div className={`mt-1 grid ${showReconciliationColumn ? "grid-cols-3" : "grid-cols-2"} gap-1.5 uppercase tracking-wide ${SLIP_CARD_TECH_ID}`}>
                                   <div className="flex flex-col items-center px-1 py-0.5 text-center">
-                                    <span>Expected</span>
-                                    <span className="tabular-nums font-semibold">{row.total_expected}</span>
+                                    <span>{EXPECTED_PACKAGE_UI_COPY.expectedClean}</span>
+                                    <span className="tabular-nums font-semibold">{expectedClean}</span>
                                   </div>
+                                  {showReconciliationColumn ? (
+                                    <div className="flex flex-col items-center px-1 py-0.5 text-center text-amber-200/90">
+                                      <span>{EXPECTED_PACKAGE_UI_COPY.needsReconciliation}</span>
+                                      <span className="tabular-nums font-semibold">{disputedQty > 0 ? disputedQty : "—"}</span>
+                                    </div>
+                                  ) : null}
                                   <div className="flex flex-col items-center px-1 py-0.5 text-center">
                                     <span>Scanned</span>
                                     <span className="tabular-nums font-semibold">{row.total_scanned}</span>
                                   </div>
                                 </div>
+                                {row.reconciliation_message ? (
+                                  <p className="mt-1 text-[8px] font-semibold leading-snug text-amber-200/85">
+                                    {row.reconciliation_message}
+                                  </p>
+                                ) : null}
+                                {sourceBadges.length ? (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {sourceBadges.map((badge) => (
+                                      <span
+                                        key={badge}
+                                        className="rounded-full border border-amber-500/35 bg-amber-950/20 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-200/90"
+                                      >
+                                        {badge}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
                               </div>
                             );
                           })}

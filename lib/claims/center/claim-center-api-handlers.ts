@@ -1,13 +1,41 @@
+import { buildAttentionList } from "./claim-center-money-contract";
+import {
+  QUEUE_SEMANTICS_NOTES,
+  computeQueueCounts,
+  filterBlockedMoneyRows,
+  filterFindMoneyRows,
+  filterObservedRecoveryRows,
+  filterProofRows,
+  filterProductLinkageRows,
+  filterReferencesRows,
+  filterReviewRows,
+} from "./claim-center-queue-semantics";
 import { getClaimCenterListSelect } from "./claim-center-candidate-select";
 import {
   aggregateDashboardKpis,
   buildClaimCenterListResponse,
+  buildQueryMeta,
+  countActiveCandidatesForOrg,
   fetchActiveCandidatesForOrg,
+  loadEffectiveClaimIntakePolicy,
 } from "./claim-center-v1-read-model";
+import {
+  buildClaimCenterPolicyContext,
+  type ClaimCenterPolicyContext,
+} from "../intake/claim-intake-policy-contract";
+import { filterPhysicalReturnMvpRows } from "./claim-center-physical-return-mvp";
 import type { ClaimCenterV1Row, ClaimCenterV1StatusGroup } from "./claim-center-v1-types";
+import {
+  CLAIM_CENTER_DASHBOARD_SAMPLE_LIMIT,
+  CLAIM_CENTER_LINKAGE_SCAN_LIMIT,
+  CLAIM_CENTER_OPPORTUNITIES_SCAN_LIMIT,
+  CLAIM_CENTER_REFERENCES_SCAN_LIMIT,
+} from "./claim-center-ui-copy";
 import { evaluateClaimCenterModuleAccess } from "./claim-center-module-gate";
 import { evaluateMenorixAiModuleAccess } from "@/lib/menorix/evaluate-menorix-ai-module-access";
 import { loadDiscoveryIndexState } from "@/lib/claims/discovery/claim-discovery-index";
+import { buildSourceConnectorReadiness } from "@/lib/claims/connectors/source-connector-readmodel";
+import { buildClaimFamilyAlgorithmMatrixPayload } from "@/lib/claims/center/claim-family-algorithm-readmodel";
 import { loadMaterializedCandidateEdges } from "@/lib/claims/edges/claim-reference-edge-materializer";
 import { supabaseServer } from "@/lib/supabase-server";
 
@@ -42,6 +70,7 @@ export async function fetchCenterCandidateRows(
     statusGroup?: ClaimCenterV1StatusGroup | null;
     sourceKind?: string | null;
     v1StatusGroups?: ClaimCenterV1StatusGroup[];
+    physicalReturnMvpOnly?: boolean;
   },
 ): Promise<ClaimCenterV1Row[]> {
   const listSelect = await getClaimCenterListSelect(supabaseServer);
@@ -53,7 +82,9 @@ export async function fetchCenterCandidateRows(
     includeLegacySeed: opts.includeLegacySeed,
   });
 
-  let rows = await buildClaimCenterListResponse(supabaseServer, organizationId, raw);
+  let rows = await buildClaimCenterListResponse(supabaseServer, organizationId, raw, {
+    storeId: opts.storeId,
+  });
 
   if (opts.sourceKind) {
     rows = rows.filter((r) => r.source_kind === opts.sourceKind);
@@ -66,21 +97,40 @@ export async function fetchCenterCandidateRows(
     rows = rows.filter((r) => set.has(r.v1_status_group));
   }
 
+  if (opts.physicalReturnMvpOnly !== false) {
+    rows = filterPhysicalReturnMvpRows(rows);
+  }
+
   return rows;
+}
+
+async function loadCenterPolicyContext(
+  organizationId: string,
+  storeId: string | null,
+): Promise<ClaimCenterPolicyContext> {
+  const policy = await loadEffectiveClaimIntakePolicy(supabaseServer, organizationId, storeId);
+  return buildClaimCenterPolicyContext(policy);
 }
 
 export async function getCenterDashboardPayload(organizationId: string, storeId: string | null) {
   await centerModuleGateOrThrow(organizationId);
-  const rows = await fetchCenterCandidateRows(organizationId, {
-    storeId,
-    limit: 500,
-  });
+  const sampleLimit = CLAIM_CENTER_DASHBOARD_SAMPLE_LIMIT;
+  const [rows, dbTotal, policy_context] = await Promise.all([
+    fetchCenterCandidateRows(organizationId, { storeId, limit: sampleLimit }),
+    countActiveCandidatesForOrg(supabaseServer, organizationId, { storeId: storeId ?? undefined }),
+    loadCenterPolicyContext(organizationId, storeId),
+  ]);
   const kpis = aggregateDashboardKpis(rows);
-  const opportunities = [...rows]
-    .filter((r) => r.v1_status_group === "new" || r.v1_status_group === "evidence_ready" || r.v1_status_group === "ready_to_file")
-    .sort((a, b) => (b.recovery_value ?? 0) - (a.recovery_value ?? 0))
-    .slice(0, 8);
-  return { kpis, opportunities, sample_count: rows.length };
+  const attention = buildAttentionList(rows, 8);
+  const opportunities = attention;
+  const queue_counts = computeQueueCounts(rows);
+  const meta = buildQueryMeta({
+    itemsReturned: rows.length,
+    totalScanned: rows.length,
+    sampleLimit,
+    dbTotalCount: dbTotal,
+  });
+  return { kpis, opportunities, attention, queue_counts, meta, policy_context };
 }
 
 export async function getCenterAiAccessPayload(organizationId: string) {
@@ -115,7 +165,7 @@ export async function getCenterAutomationHealthPayload(organizationId: string, s
     detail:
       status === "healthy"
         ? "Scheduled scans and discovery index are active."
-        : "Review automation schedules and source enablement in Settings.",
+        : "Review automation schedules and source enablement in Platform Automation or workspace claim settings.",
     last_run_at: lastAt,
     enabled_sources: enabledSources,
     warnings: warnings.length ? warnings : undefined,
@@ -123,35 +173,64 @@ export async function getCenterAutomationHealthPayload(organizationId: string, s
   };
 }
 
+function exposureSortKey(row: ClaimCenterV1Row): number {
+  const known = row.money_display?.expected_recovery_value;
+  if (known != null && known > 0) return known;
+  return -1;
+}
+
 export async function getCenterOpportunitiesPayload(organizationId: string, storeId: string | null, limit: number) {
   await centerModuleGateOrThrow(organizationId);
-  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: 800 });
-  const filtered = rows
-    .filter(
-      (r) =>
-        r.v1_status_group === "new" ||
-        r.v1_status_group === "evidence_ready" ||
-        r.v1_status_group === "ready_to_file" ||
-        r.canonical_window.status === "closing_soon",
-    )
-    .sort((a, b) => (b.recovery_value ?? 0) - (a.recovery_value ?? 0))
-    .slice(0, limit);
-  return { items: filtered, total_scanned: rows.length };
+  const scanLimit = CLAIM_CENTER_OPPORTUNITIES_SCAN_LIMIT;
+  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: scanLimit });
+  const findMoney = filterFindMoneyRows(rows);
+  const blockedMoney = filterBlockedMoneyRows(rows);
+  const sorted = [...findMoney].sort((a, b) => exposureSortKey(b) - exposureSortKey(a));
+  const items = sorted.slice(0, limit);
+  const meta = buildQueryMeta({
+    itemsReturned: items.length,
+    totalScanned: rows.length,
+    sampleLimit: scanLimit,
+  });
+  const policy_context = await loadCenterPolicyContext(organizationId, storeId);
+  return {
+    items,
+    blocked_money_items: blockedMoney.slice(0, limit),
+    queue_note: QUEUE_SEMANTICS_NOTES.find_money,
+    queue_counts: computeQueueCounts(rows),
+    meta,
+    policy_context,
+  };
 }
 
 export async function getCenterReviewPayload(organizationId: string, storeId: string | null, limit: number) {
   await centerModuleGateOrThrow(organizationId);
-  const rows = await fetchCenterCandidateRows(organizationId, {
-    storeId,
-    limit: 800,
-    v1StatusGroups: [
-      "needs_review",
-      "blocked_product_link",
-      "blocked_reference_conflict",
-      "evidence_ready",
-    ],
+  const scanLimit = CLAIM_CENTER_OPPORTUNITIES_SCAN_LIMIT;
+  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: scanLimit });
+  const filtered = filterReviewRows(rows);
+  const items = filtered.slice(0, limit);
+  const meta = buildQueryMeta({
+    itemsReturned: items.length,
+    totalScanned: rows.length,
+    sampleLimit: scanLimit,
   });
-  return { items: rows.slice(0, limit), total_scanned: rows.length };
+  const policy_context = await loadCenterPolicyContext(organizationId, storeId);
+  return { items, meta, queue_note: QUEUE_SEMANTICS_NOTES.review, policy_context };
+}
+
+export async function getCenterEvidencePayload(organizationId: string, storeId: string | null, limit: number) {
+  await centerModuleGateOrThrow(organizationId);
+  const scanLimit = CLAIM_CENTER_OPPORTUNITIES_SCAN_LIMIT;
+  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: scanLimit });
+  const filtered = filterProofRows(rows);
+  const items = filtered.slice(0, limit);
+  const meta = buildQueryMeta({
+    itemsReturned: items.length,
+    totalScanned: rows.length,
+    sampleLimit: scanLimit,
+  });
+  const policy_context = await loadCenterPolicyContext(organizationId, storeId);
+  return { items, meta, queue_note: QUEUE_SEMANTICS_NOTES.proof, policy_context };
 }
 
 export async function getCenterReferencesPayload(
@@ -174,36 +253,110 @@ export async function getCenterReferencesPayload(
     return { candidate_id: candidateId, grouped, total: list.length };
   }
 
-  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: 400 });
-  const withRefs = rows.filter((r) => r.reference_edge_count > 0 || r.reference_id);
+  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: CLAIM_CENTER_REFERENCES_SCAN_LIMIT });
+  const materialized = filterReferencesRows(rows);
+  const items = materialized.slice(0, limit);
+  const meta = buildQueryMeta({
+    itemsReturned: items.length,
+    totalScanned: rows.length,
+    sampleLimit: CLAIM_CENTER_REFERENCES_SCAN_LIMIT,
+  });
+  const references_not_materialized = rows.length > 0 && materialized.length === 0;
   return {
-    items: withRefs.slice(0, limit),
-    ambiguity_count: withRefs.filter((r) => r.ambiguity_pending).length,
+    items,
+    ambiguity_count: materialized.filter((r) => r.ambiguity_pending).length,
+    references_not_materialized,
+    empty_message: references_not_materialized
+      ? "References not materialized yet — run reference edge discovery or wait for TRID materialization."
+      : null,
+    queue_note: QUEUE_SEMANTICS_NOTES.references,
+    meta,
+    policy_context: await loadCenterPolicyContext(organizationId, storeId),
   };
 }
 
 export async function getCenterProductLinkagePayload(organizationId: string, storeId: string | null, limit: number) {
   await centerModuleGateOrThrow(organizationId);
-  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: 600 });
-  const unlinked = rows.filter((r) => !r.product_linkage?.is_resolved);
-  const linked = rows.length - unlinked.length;
+  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: CLAIM_CENTER_LINKAGE_SCAN_LIMIT });
+  const unlinked = filterProductLinkageRows(rows);
+  const items = unlinked.slice(0, limit);
+  const meta = buildQueryMeta({
+    itemsReturned: items.length,
+    totalScanned: rows.length,
+    sampleLimit: CLAIM_CENTER_LINKAGE_SCAN_LIMIT,
+  });
   return {
-    items: unlinked.slice(0, limit),
+    items,
     stats: {
       total: rows.length,
-      linked,
+      linked: rows.length - unlinked.length,
       unlinked: unlinked.length,
-      linkage_pct: rows.length ? Math.round((linked / rows.length) * 1000) / 10 : 0,
+      linkage_pct: rows.length ? Math.round(((rows.length - unlinked.length) / rows.length) * 1000) / 10 : 0,
     },
+    meta,
+    policy_context: await loadCenterPolicyContext(organizationId, storeId),
   };
 }
 
 export async function getCenterRecoveryPayload(organizationId: string, storeId: string | null, limit: number) {
   await centerModuleGateOrThrow(organizationId);
-  const financialKinds = new Set(["reimbursement", "settlement", "transaction", "orbit_fra"]);
-  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: 600 });
-  const financial = rows.filter((r) => financialKinds.has(r.source_kind ?? "") || !!r.reference_id);
-  return { items: financial.slice(0, limit), total_scanned: rows.length };
+  const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: CLAIM_CENTER_LINKAGE_SCAN_LIMIT });
+  const observed = filterObservedRecoveryRows(rows);
+  const items = observed.slice(0, limit);
+  const meta = buildQueryMeta({
+    itemsReturned: items.length,
+    totalScanned: rows.length,
+    sampleLimit: CLAIM_CENTER_LINKAGE_SCAN_LIMIT,
+  });
+  return {
+    items,
+    meta,
+    queue_note: QUEUE_SEMANTICS_NOTES.recovery,
+    empty_message:
+      items.length === 0 ? "No observed reimbursements linked yet." : null,
+    policy_context: await loadCenterPolicyContext(organizationId, storeId),
+  };
+}
+
+export async function getCenterSourcesPayload(organizationId: string, storeId: string | null) {
+  await centerModuleGateOrThrow(organizationId);
+  const [runs, automation, policy_context, connector_readiness] = await Promise.all([
+    getCenterRunsPayload(organizationId, storeId),
+    getCenterAutomationHealthPayload(organizationId, storeId),
+    loadCenterPolicyContext(organizationId, storeId),
+    buildSourceConnectorReadiness(supabaseServer, organizationId, storeId),
+  ]);
+  const enabled = policy_context.effective_policy.enabled_sources;
+  const discoverySources = runs.discovery_index as {
+    sources?: Record<string, { enabled?: boolean; last_run_at?: string | null }>;
+  } | null;
+  const source_cards = enabled.map((kind) => {
+    const disc = discoverySources?.sources?.[kind];
+    const warnings: string[] = [];
+    if (!disc?.enabled) warnings.push("source_disabled_by_policy");
+    if (!disc?.last_run_at) warnings.push("No successful run recorded yet.");
+    return {
+      source_kind: kind,
+      enabled_in_policy: true,
+      discovery_enabled: disc?.enabled ?? false,
+      last_run_at: disc?.last_run_at ?? null,
+      warnings,
+    };
+  });
+  return {
+    ...runs,
+    automation_health: automation,
+    source_cards,
+    policy_context,
+    connector_readiness,
+    source_health_payload: connector_readiness.source_health,
+    claim_readiness_payload: connector_readiness.claim_readiness,
+    trid_readiness_payload: connector_readiness.trid_readiness,
+    product_story_readiness_payload: connector_readiness.product_story_readiness,
+    orbit_fra_readiness_payload: connector_readiness.orbit_fra_readiness,
+    file_api_connector_readiness: connector_readiness.file_api_connector_readiness,
+    removal_source_supersession_payload: connector_readiness.removal_source_supersession,
+  };
 }
 
 export async function getCenterRunsPayload(organizationId: string, storeId: string | null) {
@@ -266,4 +419,10 @@ export async function getCenterCasesPayload(organizationId: string, limit: numbe
 
 export async function getCenterModuleAccessPayload(organizationId: string) {
   return evaluateClaimCenterModuleAccess(supabaseServer, organizationId);
+}
+
+/** Read-only claim family algorithm contract — no DB reads beyond module gate. */
+export async function getCenterAlgorithmMatrixPayload(organizationId: string) {
+  await centerModuleGateOrThrow(organizationId);
+  return buildClaimFamilyAlgorithmMatrixPayload();
 }

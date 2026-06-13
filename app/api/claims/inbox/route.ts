@@ -3,6 +3,10 @@ import { assertUserCanAccessOrganization } from "../../../dashboard/products/pim
 import { fetchCenterCandidateRows, centerModuleGateOrThrow, CenterApiError } from "../../../../lib/claims/center/claim-center-api-handlers";
 import { parseBoolParam } from "../../../../lib/claims/center/claim-center-api-shared";
 import {
+  buildQueryMeta,
+  countActiveCandidatesForOrg,
+} from "../../../../lib/claims/center/claim-center-v1-read-model";
+import {
   claimInboxStr,
   projectClaimCandidatesBatch,
   type InboxQueue,
@@ -135,14 +139,30 @@ export async function GET(req: Request) {
       const includeQuarantined = parseBoolParam(url, "include_quarantined", false);
       const includeLegacySeed = parseBoolParam(url, "include_legacy_seed", false);
       const statusGroupRaw = String(url.searchParams.get("status_group") ?? "").trim();
-      const items = await fetchCenterCandidateRows(organizationId, {
-        storeId: storeIdParam || null,
-        limit,
-        includeQuarantined,
-        includeLegacySeed,
-        statusGroup: statusGroupRaw ? (statusGroupRaw as import("../../../../lib/claims/center/claim-center-v1-types").ClaimCenterV1StatusGroup) : null,
+      const storeId = storeIdParam || null;
+      const [items, dbTotal] = await Promise.all([
+        fetchCenterCandidateRows(organizationId, {
+          storeId,
+          limit,
+          includeQuarantined,
+          includeLegacySeed,
+          statusGroup: statusGroupRaw
+            ? (statusGroupRaw as import("../../../../lib/claims/center/claim-center-v1-types").ClaimCenterV1StatusGroup)
+            : null,
+        }),
+        countActiveCandidatesForOrg(supabaseServer, organizationId, {
+          storeId,
+          includeQuarantined,
+          includeLegacySeed,
+        }),
+      ]);
+      const meta = buildQueryMeta({
+        itemsReturned: items.length,
+        totalScanned: items.length,
+        sampleLimit: limit,
+        dbTotalCount: dbTotal,
       });
-      return NextResponse.json({ view: "center_v1", items, count: items.length });
+      return NextResponse.json({ view: "center_v1", items, count: items.length, meta });
     } catch (e) {
       if (e instanceof CenterApiError) {
         return NextResponse.json({ error: e.message }, { status: e.status });

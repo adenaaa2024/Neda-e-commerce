@@ -86,7 +86,11 @@ export function buildClaimCenterBadges(args: {
   }
 
   if (args.orbit_external_case_status) {
-    badges.push({ kind: "external", label: "External status", tone: "neutral" });
+    badges.push({
+      kind: "external",
+      label: `Observed externally: ${args.orbit_external_case_status}`,
+      tone: "neutral",
+    });
   }
 
   return badges;
@@ -98,9 +102,9 @@ export const V1_STATUS_LABELS: Record<string, string> = {
   evidence_ready: "Evidence ready",
   blocked_product_link: "Blocked — product",
   blocked_reference_conflict: "Blocked — reference",
-  ready_to_file: "Ready to file",
-  filed: "Filed",
-  reimbursed: "Reimbursed",
+  ready_to_file: "Ready to file (evidence + refs OK)",
+  filed: "Observed filed (external)",
+  reimbursed: "Observed reimbursed (external)",
   rejected: "Rejected",
   expired: "Expired",
 };

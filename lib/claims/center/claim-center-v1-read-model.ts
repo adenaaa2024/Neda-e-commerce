@@ -11,11 +11,25 @@ import {
 } from "./claim-center-v1-badges";
 import {
   computeCanonicalWindow,
-  loadClaimEligibilityWindowDays,
   observedWindowFromMetadata,
 } from "./claim-center-v1-window";
+import { attachMoneyProjections } from "./claim-center-candidate-money";
+import { attachPhysicalReturnMvpFields } from "./claim-center-physical-return-mvp";
+import { attachTwinMetadataToRows } from "./claim-center-twin-grouping";
+import { deriveEligibilityDisplay } from "./claim-center-eligibility-display";
+import {
+  CLAIM_LIFECYCLE_STATUS_LABELS,
+  buildPolicyWarnings,
+  deriveClaimLifecycleStatus,
+  loadEffectiveClaimIntakePolicy,
+  mapLifecycleToV1StatusGroup,
+  type ClaimIntakeEffectivePolicy,
+} from "../intake/claim-intake-policy-contract";
+import { aggregateClaimCenterMoney } from "./claim-center-money-contract";
+import { computeQueueCounts } from "./claim-center-queue-semantics";
 import type {
   ClaimCenterDashboardKpis,
+  ClaimCenterQueryMeta,
   ClaimCenterV1Row,
   ClaimCenterV1StatusGroup,
 } from "./claim-center-v1-types";
@@ -104,7 +118,7 @@ export async function mapRowsToClaimCenterV1(
   client: SupabaseClient,
   organizationId: string,
   rows: Record<string, unknown>[],
-  windowDays: number,
+  policy: ClaimIntakeEffectivePolicy,
   edgeCounts?: Map<string, { count: number; ambiguity: boolean }>,
 ): Promise<ClaimCenterV1Row[]> {
   if (!rows.length) return [];
@@ -128,7 +142,28 @@ export async function mapRowsToClaimCenterV1(
     }
   }
 
-  return rows.map((row, i) => {
+  const returnItemIds = [
+    ...new Set(
+      rows
+        .filter((r) => str(r.source_table) === "return_items")
+        .map((r) => str(r.source_row_id))
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const expirationByReturnItem = new Map<string, string | null>();
+  if (returnItemIds.length) {
+    const { data: riRows } = await client
+      .from("return_items")
+      .select("id, expiration_date")
+      .eq("organization_id", organizationId)
+      .in("id", returnItemIds.slice(0, 200));
+    for (const ri of (riRows ?? []) as Array<{ id: string; expiration_date?: unknown }>) {
+      const exp = str(ri.expiration_date);
+      expirationByReturnItem.set(String(ri.id), exp);
+    }
+  }
+
+  const mapped = rows.map((row, i) => {
     const id = str(row.id) ?? "";
     const m = meta(row);
     const projection = proj.get(id) ?? null;
@@ -139,19 +174,14 @@ export async function mapRowsToClaimCenterV1(
       eventDate: str(row.event_date),
       disputeDeadline: str(row.dispute_deadline),
       daysRemainingSnapshot: num(row.days_remaining),
-      claimEligibilityWindowDays: windowDays,
+      claimEligibilityWindowDays: policy.claim_eligibility_window_days,
+      expirationWarningDays: policy.expiration_warning_days,
     });
 
     const orbitExternal = str(m.orbit_external_case_status) ?? str(m.external_case_status);
-    const v1Status = deriveV1StatusGroup({
-      row,
-      projection,
-      ambiguity_pending: edgeInfo.ambiguity,
-      canonical_window_status: canonical.status,
-      orbit_external_case_status: orbitExternal,
-    });
-
     const productLinked = !!linkage?.is_resolved;
+    const sourceObserved = observedWindowFromMetadata(m);
+
     const productProposed = !!projection?.proposed_resolved_product_id && !productLinked;
 
     const badges = buildClaimCenterBadges({
@@ -168,7 +198,52 @@ export async function mapRowsToClaimCenterV1(
       orbit_import: !!str(m.orbit_import_batch_id),
     });
 
-    return {
+    const sourceTable = str(row.source_table) ?? "";
+    const sourceRowId = str(row.source_row_id) ?? "";
+    const scannerExpiration =
+      sourceTable === "return_items" ? (expirationByReturnItem.get(sourceRowId) ?? null) : null;
+    const lifecycleWithScanner = deriveClaimLifecycleStatus({
+      source_kind: str(row.source_kind),
+      event_date: str(row.event_date),
+      dispute_deadline: str(row.dispute_deadline),
+      days_remaining_snapshot: num(row.days_remaining),
+      source_observed_window: sourceObserved,
+      scanner_expiration_date: scannerExpiration,
+      metadata: m,
+      policy,
+      evidence_status: str(row.evidence_status),
+      product_linked: productLinked,
+      reference_edge_count: edgeInfo.count,
+      ambiguity_pending: edgeInfo.ambiguity,
+      orbit_external_case_status: orbitExternal,
+      candidate_status: str(row.candidate_status),
+      rejected_at: str(row.rejected_at),
+      inbox_queue: projection?.inbox_queue ?? "needs_product_link",
+      final_bucket: projection?.final_bucket ?? "unresolved_no_identifiers",
+      automation_allowed: projection?.automation_allowed ?? false,
+      intake_run_id: str(row.intake_run_id),
+      candidate_updated_at: str(row.updated_at),
+    });
+
+    const policy_warnings_final = buildPolicyWarnings({
+      lifecycle: lifecycleWithScanner,
+      policy,
+      source_kind: str(row.source_kind),
+      event_date: str(row.event_date),
+      canonical_window: canonical,
+      scanner_expiration_date: scannerExpiration,
+      intake_run_id: str(row.intake_run_id),
+      candidate_updated_at: str(row.updated_at),
+    });
+
+    const eligibility_display = deriveEligibilityDisplay({
+      canonical_window: canonical,
+      scanner_expiration_date: scannerExpiration,
+      event_date: str(row.event_date),
+      expiration_warning_days: policy.expiration_warning_days,
+    });
+
+    const base: ClaimCenterV1Row = {
       id,
       organization_id: str(row.organization_id) ?? organizationId,
       store_id: str(row.store_id),
@@ -191,8 +266,13 @@ export async function mapRowsToClaimCenterV1(
       evidence_status: str(row.evidence_status),
       quarantined_at: str(row.quarantined_at),
       intake_run_id: str(row.intake_run_id),
-      v1_status_group: v1Status,
-      v1_status_label: V1_STATUS_LABELS[v1Status] ?? v1Status,
+      v1_status_group: mapLifecycleToV1StatusGroup(lifecycleWithScanner),
+      v1_status_label:
+        V1_STATUS_LABELS[mapLifecycleToV1StatusGroup(lifecycleWithScanner)] ??
+        lifecycleWithScanner,
+      lifecycle_status: lifecycleWithScanner,
+      lifecycle_status_label: CLAIM_LIFECYCLE_STATUS_LABELS[lifecycleWithScanner],
+      policy_warnings: policy_warnings_final,
       inbox_queue: projection?.inbox_queue ?? "needs_product_link",
       final_bucket: projection?.final_bucket ?? "unresolved_no_identifiers",
       automation_allowed: projection?.automation_allowed ?? false,
@@ -211,38 +291,102 @@ export async function mapRowsToClaimCenterV1(
       product_story_href: productStoryHref(linkage, row),
       created_at: str(row.created_at),
       updated_at: str(row.updated_at),
+      eligibility_display,
     };
+    return base;
   });
+
+  return attachPhysicalReturnMvpFields(attachTwinMetadataToRows(attachMoneyProjections(mapped)));
 }
 
+const REVIEW_STATUS_GROUPS = new Set<ClaimCenterV1StatusGroup>([
+  "needs_review",
+  "blocked_product_link",
+  "blocked_reference_conflict",
+  "evidence_ready",
+]);
+
 export function aggregateDashboardKpis(rows: ClaimCenterV1Row[]): ClaimCenterDashboardKpis {
-  let recoverable = 0;
-  let ready = 0;
+  const money = aggregateClaimCenterMoney(rows);
+
+  let readyToFile = 0;
   let blockedProduct = 0;
   let evidenceMissing = 0;
+  let evidencePreviewable = 0;
   let expiring = 0;
-  let filed = 0;
-  let reimbursed = 0;
+  let reviewBlockers = 0;
 
   for (const r of rows) {
-    recoverable += r.recovery_value ?? 0;
-    if (r.v1_status_group === "ready_to_file" || r.v1_status_group === "evidence_ready") ready += 1;
+    if (r.v1_status_group === "ready_to_file") readyToFile += 1;
     if (r.v1_status_group === "blocked_product_link") blockedProduct += 1;
     if (r.inbox_queue === "evidence_missing" || r.evidence_status === "missing") evidenceMissing += 1;
-    if (r.canonical_window.status === "closing_soon") expiring += 1;
-    if (r.v1_status_group === "filed") filed += 1;
-    if (r.v1_status_group === "reimbursed") reimbursed += 1;
+    if (r.evidence_status === "complete" || r.evidence_status === "partial") evidencePreviewable += 1;
+    if (
+      r.lifecycle_status === "closing_soon" ||
+      r.eligibility_display?.status === "expiring_soon" ||
+      r.canonical_window.status === "closing_soon"
+    ) {
+      expiring += 1;
+    }
+    if (REVIEW_STATUS_GROUPS.has(r.v1_status_group)) reviewBlockers += 1;
   }
 
+  const queue_counts = computeQueueCounts(rows);
+
   return {
-    recoverable_amount: Math.round(recoverable * 100) / 100,
-    ready_for_review_count: ready,
+    recoverable_amount: money.potential_recovery_known_usd,
+    ready_to_file_count: readyToFile,
     blocked_product_link_count: blockedProduct,
-    evidence_missing_count: evidenceMissing,
+    evidence_missing_count: queue_counts.proof_count,
     expiring_soon_count: expiring,
-    filed_count: filed,
-    reimbursed_count: reimbursed,
+    observed_filed_count: money.observed_filed_count,
+    observed_reimbursed_count: money.observed_reimbursed_count,
     total_active: rows.length,
+    money,
+    evidence_previewable_count: evidencePreviewable,
+    review_blocker_count: queue_counts.review_count,
+    queue_counts,
+  };
+}
+
+export async function countActiveCandidatesForOrg(
+  client: SupabaseClient,
+  organizationId: string,
+  opts: {
+    storeId?: string | null;
+    includeQuarantined?: boolean;
+    includeLegacySeed?: boolean;
+  },
+): Promise<number> {
+  let q = client
+    .from("claim_candidates")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId);
+
+  if (opts.storeId) q = q.eq("store_id", opts.storeId);
+  if (!opts.includeQuarantined) q = q.is("quarantined_at", null);
+  if (!opts.includeLegacySeed) q = q.neq("source_kind", "legacy_seed");
+
+  const { count, error } = await q;
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+export function buildQueryMeta(args: {
+  itemsReturned: number;
+  totalScanned: number;
+  sampleLimit: number;
+  dbTotalCount?: number | null;
+}): ClaimCenterQueryMeta {
+  const dbTotal = args.dbTotalCount ?? null;
+  const isSampleCapped = dbTotal != null ? dbTotal > args.sampleLimit : args.totalScanned >= args.sampleLimit;
+  return {
+    items_returned: args.itemsReturned,
+    total_scanned: args.totalScanned,
+    sample_limit: args.sampleLimit,
+    is_sample_capped: isSampleCapped,
+    is_limited_scan: args.totalScanned > args.itemsReturned,
+    db_total_count: dbTotal,
   };
 }
 
@@ -277,7 +421,12 @@ export async function buildClaimCenterListResponse(
   client: SupabaseClient,
   organizationId: string,
   rows: Record<string, unknown>[],
+  opts?: { storeId?: string | null; policy?: ClaimIntakeEffectivePolicy },
 ): Promise<ClaimCenterV1Row[]> {
-  const windowDays = await loadClaimEligibilityWindowDays(client, organizationId);
-  return mapRowsToClaimCenterV1(client, organizationId, rows, windowDays);
+  const policy =
+    opts?.policy ??
+    (await loadEffectiveClaimIntakePolicy(client, organizationId, opts?.storeId ?? null));
+  return mapRowsToClaimCenterV1(client, organizationId, rows, policy);
 }
+
+export { loadEffectiveClaimIntakePolicy };

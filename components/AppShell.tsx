@@ -33,8 +33,13 @@ import { GlobalSearchProvider } from "./GlobalSearchContext";
 import { UserRoleProvider } from "./UserRoleContext";
 import { TechDebugPanel } from "./TechDebugPanel";
 import { useRbacPermissions } from "../hooks/useRbacPermissions";
-import { isClaimsHubRoute, isClaimsSidebarActive, isReturnsProcessingRoute } from "../lib/claims-hub-routes";
-import { MAIN_SIDEBAR, WMS_ONLY_NAV, DASHBOARD_NAV_LEAF, isLeafVisibleByRbac, type SidebarGroup } from "../lib/sidebar-config";
+import {
+  isClaimCenterRoute,
+  isClaimsHubRoute,
+  isClaimsSidebarActive,
+  isReturnsProcessingRoute,
+} from "../lib/claims-hub-routes";
+import { MAIN_SIDEBAR, WMS_ONLY_NAV, DASHBOARD_NAV_LEAF, TASK_CENTER_NAV_LEAF, isLeafVisibleByRbac, type SidebarGroup } from "../lib/sidebar-config";
 import { getSidebarIcon } from "../lib/sidebar-icons";
 
 // ─── Nav (from `lib/sidebar-config.ts`) ─────────────────────────────────────
@@ -212,7 +217,11 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         }
       }
     }
-    if (isClaimsHubRoute(pathname) || isClaimsSidebarActive(pathname, settingsTabParam)) {
+    if (
+      isClaimsHubRoute(pathname) ||
+      isClaimsSidebarActive(pathname, settingsTabParam) ||
+      isClaimCenterRoute(pathname)
+    ) {
       auto["nav-core-finance"] = true;
     }
     if (
@@ -402,6 +411,18 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
               alwaysFull={alwaysFull}
             />
           </div>
+          {isLeafVisibleByRbac(TASK_CENTER_NAV_LEAF, perms) ? (
+            <div className="mb-2">
+              <NavLink
+                item={{
+                  label: TASK_CENTER_NAV_LEAF.label,
+                  href: TASK_CENTER_NAV_LEAF.path,
+                  icon: getSidebarIcon(TASK_CENTER_NAV_LEAF.icon ?? "ClipboardList"),
+                }}
+                alwaysFull={alwaysFull}
+              />
+            </div>
+          ) : null}
           {showSection
             ? <p className={CLS.section}>{WMS_ONLY_NAV.label}</p>
             : <div className="mb-2 mx-3 h-px bg-border" />
@@ -443,6 +464,18 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             alwaysFull={alwaysFull}
           />
         </div>
+        {isLeafVisibleByRbac(TASK_CENTER_NAV_LEAF, perms) ? (
+          <div className="mb-2">
+            <NavLink
+              item={{
+                label: TASK_CENTER_NAV_LEAF.label,
+                href: TASK_CENTER_NAV_LEAF.path,
+                icon: getSidebarIcon(TASK_CENTER_NAV_LEAF.icon ?? "ClipboardList"),
+              }}
+              alwaysFull={alwaysFull}
+            />
+          </div>
+        ) : null}
         <div className="space-y-1">
           {core.groups.map((g) => {
             const ch = navChildrenForGroup(g, perms);

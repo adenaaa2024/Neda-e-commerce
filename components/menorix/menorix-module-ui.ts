@@ -1,6 +1,14 @@
 /** Reusable layout + styling tokens for Menorix modular app shells (Claim Center, Product Center, …). */
 
-export type MenorixModuleViewMode = "command" | "queue" | "board" | "table";
+export type MenorixModuleViewMode = "command" | "queue" | "board" | "card" | "table";
+
+export const MENORIX_MODULE_VIEW_MODES: { id: MenorixModuleViewMode; label: string }[] = [
+  { id: "command", label: "Command" },
+  { id: "queue", label: "Queue" },
+  { id: "board", label: "Board" },
+  { id: "card", label: "Cards" },
+  { id: "table", label: "Table" },
+];
 
 export const MENORIX_MODULE_SHELL_CLASS = "menorix-module-shell flex min-h-0 flex-1 flex-col lg:flex-row";
 
