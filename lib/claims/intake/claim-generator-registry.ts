@@ -19,6 +19,7 @@ import {
   loadClaimIntakeSettings,
   resolveClaimIntakeWindow,
 } from "./claim-intake-settings";
+import { loadEffectiveClaimIntakePolicy } from "./claim-intake-policy-contract";
 import {
   isClaimSourceKind,
   type ClaimCandidateDraft,
@@ -204,6 +205,9 @@ export async function applyDrafts(
         .eq("organization_id", organizationId)
         .eq("source_table", table!)
         .eq("claim_family", family!)
+        .is("quarantined_at", null)
+        .is("rejected_at", null)
+        .neq("source_kind", "legacy_seed")
         .in("source_row_id", chunk);
       if (error) throw new Error(error.message);
       for (const row of (data ?? []) as Array<{ source_row_id: string; dedupe_key: string | null }>) {
@@ -318,7 +322,12 @@ export async function runClaimIntake(options: ClaimIntakeRunOptions): Promise<Cl
   const runId = options.runId ?? crypto.randomUUID();
 
   const { settings } = await loadClaimIntakeSettings(client, organizationId);
-  const window = resolveClaimIntakeWindow(settings, from, to);
+  const effectivePolicy = await loadEffectiveClaimIntakePolicy(
+    client,
+    organizationId,
+    storeId,
+  );
+  const window = resolveClaimIntakeWindow(settings, from, to, new Date(), effectivePolicy);
   const rowLimit = options.rowLimit ?? settings.per_run_row_limit;
 
   if (!settings.manual_run_enabled) {

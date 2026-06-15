@@ -127,7 +127,7 @@ export function buildSettlementIdempotencyKey(parts: {
   return buildReportsApiIdempotencyKey({
     ...parts,
     reportType: SP_API_REPORT_TYPE_SETTLEMENT_V2,
-    operation: "reports.create_and_download.settlement_v2",
+    operation: "reports.list_and_download.settlement_v2",
   });
 }
 

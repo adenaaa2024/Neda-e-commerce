@@ -53,6 +53,9 @@ export const CLAIM_CENTER_MORE_SOURCES: ClaimCenterNavLink[] = [
 
 export const CLAIM_CENTER_POOL_NAV: ClaimCenterNavLink[] = [
   { href: "/claim-center/candidates", label: "Full candidate pool", shortLabel: "Pool" },
+  { href: "/claim-center/pilot-review", label: "Pilot review", shortLabel: "Pilot" },
+  { href: "/claim-center/preview-generators", label: "Preview generators", shortLabel: "Previews" },
+  { href: "/claim-center/group-builder", label: "Group builder", shortLabel: "Groups" },
 ];
 
 export const CLAIM_CENTER_ADMIN_NAV: ClaimCenterNavLink[] = [

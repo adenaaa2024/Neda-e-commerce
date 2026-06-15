@@ -234044,3 +234044,1471 @@ Evidence: .cursor/audit-reports/phase-shipment-entry-product-linkage-all-paths-o
 ================================================================================
 END APPEND SLICE -- 20260613T062152Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T121500Z
+PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1 (full 41-family re-execute)
+================================================================================
+
+### Scope
+Read-only staging dry-run for all 41 V3 claim families. No DB writes, claim_candidates delta 0, no scanner/RBAC/resolver changes.
+
+### Files
+- lib/claims/center/claim-readmodel-staging-dryrun-full-v1.ts (new full contract)
+- scripts/phase-claim-readmodel-staging-dryrun-v1.ts (updated to 41 families)
+
+### Staging results (eiqfaapyumhixxoeltgu)
+- Generator drafts: 1712
+- claim_ready_preview_count: 1121
+- review_needed_preview_count: 3789
+- unavailable_count: 10
+- blocked_count: 0
+- EP clean 78685 / disputed 1294
+- Claim-ready families (4): physical_return_scanner_issue, removal_order_discrepancy, removal_shipment_missing, partial_incorrect_reimbursement
+
+### Smoke targets PASS
+- claim_candidates delta: 0
+- X004LKS4VD linkage + EP disputed review_needed
+- B0000B11UX linkage
+- amazon_reimbursements sample (11145 rows)
+- removal discrepancy drafts (400)
+
+### Money/linkage
+- fee_preview empty -> estimated_amazon_payout NULL (not zero)
+- observed_reimbursement available via amazon_reimbursements
+- product linkage grade from health readmodel
+
+### Gates
+- SAFE_TO_IMPLEMENT_FIRST_GENERATORS: yes
+- recommended: physical_return, removal_order, removal_shipment generators
+
+### Evidence
+- .cursor/audit-reports/phase-claim-readmodel-staging-dryrun-v1/20260613T121500Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T121500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T131500Z
+PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1
+================================================================================
+
+### Scope
+Deterministic preview generators for first safe V3 families. No claim_candidates writes.
+
+### Files
+- lib/claims/center/claim-first-safe-families-preview-generators-v1.ts
+- app/api/claims/center/preview-generators/route.ts
+- lib/claims/center/claim-center-api-handlers.ts (getCenterPreviewGeneratorsPayload)
+
+### Families
+1. removal_order_discrepancy (removal_missing_units + shipment_quantity_mismatch only)
+2. removal_shipment_missing (shipment_not_received only)
+3. customer_return_not_reimbursed (SQL preview, no generator write)
+4. missing_reimbursement (gated — skipped when linkage <25%)
+
+### Staging (20260613T131500Z)
+- total_previews: 30 claim_ready (all removal_shipment_missing)
+- removal_order: 0 drafts in qty-mismatch lane this window
+- customer_return: 0 unmatched returns
+- missing_reimbursement: generator disabled (ledger_draft_linkage_below_25pct)
+- disputed EP excluded: 249; disputed_claim_ready: 0
+- duplicate_key_validation: PASS
+- claim_candidates_delta: 0
+
+### Gates
+- SAFE_TO_APPROVE_CLAIM_CANDIDATE_EMIT: conditional_no (preview-only; operator UI + policy before emit)
+
+### Evidence
+- .cursor/audit-reports/phase-claim-first-safe-families-preview-generators-v1/20260613T131500Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T131500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T070927Z
+PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1 (staging re-verify)
+================================================================================
+
+### Scope
+After REMOVAL_ORDER / REMOVAL_SHIPMENT domain import completes, auto-call
+`public.rebuild_expected_packages_from_removals(org_id, store_id)`.
+No new tables/columns; no claim_candidates mutation; no scanner changes.
+
+### Orchestration point
+- `lib/amazon/reports-api-pipeline-handoff.ts` → `runReportsApiImportPipeline`
+- After `sr.state === "complete"` + domain_complete + REMOVAL_* → `maybeRebuildExpectedPackagesAfterRemovalImport`
+
+### Files
+- lib/removal/removal-expected-packages-rebuild-orchestrator.ts
+- lib/amazon/reports-api-pipeline-handoff.ts
+- lib/raw-report-upload-metadata.ts (import_metrics.expected_packages_rebuild_after_import)
+- scripts/phase-removal-sync-expected-packages-rebuild-orchestrator-v1-staging-verify.ts
+
+### Trigger rule
+runReportsApiImportPipeline success + REMOVAL_* + domain_complete + store_id.
+Fetch-only runs skip (pipeline not invoked when runPipeline:false).
+
+### Idempotency
+Per-upload metadata `import_metrics.expected_packages_rebuild_after_import` +
+in-process Set `duplicate_in_same_run`.
+
+### Staging re-verify (20260613T070927Z, execute)
+- Upload: 8cccd5ba-8107-4c02-93db-b1b4aee1d5b2 (REMOVAL_SHIPMENT, 86 domain rows)
+- Org/store: 00000000-0000-0000-0000-000000000001 / 509ee1f6-622c-46a5-8110-7b889ba46c2c
+- rebuild_called: false; skipped_reason: already_rebuilt_for_upload (prior rebuild 2026-06-13T03:59:24Z)
+- Prior rebuild metrics: matched 10090, remainder 931, overflow 131, disputed 231
+- EP derived (detail_shipment|detail_remainder): 11021 → 11021
+- overflow_conflict rows: 412; v_inventory_item_status clean/disputed sample PASS
+- claim_candidates_delta: 0
+- operator_mobile_touched: false
+- build: pass; smoke: pass
+
+### Gates
+- SAFE_TO_APPLY_ORIGINAL: yes_pending_maysam
+
+### Evidence
+- .cursor/audit-reports/phase-removal-sync-expected-packages-rebuild-orchestrator-v1/20260613T070927Z/
+
+### Next Prompt
+PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-ORIGINAL-APPLY — after Maysam approval
+
+================================================================================
+END APPEND SLICE -- 20260613T070927Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T071827Z
+PHASE-AMAZON-FINANCIAL-REPORTS-BACKFILL-FIX-V1
+================================================================================
+
+### Root causes
+1. Settlement listReports HTTP 400 - 7-month window exceeded Amazon 90-day retention
+2. Reimbursement report_fatal on duplicate backfill - shifted chunk boundaries
+3. Event dates stale appearance - mapper left approval_date/posted_date in raw_data only
+
+### Staging
+- Reimbursements 7d+30d complete; settlements 30d chunked complete
+- max(approval_date) 2026-04-10 to 2026-06-13
+- max(posted_date) 2026-06-12 on follow-up upload 442d727d
+- claim_candidates delta 0; SAFE_TO_APPLY_ORIGINAL yes_pending_maysam
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-financial-reports-backfill-fix-v1/20260613T071827Z/
+
+================================================================================
+END APPEND SLICE -- 20260613T071827Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T140000Z
+PHASE-CLAIM-CANDIDATE-EMIT-APPROVAL-CONTRACT-V1
+================================================================================
+
+### Mode
+- Approval contract only — no DB writes, no emitter, no claim_candidates mutation
+
+### Contract
+- lib/claims/contracts/claim-candidate-emit-approval-contract-v1.ts
+- Operator template: .cursor/operator-approvals/claim-candidate-emit-staging-pilot-v1-approval.md
+
+### approved_families (Wave-1)
+- removal_shipment_missing → shipment_not_received (delayed_not_received)
+- removal_order_discrepancy → shipment_quantity_mismatch, removal_missing_units
+
+### Gates
+- Emit only when preview recommended_action=claim_ready, no blocker_flags, resolved_product_id set
+- no_emit: customer_return_not_reimbursed, missing_reimbursement (<25% linkage), disputed EP, legacy_seed targets
+- dedupe: buildClaimDedupeKey + applyDrafts insert/update/skip rules (phase7b indexes)
+- migration_needed: no
+- prerequisite SAFE_TO_APPROVE_CLAIM_CANDIDATE_EMIT: conditional_no (not yes)
+- SAFE_TO_IMPLEMENT_EMITTER: no
+
+### Evidence
+- .cursor/audit-reports/phase-claim-candidate-emit-approval-contract-v1/20260613T140000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-PILOT-V1 — staging pilot emit max 50 rows after Maysam sign-off
+
+================================================================================
+END APPEND SLICE -- 20260613T140000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T084554Z
+PHASE-AMAZON-FINANCIAL-REPORTS-BACKFILL-FIX-V1-ORIGINAL-APPLY
+================================================================================
+
+### Approval
+- Maysam: APPROVED_FINANCIAL_REPORTS_BACKFILL_FIX_ORIGINAL_APPLY=yes
+- Target: original kxsvedvpjldygtdbylsy
+
+### Before snapshot
+- amazon_reimbursements: 12711 rows, max(approval_date) 2026-04-10
+- amazon_settlements: 585637 rows, max(posted_date) 2026-04-24
+- claim_candidates: 9055
+
+### After snapshot
+- amazon_reimbursements: 12711 (unchanged), max(approval_date) 2026-04-10
+- amazon_settlements: 604883 (+19246), max(posted_date) 2026-06-12
+- claim_candidates: 9055 (delta 0)
+
+### Results
+- Settlement 30d chunk: complete upload 2f2e2eb2, no list_reports HTTP 400
+- Reimbursement 7d: failed upload 34663738
+- 3 prior failed settlement resumes: still failed
+- build+smoke PASS; scanner untouched
+
+### Gate
+- SAFE_FINANCIAL_ORIGINAL_FIXED: yes (settlement lane fixed; reimbursement follow-up needed)
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-financial-reports-backfill-fix-v1-original-apply/20260613T084554Z/
+
+### Next Prompt
+PHASE-AMAZON-REIMBURSEMENTS-ORIGINAL-BACKFILL-RETRY-V1 — diagnose failed reimbursement upload on original
+
+================================================================================
+END APPEND SLICE -- 20260613T084554Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T091402Z
+PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-IMPLEMENT
+================================================================================
+
+### Implementation
+- lib/removal/removal-expected-packages-rebuild-orchestrator.ts
+- lib/amazon/reports-api-pipeline-handoff.ts (after REMOVAL_* domain complete)
+- lib/raw-report-upload-metadata.ts (import_metrics stamp)
+
+### Staging verify
+- Upload 8cccd5ba REMOVAL_SHIPMENT: idempotent skip already_rebuilt_for_upload
+- EP derived 11021 stable; overflow_conflict 412; claim_candidates delta 0
+- build+smoke PASS; SAFE_TO_APPLY_ORIGINAL yes_pending_maysam
+
+### Evidence
+- .cursor/audit-reports/phase-removal-sync-expected-packages-rebuild-orchestrator-v1/20260613T091402Z/
+
+### Next Prompt
+PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-ORIGINAL-APPLY
+
+================================================================================
+END APPEND SLICE -- 20260613T091402Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T093000Z
+PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1
+================================================================================
+
+### Staging dry-run (read-only)
+- 41 V3 families; claim_ready 1121 / review_needed 3876 / unavailable 10
+- EP clean 78685 / disputed 1294; reimbursements 38390 rows
+- claim_candidates delta 0; no DB writes; no AI calls
+- Smoke: X004LKS4VD + B0000B11UX linked; disputed EP review_needed PASS
+- SAFE_TO_IMPLEMENT_FIRST_PREVIEW_GENERATORS: yes
+- build+smoke PASS
+
+### Evidence
+- .cursor/audit-reports/phase-claim-readmodel-staging-dryrun-v1/20260613T093000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T093000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T191335Z
+PHASE-EXPECTED-PACKAGES-ORCHESTRATOR-CHANGE-SAFETY-AUDIT-V1
+================================================================================
+
+### Verdict
+- prompt_only_or_implemented: implemented (commit 4044c0a 2026-06-12)
+- orchestrator uncommitted diff: no
+- recommendation: keep_changes — no undo
+- original target 387003587/X004LKS4VD: expected_qty_clean 52, disputed 1 PASS
+- original uploads_with_rebuild_metadata: 0 (auto-hook not yet run on original)
+- double_rebuild_risk: conditional in production-removal-sync-run legacy path
+- SAFE_TO_CONTINUE: yes
+
+### Evidence
+- .cursor/audit-reports/phase-expected-packages-orchestrator-change-safety-audit-v1/20260613T191335Z/
+
+### Next Prompt
+PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-ORIGINAL-APPLY (Maysam) OR dedupe rebuild in production-removal-sync-run
+
+================================================================================
+END APPEND SLICE -- 20260613T191335Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T193247Z
+PHASE-AMAZON-REIMBURSEMENTS-ORIGINAL-BACKFILL-RETRY-V1
+================================================================================
+
+### Diagnosis
+- Failed upload 34663738-12c3-4f52-8261-15e2356497cd: source_run failed, report_fatal processingStatus=FATAL
+- Root cause: reimbursement createReport window included dates within Amazon 168h availability lag (end=now)
+- Secondary: explicit uploadId resume did not reset failed uploads (fixed in pull worker)
+
+### Fix
+- lib/amazon/reports-api-reimbursements-window.ts — clamp end to now-8d
+- lib/amazon/reports-api-report-request.ts — clamp in buildReimbursementsCreateReportBody
+- lib/amazon/reports-api-pull-worker.ts — reimbursement window clamp, failed explicit-id reset, report_fatal retry (<3 attempts)
+
+### Original execute @ kxsvedvpjldygtdbylsy
+- 7d retry upload 1abf394a: complete, 877 rows imported
+- 30d retry upload 8d8bfd41: complete, 3958 rows imported
+- amazon_reimbursements: 12711 → 17546
+- max(approval_date): 2026-04-10 → 2026-06-05
+- amount_total populated: 17526
+- claim_candidates delta: 0
+- settlement read-only: 604883 rows, max posted 2026-06-12
+- fee_adjusted smoke: PASS
+- build+smoke: PASS
+- SAFE_REIMBURSEMENTS_ORIGINAL_FIXED: yes
+
+### Evidence
+- .cursor/audit-reports/phase-amazon-reimbursements-original-backfill-retry-v1/20260613T193247Z/
+
+### Next Prompt
+PHASE-AMAZON-FINANCIAL-REPORTS-BACKFILL-ORIGINAL-VERIFY-CRON — wire scheduled reimbursement/settlement pulls on original with lag clamp + 90d settlement clamp
+
+================================================================================
+END APPEND SLICE -- 20260613T193247Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T194249Z
+PHASE-PRODUCTION-REMOVAL-SYNC-DEDUPE-REBUILD-V1
+================================================================================
+
+### Change
+- lib/removal/expected-packages-explicit-rebuild-guard.ts — skip explicit rebuild when pipeline hook metadata present
+- lib/production-removal-sync-run.ts — guarded explicit RPC after pipeline
+- scripts/sp-api-removal-reports-domain-sync-execute.ts — same guard
+- Orchestrator unchanged; uses shared metadata reader
+
+### Guard rule
+Skip explicit rebuild_expected_packages_from_removals when import_metrics.expected_packages_rebuild_after_import.rebuild_called=true for successful pipeline upload; manual/fetch-only paths still rebuild
+
+### Verify
+- Unit tests PASS
+- Original read-only 387003587/X004LKS4VD: expected_qty_clean 52, disputed 1 PASS
+- claim_candidates delta 0
+- scanner untouched
+- build PASS
+- SAFE_TO_KEEP_ORCHESTRATOR_AND_DEDUPE: yes
+
+### Evidence
+- .cursor/audit-reports/phase-production-removal-sync-dedupe-rebuild-v1/20260613T194249Z/
+
+### Next Prompt
+PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-ORIGINAL-APPLY (Maysam)
+
+================================================================================
+END APPEND SLICE -- 20260613T194249Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T202000Z
+PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1
+================================================================================
+
+### Scope
+- Deterministic preview generators for 4 claim-ready V3 families � preview objects only; no claim_candidates writes; no AI; no scanner/resolver/RBAC changes
+
+### Implementation
+- lib/claims/center/claim-first-safe-families-preview-generators-v1.ts � aligned classifyDraft parity with dry-run full; V3_FAMILY_INTAKE_BRIDGE_EXTENDED draft filter; all CLAIM_INTAKE_GENERATORS source kinds; family-scoped preview_id; EP disputed quantity bump on removal families; live dry_run_alignment (draft-only baseline + live epDisputed)
+- GET /api/claims/center/preview-generators + claim-center-api-handlers wiring
+- scripts/phase-claim-first-safe-families-preview-generators-v1.ts + smoke script
+
+### Staging verify @ eiqfaapyumhixxoeltgu
+- claim_ready **1121** (6 + 399 + 399 + 317) � matches dry-run baseline
+- needs_review draft-level **99**; removal family matrix includes **+249** EP disputed bump each (was 1294 at 093000Z dry-run; EP disputed qty reduced post dedupe rebuild)
+- total_previews **1220**; duplicate_key PASS (family:duplicate composite); disputed never claim_ready PASS; money_lane PASS; source_edges PASS
+- claim_candidates delta **0**; build+smoke PASS
+- SAFE_TO_APPROVE_CLAIM_CANDIDATE_EMIT: **yes** (preview-only; emit still gated separately)
+
+### Evidence
+- .cursor/audit-reports/phase-claim-first-safe-families-preview-generators-v1/20260613T202000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1 � wire Claim Center to GET /api/claims/center/preview-generators; no emit
+
+================================================================================
+END APPEND SLICE -- 20260613T202000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T000515Z
+TOPIC: PHASE-AMAZON-FINANCIAL-REPORTS-BACKFILL-ORIGINAL-VERIFY-CRON
+================================================================================
+
+### Scope
+Read-only original cron/readiness verification for financial Reports API (reimbursements + settlement). No claim_candidates writes, no micro-execute.
+
+### Key findings
+- Reimbursement 8-day lag clamp: PASS (reports-api-reimbursements-window.ts)
+- Settlement 90-day listReports clamp + 30d chunking: PASS
+- Original data: amazon_reimbursements 17,546 (max approval 2026-06-05); amazon_settlements 604,883 (max posted 2026-06-12)
+- Observed reimbursement lane: PASS (17,456 rows with amount_total)
+- claim_candidates delta: 0
+- No production financial Vercel cron — only removal-nightly-sync in vercel.json
+- GitHub platform-automation-api-cards-staging.yml is staging-only
+- platform_settings: reimbursements_api + settlement_api schedules DISABLED on original
+- Local ENABLE_AMAZON_REPORTS_API_* flags: off in .env.local
+- SAFE_FINANCIAL_CRON_ORIGINAL_READY: conditional_no
+
+### NEXT
+PHASE-AMAZON-FINANCIAL-API-CARDS-PRODUCTION-CRON-WIRE-V1
+
+### Evidence
+- scripts/phase-amazon-financial-reports-backfill-original-verify-cron.ts
+- .cursor/audit-reports/phase-amazon-financial-reports-backfill-original-verify-cron/20260614T000515Z/
+
+================================================================================
+END APPEND SLICE -- 20260614T000515Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T001138Z
+TOPIC: PHASE-REMOVAL-SYNC-EXPECTED-PACKAGES-REBUILD-ORCHESTRATOR-V1-ORIGINAL-APPLY
+================================================================================
+
+### Scope
+Original apply verification after Maysam approval. Read-only snapshot + code verify + execute readiness. No full EP rebuild forced.
+
+### Original snapshot
+- amazon_removals: 3520
+- amazon_removal_shipments: 11517
+- expected_packages: 12109 (max updated 2026-06-10)
+- stuck uploads: 0
+- hook_recorded on REMOVAL uploads: 0 (historical imports pre-hook)
+- target 387003587/X004LKS4VD: expected_qty_clean 52, disputed 1 PASS
+- claim_candidates: 9055 (delta 0)
+
+### Code verification PASS
+- pipeline hook, orchestrator, dedupe guard, explicit rebuild skip, manual paths preserved
+
+### Execute result
+- No upload with rebuild metadata → idempotency test skipped
+- No resumable in-flight upload → pipeline execute pending
+- SAFE_REMOVAL_EP_ORIGINAL_ORCHESTRATOR_READY: pending_pipeline_execute
+
+### NEXT
+PHASE-REMOVAL-EP-ORCHESTRATOR-ORIGINAL-PIPELINE-MICRO-EXECUTE-V1
+
+### Evidence
+- scripts/phase-removal-sync-expected-packages-rebuild-orchestrator-v1-original-apply.ts
+- .cursor/audit-reports/phase-removal-sync-expected-packages-rebuild-orchestrator-v1-original-apply/20260614T001138Z/
+
+================================================================================
+END APPEND SLICE -- 20260614T001138Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260613T210000Z
+PHASE-CLAIM-GROUPING-FILTERS-AND-MANUAL-BATCH-CONTRACT-V1
+================================================================================
+
+### Scope
+Read-only architecture + API/UI contract for claim grouping, filtering, and manual batch building BEFORE claim_cases creation.
+
+### Contract
+- lib/claims/contracts/claim-grouping-filters-manual-batch-contract-v1.ts
+- Candidate filters: 30+ dimensions (org/store/product/family/source/status/TRID/shipment/removal/money/window/flags)
+- Grouping modes: 9 (single, same product+family, same TRID, manual, saved smart filter, etc.)
+- Warning rules: 18 codes (mixed products/families/sources/TRIDs, disputed, expired, low confidence, money gaps)
+- Manual builder: select ? warnings ? optional override ? group preview ? NO auto case creation
+- Policy: organization_settings.claim_policy.grouping JSONB (no migration phase 1)
+
+### Tables
+- Reuse: claim_candidates, claim_reference_edges, preview generators, composeClaimEvidencePacket
+- New tables: **no (phase 1)** � saved filters in JSONB; optional claim_saved_filter_groups phase 2
+
+### Verify
+- No DB writes; build PASS
+- SAFE_TO_IMPLEMENT_GROUPING_READMODEL: yes
+
+### Evidence
+- .cursor/audit-reports/phase-claim-grouping-filters-manual-batch-contract-v1/20260613T210000Z/
+
+### Next Prompt
+PHASE-CLAIM-GROUPING-FILTERS-READMODEL-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260613T210000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T011500Z
+PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1 (re-verify)
+================================================================================
+
+### Staging @ eiqfaapyumhixxoeltgu
+- claim_ready **1104** (6+399+399+300); draft-level needs_review **115**
+- removal needs_review matrix **250** each (+249 EP disputed bump)
+- partial_incorrect drift vs 093000Z snapshot: 317?300 claim_ready (linkage/data)
+- classify_parity PASS; prerequisite_snapshot matches_current: false (expected drift)
+- disputed never claim_ready PASS; delta **0**; build+smoke PASS
+- SAFE_TO_APPROVE_CLAIM_CANDIDATE_EMIT: yes (preview-only)
+
+### Alignment fix
+- dry_run_alignment.pass = live classifyDraft parity (not stale hardcoded counts)
+
+### Evidence
+- .cursor/audit-reports/phase-claim-first-safe-families-preview-generators-v1/20260614T011500Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T011500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T013015Z
+PHASE-PIM-PRODUCT-UPDATE-JOB-STATE-DUPLICATE-AUDIT-V1
+================================================================================
+
+### Scope
+Read-only audit: duplicate PIM product update UI panels (Product data update + Catalog refresh active job).
+
+### Finding
+- Staging active jobs: **1** (`5580bfce-e426-4cb5-b600-4de6f0ddf548`, product_enrichment, 1/15742, stuck since 2026-06-11 worker smoke)
+- **Not two jobs** — single `usePimCatalogEnrichmentJob` hook in `PimCatalogHub` feeds both panels
+- UI mismatch: `jobPausedAwaitingUser` (Paused copy) + `status.running`/`needs_tick` (Running chrome) simultaneously after reload when `autoTickEnabled=false`
+- Duplicate write risk: **no** (rows_saved=1, not ticking without autoTick)
+- No DB/product/map/scanner/resolver changes this phase
+
+### Safe action
+- Do not Start Apply again; Cancel stuck smoke job OR Resume once to enable ticks
+- SAFE_TO_LEAVE_RUNNING: yes (idle); SAFE_TO_CANCEL: yes
+
+### Evidence
+- scripts/phase-pim-product-update-job-state-duplicate-audit-v1.ts
+- .cursor/audit-reports/phase-pim-product-update-job-state-duplicate-audit-v1/20260614T013015Z/
+
+### Next Prompt
+PHASE-PIM-PRODUCT-UPDATE-JOB-STATE-UI-UNIFY-FIX-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T013015Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T030000Z
+PHASE-CLAIM-GROUPING-FILTERS-AND-MANUAL-BATCH-READMODEL-V1
+================================================================================
+
+### Scope
+Read-only grouping/filter/manual batch preview over preview-generator output. No claim_candidates writes. No claim_cases creation. No scanner changes.
+
+### Implemented
+- lib/claims/grouping/claim-grouping-readmodel.ts — filterPreviewItems, buildGroupPreviews, analyzeWarnings, buildClaimGroupingReadmodel
+- GET /api/claims/center/grouping-preview — parseGroupingFiltersFromSearchParams + getCenterGroupingPreviewPayload
+- 8 grouping modes: one_candidate_per_group, product_family, product_multi_family, reference_trid, shipment_or_removal, source_report_window, manual_selection_preview, custom_filter_preview
+- 26 filter params (org/store/product identifiers/family/source/status/confidence/TRID/shipment/removal/tracking/date/money flags/preview_ids/grouping_mode/limit)
+- Warning rules: mixed products/families/sources/reference types/TRIDs, disputed rows, missing product link, fee estimate unavailable, missing cost, low confidence, policy_hold
+
+### Staging @ eiqfaapyumhixxoeltgu
+- product_family groups: 20 (claim_ready)
+- removal_reference groups: 20 (removal families)
+- needs_review filtered: 115
+- manual selection preview: PASS (2-item sample)
+- claim_candidates delta: 0
+- build+smoke: PASS
+- SAFE_TO_BUILD_GROUPING_UI: yes
+
+### Type fix
+- no_claim_candidate_mutation widened to boolean (runtime count check vs literal true)
+
+### Evidence
+- .cursor/audit-reports/phase-claim-grouping-filters-manual-batch-readmodel-v1/20260614T030000Z/
+
+### Next Prompt
+PHASE-CLAIM-GROUPING-FILTERS-UI-V1 — wire Claim Center group builder drawer to GET /api/claims/center/grouping-preview; no case creation
+
+================================================================================
+END APPEND SLICE -- 20260614T030000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T014500Z
+PHASE-PIM-PRODUCT-UPDATE-JOB-STATE-UI-UNIFY-FIX-V1
+================================================================================
+
+### Scope
+UI/state fix only — unified PIM product enrichment job display; no DB writes, no auto resume/cancel.
+
+### Changes
+- Canonical job state: idle | actively_advancing | paused_awaiting_user | running_db_idle | queued | terminal | error
+- Product data update panel sole surface; legacy Catalog refresh active job panel removed from PimCatalogHub
+- Orphan job (5580bfce…): shows Awaiting resume, Mode Off, Start disabled, Resume/Cancel enabled
+- Resume continues same job (enableAutoTick + tick) — no duplicate enqueue
+
+### Verify
+- Smoke PASS; build PASS; no product/map/scanner/resolver changes
+
+### Evidence
+- .cursor/audit-reports/phase-pim-product-update-job-state-ui-unify-fix-v1/20260614T014500Z/
+
+### Next Prompt
+PHASE-PIM-ORPHAN-PRODUCT-ENRICHMENT-JOB-OPERATOR-CANCEL-GUIDE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T014500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T070615Z
+PHASE-PIM-CANCEL-ORPHAN-PRODUCT-ENRICHMENT-JOB-V1
+================================================================================
+
+### Approval
+APPROVED_CANCEL_ORPHAN_PIM_PRODUCT_ENRICHMENT_JOB=yes (Maysam)
+
+### Action
+Cancelled target job `5580bfce-e426-4cb5-b600-4de6f0ddf548` on staging via cancelJob + tickJob finalize.
+
+### Before / after
+- Before: running 1/15742 (worker smoke since 2026-06-11)
+- After: **cancelled**; **0** active product_enrichment jobs
+- Product counts unchanged: products **17059**, map **16862**, prices **29589**
+
+### Verify
+- No other jobs cancelled; no product/map/price/claim/scanner/resolver changes
+- SAFE_PIM_JOB_CLEANED: **yes**
+
+### Evidence
+- scripts/phase-pim-cancel-orphan-product-enrichment-job-v1.ts
+- .cursor/audit-reports/phase-pim-cancel-orphan-product-enrichment-job-v1/20260614T070615Z/
+
+### Next Prompt
+PHASE-PIM-PRODUCT-DATA-UPDATE-RESUME-OPERATOR-GUIDE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T070615Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T070500Z
+PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1 (re-verify)
+================================================================================
+
+### Staging @ eiqfaapyumhixxoeltgu
+- total_previews: 1219
+- claim_ready: 1104 (6+399+399+300)
+- needs_review: 115 (draft-level; removal matrix 250/family after disputed EP bump)
+- unavailable: 0
+- disputed_claim_ready: 0 (249 EP disputed excluded)
+- classify_parity: PASS (live classifyDraft vs preview counts)
+- prerequisite_snapshot 20260613T093000Z matches_current: false (expected data drift)
+- duplicate_key: PASS (1219 unique)
+- money_lane: PASS (NULL not zero; observed separate from estimate)
+- source_edges: PASS (1219/1219)
+- claim_candidates delta: 0
+- build+smoke: PASS
+- SAFE_TO_APPROVE_CLAIM_CANDIDATE_EMIT: yes
+
+### Evidence
+- .cursor/audit-reports/phase-claim-first-safe-families-preview-generators-v1/20260614T070500Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T070500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T073235Z
+PHASE-PIM-PRODUCT-UPDATE-AFTER-CANCEL-UI-VERIFY-V1
+================================================================================
+
+### Scope
+Read-only verify after orphan job cancel — backend + UI expectations.
+
+### Result
+- Active product_enrichment jobs: **0**
+- Target `5580bfce…`: **cancelled** (unchanged)
+- Counts: products **17059**, map **16862**, prices **29589** (match cancel baseline)
+- UI: single Product data update panel; no legacy catalog panel; Refresh status read-only
+- Clean mount: Idle, Start Apply/Preview enabled, Resume/Cancel disabled
+- SAFE_PIM_PAGE_CLEAN: **yes**
+
+### Evidence
+- scripts/phase-pim-product-update-after-cancel-ui-verify-v1.ts
+- .cursor/audit-reports/phase-pim-product-update-after-cancel-ui-verify-v1/20260614T073235Z/
+
+### Next Prompt
+PHASE-PIM-PRODUCT-DATA-UPDATE-OPERATOR-START-GUIDE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T073235Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T080000Z
+PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1 (re-verify)
+================================================================================
+
+### Staging @ eiqfaapyumhixxoeltgu — identical to 20260614T070500Z
+- claim_ready: 1104 (6+399+399+300); needs_review: 115; delta 0
+- disputed_claim_ready: 0; classify_parity PASS; build+smoke PASS
+- SAFE_TO_APPROVE_CLAIM_CANDIDATE_EMIT: yes
+- Evidence: phase-claim-first-safe-families-preview-generators-v1/20260614T080000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T080000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T081500Z
+PHASE-CLAIM-GROUPING-FILTERS-AND-MANUAL-BATCH-READMODEL-V1 (re-verify)
+================================================================================
+
+### Staging @ eiqfaapyumhixxoeltgu
+- product_family groups: 20; removal_reference: 20; needs_review filtered: 115
+- smoke: product_family, removal_reference, manual_preview, needs_review, claim_ready filters PASS
+- claim_candidates delta: 0; build+smoke PASS
+- SAFE_TO_BUILD_GROUPING_UI: yes
+- Evidence: phase-claim-grouping-filters-manual-batch-readmodel-v1/20260614T081500Z/
+
+### Next Prompt
+PHASE-CLAIM-GROUPING-FILTERS-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T081500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T081853Z
+PHASE-PIM-PRODUCT-UPDATE-READINESS-SMOKE-V1
+================================================================================
+
+### Scope
+Read-only Product API / Product Data Update readiness — no enqueue/tick/apply/preview/resume/cancel; no product/map/prices/claim_candidates writes.
+
+### Staging @ eiqfaapyumhixxoeltgu
+- Active product_enrichment jobs: **0**
+- UI idle (clean mount): canonical **idle**; Start Apply/Preview enabled; Resume/Cancel disabled
+- Routes: enrich-images (batch), jobs/enqueue, tick, [jobId], active, cancel, retry — **PASS**; pause N/A
+- Apply gating: explicit **Start apply** only; autoTick after Start/Resume — **PASS**
+- No auto-start on page load; Refresh status read-only — **PASS**
+- Amazon SP: marketplaces credentials **yes** (org_api_keys amazon_sp_api **no**)
+- product_enrichment schedule: **enabled** (1×/day @ 06 UTC)
+- Data health: products **17059**, linked ASIN **15743**, unresolved **1316**, map **16862**, prices **29589**, missing price **363**
+- Mutations during audit: products/map/prices/claim_candidates **0**
+- Scanner: **unchanged**
+- build: **PASS** (20260614T081705Z); static smoke: **PASS**
+
+### Verdict
+- SAFE_PRODUCT_API_UPDATE_READY_FOR_PREVIEW: **no** — Start preview not wired in PimCatalogHub; no dry-run in worker/batch
+- SAFE_PRODUCT_API_UPDATE_READY_FOR_APPLY: **yes** — staging-only; explicit operator Start apply
+
+### Evidence
+- scripts/phase-pim-product-update-readiness-smoke-v1.ts
+- .cursor/audit-reports/phase-pim-product-update-readiness-smoke-v1/20260614T081853Z/
+
+### Next Prompt
+PHASE-PIM-PRODUCT-DATA-UPDATE-OPERATOR-START-GUIDE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T081853Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T082115Z
+PHASE-PIM-PRODUCT-API-SMALL-PREVIEW-RUN-V1
+================================================================================
+
+### Scope
+Preview-only dry-run — 9 sample products; Amazon API live; zero product/map/price/claim writes.
+
+### Implementation
+- Added dry_run / preview_only to PimCatalogEnrichmentBatchParams + write guards in unPimCatalogEnrichmentBatch
+- Script: scripts/phase-pim-product-api-small-preview-run-v1.ts (direct batch, no background job)
+
+### Staging @ eiqfaapyumhixxoeltgu
+- Samples: linked+price, missing price, unresolved no-ASIN, recently updated + extras (**9** selected, **8** with valid ASIN processed)
+- would_update **12**, would_skip **0**, missing_data **6**
+- API: Catalog+Pricing **200** on most; 1× catalog NOT_FOUND (B00D6Q9E3E stale ASIN)
+- Rate limits: **0** throttled; retry_count **7**
+- Counts unchanged: products **17059**, map **16862**, prices **29589**, claim_candidates **9056**
+- Active product_enrichment jobs after: **0**
+- build+smoke: **PASS**
+
+### Verdict
+- SAFE_PRODUCT_API_PREVIEW_OK: **yes**
+- SAFE_TO_RUN_PRODUCT_API_APPLY_SMALL_BATCH: **yes** (non-blocking per-product NOT_FOUND only)
+
+### Evidence
+- .cursor/audit-reports/phase-pim-product-api-small-preview-run-v1/20260614T082115Z/
+
+### Next Prompt
+PHASE-PIM-PRODUCT-API-SMALL-APPLY-BATCH-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T082115Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T090000Z
+PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1 (re-verify)
+================================================================================
+
+### Staging @ eiqfaapyumhixxoeltgu
+- claim_ready: 1104 (6+399+399+300); needs_review: 115; delta 0
+- disputed_claim_ready: 0; classify_parity PASS; build+smoke PASS
+- SAFE_TO_APPROVE_CLAIM_CANDIDATE_EMIT: yes
+- Evidence: phase-claim-first-safe-families-preview-generators-v1/20260614T090000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T090000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T084406Z
+PHASE-PIM-PRODUCT-API-SMALL-APPLY-BATCH-V1
+================================================================================
+
+### Scope
+Small controlled apply on staging — max 5 products, direct batch (no background job/schedule).
+
+### Selected (4)
+- B07X13VS51 Bob's Oats (missing_price) — brand+category+price insert $13.84
+- B0923C5KVS labels — category assigned
+- B0GXCL7XT6 / B0GXC9CTPG 1883 syrups — catalog refresh only
+- Excluded: unresolved no-ASIN, stale B00D6Q9E3E (not in set)
+
+### Counts
+- products **17059** unchanged
+- product_identifier_map **16862** unchanged
+- product_prices **29589→29590** (+1 expected)
+- claim_candidates **9056** unchanged
+- active jobs **0**
+
+### Verify
+- unexpected_writes: none
+- SAFE_PRODUCT_API_SMALL_APPLY_OK: **yes**
+- SAFE_TO_WIRE_START_PREVIEW_UI: **yes**
+
+### Evidence
+- scripts/phase-pim-product-api-small-apply-batch-v1.ts
+- .cursor/audit-reports/phase-pim-product-api-small-apply-batch-v1/20260614T084406Z/
+
+### Next Prompt
+PHASE-PIM-PRODUCT-DATA-UPDATE-START-PREVIEW-UI-WIRE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T084406Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T091500Z
+PHASE-CLAIM-GROUPING-FILTERS-AND-MANUAL-BATCH-READMODEL-V1 (re-verify)
+================================================================================
+
+### Input: preview generators verified (1219 previews, 1104 claim_ready)
+- product_family: 20 groups; removal_reference: 20; needs_review filter: 115
+- manual_selection + claim_ready filters PASS; delta 0; build+smoke PASS
+- SAFE_TO_BUILD_GROUPING_UI: yes
+- Evidence: phase-claim-grouping-filters-manual-batch-readmodel-v1/20260614T091500Z/
+
+### Next Prompt
+PHASE-CLAIM-GROUPING-FILTERS-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T091500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T093000Z
+PHASE-CLAIM-CANDIDATE-EMIT-APPROVAL-CONTRACT-V1 (re-lock with preview context)
+================================================================================
+
+### Context (preview generators 20260614T090000Z)
+- total_previews 1219; claim_ready 1104; needs_review 115; disputed EP excluded
+
+### approved_families (Wave-1 emit after Maysam sign-off)
+- removal_shipment_missing → shipment_not_received
+- removal_order_discrepancy → shipment_quantity_mismatch, removal_missing_units
+
+### preview_only_families
+- physical_return_scanner_issue (6 claim_ready previews)
+- partial_incorrect_reimbursement (300 claim_ready previews)
+
+### emit_status_rules
+- claim_ready: may emit
+- needs_review: review_signal_only, no write
+- unavailable: no emit
+
+### Gates
+- source_edges + evidence_summary required before emit
+- money NULL not zero; sale price never COGS
+- migration_needed: no (phase7b schema)
+- approval_required: yes (Maysam)
+- SAFE_TO_IMPLEMENT_EMITTER: conditional_no (emitter + sign-off pending)
+
+### Evidence
+- phase-claim-candidate-emit-approval-contract-v1/20260614T093000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-PILOT-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T093000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T101000Z
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-PILOT-V1
+================================================================================
+
+### Staging pilot @ eiqfaapyumhixxoeltgu
+- intake_run_id: e435584f-5092-4b83-84ac-6f8c49e7b900
+- claim_candidates: 9056 → 9106 (50 inserted, 0 updated)
+- emitted: removal_order_discrepancy V3 → shipment_not_received claim_family
+- skipped: 748 (identity_conflict 45, pilot_cap 703)
+- claim_cases delta: 0; disputed emitted: 0
+- approval: Maysam signed; rollback SQL in evidence
+- SAFE_STAGING_CLAIM_CANDIDATE_EMIT_PILOT: yes
+- SAFE_TO_PLAN_ORIGINAL_EMIT_PILOT: no
+
+### Evidence
+- phase-claim-candidate-emit-staging-pilot-v1/20260614T101000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T101000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T120000Z
+PHASE-CLAIM-GROUPING-FILTERS-UI-V1
+================================================================================
+
+### UI @ /claim-center/group-builder
+- Wired to GET /api/claims/center/grouping-preview (read-only)
+- 8 grouping modes; 20 filter dimensions; filter chips + form
+- Group preview cards: title, products, families, units, money sums, warnings, recommended action
+- Manual selection preview with mixed_products/split_group warnings
+- Disabled placeholders: Create case, Emit candidates, Build evidence packet
+- Nav: Group builder in pool/more menu
+- Staging verify: claim_ready groups 10, needs_review 10, manual preview PASS
+- claim_candidates delta 0; claim_cases delta 0; scanner untouched
+- build+smoke PASS; SAFE_TO_REVIEW_GROUPING_UI: yes
+
+### Evidence
+- phase-claim-grouping-filters-ui-v1/20260614T120000Z/
+
+### Next Prompt
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T120000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T101500Z
+PHASE-PIM-PRODUCT-DATA-UPDATE-START-PREVIEW-UI-WIRE-V1
+================================================================================
+
+### UI wiring @ staging PIM catalog hub
+- Wired **Start preview (no writes)** -> runProductDataUpdatePreviewAction -> runPimCatalogEnrichmentBatch({ dryRun: true })
+- Sample selection: lib/pim-catalog-enrichment-preview-samples.ts (linked/missing-price/recent buckets; excludes stale ASIN B00D6Q9E3E)
+- Panel shows: would_update_count, would_skip_count, missing_data_count, API errors, rate-limit warnings, sample product rows
+- Mode badge: Dry-run / preview when summary present; Start Apply remains separate explicit action
+- No auto-start on page load; Refresh status read-only; no background job enqueue from preview
+
+### Verification
+- Live dry-run (--live): would_update 14; products/map/prices/claim_candidates counts unchanged; active jobs 0
+- build+smoke PASS
+- SAFE_PIM_START_PREVIEW_UI_READY: yes
+
+### Evidence
+- phase-pim-product-data-update-start-preview-ui-wire-v1/20260614T100435Z/ (static+build)
+- phase-pim-product-data-update-start-preview-ui-wire-v1/20260614T100632Z/ (live dry-run)
+
+### Next Prompt
+PHASE-PIM-PRODUCT-DATA-UPDATE-START-APPLY-UI-WIRE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T101500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T130000Z
+PHASE-CLAIM-EFFECTIVE-DATE-SETTINGS-AUDIT-V1
+================================================================================
+
+### Read-only audit
+- Canonical policy dates: scan_go_live_date + claim_start_date (organization_settings.claim_policy)
+- NOT FOUND: claim_live_from, claim_effective_date, scanner_claim_start_date, missing_review_start_date
+- Staging Sam org: both dates 2026-01-15; intake rolling window 2026-03-16 to 2026-06-14 (decoupled from policy)
+- GATED: claim-eligibility-policy, scanner promote, deriveClaimLifecycleStatus
+- NOT GATED: preview generators, grouping filterPreviewItems, claim-preview-emit-v1, applyDrafts, intake generators
+- Staging sample: 0 pre-cutoff claim_ready in current window (rolling floor accidental)
+- SAFE_TO_RUN_EMIT_PILOT_WITH_DATE_GATES: no
+
+### Evidence
+- phase-claim-effective-date-settings-audit-v1/20260614T130000Z/
+
+### Next Prompt
+PHASE-CLAIM-EFFECTIVE-DATE-GATE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T130000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T140000Z
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-PILOT-V1 (date-gated re-run)
+================================================================================
+
+### Staging pilot @ eiqfaapyumhixxoeltgu
+- Added claim-preview-emit-date-gate-v1.ts (claim_start_date / scan_go_live_date)
+- intake_run_id: 6870dbd1-dac0-4f33-b06c-bfe16d7f3bf5
+- claim_candidates: 9106 -> 9106 (0 inserted, 50 updated trusted rows)
+- date_gate_passed: 50/50; skipped_by_date: 0
+- metadata stamped: effective_date_source, effective_date_value, source_event_date, date_gate_passed
+- claim_cases delta: 0
+- SAFE_STAGING_CLAIM_CANDIDATE_EMIT_PILOT: yes
+
+### Evidence
+- phase-claim-candidate-emit-staging-pilot-v1/20260614T140000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T140000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T152000Z
+PHASE-CLAIM-GROUPING-FILTERS-UI-VERIFY-V1
+================================================================================
+
+### Read-only UI/API verify
+- Route: /claim-center/group-builder
+- Filters, 8 grouping modes, manual selection, warnings, disabled actions: PASS
+- Staging: 1104 claim_ready previews, 115 needs_review
+- claim_candidates: 9106 -> 9106; claim_cases: 2 -> 2
+- Date filters UI+API wired; readmodel date gate still pending
+- SAFE_GROUPING_UI_REVIEW_READY: yes
+
+### Evidence
+- phase-claim-grouping-filters-ui-verify-v1/20260614T152000Z/
+
+### Next Prompt
+PHASE-CLAIM-EFFECTIVE-DATE-GATE-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T152000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T160000Z
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-PILOT-POST-VERIFY-V1
+================================================================================
+
+### Read-only staging row audit @ eiqfaapyumhixxoeltgu
+- intake_run_id: 6870dbd1-dac0-4f33-b06c-bfe16d7f3bf5
+- active pilot rows: 50 (all date-gated, removal_order_discrepancy)
+- prior intake_run_id e435584f: 0 rows (in-place update)
+- pre_cutoff: 0; disputed EP: 0; dedupe/edges/evidence: PASS
+- claim_cases: 2 (unchanged)
+- SAFE_STAGING_PILOT_ROWS_TRUSTED: yes
+- SAFE_TO_RUN_NEXT_STAGING_EMIT_WAVE: yes
+
+### Evidence
+- phase-claim-candidate-emit-staging-pilot-post-verify-v1/20260614T160000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-PILOT-ROLLBACK-DRILL-V1 (optional)
+
+================================================================================
+END APPEND SLICE -- 20260614T160000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T170000Z
+PHASE-CLAIM-EFFECTIVE-DATE-GATE-V1
+================================================================================
+
+### Unified effective date gates
+- lib/claims/effective-date/claim-effective-date-gate-v1.ts
+- PreviewGeneratorItem: event_date, pre_cutoff, missing_event_date, date_gate_passed
+- deriveAction downgrades pre-cutoff/missing date to needs_review
+- Grouping: date_from/date_to filter + effective_date_context
+- Intake window floor bound to policy cutoffs (2026-01-15 on staging)
+- Staging: claim_ready 237 (961 outside 90d window); grouping date filter works
+- claim_candidates: 9106 -> 9106; claim_cases: 2
+- SAFE_EFFECTIVE_DATE_GATE_READY: yes
+
+### Evidence
+- phase-claim-effective-date-gate-v1/20260614T170000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-PILOT-ROLLBACK-DRILL-V1 (optional)
+
+================================================================================
+END APPEND SLICE -- 20260614T170000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T180000Z
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-WAVE2-V1
+================================================================================
+
+### Staging wave 2 emit (max 50)
+- lib/claims/intake/claim-preview-emit-v1.ts: runClaimPreviewEmitStagingWave2V1, sortPreviewsForWave2Emit, runClaimPreviewEmitCore refactor
+- Approval: .cursor/operator-approvals/claim-candidate-emit-staging-wave2-v1-approval.md
+- intake_run_id: 1e29a52c-b50e-41aa-8b7f-03448e727f3f
+- claim_candidates: 9106 -> 9156 (50 inserted, 0 updated)
+- Families: removal_shipment_missing 50; removal_order_discrepancy 0 (wave1 dedupe saturated)
+- Date gate: 50/50 passed; disputed emitted 0; claim_cases 2 -> 2
+- SAFE_STAGING_EMIT_WAVE2: yes; SAFE_TO_PLAN_ORIGINAL_EMIT_PILOT: yes
+
+### Evidence
+- phase-claim-candidate-emit-staging-wave2-v1/20260614T180000Z/
+- smoke-claim-candidate-emit-staging-wave2-v1/20260614T180000Z/
+
+### Rollback SQL
+- Scoped by intake_run_id 1e29a52c (quarantine supersede, no hard delete)
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-ROLLBACK-DRILL-V1 (optional) then PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T180000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T190000Z
+PHASE-CLAIM-CANDIDATE-EMIT-STAGING-ROLLBACK-DRILL-V1
+================================================================================
+
+### Staging rollback drill (wave2 only)
+- Target intake_run_id: 1e29a52c-b50e-41aa-8b7f-03448e727f3f
+- Rollback: quarantine + supersede (no hard delete)
+- wave2: 50 active -> 0 active, 50 quarantined
+- wave1 (6870dbd1): 50 active unchanged
+- unrelated active: 1 unchanged
+- claim_candidates total: 9156 unchanged
+- claim_cases: 2 unchanged
+- SAFE_ROLLBACK_DRILL_PASSED: yes
+- SAFE_TO_PLAN_ORIGINAL_EMIT_PILOT: yes
+
+### Evidence
+- phase-claim-candidate-emit-staging-rollback-drill-v1/20260614T190000Z/
+
+### Restore plan (not applied)
+- Un-quarantine wave2 rows by intake_run_id + rollback_run_id metadata match
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T190000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T200000Z
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-PLAN-V1
+================================================================================
+
+### Original pilot plan (read-only)
+- Ref: kxsvedvpjldygtdbylsy
+- claim_candidates: 9055 (unchanged)
+- claim_cases: 2 (unchanged)
+- Policy: claim_start_date + scan_go_live_date = 2026-01-15; window 90d
+- EP: 12109 total; 557 disputed excluded; 11552 clean estimate
+- Eligible emit: 510 (255 removal_order_discrepancy + 255 removal_shipment_missing)
+- Skipped by date: 0; disputed: 0; active dedupe: 0
+- Recommended cap: 50 (30 shipment + 20 order)
+- Approval template: claim-candidate-emit-original-pilot-v1-approval.md (unsigned)
+- SAFE_TO_RUN_ORIGINAL_EMIT_PILOT: yes
+
+### Evidence
+- phase-claim-candidate-emit-original-pilot-plan-v1/20260614T200000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-V1 (execute after Maysam approval)
+
+================================================================================
+END APPEND SLICE -- 20260614T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T210000Z
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1
+================================================================================
+
+### Claim Center preview generators UI (read-only)
+- Route: /claim-center/preview-generators
+- API: GET /api/claims/center/preview-generators
+- Summary cards, filters, table, badges, group-builder link via preview_ids
+- Disabled: emit, create case, submit
+- Staging verify: claim_ready 237, needs_review 983; no DB writes
+- SAFE_TO_REVIEW_PREVIEW_UI: yes
+
+### Evidence
+- phase-claim-first-generator-preview-ui-v1/20260614T210000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T210000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260614T233000Z
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-V1
+================================================================================
+
+### Original/live claim candidate emit pilot (cap 50)
+- Ref: kxsvedvpjldygtdbylsy only; Maysam APPROVED_CLAIM_CANDIDATE_EMIT_ORIGINAL_PILOT_V1=yes
+- Module: runClaimPreviewEmitOriginalPilotV1 + selectPreviewsForOriginalPilotEmitAsync (open physical slots)
+- Preflight: phase7b + phase7b2 migrations applied on original (additive)
+- intake_run_id: a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Inserted: 50 (30 removal_shipment_missing + 20 removal_order_discrepancy)
+- claim_candidates: 9105 -> 9155; claim_cases: 2 unchanged
+- Selection notes: shipment/order preview families share dedupe keys; order batch excludes shipment dedupes; inserts require EPs with no existing claim_candidates row (pre-7B unique constraint)
+- Rollback: quarantine/supersede + superseded_by_candidate_id=self + dedupe_key release
+- SAFE_ORIGINAL_EMIT_PILOT: yes; SAFE_TO_REVIEW_ORIGINAL_CANDIDATES_UI: yes
+
+### Evidence
+- phase-claim-candidate-emit-original-pilot-v1/20260614T233000Z/
+- operator-approvals/claim-candidate-emit-original-pilot-v1-approval.md (signed)
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-ROLLBACK-DRILL-V1
+
+================================================================================
+END APPEND SLICE -- 20260614T233000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T040000Z
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-POST-VERIFY-V1
+================================================================================
+
+### Original pilot post-verify (read-only)
+- Ref: kxsvedvpjldygtdbylsy; prerequisite SAFE_ORIGINAL_EMIT_PILOT=yes
+- intake_run_id: a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Active pilot rows: 50/50 (30 removal_shipment_missing + 20 removal_order_discrepancy)
+- date_gate, disputed, dedupe, identity, edges, evidence: PASS
+- claim_cases: 2 unchanged; rollback SQL scoped; scanner untouched
+- Claim Center active pool: 50/50 visible (non-legacy, non-quarantined)
+- SAFE_ORIGINAL_PILOT_ROWS_TRUSTED: yes
+- SAFE_TO_BUILD_REVIEW_UI_FOR_ORIGINAL_CANDIDATES: yes
+- SAFE_TO_PLAN_ORIGINAL_EMIT_EXPANSION: yes
+
+### Evidence
+- phase-claim-candidate-emit-original-pilot-post-verify-v1/20260615T040000Z/
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-ROLLBACK-DRILL-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T040000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T050000Z
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-ROLLBACK-DRILL-V1
+================================================================================
+
+### Original pilot rollback drill (quarantine/supersede only)
+- Ref: kxsvedvpjldygtdbylsy only; Maysam APPROVED_CLAIM_CANDIDATE_EMIT_ORIGINAL_ROLLBACK_DRILL_V1=yes
+- Target intake_run_id: a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Scope: metadata.emit_origin = preview_emit_v1 (50 rows)
+- Before: target active 50, quarantined 0; claim_candidates 9155; claim_cases 2
+- Applied: quarantine + superseded + dedupe_key release (2 SQL statements)
+- After: target active 0, quarantined/superseded 50; claim_candidates 9155 unchanged; claim_cases 2 unchanged
+- No hard delete; unrelated active 0 unchanged; scanner untouched
+- Restore plan documented (not applied); dedupe_key cleared — full restore may need re-emit
+- SAFE_ORIGINAL_ROLLBACK_DRILL_PASSED: yes
+- SAFE_TO_RESTORE_ORIGINAL_PILOT_FOR_REVIEW: yes
+- SAFE_TO_PLAN_ORIGINAL_EMIT_EXPANSION: yes
+
+### Evidence
+- phase-claim-candidate-emit-original-rollback-drill-v1/20260615T050000Z/
+- operator-approvals/claim-candidate-emit-original-rollback-drill-v1-approval.md (signed)
+
+### Next Prompt
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-EXPANSION-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T050000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T060000Z
+PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-RESTORE-FOR-REVIEW-V1
+================================================================================
+
+### Original pilot controlled restore for Claim Center review
+- Ref: kxsvedvpjldygtdbylsy only; Maysam APPROVED_RESTORE_ORIGINAL_PILOT_FOR_REVIEW_V1=yes
+- Prerequisite: rollback drill PASS (20260615T050000Z)
+- Target intake_run_id: a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Scope: emit_origin=preview_emit_v1, rollback_mode=quarantine_supersede (50 rows)
+- Before: target active 0, quarantined 50; claim_candidates 9155; claim_cases 2
+- Applied: un-quarantine + detected status + dedupe_key rebuild (2 SQL statements)
+- After: target active 50, quarantined 0; claim_candidates 9155 unchanged; claim_cases 2 unchanged
+- Integrity re-verify: date_gate, disputed EP, dedupe, edges, evidence — all PASS
+- Claim Center active pool: 50/50 visible (non-legacy, non-quarantined)
+- SAFE_ORIGINAL_PILOT_RESTORED_FOR_REVIEW: yes
+- SAFE_TO_BUILD_REVIEW_UI_FOR_ORIGINAL_CANDIDATES: yes
+
+### Evidence
+- phase-claim-candidate-emit-original-pilot-restore-for-review-v1/20260615T060000Z/
+- operator-approvals/claim-candidate-emit-original-pilot-restore-for-review-v1-approval.md (signed)
+
+### Next Prompt
+PHASE-CLAIM-CENTER-ORIGINAL-CANDIDATE-REVIEW-UI-VERIFY-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T060000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T070000Z
+PHASE-CLAIM-CANDIDATE-REVIEW-UI-ORIGINAL-PILOT-V1
+================================================================================
+
+### Original pilot review UI (read-only)
+- Route: /claim-center/pilot-review (pool nav: Pilot review)
+- API: GET /api/claims/center/pilot-review scoped by intake_run_id a8a892fe
+- Filters: family, claim_family, source_kind, candidate_status, evidence_status, product, event key, dates
+- Summary cards + candidate table + detail drawer (edges, evidence, date gate, dedupe)
+- Disabled: approve, reject, create case, evidence packet, submit
+- Verified on original: 50/50 rows (30 removal_shipment_missing + 20 removal_order_discrepancy)
+- No claim_candidates or claim_cases mutation; scanner untouched
+- SAFE_TO_REVIEW_ORIGINAL_PILOT_CANDIDATES_IN_UI: yes
+- SAFE_TO_PLAN_EVIDENCE_PACKET_V1: yes
+
+### Evidence
+- phase-claim-candidate-review-ui-original-pilot-v1/20260615T070000Z/
+
+### Next Prompt
+PHASE-CLAIM-EVIDENCE-PACKET-V1-PLAN
+
+================================================================================
+END APPEND SLICE -- 20260615T070000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T080000Z
+PHASE-CLAIM-EVIDENCE-PACKET-V1-PLAN
+================================================================================
+
+### Evidence packet V1 plan (read-only)
+- Ref: kxsvedvpjldygtdbylsy; pilot intake_run_id a8a892fe (50 active rows)
+- Reuse Phase 7G: composeClaimEvidencePacket + renderClaimEvidencePacketHtml + server action
+- V1 extension: ClaimEvidencePacketV1Preview (identity/dates/money_lanes/review_flags per event)
+- API plan: POST /api/claims/center/evidence-packet/preview (not built yet)
+- UI plan: wire /claim-center/pilot-review read-only preview (reuse EvidencePacketPreviewPane)
+- Compose dry-run: 50/50 pilot ids in 5 batch chunks — all ok
+- Observed warnings: missing_evidence, missing_product_link (expected for financial pilot)
+- PDF generation: deferred (legacy PDF = claim_submissions track only)
+- No DB writes; claim_candidates 9155 unchanged; claim_cases 2 unchanged
+- SAFE_TO_BUILD_EVIDENCE_PACKET_PREVIEW: yes
+
+### Evidence
+- phase-claim-evidence-packet-v1-plan/20260615T080000Z/
+- lib/claims/evidence/claim-evidence-packet-v1-plan-contract.ts
+
+### Next Prompt
+PHASE-CLAIM-EVIDENCE-PACKET-V1-PREVIEW-IMPLEMENT
+
+================================================================================
+END APPEND SLICE -- 20260615T080000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T091500Z
+PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1
+================================================================================
+
+### Evidence packet preview V1 (read-only implement)
+- Ref: kxsvedvpjldygtdbylsy; pilot intake_run_id a8a892fe (50 active rows)
+- Composer: lib/claims/evidence/claim-evidence-packet-v1.ts (composeClaimEvidencePacketV1)
+- API: GET /api/claims/center/evidence-packet?store_id=&candidate_id=&intake_run_id=&limit=
+- Packet fields: packet_id, candidate_id, intake_run_id, family_key_v3, claim_family, source_kind, source_event_key, product_identity, quantity (clean only), date_gate, source_edges, evidence_pointers, reference_edges, money_lanes, review_flags, blocker_flags, evidence_summary, readiness
+- Verified original pilot: 50/50 packets composed; family 30 removal_shipment_missing + 20 removal_order_discrepancy
+- ready_for_case_creation: 50/50 (no hard blockers)
+- Warnings (non-blocking): missing_fee 50, missing_cost 50, missing_photo_evidence 50
+- Money lanes: estimated_amazon_payout null 50 (allowed); sale price never COGS
+- No DB writes; claim_candidates 9155 unchanged; claim_cases 2 unchanged; scanner git clean
+- Build + smoke PASS
+- SAFE_EVIDENCE_PACKET_PREVIEW_READY: yes
+- SAFE_TO_BUILD_EVIDENCE_PACKET_UI: yes
+
+### Evidence
+- phase-claim-evidence-packet-preview-v1/20260615T091500Z/
+- lib/claims/evidence/claim-evidence-packet-v1.ts
+- app/api/claims/center/evidence-packet/route.ts
+- scripts/phase-claim-evidence-packet-preview-v1.ts
+- scripts/smoke-claim-evidence-packet-preview-v1.ts
+
+### Next Prompt
+PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T091500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T100500Z
+PHASE-CLAIM-EVIDENCE-PACKET-UI-V1
+================================================================================
+
+### Evidence packet UI V1 (read-only pilot review drawer)
+- Route: /claim-center/pilot-review (existing)
+- New section: Evidence packet in ClaimPilotReviewDetailDrawer
+- API wired: GET /api/claims/center/evidence-packet per candidate_id
+- Readiness badges: Ready for case planning / Needs evidence review / Blocked
+- Disabled actions preserved: Approve, Reject, Create case, Build PDF, Submit claim
+- Verified original pilot: 50/50 rows visible; sample shipment + order discrepancy packets load
+- Sample badges: needs_evidence_review (warnings: missing_fee, missing_cost, missing_photo_evidence)
+- No DB writes; claim_candidates 9155 unchanged; claim_cases 2 unchanged; scanner git clean
+- Build + smoke PASS
+- SAFE_TO_REVIEW_EVIDENCE_PACKET_UI: yes
+- SAFE_TO_PLAN_CASE_CREATION_CONTRACT: yes
+
+### Evidence
+- phase-claim-evidence-packet-ui-v1/20260615T100500Z/
+- lib/claims/pilot/claim-evidence-packet-ui-contract.ts
+- components/claim-center/pilot/ClaimPilotReviewEvidencePacketSection.tsx
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T100500Z
+================================================================================

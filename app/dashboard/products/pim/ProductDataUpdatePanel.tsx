@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { Ban, Loader2, Pause, Play, RefreshCw, RotateCcw, Square } from "lucide-react";
+import { Ban, Eye, Loader2, Pause, Play, RefreshCw, RotateCcw, Square } from "lucide-react";
+import type { ProductDataUpdatePreviewSummary } from "@/lib/pim-catalog-enrichment-preview-samples";
 import { PimHelpNote } from "./PimHelpNote";
 
 export type ProductDataUpdateJobState =
@@ -24,6 +25,7 @@ export type ProductDataUpdatePanelProps = {
   lastError: string | null;
   rowsProcessed: number | null;
   rowsTotal: number | null;
+  jobIdShort?: string | null;
   busy: boolean;
   canStartPreview: boolean;
   canStartApply: boolean;
@@ -38,6 +40,9 @@ export type ProductDataUpdatePanelProps = {
   onCancel: () => void;
   onRetryFailed: () => void;
   onRefreshStatus: () => void;
+  previewBusy?: boolean;
+  previewError?: string | null;
+  previewSummary?: ProductDataUpdatePreviewSummary | null;
 };
 
 const STATE_TONE: Record<ProductDataUpdateJobState, string> = {
@@ -52,7 +57,7 @@ const STATE_TONE: Record<ProductDataUpdateJobState, string> = {
 const STATE_LABEL: Record<ProductDataUpdateJobState, string> = {
   idle: "Idle",
   running: "Running",
-  paused: "Paused",
+  paused: "Awaiting resume",
   failed: "Failed",
   completed: "Completed",
   cancelled: "Cancelled",
@@ -82,6 +87,7 @@ export function ProductDataUpdatePanel(props: ProductDataUpdatePanelProps) {
     lastError,
     rowsProcessed,
     rowsTotal,
+    jobIdShort,
     busy,
     canStartPreview,
     canStartApply,
@@ -96,6 +102,9 @@ export function ProductDataUpdatePanel(props: ProductDataUpdatePanelProps) {
     onCancel,
     onRetryFailed,
     onRefreshStatus,
+    previewBusy = false,
+    previewError = null,
+    previewSummary = null,
   } = props;
 
   const btn =
@@ -131,6 +140,9 @@ export function ProductDataUpdatePanel(props: ProductDataUpdatePanelProps) {
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Explicit controls only — no automatic preview or import on page load.
+            {jobIdShort && process.env.NODE_ENV === "development" ? (
+              <span className="ml-2 font-mono text-[10px] text-muted-foreground/80">job {jobIdShort}</span>
+            ) : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -182,11 +194,27 @@ export function ProductDataUpdatePanel(props: ProductDataUpdatePanelProps) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" className={btnPri} disabled={!canStartPreview || busy} onClick={onStartPreview}>
-          <Play className="h-3.5 w-3.5" aria-hidden />
-          Start preview
+        <button
+          type="button"
+          className={btnPri}
+          disabled={!canStartPreview || busy}
+          title="Dry-run only — reads Amazon APIs and reports would-update counts. No product, map, or price writes."
+          onClick={onStartPreview}
+        >
+          {previewBusy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : (
+            <Eye className="h-3.5 w-3.5" aria-hidden />
+          )}
+          Start preview (no writes)
         </button>
-        <button type="button" className={btnPri} disabled={!canStartApply || busy} onClick={onStartApply}>
+        <button
+          type="button"
+          className={btnPri}
+          disabled={!canStartApply || busy}
+          title="Starts a background apply job that writes product data. Separate from preview."
+          onClick={onStartApply}
+        >
           <Play className="h-3.5 w-3.5" aria-hidden />
           Start apply
         </button>
@@ -212,11 +240,93 @@ export function ProductDataUpdatePanel(props: ProductDataUpdatePanelProps) {
         </button>
       </div>
 
+      {jobState === "paused" ? (
+        <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+          <Pause className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          Job is loaded on the server but not advancing. Use <strong>Resume</strong> to continue or{" "}
+          <strong>Cancel</strong> to stop. Refresh status is read-only.
+        </p>
+      ) : null}
+
       {jobState === "idle" && mode === "off" ? (
         <p className="mt-3 flex items-start gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           Safe default: no product update job runs until you choose Start preview or Start apply.
         </p>
+      ) : null}
+
+      {previewError ? (
+        <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          Preview failed: {previewError}
+        </p>
+      ) : null}
+
+      {previewSummary ? (
+        <div className="mt-3 space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-foreground">
+              Preview result <span className="font-normal text-muted-foreground">(dry-run — no writes)</span>
+            </p>
+            <p className="text-[11px] text-muted-foreground">Ran {fmtWhen(previewSummary.ran_at)}</p>
+          </div>
+          <ul className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-4">
+            <li>
+              would update:{" "}
+              <span className="font-semibold tabular-nums text-foreground">{previewSummary.would_update_count}</span>
+            </li>
+            <li>
+              would skip:{" "}
+              <span className="font-semibold tabular-nums text-foreground">{previewSummary.would_skip_count}</span>
+            </li>
+            <li>
+              missing data:{" "}
+              <span className="font-semibold tabular-nums text-foreground">{previewSummary.missing_data_count}</span>
+            </li>
+            <li>
+              samples scanned:{" "}
+              <span className="font-semibold tabular-nums text-foreground">{previewSummary.sample_count}</span>
+            </li>
+          </ul>
+          {previewSummary.rate_limit_warnings.length > 0 ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-amber-950 dark:text-amber-100">
+              <p className="font-medium">Rate-limit warnings</p>
+              <ul className="mt-0.5 list-inside list-disc">
+                {previewSummary.rate_limit_warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {previewSummary.api_errors.length > 0 ? (
+            <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1.5">
+              <p className="font-medium text-destructive">API errors ({previewSummary.api_errors.length})</p>
+              <ul className="mt-0.5 max-h-32 space-y-1 overflow-y-auto text-[11px] text-muted-foreground">
+                {previewSummary.api_errors.map((e) => (
+                  <li key={`${e.product_id}:${e.reason}`} className="break-words">
+                    <span className="font-mono text-foreground">{e.product_id.slice(0, 8)}…</span>: {e.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {previewSummary.sample_products.length > 0 ? (
+            <div>
+              <p className="font-medium text-foreground">Sample products</p>
+              <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto text-[11px] text-muted-foreground">
+                {previewSummary.sample_products.map((s) => (
+                  <li key={s.id} className="rounded border border-border/40 bg-background/60 px-2 py-1">
+                    <span className="font-mono text-foreground">{s.asin ?? "—"}</span>
+                    {s.product_name ? ` · ${s.product_name}` : null}
+                    <span className="ml-1 text-[10px] uppercase tracking-wide">({s.bucket})</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <p className="text-[11px] text-muted-foreground">
+            Start apply remains a separate explicit action — preview does not enqueue a job or write data.
+          </p>
+        </div>
       ) : null}
     </section>
   );

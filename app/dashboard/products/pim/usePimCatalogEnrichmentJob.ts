@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { PimCatalogEnrichmentRequestBody } from "@/lib/pim-catalog-enrichment-batch-request";
 import type { ProductEnrichmentJobUiStatus } from "@/lib/jobs/product-enrichment-job-status";
@@ -15,6 +15,13 @@ import {
   tickProductEnrichmentJob,
   writePimEnrichmentJobStorage,
 } from "@/lib/pim-catalog-enrichment-job-client";
+
+import {
+  derivePimProductEnrichmentCanonicalJobState,
+  hasActiveNonTerminalProductEnrichmentJob,
+  isTerminalProductEnrichmentJob,
+  type PimProductEnrichmentCanonicalJobState,
+} from "./pim-product-enrichment-job-ui-state";
 
 export type PimEnrichmentJobCallbacks = {
   onTerminal?: (status: ProductEnrichmentJobUiStatus) => void;
@@ -36,11 +43,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
   });
-}
-
-function isTerminalStatus(status: ProductEnrichmentJobUiStatus | null | undefined): boolean {
-  if (!status) return false;
-  return status.status === "completed" || status.status === "cancelled" || status.status === "failed";
 }
 
 export function usePimCatalogEnrichmentJob(args: {
@@ -124,7 +126,7 @@ export function usePimCatalogEnrichmentJob(args: {
             if (ac.signal.aborted) break;
             if (!st) break;
 
-            if (isTerminalStatus(st)) {
+            if (isTerminalProductEnrichmentJob(st)) {
               callbacksRef.current?.onTerminal?.(st);
               if (st.status === "completed" && storageKey) clearPimEnrichmentJobStorage(storageKey);
               break;
@@ -209,7 +211,36 @@ export function usePimCatalogEnrichmentJob(args: {
 
   const resumeBackendJob = useCallback(
     async (basePayload: PimCatalogEnrichmentRequestBody) => {
-      if (!oid || !storeId) return;
+      if (!oid || !storeId) return { ok: false as const, error: "Organization and store are required." };
+
+      if (jobId && jobStatus && !isTerminalProductEnrichmentJob(jobStatus)) {
+        setJobErr(null);
+        setActionBusy(true);
+        try {
+          enableAutoTick();
+          const st = await refreshJobStatus(jobId);
+          if (st?.needs_tick) {
+            const tick = await tickProductEnrichmentJob(jobId);
+            if (!tick.ok) {
+              const msg = tick.error ?? "Product enrichment tick failed.";
+              setJobErr(msg);
+              callbacksRef.current?.onError?.(msg);
+              return { ok: false as const, error: msg };
+            }
+            await refreshJobStatus(jobId);
+          }
+          startPolling(jobId);
+          return { ok: true as const, job_id: jobId };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Failed to resume enrichment job.";
+          setJobErr(msg);
+          callbacksRef.current?.onError?.(msg);
+          return { ok: false as const, error: msg };
+        } finally {
+          setActionBusy(false);
+        }
+      }
+
       const resumeIndex = jobStatus?.last_cursor_index ?? jobStatus?.processed ?? 0;
       const payload: PimCatalogEnrichmentRequestBody = {
         ...basePayload,
@@ -219,7 +250,7 @@ export function usePimCatalogEnrichmentJob(args: {
       };
       return startBackendJob(payload);
     },
-    [jobStatus, oid, startBackendJob, storeId],
+    [enableAutoTick, jobId, jobStatus, oid, refreshJobStatus, startBackendJob, startPolling, storeId],
   );
 
   useEffect(() => {
@@ -239,7 +270,7 @@ export function usePimCatalogEnrichmentJob(args: {
         if (stored?.job_id === active.job_id) {
           writePimEnrichmentJobStorage(storageKey, stored);
         }
-        if (!isTerminalStatus(active.status)) startPolling(active.job_id);
+        if (!isTerminalProductEnrichmentJob(active.status)) startPolling(active.job_id);
         return;
       }
 
@@ -249,7 +280,7 @@ export function usePimCatalogEnrichmentJob(args: {
       if (cancelled || !st.ok) return;
       setJobId(stored.job_id);
       setJobStatus(st.status);
-      if (!isTerminalStatus(st.status)) startPolling(stored.job_id);
+      if (!isTerminalProductEnrichmentJob(st.status)) startPolling(stored.job_id);
     })();
 
     return () => {
@@ -259,16 +290,27 @@ export function usePimCatalogEnrichmentJob(args: {
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  const jobAdvancing =
-    Boolean(jobStatus?.running || (jobStatus?.needs_tick && autoTickEnabled)) && !isTerminalStatus(jobStatus);
+  const canonicalJobState: PimProductEnrichmentCanonicalJobState = useMemo(
+    () =>
+      derivePimProductEnrichmentCanonicalJobState({
+        jobId,
+        jobStatus,
+        autoTickEnabled,
+        jobErr,
+      }),
+    [autoTickEnabled, jobErr, jobId, jobStatus],
+  );
 
-  const jobPausedAwaitingUser =
-    Boolean(jobStatus?.needs_tick && !autoTickEnabled && jobId) && !isTerminalStatus(jobStatus);
+  const hasActiveNonTerminalJob = hasActiveNonTerminalProductEnrichmentJob({ jobId, jobStatus });
+  const jobAdvancing = canonicalJobState === "actively_advancing";
+  const jobPausedAwaitingUser = canonicalJobState === "paused_awaiting_user";
 
   return {
     jobId,
     jobStatus,
     jobBusy: actionBusy,
+    canonicalJobState,
+    hasActiveNonTerminalJob,
     jobRunning: jobAdvancing,
     autoTickEnabled,
     jobPausedAwaitingUser,

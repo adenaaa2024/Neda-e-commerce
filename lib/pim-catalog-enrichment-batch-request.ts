@@ -15,6 +15,9 @@ export type PimCatalogEnrichmentRequestBody = {
   product_ids?: string[];
   include_enrichment_debug?: boolean;
   allow_suspicious_image_overwrite?: boolean;
+  /** When true, call Amazon APIs but skip all product/map/price writes. */
+  dry_run?: boolean;
+  preview_only?: boolean;
 };
 
 export type PimCatalogEnrichmentBatchParams = {
@@ -29,6 +32,7 @@ export type PimCatalogEnrichmentBatchParams = {
   retryIds: string[];
   allowEnrichmentDebug: boolean;
   allowSuspiciousImageOverwrite: boolean;
+  dryRun?: boolean;
 };
 
 export type PimCatalogEnrichmentBatchError = { ok: false; error: string; status: number };
@@ -88,6 +92,7 @@ export function parsePimCatalogEnrichmentBatchParams(
     retryIds,
     allowEnrichmentDebug: Boolean(body.include_enrichment_debug),
     allowSuspiciousImageOverwrite: Boolean(body.allow_suspicious_image_overwrite),
+    dryRun: Boolean(body.dry_run ?? body.preview_only),
   };
 }
 
@@ -180,4 +185,8 @@ export const PIM_CATALOG_ENRICHMENT_METRIC_KEYS = [
   "retry_missing_prices_only",
   "prioritize_incomplete",
   "force_fresh_price_rows",
+  "dry_run",
+  "would_update_count",
+  "would_skip_count",
+  "missing_data_count",
 ] as const;

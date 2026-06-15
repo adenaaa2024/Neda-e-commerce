@@ -8,6 +8,7 @@ import type { SourceRunV1 } from "../amazon/reports-api-source-run";
 import { mergeUploadMetadata } from "../raw-report-upload-metadata";
 import { supabaseServer } from "../supabase-server";
 import { isUuidString } from "../uuid";
+import { expectedPackagesRebuildRecordedForUpload } from "./expected-packages-explicit-rebuild-guard";
 
 /** In-process dedupe: same Node tick / worker loop must not rebuild twice for one upload. */
 const rebuildProcessedThisRun = new Set<string>();
@@ -39,15 +40,6 @@ function isRemovalReportType(reportType: string): boolean {
   return reportType === "REMOVAL_ORDER" || reportType === "REMOVAL_SHIPMENT";
 }
 
-function priorRebuildForUpload(metadata: unknown, uploadId: string): boolean {
-  if (!metadata || typeof metadata !== "object") return false;
-  const im = (metadata as Record<string, unknown>).import_metrics;
-  if (!im || typeof im !== "object") return false;
-  const prior = (im as Record<string, unknown>).expected_packages_rebuild_after_import;
-  if (!prior || typeof prior !== "object") return false;
-  const p = prior as Record<string, unknown>;
-  return p.upload_id === uploadId && p.rebuild_called === true;
-}
 
 function resolveDirectPostgresUrl(): string | null {
   const url =
@@ -172,7 +164,7 @@ export async function maybeRebuildExpectedPackagesAfterRemovalImport(params: {
     .eq("organization_id", params.organizationId)
     .maybeSingle();
 
-  if (priorRebuildForUpload(uploadRow?.metadata, params.uploadId)) {
+  if (expectedPackagesRebuildRecordedForUpload(uploadRow?.metadata, params.uploadId)) {
     base.skipped_reason = "already_rebuilt_for_upload";
     return base;
   }

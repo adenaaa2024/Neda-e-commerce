@@ -11,6 +11,7 @@ import {
   parseSourceRun,
 } from "./amazon/reports-api-source-run";
 import { queryEpAllocationMismatchBreakdown, rebuildValidFromBreakdown } from "./removal/ep-allocation-mismatch-breakdown";
+import { evaluateExplicitRebuildSkipFromDb } from "./removal/expected-packages-explicit-rebuild-guard";
 import { bindProductionSupabaseEnv, productionPostgresUrl, PRODUCTION_REF } from "./production-db-bind";
 
 const require = createRequire(import.meta.url);
@@ -185,6 +186,9 @@ export type ProductionRemovalSyncResult = {
   shipment_pipeline: { ok: boolean; state: string; error?: string } | null;
   rebuild: Record<string, unknown> | null;
   rebuild_valid: boolean;
+  explicit_rebuild_skipped: boolean;
+  explicit_rebuild_skip_reason: string | null;
+  explicit_rebuild_covered_upload_id: string | null;
   products_unchanged: boolean;
   pim_unchanged: boolean;
   latest_shipment_date: string | null;
@@ -286,18 +290,40 @@ export async function runProductionRemovalSync(opts: {
 
   let rebuild: Record<string, unknown> | null = null;
   let rebuildValid = false;
-  if (doRebuild && (shipmentPipeline?.ok || opts.skipFetch)) {
-    const rebuildRes = await client.query(
-      `SELECT * FROM public.rebuild_expected_packages_from_removals($1::uuid, $2::uuid)`,
-      [PRODUCTION_ORG_ID, PRODUCTION_STORE_ID],
-    );
-    rebuild = (rebuildRes.rows[0] as Record<string, unknown>) ?? null;
-    const breakdown = await queryEpAllocationMismatchBreakdown(client, PRODUCTION_ORG_ID, PRODUCTION_STORE_ID);
-    rebuildValid = rebuildValidFromBreakdown(breakdown);
-    if (!rebuildValid) {
-      errors.push(
-        `rebuild_verify: non_overflow=${breakdown.non_overflow} total=${breakdown.total}`,
+  let explicitRebuildSkipped = false;
+  let explicitRebuildSkipReason: string | null = null;
+  let explicitRebuildCoveredUploadId: string | null = null;
+
+  if (doRebuild && (shipmentPipeline?.ok || orderPipeline?.ok || opts.skipFetch)) {
+    const skipDecision = await evaluateExplicitRebuildSkipFromDb({
+      client,
+      organizationId: PRODUCTION_ORG_ID,
+      rebuildExpectedPackages: doRebuild,
+      orderPipelineOk: orderPipeline?.ok,
+      shipmentPipelineOk: shipmentPipeline?.ok,
+      orderUploadId: orderFetch.upload_id,
+      shipmentUploadId: shipmentFetch.upload_id,
+    });
+    explicitRebuildSkipped = skipDecision.skip;
+    explicitRebuildSkipReason = skipDecision.reason;
+    explicitRebuildCoveredUploadId = skipDecision.covered_upload_id;
+
+    if (!skipDecision.skip) {
+      const rebuildRes = await client.query(
+        `SELECT * FROM public.rebuild_expected_packages_from_removals($1::uuid, $2::uuid)`,
+        [PRODUCTION_ORG_ID, PRODUCTION_STORE_ID],
       );
+      rebuild = (rebuildRes.rows[0] as Record<string, unknown>) ?? null;
+      const breakdown = await queryEpAllocationMismatchBreakdown(client, PRODUCTION_ORG_ID, PRODUCTION_STORE_ID);
+      rebuildValid = rebuildValidFromBreakdown(breakdown);
+      if (!rebuildValid) {
+        errors.push(
+          `rebuild_verify: non_overflow=${breakdown.non_overflow} total=${breakdown.total}`,
+        );
+      }
+    } else if (skipDecision.reason === "pipeline_hook_already_rebuilt") {
+      const breakdown = await queryEpAllocationMismatchBreakdown(client, PRODUCTION_ORG_ID, PRODUCTION_STORE_ID);
+      rebuildValid = rebuildValidFromBreakdown(breakdown);
     }
   }
 
@@ -337,6 +363,9 @@ export async function runProductionRemovalSync(opts: {
     shipment_pipeline: shipmentPipeline,
     rebuild,
     rebuild_valid: rebuildValid,
+    explicit_rebuild_skipped: explicitRebuildSkipped,
+    explicit_rebuild_skip_reason: explicitRebuildSkipReason,
+    explicit_rebuild_covered_upload_id: explicitRebuildCoveredUploadId,
     products_unchanged: productsUnchanged,
     pim_unchanged: pimUnchanged,
     latest_shipment_date: (latestShip.rows[0] as { d?: string })?.d ?? null,

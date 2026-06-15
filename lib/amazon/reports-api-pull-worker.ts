@@ -30,6 +30,7 @@ import {
   pickSettlementReportFromList,
   sanitizeAmazonReportsErrorDetail,
 } from "./reports-api-report-request";
+import { clampReimbursementsCreateWindow } from "./reports-api-reimbursements-window";
 import type { ReportsApiPullProfile } from "./reports-api-worker-profile";
 import { supabaseServer } from "../supabase-server";
 import { isUuidString } from "../uuid";
@@ -161,10 +162,11 @@ export async function runReportsApiPullWorker(
     };
   }
 
-  const window: SourceRunWindow = {
-    start: req.windowStart.trim(),
-    end: req.windowEnd.trim(),
-  };
+  const rawWindow = { start: req.windowStart.trim(), end: req.windowEnd.trim() };
+  const window: SourceRunWindow =
+    profile.uploadReportType === "REIMBURSEMENTS"
+      ? clampReimbursementsCreateWindow(rawWindow)
+      : rawWindow;
   if (!window.start || !window.end) {
     return {
       ok: false,
@@ -234,6 +236,15 @@ export async function runReportsApiPullWorker(
     sourceRun = parseSourceRun(row.data.metadata);
     const meta = row.data.metadata as unknown as Record<string, unknown> | null;
     storagePrefix = typeof meta?.storage_prefix === "string" ? meta.storage_prefix : null;
+    if (sourceRun?.state === "failed") {
+      sourceRun = patchSourceRun(sourceRun, {
+        state: "requested",
+        external_ids: { report_id: null, report_document_id: null },
+        attempt: { count: 0, last_error_code: null, last_error_detail: null, next_retry_at: null },
+      });
+      await persistSourceRun(uploadId, req.organizationId, sourceRun);
+      idempotentReplay = false;
+    }
   } else {
     const existing = await findUploadBySourceRunIdempotencyKey(
       req.organizationId,
@@ -262,6 +273,15 @@ export async function runReportsApiPullWorker(
         }
         uploadId = existing.uploadId;
         sourceRun = patchSourceRun(prior, { state: "syncing" });
+        await persistSourceRun(uploadId, req.organizationId, sourceRun);
+        idempotentReplay = false;
+      } else if (prior?.state === "failed") {
+        uploadId = existing.uploadId;
+        sourceRun = patchSourceRun(prior, {
+          state: "requested",
+          external_ids: { report_id: null, report_document_id: null },
+          attempt: { count: 0, last_error_code: null, last_error_detail: null, next_retry_at: null },
+        });
         await persistSourceRun(uploadId, req.organizationId, sourceRun);
         idempotentReplay = false;
       }
@@ -351,17 +371,32 @@ export async function runReportsApiPullWorker(
             },
           });
         } else if (report.processingStatus === "FATAL" || report.processingStatus === "CANCELLED") {
-          sourceRun = patchSourceRun(sourceRun, {
-            state: "failed",
-            attempt: {
-              count: sourceRun.attempt.count + 1,
-              last_error_code: "report_fatal",
-              last_error_detail: sanitizeAmazonReportsErrorDetail(
-                `processingStatus=${report.processingStatus}`,
-              ),
-              next_retry_at: null,
-            },
-          });
+          const nextCount = sourceRun.attempt.count + 1;
+          const fatalDetail = sanitizeAmazonReportsErrorDetail(
+            `processingStatus=${report.processingStatus}`,
+          );
+          if (nextCount < REPORTS_API_MAX_ATTEMPTS) {
+            sourceRun = patchSourceRun(sourceRun, {
+              state: "requested",
+              external_ids: { report_id: null, report_document_id: null },
+              attempt: {
+                count: nextCount,
+                last_error_code: "report_fatal",
+                last_error_detail: fatalDetail,
+                next_retry_at: null,
+              },
+            });
+          } else {
+            sourceRun = patchSourceRun(sourceRun, {
+              state: "failed",
+              attempt: {
+                count: nextCount,
+                last_error_code: "report_fatal",
+                last_error_detail: fatalDetail,
+                next_retry_at: null,
+              },
+            });
+          }
         } else {
           needsResume = true;
           sourceRun = patchSourceRun(sourceRun, {

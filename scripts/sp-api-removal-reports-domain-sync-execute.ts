@@ -13,6 +13,7 @@ import {
   queryEpAllocationMismatchBreakdown,
   rebuildValidFromBreakdown,
 } from "../lib/removal/ep-allocation-mismatch-breakdown";
+import { evaluateExplicitRebuildSkipFromDb } from "../lib/removal/expected-packages-explicit-rebuild-guard";
 import {
   loadEnvLocalIntoProcess,
   refFromSupabaseUrl,
@@ -416,12 +417,25 @@ async function main(): Promise<void> {
   const newOrderRows = afterSyncDomain.removals - beforeDomain.removals;
   const newShipmentRows = afterSyncDomain.shipments - beforeDomain.shipments;
 
-  await ensureRebuildIndexes(client);
-  const rebuildRes = await client.query(
-    `SELECT * FROM public.rebuild_expected_packages_from_removals($1::uuid, $2::uuid)`,
-    [ORG_ID, STORE_ID],
-  );
-  const rebuild = rebuildRes.rows[0] as RebuildResult;
+  const skipDecision = await evaluateExplicitRebuildSkipFromDb({
+    client,
+    organizationId: ORG_ID,
+    rebuildExpectedPackages: true,
+    orderPipelineOk: orderPipe.ok,
+    shipmentPipelineOk: shipPipe.ok,
+    orderUploadId: ORDER_UPLOAD_ID,
+    shipmentUploadId: SHIPMENT_UPLOAD_ID,
+  });
+
+  let rebuild: RebuildResult | null = null;
+  if (!skipDecision.skip) {
+    await ensureRebuildIndexes(client);
+    const rebuildRes = await client.query(
+      `SELECT * FROM public.rebuild_expected_packages_from_removals($1::uuid, $2::uuid)`,
+      [ORG_ID, STORE_ID],
+    );
+    rebuild = rebuildRes.rows[0] as RebuildResult;
+  }
 
   const afterEp = await epCounts(client);
   const productsAfter = await tableCount(client, "products");
@@ -454,6 +468,7 @@ async function main(): Promise<void> {
         new_shipment_rows_net: newShipmentRows,
         plan_expected: { new_order: 179, new_shipment: 397 },
         pipelines: [orderPipe, shipPipe],
+        explicit_rebuild_skip: skipDecision,
         products: { before: productsBefore, after: productsAfter },
         product_identifier_map: { before: pimBefore, after: pimAfter },
       },
@@ -517,13 +532,17 @@ async function main(): Promise<void> {
       "",
       "## rebuild_expected_packages_from_removals output",
       "",
-      "| Field | Value |",
-      "|-------|------:|",
-      `| detail_lines_in_scope | ${rebuild.detail_lines_in_scope} |`,
-      `| matched_rows_upserted | ${rebuild.matched_rows_upserted} |`,
-      `| remainder_rows_upserted | ${rebuild.remainder_rows_upserted} |`,
-      `| overflow_lines | ${rebuild.overflow_lines} |`,
-      `| obsolete_rows_deleted | ${rebuild.obsolete_rows_deleted} |`,
+      skipDecision.skip
+        ? `Explicit rebuild **skipped** (${skipDecision.reason ?? "unknown"}; covered upload \`${skipDecision.covered_upload_id ?? "n/a"}\`). Pipeline hook already rebuilt.`
+        : [
+            "| Field | Value |",
+            "|-------|------:|",
+            `| detail_lines_in_scope | ${rebuild?.detail_lines_in_scope ?? 0} |`,
+            `| matched_rows_upserted | ${rebuild?.matched_rows_upserted ?? 0} |`,
+            `| remainder_rows_upserted | ${rebuild?.remainder_rows_upserted ?? 0} |`,
+            `| overflow_lines | ${rebuild?.overflow_lines ?? 0} |`,
+            `| obsolete_rows_deleted | ${rebuild?.obsolete_rows_deleted ?? 0} |`,
+          ].join("\n"),
     ].join("\n") + "\n",
   );
 

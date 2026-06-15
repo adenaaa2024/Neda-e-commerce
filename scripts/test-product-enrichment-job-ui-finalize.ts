@@ -19,11 +19,14 @@ function staticChecks(): void {
   const hub = readFileSync(join(process.cwd(), "app/dashboard/products/pim/PimCatalogHub.tsx"), "utf8");
   const hook = readFileSync(join(process.cwd(), "app/dashboard/products/pim/usePimCatalogEnrichmentJob.ts"), "utf8");
   const panel = readFileSync(join(process.cwd(), "app/dashboard/products/pim/PimCatalogEnrichmentJobPanel.tsx"), "utf8");
+  const state = readFileSync(join(process.cwd(), "app/dashboard/products/pim/pim-product-enrichment-job-ui-state.ts"), "utf8");
   const client = readFileSync(join(process.cwd(), "lib/pim-catalog-enrichment-job-client.ts"), "utf8");
 
   assert.match(hub, /Product Data Update/);
   assert.match(hub, /usePimCatalogEnrichmentJob/);
-  assert.match(hub, /PimCatalogEnrichmentJobPanel/);
+  assert.match(hub, /ProductDataUpdatePanel/);
+  assert.doesNotMatch(hub, /<PimCatalogEnrichmentJobPanel/);
+  assert.match(state, /derivePimProductEnrichmentCanonicalJobState/);
   assert.doesNotMatch(hub, /Browser loop \(legacy\)/);
   assert.doesNotMatch(hub, /Product Data Update run mode/);
   assert.doesNotMatch(hub, /PIM_DISPLAY_CURRENCIES/);
@@ -33,6 +36,8 @@ function staticChecks(): void {
   assert.doesNotMatch(client, /product_identifier_map/);
 
   assert.match(hook, /fetchProductEnrichmentJobStatus/);
+  assert.match(hook, /canonicalJobState/);
+  assert.match(hook, /hasActiveNonTerminalJob/);
   assert.match(hook, /cancelProductEnrichmentJob/);
   assert.match(hook, /resumeBackendJob/);
   assert.match(hook, /startPolling/);

@@ -1,7 +1,77 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-13 (`phase-shipment-entry-product-linkage-all-paths-original-verify-v1` `20260613T062152Z`)
+**Last updated:** 2026-06-15 (`phase-claim-evidence-packet-ui-v1` `20260615T100500Z`)
+
+---
+
+## P0 — PIM Start Apply UI wire
+
+1. **PHASE-PIM-PRODUCT-DATA-UPDATE-START-APPLY-UI-WIRE-V1** — wire Start Apply to proven backend job path; keep preview separate
+
+Evidence: `.cursor/audit-reports/phase-pim-product-data-update-start-preview-ui-wire-v1/20260614T100632Z/`
+
+~~**PHASE-PIM-PRODUCT-DATA-UPDATE-START-PREVIEW-UI-WIRE-V1**~~ — **DONE** `20260614T100632Z`
+
+---
+
+## P0 — PIM product data update operator start guide
+
+1. **PHASE-PIM-PRODUCT-DATA-UPDATE-OPERATOR-START-GUIDE-V1** — document safe Start Apply flow; page verified clean post-cancel
+
+Evidence: `.cursor/audit-reports/phase-pim-product-update-after-cancel-ui-verify-v1/20260614T073235Z/`
+
+~~**PHASE-PIM-PRODUCT-UPDATE-AFTER-CANCEL-UI-VERIFY-V1**~~ — **PASS** `20260614T073235Z`
+
+---
+
+~~**PHASE-CLAIM-EFFECTIVE-DATE-GATE-V1**~~ — **DONE** `20260614T170000Z`
+
+Evidence: `.cursor/audit-reports/phase-claim-effective-date-gate-v1/20260614T170000Z/`
+
+~~**PHASE-CLAIM-CANDIDATE-EMIT-STAGING-WAVE2-V1**~~ — **DONE** `20260614T180000Z` — 50× `removal_shipment_missing` @ `1e29a52c`; `SAFE_STAGING_EMIT_WAVE2: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-candidate-emit-staging-wave2-v1/20260614T180000Z/`
+
+~~**PHASE-CLAIM-CANDIDATE-EMIT-STAGING-ROLLBACK-DRILL-V1**~~ — **PASS** `20260614T190000Z` — wave2 `1e29a52c` quarantined 50/50; wave1 `6870dbd1` unchanged; `SAFE_ROLLBACK_DRILL_PASSED: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-candidate-emit-staging-rollback-drill-v1/20260614T190000Z/`
+
+1. **PHASE-CLAIM-CASE-CREATION-CONTRACT-V1** — plan read-only case creation contract from evidence packet readiness (no writes until approval)
+
+Evidence: `.cursor/audit-reports/phase-claim-evidence-packet-ui-v1/20260615T100500Z/`
+
+~~**PHASE-CLAIM-EVIDENCE-PACKET-UI-V1**~~ — **PASS** `20260615T100500Z` — pilot drawer evidence packet section; readiness badges; `SAFE_TO_REVIEW_EVIDENCE_PACKET_UI: yes`
+
+~~**PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1**~~ — **PASS** `20260615T091500Z` — V1 composer + API; original pilot **50/50**; `SAFE_EVIDENCE_PACKET_PREVIEW_READY: yes`
+
+~~**PHASE-CLAIM-EVIDENCE-PACKET-V1-PLAN**~~ — **DONE** `20260615T080000Z` — reuse 7G composer; V1 schema + API/UI plan; `SAFE_TO_BUILD_EVIDENCE_PACKET_PREVIEW: yes`
+
+~~**PHASE-CLAIM-CANDIDATE-REVIEW-UI-ORIGINAL-PILOT-V1**~~ — **PASS** `20260615T070000Z` — `/claim-center/pilot-review`; 50/50; `SAFE_TO_REVIEW_ORIGINAL_PILOT_CANDIDATES_IN_UI: yes`
+
+~~**PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-RESTORE-FOR-REVIEW-V1**~~ — **PASS** `20260615T060000Z` — 50/50 restored @ `a8a892fe`; `SAFE_ORIGINAL_PILOT_RESTORED_FOR_REVIEW: yes`
+
+~~**PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-ROLLBACK-DRILL-V1**~~ — **PASS** `20260615T050000Z` — 50/50 quarantined @ `a8a892fe`; `SAFE_ORIGINAL_ROLLBACK_DRILL_PASSED: yes`
+
+~~**PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-POST-VERIFY-V1**~~ — **PASS** `20260615T040000Z` — 50/50 trusted; `SAFE_ORIGINAL_PILOT_ROWS_TRUSTED: yes`
+
+~~**PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-V1**~~ — **DONE** `20260614T233000Z` — 50 inserted @ `a8a892fe`; `SAFE_ORIGINAL_EMIT_PILOT: yes`
+
+~~**PHASE-CLAIM-CANDIDATE-EMIT-ORIGINAL-PILOT-PLAN-V1**~~ — **DONE** `20260614T200000Z` — `SAFE_TO_RUN_ORIGINAL_EMIT_PILOT: yes`
+
+---
+
+## P0 — Claim effective date gates (preview/grouping — remaining)
+
+~~**PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1**~~ — **DONE** `20260614T210000Z` — `/claim-center/preview-generators`; `SAFE_TO_REVIEW_PREVIEW_UI: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-first-generator-preview-ui-v1/20260614T210000Z/`
+
+~~**PHASE-CLAIM-GROUPING-FILTERS-UI-V1**~~ — **DONE** `20260614T120000Z`
+
+~~**PHASE-CLAIM-GROUPING-FILTERS-UI-VERIFY-V1**~~ — **PASS** `20260614T152000Z` — `SAFE_GROUPING_UI_REVIEW_READY: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-grouping-filters-ui-verify-v1/20260614T152000Z/`
 
 ---
 

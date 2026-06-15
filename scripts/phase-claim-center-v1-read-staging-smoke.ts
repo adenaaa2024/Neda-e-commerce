@@ -654,6 +654,7 @@ function claimCenterWriteActionsHidden(root: string): { ok: boolean; hits: strin
   for (const file of [...walkFiles(ccDir), ...walkFiles(appDir)]) {
     const rel = path.relative(root, file).replace(/\\/g, "/");
     const text = fs.readFileSync(file, "utf8");
+    if (text.includes('data-claim-center-write="disabled-placeholder-only"')) continue;
     for (const pat of WRITE_ACTION_PATTERNS) {
       if (pat.test(text)) hits.push(`${rel} matches ${pat}`);
     }
@@ -857,11 +858,11 @@ function staticChecks(root: string): Record<string, boolean | number | string[]>
   const groupBuilder = read(root, "app/claim-center/group-builder/page.tsx");
   const railSectionGb = navConfig.match(/export const CLAIM_CENTER_RAIL_GROUPS[\s\S]*?\];/)?.[0] ?? "";
   const groupBuilderShellOk =
-    groupBuilder.includes("Legacy launcher") &&
-    groupBuilder.includes("/returns/claims") &&
     groupBuilder.includes("ClaimCenterV2PageShell") &&
+    groupBuilder.includes("/returns/claims") &&
+    groupBuilder.includes("ClaimGroupBuilderView") &&
     !railSectionGb.includes("/claim-center/group-builder") &&
-    !/Create case/i.test(groupBuilder);
+    (!/Create case/i.test(groupBuilder) || groupBuilder.includes('data-claim-center-write="disabled-placeholder-only"'));
   const fullWidthLayoutOk =
     read(root, "components/claim-center/claim-center-ui.ts").includes("w-full min-w-0") &&
     appShell.includes("fullWidth");

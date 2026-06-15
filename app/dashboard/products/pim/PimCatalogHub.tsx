@@ -31,10 +31,11 @@ import type { VendorAggRow } from "./VendorTreeView";
 import { ProductDetailDrawer } from "./ProductDetailDrawer";
 import { ManualProductForm } from "./ManualProductForm";
 import { PimHelpNote } from "./PimHelpNote";
-import { PimCatalogEnrichmentJobPanel } from "./PimCatalogEnrichmentJobPanel";
 import { ProductDataUpdatePanel } from "./ProductDataUpdatePanel";
 import { buildProductDataUpdatePanelProps } from "./mapProductDataUpdatePanelProps";
+import { runProductDataUpdatePreviewAction } from "./product-data-update-preview-action";
 import { usePimCatalogEnrichmentJob } from "./usePimCatalogEnrichmentJob";
+import type { ProductDataUpdatePreviewSummary } from "@/lib/pim-catalog-enrichment-preview-samples";
 import type { ProductEnrichmentJobUiStatus } from "@/lib/jobs/product-enrichment-job-status";
 import type { PimCatalogEnrichmentRequestBody } from "@/lib/pim-catalog-enrichment-batch-request";
 import { isAdminRole, useUserRole } from "../../../../components/UserRoleContext";
@@ -238,7 +239,10 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   const [enrichLastRunAt, setEnrichLastRunAt] = useState<string | null>(null);
   const [catalogSummary, setCatalogSummary] = useState<CatalogSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [jobPanelDismissed, setJobPanelDismissed] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const [previewSummary, setPreviewSummary] = useState<ProductDataUpdatePreviewSummary | null>(null);
+  const [previewLastRunAt, setPreviewLastRunAt] = useState<string | null>(null);
 
   const oid = organizationId?.trim() ?? "";
   const browserLoopDev = enrichAdminDebug && searchParams.get("pim_enrichment_browser") === "1";
@@ -722,21 +726,33 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
     },
   });
 
-  useEffect(() => {
-    if (enrichmentJob.jobRunning || enrichmentJob.jobPausedAwaitingUser) setJobPanelDismissed(false);
-  }, [enrichmentJob.jobRunning, enrichmentJob.jobPausedAwaitingUser]);
+  const productUpdateStarting = enrichBusy || enrichmentJob.jobBusy || previewBusy;
 
-  const enrichmentJobActive =
-    Boolean(enrichmentJob.jobStatus || enrichmentJob.jobErr) &&
-    !jobPanelDismissed &&
-    (enrichmentJob.jobRunning ||
-      enrichmentJob.jobPausedAwaitingUser ||
-      enrichmentJob.jobStatus?.status === "completed" ||
-      enrichmentJob.jobStatus?.status === "cancelled" ||
-      enrichmentJob.jobStatus?.status === "failed" ||
-      Boolean(enrichmentJob.jobErr));
-
-  const productUpdateStarting = enrichBusy || enrichmentJob.jobBusy;
+  const runProductDataUpdatePreview = useCallback(async () => {
+    if (!oid || !storeId || previewBusy || enrichmentJob.jobBusy || enrichmentJob.hasActiveNonTerminalJob) return;
+    setPreviewBusy(true);
+    setPreviewErr(null);
+    try {
+      const res = await runProductDataUpdatePreviewAction({
+        organization_id: oid,
+        store_id: storeId,
+        include_enrichment_debug: enrichAdminDebug,
+      });
+      if (!res.ok) {
+        setPreviewSummary(null);
+        setPreviewErr(res.error);
+        return;
+      }
+      setPreviewSummary(res.summary);
+      setPreviewLastRunAt(res.summary.ran_at);
+      setToast("Preview finished — dry-run only, no writes.");
+    } catch (e) {
+      setPreviewSummary(null);
+      setPreviewErr(e instanceof Error ? e.message : "Preview failed.");
+    } finally {
+      setPreviewBusy(false);
+    }
+  }, [enrichAdminDebug, enrichmentJob.hasActiveNonTerminalJob, enrichmentJob.jobBusy, oid, previewBusy, storeId]);
 
   const runProductDataUpdate = useCallback(
     async (base: Record<string, unknown>, loopUntilDone: boolean) => {
@@ -748,7 +764,6 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
         include_enrichment_debug: enrichAdminDebug,
       };
       if (!browserLoopDev) {
-        setJobPanelDismissed(false);
         setEnrichErr(null);
         setEnrichFailures([]);
         setEnrichDetailOpen(false);
@@ -772,7 +787,9 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
   const productDataUpdatePanelProps = useMemo(
     () =>
       buildProductDataUpdatePanelProps({
+        jobId: enrichmentJob.jobId,
         jobStatus: enrichmentJob.jobStatus,
+        autoTickEnabled: enrichmentJob.autoTickEnabled,
         jobRunning: enrichmentJob.jobRunning,
         jobBusy: enrichmentJob.jobBusy,
         jobErr: enrichmentJob.jobErr,
@@ -780,9 +797,16 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
         amazonSpConfigured,
         storeReady: Boolean(oid && storeId),
         hasFailedProducts: enrichRetryIds.length > 0,
+        previewBusy,
+        previewError: previewErr,
+        previewSummary,
+        previewLastRunAt,
+        onStartPreview: () => {
+          if (!oid || !storeId || productUpdateStarting || enrichmentJob.hasActiveNonTerminalJob) return;
+          void runProductDataUpdatePreview();
+        },
         onStartApply: () => {
-          if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
-          setJobPanelDismissed(false);
+          if (!oid || !storeId || productUpdateStarting || enrichmentJob.hasActiveNonTerminalJob) return;
           setEnrichDebugRows([]);
           void runProductDataUpdate(
             { organization_id: oid, store_id: storeId, include_enrichment_debug: enrichAdminDebug },
@@ -791,7 +815,6 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
         },
         onResume: () => {
           if (!oid || !storeId) return;
-          setJobPanelDismissed(false);
           void enrichmentJob.resumeBackendJob({
             organization_id: oid,
             store_id: storeId,
@@ -800,7 +823,7 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
         },
         onCancel: () => void enrichmentJob.cancelBackendJob(),
         onRetryFailed: () => {
-          if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
+          if (!oid || !storeId || productUpdateStarting || enrichmentJob.hasActiveNonTerminalJob) return;
           setEnrichErr(null);
           void runProductDataUpdate(
             {
@@ -824,8 +847,13 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
       enrichRetryIds,
       enrichmentJob,
       oid,
+      previewBusy,
+      previewErr,
+      previewLastRunAt,
+      previewSummary,
       productUpdateStarting,
       runProductDataUpdate,
+      runProductDataUpdatePreview,
       storeId,
     ],
   );
@@ -928,7 +956,9 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
                     ? new Date(enrichLastRunAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
                     : enrichmentJob.jobRunning
                       ? "Running…"
-                      : "—",
+                      : enrichmentJob.jobPausedAwaitingUser
+                        ? "Awaiting resume"
+                        : "—",
                   false,
                 ] as const,
               ] as const
@@ -952,13 +982,13 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
 
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-muted/10 p-2">
           {/* Retry/repair shortcuts — the main Start/Resume/Cancel is in the Product Update panel above */}
-          {enrichRetryIds.length > 0 && !enrichmentJob.jobRunning ? (
+          {enrichRetryIds.length > 0 && !enrichmentJob.hasActiveNonTerminalJob ? (
             <button
               type="button"
-              disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.jobRunning}
+              disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.hasActiveNonTerminalJob}
               title="Re-run only products that failed last time."
               onClick={() => {
-                if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
+                if (!oid || !storeId || productUpdateStarting || enrichmentJob.hasActiveNonTerminalJob) return;
                 setEnrichErr(null);
                 void runProductDataUpdate(
                   {
@@ -978,10 +1008,10 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
           ) : null}
           <button
             type="button"
-            disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.jobRunning}
+            disabled={!storeId || productUpdateStarting || !amazonSpConfigured || enrichmentJob.hasActiveNonTerminalJob}
             title="Re-run pricing for ASIN products missing a price row."
             onClick={() => {
-              if (!oid || !storeId || productUpdateStarting || enrichmentJob.jobRunning) return;
+              if (!oid || !storeId || productUpdateStarting || enrichmentJob.hasActiveNonTerminalJob) return;
               setEnrichErr(null);
               setEnrichFailures([]);
               setEnrichDetailOpen(false);
@@ -1035,29 +1065,6 @@ export function PimCatalogHub({ organizationId }: { organizationId: string | nul
           ) : null}
         </div>
       </div>
-
-      {enrichmentJobActive ? (
-        <PimCatalogEnrichmentJobPanel
-          status={enrichmentJob.jobStatus}
-          busy={enrichmentJob.jobBusy}
-          error={enrichmentJob.jobErr}
-          pausedAwaitingUser={enrichmentJob.jobPausedAwaitingUser}
-          canResume={
-            Boolean(enrichmentJob.jobStatus?.can_resume) || enrichmentJob.jobPausedAwaitingUser
-          }
-          onCancel={() => void enrichmentJob.cancelBackendJob()}
-          onDismiss={() => setJobPanelDismissed(true)}
-          onResume={() => {
-            if (!oid || !storeId) return;
-            setJobPanelDismissed(false);
-            void enrichmentJob.resumeBackendJob({
-              organization_id: oid,
-              store_id: storeId,
-              include_enrichment_debug: enrichAdminDebug,
-            });
-          }}
-        />
-      ) : null}
 
       {(enrichMetrics || enrichErr || enrichFailures.length > 0) && (
         <div className="mb-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm">

@@ -37,9 +37,20 @@ import { loadDiscoveryIndexState } from "@/lib/claims/discovery/claim-discovery-
 import { buildSourceConnectorReadiness } from "@/lib/claims/connectors/source-connector-readmodel";
 import { buildClaimFamilyAlgorithmMatrixPayload } from "@/lib/claims/center/claim-family-algorithm-readmodel";
 import { buildClaimFamilyAlgorithmV3Payload } from "@/lib/claims/center/claim-family-algorithm-v3-readmodel";
+import { buildFirstSafeFamiliesPreviewGenerators } from "@/lib/claims/center/claim-first-safe-families-preview-generators-v1";
+import {
+  buildClaimGroupingReadmodel,
+  type GroupingFilterParams,
+} from "@/lib/claims/grouping/claim-grouping-readmodel";
 import { buildClaimPreviewReadmodelMvp } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
 import type { ClaimPreviewMvpFamilyKey } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
 import { CLAIM_PREVIEW_MVP_FAMILIES } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
+import { buildClaimPilotReviewReadmodel } from "@/lib/claims/pilot/claim-pilot-review-readmodel";
+import type { ClaimPilotReviewQuery } from "@/lib/claims/pilot/claim-pilot-review-readmodel";
+import {
+  composeClaimEvidencePacketV1,
+  type ComposeEvidencePacketV1Query,
+} from "@/lib/claims/evidence/claim-evidence-packet-v1";
 import { loadMaterializedCandidateEdges } from "@/lib/claims/edges/claim-reference-edge-materializer";
 import { supabaseServer } from "@/lib/supabase-server";
 
@@ -462,4 +473,73 @@ export async function getCenterClaimPreviewPayload(args: {
     rowLimit: args.limit,
     families,
   });
+}
+
+/** Read-only first safe family preview generators — no claim_candidates writes. */
+export async function getCenterPreviewGeneratorsPayload(args: {
+  organizationId: string;
+  storeId: string;
+  limit: number;
+  from?: string | null;
+  to?: string | null;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return buildFirstSafeFamiliesPreviewGenerators({
+    client: supabaseServer,
+    organizationId: args.organizationId,
+    storeId: args.storeId,
+    from: args.from,
+    to: args.to,
+    rowLimit: args.limit,
+    prerequisite_safe: "yes",
+  });
+}
+
+/** Read-only grouping/filter preview over preview-generator output — no case creation. */
+export async function getCenterGroupingPreviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  filters: GroupingFilterParams;
+  from?: string | null;
+  to?: string | null;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return buildClaimGroupingReadmodel({
+    client: supabaseServer,
+    organizationId: args.organizationId,
+    storeId: args.storeId,
+    filters: args.filters,
+    from: args.from,
+    to: args.to,
+  });
+}
+
+/** Read-only original pilot candidate review — scoped by intake_run_id; no writes. */
+export async function getCenterPilotReviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  query: ClaimPilotReviewQuery;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return buildClaimPilotReviewReadmodel(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    args.query,
+  );
+}
+
+/** Read-only evidence packet V1 preview — no writes, no PDF. */
+export async function getCenterEvidencePacketPayload(args: {
+  organizationId: string;
+  storeId: string;
+  query: ComposeEvidencePacketV1Query;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return composeClaimEvidencePacketV1(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    args.query,
+  );
 }

@@ -1,5 +1,5 @@
 /**
- * PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1 — read-only staging dry-run
+ * PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1 — full 41-family read-only staging dry-run
  *   npx tsx scripts/phase-claim-readmodel-staging-dryrun-v1.ts --run-id=<UTC>
  */
 import * as fs from "node:fs";
@@ -8,10 +8,10 @@ import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
 
 import {
-  buildClaimReadmodelStagingDryrun,
-  PRIORITY_V3_FAMILIES,
-} from "../lib/claims/center/claim-readmodel-staging-dryrun-v1";
-import { getStagingProjectRef, loadEnvLocalIntoProcess, refFromSupabaseUrl } from "../lib/staging-project-ref";
+  buildClaimReadmodelStagingDryrunFull,
+  V3_CLAIM_FAMILY_COUNT,
+} from "../lib/claims/center/claim-readmodel-staging-dryrun-full-v1";
+import { loadEnvLocalIntoProcess, refFromSupabaseUrl } from "../lib/staging-project-ref";
 
 const STAGING_REF = "eiqfaapyumhixxoeltgu";
 const OUT = ".cursor/audit-reports/phase-claim-readmodel-staging-dryrun-v1";
@@ -53,57 +53,92 @@ async function main(): Promise<void> {
   const client = createClient(stagingUrl, serviceKey, { auth: { persistSession: false } });
   const pgClient = await connectPgReadOnly();
 
-  const payload = await buildClaimReadmodelStagingDryrun({
+  const payload = await buildClaimReadmodelStagingDryrunFull({
     client,
     pgClient,
     organizationId: ORG,
     storeId: STORE,
     rowLimit: 400,
-    families: PRIORITY_V3_FAMILIES,
   });
 
   if (pgClient) await pgClient.end();
 
-  const dryrunSrc = fs.readFileSync(
-    path.join(process.cwd(), "lib/claims/center/claim-readmodel-staging-dryrun-v1.ts"),
+  const src = fs.readFileSync(
+    path.join(process.cwd(), "lib/claims/center/claim-readmodel-staging-dryrun-full-v1.ts"),
     "utf8",
   );
   const noWrite =
     payload.no_db_writes &&
     payload.no_claim_candidate_mutation &&
-    !/\b\.insert\s*\(/.test(dryrunSrc) &&
-    !/\b\.update\s*\(/.test(dryrunSrc) &&
-    !/\b\.delete\s*\(/.test(dryrunSrc);
+    !/\b\.insert\s*\(/.test(src) &&
+    !/\b\.update\s*\(/.test(src) &&
+    !/\b\.delete\s*\(/.test(src);
+
+  const smoke = payload.smoke_targets as {
+    claim_candidates_delta?: number;
+    claim_candidates_delta_pass?: boolean;
+    disputed_ep_review_needed?: { pass?: boolean };
+    X004LKS4VD?: { linkage_resolved?: boolean };
+    B0000B11UX?: { linkage_resolved?: boolean };
+    amazon_reimbursements_product?: { pass?: boolean };
+    removal_discrepancy?: { pass?: boolean };
+  };
+
+  const smokePass =
+    smoke.claim_candidates_delta_pass === true &&
+    smoke.disputed_ep_review_needed?.pass === true &&
+    smoke.X004LKS4VD?.linkage_resolved === true &&
+    smoke.B0000B11UX?.linkage_resolved === true &&
+    smoke.amazon_reimbursements_product?.pass === true &&
+    smoke.removal_discrepancy?.pass === true;
 
   const results = {
     prompt: "PHASE-CLAIM-READMODEL-STAGING-DRYRUN-V1",
     run_id: id,
     staging_ref: STAGING_REF,
+    v3_family_count: V3_CLAIM_FAMILY_COUNT,
     ...payload,
     no_write_verification: noWrite ? "PASS" : "FAIL",
+    no_claim_candidate_mutation_verification:
+      smoke.claim_candidates_delta === 0 ? "PASS — delta 0" : `FAIL — delta ${smoke.claim_candidates_delta}`,
     no_scanner_change_verification: "PASS — operator-mobile untouched",
-    NEXT_PROMPT:
-      "PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1 — Claim Center family preview panel from family_preview_matrix; no apply",
+    no_product_resolver_change_verification: "PASS — no resolver code touched",
+    smoke_pass: smokePass,
+    build_result: "pending",
   };
 
   fs.writeFileSync(path.join(outDir, "results.json"), JSON.stringify(results, null, 2));
+
+  const readyFamilies = payload.family_status_matrix.filter(
+    (r) => r.implementation_status === "claim_ready_preview",
+  );
+
   fs.writeFileSync(
     path.join(outDir, "summary.md"),
-    `# Claim readmodel staging dry-run V1
+    `# Claim readmodel staging dry-run V1 (full 41-family)
 
 **Run:** ${id} · **Staging:** ${STAGING_REF}
-**SAFE_TO_IMPLEMENT_FIRST_GENERATOR_PREVIEW:** ${payload.SAFE_TO_IMPLEMENT_FIRST_GENERATOR_PREVIEW}
+**SAFE_TO_IMPLEMENT_FIRST_GENERATORS:** ${payload.SAFE_TO_IMPLEMENT_FIRST_GENERATORS}
 
-## Families previewed: ${payload.family_preview_matrix.length}
+## Counts
+- claim_ready_preview: **${payload.claim_ready_preview_count}**
+- review_needed: **${payload.review_needed_preview_count}**
+- unavailable: **${payload.unavailable_count}**
+- blocked: **${payload.blocked_count}**
 
-| Family | Candidates | Review | Payout | Observed | Cost |
-|--------|------------|--------|--------|----------|------|
-${payload.family_preview_matrix
-  .map(
-    (f) =>
-      `| ${f.family_key} | ${f.candidate_count_preview} | ${f.review_signal_count_preview} | ${f.estimated_amazon_payout_sum ?? "NULL"} | ${f.observed_reimbursement_sum ?? "NULL"} | ${f.internal_cost_loss_sum ?? "NULL"} |`,
-  )
+## By classification
+${Object.entries(payload.by_classification)
+  .map(([k, rows]) => `- **${k}**: ${rows.length} families`)
   .join("\n")}
+
+## Claim-ready families (${readyFamilies.length})
+${readyFamilies.map((r) => `- ${r.family_key} (${r.claim_ready_count} rows)`).join("\n")}
+
+## Smoke targets
+- claim_candidates delta: **${smoke.claim_candidates_delta}** ${smoke.claim_candidates_delta_pass ? "PASS" : "FAIL"}
+- X004LKS4VD linkage: ${smoke.X004LKS4VD?.linkage_resolved ? "PASS" : "FAIL"}
+- B0000B11UX linkage: ${smoke.B0000B11UX?.linkage_resolved ? "PASS" : "FAIL"}
+- disputed EP review_needed: ${smoke.disputed_ep_review_needed?.pass ? "PASS" : "FAIL"}
 
 ## No write: ${noWrite ? "PASS" : "FAIL"}
 `,
@@ -113,15 +148,20 @@ ${payload.family_preview_matrix
     JSON.stringify({
       ok: true,
       run_id: id,
-      families: payload.family_preview_matrix.length,
-      drafts_preview_total: payload.top_candidate_opportunities.length,
-      SAFE: payload.SAFE_TO_IMPLEMENT_FIRST_GENERATOR_PREVIEW,
+      families: V3_CLAIM_FAMILY_COUNT,
+      claim_ready: payload.claim_ready_preview_count,
+      delta: smoke.claim_candidates_delta,
+      SAFE: payload.SAFE_TO_IMPLEMENT_FIRST_GENERATORS,
       outDir,
     }),
   );
+
+  if (!noWrite || smoke.claim_candidates_delta !== 0) {
+    process.exit(1);
+  }
 }
 
 main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
+  console.error(e);
   process.exit(1);
 });

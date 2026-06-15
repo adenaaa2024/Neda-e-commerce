@@ -44,6 +44,8 @@ import { isPimInvalidVendorCategoryLabel } from "./pim-invalid-label";
 import {
   detectProductPricesInsertShape,
   insertAmazonEnrichmentProductPrice,
+  type InsertAmazonProductPriceResult,
+  type ProductPricesInsertShape,
 } from "./pim-product-prices-insert";
 import {
   buildImageProvenance,
@@ -92,6 +94,32 @@ const RETRY_CATALOG_CONFIDENCE_SCALE = 0.84;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function maybeInsertAmazonEnrichmentProductPrice(
+  dryRun: boolean,
+  shape: ProductPricesInsertShape,
+  args: Parameters<typeof insertAmazonEnrichmentProductPrice>[1],
+): Promise<InsertAmazonProductPriceResult> {
+  if (dryRun) return { ok: true };
+  return insertAmazonEnrichmentProductPrice(shape, args);
+}
+
+async function maybeUpdateProductRow(
+  dryRun: boolean,
+  patch: Record<string, unknown>,
+  rowId: string,
+  organizationId: string,
+  storeId: string,
+): Promise<{ error: { message: string } | null }> {
+  if (dryRun) return { error: null };
+  const { error } = await supabaseServer
+    .from("products")
+    .update(patch)
+    .eq("id", rowId)
+    .eq("organization_id", organizationId)
+    .eq("store_id", storeId);
+  return { error: error ? { message: error.message } : null };
 }
 
 function isMissingMainImage(v: unknown): boolean {
@@ -230,12 +258,14 @@ async function resolveOrCreateCategoryId(
   categoryByLowerName: Map<string, string>,
   minScore: number,
   candidateScore: number,
+  dryRun = false,
 ): Promise<{ id: string } | null> {
   const trimmed = label.trim();
   if (!trimmed || isPimInvalidVendorCategoryLabel(trimmed)) return null;
   const hit = categoryByLowerName.get(trimmed.toLowerCase());
   if (hit) return { id: hit };
   if (candidateScore < minScore) return null;
+  if (dryRun) return null;
   const { data, error } = await supabaseServer
     .from("product_categories")
     .insert({ organization_id: organizationId, name: trimmed })
@@ -304,6 +334,7 @@ export async function runPimCatalogEnrichmentBatch(
     retryIds,
     allowEnrichmentDebug,
     allowSuspiciousImageOverwrite,
+    dryRun = false,
   } = params;
 
   const priceDedupe: { skipRecentDuplicateCheck?: boolean } = forceFreshPriceRows
@@ -636,7 +667,7 @@ export async function runPimCatalogEnrichmentBatch(
       const insertedSourcesPartial: string[] = [];
       const offerAsinForRow = (offersAsinUsed ?? asin).trim().toUpperCase();
       if (offersPrice && offersPrice.amount > 0) {
-        const ins = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+        const ins = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
           organizationId,
           storeId,
           productId: row.id,
@@ -669,7 +700,7 @@ export async function runPimCatalogEnrichmentBatch(
         }
       }
       if (priceInsertedThis === 0 && savedListPartial && savedListPartial.amount > 0) {
-        const insR = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+        const insR = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
           organizationId,
           storeId,
           productId: row.id,
@@ -698,7 +729,7 @@ export async function runPimCatalogEnrichmentBatch(
         }
       }
       if (priceInsertedThis === 0 && listingPickPartial && listingPickPartial.amount > 0) {
-        const insL = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+        const insL = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
           organizationId,
           storeId,
           productId: row.id,
@@ -728,7 +759,7 @@ export async function runPimCatalogEnrichmentBatch(
         }
       }
       if (priceInsertedThis === 0 && fallbackPickPartial && fallbackPickPartial.amount > 0) {
-        const insF = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+        const insF = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
           organizationId,
           storeId,
           productId: row.id,
@@ -804,12 +835,13 @@ export async function runPimCatalogEnrichmentBatch(
         missing_price_reason: missingReasonPartial,
       });
 
-      const { error: metaUErr } = await supabaseServer
-        .from("products")
-        .update({ metadata: prevMetaPartial })
-        .eq("id", row.id)
-        .eq("organization_id", organizationId)
-        .eq("store_id", storeId);
+      const { error: metaUErr } = await maybeUpdateProductRow(
+        dryRun,
+        { metadata: prevMetaPartial },
+        row.id,
+        organizationId,
+        storeId,
+      );
 
       if (!metaUErr) {
         rows_saved += 1;
@@ -1138,6 +1170,7 @@ export async function runPimCatalogEnrichmentBatch(
               categoryByLowerName,
               MIN_CATEGORY_CREATE_SCORE,
               top.score,
+              dryRun,
             );
             if (created) chosen = top;
           }
@@ -1165,6 +1198,7 @@ export async function runPimCatalogEnrichmentBatch(
                     categoryByLowerName,
                     MIN_CATEGORY_CREATE_SCORE,
                     match.score,
+                    dryRun,
                   );
                   if (created) {
                     chosen = match;
@@ -1185,6 +1219,7 @@ export async function runPimCatalogEnrichmentBatch(
               categoryByLowerName,
               MIN_CATEGORY_CREATE_SCORE,
               chosen.score,
+              dryRun,
             );
             cid = r?.id ?? null;
           }
@@ -1229,12 +1264,7 @@ export async function runPimCatalogEnrichmentBatch(
         if (prov) prevMeta.pim_field_provenance = prov;
       }
 
-      const { error: uErr } = await supabaseServer
-        .from("products")
-        .update(patch)
-        .eq("id", row.id)
-        .eq("organization_id", organizationId)
-        .eq("store_id", storeId);
+      const { error: uErr } = await maybeUpdateProductRow(dryRun, patch, row.id, organizationId, storeId);
 
       if (uErr) {
         failed += 1;
@@ -1295,7 +1325,7 @@ export async function runPimCatalogEnrichmentBatch(
         const insertedSourcesOk: string[] = [];
 
         if (insertOffersP && offersPrice && offersPrice.amount > 0) {
-          const insOffers = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+          const insOffers = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
             organizationId,
             storeId,
             productId: row.id,
@@ -1335,7 +1365,7 @@ export async function runPimCatalogEnrichmentBatch(
             nearlyEqualPrice(listPriceCatalog.amount, offersPrice.amount) &&
             insertedOffersOk;
           if (!sameAsOffers) {
-            const insList = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+            const insList = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
               organizationId,
               storeId,
               productId: row.id,
@@ -1370,7 +1400,7 @@ export async function runPimCatalogEnrichmentBatch(
         if (priceInsertedThis === 0) {
           const savedMerged = extractListPriceFromCatalog(mergedAmazonRaw);
           if (savedMerged && savedMerged.amount > 0) {
-            const insR = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+            const insR = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
               organizationId,
               storeId,
               productId: row.id,
@@ -1402,7 +1432,7 @@ export async function runPimCatalogEnrichmentBatch(
         if (priceInsertedThis === 0) {
           const listingPickOk = pickBestCatalogProductListingPrice(catalogByProduct.get(row.id) ?? []);
           if (listingPickOk && listingPickOk.amount > 0) {
-            const insL = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+            const insL = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
               organizationId,
               storeId,
               productId: row.id,
@@ -1435,7 +1465,7 @@ export async function runPimCatalogEnrichmentBatch(
         if (priceInsertedThis === 0) {
           const fallbackPickOk = pickBestCatalogProductFallbackOfferPrice(catalogByProduct.get(row.id) ?? []);
           if (fallbackPickOk && fallbackPickOk.amount > 0) {
-            const insF = await insertAmazonEnrichmentProductPrice(ppInsertShape, {
+            const insF = await maybeInsertAmazonEnrichmentProductPrice(dryRun,ppInsertShape, {
               organizationId,
               storeId,
               productId: row.id,
@@ -1499,12 +1529,13 @@ export async function runPimCatalogEnrichmentBatch(
                       : undefined,
                 }),
         });
-        const { error: metaPriceUErr } = await supabaseServer
-          .from("products")
-          .update({ metadata: prevMeta })
-          .eq("id", row.id)
-          .eq("organization_id", organizationId)
-          .eq("store_id", storeId);
+        const { error: metaPriceUErr } = await maybeUpdateProductRow(
+          dryRun,
+          { metadata: prevMeta },
+          row.id,
+          organizationId,
+          storeId,
+        );
         if (metaPriceUErr) {
           failures.push({
             product_id: row.id,
@@ -1562,6 +1593,18 @@ export async function runPimCatalogEnrichmentBatch(
       await sleep(tail);
     }
   }
+
+  const would_update_count = dryRun ? rows_saved + prices_inserted : rows_saved + prices_inserted;
+  const would_skip_count = dryRun
+    ? Math.max(0, toProcess.length - would_update_count - failed - skipped_no_asin)
+    : 0;
+  const missing_data_count = dryRun
+    ? catalog_not_found_count +
+      still_missing_category +
+      still_missing_image +
+      pricing_api_not_available +
+      no_match
+    : 0;
 
   return {
     ok: true,
@@ -1623,6 +1666,14 @@ export async function runPimCatalogEnrichmentBatch(
       retry_missing_prices_only: retryMissingPrices,
       prioritize_incomplete: prioritizeIncomplete,
       force_fresh_price_rows: forceFreshPriceRows,
+      ...(dryRun
+        ? {
+            dry_run: true,
+            would_update_count,
+            would_skip_count,
+            missing_data_count,
+          }
+        : {}),
     },
     failures,
     failed_product_ids: failures.map((f) => f.product_id),

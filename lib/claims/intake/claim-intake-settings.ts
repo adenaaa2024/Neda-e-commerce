@@ -6,12 +6,16 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  applyPolicyFloorToIntakeWindow,
+} from "@/lib/claims/effective-date/claim-effective-date-gate-v1";
+import {
   CLAIM_SOURCE_KINDS,
   isClaimSourceKind,
   type ClaimIntakeSettings,
   type ClaimIntakeWindow,
   type ClaimSourceKind,
 } from "./claim-intake-types";
+import type { ClaimIntakeEffectivePolicy } from "./claim-intake-policy-contract";
 
 export const DEFAULT_CLAIM_INTAKE_SETTINGS: ClaimIntakeSettings = {
   enabled_sources: [...CLAIM_SOURCE_KINDS],
@@ -136,33 +140,36 @@ export async function loadClaimIntakeSettings(
   return { settings, sources_read: sourcesRead };
 }
 
-/** Effective run window: explicit run args > explicit settings > rolling window. */
+/** Effective run window: explicit run args > explicit settings > rolling window; optional policy floor. */
 export function resolveClaimIntakeWindow(
   settings: ClaimIntakeSettings,
   runFrom: string | null,
   runTo: string | null,
   now: Date = new Date(),
+  policy?: Pick<ClaimIntakeEffectivePolicy, "claim_start_date" | "scan_go_live_date"> | null,
 ): ClaimIntakeWindow {
   const today = now.toISOString().slice(0, 10);
+  let window: ClaimIntakeWindow;
   if (runFrom || runTo) {
-    return {
+    window = {
       from: runFrom ?? settings.date_from ?? rollingFrom(settings.rolling_window_days, now),
       to: runTo ?? settings.date_to ?? today,
       source: "explicit_run",
     };
-  }
-  if (settings.date_from || settings.date_to) {
-    return {
+  } else if (settings.date_from || settings.date_to) {
+    window = {
       from: settings.date_from ?? rollingFrom(settings.rolling_window_days, now),
       to: settings.date_to ?? today,
       source: "explicit_settings",
     };
+  } else {
+    window = {
+      from: rollingFrom(settings.rolling_window_days, now),
+      to: today,
+      source: "rolling_window",
+    };
   }
-  return {
-    from: rollingFrom(settings.rolling_window_days, now),
-    to: today,
-    source: "rolling_window",
-  };
+  return policy ? applyPolicyFloorToIntakeWindow(window, policy) : window;
 }
 
 function rollingFrom(days: number, now: Date): string {

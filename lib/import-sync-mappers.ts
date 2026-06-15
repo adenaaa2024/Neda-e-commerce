@@ -206,6 +206,9 @@ export const NATIVE_COLUMNS_REIMBURSEMENTS = new Set([
   "source_line_hash",
   "source_file_sha256", "source_physical_row_number",
   "order_id", "reimbursement_id", "sku", "amount_reimbursed",
+  "fnsku", "asin", "approval_date", "amount_total", "currency_unit",
+  "quantity_reimbursed_total", "quantity_reimbursed_cash", "quantity_reimbursed_inventory",
+  "reason", "condition", "product_name", "case_id",
   "created_at", "raw_data",
 ]);
 
@@ -603,11 +606,31 @@ const AMOUNT_REIMBURSED_ALIASES = [
   "amount-per-unit", "amount per unit",
   "total-amount", "total amount",
 ];
+const REIMBURSEMENT_APPROVAL_DATE_ALIASES = [
+  "approval-date", "approval date", "approval_date",
+];
+const REIMBURSEMENT_AMOUNT_TOTAL_ALIASES = [
+  "amount-total", "amount total", "amount_total",
+];
+const REIMBURSEMENT_QTY_TOTAL_ALIASES = [
+  "quantity-reimbursed-total", "quantity reimbursed total", "quantity_reimbursed_total",
+];
+const REIMBURSEMENT_QTY_CASH_ALIASES = [
+  "quantity-reimbursed-cash", "quantity reimbursed cash", "quantity_reimbursed_cash",
+];
+const REIMBURSEMENT_QTY_INVENTORY_ALIASES = [
+  "quantity-reimbursed-inventory", "quantity reimbursed inventory", "quantity_reimbursed_inventory",
+];
+const REIMBURSEMENT_REASON_ALIASES = ["reason", "Reason"];
+const REIMBURSEMENT_CONDITION_ALIASES = ["condition", "Condition"];
+const REIMBURSEMENT_PRODUCT_NAME_ALIASES = ["product-name", "product name", "product_name"];
+const REIMBURSEMENT_CURRENCY_ALIASES = ["currency-unit", "currency unit", "currency_unit", "currency"];
+const REIMBURSEMENT_CASE_ID_ALIASES = ["case-id", "case id", "case_id"];
 
 // ── Settlement aliases ────────────────────────────────────────────────────────
 const SETTLEMENT_ID_ALIASES    = ["settlement-id", "settlement id", "Settlement ID"];
 const TX_TYPE_ALIASES          = ["transaction-type", "transaction type", "type", "Type"];
-const DEPOSIT_DATE_ALIASES     = ["deposit-date", "deposit date", "posted-date", "posted date", "date/time", "Date/Time"];
+const DEPOSIT_DATE_ALIASES     = ["deposit-date", "deposit date", "posted-date", "posted date", "posted_date", "posted_date_time", "date/time", "Date/Time"];
 const AMOUNT_TOTAL_ALIASES = [
   "total",
   "Total",
@@ -1638,8 +1661,8 @@ export function mapLedgerPositionalRawRowToAmazonInventoryLedgerInsert(
 
 // ── amazon_reimbursements ─────────────────────────────────────────────────────
 // DB columns: id · organization_id · upload_id · order_id · reimbursement_id ·
-//             amount_reimbursed · created_at · raw_data
-// (asin / qty_reimbursed_total / approval_date → raw_data)
+//             amount_reimbursed · approval_date · amount_total · fnsku · asin · …
+// Unmapped columns still land in raw_data.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type AmazonReimbursementInsert = {
@@ -1653,6 +1676,18 @@ export type AmazonReimbursementInsert = {
   sku: string | null;
   /** DB column: `amount_reimbursed`  (was mistakenly `amount_per_unit`). */
   amount_reimbursed: number | null;
+  fnsku?: string | null;
+  asin?: string | null;
+  approval_date?: string | null;
+  amount_total?: number | null;
+  currency_unit?: string | null;
+  quantity_reimbursed_total?: number | null;
+  quantity_reimbursed_cash?: number | null;
+  quantity_reimbursed_inventory?: number | null;
+  reason?: string | null;
+  condition?: string | null;
+  product_name?: string | null;
+  case_id?: string | null;
   raw_data: Record<string, string> | null;
 };
 
@@ -1666,6 +1701,9 @@ export function mapRowToAmazonReimbursement(
   const consumed = new Set<string>();
   const reimbursement_id = pickT(row, REIMBURSEMENT_ID_ALIASES, consumed);
   if (!reimbursement_id) return null;
+  const amount_reimbursed = parseNum(pickT(row, AMOUNT_REIMBURSED_ALIASES, consumed));
+  const amount_total =
+    parseNum(pickT(row, REIMBURSEMENT_AMOUNT_TOTAL_ALIASES, consumed)) ?? amount_reimbursed;
   return {
     organization_id:  orgId,
     store_id: storeId,
@@ -1674,8 +1712,20 @@ export function mapRowToAmazonReimbursement(
     reimbursement_id,
     order_id:         pickT(row, ORDER_ALIASES, consumed) || null,
     sku:              pickT(row, SKU_ALIASES, consumed) || null,
-    amount_reimbursed: parseNum(pickT(row, AMOUNT_REIMBURSED_ALIASES, consumed)),
-    raw_data:         buildRawData(row, consumed), // asin/qty/approval_date land here
+    amount_reimbursed,
+    fnsku:            pickT(row, FNSKU_ALIASES, consumed) || null,
+    asin:             pickT(row, ASIN_ALIASES, consumed) || null,
+    approval_date:    parseIsoDateTime(pickT(row, REIMBURSEMENT_APPROVAL_DATE_ALIASES, consumed)),
+    amount_total,
+    currency_unit:    pickT(row, REIMBURSEMENT_CURRENCY_ALIASES, consumed) || null,
+    quantity_reimbursed_total: parseQty(pickT(row, REIMBURSEMENT_QTY_TOTAL_ALIASES, consumed)),
+    quantity_reimbursed_cash: parseQty(pickT(row, REIMBURSEMENT_QTY_CASH_ALIASES, consumed)),
+    quantity_reimbursed_inventory: parseQty(pickT(row, REIMBURSEMENT_QTY_INVENTORY_ALIASES, consumed)),
+    reason:           pickT(row, REIMBURSEMENT_REASON_ALIASES, consumed) || null,
+    condition:        pickT(row, REIMBURSEMENT_CONDITION_ALIASES, consumed) || null,
+    product_name:     pickT(row, REIMBURSEMENT_PRODUCT_NAME_ALIASES, consumed) || null,
+    case_id:          pickT(row, REIMBURSEMENT_CASE_ID_ALIASES, consumed) || null,
+    raw_data:         buildRawData(row, consumed),
   };
 }
 
@@ -1828,6 +1878,11 @@ function mapRowToAmazonSettlementTxtFlat(
     ),
   ]);
 
+  const postedFromRaw =
+    raw_data.posted_date_time ?? raw_data.posted_date ?? raw_data["posted-date"] ?? "";
+  const posted_date = parseIsoDateTime(postedFromRaw);
+  const amount_total = total_amount ?? parseNum(raw_data.amount ?? "");
+
   return {
     organization_id: orgId,
     upload_id: uploadId,
@@ -1839,6 +1894,11 @@ function mapRowToAmazonSettlementTxtFlat(
     deposit_date: parseIsoDateTime(row.deposit_date ?? "") ?? null,
     total_amount,
     currency: (row.currency ?? "").trim() || null,
+    posted_date,
+    order_id: raw_data.order_id ?? null,
+    sku: raw_data.sku ?? null,
+    transaction_type: raw_data.transaction_type ?? null,
+    amount_total,
     raw_data: Object.keys(raw_data).length > 0 ? raw_data : null,
   };
 }
@@ -1862,7 +1922,18 @@ function mapRowToAmazonSettlementLegacyCsv(
   const sku = pickT(row, SKU_ALIASES, consumed) || null;
   const transaction_type = pickT(row, TX_TYPE_ALIASES, consumed) || null;
   const amount_total = parseNum(pickT(row, AMOUNT_TOTAL_ALIASES, consumed));
-  const posted_date = parseIsoDateTime(pickT(row, DEPOSIT_DATE_ALIASES, consumed));
+  let postedRaw = pickT(row, DEPOSIT_DATE_ALIASES, consumed);
+  if (!postedRaw) {
+    for (const k of ["posted_date_time", "posted-date-time", "posted_date", "posted-date"]) {
+      const v = (row[k] ?? "").trim();
+      if (v) {
+        postedRaw = v;
+        consumed.add(k);
+        break;
+      }
+    }
+  }
+  const posted_date = parseIsoDateTime(postedRaw);
 
   // Transaction / Payment Detail report typed columns.
   const quantity = parseQty(pickT(row, SETTLEMENT_QUANTITY_ALIASES, consumed));

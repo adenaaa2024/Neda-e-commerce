@@ -3,6 +3,8 @@
  * Settlement V2 is Amazon-scheduled — list via getReports, not createReport.
  */
 
+import { clampReimbursementsCreateWindow } from "./reports-api-reimbursements-window";
+import { clampSettlementListWindow } from "./reports-api-settlement-list-window";
 import { SP_API_REPORT_TYPE_REIMBURSEMENTS } from "./reports-api-source-run";
 import { SP_API_REPORT_TYPE_SETTLEMENT_V2 } from "./reports-api-settlement-plan";
 
@@ -57,9 +59,15 @@ export function buildReimbursementsCreateReportBody(params: {
   dataStartTime: string;
   dataEndTime: string;
 }): OnDemandCreateReportBody {
+  const clamped = clampReimbursementsCreateWindow({
+    start: params.dataStartTime,
+    end: params.dataEndTime,
+  });
   return buildOnDemandCreateReportBody({
     reportType: SP_API_REPORT_TYPE_REIMBURSEMENTS,
-    ...params,
+    marketplaceIds: params.marketplaceIds,
+    dataStartTime: clamped.start,
+    dataEndTime: clamped.end,
   });
 }
 
@@ -75,10 +83,14 @@ export function buildSettlementListReportsQuery(params: {
   nextToken?: string | null;
 }): SettlementListReportsQuery {
   const mids = params.marketplaceIds.map((s) => s.trim()).filter(Boolean);
+  const clamped = clampSettlementListWindow({
+    start: params.windowStart.trim(),
+    end: params.windowEnd.trim(),
+  });
   const q: SettlementListReportsQuery = {
     reportTypes: SP_API_REPORT_TYPE_SETTLEMENT_V2,
-    createdSince: params.windowStart.trim(),
-    createdUntil: params.windowEnd.trim(),
+    createdSince: clamped.start,
+    createdUntil: clamped.end,
     pageSize: String(params.pageSize ?? 100),
   };
   if (mids.length) q.marketplaceIds = mids.join(",");
