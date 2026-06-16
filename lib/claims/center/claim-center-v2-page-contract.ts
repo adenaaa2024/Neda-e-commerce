@@ -14,6 +14,7 @@ export type ClaimCenterV2PageId =
   | "pool"
   | "cases"
   | "submissions"
+  | "reimbursement_tracking"
   | "policies";
 
 export type ClaimCenterV2PageContract = {
@@ -150,6 +151,19 @@ export const CLAIM_CENTER_V2_PAGES: Record<ClaimCenterV2PageId, ClaimCenterV2Pag
     whatToDoNext: "Use Legacy tools for submission history. Event-pool filing ships with the bridge.",
     whyEmpty: "No legacy submissions in scope, or event opportunities are not in this queue yet.",
     helper: "Event-based opportunities are not in this queue until the bridge phase.",
+  },
+  reimbursement_tracking: {
+    id: "reimbursement_tracking",
+    route: "/claim-center/reimbursement-tracking",
+    navLabel: "Reimbursement Tracking",
+    question: "What money has been filed, matched, and still open?",
+    dataSource: "GET /api/claims/center/reimbursement-tracking — read-only pilot claim_submissions",
+    appearsHere:
+      "Pilot submission financial status, reimbursement matches, open gaps, and follow-up recommendations.",
+    whatToDoNext:
+      "Review rows needing follow-up. Manual filing and Amazon submission stay disabled in this preview.",
+    whyEmpty: "Run Claim Submission Record Pilot first — legacy submissions are excluded by default.",
+    helper: "Read-only — no claim_submissions writes, no Amazon API, NULL money never shown as zero.",
   },
   policies: {
     id: "policies",

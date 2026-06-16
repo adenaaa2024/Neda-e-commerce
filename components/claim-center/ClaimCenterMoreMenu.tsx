@@ -8,6 +8,7 @@ import {
   CLAIM_CENTER_MOBILE_MORE_GROUPS,
   isClaimCenterNavActive,
 } from "./claim-center-nav-config";
+import { getClaimCenterMoreNavMeta } from "@/lib/claims/center/claim-center-mobile-nav-meta";
 
 export function ClaimCenterMoreMenu({ trigger }: { trigger: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -35,15 +36,22 @@ export function ClaimCenterMoreMenu({ trigger }: { trigger: ReactNode }) {
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const active = isClaimCenterNavActive(pathname, searchParams, item);
+                  const meta = getClaimCenterMoreNavMeta(item.href);
+                  const Icon = meta.icon;
+                  const highlight =
+                    item.href === "/claim-center/reimbursement-tracking" && group.id === "filing_recovery";
                   return (
                     <li key={item.href}>
                       <Link
                         href={item.href}
                         onClick={() => setOpen(false)}
-                        className={`flex min-h-[40px] items-center rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
-                          active ? "bg-black/5 dark:bg-white/5" : "opacity-85 hover:opacity-100"
+                        className={`flex min-h-[40px] items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
+                          active || highlight
+                            ? "bg-amber-500/10 text-amber-950 dark:text-amber-100"
+                            : "opacity-85 hover:opacity-100"
                         }`}
                       >
+                        <Icon className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
                         <span className="flex-1">{item.label}</span>
                         {item.legacy ? (
                           <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-800 dark:text-amber-200">

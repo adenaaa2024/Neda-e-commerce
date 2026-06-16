@@ -10,6 +10,7 @@ import {
   GitBranch,
   HelpCircle,
   Link2,
+  Wallet,
 } from "lucide-react";
 
 import {
@@ -174,6 +175,20 @@ export function ClaimCenterCommandHomeTiles({ kpis, referenceConflictCount = 0 }
             </>
           )}
           <p className="mt-3 text-xs font-semibold opacity-80">View recovery signals →</p>
+        </TileShell>
+
+        <TileShell
+          href="/claim-center/reimbursement-tracking"
+          icon={Wallet}
+          title="Reimbursement Tracking"
+          tone="claim-center-home-tile--recovery"
+        >
+          <p className="text-sm font-semibold">Pilot submission financial tracking</p>
+          <p className="mt-2 text-[11px] leading-relaxed opacity-70">
+            Read-only preview — filing status, reimbursement matches, open gaps, and follow-up needs.
+          </p>
+          <p className="mt-1 text-[11px] opacity-60">Not submitted to Amazon</p>
+          <p className="mt-3 text-xs font-semibold opacity-80">Open reimbursement tracking →</p>
         </TileShell>
 
         <div className="claim-center-card flex flex-col rounded-xl border p-4 opacity-90 md:col-span-2 xl:col-span-1">

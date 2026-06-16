@@ -45,8 +45,24 @@ import {
 import { buildClaimPreviewReadmodelMvp } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
 import type { ClaimPreviewMvpFamilyKey } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
 import { CLAIM_PREVIEW_MVP_FAMILIES } from "@/lib/claims/center/claim-preview-readmodel-mvp-v1";
+import {
+  composeReimbursementTrackingPreviewV1,
+} from "@/lib/claims/submission/claim-reimbursement-tracking-preview-v1";
+import { buildReimbursementTrackingUiPayload } from "@/lib/claims/submission/claim-reimbursement-tracking-ui-contract";
 import { buildClaimPilotReviewReadmodel } from "@/lib/claims/pilot/claim-pilot-review-readmodel";
+import {
+  buildClaimCaseReviewReadmodel,
+  type ClaimCaseReviewQuery,
+} from "@/lib/claims/pilot/claim-case-review-readmodel";
+import {
+  composeClaimFilingPacketPreviewV1,
+  type ClaimFilingPacketPreviewQuery,
+} from "@/lib/claims/filing/claim-filing-packet-preview-v1";
 import type { ClaimPilotReviewQuery } from "@/lib/claims/pilot/claim-pilot-review-readmodel";
+import {
+  composeClaimCaseCreationPreviewV1,
+  type ComposeCaseCreationPreviewV1Query,
+} from "@/lib/claims/case-creation/claim-case-creation-preview-v1";
 import {
   composeClaimEvidencePacketV1,
   type ComposeEvidencePacketV1Query,
@@ -537,6 +553,77 @@ export async function getCenterEvidencePacketPayload(args: {
 }) {
   await centerModuleGateOrThrow(args.organizationId);
   return composeClaimEvidencePacketV1(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    args.query,
+  );
+}
+
+/** Read-only case creation preview V1 — no claim_cases INSERT. */
+export async function getCenterCaseCreationPreviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  query: ComposeCaseCreationPreviewV1Query;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return composeClaimCaseCreationPreviewV1(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    args.query,
+  );
+}
+
+/** Read-only pilot case review — scoped by pilot_case_run_id; no writes. */
+export async function getCenterCaseReviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  query: ClaimCaseReviewQuery;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return buildClaimCaseReviewReadmodel(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    args.query,
+  );
+}
+
+/** Read-only pilot reimbursement tracking — scoped claim_submissions; no writes. */
+export async function getCenterReimbursementTrackingPayload(args: {
+  organizationId: string;
+  storeId: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  const composed = await composeReimbursementTrackingPreviewV1(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    {
+      pilot_case_run_id: args.pilot_case_run_id,
+      intake_run_id: args.intake_run_id,
+    },
+  );
+  return buildReimbursementTrackingUiPayload({
+    pilot_case_run_id: composed.pilot_case_run_id,
+    intake_run_id: composed.intake_run_id,
+    previews: composed.previews,
+    legacy_visibility: composed.legacy_visibility,
+    preview_run_reference: "phase-claim-reimbursement-tracking-preview-v1/20260617T130000Z",
+  });
+}
+
+/** Read-only filing packet preview — trusted open pilot cases; no PDF/submission. */
+export async function getCenterFilingPacketPreviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  query: ClaimFilingPacketPreviewQuery;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return composeClaimFilingPacketPreviewV1(
     supabaseServer,
     args.organizationId,
     args.storeId,

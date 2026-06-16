@@ -7,7 +7,7 @@ export type ClaimCenterNavLink = MenorixModuleNavItem & {
   legacy?: boolean;
 };
 
-export type ClaimCenterNavGroupId = "workflow" | "blockers" | "sources" | "admin_legacy";
+export type ClaimCenterNavGroupId = "workflow" | "filing_recovery" | "blockers" | "sources" | "admin_legacy";
 
 export type ClaimCenterNavGroup = {
   id: ClaimCenterNavGroupId;
@@ -40,6 +40,22 @@ export const CLAIM_CENTER_MOBILE_BOTTOM: ClaimCenterNavLink[] = [
 export const CLAIM_CENTER_MORE_WORKFLOW: ClaimCenterNavLink[] = [
   { href: "/claim-center/opportunities", label: "Find money", shortLabel: "Money" },
   { href: "/claim-center/recovery", label: "Recovery", shortLabel: "Paid" },
+  {
+    href: "/claim-center/reimbursement-tracking",
+    label: "Reimbursement Tracking",
+    shortLabel: "Tracking",
+  },
+];
+
+/** Pilot filing + financial recovery — visible without digging into Admin/Legacy. */
+export const CLAIM_CENTER_FILING_RECOVERY_NAV: ClaimCenterNavLink[] = [
+  {
+    href: "/claim-center/reimbursement-tracking",
+    label: "Reimbursement Tracking",
+    shortLabel: "Tracking",
+  },
+  { href: "/claim-center/case-review", label: "Case review", shortLabel: "Cases" },
+  { href: "/claim-center/pilot-review", label: "Pilot review", shortLabel: "Pilot" },
 ];
 
 export const CLAIM_CENTER_MORE_BLOCKERS: ClaimCenterNavLink[] = [
@@ -53,7 +69,6 @@ export const CLAIM_CENTER_MORE_SOURCES: ClaimCenterNavLink[] = [
 
 export const CLAIM_CENTER_POOL_NAV: ClaimCenterNavLink[] = [
   { href: "/claim-center/candidates", label: "Full candidate pool", shortLabel: "Pool" },
-  { href: "/claim-center/pilot-review", label: "Pilot review", shortLabel: "Pilot" },
   { href: "/claim-center/preview-generators", label: "Preview generators", shortLabel: "Previews" },
   { href: "/claim-center/group-builder", label: "Group builder", shortLabel: "Groups" },
 ];
@@ -93,6 +108,7 @@ export const CLAIM_CENTER_LEGACY_TOOLS: ClaimCenterNavLink[] = [
 /** More menu groups — desktop overflow + mobile sheet. */
 export const CLAIM_CENTER_MOBILE_MORE_GROUPS: ClaimCenterNavGroup[] = [
   { id: "workflow", label: "Workflow", items: CLAIM_CENTER_MORE_WORKFLOW },
+  { id: "filing_recovery", label: "Filing & recovery", items: CLAIM_CENTER_FILING_RECOVERY_NAV },
   { id: "blockers", label: "Blockers", items: CLAIM_CENTER_MORE_BLOCKERS },
   { id: "sources", label: "Sources", items: CLAIM_CENTER_MORE_SOURCES },
   {
@@ -161,6 +177,10 @@ export function isClaimCenterNavActive(
   }
 
   if (itemPath === "/claim-center/sources" && path === "/claim-center/runs") return true;
+
+  if (itemPath === "/claim-center/reimbursement-tracking" && path.startsWith("/claim-center/reimbursement-tracking")) {
+    return true;
+  }
 
   if (item.exact) return path === itemPath;
 

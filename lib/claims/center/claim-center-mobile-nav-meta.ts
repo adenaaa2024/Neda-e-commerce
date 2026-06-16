@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Link2,
   ScrollText,
+  Wallet,
 } from "lucide-react";
 
 export type ClaimCenterMoreNavMeta = {
@@ -40,6 +41,18 @@ const META_BY_PATH: Record<string, ClaimCenterMoreNavMeta> = {
   },
   "/claim-center/candidates": {
     purpose: "Full opportunity pool inbox",
+    icon: FileStack,
+  },
+  "/claim-center/case-review": {
+    purpose: "Inspect pilot cases before filing",
+    icon: FileStack,
+  },
+  "/claim-center/reimbursement-tracking": {
+    purpose: "Pilot submission financial recovery status",
+    icon: Wallet,
+  },
+  "/claim-center/pilot-review": {
+    purpose: "Pilot candidate review queue",
     icon: FileStack,
   },
   "/claim-center/policies": {
