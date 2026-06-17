@@ -301,6 +301,7 @@ import { readBoxIntakeManifestFlags } from "@/lib/scanner/package-empty-box-mani
 import {
   buildEvidenceLinesWithAudit,
   cloneBoxSlipEvidenceLines,
+  evidenceLineToVisionLine,
   evidenceLinesFromVisionLines,
   mergeBoxSlipEvidenceReview,
   readBoxSlipEvidenceReview,
@@ -956,6 +957,7 @@ const OP_HUB_LABEL_VIEW_CLOSE_OPEN_BOX = "View & Close Open Box";
 const OP_HUB_LABEL_SCAN_BOXES_FIRST = "Scan all boxes first";
 const BOX_INTAKE_PACKING_SLIP_REQUIRED_ERROR =
   "Add at least one packing slip photo, or check 'No packing slip available'.";
+const BOX_INTAKE_SLIP_REVIEW_REQUIRED_ERROR = "Review the packing slip before continuing.";
 
 type ShipmentCloseReadinessCase =
   | "not_pallet"
@@ -1024,6 +1026,61 @@ function boxIntakePackingSlipRequirementMet(
   return (
     boxHasNoPackingSlip || slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0)
   );
+}
+
+function hasSlipPhoto(slipBoxPhotoUrls: readonly string[]): boolean {
+  return slipBoxPhotoUrls.some((u) => String(u ?? "").trim().length > 0);
+}
+
+function isNoPackingSlip(boxHasNoPackingSlip: boolean): boolean {
+  return boxHasNoPackingSlip;
+}
+
+function isSlipReviewRequired(
+  boxHasNoPackingSlip: boolean,
+  slipBoxPhotoUrls: readonly string[],
+): boolean {
+  return hasSlipPhoto(slipBoxPhotoUrls) && !isNoPackingSlip(boxHasNoPackingSlip);
+}
+
+function isSlipReviewed(review: BoxSlipEvidenceReview | null): boolean {
+  if (!review) return false;
+  const status = review.status;
+  return (
+    status === "confirmed" ||
+    status === "unreadable" ||
+    status === "draft" ||
+    status === "needs_review"
+  );
+}
+
+const SLIP_SINGLE_PAGE_DEBUG = process.env.NODE_ENV === "development";
+
+function logSlipSingleDebug(phase: string, payload: Record<string, unknown>): void {
+  if (!SLIP_SINGLE_PAGE_DEBUG) return;
+  console.log("[slip-single-debug] phase:", phase, payload);
+}
+
+function resolveSlipVisionLinesForBoxSave(input: {
+  review: BoxSlipEvidenceReview | null;
+  visionPersistRef: readonly BoxSlipVisionLine[];
+  displayLines: readonly BoxSlipVisionLine[];
+}): BoxSlipVisionLine[] {
+  if (input.review?.status === "unreadable") return [];
+  if (
+    input.review &&
+    input.review.status !== "detected" &&
+    input.review.lines.length > 0
+  ) {
+    return input.review.lines.map(evidenceLineToVisionLine);
+  }
+  if (input.displayLines.length > 0) {
+    return clonePersistBoxSlipVisionLines([...input.displayLines]);
+  }
+  if (input.visionPersistRef.length > 0) {
+    return clonePersistBoxSlipVisionLines([...input.visionPersistRef]);
+  }
+  return [];
 }
 
 function formatShipmentCloseBoxCountMessage(count: number, verb: "scanned" | "closed"): string {
@@ -5090,6 +5147,8 @@ function OperatorMobileScanPageContent() {
   const [packageSessionCancelConfirmOpen, setPackageSessionCancelConfirmOpen] = useState(false);
   /** Empty box — review before finalize (no silent close on save). */
   const [emptyBoxCloseConfirmOpen, setEmptyBoxCloseConfirmOpen] = useState(false);
+  /** Single-page packing slip — operator must confirm/edit/unreadable before Save & Continue. */
+  const [slipReviewRequiredModalOpen, setSlipReviewRequiredModalOpen] = useState(false);
   const [emptyBoxFinalizeBusy, setEmptyBoxFinalizeBusy] = useState(false);
   /** Brief full-screen success after package save (before hub scroll or item phase). */
   const [packageSaveSuccessOverlay, setPackageSaveSuccessOverlay] = useState(false);
@@ -5474,6 +5533,8 @@ function OperatorMobileScanPageContent() {
   }, []);
 
   const [boxSlipEvidenceReview, setBoxSlipEvidenceReview] = useState<BoxSlipEvidenceReview | null>(null);
+  const boxSlipEvidenceReviewRef = useRef<BoxSlipEvidenceReview | null>(null);
+  boxSlipEvidenceReviewRef.current = boxSlipEvidenceReview;
   const [boxSlipEditModalOpen, setBoxSlipEditModalOpen] = useState(false);
   const [boxSlipCorrectionSheetOpen, setBoxSlipCorrectionSheetOpen] = useState(false);
   const [boxSlipCorrectionSheetMode, setBoxSlipCorrectionSheetMode] =
@@ -5660,6 +5721,12 @@ function OperatorMobileScanPageContent() {
     };
   }, [boxSlipDisplayLines, orgId, sessionStoreId]);
 
+  const openSlipReviewRequiredGate = useCallback(() => {
+    setBoxIntakeError(BOX_INTAKE_SLIP_REVIEW_REQUIRED_ERROR);
+    modalOpenRef.current = true;
+    setSlipReviewRequiredModalOpen(true);
+  }, []);
+
   const persistBoxSlipEvidenceReview = useCallback(
     async (
       review: BoxSlipEvidenceReview,
@@ -5670,11 +5737,10 @@ function OperatorMobileScanPageContent() {
     ) => {
       const oid = (orgId ?? "").trim();
       const pkgId = String(activeBoxSession?.packageId ?? "").trim();
-      if (!oid || !pkgId || !isUuidString(pkgId)) {
-        setBoxIntakeError("Save the box first before correcting slip evidence.");
+      if (!oid) {
+        setBoxIntakeError("Organization context missing — refresh and try again.");
         return false;
       }
-      if (!isSupabaseConfigured()) return false;
       setBoxSlipEvidenceSaveBusy(true);
       try {
         const auditFields = await resolveOperatorAuditFieldsClient(supabase);
@@ -5687,6 +5753,13 @@ function OperatorMobileScanPageContent() {
             review.original_ocr_snapshot ??
             (boxSlipVisionLines.length > 0 ? clonePersistBoxSlipVisionLines(boxSlipVisionLines) : []),
         };
+        if (!isSupabaseConfigured() || !pkgId || !isUuidString(pkgId)) {
+          setBoxSlipEvidenceReview(stamped);
+          setItemScanPackageManifestData((prev: unknown) =>
+            mergeBoxSlipEvidenceReview(prev, stamped),
+          );
+          return true;
+        }
         const res = await saveOperatorBoxSlipEvidenceReviewAction({
           requestedOrganizationId: oid,
           packageId: pkgId,
@@ -5742,8 +5815,10 @@ function OperatorMobileScanPageContent() {
         },
       );
       if (!ok) throw new Error("Could not save slip evidence.");
+      const visionFromEdit = audited.map(evidenceLineToVisionLine);
+      commitBoxSlipVisionLinesFromSource(visionFromEdit);
     },
-    [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview],
+    [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview, commitBoxSlipVisionLinesFromSource],
   );
 
   const handleConfirmBoxSlipEvidenceLines = useCallback(async () => {
@@ -5755,7 +5830,7 @@ function OperatorMobileScanPageContent() {
     const auditFields = await resolveOperatorAuditFieldsClient(supabase);
     const actorId = auditFields.created_by ?? "operator";
     const now = new Date().toISOString();
-    await persistBoxSlipEvidenceReview(
+    const ok = await persistBoxSlipEvidenceReview(
       {
         status: "confirmed",
         lines,
@@ -5773,7 +5848,22 @@ function OperatorMobileScanPageContent() {
         auditMetadata: { line_count: lines.length },
       },
     );
-  }, [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview]);
+    if (ok) {
+      const visionFromConfirm = lines.map(evidenceLineToVisionLine);
+      commitBoxSlipVisionLinesFromSource(visionFromConfirm);
+      logSlipSingleDebug("after_confirm", {
+        boxSlipVisionLinesLength: boxSlipVisionLinesPersistRef.current.length,
+        boxSlipDisplayLinesLength: visionFromConfirm.length,
+        boxSlipEvidenceReviewStatus: "confirmed",
+        slipLinesForPersistLength: visionFromConfirm.length,
+      });
+    }
+  }, [
+    boxSlipVisionLines,
+    boxSlipEvidenceReview,
+    persistBoxSlipEvidenceReview,
+    commitBoxSlipVisionLinesFromSource,
+  ]);
 
   const handleMarkBoxSlipUnreadable = useCallback(async () => {
     const ocrSnapshot = clonePersistBoxSlipVisionLines(boxSlipVisionLines);
@@ -8861,6 +8951,12 @@ function OperatorMobileScanPageContent() {
         const items = Array.isArray(json.slip.items) ? json.slip.items : [];
         commitBoxSlipVisionLinesFromSource(items);
         setBoxSlipEvidenceReview(null);
+        logSlipSingleDebug("after_ocr", {
+          boxSlipVisionLinesLength: items.length,
+          boxSlipDisplayLinesLength: items.length,
+          boxSlipEvidenceReviewStatus: null,
+          slipBoxPhotoUrlsLength: slipBoxPhotoUrlsRef.current.length,
+        });
 
         const slipExplicitOrder = String(json.slip.order_id ?? "").trim();
         const rmaTrim = rma.trim();
@@ -9576,6 +9672,13 @@ function OperatorMobileScanPageContent() {
         setBoxIntakeError("Wait for packing slip analysis to finish before saving.");
         return false;
       }
+      if (
+        isSlipReviewRequired(boxHasNoPackingSlip, slipBoxPhotoUrls) &&
+        !isSlipReviewed(boxSlipEvidenceReviewRef.current)
+      ) {
+        openSlipReviewRequiredGate();
+        return false;
+      }
     const slipCodePersist = boxSlipCode.trim() || null;
     setBoxSaveBusy(true);
     let resolvedPalletIdForDetail: string | null =
@@ -9592,10 +9695,29 @@ function OperatorMobileScanPageContent() {
         boxNotesRef.current.trim(),
         boxSystemNotesSummaryRef.current,
       );
-      const slipLinesForPersist =
+      const reviewForSave = boxSlipEvidenceReviewRef.current;
+      const displayLinesForSave = resolveBoxSlipEvidenceDisplay(
         boxSlipVisionLinesPersistRef.current.length > 0
           ? boxSlipVisionLinesPersistRef.current
-          : clonePersistBoxSlipVisionLines(boxSlipVisionLines);
+          : boxSlipVisionLines,
+        reviewForSave,
+      ).lines;
+      const slipLinesForPersist = resolveSlipVisionLinesForBoxSave({
+        review: reviewForSave,
+        visionPersistRef: boxSlipVisionLinesPersistRef.current,
+        displayLines: displayLinesForSave,
+      });
+      logSlipSingleDebug("before_save_continue", {
+        boxSlipEvidenceReviewStatus: reviewForSave?.status ?? null,
+        boxSlipDisplayLinesLength: displayLinesForSave.length,
+        boxSlipVisionLinesPersistRefLength: boxSlipVisionLinesPersistRef.current.length,
+        slipLinesForPersistLength: slipLinesForPersist.length,
+        itemScanCarryoverRowsLength: itemScanSlipCarryoverRef.current?.rows.length ?? 0,
+        itemScanCarryoverSnapshotRowsLength:
+          itemScanSlipCarryoverRef.current?.packageId === String(activeBoxSession.packageId ?? "").trim()
+            ? itemScanSlipCarryoverRef.current.rows.length
+            : 0,
+      });
       const directBoxSave = Boolean(directBox);
       const directBoxTracking =
         (currentPackageTrackingId ?? "").trim() ||
@@ -9634,7 +9756,7 @@ function OperatorMobileScanPageContent() {
         manifestPayload = mergeOperatorItemScanStarted(manifestPayload, { atIso: commitIso });
       }
       const reviewToPersist =
-        boxSlipEvidenceReview ?? readBoxSlipEvidenceReview(itemScanPackageManifestData);
+        reviewForSave ?? readBoxSlipEvidenceReview(itemScanPackageManifestData);
       if (reviewToPersist && reviewToPersist.status !== "detected") {
         manifestPayload = mergeBoxSlipEvidenceReview(manifestPayload, reviewToPersist);
       }
@@ -9798,6 +9920,10 @@ function OperatorMobileScanPageContent() {
           );
           itemScanSlipCarryoverRef.current = carryPayload;
           setItemScanSlipCarryover(carryPayload);
+          logSlipSingleDebug("carryover_snapshot", {
+            carryoverRowsLength: carryPayload.rows.length,
+            visionSnapLength: visionSnap.length,
+          });
           const photoCarryPayload = snapshotItemScanBoxPhotoCarryoverFromBoxIntake(packageId, {
             slip: slipBoxPhotoUrlsRef.current,
             outside: outsideBoxPhotoUrlsRef.current,
@@ -9965,6 +10091,7 @@ function OperatorMobileScanPageContent() {
     emptyBoxChecked,
     itemScanPackageManifestData,
     boxSlipEvidenceReview,
+    openSlipReviewRequiredGate,
   ]);
 
   const dispatchPackageFinalizeSave = useCallback(
@@ -13817,9 +13944,12 @@ function OperatorMobileScanPageContent() {
 
   const itemScanMergedReferenceCells = useMemo(() => {
     if (!itemScanReferenceBuckets?.topRows.length) return [];
-    const scannedTopRows = itemScanReferenceTopRowsWithScans(itemScanReferenceBuckets.topRows);
-    if (scannedTopRows.length === 0) return [];
-    return scannedTopRows.map((row: ItemScanReferenceDisplayRow) => {
+    const topRows = itemScanReferenceBuckets.topRows;
+    const rowsForCells = itemScanHasSlipOnBox
+      ? topRows.filter((row) => row.slipQty > 0 || row.scannedQty > 0)
+      : itemScanReferenceTopRowsWithScans(topRows);
+    if (rowsForCells.length === 0) return [];
+    return rowsForCells.map((row: ItemScanReferenceDisplayRow) => {
       const boxExpected = boxScopedExpectedQtyForReferenceRow(row, itemScanHasSlipOnBox);
       const slip =
         slipRowsForReferenceMerge.find((candidate) =>
@@ -13927,6 +14057,35 @@ function OperatorMobileScanPageContent() {
     slipLikeRowsForInspection.length,
     itemScanExpectationLinesLive.length,
     packageItemHydratedRows.length,
+  ]);
+
+  useEffect(() => {
+    if (flowPhase !== "items") return;
+    const pid = String(itemScanPackageId ?? "").trim();
+    if (!pid) return;
+    const carryoverRows =
+      itemScanSlipCarryoverRef.current?.packageId === pid
+        ? itemScanSlipCarryoverRef.current.rows
+        : itemScanSlipCarryover?.packageId === pid
+          ? itemScanSlipCarryover.rows
+          : [];
+    logSlipSingleDebug("item_scan_open", {
+      carryoverLinesLength: carryoverRows.length,
+      itemInspectionSlipLinesLength: itemInspectionSlipLines.length,
+      itemScanReferenceBucketsTopRowsLength: itemScanReferenceBuckets?.topRows.length ?? 0,
+      slipRowsForReferenceMergeLength: slipRowsForReferenceMerge.length,
+      itemScanMergedReferenceCellsLength: itemScanMergedReferenceCells.length,
+      renderSource: itemScanExpectedItemsRenderSource,
+    });
+  }, [
+    flowPhase,
+    itemScanPackageId,
+    itemInspectionSlipLines.length,
+    itemScanSlipCarryover,
+    itemScanReferenceBuckets?.topRows.length,
+    slipRowsForReferenceMerge.length,
+    itemScanMergedReferenceCells.length,
+    itemScanExpectedItemsRenderSource,
   ]);
 
   const itemInspectionQtyBasisExpected = useMemo(() => {
@@ -21177,9 +21336,18 @@ function OperatorMobileScanPageContent() {
                           beginItemPhase();
                           return;
                         }
-                        if (activeBoxSession && canSaveBoxScan) {
-                          modalOpenRef.current = true;
-                          setPackageFinalizeConfirmKind("save_items");
+                        if (activeBoxSession) {
+                          if (
+                            isSlipReviewRequired(boxHasNoPackingSlip, slipBoxPhotoUrls) &&
+                            !isSlipReviewed(boxSlipEvidenceReview)
+                          ) {
+                            openSlipReviewRequiredGate();
+                            return;
+                          }
+                          if (canSaveBoxScan) {
+                            modalOpenRef.current = true;
+                            setPackageFinalizeConfirmKind("save_items");
+                          }
                         }
                       }}
                       className={BOX_INFO_BTN_PRIMARY}
@@ -22435,6 +22603,43 @@ function OperatorMobileScanPageContent() {
                 </button>
               }
             />
+          </div>
+        </div>
+      ) : null}
+
+      {slipReviewRequiredModalOpen ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-slip-review-required-title`}
+          aria-describedby={`${formId}-slip-review-required-body`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-slip-review-required-title`}
+              className="operator-shipment-flow-modal__title text-center text-[17px] font-black leading-snug text-amber-950 dark:text-amber-100"
+            >
+              Packing slip review required
+            </p>
+            <p
+              id={`${formId}-slip-review-required-body`}
+              className="operator-shipment-flow-modal__body mt-3 text-center text-[14px] font-semibold leading-relaxed text-amber-950/90 dark:text-amber-50/90"
+            >
+              Confirm, edit, or mark the packing slip as unreadable before continuing to item scan.
+            </p>
+            <div className="mt-6">
+              <button
+                type="button"
+                className="operator-shipment-flow-modal__btn-warning h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                onClick={() => {
+                  setSlipReviewRequiredModalOpen(false);
+                  modalOpenRef.current = false;
+                }}
+              >
+                OK
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
