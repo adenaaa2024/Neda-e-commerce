@@ -1,0 +1,118 @@
+{
+  "_instruction": "Fill amazon_case_id with real Seller Central case IDs after manual filing. Do not use placeholder case IDs in production execute.",
+  "input_source": "operator_ui_export",
+  "filed_by": "Maysam",
+  "accept_cogs_missing": true,
+  "entries": [
+    {
+      "claim_submission_id": "4222bf72-6417-4bbf-a97f-a8d600e9c44f",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal shipment missing pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_not_received",
+      "_reference_fnsku": "X004D9AMWV"
+    },
+    {
+      "claim_submission_id": "d723bb59-7567-442f-b864-22e421696c47",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal shipment missing pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_not_received",
+      "_reference_fnsku": "X004D9AMWV"
+    },
+    {
+      "claim_submission_id": "de92f13d-1b54-43fd-9ad4-5b9e6bddf3bd",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal order discrepancy pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_quantity_mismatch",
+      "_reference_fnsku": "X003VSWH37"
+    },
+    {
+      "claim_submission_id": "c888aa12-baeb-45cf-aad4-17079b1302dc",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal order discrepancy pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_quantity_mismatch",
+      "_reference_fnsku": "X004D9AMWV"
+    },
+    {
+      "claim_submission_id": "5e4f12e8-bb73-4d32-a2bd-d0b5c26c0911",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal order discrepancy pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_quantity_mismatch",
+      "_reference_fnsku": "X004TRQBB3"
+    },
+    {
+      "claim_submission_id": "55559d96-aca2-4c03-8b2f-27817de600d6",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal shipment missing pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_not_received",
+      "_reference_fnsku": "X004LLJMN1"
+    },
+    {
+      "claim_submission_id": "836523b3-eb54-4481-8f27-348ba0083281",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal shipment missing pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_not_received",
+      "_reference_fnsku": "X004D9AMWV"
+    },
+    {
+      "claim_submission_id": "0af26341-16e8-4292-88fd-3180580fb64c",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal shipment missing pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_not_received",
+      "_reference_fnsku": "X004D9AMWV"
+    },
+    {
+      "claim_submission_id": "160a0b54-5033-4d9a-ad8e-fd06c5d1b716",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal order discrepancy pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_quantity_mismatch",
+      "_reference_fnsku": "X004WJ8OE5"
+    },
+    {
+      "claim_submission_id": "98fdb163-9240-4c05-bf74-d88dcc979697",
+      "amazon_case_id": "",
+      "filed_at": "2026-06-18T20:00:00Z",
+      "filed_by": "Maysam",
+      "amazon_case_url": "",
+      "filing_notes": "Manual filing recorded in Seller Central — removal shipment missing pilot",
+      "operator_already_filed_in_seller_central": true,
+      "_reference_family": "shipment_not_received",
+      "_reference_fnsku": "X004N992LN"
+    }
+  ]
+}

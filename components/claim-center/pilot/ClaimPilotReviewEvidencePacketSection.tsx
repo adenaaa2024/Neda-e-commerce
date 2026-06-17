@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
+import { useCallback, useState, type ReactNode } from "react";
+import { AlertTriangle, CheckCircle2, Eye, FileText, Loader2, ShieldAlert } from "lucide-react";
 
+import { composeClaimEvidencePacketAction } from "@/app/claim-engine/evidence-packet-actions";
 import type { ClaimEvidencePacketV1, ClaimEvidencePacketV1Payload } from "@/lib/claims/evidence/claim-evidence-packet-v1";
 import {
   EVIDENCE_PACKET_API_PATH,
+  EVIDENCE_PACKET_HTML_PREVIEW_BUTTON_LABEL,
+  EVIDENCE_PACKET_PREVIEW_BUTTON_LABEL,
   EVIDENCE_PACKET_READINESS_BADGE_LABELS,
+  EVIDENCE_PACKET_SECTION_ID,
   deriveEvidencePacketReadinessBadge,
   evidencePacketApiParams,
   productIdentityLabel,
@@ -16,6 +20,7 @@ import { formatPilotMoney } from "@/lib/claims/pilot/claim-pilot-review-ui-contr
 
 type Props = {
   candidateId: string;
+  organizationId: string;
   intakeRunId: string | null;
   fetchJson: <T>(path: string, extra?: Record<string, string>) => Promise<T>;
 };
@@ -61,6 +66,7 @@ function EvidencePacketContent({ packet }: { packet: ClaimEvidencePacketV1 }) {
 
       <dl className="grid gap-3 sm:grid-cols-2">
         <Field label="Candidate ID" value={<span className="font-mono text-xs break-all">{packet.candidate_id}</span>} />
+        <Field label="Intake run ID" value={<span className="font-mono text-xs break-all">{packet.intake_run_id ?? "—"}</span>} />
         <Field label="Packet ID" value={<span className="font-mono text-xs break-all">{packet.packet_id}</span>} />
         <Field label="Family V3" value={packet.family_key_v3 ?? "—"} />
         <Field label="Claim family" value={packet.claim_family ?? "—"} />
@@ -216,16 +222,28 @@ function EvidencePacketContent({ packet }: { packet: ClaimEvidencePacketV1 }) {
   );
 }
 
-export function ClaimPilotReviewEvidencePacketSection({ candidateId, intakeRunId, fetchJson }: Props) {
+export function ClaimPilotReviewEvidencePacketSection({
+  candidateId,
+  organizationId,
+  intakeRunId,
+  fetchJson,
+}: Props) {
   const [packet, setPacket] = useState<ClaimEvidencePacketV1 | null>(null);
+  const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [htmlLoading, setHtmlLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [htmlError, setHtmlError] = useState<string | null>(null);
+  const [previewOpened, setPreviewOpened] = useState(false);
 
   const loadPacket = useCallback(async () => {
     if (!candidateId) return;
     setLoading(true);
     setError(null);
     setPacket(null);
+    setHtml(null);
+    setHtmlError(null);
+    setPreviewOpened(true);
     try {
       const data = await fetchJson<ClaimEvidencePacketV1Payload>(
         EVIDENCE_PACKET_API_PATH,
@@ -244,28 +262,68 @@ export function ClaimPilotReviewEvidencePacketSection({ candidateId, intakeRunId
     }
   }, [candidateId, intakeRunId, fetchJson]);
 
-  useEffect(() => {
-    void loadPacket();
-  }, [loadPacket]);
+  const loadHtmlPreview = useCallback(async () => {
+    if (!candidateId || !organizationId) return;
+    setHtmlLoading(true);
+    setHtmlError(null);
+    try {
+      const res = await composeClaimEvidencePacketAction({
+        organizationId,
+        candidateIds: [candidateId],
+      });
+      if (!res.ok) {
+        setHtmlError(res.error);
+        return;
+      }
+      setHtml(res.html);
+    } catch (e) {
+      setHtmlError(e instanceof Error ? e.message : "Failed to load HTML preview.");
+    } finally {
+      setHtmlLoading(false);
+    }
+  }, [candidateId, organizationId]);
 
   return (
-    <section className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <section
+      id={EVIDENCE_PACKET_SECTION_ID}
+      className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4"
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase opacity-70">Evidence packet</h3>
         <span className="text-[10px] opacity-50">read-only · no PDF</span>
       </div>
       <p className="mb-4 text-[11px] opacity-70">
-        Composed via <code className="text-[10px]">{EVIDENCE_PACKET_API_PATH}</code>. Inspect readiness before case
-        planning — no writes.
+        V1 structured preview via <code className="text-[10px]">{EVIDENCE_PACKET_API_PATH}</code>. Optional HTML pane
+        uses Phase 7G composer — inspection only, no writes.
       </p>
 
+      <button
+        type="button"
+        onClick={() => void loadPacket()}
+        disabled={loading}
+        className="claim-center-btn inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold"
+      >
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <Eye className="h-4 w-4" aria-hidden />
+        )}
+        {EVIDENCE_PACKET_PREVIEW_BUTTON_LABEL}
+      </button>
+
+      {!previewOpened && !loading ? (
+        <p className="mt-3 text-xs opacity-60">
+          Tap Preview evidence packet to load structured readiness fields for this candidate.
+        </p>
+      ) : null}
+
       {loading ? (
-        <div className="flex items-center gap-2 py-6 text-xs opacity-70">
+        <div className="mt-4 flex items-center gap-2 py-4 text-xs opacity-70">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Loading evidence packet…
         </div>
       ) : error ? (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-4 text-xs">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-4 text-xs">
           <p className="font-semibold text-red-800 dark:text-red-200">Could not load evidence packet</p>
           <p className="mt-1 opacity-80">{error}</p>
           <button
@@ -277,10 +335,45 @@ export function ClaimPilotReviewEvidencePacketSection({ candidateId, intakeRunId
           </button>
         </div>
       ) : packet ? (
-        <EvidencePacketContent packet={packet} />
-      ) : (
-        <p className="py-4 text-xs opacity-60">No evidence packet available for this candidate.</p>
-      )}
+        <div className="mt-4 space-y-4">
+          <EvidencePacketContent packet={packet} />
+
+          <div className="border-t border-black/10 pt-4 dark:border-white/10">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-[10px] font-semibold uppercase tracking-wide opacity-55">HTML preview</h4>
+              <button
+                type="button"
+                onClick={() => void loadHtmlPreview()}
+                disabled={htmlLoading}
+                className="claim-center-btn inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold"
+              >
+                {htmlLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <FileText className="h-3.5 w-3.5" aria-hidden />
+                )}
+                {EVIDENCE_PACKET_HTML_PREVIEW_BUTTON_LABEL}
+              </button>
+            </div>
+            {htmlError ? <p className="mt-2 text-xs text-red-600 dark:text-red-400">{htmlError}</p> : null}
+            {!html && !htmlError && !htmlLoading ? (
+              <p className="mt-2 text-xs opacity-60">
+                Optional Phase 7G HTML render for print-friendly inspection — not a PDF export.
+              </p>
+            ) : null}
+            {html ? (
+              <iframe
+                title="Evidence packet HTML preview"
+                className="mt-3 h-[360px] w-full rounded-lg border bg-white"
+                srcDoc={html}
+                sandbox=""
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : previewOpened ? (
+        <p className="mt-4 text-xs opacity-60">No evidence packet available for this candidate.</p>
+      ) : null}
     </section>
   );
 }

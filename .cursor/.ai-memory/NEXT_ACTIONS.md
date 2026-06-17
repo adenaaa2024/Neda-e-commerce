@@ -1,7 +1,123 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-15 (`phase-claim-evidence-packet-ui-v1` `20260615T100500Z`)
+**Last updated:** 2026-06-19 (`phase-claim-ai-assisted-operations-plan-v1` `20260619T040000Z` PASS)
+
+---
+
+## P1 — AI-assisted Claim Center (plan complete)
+
+~~**PHASE-CLAIM-AI-ASSISTED-OPERATIONS-PLAN-V1**~~ — **PASS** `20260619T040000Z` — advisory-only; no model calls in plan phase
+
+Evidence: `.cursor/audit-reports/phase-claim-ai-assisted-operations-plan-v1/20260619T040000Z/`
+
+**NEXT:** `PHASE-CLAIM-CENTER-AI-OPTIONAL-OVERLAY-SHELL-V1` → `PHASE-CLAIM-AI-EVIDENCE-SUMMARY-ASSISTANT-V1` (dry-run UI first)
+
+## P1 — Live reference API layer (audit complete)
+
+~~**PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-AUDIT-V1**~~ — **PASS** `20260619T030000Z` — TRID 10/10; reimb/case ID 0/10; `SAFE_TO_BUILD_LIVE_REFERENCE_API_LAYER: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-live-reference-api-completion-audit-v1/20260619T030000Z/`
+
+**NEXT:** `PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-IMPLEMENT-V1` — governed live sync + reference refresh (no claim submit)
+
+**Parallel (production):** Operator COGS + Case IDs → execute chain → `PHASE-CLAIM-PILOT-FINAL-VERIFY-V1`
+
+~~**PHASE-CLAIM-PILOT-FINAL-SIMULATION-VERIFY-V1**~~ — **PASS** `20260619T001500Z`
+
+~~**PHASE-CLAIM-PILOT-SIMULATED-COMPLETION-V1**~~ — **PASS** `20260618T235000Z` — full demo path without DB writes; UI `?simulation=1`
+
+Evidence: `.cursor/audit-reports/phase-claim-pilot-simulated-completion-v1/20260618T235000Z/`
+
+## P1 — COGS execute (operator must supply 6 real unit costs)
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 execute**~~ — **BLOCKED (validation)** `20260617T075103Z` — approvals yes; 6/6 rejected (null unitCost + empty sourceNote); no cost data in live product metadata
+
+Evidence: `.cursor/audit-reports/phase-product-cogs-manual-entry-execute-v1/20260617T075103Z/`
+
+1. **Maysam:** Fill 6 real `unitCost` + non-empty `sourceNote` in `.cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json` (do **not** use `latest_sold_price`) → `npx tsx scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute` → re-run after-COGS money preview
+
+~~**PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 execute**~~ — **BLOCKED (validation)** `20260618T230000Z` — approval yes; 0/10 updated — fill real Seller Central `amazon_case_id` per submission
+
+Evidence: `.cursor/audit-reports/phase-claim-manual-filing-status-entry-execute-v1/20260618T230000Z/`
+
+1. **Operator:** After filing each claim in Seller Central, fill `amazon_case_id` (+ optional URL) for all 10 entries in `.cursor/operator-approvals/manual-filing-status-entry-execute-v1-input.json` → re-run `npx tsx scripts/phase-claim-manual-filing-status-entry-execute-v1.ts --execute`
+
+~~**PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-AND-GUARDED-EXECUTE-V1**~~ — **PASS** `20260618T050000Z`
+
+~~**PHASE-CLAIM-MONEY-LANE-PREVIEW-AND-UI-INTEGRATION-V1**~~ — **PASS** `20260618T040000Z`
+
+## P1 — COGS execute then re-run after-COGS money preview
+
+~~**PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V1 re-run**~~ — **BLOCKED** `20260618T220000Z` — COGS 0/6 in DB; recovery 0/10
+
+Evidence: `.cursor/audit-reports/phase-claim-money-lane-preview-after-cogs-v1/20260618T220000Z/`
+
+1. **Fill 6 unitCost + sourceNote** in `.cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json` (approvals already yes) → `npx tsx scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute` → re-run after-COGS preview
+
+1. **Fill 6 approved unit costs** in `.cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json` (approvals already **yes**; last execute `20260617T072008Z` rejected 6/6 — missing unitCost + sourceNote) → re-run `npx tsx scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute`
+
+Evidence: `.cursor/audit-reports/phase-product-cogs-manual-entry-execute-v1/20260617T072008Z/`
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 approvals**~~ — **SET** `APPROVED_PRODUCT_COGS_WRITE_V1=yes` + `APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=yes`
+
+~~**PHASE-CLAIM-MONEY-LANE-PREVIEW-AND-UI-INTEGRATION-V1**~~ — **PASS** `20260618T040000Z` — 10/10 sold/fees/settlement; COGS 0/10 Unknown; table + drawer Money tab; formula tooltips; build+smoke PASS; `SAFE_REIMBURSEMENT_TRACKING_UI_MONEY_READY: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-money-lane-preview-and-ui-integration-v1/20260618T040000Z/`
+
+~~**PHASE-CLAIM-MONEY-LANE-PREVIEW-V2-PROFIT-LOSS-ANALYSIS**~~ — **PASS** `20260618T010000Z` — sale/fees/settlement 10/10; profit_loss complete 0/10 (COGS gap); `SAFE_MONEY_LANE_PROFIT_LOSS_PREVIEW_READY: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-money-lane-preview-v2-profit-loss-v1/20260618T010000Z/`
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-UI-V1**~~ — **PASS** `20260617T002855Z` — dry-run COGS Entry UI; 6/6 pilot products; per-submission recovery preview; build+smoke PASS; `SAFE_COGS_MANUAL_ENTRY_UI_READY: yes`
+
+Evidence: `.cursor/audit-reports/phase-product-cogs-manual-entry-ui-v1/20260617T002855Z/`
+
+~~**PHASE-CLAIM-MONEY-LANE-PREVIEW-V1**~~ — **PASS** `20260617T230000Z` — sold/fees/settlement 10/10; COGS/recovery 0/10; `SAFE_MONEY_LANE_PREVIEW_READY: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-money-lane-preview-v1/20260617T230000Z/`
+
+---
+
+## P1 — Manual filing status entry execute (next)
+
+1. **PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1** — gated UPDATE to `claim_submissions` after Maysam approval (UI dry-run ready)
+
+~~**PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-V1**~~ — **PASS (re-verified)** `20260618T030000Z` — drawer section G + modal + dry-run API; Save disabled; build+smoke PASS; `SAFE_MANUAL_FILING_STATUS_ENTRY_UI_READY: yes`
+
+Evidence: `scripts/smoke-claim-manual-filing-status-entry-ui-v1.ts`
+
+~~**PHASE-CLAIM-MONEY-LANE-PROFIT-LOSS-UI-AFTER-COGS-V1**~~ — **PASS** `20260618T120000Z` — post-COGS money lane UI; `SAFE_MONEY_LANE_PROFIT_LOSS_UI_READY: yes`
+
+Evidence: `scripts/smoke-claim-money-lane-profit-loss-ui-after-cogs-v1.ts`
+
+~~**PHASE-CLAIM-MONEY-LANE-PROFIT-LOSS-UI-V1**~~ — **PASS** `20260618T020100Z` — superseded by after-COGS V1
+
+~~**PHASE-CLAIM-MONEY-LANE-PREVIEW-V2-PROFIT-LOSS-ANALYSIS**~~ — **PASS** `20260618T010000Z`
+
+Evidence: `.cursor/audit-reports/phase-claim-money-lane-preview-v2-profit-loss-v1/20260618T010000Z/`
+
+---
+
+## P1 — Product COGS manual entry UI
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-UI-V1**~~ — **PASS** `20260616T235630Z` — dry-run only; no DB writes
+
+Evidence: `.cursor/audit-reports/phase-product-cogs-manual-entry-ui-v1/20260616T235630Z/`
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-OR-IMPORT-PLAN-V1**~~ — **PASS** `20260616T233012Z`
+
+---
+
+## P1 — Product COGS manual entry or import plan
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-OR-IMPORT-PLAN-V1**~~ — **PASS** `20260616T233012Z`
+
+~~**PHASE-PRODUCT-COGS-AUDIT-V1**~~ — **PASS** `20260616T231548Z`
+
+~~**PHASE-CLAIM-REIMBURSEMENT-TRACKING-NAV-DEDUP-UX-POLISH-V1**~~ — **PASS** `20260617T210000Z` — single More menu entry under Filing & recovery; build+smoke PASS
+
+Evidence: `.cursor/audit-reports/phase-claim-reimbursement-tracking-nav-dedup-ux-polish-v1/20260617T210000Z/`
 
 ---
 
@@ -37,11 +153,81 @@ Evidence: `.cursor/audit-reports/phase-claim-candidate-emit-staging-wave2-v1/202
 
 Evidence: `.cursor/audit-reports/phase-claim-candidate-emit-staging-rollback-drill-v1/20260614T190000Z/`
 
-1. **PHASE-CLAIM-CASE-CREATION-CONTRACT-V1** — plan read-only case creation contract from evidence packet readiness (no writes until approval)
+~~**PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1-VERIFY**~~ — **PASS** `20260615T140000Z` — post FIX-BUILD; 50/50; `SAFE_EVIDENCE_PACKET_PREVIEW_VERIFIED: yes`
 
-Evidence: `.cursor/audit-reports/phase-claim-evidence-packet-ui-v1/20260615T100500Z/`
+Evidence: `.cursor/audit-reports/phase-claim-evidence-packet-preview-v1-verify/20260615T140000Z/`
 
-~~**PHASE-CLAIM-EVIDENCE-PACKET-UI-V1**~~ — **PASS** `20260615T100500Z` — pilot drawer evidence packet section; readiness badges; `SAFE_TO_REVIEW_EVIDENCE_PACKET_UI: yes`
+~~**PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1-FIX-BUILD**~~ — **PASS** `20260615T131500Z` — `SAFE_EVIDENCE_PACKET_PREVIEW_READY: yes`
+
+~~**PHASE-CLAIM-CASE-REVIEW-UI-V1**~~ — **VERIFIED** `20260615T231500Z` — read-only `/claim-center/case-review`; 20 pilot cases; build+smoke PASS; `SAFE_TO_REVIEW_CASES_IN_UI: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-case-review-ui-v1/20260615T231500Z/`
+
+~~**PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE**~~ — **PASS** `20260616T230000Z` — migration applied; **96** edges created; `SAFE_REFERENCE_EDGES_MATERIALIZED: yes`
+
+Evidence: `.cursor/audit-reports/phase7h-claim-reference-edge-materialization-pilot-original-execute-v1/20260616T230000Z/`
+
+~~**PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1**~~ — **PASS** `20260617T010000Z` — graph+export regen 10/10; `SAFE_TRID_REFERENCE_GRAPH_VERIFIED: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1/20260617T010000Z/`
+
+~~**PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 — RE-RUN**~~ — **PASS** `20260617T030200Z` — 10 inserts; `SAFE_CLAIM_SUBMISSION_RECORD_PILOT: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-submission-record-pilot-execute-v1/20260617T030200Z/`
+
+~~**PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 — RE-RUN**~~ — **PASS** `20260617T040100Z` — read-only 10/10; reimbursement match 0/10; `SAFE_REIMBURSEMENT_TRACKING_PREVIEW_READY: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-reimbursement-tracking-preview-v1/20260617T040100Z/`
+
+~~**PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-V1**~~ — **VERIFIED PASS** `20260617T140000Z` — read-only `/claim-center/reimbursement-tracking`; build+smoke PASS; `SAFE_REIMBURSEMENT_TRACKING_UI_READY: yes`
+
+Evidence: `.cursor/audit-reports/phase-claim-reimbursement-tracking-ui-v1/20260617T140000Z/`
+
+~~**PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-MAIN-REPAIR-V1**~~ — **PASS** `20260617T160000Z` — nav discoverability repaired (home tile + Filing & recovery group + workflow link); build+smoke PASS; `SAFE_REIMBURSEMENT_TRACKING_UI_VISIBLE_ON_MAIN: yes`
+
+~~**PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-MERGE-TO-MAIN-V1**~~ — **DONE** `20260617T180000Z` — committed `d2f7faa` on main (40 files)
+
+~~**PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-MAIN-VISIBILITY-REPAIR-V2**~~ — **PASS** `20260617T180000Z` — tracked on main; More → Filing & recovery; 10/10 pilot rows
+
+Evidence: `.cursor/audit-reports/phase-claim-reimbursement-tracking-ui-main-visibility-repair-v2/20260617T180000Z/`
+
+~~**PHASE-CLAIM-MONEY-LANE-SOURCE-DISCOVERY-V1**~~ — **PASS** `20260617T190000Z` — sold price/fees/settlement 10/10; COGS 0/10; reimb 0/10
+
+Evidence: `.cursor/audit-reports/phase-claim-money-lane-source-discovery-v1/20260617T190000Z/`
+
+~~**PHASE-PRODUCT-COGS-AUDIT-V1**~~ — **PASS** `20260616T231548Z` — 0/10 approved COGS; `product_cost_snapshots` not on original
+
+Evidence: `.cursor/audit-reports/phase-product-cogs-audit-v1/20260616T231548Z/`
+
+~~**PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-PLAN-V1**~~ — **LOCKED (re-verified)** `20260617T000136Z`
+
+~~**PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-V1**~~ — **PASS** `20260618T030000Z` — drawer modal + dry-run preview; Save disabled; build+smoke PASS; `SAFE_MANUAL_FILING_STATUS_ENTRY_UI_READY: yes`
+
+1. **PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1** — approved UPDATE claim_submissions only (status=submitted, submission_id, source_payload filing fields + audit)
+
+~~**PHASE-CLAIM-SUBMISSION-RECORD-PILOT-V1 — EXECUTE**~~ — superseded by **PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1**
+
+Evidence: `.cursor/audit-reports/phase-claim-submission-record-pilot-v1/20260616T130000Z/`
+
+~~**PHASE-CLAIM-SUBMISSION-RECORD-PILOT-V1**~~ — **DRY-RUN READY** `20260616T130000Z` — 10 planned inserts; execute blocked
+
+~~**PHASE-CLAIM-PDF-EXPORT-PREVIEW-PILOT-V1**~~ — **PASS** `20260616T090000Z` — local HTML/JSON/TXT/PDF 10/10; `SAFE_PDF_EXPORT_PREVIEW_READY: yes`
+
+~~**PHASE-CLAIM-FILING-PACKET-UI-V1**~~ — **PASS** `20260616T070000Z` — Case Review drawer filing packet section; `SAFE_TO_REVIEW_FILING_PACKET_UI: yes`
+
+~~**PHASE-CLAIM-FILING-PACKET-PREVIEW-V1**~~ — **PASS** `20260616T060000Z` — read-only preview API; **10/10**; `SAFE_FILING_PACKET_PREVIEW_READY: yes`
+
+~~**PHASE-CLAIM-FILING-PACKET-PLAN-V1**~~ — **PLAN READY** `20260616T050000Z` — 10/10 eligible; `SAFE_TO_BUILD_FILING_PACKET_PREVIEW: yes`
+
+~~**PHASE-CLAIM-CASE-REVIEW-UI-REVERIFY-AFTER-REMEDIATION-V1**~~ — **PASS** `20260616T040000Z`
+
+~~**PHASE-CLAIM-CASE-CREATION-PREVIEW-UI-V1**~~ — **PASS** `20260615T180000Z` — case preview UI; `SAFE_TO_BUILD_CASE_CREATION_PILOT: yes`
+
+~~**PHASE-CLAIM-CASE-CREATION-PREVIEW-V1**~~ — **PASS** `20260615T170000Z` — 50/50 preview; `SAFE_CASE_CREATION_PREVIEW_READY: yes`
+
+~~**PHASE-CLAIM-CASE-CREATION-CONTRACT-V1**~~ — **PASS** `20260615T160000Z` — contract locked; `SAFE_TO_BUILD_CASE_CREATION_PREVIEW: yes`
+
+~~**PHASE-CLAIM-EVIDENCE-PACKET-UI-V1**~~ — **PASS** `20260615T150000Z` — post VERIFY 140000Z; `SAFE_TO_REVIEW_EVIDENCE_PACKET_UI: yes`
 
 ~~**PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1**~~ — **PASS** `20260615T091500Z` — V1 composer + API; original pilot **50/50**; `SAFE_EVIDENCE_PACKET_PREVIEW_READY: yes`
 

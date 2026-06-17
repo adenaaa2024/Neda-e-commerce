@@ -146,3 +146,95 @@ Then: add source_report edges (candidate -> raw_report_uploads via upload_id) as
 - **orbit_fra return_item gap:** generator fix in code (not regenerated); discovery uses source_row_id fallback.
 - **SAFE_TO_IMPLEMENT_TRID_EDGE_READMODEL:** yes. No DB writes this phase.
 - **Next:** `PHASE-CLAIM-TRID-EDGE-READMODEL-IMPLEMENT-V1`
+
+
+## TRID reference graph reverify + submission unblock V1 (append 2026-06-16)
+
+- **Run:** `20260616T220000Z` — `.cursor/audit-reports/phase-claim-trid-reference-graph-reverify-and-submission-unblock-v1/20260616T220000Z/`
+- **Target:** original `kxsvedvpjldygtdbylsy` · pilot `pilot-20260615T190000Z` · intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`
+- **Active cases:** **10** (6 removal_shipment_missing + 4 removal_order_discrepancy); **10** closed excluded
+- **Prerequisite SAFE_REFERENCE_EDGES_MATERIALIZED:** **no** (7H execute `20260616T200000Z` blocked — 0 edges materialized)
+- **Materialized `claim_reference_edges`:** **0/10** pilot cases (org total **51** draft-era unchanged)
+- **TRID:** **0/10** (`missing_trid_warning` **10** — non-blocking per policy)
+- **Source anchors:** **10/10** expected_packages; tracking **6/6** shipment families
+- **Export regen:** **skipped** (`7h_prerequisite_not_met`)
+- **Migrations:** `20260917130000` candidate_id **no**; `20260918120000` claim_submissions.claim_case_id **no**
+- **Approvals:** `APPROVED_CLAIM_SUBMISSION_RECORD_PILOT_V1=no`; `APPROVED_CLAIM_SUBMISSIONS_SCHEMA_MIGRATION_V1=no`
+- **No DB writes:** PASS (cases/lines/candidates/submissions/edges unchanged)
+- **SAFE_TRID_REFERENCE_GRAPH_VERIFIED:** **no**
+- **SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY:** **no**
+- **SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT:** **no**
+- **SAFE_TO_EXECUTE_CLAIM_SUBMISSION_RECORD_PILOT:** **no**
+- **Next:** `PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE` — Maysam approval + schema migration + `--execute` first; then re-run this phase
+
+
+## TRID reference graph reverify + export regen after 7H V1 (append 2026-06-16)
+
+- **Run:** `20260616T230000Z` — `.cursor/audit-reports/phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1/20260616T230000Z/`
+- **Target:** original `kxsvedvpjldygtdbylsy` · pilot `pilot-20260615T190000Z` · intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`
+- **Active cases:** **10** (6+4); **10** closed excluded; **no DB writes** PASS
+- **Prerequisite SAFE_REFERENCE_EDGES_MATERIALIZED:** **no** (7H execute `20260616T210000Z` still blocked — approval + migration missing)
+- **Materialized edges:** **0/10** (`claim_reference_edges` org total **51** unchanged)
+- **Removal order/shipment refs:** **0/4** order · **0/6** shipment (not safely resolvable without materialization)
+- **TRID:** **0/10** (`missing_trid_warning` only — non-blocking)
+- **Export regen:** **skipped** (`7h_prerequisite_not_met`) — no HTML/JSON/TXT/PDF regenerated
+- **claim_submissions.claim_case_id:** **no** · migration `20260918120000` **not applied**
+- **Submission approvals:** `APPROVED_CLAIM_SUBMISSION_RECORD_PILOT_V1=no` · `APPROVED_CLAIM_SUBMISSIONS_SCHEMA_MIGRATION_V1=no`
+- **SAFE_TRID_REFERENCE_GRAPH_VERIFIED:** **no** · **SAFE_TO_EXECUTE_CLAIM_SUBMISSION_RECORD_PILOT:** **no**
+- **Next:** `PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE` — approval + migration `20260917130000` + `--execute` first
+
+
+## Phase 7H pilot reference edge materialization original EXECUTE (append 2026-06-16)
+
+- **Run:** `20260616T230000Z` — `.cursor/audit-reports/phase7h-claim-reference-edge-materialization-pilot-original-execute-v1/20260616T230000Z/`
+- **Target:** original `kxsvedvpjldygtdbylsy` · pilot `pilot-20260615T190000Z` · intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`
+- **Migration:** `20260917130000` applied (`claim_reference_edges.candidate_id`)
+- **Edges:** planned **112** · created **96** · reused **16** · org total **51→147** · pilot candidate edges **0→96**
+- **Coverage:** EP **10/10** · tracking **10/10** · removal order **10/10** · removal shipment **6/6**
+- **TRID edges:** **10/10** via explicit EP-id anchor (no invented product TRID)
+- **Unchanged:** claim_cases **22** · claim_lines **22** · claim_candidates **9155** · claim_submissions **3**
+- **SAFE_REFERENCE_EDGES_MATERIALIZED:** **yes**
+- **Next:** `PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1`
+
+
+## TRID reference graph reverify + export regen after 7H V1 PASS (append 2026-06-17)
+
+- **Run:** `20260617T000000Z` — `.cursor/audit-reports/phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1/20260617T000000Z/`
+- **Prerequisite SAFE_REFERENCE_EDGES_MATERIALIZED:** **yes** (7H `20260616T230000Z`)
+- **Active cases:** **10** (6+4); reference edge coverage **10/10**; blocked **0**; mismatch **0**
+- **Coverage:** EP **10/10** · tracking **10/10** · removal order **10/10** · removal shipment **6/6**
+- **TRID:** **10/10** (EP-id anchor); export regen **PASS** — HTML/JSON/TXT/PDF for all 10 (`20260617T000000Z-export`)
+- **Draft labels:** DRAFT ONLY / NOT SUBMITTED TO AMAZON / INTERNAL REVIEW PACKET — **pass**
+- **No DB writes:** PASS (edges **147** unchanged)
+- **claim_submissions.claim_case_id:** **no** · submission approvals **no**
+- **SAFE_TRID_REFERENCE_GRAPH_VERIFIED:** **yes**
+- **SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY:** **yes**
+- **SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT:** **yes**
+- **SAFE_TO_EXECUTE_CLAIM_SUBMISSION_RECORD_PILOT:** **no** (needs migration `20260918120000` + Maysam submission approvals)
+- **Next:** Apply `20260918120000` + submission approvals → `PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1`
+
+
+## TRID reverify + export regen after 7H V1 (append 2026-06-17, run 010000Z)
+
+- **Run:** `20260617T010000Z` — `.cursor/audit-reports/phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1/20260617T010000Z/`
+- **Post-7H:** materialized edges **10/10**; export regen **10/10**; graph_pass **yes**
+- **SAFE_TRID_REFERENCE_GRAPH_VERIFIED:** **yes** · **SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY:** **yes**
+- **SAFE_TO_EXECUTE_CLAIM_SUBMISSION_RECORD_PILOT:** **no** (submission approvals pending)
+
+
+## Claim submission record pilot EXECUTE V1 (append 2026-06-17)
+
+- **Run:** `20260617T010500Z` — `.cursor/audit-reports/phase-claim-submission-record-pilot-execute-v1/20260617T010500Z/`
+- **Blockers:** pilot + schema approvals **no**; migration `claim_case_id` **not applied**
+- **Planned:** **10** inserts · **Actual:** **0** · legacy **3** untouched
+- **SAFE_CLAIM_SUBMISSION_RECORD_PILOT:** **no**
+- **Next:** Maysam sets both approval tokens **yes** then re-run `--execute`
+
+
+## Claim submission record pilot EXECUTE V1 PASS (append 2026-06-17)
+
+- **Run:** `20260617T030200Z` — `.cursor/audit-reports/phase-claim-submission-record-pilot-execute-v1/20260617T030200Z/`
+- **Migration:** `20260918120000` applied · **10** pilot `claim_submissions` inserted (`draft`, manual_filing)
+- **Legacy:** **3** untouched · org total **3→13**
+- **SAFE_CLAIM_SUBMISSION_RECORD_PILOT:** **yes** · **SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW:** **yes**
+- **Next:** `PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1`

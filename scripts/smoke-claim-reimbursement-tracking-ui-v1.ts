@@ -6,11 +6,17 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  CLAIM_CENTER_FILING_RECOVERY_NAV,
+  CLAIM_CENTER_MOBILE_MORE_GROUPS,
+  CLAIM_CENTER_MORE_WORKFLOW,
+} from "../components/claim-center/claim-center-nav-config";
+import {
   REIMBURSEMENT_TRACKING_UI_VERSION,
 } from "../lib/claims/submission/claim-reimbursement-tracking-ui-contract";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(ROOT, "..");
+const TRACKING_HREF = "/claim-center/reimbursement-tracking";
 
 const FILES = {
   ui_contract: "lib/claims/submission/claim-reimbursement-tracking-ui-contract.ts",
@@ -29,6 +35,13 @@ function read(rel: string): string {
 }
 
 function main(): void {
+  const navConfig = read("components/claim-center/claim-center-nav-config.ts");
+  const moreMenuCount = CLAIM_CENTER_MOBILE_MORE_GROUPS.flatMap((g) => g.items).filter(
+    (i) => i.href === TRACKING_HREF,
+  ).length;
+  const workflowHasTracking = CLAIM_CENTER_MORE_WORKFLOW.some((i) => i.href === TRACKING_HREF);
+  const filingHasTracking = CLAIM_CENTER_FILING_RECOVERY_NAV.some((i) => i.href === TRACKING_HREF);
+
   const view = read(FILES.view);
   const drawer = read(FILES.drawer);
   const table = read(FILES.table);
@@ -41,14 +54,18 @@ function main(): void {
     api_route: fs.existsSync(path.join(REPO, FILES.api_route)),
     financial_nav: view.includes("ClaimCenterFinancialNav"),
     nav_tabs: read(FILES.nav).includes("Reimbursement Tracking"),
-    nav_discoverable_workflow: read("components/claim-center/claim-center-nav-config.ts").includes(
-      "CLAIM_CENTER_FILING_RECOVERY_NAV",
-    ),
+    nav_discoverable_workflow: filingHasTracking && !workflowHasTracking,
+    nav_single_more_menu_entry: moreMenuCount === 1,
+    nav_not_in_workflow_group: !workflowHasTracking,
+    nav_in_filing_recovery_group: filingHasTracking,
     nav_discoverable_home_tile: read("components/claim-center/ClaimCenterCommandHomeTiles.tsx").includes(
-      "/claim-center/reimbursement-tracking",
+      TRACKING_HREF,
     ),
-    nav_discoverable_more_workflow: read("components/claim-center/claim-center-nav-config.ts").includes(
-      'href: "/claim-center/reimbursement-tracking"',
+    nav_active_state_helper: navConfig.includes(
+      'itemPath === "/claim-center/reimbursement-tracking"',
+    ),
+    ux_helper_copy: read("components/claim-center/reimbursement-tracking/ReimbursementTrackingHeader.tsx").includes(
+      "Draft/manual filing tracking only",
     ),
     summary_cards: view.includes("ReimbursementTrackingSummaryCards"),
     workflow_strip: view.includes("ReimbursementTrackingWorkflowStrip"),

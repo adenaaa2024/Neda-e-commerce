@@ -235512,3 +235512,2285 @@ PHASE-CLAIM-CASE-CREATION-CONTRACT-V1
 ================================================================================
 END APPEND SLICE -- 20260615T100500Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T110000Z
+PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1-VERIFY
+================================================================================
+
+### Evidence packet preview V1 verify (read-only)
+- Ref: kxsvedvpjldygtdbylsy; pilot intake_run_id a8a892fe
+- Single samples: removal_shipment_missing + removal_order_discrepancy — PASS
+- Grouped compose: 50/50 packets; family 30/20
+- Shape verification: all required fields present
+- Rules: disputed qty excluded; NULL money preserved; sale price not COGS
+- Product linkage: 50/50 linked; missing_product_link warnings 0 (no crash)
+- Evidence warnings: missing_photo_evidence 50/50 (non-blocking)
+- ready_for_case_creation: 50/50; blocker_counts empty
+- No PDF in composer; no DB writes (9155/2 unchanged); scanner clean
+- Build + smoke PASS
+- SAFE_EVIDENCE_PACKET_PREVIEW_VERIFIED: yes
+- SAFE_TO_BUILD_EVIDENCE_PACKET_UI: yes (UI already shipped 100500Z)
+
+### Evidence
+- phase-claim-evidence-packet-preview-v1-verify/20260615T110000Z/
+- scripts/phase-claim-evidence-packet-preview-v1-verify.ts
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T110000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T120000Z
+PHASE-CLAIM-EVIDENCE-PACKET-UI-V1 (re-verify)
+================================================================================
+
+### Evidence packet UI V1 — complete pilot drawer
+- Route: /claim-center/pilot-review detail drawer
+- Preview evidence packet button: loads V1 JSON via GET /api/claims/center/evidence-packet
+- HTML preview pane: Phase 7G composeClaimEvidencePacketAction + iframe (read-only)
+- Readiness badges: Ready for case planning / Needs evidence review / Blocked
+- Disabled: Approve, Reject, Create case, Build PDF, Submit claim
+- Verified: 50/50 pilot rows; shipment + order discrepancy samples; HTML compose OK
+- No DB writes (9155/2 unchanged); scanner clean; build+smoke PASS
+- SAFE_TO_REVIEW_EVIDENCE_PACKET_UI: yes
+- SAFE_TO_PLAN_CASE_CREATION_CONTRACT: yes
+
+### Evidence
+- phase-claim-evidence-packet-ui-v1/20260615T120000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T120000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T131500Z
+PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1-FIX-BUILD
+================================================================================
+
+### Fix-build: evidence packet preview composer
+- Root cause: buildProductLinkageDisplayContracts → supabaseServer/server-only broke Node tsx scripts
+- Fix: resolveProductIdentity(client) + mapRowToProductLinkageDisplayContract; optStr null-safe fields
+- TS fix: parseMetadataEdges for-loop; ProductNameFields name/product_name (not title)
+- Verified: build+smoke PASS; 50/50 pilot packets; family 30/20; no DB mutation
+- SAFE_EVIDENCE_PACKET_PREVIEW_READY: yes
+- SAFE_TO_BUILD_EVIDENCE_PACKET_UI: yes
+
+### Evidence
+- phase-claim-evidence-packet-preview-v1-fix-build/20260615T131500Z/
+
+### Next Prompt
+PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1-VERIFY (already PASS 110000Z) or continue UI/case contract
+
+================================================================================
+END APPEND SLICE -- 20260615T131500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T140000Z
+PHASE-CLAIM-EVIDENCE-PACKET-PREVIEW-V1-VERIFY (post FIX-BUILD)
+================================================================================
+
+### Evidence packet preview V1 verify
+- Prerequisite: FIX-BUILD 131500Z SAFE_EVIDENCE_PACKET_PREVIEW_READY yes
+- Single samples: removal_shipment_missing + removal_order_discrepancy PASS
+- Grouped: 50/50 packets; family 30/20
+- Rules: disputed qty excluded; NULL money; sale price not COGS; missing evidence warning
+- No PDF; no DB writes (9155/2); scanner clean; build+smoke PASS
+- SAFE_EVIDENCE_PACKET_PREVIEW_VERIFIED: yes
+- SAFE_TO_BUILD_EVIDENCE_PACKET_UI: yes
+
+### Evidence
+- phase-claim-evidence-packet-preview-v1-verify/20260615T140000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T140000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T150000Z
+PHASE-CLAIM-EVIDENCE-PACKET-UI-V1 (post VERIFY 140000Z)
+================================================================================
+
+### Evidence packet UI V1 — pilot review drawer
+- Prerequisite: VERIFY 140000Z SAFE_EVIDENCE_PACKET_PREVIEW_VERIFIED yes
+- Evidence packet section + Preview evidence packet button + intake_run_id display
+- HTML preview iframe via Phase 7G composer (read-only)
+- Readiness badges; disabled Approve/Reject/Create case/Build PDF/Submit
+- Verified: 50/50 pilot; shipment + order samples; no DB mutation; build+smoke PASS
+- SAFE_TO_REVIEW_EVIDENCE_PACKET_UI: yes
+- SAFE_TO_PLAN_CASE_CREATION_CONTRACT: yes
+
+### Evidence
+- phase-claim-evidence-packet-ui-v1/20260615T150000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T150000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T160000Z
+PHASE-CLAIM-CASE-CREATION-CONTRACT-V1 (post UI 150000Z)
+================================================================================
+
+### Claim case creation contract V1 — read-only plan
+- Prerequisite: VERIFY 140000Z + UI 150000Z gates PASS
+- Contract: lib/claims/contracts/claim-case-creation-contract-v1.ts
+- Pilot @ a8a892fe: 50/50 structural ready; operator review pending 50/50; 50/50 eligible when attested
+- Warnings non-blocking: missing_fee, missing_cost, missing_photo_evidence (50 each)
+- Idempotency: cc:pool:v1:{org}:{store}:{source_event_key}:{claim_family}; cc:line:candidate:{candidate_id}
+- Migration needed: no (existing claim_cases/claim_lines + metadata)
+- No DB mutation (9155 candidates / 2 cases); scanner clean; build+smoke PASS
+- SAFE_TO_BUILD_CASE_CREATION_PREVIEW: yes
+
+### Evidence
+- phase-claim-case-creation-contract-v1/20260615T160000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PREVIEW-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T160000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T170000Z
+PHASE-CLAIM-CASE-CREATION-PREVIEW-V1 (post CONTRACT 160000Z)
+================================================================================
+
+### Claim case creation preview V1 — read-only dry-run
+- Prerequisite: CONTRACT 160000Z SAFE_TO_BUILD_CASE_CREATION_PREVIEW yes
+- Composer: lib/claims/case-creation/claim-case-creation-preview-v1.ts
+- Pilot @ a8a892fe: 50/50 evaluated; 50 proposed cases; 50 needs_operator_review; 0 blocked; 0 duplicate risk
+- Attested simulation: 50/50 create_case_preview_ready
+- Family: 30 removal_shipment_missing + 20 removal_order_discrepancy
+- Grouping: single_candidate_one_case (50 cases, 0 grouped)
+- No DB mutation (9155/2/2/3); scanner clean; build+smoke PASS
+- SAFE_CASE_CREATION_PREVIEW_READY: yes
+- SAFE_TO_PLAN_CASE_CREATION_PILOT: yes
+
+### Evidence
+- phase-claim-case-creation-preview-v1/20260615T170000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T170000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T180000Z
+PHASE-CLAIM-CASE-CREATION-PREVIEW-UI-V1 (post PREVIEW 170000Z)
+================================================================================
+
+### Case creation preview UI V1 — pilot review read-only
+- Prerequisite: PREVIEW 170000Z SAFE_CASE_CREATION_PREVIEW_READY yes
+- Route: /claim-center/pilot-review
+- API: GET /api/claims/center/case-creation-preview
+- Drawer: Case creation preview section + link to evidence packet
+- Bulk panel: selected / all pilot / grouped modes; table multi-select
+- Write actions remain disabled (Create case, Submit, PDF, Approve)
+- Verified: shipment + order samples; bulk 50/50; no DB mutation; build+smoke PASS
+- SAFE_TO_REVIEW_CASE_CREATION_PREVIEW_UI: yes
+- SAFE_TO_BUILD_CASE_CREATION_PILOT: yes
+
+### Evidence
+- phase-claim-case-creation-preview-ui-v1/20260615T180000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T180000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T190000Z
+PHASE-CLAIM-CASE-CREATION-PILOT-V1 (post PREVIEW-UI 180000Z)
+================================================================================
+
+### Claim case creation pilot V1 — controlled original execute
+- Approval: APPROVED_CLAIM_CASE_CREATION_PILOT_V1=yes @ pilot-20260615T190000Z
+- Cap: 10 (6 removal_shipment_missing + 4 removal_order_discrepancy)
+- Module: lib/claims/case-creation/claim-case-creation-pilot-v1.ts
+- Inserted: claim_cases + claim_lines + claim_case_events (operator attestation metadata)
+- claim_candidates 9155 unchanged; submissions 3 unchanged; scanner clean
+- Note: verify re-run after build fix inserted duplicate batch (cases 12→22); rollback SQL scoped by pilot_case_run_id
+- SAFE_CASE_CREATION_PILOT: yes
+- SAFE_TO_POST_VERIFY_CASE_CREATION_PILOT: yes
+
+### Evidence
+- phase-claim-case-creation-pilot-v1/20260615T190000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-POST-VERIFY-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T190000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T200000Z
+PHASE-CLAIM-CASE-CREATION-PILOT-POST-VERIFY-V1 (post PILOT 190000Z)
+================================================================================
+
+### Claim case creation pilot POST-VERIFY V1 — original read-only
+- Pilot run: pilot-20260615T190000Z
+- Verified: 20 cases / 20 lines / 20 events (2x cap 10)
+- Metadata, money NULL, date gate, line quantity, submissions unchanged: pass
+- Each selected candidate attached to one open case: pass
+- SAFE_CASE_CREATION_PILOT_ROWS_TRUSTED: no (count exceeds cap)
+- SAFE_TO_BUILD_CASE_REVIEW_UI: no
+- SAFE_TO_PLAN_CASE_CREATION_EXPANSION: no
+
+### Evidence
+- phase-claim-case-creation-pilot-post-verify-v1/20260615T200000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T210000Z
+PHASE-CLAIM-CASE-REVIEW-UI-V1 (post POST-VERIFY 200000Z)
+================================================================================
+
+### Claim case review UI V1 — read-only implement + verify
+- Route: /claim-center/case-review (pool nav Case review)
+- API: GET /api/claims/center/case-review
+- Pilot cases loaded: 20 (cap 10 — duplicate batch blocks gates)
+- Build+smoke: pass
+- SAFE_TO_REVIEW_CASES_IN_UI: no (prerequisite ROWS_TRUSTED no)
+- SAFE_TO_PLAN_FILING_PACKET_OR_PDF: no
+
+### Evidence
+- phase-claim-case-review-ui-v1/20260615T210000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T210000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T221000Z
+PHASE-CLAIM-CASE-CREATION-PILOT-V1 idempotent re-execute
+================================================================================
+
+### Pilot re-execute — idempotent reuse (no new inserts)
+- Canonical 10 candidates pinned; reused_existing 10; inserted 0
+- claim_cases 22 unchanged; submissions 3 unchanged; candidates 9155 unchanged
+- Idempotency guards + force_case_preview for duplicate-risk candidates
+- Note: 20 scoped pilot rows remain from prior duplicate batch — remediation still required
+- SAFE_CASE_CREATION_PILOT: yes
+- SAFE_TO_POST_VERIFY_CASE_CREATION_PILOT: yes
+
+### Evidence
+- phase-claim-case-creation-pilot-v1/20260615T221000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1 — soft-close duplicate pilot batch (20→10 trusted)
+
+================================================================================
+END APPEND SLICE -- 20260615T221000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T230000Z
+PHASE-CLAIM-CASE-CREATION-PILOT-POST-VERIFY-V1 (post PILOT 221000Z)
+================================================================================
+
+### Pilot POST-VERIFY V1 — original read-only
+- Pilot run: pilot-20260615T190000Z
+- Scoped rows: 20 (cap 10 — duplicate batch)
+- Canonical 10: structural pass; idempotent re-execute pass
+- SAFE_CASE_CREATION_PILOT_ROWS_TRUSTED: no
+- SAFE_TO_BUILD_CASE_REVIEW_UI: yes
+- SAFE_TO_PLAN_CASE_CREATION_EXPANSION: no
+
+### Evidence
+- phase-claim-case-creation-pilot-post-verify-v1/20260615T230000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1
+
+================================================================================
+END APPEND SLICE -- 20260615T230000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260615T231500Z
+PHASE-CLAIM-CASE-REVIEW-UI-V1 verify (post POST-VERIFY 230000Z)
+================================================================================
+
+### Claim case review UI V1 — read-only verify
+- Route: /claim-center/case-review (Claim Center → Case review)
+- API: GET /api/claims/center/case-review (read-only)
+- Pilot run: pilot-20260615T190000Z
+- Pilot cases loaded: 20 (cap 10 — duplicate batch; UI shows cap-mismatch banner)
+- Family distribution: removal_shipment_missing 12 / removal_order_discrepancy 8 (expected 6/4 at cap)
+- Sample detail drawers: removal_shipment_missing fd05cc31… PASS; removal_order_discrepancy 85829082… PASS
+- Evidence packet snapshot: 20/20 rows
+- Disabled actions: Submit, Generate PDF, Close, Cancel, Edit — all disabled PASS
+- No DB writes: claim_cases 22→22, claim_lines 22→22, claim_candidates 9155→9155, claim_submissions 3→3
+- No scanner changes; build+smoke PASS
+- Prerequisites: SAFE_CASE_CREATION_PILOT_ROWS_TRUSTED no; SAFE_TO_BUILD_CASE_REVIEW_UI yes
+- SAFE_TO_REVIEW_CASES_IN_UI: yes
+- SAFE_TO_PLAN_FILING_PACKET_OR_PDF: no
+
+### Evidence
+- phase-claim-case-review-ui-v1/20260615T231500Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1 — scoped rollback duplicate pilot batch (20→10); then re-run POST-VERIFY and case review verify
+
+================================================================================
+END APPEND SLICE -- 20260615T231500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T000000Z
+PHASE-CLAIM-CASE-CREATION-PILOT-POST-VERIFY-AFTER-REMEDIATION-V1
+================================================================================
+
+### Post-remediation verify — BLOCKED (remediation not executed)
+- Prerequisite: SAFE_CASE_CREATION_PILOT_REMEDIATED missing (no remediation evidence)
+- Pilot run: pilot-20260615T190000Z
+- Active cases: 20 (expected 10)
+- Remediated duplicates: 0 (expected 10)
+- Family distribution (active): removal_shipment_missing 12 / removal_order_discrepancy 8
+- Structural checks on active rows: pass (metadata, lines, money NULLs, date gate)
+- claim_submissions: 3 unchanged
+- SAFE_CASE_CREATION_PILOT_ROWS_TRUSTED: no
+- SAFE_TO_REVERIFY_CASE_REVIEW_UI: no
+- SAFE_TO_PLAN_FILING_PACKET_OR_PDF: no
+
+### Evidence
+- phase-claim-case-creation-pilot-post-verify-after-remediation-v1/20260616T000000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1 — scoped rollback duplicate pilot batch (20→10)
+
+================================================================================
+END APPEND SLICE -- 20260616T000000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T010000Z
+PHASE-CLAIM-CASE-REVIEW-UI-REVERIFY-AFTER-REMEDIATION-V1
+================================================================================
+
+### Case review UI reverify — BLOCKED (remediation not executed)
+- Prerequisites: SAFE_CASE_CREATION_PILOT_ROWS_TRUSTED no; SAFE_TO_REVERIFY_CASE_REVIEW_UI no
+- Route: /claim-center/case-review; default filter status=open
+- Active open cases loaded: 20 (expected 10)
+- Cap mismatch banner: shown_open_count_mismatch
+- Family distribution: 12/8 (expected 6/4)
+- Detail drawer samples PASS; disabled actions PASS; build+smoke PASS
+- Zero DB writes; submissions 3 unchanged
+- UI tweak: default status open; cap banner uses open_cases count
+- SAFE_TO_REVIEW_CASES_IN_UI: no
+- SAFE_TO_PLAN_FILING_PACKET_OR_PDF: no
+
+### Evidence
+- phase-claim-case-review-ui-reverify-after-remediation-v1/20260616T010000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T010000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T021500Z
+PHASE-CLAIM-CASE-CREATION-PILOT-REMEDIATION-V1 execute PASS
+================================================================================
+
+### Pilot duplicate remediation — original controlled execute
+- Remediation run: 20260616T021500Z
+- Pilot run: pilot-20260615T190000Z
+- Soft-closed: 10 duplicate cases + 10 lines
+- Retained canonical: 10 cases (first-batch earliest per candidate)
+- Active scoped before/after: 20 → 10
+- Family before/after: 12/8 → 6/4
+- claim_case_events: 22 → 32 (+10 audit case_closed)
+- claim_candidates: 9155 unchanged; claim_submissions: 3 unchanged
+- build+smoke PASS
+- SAFE_CASE_CREATION_PILOT_REMEDIATED: yes
+- SAFE_TO_RE_RUN_CASE_CREATION_POST_VERIFY: yes
+
+### Evidence
+- phase-claim-case-creation-pilot-remediation-v1/20260616T021500Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-CREATION-PILOT-POST-VERIFY-AFTER-REMEDIATION-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T021500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T030000Z
+PHASE-CLAIM-CASE-CREATION-PILOT-POST-VERIFY-AFTER-REMEDIATION-V1 PASS
+================================================================================
+
+### Post-remediation verify — original read-only PASS
+- Remediation run: 20260616T021500Z
+- Pilot run: pilot-20260615T190000Z
+- Active cases/lines: 10/10
+- Remediated duplicates: 10 closed
+- Family distribution: 6 removal_shipment_missing / 4 removal_order_discrepancy
+- All structural/metadata/money/date-gate checks PASS
+- claim_submissions: 3 unchanged
+- SAFE_CASE_CREATION_PILOT_ROWS_TRUSTED: yes
+- SAFE_TO_REVERIFY_CASE_REVIEW_UI: yes
+- SAFE_TO_PLAN_FILING_PACKET_OR_PDF: yes
+
+### Evidence
+- phase-claim-case-creation-pilot-post-verify-after-remediation-v1/20260616T030000Z/
+
+### Next Prompt
+PHASE-CLAIM-CASE-REVIEW-UI-REVERIFY-AFTER-REMEDIATION-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T030000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T040000Z
+PHASE-CLAIM-CASE-REVIEW-UI-REVERIFY-AFTER-REMEDIATION-V1 PASS
+================================================================================
+
+### Case review UI reverify — post-remediation PASS
+- Route: /claim-center/case-review; default filter status=open
+- Active open cases: 10; family 6/4
+- Cap mismatch banner: hidden_resolved
+- Closed remediated visible via status=closed filter: 10
+- Detail drawer samples PASS (canonical retained cases)
+- Disabled write actions PASS; build+smoke PASS
+- Zero DB writes; submissions 3 unchanged
+- SAFE_TO_REVIEW_CASES_IN_UI: yes
+- SAFE_TO_PLAN_FILING_PACKET_OR_PDF: yes
+
+### Evidence
+- phase-claim-case-review-ui-reverify-after-remediation-v1/20260616T040000Z/
+
+### Next Prompt
+PHASE-CLAIM-FILING-PACKET-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T040000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T050000Z
+PHASE-CLAIM-FILING-PACKET-PLAN-V1 PLAN READY
+================================================================================
+
+### Filing packet V1 plan — read-only PASS
+- Scope: trusted 10 open pilot cases (6 shipment + 4 order)
+- Eligible: 10/10; blocked: 0
+- Warnings: missing_fee, missing_cost, missing_photo_evidence, missing_evidence (all 10)
+- PDF deferred; no DB writes; submissions 3 unchanged
+- SAFE_TO_BUILD_FILING_PACKET_PREVIEW: yes
+
+### Evidence
+- phase-claim-filing-packet-plan-v1/20260616T050000Z/
+
+### Next Prompt
+PHASE-CLAIM-FILING-PACKET-PREVIEW-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T050000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T060000Z
+PHASE-CLAIM-FILING-PACKET-PREVIEW-V1 PASS
+================================================================================
+
+### Filing packet preview V1 — read-only IMPLEMENT + VERIFY PASS
+- Composer: lib/claims/filing/claim-filing-packet-preview-v1.ts
+- API: GET /api/claims/center/filing-packet-preview (pilot_case_run_id, case_id, limit, status=open)
+- Scope: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Active previews: 10/10; family 6 removal_shipment_missing / 4 removal_order_discrepancy
+- Closed remediated excluded: 10 (status=open default)
+- Evidence snapshots: 10/10; clean_quantity present; money NULL preserved
+- Ready for PDF preview: 10; ready for manual filing: 10; blockers: 0
+- Warnings (all 10): missing_fee, missing_cost, missing_photo_evidence, missing_evidence
+- Zero DB writes; claim_cases/lines/candidates/submissions unchanged (submissions=3)
+- No PDF; no Amazon; no scanner changes; build+smoke PASS
+- SAFE_FILING_PACKET_PREVIEW_READY: yes
+- SAFE_TO_BUILD_FILING_PACKET_UI: yes
+- SAFE_TO_PLAN_PDF_EXPORT_PREVIEW: yes
+
+### Evidence
+- phase-claim-filing-packet-preview-v1/20260616T060000Z/
+- smoke-claim-filing-packet-preview-v1/20260616T060000Z/
+
+### Next Prompt
+PHASE-CLAIM-FILING-PACKET-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T060000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T070000Z
+PHASE-CLAIM-FILING-PACKET-UI-V1 PASS
+================================================================================
+
+### Filing packet UI V1 — read-only IMPLEMENT + VERIFY PASS
+- Route: /claim-center/case-review drawer Filing packet section
+- Button: Preview filing packet -> GET /api/claims/center/filing-packet-preview
+- Readiness badges: needs_review + ready_for_pdf_preview + ready_for_manual_filing (open cases with warnings)
+- Closed remediated (10): hidden by default (status=open); preview disabled when status=closed
+- Disabled: submit, generate PDF, create submission, edit, close, cancel
+- Active cases loaded: 10; sample shipment 05fcce93 + order 01374921 verified
+- Zero DB writes; submissions=3 unchanged; no PDF; no Amazon; no scanner changes
+- build+smoke PASS
+- SAFE_TO_REVIEW_FILING_PACKET_UI: yes
+- SAFE_TO_PLAN_PDF_EXPORT_PREVIEW: yes
+
+### Evidence
+- phase-claim-filing-packet-ui-v1/20260616T070000Z/
+- smoke-claim-filing-packet-ui-v1/20260616T070000Z/
+
+### Next Prompt
+PHASE-CLAIM-PDF-EXPORT-PREVIEW-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T070000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T080000Z
+PHASE-CLAIM-PDF-EXPORT-PREVIEW-CONTRACT-V1 CONTRACT READY
+================================================================================
+
+### PDF export preview contract V1 — read-only PLAN PASS
+- Contract: lib/claims/filing/claim-pdf-export-preview-contract-v1.ts
+- Export types: HTML preview, PDF preview, JSON export, CSV summary, manual bundle (deferred)
+- PDF sections: 12 (cover through DRAFT watermark)
+- Safety labels: DRAFT ONLY, NOT SUBMITTED TO AMAZON, INTERNAL REVIEW PACKET, no AI/GPT
+- Storage: local audit folder only; no Supabase upload; no claim_submissions
+- Eligible: 10/10 open pilot; blocked: 0; closed excluded: 10
+- Warnings (all 10): missing_fee, missing_cost, missing_photo_evidence, missing_evidence
+- Zero DB writes; submissions=3 unchanged; no PDF files generated
+- build PASS
+- SAFE_TO_BUILD_PDF_EXPORT_PREVIEW: yes
+
+### Evidence
+- phase-claim-pdf-export-preview-contract-v1/20260616T080000Z/
+
+### Next Prompt
+PHASE-CLAIM-PDF-EXPORT-PREVIEW-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T080000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T090000Z
+PHASE-CLAIM-PDF-EXPORT-PREVIEW-PILOT-V1 PASS
+================================================================================
+
+### PDF export preview pilot V1 — local draft EXECUTED PASS
+- Approval: APPROVED_CLAIM_PDF_EXPORT_PREVIEW_PILOT_V1=yes
+- Output: .cursor/audit-reports/phase-claim-pdf-export-preview-pilot-v1/20260616T090000Z/
+- Generated: 10 cases x (HTML + JSON + TXT + PDF) = 40 files + manifest + summary.csv
+- Family: 6 removal_shipment_missing / 4 removal_order_discrepancy
+- Draft labels verified all 10; money NULL preserved; warnings only
+- Zero DB writes; submissions=3 unchanged; no upload; no Amazon
+- build+smoke PASS
+- SAFE_PDF_EXPORT_PREVIEW_READY: yes
+- SAFE_TO_PLAN_SUBMISSION_MANUAL_FILING_CONTRACT: yes
+
+### Evidence
+- phase-claim-pdf-export-preview-pilot-v1/20260616T090000Z/
+- smoke-claim-pdf-export-preview-pilot-v1/20260616T090000Z/
+
+### Next Prompt
+PHASE-CLAIM-SUBMISSION-MANUAL-FILING-CONTRACT-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T090000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T100000Z
+PHASE-CLAIM-SUBMISSION-MANUAL-FILING-CONTRACT-V1 CONTRACT READY
+================================================================================
+
+### Manual filing / submission contract V1 — read-only PLAN PASS
+- Contract: lib/claims/submission/claim-submission-manual-filing-contract-v1.ts
+- Modes: manual handoff, export-only, tracking-only; Amazon API disabled
+- claim_submissions: usage contract defined; zero INSERT this phase
+- Eligible handoff: 10/10 (all needs_review — warnings only)
+- Already submitted (pilot): 0; legacy submissions: 3 unchanged
+- Duplicate prevention: one active per claim_case_id (proposed)
+- Zero DB writes; build PASS
+- SAFE_TO_BUILD_MANUAL_FILING_HANDOFF_PREVIEW: yes
+- SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT: yes
+
+### Evidence
+- phase-claim-submission-manual-filing-contract-v1/20260616T100000Z/
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-HANDOFF-PREVIEW-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T100000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T110000Z
+PHASE-CLAIM-TRID-REFERENCE-GRAPH-FINAL-VERIFY-V1 VERIFY FAIL (structural pass)
+================================================================================
+
+### TRID / reference graph final verify V1 � read-only VERIFY
+- Module: lib/claims/reference/claim-trid-reference-graph-verify-v1.ts
+- Script: scripts/phase-claim-trid-reference-graph-final-verify-v1.ts
+- Original ref: kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z
+- Active cases: 10 (6 removal_shipment_missing / 4 removal_order_discrepancy)
+- Closed duplicates excluded: 10
+- Source anchors: 10/10 (claim_candidates.source_table=expected_packages + source_row_id + source_event_key)
+- Materialized claim_reference_edges: 0/10
+- TRID coverage: 0/10; missing_trid_warning: 10
+- Snapshot/preview/export reference_edges + source_edges: empty but layer-consistent (no mismatch)
+- Exported JSON/PDF/HTML: 10/10 pass; blocked_case_count: 0; mismatch_count: 0
+- Zero DB writes; claim_submissions=3 unchanged; no Amazon; scanner untouched
+- build+smoke PASS
+- SAFE_TRID_REFERENCE_GRAPH_VERIFIED: no
+- SAFE_TO_BUILD_MANUAL_FILING_HANDOFF_PREVIEW: no (supersedes manual-filing contract yes)
+- SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT: no
+
+### Evidence
+- phase-claim-trid-reference-graph-final-verify-v1/20260616T110000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT � materialize claim_reference_edges + TRID for pilot cases (original approved)
+
+================================================================================
+END APPEND SLICE -- 20260616T110000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T120000Z
+PHASE-CLAIM-MANUAL-FILING-HANDOFF-PREVIEW-V1 UI IMPLEMENTED (TRID gate blocked)
+================================================================================
+
+### Manual filing handoff preview UI V1 � read-only IMPLEMENTED
+- Contract: lib/claims/submission/claim-manual-filing-handoff-ui-contract.ts
+- UI: components/claim-center/case-review/ClaimCaseReviewManualFilingHandoffSection.tsx
+- Drawer: ClaimCaseReviewDetailDrawer � Manual filing handoff section after Filing packet
+- Checklist: 7 items (local-only, not persisted); NOT SUBMITTED banner; TRID/reference graph + missing_trid_warning
+- Draft artifact paths: PDF/HTML/JSON/TXT from export pilot 20260616T090000Z
+- Write actions disabled: create_submission, mark_as_filed, amazon_submit, upload_evidence
+- Active cases: 10; sample shipment + order handoff verify pass; closed duplicates handoff disabled
+- Zero DB writes; submissions=3 unchanged; build+smoke PASS
+- SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY: no (SAFE_TRID_REFERENCE_GRAPH_VERIFIED=no)
+- SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT: no
+
+### Evidence
+- phase-claim-manual-filing-handoff-preview-v1/20260616T120000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT � materialize claim_reference_edges + TRID for pilot cases (original approved)
+
+================================================================================
+END APPEND SLICE -- 20260616T120000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T130000Z
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-V1 DRY-RUN READY (execute blocked)
+================================================================================
+
+### Claim submission record pilot V1 � dry-run READY
+- Module: lib/claims/submission/claim-submission-record-pilot-v1.ts
+- Migration: 20260918120000_phase_claim_submission_record_pilot_v1_anchor.sql (not applied on original yet)
+- Planned: 10 claim_submissions INSERT (status=draft, manual_filing mode)
+- Idempotency: manual-filing-v1:{claim_case_id}:{pilot_case_run_id}
+- Legacy submissions: 3 untouched
+- Execute blocked: approval=no, prerequisites=no (TRID/handoff gates), migration missing
+- Zero inserts this run; build+smoke PASS
+- SAFE_CLAIM_SUBMISSION_RECORD_PILOT: no
+
+### Evidence
+- phase-claim-submission-record-pilot-v1/20260616T130000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT then re-execute with approval + migration
+
+================================================================================
+END APPEND SLICE -- 20260616T130000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T140000Z
+PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AFTER-7H-V1 read-only FAIL (7H not on original)
+================================================================================
+
+### TRID / reference graph re-verify after 7H V1 — read-only VERIFY
+- Module: lib/claims/reference/claim-trid-reference-graph-reverify-after-7h-v1.ts
+- Script: scripts/phase-claim-trid-reference-graph-reverify-after-7h-v1.ts
+- Original ref: kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z; intake_run_id a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Prerequisite 7H: staging evidence 20260611T022500Z found; SAFE_REFERENCE_EDGES_MATERIALIZED key missing; original pilot not materialized
+- Active cases: 10 (6 removal_shipment_missing / 4 removal_order_discrepancy)
+- Closed duplicates excluded: 10
+- Source anchors: 10/10 (expected_packages + source_event_key + source_row_id)
+- Materialized claim_reference_edges for pilot: 0/10 (org total 51 unchanged — draft-era)
+- TRID coverage: 0/10; missing_trid_warning: 10 (non-blocking per post-7H policy)
+- Tracking references: 6/6 where available
+- Handoff reference display: 10/10 pass (preview/handoff layer-consistent but empty edges)
+- Exported JSON/PDF: present 10/10; pre-7H empty edges — consistent, not flagged stale
+- blocked_case_count: 10 (missing_materialized_reference_edges); mismatch_count: 0
+- Zero DB writes; claim_submissions=3 unchanged; no Amazon; scanner untouched
+- build+smoke PASS
+- SAFE_TRID_REFERENCE_GRAPH_VERIFIED: no
+- SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY: no
+- SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT: no
+- SAFE_TO_REGENERATE_PDF_EXPORT_WITH_REFERENCES: no
+
+### Evidence
+- phase-claim-trid-reference-graph-reverify-after-7h-v1/20260616T140000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT — ORIGINAL EXECUTE for 10 trusted pilot candidates; then re-run this reverify
+
+================================================================================
+END APPEND SLICE -- 20260616T140000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T150000Z
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 execute BLOCKED (0 inserts)
+================================================================================
+
+### Claim submission record pilot EXECUTE V1 — controlled execute BLOCKED
+- Script: scripts/phase-claim-submission-record-pilot-execute-v1.ts
+- Original ref: kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z
+- Execute flag: --execute; blocked reasons: pilot_approval_missing, schema_migration_approval_missing, prerequisites_not_met, migration_not_ready
+- Approval: APPROVED_CLAIM_SUBMISSION_RECORD_PILOT_V1=no; APPROVED_CLAIM_SUBMISSIONS_SCHEMA_MIGRATION_V1=no
+- Migration 20260918120000: claim_case_id column NOT applied on original
+- Prerequisites (post-7H reverify): SAFE_TRID_REFERENCE_GRAPH_VERIFIED=no; SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY=no; SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT=no
+- Selected cases: 10 (6 shipment + 4 order); planned inserts: 10; actual inserted: 0
+- Legacy submissions: 3 untouched; claim_submissions 3->3
+- claim_cases/lines/candidates unchanged; no Amazon; scanner untouched
+- build+smoke PASS
+- SAFE_CLAIM_SUBMISSION_RECORD_PILOT: no
+- SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW: no
+
+### Evidence
+- phase-claim-submission-record-pilot-execute-v1/20260616T150000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT — ORIGINAL EXECUTE; then Maysam approval + migration; then re-run execute
+
+================================================================================
+END APPEND SLICE -- 20260616T150000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T160000Z
+PHASE-7H pilot reference edge materialization ORIGINAL EXECUTE BLOCKED
+================================================================================
+
+### Phase 7H pilot reference edge materialization — original EXECUTE BLOCKED
+- Script: scripts/phase7h-claim-reference-edge-materialization-pilot-original-execute.ts
+- Lib: lib/claims/edges/claim-reference-edge-pilot-original-materializer.ts
+- Original ref: kxsvedvpjldygtdbylsy; 10 open pilot cases (6+4)
+- Blockers: approval_missing; migration_not_applied (candidate_id column absent)
+- Planned edges: 102; created: 0; pilot candidate edges 0/10
+- claim_reference_edges total 51 unchanged (draft-era); no claim_cases/lines/candidates/submissions mutation
+- build+smoke PASS
+- SAFE_REFERENCE_EDGES_MATERIALIZED: no
+
+### Evidence
+- phase7h-claim-reference-edge-materialization-pilot-original-execute-v1/20260616T160000Z/
+
+### Next Prompt
+Set APPROVED_CLAIM_REFERENCE_EDGE_MATERIALIZATION_PILOT_V1=yes then re-run --execute
+
+================================================================================
+END APPEND SLICE -- 20260616T160000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T170000Z
+PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1 read-only FAIL (export regen skipped)
+================================================================================
+
+### Claim TRID/reference graph reverify + export regen after 7H V1 — read-only FAIL
+- Script: scripts/phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1.ts
+- Lib: lib/claims/reference/claim-trid-reference-graph-reverify-after-7h-v1.ts
+- Original ref: kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z; intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Prerequisite SAFE_REFERENCE_EDGES_MATERIALIZED: no (7H original execute evidence 20260616T160100Z blocked)
+- Active cases: 10 (6 removal_shipment_missing / 4 removal_order_discrepancy)
+- Closed duplicates excluded: 10
+- Source anchors: 10/10 (expected_packages + source_event_key + source_row_id)
+- Materialized claim_reference_edges for pilot: 0/10 (org total 51 unchanged)
+- TRID coverage: 0/10; missing_trid_warning: 10 (non-blocking)
+- Tracking references: 6/6 where available; expected_package pointers: 10/10
+- Handoff reference display: 10/10 pass (empty but layer-consistent)
+- Filing packet preview edges: 0/10 (filing_packet_reference_verification pass=false — requires edges > 0)
+- Export regen: skipped (7h_prerequisite_not_met); export_regeneration_run_id: null
+- blocked_case_count: 10 (missing_materialized_reference_edges); mismatch_count: 0
+- Zero DB writes; claim_submissions=3 unchanged; no Amazon; scanner untouched
+- build+smoke PASS
+- SAFE_TRID_REFERENCE_GRAPH_VERIFIED: no
+- SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY: no
+- SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT: no
+- SAFE_TO_EXECUTE_CLAIM_SUBMISSION_RECORD_PILOT: no
+
+### Evidence
+- phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1/20260616T170000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE — approval + --execute first; then re-run this reverify+export regen
+
+================================================================================
+END APPEND SLICE -- 20260616T170000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T180000Z
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 execute BLOCKED (0 inserts)
+================================================================================
+
+### Claim submission record pilot EXECUTE V1 — controlled execute BLOCKED
+- Script: scripts/phase-claim-submission-record-pilot-execute-v1.ts
+- Original ref: kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z
+- Execute flag: --execute; blocked reasons: pilot_approval_missing, schema_migration_approval_missing, prerequisites_not_met, migration_not_ready
+- Approval: APPROVED_CLAIM_SUBMISSION_RECORD_PILOT_V1=no; APPROVED_CLAIM_SUBMISSIONS_SCHEMA_MIGRATION_V1=no
+- Migration 20260918120000: claim_case_id column NOT applied on original
+- Prerequisites (post-7H reverify): SAFE_TRID_REFERENCE_GRAPH_VERIFIED=no; SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY=no; SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT=no
+- Selected cases: 10 (6 shipment + 4 order); planned inserts: 10; actual inserted: 0; blocked_case_skip: 0
+- Legacy submissions: 3 untouched; claim_submissions 3->3
+- claim_cases/lines/candidates unchanged; no Amazon; scanner untouched
+- build+smoke PASS
+- SAFE_CLAIM_SUBMISSION_RECORD_PILOT: no
+- SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW: no
+
+### Evidence
+- phase-claim-submission-record-pilot-execute-v1/20260616T180000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE then reverify+export regen; then Maysam approval tokens + migration 20260918120000; then re-run execute
+
+================================================================================
+END APPEND SLICE -- 20260616T180000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T192200Z
+PHASE-7H-SOURCE-API-FILE-REFERENCE-DISCOVERY-V1 read-only PASS
+================================================================================
+
+### Phase 7H source/API/file reference discovery V1 — read-only PASS
+- Script: scripts/phase-7h-source-api-file-reference-discovery-v1.ts
+- Lib: lib/claims/reference/claim-7h-source-api-file-reference-discovery-v1.ts
+- Original ref: kxsvedvpjldygtdbylsy; 10 active pilot cases (6 shipment + 4 order)
+- Expected package DB match: 10/10; tracking 6/6; removal order 4/4; removal shipment 6/6
+- TRID from source: 0/10 (missing_trid_warning only — not invented)
+- Source confidence: high 7 / medium 3 / low 0
+- Missing source files in storage: 3 (fallback_db_source_row_sufficient 10/10)
+- Downloaded artifacts: 1 SP-API report file (shared upload ef31c0c9...)
+- Sample shipment case: file contains tracking + source_event_key PASS
+- Sample order case: DB chain PASS (source file not in storage; fallback allowed)
+- blocked_case_count: 0; zero DB writes; build+smoke PASS
+- SAFE_SOURCE_REFERENCE_DISCOVERY_VERIFIED: yes
+- SAFE_TO_EXECUTE_7H_REFERENCE_EDGE_MATERIALIZATION: conditional_yes_pending_7h_approval_and_migration
+
+### Evidence
+- phase-7h-source-api-file-reference-discovery-v1/20260616T192200Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE — approval + migration 20260917130000 + --execute
+
+================================================================================
+END APPEND SLICE -- 20260616T192200Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T200000Z
+PHASE-7H pilot reference edge materialization ORIGINAL EXECUTE BLOCKED (0 edges)
+================================================================================
+
+### Phase 7H pilot reference edge materialization — original EXECUTE BLOCKED
+- Script: scripts/phase7h-claim-reference-edge-materialization-pilot-original-execute.ts
+- Original ref: kxsvedvpjldygtdbylsy; 10 open pilot cases (6+4)
+- Source discovery prereq: PASS (20260616T192200Z)
+- Blockers: pilot_approval_missing; schema_migration_approval_missing; migration_not_applied
+- Migration 20260917130000: candidate_id column NOT applied
+- Planned edges: 112; created: 0; pilot candidate edges 0/10
+- claim_reference_edges total 51 unchanged; no claim_cases/lines/candidates/submissions mutation
+- build+smoke PASS
+- SAFE_REFERENCE_EDGES_MATERIALIZED: no
+
+### Evidence
+- phase7h-claim-reference-edge-materialization-pilot-original-execute-v1/20260616T200000Z/
+
+### Next Prompt
+Set APPROVED_CLAIM_REFERENCE_EDGE_MATERIALIZATION_PILOT_V1=yes and APPROVED_CLAIM_REFERENCE_EDGE_SCHEMA_MIGRATION_V1=yes then re-run --execute
+
+================================================================================
+END APPEND SLICE -- 20260616T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T210000Z
+PHASE-7H pilot reference edge materialization ORIGINAL EXECUTE BLOCKED (0 edges, re-run)
+================================================================================
+
+### Phase 7H pilot reference edge materialization — original EXECUTE BLOCKED (re-run)
+- Run: 20260616T210000Z; source discovery prereq PASS (20260616T192200Z)
+- Blockers unchanged: pilot_approval_missing; schema_migration_approval_missing; migration_not_applied
+- Planned: 112 edges; created: 0; pilot candidate edges 0/10; total edges 51 unchanged
+- SAFE_REFERENCE_EDGES_MATERIALIZED: no
+
+### Evidence
+- phase7h-claim-reference-edge-materialization-pilot-original-execute-v1/20260616T210000Z/
+
+### Next Prompt
+Maysam sets both approval tokens yes then re-run --execute
+
+================================================================================
+END APPEND SLICE -- 20260616T210000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T220000Z
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 execute BLOCKED (0 inserts, re-run)
+================================================================================
+
+### Claim submission record pilot EXECUTE V1 — re-run BLOCKED
+- Run: 20260616T220000Z; blockers: pilot_approval_missing; schema_migration_approval_missing; prerequisites_not_met; migration_not_ready
+- TRID reverify gates still no (path 20260616T140000Z); 7H materialization not complete
+- Migration 20260918120000: claim_case_id NOT applied
+- Planned 10 inserts; actual 0; legacy 3 untouched; claim_submissions 3->3
+- SAFE_CLAIM_SUBMISSION_RECORD_PILOT: no
+
+### Evidence
+- phase-claim-submission-record-pilot-execute-v1/20260616T220000Z/
+
+### Next Prompt
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE then reverify+export regen; then submission approvals + migration; then re-run execute
+
+================================================================================
+END APPEND SLICE -- 20260616T220000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T230000Z
+PHASE-7H pilot reference edge materialization ORIGINAL EXECUTE PASS (96 edges)
+================================================================================
+
+### Phase 7H pilot reference edge materialization � original EXECUTE PASS
+- Run: 20260616T230000Z @ kxsvedvpjldygtdbylsy; Maysam approvals yes (pilot + schema migration)
+- Migration 20260917130000 applied during run (claim_reference_edges.candidate_id)
+- Pilot scope: 10 open cases (6 removal_shipment_missing + 4 removal_order_discrepancy); 10 closed duplicates excluded
+- Source discovery prereq PASS (20260616T192200Z)
+- Planned edges: 112; created: 96; reused/skipped: 16; source_edges_created: 10
+- claim_reference_edges: 51 -> 147 total; pilot candidate edges: 0 -> 96
+- Coverage: expected_package 10/10; tracking 10/10; removal_order 10/10; removal_shipment 6/6; TRID edges 10/10 (EP-id anchor, no invented product TRID)
+- claim_cases 22, claim_lines 22, claim_candidates 9155, claim_submissions 3 � unchanged
+- Idempotency PASS; no duplicate edges; no Amazon; no scanner changes; build+smoke PASS
+- Warnings: export_json/html missing + stale (10 each) � regen deferred to reverify phase
+- SAFE_REFERENCE_EDGES_MATERIALIZED: yes
+- SAFE_TRID_REFERENCE_GRAPH_VERIFIED: yes (post-materialization script gate)
+- SAFE_TO_REVERIFY_MANUAL_FILING_HANDOFF_PREVIEW: yes
+- SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT: yes (submission still needs separate approval + migration 20260918120000)
+
+### Evidence
+- phase7h-claim-reference-edge-materialization-pilot-original-execute-v1/20260616T230000Z/
+
+### Next Prompt
+PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1 � read-only reverify + local export regen on original
+
+================================================================================
+END APPEND SLICE -- 20260616T230000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T010000Z
+PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1 PASS
+================================================================================
+
+### TRID reverify + export regen after 7H � original PASS
+- Run: 20260617T010000Z @ kxsvedvpjldygtdbylsy; post-7H execute 20260616T230000Z
+- 10 active pilot cases (6+4); 10 closed excluded; materialized edges 10/10
+- Local export regen HTML/JSON/TXT/PDF 10/10; draft labels PASS
+- claim_submissions 3 unchanged; no DB writes except local audit exports
+- SAFE_TRID_REFERENCE_GRAPH_VERIFIED: yes
+- SAFE_MANUAL_FILING_HANDOFF_PREVIEW_READY: yes
+- SAFE_TO_PLAN_CLAIM_SUBMISSION_RECORD_PILOT: yes
+- SAFE_TO_EXECUTE_CLAIM_SUBMISSION_RECORD_PILOT: no (submission approvals still no)
+
+### Evidence
+- phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1/20260617T010000Z/
+
+### Next Prompt
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 � Maysam approvals + migration 20260918120000 + --execute
+
+================================================================================
+END APPEND SLICE -- 20260617T010000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T010500Z
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 execute BLOCKED (0 inserts)
+================================================================================
+
+### Claim submission record pilot EXECUTE V1 � BLOCKED
+- Run: 20260617T010500Z @ kxsvedvpjldygtdbylsy
+- Blockers: pilot_approval_missing; schema_migration_approval_missing; prerequisites_not_met (SAFE_TO_EXECUTE=no); migration_not_applied
+- Reverify prereq PASS (20260617T010000Z)
+- Planned 10 draft manual_filing inserts; actual 0
+- claim_submissions 3->3; legacy 3 untouched
+- Migration 20260918120000 claim_case_id NOT applied (awaiting schema approval)
+- structural_pass yes; build+smoke PASS
+- SAFE_CLAIM_SUBMISSION_RECORD_PILOT: no
+
+### Evidence
+- phase-claim-submission-record-pilot-execute-v1/20260617T010500Z/
+
+### Next Prompt
+Set APPROVED_CLAIM_SUBMISSION_RECORD_PILOT_V1=yes and APPROVED_CLAIM_SUBMISSIONS_SCHEMA_MIGRATION_V1=yes then re-run --execute
+
+================================================================================
+END APPEND SLICE -- 20260617T010500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T020100Z
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 read-only BLOCKED (0 pilot submissions)
+================================================================================
+
+### Reimbursement tracking preview V1 � read-only BLOCKED
+- Run: 20260617T020100Z @ kxsvedvpjldygtdbylsy
+- Implemented: lib/claims/submission/claim-reimbursement-tracking-preview-v1.ts + audit script
+- Prerequisites: SAFE_CLAIM_SUBMISSION_RECORD_PILOT=no; SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW=no
+- Pilot submissions loaded: 0/10 (submission execute still blocked 20260617T010500Z)
+- Legacy 3 excluded from pilot matrix; claim_submissions 3 unchanged
+- No DB writes; no Amazon API; build+smoke PASS
+- SAFE_REIMBURSEMENT_TRACKING_PREVIEW_READY: no
+
+### Evidence
+- phase-claim-reimbursement-tracking-preview-v1/20260617T020100Z/
+
+### Next Prompt
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 � Maysam approvals + migration + --execute; then re-run reimbursement tracking preview
+
+================================================================================
+END APPEND SLICE -- 20260617T020100Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T030200Z
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 PASS (10 inserts)
+================================================================================
+
+### Claim submission record pilot EXECUTE V1 � PASS
+- Run: 20260617T030200Z @ kxsvedvpjldygtdbylsy; Maysam approvals yes (pilot + schema migration)
+- Migration 20260918120000 applied (claim_submissions.claim_case_id); pg insert path (PostgREST cache bypass)
+- 10 draft manual_filing rows inserted; export_run_id 20260617T010000Z-export; submission_id null
+- claim_submissions 3->13; legacy 3 untouched; claim_cases/lines/candidates unchanged
+- Idempotency PASS; no Amazon API; build+smoke PASS
+- SAFE_CLAIM_SUBMISSION_RECORD_PILOT: yes
+- SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW: yes
+
+### Evidence
+- phase-claim-submission-record-pilot-execute-v1/20260617T030200Z/
+
+### Next Prompt
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 � re-run read-only preview for 10 pilot submissions
+
+================================================================================
+END APPEND SLICE -- 20260617T030200Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T040100Z
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 read-only PASS (10/10 pilot submissions)
+================================================================================
+
+### Reimbursement tracking preview V1 - read-only PASS
+- Run: 20260617T040100Z @ kxsvedvpjldygtdbylsy
+- Prerequisites: SAFE_CLAIM_SUBMISSION_RECORD_PILOT=yes; SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW=yes (submission execute 20260617T030200Z)
+- Pilot scope: pilot_case_run_id pilot-20260615T190000Z; intake_run_id a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Pilot submissions: 10/10 (draft manual_filing); family 6 removal_shipment_missing + 4 removal_order_discrepancy
+- Tracking status: draft_not_filed 10/10 (no status mutation)
+- Reimbursement link coverage: 0 matched; 10 unmatched; reimbursement/transaction/settlement candidates loaded 0 (reference-safe only; no inference)
+- Money lanes: NULL preserved (estimated/recovery/observed all null); sale price not used as COGS
+- Legacy 3 submissions excluded from pilot matrix; claim_submissions 13 unchanged
+- No DB writes; no Amazon API; scanner untouched; build+smoke PASS
+- SAFE_REIMBURSEMENT_TRACKING_PREVIEW_READY: yes
+- SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_UI: yes
+
+### Evidence
+- phase-claim-reimbursement-tracking-preview-v1/20260617T040100Z/
+
+### Next Prompt
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-V1 - read-only Case Review reimbursement tracking panel
+
+================================================================================
+END APPEND SLICE -- 20260617T040100Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T120000Z
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-V1 read-only IMPLEMENTED
+================================================================================
+
+### Reimbursement tracking UI V1 - read-only IMPLEMENTED
+- Route: /claim-center/reimbursement-tracking
+- API: GET /api/claims/center/reimbursement-tracking
+- Nav: ClaimCenterFinancialNav + More menu Reimbursement Tracking
+- Build+smoke PASS; SAFE_REIMBURSEMENT_TRACKING_UI_READY: yes
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T120000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T050000Z
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 idempotent re-execute PASS (0 inserts; 10 reused)
+================================================================================
+
+### Claim submission record pilot EXECUTE V1 - idempotent re-execute PASS
+- Run: 20260617T050000Z @ kxsvedvpjldygtdbylsy; Maysam approvals yes (already set in operator-approvals file)
+- Migration 20260918120000 claim_case_id column already applied (applied_during_run: false)
+- 0 new inserts; 10/10 reused existing draft manual_filing rows from prior execute 20260617T030200Z
+- claim_submissions 13 unchanged (3 legacy + 10 pilot); cases/lines/candidates unchanged
+- Idempotency PASS; one active submission per pilot case; legacy 3 untouched; submission_id null
+- No Amazon API; build+smoke PASS
+- SAFE_CLAIM_SUBMISSION_RECORD_PILOT: yes
+- SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW: yes
+
+### Evidence
+- phase-claim-submission-record-pilot-execute-v1/20260617T050000Z/
+
+### Next Prompt
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 (already PASS 20260617T040100Z) or PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-V1 (already IMPLEMENTED 20260617T120000Z)
+
+================================================================================
+END APPEND SLICE -- 20260617T050000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T130000Z
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 read-only re-verify PASS (10/10)
+================================================================================
+
+### Reimbursement tracking preview V1 - read-only re-verify PASS
+- Run: 20260617T130000Z @ kxsvedvpjldygtdbylsy
+- Prerequisites: SAFE_CLAIM_SUBMISSION_RECORD_PILOT=yes (execute evidence 20260617T050000Z idempotent re-execute)
+- Pilot submissions: 10/10; family 6 removal_shipment_missing + 4 removal_order_discrepancy
+- Tracking status: draft_not_filed 10/10; submission_status draft 10/10
+- Reimbursement link coverage: 0 matched; 10 unmatched; candidates loaded 0 (reference-safe only)
+- Money lanes NULL preserved; legacy 3 excluded; claim_submissions 13 unchanged
+- No DB writes; no Amazon API; build+smoke PASS
+- SAFE_REIMBURSEMENT_TRACKING_PREVIEW_READY: yes
+- SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_UI: yes (UI already IMPLEMENTED 20260617T120000Z)
+
+### Evidence
+- phase-claim-reimbursement-tracking-preview-v1/20260617T130000Z/
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-PLAN-V1 (UI already live at /claim-center/reimbursement-tracking)
+
+================================================================================
+END APPEND SLICE -- 20260617T130000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T140000Z
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-V1 read-only IMPLEMENTED + verified PASS
+================================================================================
+
+### Reimbursement tracking UI V1 - read-only IMPLEMENTED + verified
+- Run: 20260617T140000Z @ kxsvedvpjldygtdbylsy
+- Route: /claim-center/reimbursement-tracking
+- Financial nav: Dashboard, Opportunities, Cases, Filing Packets, Submissions, Reimbursement Tracking
+- 6 summary cards, workflow strip, filters/search, table (10 rows), 7-section detail drawer, disabled mutation buttons
+- API: GET /api/claims/center/reimbursement-tracking (read-only composeReimbursementTrackingPreviewV1)
+- Pilot 10/10; legacy 3 excluded; money NULL as Unknown; reimbursement match 0/10
+- No DB writes; no Amazon API; scanner untouched; build+smoke PASS
+- SAFE_REIMBURSEMENT_TRACKING_UI_READY: yes
+- SAFE_TO_REVIEW_FINANCIAL_TRACKING_UI: yes
+- SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY: yes
+
+### Evidence
+- phase-claim-reimbursement-tracking-ui-v1/20260617T140000Z/
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T140000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T150000Z
+PHASE-CLAIM-MAIN-BRANCH-UI-PARITY-AUDIT-V1 — reimbursement UI NOT on committed main
+================================================================================
+
+### Main branch UI parity audit V1
+- Run: 20260617T150000Z; branch main @ 0583bec627c77ef6e67663f2f96787a180c140e9
+- Diagnosis: ui_files_missing_on_main — all reimbursement UI files untracked (not in HEAD)
+- Nav/API/page-contract wiring modified but uncommitted; HEAD has no reimbursement route or nav link
+- Local worktree build+smoke PASS only because untracked files present on disk
+- Nav in worktree: More menu > Admin/Legacy pool (not primary workflow rail)
+- Maysam clean main checkout would NOT see UI
+- SAFE_TO_REPAIR_REIMBURSEMENT_TRACKING_UI_ON_MAIN: yes
+
+### Evidence
+- phase-claim-main-branch-ui-parity-audit-v1/20260617T150000Z/
+
+### Next Prompt
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-MERGE-TO-MAIN-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T150000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T160000Z
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-MAIN-REPAIR-V1 nav discoverability PASS
+================================================================================
+
+### Main repair — reimbursement tracking UI visible on main worktree
+- Route verified: /claim-center/reimbursement-tracking
+- Nav repaired: Command Home tile; More → Workflow; More → Filing & recovery; financial tab strip
+- Build+smoke PASS; SAFE_REIMBURSEMENT_TRACKING_UI_VISIBLE_ON_MAIN: yes
+- Note: files still uncommitted on main until merge commit phase
+
+### Next Prompt
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-UI-MERGE-TO-MAIN-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T160000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T160100Z
+PHASE-CLAIM-MONEY-LANE-RECOVERY-AUDIT-V1 read-only PASS — money lanes NULL root cause COGS spine
+================================================================================
+
+### Money lane recovery audit V1 - read-only PASS
+- Run: 20260617T160100Z @ kxsvedvpjldygtdbylsy; pilot 10/10 submissions
+- Coverage: estimated 0/10, recovery 0/10, observed 0/10, COGS 0/10, fee 0/10, reimb match 0/10
+- Case metadata money_lanes keys present but all values NULL; claim_candidates recovery_value/cogs_unit NULL
+- Org spine: amazon_fee_preview 0, product_cost_snapshots 0, amazon_reimbursements 17546, identifier_map 16849
+- Blockers: missing actual_cost_basis (family formula qty*cogs); no safe reimbursement match (not filed); fee_preview empty
+- NULL preservation PASS; sale price not used as COGS; no DB writes
+- SAFE_TO_BUILD_MONEY_LANE_PREVIEW: yes
+- SAFE_TO_PLAN_PRODUCT_COGS_AUDIT: yes
+- UI warning sufficient (no migration required for NULL display)
+
+### Evidence
+- phase-claim-money-lane-recovery-audit-v1/20260617T160100Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-AUDIT-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T160100Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T200000Z
+PHASE-CLAIM-VRET-SLIP-REFERENCE-MAPPING-AUDIT-V1 read-only PASS — Vendor Return ID semantics; example not in DB
+================================================================================
+
+### VRET slip reference mapping audit V1 - read-only PASS
+- Run: 20260617T200000Z @ kxsvedvpjldygtdbylsy; example VRET7644940165531 (Maysam: bottom of slip)
+- exact_occurrence_found: no; vret_pattern_sample_count: 0 in operational tables for org
+- Semantic ID: Amazon Vendor Return ID (vendor return number) on FBA return packing slip — NOT order_id, LPN, Removal Order ID, TRID, reimbursement_id
+- Codebase: scanner vret_id field; regex VRET\d{8,}; resolve packages.rma_number; EP tracking lookup via slipIdLookupCandidates
+- BOX slip contrast: S-codes in id_slip_contents + rma_number (box-slip-vision); VRET uses extract-slip flow
+- Reports sampled (FBA_RETURNS, TRANSACTIONS, REIMBURSEMENTS, REPORTS_REPOSITORY): 0 VRET matches; FBA Returns uses LPN
+- recommended_reference_type: vret_id; storage: claim_candidate.metadata.vret_id + packages.rma_number mirror on slip bind
+- proposed edge: claim_to_vret_slip_reference (later) or claim_to_tracking_number when EP uses VRET surrogate
+- SAFE_TO_USE_VRET_AS_REFERENCE: no (no DB anchor for example)
+- SAFE_TO_PLAN_VRET_REFERENCE_EDGE_MATERIALIZATION: no
+- claim_cases/candidates/lines/submissions/edges unchanged; no DB writes; scanner unchanged
+
+### Evidence
+- phase-claim-vret-slip-reference-mapping-audit-v1/20260617T200000Z/
+
+### Next Prompt
+PHASE-CLAIM-VRET-SLIP-OCR-EVIDENCE-BIND-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T210000Z
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-NAV-DEDUP-UX-POLISH-V1 PASS — single More menu entry under Filing & recovery
+================================================================================
+
+### Reimbursement tracking nav dedup UX polish V1
+- Run: 20260617T210000Z @ main (uncommitted); commit before d2f7faa
+- Removed duplicate Reimbursement Tracking from More → Workflow
+- Kept single entry: More → Filing & recovery → Reimbursement Tracking (label Tracking, Wallet icon)
+- Route unchanged: /claim-center/reimbursement-tracking; home tile + financial tab strip retained
+- Page UX helper bullets: draft/manual filing only; not submitted to Amazon; Unknown when COGS/reimb missing
+- Pilot rows: 10/10; money Unknown display preserved; disabled actions preserved
+- Build+smoke PASS; no DB writes; no scanner changes
+- SAFE_REIMBURSEMENT_TRACKING_NAV_CLEAN: yes
+- SAFE_REIMBURSEMENT_TRACKING_UI_READY: yes
+
+### Evidence
+- phase-claim-reimbursement-tracking-nav-dedup-ux-polish-v1/20260617T210000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-AUDIT-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T210000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T231600Z
+PHASE-PRODUCT-COGS-AUDIT-V1
+================================================================================
+
+### Original DB @ kxsvedvpjldygtdbylsy (read-only)
+- Pilot: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Submissions audited: 10 · unique products: 6
+- Approved COGS coverage: 0/10 · recovery_value calculable: 0/10
+- product_cost_snapshots table: NOT MIGRATED on original
+- workspace_settings cogs_overrides: empty (0 workspace_settings rows for org)
+- claim_candidates.cogs_unit: null on pilot lines
+- return_items.estimated_value: not used as approved COGS
+- product_prices / latest_sold_price: present but REJECTED as COGS sources
+- pim_product_master uploads exist (13) but not wired to cost spine
+
+### Blockers
+- COGS_MISSING · NO_APPROVED_COST_SOURCE · RECOVERY_VALUE_BLOCKED_NO_COGS (all 10)
+
+### Recommendation
+- Interim: cogs_overrides by FNSKU/SKU for 6 pilot products OR SellerSnap CSV -> product_cost_snapshots after spine approval
+- migration_needed: yes (product_cost_snapshots)
+- manual_cost_entry_needed: yes
+
+### Evidence
+- phase-product-cogs-audit-v1/20260616T231548Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-OR-IMPORT-PLAN-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T231600Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T220000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-PLAN-V1 LOCKED — operator records manual Amazon filing in MENORIX only
+================================================================================
+
+### Manual filing status entry plan V1
+- Run: 20260617T220000Z @ kxsvedvpjldygtdbylsy; pilot pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Pilot submissions: 10/10 status draft; submission_id null; claim_case_id column exists on original
+- Record manual filing: UPDATE claim_submissions — status submitted, submission_id=Amazon Case ID, source_payload portal_filed_at/operator_filed_by/notes/url
+- UI: Reimbursement Tracking detail drawer → Record manual filing modal + attestation checkbox
+- No Amazon API; no MENORIX submit; audit via claim_history_logs + audit_logs trigger
+- migration_needed yes for ergonomics columns but pilot V1 can use source_payload only
+- SAFE_TO_BUILD_MANUAL_FILING_STATUS_ENTRY_UI: yes
+- SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY_EXECUTE: yes
+
+### Evidence
+- phase-claim-manual-filing-status-entry-plan-v1/20260617T220000Z/
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T220000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T233100Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-OR-IMPORT-PLAN-V1
+================================================================================
+
+### Planning contract @ kxsvedvpjldygtdbylsy (read-only)
+- Pilot 10 submissions / 6 FNSKUs — approved COGS 0/10
+- product_cost_snapshots: NOT MIGRATED; product_costs: absent
+- cogs_overrides path exists (workspace_settings.module_configs) but org row empty
+- Option A recommended first: manual COGS by FNSKU with effective_date, currency, source_note, approved_by + platform_automation_audit_log
+- Option B: CSV import with preview/commit after migration approval
+- Option C rejected as spine: PIM Product Master cost columns -> product_prices (sale lane), NOT recovery COGS; metadata has case_cost/selling_unit_cost on 5/6 pilot products but ungoverned
+- Formula: recovery_value = clean_quantity x approved_cogs_unit (removal families = item cost basis, no fee subtraction)
+- Migration proposed: additive product_cost_snapshots (Maysam APPROVED_PRODUCT_COST_SNAPSHOTS gate)
+- SAFE_TO_BUILD_COGS_IMPORT_OR_MANUAL_ENTRY: yes
+- SAFE_TO_BUILD_MONEY_LANE_PREVIEW: conditional_yes (COGS still missing)
+
+### Evidence
+- phase-product-cogs-manual-entry-or-import-plan-v1/20260616T233012Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T233100Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T230000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-V1 PASS read-only — per-submission money formulas; COGS still 0/10
+================================================================================
+
+### Money lane preview V1
+- Run: 20260617T230000Z @ kxsvedvpjldygtdbylsy; pilot 10/10
+- Coverage: latest_sold_price 10/10, amazon_fees 10/10, net_settlement 10/10, observed_reimbursement 0/10, approved_cogs 0/10, recovery_value 0/10, open_gap 0/10
+- Formulas: recovery = qty × approved_cogs_unit; gap = recovery - observed (both required); profit context informational only
+- NULL preserved; sale price not used as COGS; reimb requires safe reference match
+- blocked_by_cogs_count: 10; blocked_by_no_reimbursement_match_count: 10
+- build+smoke PASS; no DB writes
+- SAFE_MONEY_LANE_PREVIEW_READY: yes
+- SAFE_TO_UPDATE_REIMBURSEMENT_TRACKING_UI_WITH_MONEY_PREVIEW: yes
+- SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY: yes
+
+### Evidence
+- phase-claim-money-lane-preview-v1/20260617T230000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T230000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T000000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-PLAN-V1 re-verify PASS — expanded prereq matrix; pilot 10/10 unchanged
+================================================================================
+
+### Manual filing status entry plan V1 (re-verify)
+- Run: 20260618T000000Z @ kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z; intake_run_id a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Prerequisites: submission_record_pilot PASS, reimb_tracking_preview PASS, reimb_ui_visible PASS, nav_dedup PASS, money_lane_source_discovery PASS, product_cogs_audit PASS, trid_graph_materialized PASS
+- Live: 13 claim_submissions (10 pilot draft, 3 legacy); all pilot submission_id null; claim_case_id column exists
+- Schema: external_case_id via submission_id; filing metadata via source_payload (portal_filed_at, operator_filed_by, amazon_case_url, manual_filing_notes); migration_needed yes but migration_required_for_pilot_v1 no
+- DB transition: draft|ready_to_send → submitted; tracking UI filed_waiting_for_amazon
+- UI: Record manual filing modal in ReimbursementTrackingDetailDrawer; no Amazon API
+- Verifications: no_db_write yes; no_claim_submission_mutation yes; no_amazon_submission yes; no_scanner_change yes
+- SAFE_TO_BUILD_MANUAL_FILING_STATUS_ENTRY_UI: yes
+- SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY_EXECUTE: yes
+
+### Evidence
+- phase-claim-manual-filing-status-entry-plan-v1/20260618T000000Z/
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260618T000000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260616T235630Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-UI-V1 PASS — dry-run COGS admin UI for 6 pilot FNSKUs; no DB writes
+================================================================================
+
+### Product COGS manual entry UI V1
+- Run: 20260616T235630Z @ kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z; intake_run_id a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Route: /claim-center/reimbursement-tracking/cogs; API GET/POST /api/claims/center/reimbursement-tracking/cogs
+- UI: 6 pilot products table; manual entry form; CSV import dry-run; drawer COGS missing warning + Add COGS link
+- Validation: positive unit_cost; sale-price match requires explicit confirm; ambiguous identifier reject; required source_note/effective_date
+- Recovery preview: clean_quantity x unit_cost (Unknown when no cost)
+- Safety: dry-run only; no cogs_overrides write; no claim/product mutation; no Amazon; no scanner change
+- Live verify: pilot_products_loaded_count 6; manual dry-run pass; import dry-run pass; build+smoke PASS
+- SAFE_COGS_MANUAL_ENTRY_UI_READY: yes
+- SAFE_TO_PLAN_COGS_APPLY_EXECUTE: yes (execute phase separate approval)
+- SAFE_TO_UPDATE_MONEY_LANE_UI: no (COGS still missing until execute)
+
+### Evidence
+- phase-product-cogs-manual-entry-ui-v1/20260616T235630Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260616T235630Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T000136Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-PLAN-V1 re-verify PASS — manual filing status planning contract (8 prereqs)
+================================================================================
+
+### Manual filing status entry plan V1 (re-verify)
+- Run: 20260617T000136Z @ kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z; intake_run_id a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Prerequisites: submission_record_pilot, reimb_tracking_preview, reimb_ui_visible, nav_dedup, money_lane_source_discovery, product_cogs_audit, money_lane_preview, trid_graph — all PASS
+- Live: 13 claim_submissions (10 pilot draft, 3 legacy); all pilot submission_id null; claim_case_id column exists
+- Schema: external_case_id via submission_id; filing metadata via source_payload (portal_filed_at, operator_filed_by, amazon_case_url, manual_filing_notes)
+- migration_needed yes but migration_required_for_pilot_v1 no (source_payload sufficient for pilot)
+- UI: Record manual filing modal in ReimbursementTrackingDetailDrawer; no Amazon API
+- Verifications: no_db_write yes; no_claim_submission_mutation yes (13 before/after); no_amazon_submission yes; no_scanner_change yes
+- SAFE_TO_BUILD_MANUAL_FILING_STATUS_ENTRY_UI: yes
+- SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY_EXECUTE: yes
+
+### Evidence
+- phase-claim-manual-filing-status-entry-plan-v1/20260617T000136Z/
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T000136Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T010000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-V2-PROFIT-LOSS-ANALYSIS PASS read-only — four financial views per pilot submission
+================================================================================
+
+### Money lane preview V2 profit/loss
+- Run: 20260618T010000Z @ kxsvedvpjldygtdbylsy; pilot 10/10
+- Views: sale (10/10), fee actual (10/10), settlement (10/10), COGS (0/10), recovery (0/10), reimb (0/10), open_gap (0/10), profit_loss complete (0/10)
+- All 10 submissions: profit_loss_view analysis_status informational_only (COGS missing — no final loss claim)
+- Formulas: gross_sale_value, estimated_amazon_fees, estimated_net_sale, estimated_profit_if_sold, actual_recovery_vs_cost, lost_profit_estimate
+- Safety: null preserved; sale price not COGS; fee labels actual only (no mix); no DB writes
+- build+smoke PASS
+- SAFE_MONEY_LANE_PROFIT_LOSS_PREVIEW_READY: yes
+- SAFE_TO_UPDATE_REIMBURSEMENT_TRACKING_UI_WITH_PROFIT_LOSS: yes
+- SAFE_TO_PLAN_COGS_APPLY_EXECUTE: yes
+- SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY: yes
+
+### Evidence
+- phase-claim-money-lane-preview-v2-profit-loss-v1/20260618T010000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260618T010000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T002855Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-UI-V1 re-verify PASS — per-submission recovery preview; tracking COGS banner
+================================================================================
+
+### Product COGS manual entry UI V1 (re-verify)
+- Run: 20260617T002855Z @ kxsvedvpjldygtdbylsy
+- Route: /claim-center/reimbursement-tracking/cogs (COGS Entry panel)
+- Tracking page: missing-COGS banner; drawer Add COGS action
+- Per-submission preview: recovery_value_preview = clean_quantity x unit_cost (fees not subtracted)
+- Source type: manual_override; safety: This only previews approved COGS. It does not update claims yet.
+- pilot_products_loaded_count: 6; build+smoke PASS; no DB writes
+- SAFE_COGS_MANUAL_ENTRY_UI_READY: yes
+- SAFE_TO_PLAN_COGS_APPLY_EXECUTE: yes
+- SAFE_TO_UPDATE_REIMBURSEMENT_TRACKING_UI_WITH_MONEY_PREVIEW: conditional_yes
+
+### Evidence
+- phase-product-cogs-manual-entry-ui-v1/20260617T002855Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260617T002855Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T020100Z
+PHASE-CLAIM-MONEY-LANE-PROFIT-LOSS-UI-V1 PASS — Reimbursement Tracking money lane UI
+================================================================================
+
+### Money lane profit/loss UI V1
+- Run: 20260618T020100Z @ /claim-center/reimbursement-tracking; pilot 10/10
+- Summary cards: sale estimate, Amazon fees, net settlement, COGS coverage, recovery known/unknown, observed reimb, open gap, lost profit
+- Table: sold price, fees, settlement, COGS, recovery, reimb, gap, profit if sold, recovery vs cost, lost profit
+- Drawer tabs: Overview, Money, Evidence, Raw details; Money tab sections A-G with formulas
+- Badges: Actual, Estimate, Unknown, Needs COGS, Informational estimate
+- API: money_lane bundle via composeMoneyLanePreviewV2 in getCenterReimbursementTrackingPayload
+- Safety: null preserved; sale not COGS; no DB writes; build+smoke PASS
+- SAFE_MONEY_LANE_PROFIT_LOSS_UI_READY: yes
+- SAFE_TO_PLAN_COGS_APPLY_EXECUTE: yes
+- SAFE_TO_BUILD_MANUAL_FILING_STATUS_ENTRY_UI: yes
+
+### Evidence
+- phase-claim-money-lane-profit-loss-ui-v1/20260618T020100Z/
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-V1
+
+================================================================================
+END APPEND SLICE -- 20260618T020100Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T030000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-V1 guarded UI PASS (dry-run only)
+================================================================================
+
+### Manual filing status entry UI V1
+- Location: ReimbursementTrackingDetailDrawer section G (Next action)
+- Modal: Amazon Case ID, filed date/time, optional URL/notes, attestation checkbox
+- Dry-run preview: old_status, new_status=submitted, submission_id preview, source_payload preview, audit event preview
+- API: POST /api/claims/center/manual-filing-status-entry/dry-run (no DB write)
+- Save filing record disabled until PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1
+- Build+smoke PASS; SAFE_MANUAL_FILING_STATUS_ENTRY_UI_READY: yes
+
+### Next Prompt
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260618T030000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T035658Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 contract READY (plan-only; no live apply)
+================================================================================
+
+### Product COGS manual entry execute V1
+- Run: 20260617T035658Z @ kxsvedvpjldygtdbylsy; plan-only (no --execute)
+- Contract: product-cogs-manual-entry-execute-v1.ts + cogs-override-value-v1.ts
+- Writers: workspace_settings.module_configs.claim_intake.cogs_overrides[fnsku] only
+- Readers updated: extractCogsOverrideUnitCost in money lane discovery, audit, UI, fee readmodel
+- Approval: denied (APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=no); fixed false-positive regex on approval file instructional text
+- Input: 0/6 entries in operator input JSON; template generated in audit input-template-from-pilot.json
+- Before snapshot: cogs_overrides empty; subs 13; cases 22; lines 22; candidates 9155
+- No claim table mutation; no Amazon; scanner unchanged; build+smoke PASS
+- SAFE_COGS_APPLIED_FOR_PILOT: no
+- SAFE_TO_UPDATE_MONEY_LANE_UI_WITH_RECOVERY_VALUE: no (await COGS apply)
+- SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY_UI: no (await COGS apply)
+
+### Evidence
+- phase-product-cogs-manual-entry-execute-v1/20260617T035658Z/
+
+### Next Prompt
+Operator fills product-cogs-manual-entry-execute-v1-input.json + Maysam approval yes; re-run with --execute
+
+================================================================================
+END APPEND SLICE -- 20260617T035658Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T120000Z
+PHASE-CLAIM-MONEY-LANE-PROFIT-LOSS-UI-AFTER-COGS-V1 PASS (read-only UI after COGS overrides)
+================================================================================
+
+### Money lane profit/loss UI after COGS V1
+- Route: /claim-center/reimbursement-tracking
+- Scope: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce (10 pilot submissions)
+- Summary cards: Approved COGS coverage, Recovery value known (+ total), Sale estimate, Amazon fees, Net settlement, Reimbursement matched/unknown, Open gap, Lost profit
+- Table: reimb status column; recovery/profit/open gap from money lane V2 (approved COGS)
+- Drawer: quick snapshot prefers money lane V2; Money tab section H formula reference
+- Banner: post-COGS applied when cogs_overrides coverage > 0
+- Rules: sale price never COGS; Unknown not zero; open gap only when both recovery + reimb known
+- No DB writes; no claim_submission mutation; no Amazon; scanner unchanged
+- Build+smoke PASS; SAFE_MONEY_LANE_PROFIT_LOSS_UI_READY: yes
+- SAFE_TO_BUILD_MANUAL_FILING_STATUS_ENTRY_UI: yes (UI already shipped 20260618T030000Z)
+
+### Files changed
+- lib/claims/submission/claim-money-lane-profit-loss-ui-contract.ts
+- lib/claims/center/claim-center-api-handlers.ts
+- components/claim-center/reimbursement-tracking/ReimbursementTrackingSummaryCards.tsx
+- components/claim-center/reimbursement-tracking/ReimbursementTrackingTable.tsx
+- components/claim-center/reimbursement-tracking/ReimbursementTrackingDetailDrawer.tsx
+- components/claim-center/reimbursement-tracking/ReimbursementTrackingView.tsx
+- components/claim-center/reimbursement-tracking/ReimbursementTrackingMoneyTab.tsx
+- scripts/smoke-claim-money-lane-profit-loss-ui-after-cogs-v1.ts
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 --execute (if cogs_overrides still empty) then re-verify live recovery_value on pilot; else PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1
+
+================================================================================
+END APPEND SLICE -- 20260618T120000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T030000Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-OR-IMPORT-BUILD-V1 PASS (guarded COGS source build)
+================================================================================
+
+### Product COGS source build V1
+- Run: 20260618T030000Z @ kxsvedvpjldygtdbylsy; guarded-build (no DB writes)
+- Pilot: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- UI: COGS Source Panel @ /claim-center/reimbursement-tracking/cogs (manual entry + CSV/XLSX import preview)
+- API: GET/POST /api/claims/center/reimbursement-tracking/cogs (modes manual/import/write)
+- Write path: attemptGuardedCogsWriteV1 -> workspace_settings.module_configs.claim_intake.cogs_overrides
+- Approval gates (default denied): APPROVED_PRODUCT_COGS_SOURCE_BUILD_V1, APPROVED_PRODUCT_COGS_SCHEMA_MIGRATION_V1, APPROVED_PRODUCT_COGS_WRITE_V1
+- Migration proposed (not applied): supabase/migrations/20260618120000_phase_product_cogs_source_build_v1_product_cost_snapshots.sql
+- product_cost_snapshots exists live: no
+- Pilot unique products: 6; manual preview pass 6/6; import preview valid 6/6
+- Formula: recovery_value = clean_quantity x approved_cogs_unit
+- Rejected import headers: sale_price, list_price, settlement_net, latest_sold_price, etc.
+- Verifications: no claim mutation; no Amazon; scanner unchanged; write blocked without approval
+- Build+smoke PASS; SAFE_PRODUCT_COGS_SOURCE_READY: yes; SAFE_TO_BUILD_MONEY_LANE_PREVIEW_WITH_COGS: yes
+
+### Evidence
+- phase-product-cogs-manual-entry-or-import-build-v1/20260618T030000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 -- set APPROVED_PRODUCT_COGS_WRITE_V1=yes + operator input JSON for 6 pilot FNSKUs
+
+================================================================================
+END APPEND SLICE -- 20260618T030000Z (BUILD-V1)
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T040000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-AND-UI-INTEGRATION-V1 PASS (read-only money preview + UI)
+================================================================================
+
+### Money lane preview + UI integration V1
+- Run: 20260618T040000Z @ kxsvedvpjldygtdbylsy; read-only integration verify
+- Pilot: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce (10 submissions)
+- Coverage: latest_sold_price 10/10; amazon_fees 10/10; net_settlement 10/10; COGS 0/10; recovery 0/10; reimb 0/10; open_gap 0/10
+- blocked_by_cogs_count: 10 (Unknown preserved — not $0)
+- UI: Reimbursement Tracking table money columns + drawer Money tab formula panel; COGS missing badge; Not filed / no safe match reimb label
+- Contract: claim-money-lane-preview-ui-integration-v1.ts bridges V1 preview + V2 UI bundle
+- Verifications: sale price not COGS; null preservation; no claim mutation; no Amazon; scanner unchanged
+- Build+smoke PASS; SAFE_MONEY_LANE_PREVIEW_READY: yes; SAFE_REIMBURSEMENT_TRACKING_UI_MONEY_READY: yes; SAFE_TO_BUILD_MANUAL_FILING_STATUS_ENTRY_UI: yes
+
+### Evidence
+- phase-claim-money-lane-preview-and-ui-integration-v1/20260618T040000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 — apply approved cogs_overrides for 6 pilot FNSKUs then re-run money lane integration
+
+================================================================================
+END APPEND SLICE -- 20260618T040000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T050000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-UI-AND-GUARDED-EXECUTE-V1 PASS
+================================================================================
+
+### Manual filing status entry UI + guarded execute V1
+- Run: 20260618T050000Z @ kxsvedvpjldygtdbylsy
+- UI: Record manual filing modal in Reimbursement Tracking drawer (section G)
+- Dry-run: POST /api/claims/center/manual-filing-status-entry/dry-run
+- Execute: POST /api/claims/center/manual-filing-status-entry/execute (blocked unless APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes)
+- Status transition: draft -> submitted (DB); tracking filed_waiting_for_amazon when case ID provided
+- Schema: submission_id + source_payload sufficient for pilot; optional migration proposed not required
+- Modal verified for removal_shipment_missing + removal_order_discrepancy pilot rows
+- Duplicate external_case_id rule per org+store; legacy 3 excluded
+- No Amazon API; no scanner change; claim_submissions count unchanged without approval (13)
+- Build+smoke PASS; SAFE_MANUAL_FILING_STATUS_ENTRY_UI_READY: yes; SAFE_MANUAL_FILING_STATUS_ENTRY_EXECUTE_READY: yes; SAFE_CLAIM_PILOT_OPERATIONAL_COMPLETE: yes
+
+### Evidence
+- phase-claim-manual-filing-status-entry-ui-and-guarded-execute-v1/20260618T050000Z/
+
+### Next Prompt
+Set APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes then operator records filing for pilot submissions
+
+================================================================================
+END APPEND SLICE -- 20260618T050000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T062123Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 PASS (plan-only; write blocked)
+================================================================================
+
+### Product COGS manual entry execute V1
+- Run: 20260617T062123Z @ kxsvedvpjldygtdbylsy; plan-only (no --execute)
+- Pilot: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce
+- Dual approval denied: APPROVED_PRODUCT_COGS_WRITE_V1=no; APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=no
+- Operator input: 0/6 entries (product-cogs-manual-entry-execute-v1-input.json empty)
+- Write path: attemptGuardedCogsWriteV1 -> workspace_settings.module_configs.claim_intake.cogs_overrides
+- product_cost_snapshots migration not applied (interim cogs_overrides only)
+- Pilot products loaded: 6/6 FNSKUs with resolved_product_id mapping
+- cogs_coverage_count: 0; accepted_cogs_rows: 0; skipped: 6
+- Claim tables unchanged: submissions 13, cases 22, lines 22, candidates 9155
+- Verifications: sale price not COGS; no claim mutation; no Amazon; scanner unchanged
+- Build+smoke PASS; SAFE_PRODUCT_COGS_WRITE_COMPLETE: no; SAFE_TO_REBUILD_MONEY_LANE_PREVIEW_WITH_COGS: no
+
+### Evidence
+- phase-product-cogs-manual-entry-execute-v1/20260617T062123Z/
+
+### Next Prompt
+Set both COGS approval keys to yes; fill 6 approved unit costs; re-run with --execute; then re-run money lane integration
+
+================================================================================
+END APPEND SLICE -- 20260617T062123Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T070000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V1 BLOCKED (read-only verify; COGS prerequisite missing)
+================================================================================
+
+### Money lane preview after COGS V1
+- Run: 20260618T070000Z @ kxsvedvpjldygtdbylsy; read-only-after-cogs
+- Pilot: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce (10 submissions)
+- Prerequisite SAFE_PRODUCT_COGS_WRITE_COMPLETE: no (pilot FNSKU COGS 0/6; cogs_overrides empty)
+- Coverage: latest_sold_price 10/10; amazon_fees 10/10; net_settlement 10/10; COGS 0/10; recovery 0/10; reimb 0/10 (Unknown)
+- Formula contract verified; sale price not COGS; NULL preserved; reimb pending handling OK
+- UI money panel verified (table + drawer Money tab)
+- No DB writes; claim tables unchanged; no Amazon; scanner unchanged
+- Build+smoke PASS; phase_pass: no
+- SAFE_MONEY_LANE_PREVIEW_READY: no; SAFE_REIMBURSEMENT_TRACKING_UI_MONEY_READY: no
+
+### Evidence
+- phase-claim-money-lane-preview-after-cogs-v1/20260618T070000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 --execute then re-run after-COGS preview
+
+================================================================================
+END APPEND SLICE -- 20260618T070000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T080000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 plan-only BLOCKED
+================================================================================
+
+### Manual filing status entry execute V1
+- Run: 20260618T080000Z @ kxsvedvpjldygtdbylsy; plan-only (no --execute)
+- Pilot: pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce (10 submissions)
+- Approval APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1: no
+- Prerequisites: UI PASS; COGS 0/6 -> SAFE_TO_EXECUTE_MANUAL_FILING_STATUS_ENTRY: no
+- Operator input: 0/10 entries
+- Updated: 0; legacy 3 untouched; claim_submissions count 13 unchanged
+- Status transition contract: draft -> submitted (DB); tracking filed_waiting_for_amazon
+- No Amazon API; scanner unchanged; build+smoke PASS; phase_pass: no
+- SAFE_MANUAL_FILING_STATUS_ENTRY_EXECUTED: no
+
+### Evidence
+- phase-claim-manual-filing-status-entry-execute-v1/20260618T080000Z/
+
+### Next Prompt
+Complete COGS execute OR accept_cogs_missing; set write approval yes; fill input; --execute
+
+================================================================================
+END APPEND SLICE -- 20260618T080000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T064545Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 plan-only BLOCKED (re-verify)
+================================================================================
+
+### Product COGS manual entry execute V1
+- Run: 20260617T064545Z @ kxsvedvpjldygtdbylsy; plan-only
+- Dual approval denied; operator input 0/6 entries
+- Pilot FNSKUs loaded 6/6 with resolved_product_id mapping
+- cogs_overrides empty; recovery_value_calculable 0/10
+- Claim tables unchanged; no Amazon; scanner unchanged
+- Build+smoke PASS; SAFE_PRODUCT_COGS_WRITE_COMPLETE: no
+
+### Evidence
+- phase-product-cogs-manual-entry-execute-v1/20260617T064545Z/
+
+### Next Prompt
+Set both approval keys yes; fill 6 approved unit costs; --execute; then AFTER-COGS money lane preview
+
+================================================================================
+END APPEND SLICE -- 20260617T064545Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T065036Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 plan-only BLOCKED (re-verify)
+================================================================================
+
+### Product COGS manual entry execute V1
+- Run: 20260617T065036Z @ kxsvedvpjldygtdbylsy; plan-only
+- Dual approval denied; input 0/6 entries; cogs_overrides empty
+- Pilot products 6/6 loaded; recovery_value_calculable 0/10
+- Claim tables unchanged; no Amazon; scanner unchanged
+- Build+smoke PASS; SAFE_PRODUCT_COGS_WRITE_COMPLETE: no
+
+### Evidence
+- phase-product-cogs-manual-entry-execute-v1/20260617T065036Z/
+
+### Next Prompt
+Set both approval keys yes; fill 6 approved unit costs; re-run with --execute
+
+================================================================================
+END APPEND SLICE -- 20260617T065036Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T100000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V1 BLOCKED (re-verify; COGS 0/6)
+================================================================================
+
+### Money lane preview after COGS V1
+- Run: 20260618T100000Z @ kxsvedvpjldygtdbylsy; read-only-after-cogs
+- Prerequisite SAFE_PRODUCT_COGS_WRITE_COMPLETE: no (0/6 FNSKUs)
+- Coverage: sold 10/10; fees 10/10; settlement 10/10; COGS 0/10; recovery 0/10; reimb 0/10
+- UI money panel + formula tooltips verified (table + drawer Money tab)
+- No DB writes; claim tables unchanged; build+smoke PASS; phase_pass: no
+
+### Evidence
+- phase-claim-money-lane-preview-after-cogs-v1/20260618T100000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 --execute then re-run after-COGS preview
+
+================================================================================
+END APPEND SLICE -- 20260618T100000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T110000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 plan-only BLOCKED (re-verify)
+================================================================================
+
+### Manual filing status entry execute V1
+- Run: 20260618T110000Z @ kxsvedvpjldygtdbylsy; plan-only
+- Approval denied; COGS 0/6 prerequisite; input 0/10
+- Execute payload adds: manual_filing_recorded, external_platform=amazon_seller_central, portal_filed_at, operator_filed_by, manual_filing_notes, not_submitted_to_amazon=true
+- Status draft->submitted; tracking filed_waiting_for_amazon; case ID in submission_id
+- 0 writes; legacy 3 untouched; build+smoke PASS
+
+### Evidence
+- phase-claim-manual-filing-status-entry-execute-v1/20260618T110000Z/
+
+### Next Prompt
+COGS execute or accept_cogs_missing; set write approval; fill input; --execute
+
+================================================================================
+END APPEND SLICE -- 20260618T110000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T072008Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 execute BLOCKED (approvals yes; validation failed)
+================================================================================
+
+### Product COGS manual entry execute V1
+- Run: 20260617T072008Z @ kxsvedvpjldygtdbylsy; --execute
+- Approvals: APPROVED_PRODUCT_COGS_WRITE_V1=yes; APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=yes
+- Input: 6/6 FNSKU rows; accepted 0/6; rejected 6/6 (null unitCost, empty sourceNote)
+- No writes to cogs_overrides; claim tables unchanged
+- Guard correctly blocked — no invented COGS
+- Build+smoke PASS; SAFE_PRODUCT_COGS_WRITE_COMPLETE: no
+
+### Evidence
+- phase-product-cogs-manual-entry-execute-v1/20260617T072008Z/
+
+### Next Prompt
+Operator fills 6 real unitCost + sourceNote values; re-run --execute
+
+================================================================================
+END APPEND SLICE -- 20260617T072008Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T130000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V1 re-run BLOCKED (COGS execute incomplete)
+================================================================================
+
+### Money lane preview after COGS V1 re-run
+- Run: 20260618T130000Z @ kxsvedvpjldygtdbylsy
+- Prerequisite SAFE_PRODUCT_COGS_WRITE_COMPLETE: no (cogs_overrides 0/6)
+- Prior COGS execute 20260617T072008Z rejected 6/6 validation — no writes
+- Coverage: sold/fees/settlement 10/10; COGS/recovery 0/10; reimb 0/10 Unknown
+- UI panel verified; no DB writes; phase_pass: no
+
+### Evidence
+- phase-claim-money-lane-preview-after-cogs-v1/20260618T130000Z/
+
+### Next Prompt
+Complete COGS execute with 6 real unit costs; then re-run after-COGS preview
+
+================================================================================
+END APPEND SLICE -- 20260618T130000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T140000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V1 re-run BLOCKED (COGS execute incomplete)
+================================================================================
+
+### Money lane preview after COGS V1 re-run
+- Run: 20260618T140000Z @ kxsvedvpjldygtdbylsy
+- Prerequisite SAFE_PRODUCT_COGS_WRITE_COMPLETE: no (cogs_overrides 0/6)
+- Coverage: sold/fees/settlement 10/10; COGS/recovery 0/10; reimb 0/10 Unknown
+- UI panel verified; no DB writes; build+smoke PASS; phase_pass: no
+
+### Evidence
+- phase-claim-money-lane-preview-after-cogs-v1/20260618T140000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 --execute with 6 real unit costs
+
+================================================================================
+END APPEND SLICE -- 20260618T140000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T200000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 execute BLOCKED (missing amazon_case_id)
+================================================================================
+
+### Manual filing status entry execute V1
+- Run: 20260618T200000Z @ kxsvedvpjldygtdbylsy
+- Approval APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1: yes
+- accept_cogs_missing: true (COGS still 0/6 in DB)
+- Selected 10/10; updated 0/10 — empty amazon_case_id (no placeholder IDs)
+- Pilot still 10/10 draft; legacy 3 untouched; no DB writes
+- build+smoke PASS; phase_pass: no
+
+### Evidence
+- phase-claim-manual-filing-status-entry-execute-v1/20260618T200000Z/
+
+### Next Prompt
+Fill 10 real Seller Central amazon_case_id values; re-run execute
+
+================================================================================
+END APPEND SLICE -- 20260618T200000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260617T075103Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 execute BLOCKED (validation 6/6)
+================================================================================
+
+### COGS manual entry execute V1
+- Run: 20260617T075103Z @ kxsvedvpjldygtdbylsy
+- Approvals: APPROVED_PRODUCT_COGS_WRITE_V1=yes, APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=yes
+- Input 6/6 rows; accepted 0/6 — null unitCost, empty sourceNote
+- Live products.metadata has no case_cost/selling_unit_cost for pilot FNSKUs
+- cogs_overrides still empty; claim tables unchanged; build+smoke PASS
+
+### Evidence
+- phase-product-cogs-manual-entry-execute-v1/20260617T075103Z/
+
+### Next Prompt
+Operator supplies 6 real unit costs + sourceNote; re-run execute; then after-COGS money preview
+
+================================================================================
+END APPEND SLICE -- 20260617T075103Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T220000Z
+PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V1 re-run BLOCKED (COGS execute incomplete)
+================================================================================
+
+### Money lane preview after COGS V1 re-run
+- Run: 20260618T220000Z @ kxsvedvpjldygtdbylsy
+- Prerequisite SAFE_PRODUCT_COGS_WRITE_COMPLETE: no (cogs_overrides 0/6)
+- Coverage: sold/fees/settlement 10/10; COGS/recovery 0/10; reimb 0/10 Unknown
+- UI panel verified; no DB writes; build+smoke PASS; phase_pass: no
+
+### Evidence
+- phase-claim-money-lane-preview-after-cogs-v1/20260618T220000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 --execute with 6 real unit costs
+
+================================================================================
+END APPEND SLICE -- 20260618T220000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T230000Z
+PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 execute BLOCKED (missing amazon_case_id)
+================================================================================
+
+### Manual filing status entry execute V1
+- Run: 20260618T230000Z @ kxsvedvpjldygtdbylsy
+- Approval yes; accept_cogs_missing true; prerequisites PASS
+- Selected 10/10; updated 0/10 — empty amazon_case_id
+- Pilot still 10/10 draft; legacy 3 untouched; no DB writes
+- build+smoke PASS; phase_pass: no
+
+### Evidence
+- phase-claim-manual-filing-status-entry-execute-v1/20260618T230000Z/
+
+### Next Prompt
+Fill 10 Seller Central amazon_case_id values; re-run execute
+
+================================================================================
+END APPEND SLICE -- 20260618T230000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260618T235000Z
+PHASE-CLAIM-PILOT-SIMULATED-COMPLETION-V1 simulation PASS (no DB writes)
+================================================================================
+
+### Claim pilot simulated completion V1
+- Run: 20260618T235000Z @ kxsvedvpjldygtdbylsy
+- Mode: simulation-only — no DB writes
+- Simulated COGS 6/6; filing 10/10 (SIM-AMZ-CASE-0001..0010)
+- Recovery simulated 10/10; observed reimb Unknown
+- UI demo: /claim-center/reimbursement-tracking?simulation=1
+- build+smoke PASS; SAFE_CLAIM_PILOT_SIMULATION_COMPLETE: yes
+
+### Evidence
+- phase-claim-pilot-simulated-completion-v1/20260618T235000Z/
+
+### Production blockers remain
+- Real COGS + real Amazon Case IDs
+
+### Next Prompt
+PHASE-CLAIM-PILOT-SIMULATION-VERIFY-V1
+
+================================================================================
+END APPEND SLICE -- 20260618T235000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T001500Z
+PHASE-CLAIM-PILOT-FINAL-SIMULATION-VERIFY-V1 PASS (read-only)
+================================================================================
+
+### Claim pilot final simulation verify V1
+- Run: 20260619T001500Z @ kxsvedvpjldygtdbylsy
+- Mode: read-only final verification — no DB writes
+- Prerequisites: SAFE_CLAIM_PILOT_SIMULATION_COMPLETE yes; SAFE_TO_RUN_FINAL_SIMULATION_VERIFY yes
+- simulation_completion_percent: 100 (COGS 6/6, recovery 10/10, filing 10/10, case IDs 10/10, filed_waiting_for_amazon 10/10, reimb Unknown)
+- production_infrastructure_complete_percent: 100 (11/11 checks)
+- production_readiness_percent: 73.3 (go-live; 4 production blockers remain)
+- Reference graph: 96 materialized edges for pilot candidates
+- Pilot submissions: 10/10 draft unchanged; cogs_overrides empty; no Amazon calls
+- build+smoke PASS; final_simulation_phase_pass: yes
+- SAFE_CLAIM_PILOT_SIMULATION_100_PERCENT: yes
+- SAFE_CLAIM_PILOT_PRODUCTION_READY: no
+- safe_to_stop_pilot_build_now: yes
+
+### Production blockers remain
+- Real approved COGS (0/6 cogs_overrides)
+- Real Amazon Case IDs (10/10 draft)
+- Production recovery_value (0/10 until COGS execute)
+- Observed reimbursement Unknown until filed + Amazon pays
+
+### Evidence
+- phase-claim-pilot-final-simulation-verify-v1/20260619T001500Z/
+
+### Next Prompt
+Wait for real COGS + Amazon Case IDs; use ?simulation=1 for demos; then production execute chain → PHASE-CLAIM-PILOT-FINAL-VERIFY-V1
+
+================================================================================
+END APPEND SLICE -- 20260619T001500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T011500Z
+PHASE-CLAIM-PILOT-SIMULATION-VERIFY-V1 PASS (read-only)
+================================================================================
+
+### Claim pilot simulation verify V1
+- Run: 20260619T011500Z @ kxsvedvpjldygtdbylsy
+- Mode: read-only simulation verification — no DB writes
+- Artifacts 8/8 valid (completion run 20260618T235000Z)
+- simulation_completion_percent: 100
+- production_readiness_percent: 0 (go-live gates 0/4; infrastructure complete per final verify 73.3%)
+- Coverage: pilot 10; COGS 6/6; filing 10/10; recovery 10/10; case IDs 10/10; total recovery ; reimb Unknown
+- UI static: violet banner, exit link, ?simulation=1 contract verified
+- SAFE_CLAIM_PILOT_SIMULATION_100_PERCENT: yes
+- SAFE_CLAIM_PILOT_PRODUCTION_READY: no
+- safe_to_stop_pilot_build_now: yes
+
+### Evidence
+- phase-claim-pilot-simulation-verify-v1/20260619T011500Z/
+
+### Next Prompt
+Wait for real COGS + Amazon Case IDs; demo at /claim-center/reimbursement-tracking?simulation=1
+
+================================================================================
+END APPEND SLICE -- 20260619T011500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T020500Z
+PHASE-CLAIM-PILOT-SIMULATION-VERIFY-V1 re-verify PASS (new gates)
+================================================================================
+
+### Claim pilot simulation verify V1
+- Run: 20260619T020500Z @ kxsvedvpjldygtdbylsy
+- simulation_completion_percent: 100; production_readiness_percent: 0
+- safe_to_stop_pilot_simulation_now: yes
+- safe_to_start_live_reference_api_completion: yes (96 reference edges materialized)
+- SAFE_CLAIM_PILOT_SIMULATION_100_PERCENT: yes; SAFE_CLAIM_PILOT_PRODUCTION_READY: no
+- build+smoke PASS
+
+### Evidence
+- phase-claim-pilot-simulation-verify-v1/20260619T020500Z/
+
+### Next Prompt
+PHASE-LIVE-REFERENCE-API-COMPLETION-V1 — parallel track while awaiting real COGS + Case IDs
+
+================================================================================
+END APPEND SLICE -- 20260619T020500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T030000Z
+PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-AUDIT-V1 PASS (read-only)
+================================================================================
+
+### Live reference API completion audit V1
+- Run: 20260619T030000Z @ kxsvedvpjldygtdbylsy
+- Pilot 10 (6 removal_shipment_missing / 4 removal_order_discrepancy)
+- TRID 10/10 (expected_package_id anchors); identifiers 10/10
+- Reimbursement/settlement/case ID 0/10 (pre-filing expected)
+- Source tables populated (removals 3520, shipments 11517, reimbursements 17546)
+- SAFE_TO_BUILD_TRID_REFERENCE_MATERIALIZATION: yes
+- SAFE_TO_BUILD_LIVE_REFERENCE_API_LAYER: yes
+- SAFE_TO_PLAN_FULL_CLAIM_CYCLE_AUTONOMY: yes
+- build+smoke PASS
+
+### Evidence
+- phase-claim-live-reference-api-completion-audit-v1/20260619T030000Z/
+
+### Next Prompt
+PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-IMPLEMENT-V1
+
+================================================================================
+END APPEND SLICE -- 20260619T030000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T040000Z
+PHASE-CLAIM-AI-ASSISTED-OPERATIONS-PLAN-V1 PASS (planning only)
+================================================================================
+
+### Claim AI assisted operations plan V1
+- Run: 20260619T040000Z
+- Mode: AI feature planning only — no DB writes, no model calls
+- Recommended: 6 features (evidence summary, reference gap, draft helper, reimb match explain, anomaly, slip OCR)
+- Rejected: 6 patterns (auto-submit, AI product link, AI money truth, graph override, auto-close, unattended writes)
+- SAFE_TO_BUILD_AI_EVIDENCE_SUMMARY: yes
+- SAFE_TO_BUILD_AI_REFERENCE_GAP_DETECTOR: yes
+- SAFE_TO_BUILD_AI_DRAFT_HELPER: yes
+- build+smoke PASS
+
+### Evidence
+- phase-claim-ai-assisted-operations-plan-v1/20260619T040000Z/
+
+### Next Prompt
+PHASE-CLAIM-CENTER-AI-OPTIONAL-OVERLAY-SHELL-V1
+
+================================================================================
+END APPEND SLICE -- 20260619T040000Z
+================================================================================

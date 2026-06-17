@@ -4,6 +4,8 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { extractCogsOverrideUnitCost } from "@/lib/claims/submission/cogs-override-value-v1";
+
 import { loadClaimIntakeSettings } from "@/lib/claims/intake/claim-intake-settings";
 import {
   isCleanExpectedPackageBuildStatus,
@@ -231,15 +233,15 @@ function resolveCogsOverride(
   ids: ProductIdentifiers,
 ): { value: number | null; key: string | null } {
   for (const f of ids.fnsku) {
-    const v = positiveNum(overrides[f] ?? overrides[f.toLowerCase()]);
+    const v = extractCogsOverrideUnitCost(overrides[f] ?? overrides[f.toLowerCase()]);
     if (v != null) return { value: v, key: `fnsku:${f}` };
   }
   for (const s of ids.sku) {
-    const v = positiveNum(overrides[s]);
+    const v = extractCogsOverrideUnitCost(overrides[s]);
     if (v != null) return { value: v, key: `sku:${s}` };
   }
   for (const a of ids.asin) {
-    const v = positiveNum(overrides[a]);
+    const v = extractCogsOverrideUnitCost(overrides[a]);
     if (v != null) return { value: v, key: `asin:${a}` };
   }
   return { value: null, key: null };

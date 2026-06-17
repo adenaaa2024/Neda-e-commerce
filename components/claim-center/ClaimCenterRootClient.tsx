@@ -31,7 +31,7 @@ type Ctx = {
   moduleAccess: ModuleAccess | null;
   selectedRow: ClaimCenterV1Row | null;
   setSelectedRow: (row: ClaimCenterV1Row | null) => void;
-  fetchJson: <T>(path: string, extra?: Record<string, string>) => Promise<T>;
+  fetchJson: <T>(path: string, extra?: Record<string, string>, init?: RequestInit) => Promise<T>;
 };
 
 const ClaimCenterContext = createContext<Ctx | null>(null);
@@ -68,12 +68,12 @@ export function ClaimCenterRootClient({
   }, [organizationId, storeId]);
 
   const fetchJson = useCallback(
-    async <T,>(path: string, extra?: Record<string, string>): Promise<T> => {
+    async <T,>(path: string, extra?: Record<string, string>, init?: RequestInit): Promise<T> => {
       const p = new URLSearchParams(scopeParams);
       if (extra) {
         for (const [k, v] of Object.entries(extra)) p.set(k, v);
       }
-      const res = await fetch(`${path}?${p}`);
+      const res = await fetch(`${path}?${p}`, init);
       const data = (await res.json()) as T & { error?: string };
       if (!res.ok) throw new Error((data as { error?: string }).error ?? "Request failed");
       return data;

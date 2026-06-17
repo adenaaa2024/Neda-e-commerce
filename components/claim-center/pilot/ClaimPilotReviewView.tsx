@@ -16,6 +16,7 @@ import {
 
 import { ClaimPilotReviewDetailDrawer } from "./ClaimPilotReviewDetailDrawer";
 import { ClaimPilotReviewDisabledActions } from "./ClaimPilotReviewDisabledActions";
+import { ClaimPilotReviewBulkCasePreviewPanel } from "./ClaimPilotReviewBulkCasePreviewPanel";
 import { ClaimPilotReviewFilters } from "./ClaimPilotReviewFilters";
 import { ClaimPilotReviewSummaryCards } from "./ClaimPilotReviewSummary";
 import { ClaimPilotReviewTable } from "./ClaimPilotReviewTable";
@@ -35,7 +36,7 @@ const PAGE_CONTRACT = {
 };
 
 export function ClaimPilotReviewView() {
-  const { fetchJson, storeId } = useClaimCenter();
+  const { fetchJson, storeId, organizationId } = useClaimCenter();
   const [filters, setFilters] = useState<ClaimPilotReviewFilterState>(DEFAULT_PILOT_REVIEW_FILTER_STATE);
   const [appliedFilters, setAppliedFilters] = useState<ClaimPilotReviewFilterState>(
     DEFAULT_PILOT_REVIEW_FILTER_STATE,
@@ -44,6 +45,16 @@ export function ClaimPilotReviewView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRow, setSelectedRow] = useState<ClaimPilotReviewRow | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set());
+
+  const toggleCheck = (rowId: string, checked: boolean) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(rowId);
+      else next.delete(rowId);
+      return next;
+    });
+  };
 
   const loadPilotRows = useCallback(async () => {
     if (!storeId) {
@@ -75,12 +86,14 @@ export function ClaimPilotReviewView() {
   const applyFilters = () => {
     setAppliedFilters(filters);
     setSelectedRow(null);
+    setCheckedIds(new Set());
   };
 
   const resetFilters = () => {
     setFilters(DEFAULT_PILOT_REVIEW_FILTER_STATE);
     setAppliedFilters(DEFAULT_PILOT_REVIEW_FILTER_STATE);
     setSelectedRow(null);
+    setCheckedIds(new Set());
   };
 
   return (
@@ -125,11 +138,22 @@ export function ClaimPilotReviewView() {
 
           <ClaimPilotReviewDisabledActions />
 
+          <div className="my-6">
+            <ClaimPilotReviewBulkCasePreviewPanel
+              intakeRunId={payload?.intake_run_id ?? appliedFilters.intake_run_id}
+              selectedCandidateIds={[...checkedIds]}
+              totalPilotCount={rows.length}
+              fetchJson={fetchJson}
+            />
+          </div>
+
           <div className="mt-6">
             <ClaimPilotReviewTable
               rows={rows}
               selectedId={selectedRow?.id ?? null}
+              checkedIds={checkedIds}
               onSelect={setSelectedRow}
+              onToggleCheck={toggleCheck}
               emptyLabel="No pilot candidates match these filters."
             />
           </div>
@@ -138,6 +162,7 @@ export function ClaimPilotReviewView() {
 
       <ClaimPilotReviewDetailDrawer
         row={selectedRow}
+        organizationId={organizationId}
         intakeRunId={payload?.intake_run_id ?? appliedFilters.intake_run_id}
         fetchJson={fetchJson}
         onClose={() => setSelectedRow(null)}

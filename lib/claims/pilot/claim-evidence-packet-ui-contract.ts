@@ -9,8 +9,14 @@ export const CLAIM_EVIDENCE_PACKET_UI_VERSION = "claim-evidence-packet-ui-v1" as
 
 export const EVIDENCE_PACKET_API_PATH = "/api/claims/center/evidence-packet" as const;
 
+export const EVIDENCE_PACKET_SECTION_ID = "pilot-evidence-packet-section" as const;
+
+export const EVIDENCE_PACKET_PREVIEW_BUTTON_LABEL = "Preview evidence packet" as const;
+export const EVIDENCE_PACKET_HTML_PREVIEW_BUTTON_LABEL = "View HTML preview" as const;
+
 export const EVIDENCE_PACKET_DRAWER_FIELDS = [
   "candidate_identity",
+  "intake_run_id",
   "product_identity",
   "claim_family",
   "source_kind",

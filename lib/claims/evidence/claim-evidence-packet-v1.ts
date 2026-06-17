@@ -134,6 +134,11 @@ function str(v: unknown): string {
   return String(v ?? "").trim();
 }
 
+function optStr(v: unknown): string | null {
+  const s = str(v);
+  return s || null;
+}
+
 function num(v: unknown): number | null {
   const n = Number(v ?? NaN);
   return Number.isFinite(n) ? n : null;
@@ -344,16 +349,18 @@ async function resolveProductIdentity(
   organizationId: string,
   row: Row,
 ): Promise<EvidencePacketV1ProductIdentity> {
-  const productId = str(row.resolved_product_id);
+  const productId = optStr(row.resolved_product_id);
   let productRow: Record<string, unknown> | null = null;
   if (productId) {
-    const { data } = await client
+    const { data, error } = await client
       .from("products")
       .select("id, name, product_name, asin, fnsku, seller_sku")
       .eq("organization_id", organizationId)
       .eq("id", productId)
       .maybeSingle();
-    productRow = (data as Record<string, unknown> | null) ?? null;
+    if (!error) {
+      productRow = (data as Record<string, unknown> | null) ?? null;
+    }
   }
   const contract = mapRowToProductLinkageDisplayContract({
     source_table: str(row.source_table),
@@ -361,25 +368,27 @@ async function resolveProductIdentity(
     row,
     product: productRow
       ? {
-          id: str(productRow.id),
-          name: str(productRow.name) || str(productRow.product_name),
-          product_name: str(productRow.product_name),
+          id: optStr(productRow.id),
+          name: optStr(productRow.name) || optStr(productRow.product_name),
+          product_name: optStr(productRow.product_name),
         }
       : null,
   });
+  const resolvedId = productId || contract.resolved_product_id || null;
+  const linkageStatus: EvidencePacketV1ProductIdentity["linkage_status"] = contract.is_resolved
+    ? "linked"
+    : contract.identifier_resolution_status === "ambiguous"
+      ? "ambiguous"
+      : resolvedId
+        ? "linked"
+        : "unlinked";
   return {
-    product_id: productId || contract.resolved_product_id,
-    asin: str(row.asin) || contract.asin,
-    fnsku: str(row.fnsku) || contract.fnsku,
-    sku: str(row.sku) || contract.sku,
+    product_id: resolvedId,
+    asin: optStr(row.asin) || contract.asin,
+    fnsku: optStr(row.fnsku) || contract.fnsku,
+    sku: optStr(row.sku) || contract.sku,
     title: contract.product_name,
-    linkage_status: contract.is_resolved
-      ? "linked"
-      : contract.identifier_resolution_status === "ambiguous"
-        ? "ambiguous"
-        : productId || contract.resolved_product_id
-          ? "linked"
-          : "unlinked",
+    linkage_status: linkageStatus,
     linkage_warnings:
       contract.identifier_resolution_status === "ambiguous"
         ? ["ambiguous_identifier"]

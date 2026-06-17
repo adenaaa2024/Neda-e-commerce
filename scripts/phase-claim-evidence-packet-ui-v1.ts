@@ -27,10 +27,12 @@ import {
   familyDistributionMatchesExpected,
 } from "../lib/claims/pilot/claim-pilot-review-ui-contract";
 import { loadEnvLocalIntoProcess } from "../lib/staging-project-ref";
+import { composeClaimEvidencePacket } from "../lib/claims/evidence/claim-evidence-packet-composer";
+import { renderClaimEvidencePacketHtml } from "../lib/claims/evidence/claim-evidence-packet-html";
 
 const OUT = ".cursor/audit-reports/phase-claim-evidence-packet-ui-v1";
-const PREVIEW_RESULTS =
-  ".cursor/audit-reports/phase-claim-evidence-packet-preview-v1/20260615T091500Z/results.json";
+const VERIFY_RESULTS =
+  ".cursor/audit-reports/phase-claim-evidence-packet-preview-v1-verify/20260615T140000Z/results.json";
 
 const ORG = "00000000-0000-0000-0000-000000000001";
 const STORE = "509ee1f6-622c-46a5-8110-7b889ba46c2c";
@@ -64,13 +66,13 @@ function scannerGitStatus(): string {
 }
 
 function loadPrerequisites(): void {
-  const p = path.join(process.cwd(), PREVIEW_RESULTS);
-  if (!fs.existsSync(p)) throw new Error(`BLOCKED: preview evidence missing at ${PREVIEW_RESULTS}`);
-  const preview = JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, string>;
-  if (preview.SAFE_EVIDENCE_PACKET_PREVIEW_READY !== "yes") {
-    throw new Error("BLOCKED: SAFE_EVIDENCE_PACKET_PREVIEW_READY must be yes");
+  const p = path.join(process.cwd(), VERIFY_RESULTS);
+  if (!fs.existsSync(p)) throw new Error(`BLOCKED: verify evidence missing at ${VERIFY_RESULTS}`);
+  const verify = JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, string>;
+  if (verify.SAFE_EVIDENCE_PACKET_PREVIEW_VERIFIED !== "yes") {
+    throw new Error("BLOCKED: SAFE_EVIDENCE_PACKET_PREVIEW_VERIFIED must be yes");
   }
-  if (preview.SAFE_TO_BUILD_EVIDENCE_PACKET_UI !== "yes") {
+  if (verify.SAFE_TO_BUILD_EVIDENCE_PACKET_UI !== "yes") {
     throw new Error("BLOCKED: SAFE_TO_BUILD_EVIDENCE_PACKET_UI must be yes");
   }
 }
@@ -187,6 +189,38 @@ async function main(): Promise<void> {
     disabledIds.includes("build_pdf") &&
     disabledIds.includes("submit_claim");
 
+  const sectionSrc = fs.readFileSync(
+    path.join(process.cwd(), "components/claim-center/pilot/ClaimPilotReviewEvidencePacketSection.tsx"),
+    "utf8",
+  );
+  const previewButtonOk =
+    sectionSrc.includes("EVIDENCE_PACKET_PREVIEW_BUTTON_LABEL") &&
+    sectionSrc.includes("composeClaimEvidencePacketAction") &&
+    sectionSrc.includes("iframe");
+
+  let htmlPreviewVerification: {
+    pass: boolean;
+    html_length?: number;
+    error?: string;
+  } = { pass: false };
+  try {
+    const htmlCompose = await composeClaimEvidencePacket(client, {
+      organizationId: ORG,
+      candidateIds: [shipmentRow.id],
+    });
+    if (htmlCompose.ok) {
+      const html = renderClaimEvidencePacketHtml(htmlCompose.packet);
+      htmlPreviewVerification = { pass: html.length > 100, html_length: html.length };
+    } else {
+      htmlPreviewVerification = { pass: false, error: htmlCompose.error };
+    }
+  } catch (e) {
+    htmlPreviewVerification = {
+      pass: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+
   const uiPass =
     fiftyVisible &&
     fiftyPackets &&
@@ -196,6 +230,8 @@ async function main(): Promise<void> {
     buildResult === "pass" &&
     smokeResult === "pass" &&
     disabledOk &&
+    previewButtonOk &&
+    htmlPreviewVerification.pass &&
     sampleVerification.removal_shipment_missing.display_check.identity &&
     sampleVerification.removal_order_discrepancy.display_check.identity;
 
@@ -206,7 +242,11 @@ async function main(): Promise<void> {
     original_ref: PRODUCTION_REF,
     pilot_intake_run_id: ORIGINAL_PILOT_INTAKE_RUN_ID,
     files_changed: FILES_CHANGED,
-    UI_sections_added: ["Evidence packet section in pilot detail drawer"],
+    UI_sections_added: [
+      "Evidence packet section in pilot detail drawer",
+      "Preview evidence packet button (V1 JSON)",
+      "HTML preview iframe pane (Phase 7G composer)",
+    ],
     evidence_packet_drawer_fields: [...EVIDENCE_PACKET_DRAWER_FIELDS],
     readiness_badge_behavior: {
       ready_for_case_planning: "ready=yes, no blockers, no warnings",
@@ -214,6 +254,8 @@ async function main(): Promise<void> {
       blocked: "blocker_flags present or ready=no",
     },
     sample_candidate_ui_verification: sampleVerification,
+    html_preview_verification: htmlPreviewVerification,
+    preview_button_verification: { pass: previewButtonOk },
     disabled_actions_verification: {
       pass: disabledOk,
       actions: PILOT_REVIEW_DISABLED_ACTIONS.map((a) => a.label),

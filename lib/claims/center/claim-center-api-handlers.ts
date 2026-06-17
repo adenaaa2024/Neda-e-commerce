@@ -48,7 +48,13 @@ import { CLAIM_PREVIEW_MVP_FAMILIES } from "@/lib/claims/center/claim-preview-re
 import {
   composeReimbursementTrackingPreviewV1,
 } from "@/lib/claims/submission/claim-reimbursement-tracking-preview-v1";
+import { composeMoneyLanePreviewV2 } from "@/lib/claims/submission/claim-money-lane-preview-v2-profit-loss-v1";
+import { buildMoneyLaneUiBundle } from "@/lib/claims/submission/claim-money-lane-profit-loss-ui-contract";
 import { buildReimbursementTrackingUiPayload } from "@/lib/claims/submission/claim-reimbursement-tracking-ui-contract";
+import {
+  applySimulationToReimbursementTrackingPayload,
+  composeClaimPilotSimulatedCompletionV1,
+} from "@/lib/claims/submission/claim-pilot-simulated-completion-v1";
 import { buildClaimPilotReviewReadmodel } from "@/lib/claims/pilot/claim-pilot-review-readmodel";
 import {
   buildClaimCaseReviewReadmodel,
@@ -607,12 +613,59 @@ export async function getCenterReimbursementTrackingPayload(args: {
       intake_run_id: args.intake_run_id,
     },
   );
+  const moneyLaneV2 = await composeMoneyLanePreviewV2(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    {
+      pilot_case_run_id: args.pilot_case_run_id ?? composed.pilot_case_run_id,
+      intake_run_id: args.intake_run_id ?? composed.intake_run_id,
+    },
+  );
+  const money_lane = buildMoneyLaneUiBundle({
+    per_submission: moneyLaneV2.per_submission_money_preview_v2,
+    preview_run_reference: "phase-claim-money-lane-preview-and-ui-integration-v1",
+    coverage: {
+      sale_view: moneyLaneV2.sale_view_coverage,
+      fee_view: moneyLaneV2.fee_view_coverage,
+      settlement_view: moneyLaneV2.settlement_view_coverage,
+      cogs: moneyLaneV2.cogs_coverage,
+      recovery_value: moneyLaneV2.recovery_value_coverage,
+      reimbursement: moneyLaneV2.reimbursement_coverage,
+      profit_loss_complete: moneyLaneV2.profit_loss_coverage,
+    },
+  });
   return buildReimbursementTrackingUiPayload({
     pilot_case_run_id: composed.pilot_case_run_id,
     intake_run_id: composed.intake_run_id,
     previews: composed.previews,
     legacy_visibility: composed.legacy_visibility,
     preview_run_reference: "phase-claim-reimbursement-tracking-preview-v1/20260617T130000Z",
+    money_lane,
+  });
+}
+
+/** Read-only simulation overlay for reimbursement tracking demo — no DB writes. */
+export async function getCenterReimbursementTrackingSimulationPayload(args: {
+  organizationId: string;
+  storeId: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  const base = await getCenterReimbursementTrackingPayload(args);
+  const simulation = await composeClaimPilotSimulatedCompletionV1(
+    supabaseServer,
+    args.organizationId,
+    args.storeId,
+    {
+      pilot_case_run_id: args.pilot_case_run_id,
+      intake_run_id: args.intake_run_id,
+    },
+  );
+  return applySimulationToReimbursementTrackingPayload({
+    base,
+    simulation,
+    simulationRunReference: "phase-claim-pilot-simulated-completion-v1",
   });
 }
 

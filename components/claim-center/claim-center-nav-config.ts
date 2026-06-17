@@ -40,11 +40,6 @@ export const CLAIM_CENTER_MOBILE_BOTTOM: ClaimCenterNavLink[] = [
 export const CLAIM_CENTER_MORE_WORKFLOW: ClaimCenterNavLink[] = [
   { href: "/claim-center/opportunities", label: "Find money", shortLabel: "Money" },
   { href: "/claim-center/recovery", label: "Recovery", shortLabel: "Paid" },
-  {
-    href: "/claim-center/reimbursement-tracking",
-    label: "Reimbursement Tracking",
-    shortLabel: "Tracking",
-  },
 ];
 
 /** Pilot filing + financial recovery — visible without digging into Admin/Legacy. */

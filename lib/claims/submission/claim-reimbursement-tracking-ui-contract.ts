@@ -14,6 +14,7 @@ import {
   summarizeMoney,
 } from "./claim-reimbursement-tracking-preview-v1";
 import { getClaimCenterV2Page } from "@/lib/claims/center/claim-center-v2-page-contract";
+import type { MoneyLaneUiBundle } from "./claim-money-lane-profit-loss-ui-contract";
 
 export const REIMBURSEMENT_TRACKING_UI_VERSION = "claim-reimbursement-tracking-ui-v1" as const;
 
@@ -38,6 +39,7 @@ export type ReimbursementTrackingUiPayload = {
   money_summary: ReturnType<typeof summarizeMoney>;
   legacy_visibility: LegacySubmissionVisibility;
   previews: ReimbursementTrackingPreviewRow[];
+  money_lane: MoneyLaneUiBundle | null;
   read_only: true;
   not_submitted_to_amazon: true;
 };
@@ -375,6 +377,7 @@ export function buildReimbursementTrackingUiPayload(args: {
   previews: ReimbursementTrackingPreviewRow[];
   legacy_visibility: LegacySubmissionVisibility;
   preview_run_reference?: string;
+  money_lane?: MoneyLaneUiBundle | null;
 }): ReimbursementTrackingUiPayload {
   const previews = args.previews;
   return {
@@ -391,6 +394,7 @@ export function buildReimbursementTrackingUiPayload(args: {
     money_summary: summarizeMoney(previews),
     legacy_visibility: args.legacy_visibility,
     previews,
+    money_lane: args.money_lane ?? null,
     read_only: true,
     not_submitted_to_amazon: true,
   };

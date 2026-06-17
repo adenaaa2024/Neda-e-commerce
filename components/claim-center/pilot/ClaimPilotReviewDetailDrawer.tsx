@@ -7,9 +7,11 @@ import type { ClaimPilotReviewRow } from "@/lib/claims/pilot/claim-pilot-review-
 import { formatPilotMoney } from "@/lib/claims/pilot/claim-pilot-review-ui-contract";
 
 import { ClaimPilotReviewEvidencePacketSection } from "./ClaimPilotReviewEvidencePacketSection";
+import { ClaimPilotReviewCasePreviewSection } from "./ClaimPilotReviewCasePreviewSection";
 
 type Props = {
   row: ClaimPilotReviewRow | null;
+  organizationId: string;
   intakeRunId: string | null;
   fetchJson: <T>(path: string, extra?: Record<string, string>) => Promise<T>;
   onClose: () => void;
@@ -26,7 +28,7 @@ function Field({ label, value, mono }: { label: string; value: ReactNode; mono?:
   );
 }
 
-export function ClaimPilotReviewDetailDrawer({ row, intakeRunId, fetchJson, onClose }: Props) {
+export function ClaimPilotReviewDetailDrawer({ row, organizationId, intakeRunId, fetchJson, onClose }: Props) {
   if (!row) return null;
 
   const moneyLanes = row.metadata.money_lanes as Record<string, unknown> | undefined;
@@ -179,6 +181,13 @@ export function ClaimPilotReviewDetailDrawer({ row, intakeRunId, fetchJson, onCl
           ) : null}
 
           <ClaimPilotReviewEvidencePacketSection
+            candidateId={row.id}
+            organizationId={organizationId}
+            intakeRunId={intakeRunId ?? row.intake_run_id}
+            fetchJson={fetchJson}
+          />
+
+          <ClaimPilotReviewCasePreviewSection
             candidateId={row.id}
             intakeRunId={intakeRunId ?? row.intake_run_id}
             fetchJson={fetchJson}

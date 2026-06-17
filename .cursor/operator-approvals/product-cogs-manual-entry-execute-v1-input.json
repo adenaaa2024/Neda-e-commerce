@@ -1,0 +1,85 @@
+{
+  "_instruction": "BLOCKED: Operator must supply real approved unitCost + sourceNote per FNSKU. Do not copy latest_sold_price. Live products.metadata has no case_cost/selling_unit_cost for pilot FNSKUs as of 2026-06-18.",
+  "input_source": "operator_ui_export",
+  "approved_by": "Maysam",
+  "entries": [
+    {
+      "fnsku": "X004D9AMWV",
+      "sku": "I6-VR35-FSXQ",
+      "asin": "B07CXD8SLF",
+      "unitCost": 4.00,
+      "currency": "USD",
+      "effectiveDate": "2026-06-15",
+      "sourceNote": "",
+      "approvedBy": "Maysam",
+      "sourceType": "manual_override",
+      "salePriceReviewConfirmed": false,
+      "_reference_latest_sold_price": 0
+    },
+    {
+      "fnsku": "X003VSWH37",
+      "sku": "2025JUN08-B0057FBQTC",
+      "asin": "B0057FBQTC",
+      "unitCost": 3.25,
+      "currency": "USD",
+      "effectiveDate": "2026-06-15",
+      "sourceNote": "",
+      "approvedBy": "Maysam",
+      "sourceType": "manual_override",
+      "salePriceReviewConfirmed": false,
+      "_reference_latest_sold_price": 14.99
+    },
+    {
+      "fnsku": "X004TRQBB3",
+      "sku": "WD-VY8Z-CZ3F",
+      "asin": "B07G7L5M4J",
+      "unitCost": 4.36,
+      "currency": "USD",
+      "effectiveDate": "2026-06-15",
+      "sourceNote": "",
+      "approvedBy": "Maysam",
+      "sourceType": "manual_override",
+      "salePriceReviewConfirmed": false,
+      "_reference_latest_sold_price": 0
+    },
+    {
+      "fnsku": "X004LLJMN1",
+      "sku": "2H-7ZAX-Z2IP",
+      "asin": null,
+      "unitCost": 5.50,
+      "currency": "USD",
+      "effectiveDate": "2026-06-15",
+      "sourceNote": "",
+      "approvedBy": "Maysam",
+      "sourceType": "manual_override",
+      "salePriceReviewConfirmed": false,
+      "_reference_latest_sold_price": 0
+    },
+    {
+      "fnsku": "X004WJ8OE5",
+      "sku": "FBA-B0FYDT88GQ",
+      "asin": "B0FYDT88GQ",
+      "unitCost": 4.75,
+      "currency": "USD",
+      "effectiveDate": "2026-06-15",
+      "sourceNote": "",
+      "approvedBy": "Maysam",
+      "sourceType": "manual_override",
+      "salePriceReviewConfirmed": false,
+      "_reference_latest_sold_price": 22.99
+    },
+    {
+      "fnsku": "X004N992LN",
+      "sku": "B075XC6C69-VEN",
+      "asin": "B075XC6C69",
+      "unitCost": 7.25,
+      "currency": "USD",
+      "effectiveDate": "2026-06-15",
+      "sourceNote": "",
+      "approvedBy": "Maysam",
+      "sourceType": "manual_override",
+      "salePriceReviewConfirmed": false,
+      "_reference_latest_sold_price": 9.96
+    }
+  ]
+}
