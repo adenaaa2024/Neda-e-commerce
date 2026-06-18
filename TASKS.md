@@ -15,6 +15,13 @@ Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md) · [`.ai-
 - [ ] **PRODUCT-SHEET-IMPORT-PHASE-F-CONFLICT-RESOLUTION** — 3399 conflicts
 - [ ] **PRODUCT-SHEET-IMPORT-MAX-25-SAMPLE-WAVE** — max 25 rows
 
+## P1 — Claim pilot filing (active)
+
+- [ ] **PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1** — capture per-family amount basis (COGS vs latest-sale-net vs business loss) into governed `module_configs`; flips 10 pilot claims `needs_policy_confirmation → safe_to_file`
+- [ ] **PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1** — convert the 31 separate-claim suggestions into real per-family claim candidates
+- [ ] **PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1** — operator files in Seller Central via `/claim-center/ready-to-file`, records real Amazon Case IDs (governed write)
+- [x] **PHASE-CLAIM-FAMILY-AWARE-RECOVERY-MATCHING-V2** `20260618T140000Z` — family classifier + amount-basis policy matrix + cross-family credit exclusion (read-only)
+
 ## P0 — Policy
 
 - [ ] Staging quartet → `eiqfaapyumhixxoeltgu`

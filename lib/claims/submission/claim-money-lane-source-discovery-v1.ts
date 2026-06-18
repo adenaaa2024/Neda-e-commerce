@@ -519,13 +519,24 @@ export async function discoverMoneyLaneSourcesV1(
   const caseById = new Map(review.rows.map((r) => [r.id, r]));
   const submissionById = new Map(composed.pilot_submissions.map((s) => [s.id, s]));
 
-  const settingsRow = await client
+  // Prefer an org-scoped workspace_settings row; fall back to the canonical singleton
+  // row used by the rest of the app (organization_id may be NULL on it).
+  const byOrgSettings = await client
     .from("workspace_settings")
     .select("module_configs")
     .eq("organization_id", organizationId)
     .maybeSingle();
-  const moduleConfigs = metaRecord(settingsRow.data?.module_configs);
-  const claimIntake = metaRecord(moduleConfigs.claim_intake);
+  let settingsModuleConfigs = metaRecord(byOrgSettings.data?.module_configs);
+  if (!byOrgSettings.data) {
+    const singletonSettings = await client
+      .from("workspace_settings")
+      .select("module_configs")
+      .order("id", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    settingsModuleConfigs = metaRecord(singletonSettings.data?.module_configs);
+  }
+  const claimIntake = metaRecord(settingsModuleConfigs.claim_intake);
   const cogsOverrides = metaRecord(claimIntake.cogs_overrides);
 
   const org_inventory = await loadOrgSourceInventory(client, organizationId, storeId);

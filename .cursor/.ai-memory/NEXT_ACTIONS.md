@@ -1,7 +1,30 @@
 # Next actions — canonical
 
 **Branch:** `feature/phase1-latest-stash-land` @ `999f765` · **main** `4402064` (not merged)  
-**Last updated:** 2026-06-19 (`phase-claim-ai-assisted-operations-plan-v1` `20260619T040000Z` PASS)
+**Last updated:** 2026-06-18 (`phase-claim-family-aware-recovery-matching-v2` `20260618T140000Z` **PASS — family-aware recovery + amount-basis policy (read-only)** — zero-import contract additions `CLAIM_AMOUNT_POLICY_MATRIX` (17 families; physical-loss default COGS but need operator confirmation; fee/reversal/refund resolved), `classifyFamilyByReason`/`classifyCandidateFamily`, `computeFamilyAwareRecovery` (excludes cross-family counted credits from confirmed, classifies weak candidates, 3 amounts COGS/sale-net/business-loss, `misclassified_candidates`, `separate_claim_suggestions`, policy-gated `filing_status`), `summarizeFamilyAwareRecovery`. Drawer renamed "Recovery Gap / Claim Amount Policy" + 3 amount rows + SC-amount-selected + policy-needs-confirmation badge + separate-opportunities section. Live: pilot **10/10 → needs_policy_confirmation**, total_cogs $100.72 / sale_net_est $78.48 / business_loss $100.72 / confirmed $0.00, weak candidates 152 all excluded cross-family, 31 separate-claim suggestions; tsc/lint/smoke/next build PASS; no mutation; SAFE_FAMILY_AWARE_RECOVERY_MATCHING_READY=yes, SAFE_TO_FILE_APPROVED_FAMILIES=no (basis pending), SAFE_TO_BUILD_SEPARATE_CLAIM_CANDIDATE_GENERATORS=yes.)
+Prior: 2026-06-18 (`phase-amazon-report-source-api-coverage-and-claim-family-map-v1` `20260618T053000Z` **PASS — source/API coverage audit + claim-family data map + Data Coverage UI (read-only)** — zero-import `claim-source-coverage-ui-contract.ts` + server composer `claim-source-coverage-v1.ts` probing **17 sources** joined to report registry + V3 family matrix → `source_coverage_matrix` / `claim_family_map` / `live_sync_plan`; read APIs `GET /api/claims/center/source-coverage` + `/claim-family-map`; new page `/claim-center/data-coverage`; RecoveryGap gained `files_checked[]` + `missing_files_or_api[]` (drawer shows files checked + missing SP-API). Live: coverage 17 (live_loaded 16), family map 10 (2 pilot complete, fba_fee_overcharge missing), pilot $100.72 expected / $0 confirmed / $100.72 open / unknown_unmatched 10; tsc/lint/smoke/next build PASS; no mutation; SAFE_SOURCE_COVERAGE_AUDIT_COMPLETE=yes, SAFE_TO_BUILD_CLAIM_DATA_COVERAGE_UI=yes (built), SAFE_TO_BUILD_LIVE_AMAZON_REPORT_SYNC_LAYER=yes (plan), SAFE_TO_IMPROVE_RECOVERY_GAP_MATCHING_ENGINE=yes.)
+Prior: 2026-06-18 (`phase-claim-recovery-gap-and-reimbursement-matching-v1` `20260618T040000Z` **PASS — deterministic recovery-gap + reimbursement-matching engine + UI (read-only)** — pure `computeRecoveryGap(row)` + `summarizeRecoveryGap(rows)`; only STRONG order-linked reimbursement/credit rows count, fees ("FBA Inventory Fee") excluded, weak FNSKU/date-window candidates surfaced but never reduce the open gap; no confirmed → unknown_unmatched (never "$0 paid"). UI: recovery summary cards + table cols (Reimbursed/Open gap/Reimb. status/Match conf.) + filters + drawer "Reimbursement / Recovery Gap" section. Live: 10 claims, expected **$100.72**, confirmed **$0.00**, open gap **$100.72**, all **unknown_unmatched**; 13 FBA-fee settlement rows excluded per /x5UTzvZZK claim; tsc/lint/smoke/next build PASS; no mutation; SAFE_RECOVERY_GAP_ENGINE_READY=yes, SAFE_TO_FILE_UNREIMBURSED_CLAIMS=yes.)
+Prior: 2026-06-18 (`phase-claim-filing-decision-matrix-v1` `20260618T030000Z` **PASS — deterministic filing decision + UI (read-only)** — pure `computeFilingDecision(row)` (safe_to_file / needs_reference_review / do_not_file) keyed on strong removal/shipment/tracking ref + identity + qty + COGS recovery; weak FNSKU/date-window candidates excluded from proof; UI "Decision" badge column + "Filing Decision" drawer section. Live: 10/10 **safe_to_file**, 0 needs_review, 0 do_not_file; seller_central excludes internal UUIDs + weak refs, uses COGS recovery; tsc/lint/smoke/next build PASS; no mutation; SAFE_FILING_DECISION_MATRIX_READY=yes, SAFE_TO_MANUALLY_FILE_APPROVED_CLAIMS=yes.)
+Prior: 2026-06-18 (`phase-claim-deep-amazon-reference-ledger-v1` `20260618T020000Z` **PASS — deep multi-source Amazon reference ledger + UI (read-only)** — deepened the Event Reference Ledger to a per-source-group search across removal/shipment/inventory_ledger/transaction/settlement/reimbursement/customer_return/report_metadata with a source census + bounded ±45-day FNSKU/SKU event-date window pass (advisory candidates), `filing_sufficiency` per claim, and a UI rebuild (per-source cards + status badges + coverage badge + Not-found list). Live: 10 claims (4 complete / 6 filing_sufficient / 0 needs_review); `/x5UTzvZZK`-linked claims now resolve 13 settlement IDs + report rows; totals external 88 / transaction 52 / report_metadata 16; ledger+reimbursement order-linked 0 (shown as window candidates); NO UUID/"TRID" in Seller Central; tsc/lint/smoke/next build all PASS; no DB/claim/edge/Amazon/scanner mutation; SAFE_DEEP_REFERENCE_LEDGER_READY=yes, SAFE_TO_FILE_CLAIMS_IN_SELLER_CENTRAL=yes.)
+Prior: 2026-06-17 (`phase-claim-ready-to-file-queue-ui-v1` `20260617T233450Z` **PASS — operational UI + read-only audit** — new page `/claim-center/ready-to-file`; 10/10 ready, 0 blocked, $100.72, 11 audit gates; Seller Central copy + guarded Case ID recording; SAFE_READY_TO_FILE_UI_READY=yes.)
+
+**NEXT (the one real gate — operator action):** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1` — operator opens a packet in `/claim-center/ready-to-file`, files each packet (or one grouped removal-order case) in Seller Central, captures the **real Amazon Case IDs**, fills the manual-filing operator input, sets `APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes`, then run the governed filing-status write to unblock the reimbursement matcher.
+
+~~Ready-to-File operator queue UI~~ — **DONE** `20260617T233450Z` (`/claim-center/ready-to-file`; 10/10 ready, 0 blocked; 11 audit gates; Seller Central copy + guarded Case ID recording).
+~~Seller Central filing packets~~ — **DONE** `20260617T212340Z` (10/10 packets ready, 0 blocked; 3 grouped removal-order cases; record-back placeholders empty).
+~~Pre-filing final verify~~ — **DONE** `20260617T211458Z` (re-verify 100%, 16/16, post reference-materialization-execute).
+~~Reference materialization execute~~ — **DONE** `20260619T083000Z` (governed write executed; idempotent; SAFE_REFERENCE_MATERIALIZATION_COMPLETE=yes).
+
+**Parallel (ready now):** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1` — set `APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes` + fill operator input with **real Amazon Case IDs**, then record filing status (governed write) to unblock the reimbursement matcher.
+
+**Coverage follow-ups (from source-coverage audit `20260618T053000Z`):**
+- `PHASE-CLAIM-RECOVERY-GAP-SERVER-API-AND-REIMBURSEMENT-MATCH-AUTHORITY-V1` — move recovery-gap server-side (`GET /api/claims/center/recovery-gap` + `/reimbursement-matches`) and add **order-linked `amazon_reimbursements` auto-match** to turn the 10 pilot claims Unknown → confirmed not/partially/fully reimbursed. (Also recommended: `/source-events`, `/report-sync-status`.)
+- P1 **Inventory Ledger Detail View ingest worker** (unlocks warehouse_lost/damaged + disposed families). P2 **FBA Customer Returns sync** (amazon_returns) for customer_return_not_reimbursed / refund_without_return. P2 **Fee Preview / Product Fees API** for fba_fee_overcharge (currently `missing`).
+- View the map any time at **`/claim-center/data-coverage`** (Filing & recovery → Data Coverage).
+
+**Family-aware follow-ups (from `20260618T140000Z`):**
+- `PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1` — present `CLAIM_AMOUNT_POLICY_MATRIX` to Maysam, capture chosen basis (COGS vs latest-sale-net vs business loss) per family into a governed `module_configs` policy record, then re-run the family-aware engine so confirmed families flip `needs_policy_confirmation → safe_to_file`. **All 10 pilot claims are currently `needs_policy_confirmation` until this is done.**
+- `PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1` — convert the **31** separate-claim suggestions (Damaged_Warehouse / Lost_Warehouse / Lost_Outbound / Reimbursement_Reversal / CustomerReturn reimbursement candidates wrongly surfaced under removal claims) into real per-family claim candidates (`SAFE_TO_BUILD_SEPARATE_CLAIM_CANDIDATE_GENERATORS=yes`).
 
 ---
 
@@ -13,13 +36,15 @@ Evidence: `.cursor/audit-reports/phase-claim-ai-assisted-operations-plan-v1/2026
 
 **NEXT:** `PHASE-CLAIM-CENTER-AI-OPTIONAL-OVERLAY-SHELL-V1` → `PHASE-CLAIM-AI-EVIDENCE-SUMMARY-ASSISTANT-V1` (dry-run UI first)
 
-## P1 — Live reference API layer (audit complete)
+## P1 — Live reference API layer (IMPLEMENTED — read-only/dry-run)
 
-~~**PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-AUDIT-V1**~~ — **PASS** `20260619T030000Z` — TRID 10/10; reimb/case ID 0/10; `SAFE_TO_BUILD_LIVE_REFERENCE_API_LAYER: yes`
+~~**PHASE-LIVE-REFERENCE-API-COMPLETION-V1**~~ — **PASS** `20260619T060000Z` — 4 read-only/dry-run endpoints (trid-resolver, refresh-preview, coverage, reimbursement-match/refresh-preview) + Reference Health drawer section; TRID 10/10; reimb match blocked 10/10; no writes/no Amazon; `SAFE_TO_BUILD_REFERENCE_MATERIALIZATION_EXECUTE: yes`; `SAFE_TO_BUILD_POST_FILING_REIMBURSEMENT_MATCHER: yes`
 
-Evidence: `.cursor/audit-reports/phase-claim-live-reference-api-completion-audit-v1/20260619T030000Z/`
+Evidence: `.cursor/audit-reports/phase-live-reference-api-completion-v1/20260619T060000Z/`
 
-**NEXT:** `PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-IMPLEMENT-V1` — governed live sync + reference refresh (no claim submit)
+~~**PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-AUDIT-V1**~~ — **PASS** `20260619T030000Z` — TRID 10/10; reimb/case ID 0/10
+
+**NEXT:** `PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1` — governed `claim_reference_edges` refresh write (operator-approved + rollback.sql). Live SP-API sync still gated (`LIVE_SP_API_SYNC_ENABLED=false`). Parallel: operator supplies real Amazon Case IDs to unblock the dry-run reimbursement matcher.
 
 **Parallel (production):** Operator COGS + Case IDs → execute chain → `PHASE-CLAIM-PILOT-FINAL-VERIFY-V1`
 
@@ -29,13 +54,41 @@ Evidence: `.cursor/audit-reports/phase-claim-live-reference-api-completion-audit
 
 Evidence: `.cursor/audit-reports/phase-claim-pilot-simulated-completion-v1/20260618T235000Z/`
 
-## P1 — COGS execute (operator must supply 6 real unit costs)
+## P1 — TRID/reference trace (VISIBLE) → next: manual filing status entry execute
 
-~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 execute**~~ — **BLOCKED (validation)** `20260617T075103Z` — approvals yes; 6/6 rejected (null unitCost + empty sourceNote); no cost data in live product metadata
+~~**PHASE-TRID-REFERENCE-TRACE-MATRIX-V1**~~ — **PASS read-only** `20260619T075000Z` — per-submission TRID/reference trace. trid 10/10, 96 candidate-linked edges (avg 9.6), 0 ambiguous, 0 missing. Key findings: single primary TRID anchor = expected_package_id (real product link = resolved_product_id); event date/time NOT used as a match filter; VRET≠TRID (none present); 4 removal_order_discrepancy carry 2 removal_order_id each. `SAFE_TRID_TRACE_VISIBLE=yes`, `SAFE_TO_EXECUTE_REFERENCE_MATERIALIZATION=yes`. New lib `trid-reference-trace-matrix-v1.ts` + phase + smoke. Evidence `phase-trid-reference-trace-matrix-v1/<run>/`.
 
-Evidence: `.cursor/audit-reports/phase-product-cogs-manual-entry-execute-v1/20260617T075103Z/`
+**NEXT (ready now):** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1` — set `APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes` + fill operator input with **real Amazon Case IDs** (prior execute blocked by empty `amazon_case_id`), then record filing status (governed write) to unblock the reimbursement matcher.
 
-1. **Maysam:** Fill 6 real `unitCost` + non-empty `sourceNote` in `.cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json` (do **not** use `latest_sold_price`) → `npx tsx scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute` → re-run after-COGS money preview
+## P1 — Money lane after COGS (VERIFIED)
+
+~~**PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V2**~~ — **PASS read-only** `20260619T074000Z` — cogs/recovery/sold/fee/settlement all **10/10**; total_recovery **$100.72**; observed reimbursement Unknown 0/10 (never $0); recovery = clean_qty × approved_cogs_unit; no writes/no Amazon/no scanner; `SAFE_MONEY_LANE_PREVIEW_READY=yes`, `SAFE_REIMBURSEMENT_TRACKING_UI_MONEY_READY=yes`, `SAFE_TO_EXECUTE_MANUAL_FILING_STATUS_ENTRY=yes`. Evidence `phase-claim-money-lane-preview-after-cogs-v1/20260617T193719Z/`.
+
+**NEXT (ready now):** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1` — set `APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes` + fill operator input with **real Amazon Case IDs** (the prior execute was blocked by empty `amazon_case_id`), then record filing status (governed write). This also unblocks the dry-run reimbursement matcher (observed reimbursement currently Unknown 0/10).
+
+## P1 — COGS execute (COMPLETE — production write done + persistence fix formalized)
+
+~~**PHASE-PRODUCT-COGS-WRITE-PERSISTENCE-FIX-V1**~~ — **PASS** `20260619T073000Z` — formalized the write-persistence fix: shared resolver `resolveCanonicalWorkspaceSettingsRowForOrg` (org-first, singleton fallback, target by `id`); `attemptGuardedCogsWriteV1` verifies rows-affected + re-reads by id per FNSKU; execute lib emits aggregate `persistence_verification` (resolver=**singleton**, row `5ad12e20…`, `reread_by_id_confirmed=true`, `all_expected_keys_present=true`). accepted 6/6, cogs_overrides 6/6, recovery 10/10. `SAFE_PRODUCT_COGS_WRITE_COMPLETE=yes`.
+
+**NEXT (ready now):** `PHASE-CLAIM-MONEY-LANE-PREVIEW-AND-UI-INTEGRATION-V1` — re-run money lane preview with COGS coverage 6/6 and surface recovery values (10/10) in the Reimbursement Tracking UI. Then operator real Amazon Case IDs (manual filing status entry execute) to unblock the reimbursement matcher.
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V2**~~ — **PASS, production write COMPLETE** `20260619T070000Z` — accepted 6/6, `cogs_overrides` **6/6** persisted, recovery **10/10**. Root-cause fix: COGS read/write (+ money-lane discovery) were filtering `workspace_settings` by `.eq(org)`, but the app keeps a single canonical row with `organization_id=NULL` (singleton). Bare `.update().eq()` matched 0 rows and falsely reported success. Fixed all COGS paths to resolve the canonical row (org-first, singleton fallback, update-by-`id` with `.select()` rows-affected verification). `SAFE_PRODUCT_COGS_WRITE_COMPLETE=yes`; `SAFE_TO_REBUILD_MONEY_LANE_PREVIEW_WITH_COGS=yes`.
+
+**NEXT (ready now):** `PHASE-CLAIM-MONEY-LANE-PREVIEW-AND-UI-INTEGRATION-V1` — re-run money lane preview with COGS coverage 6/6 and surface recovery values (10/10) in the Reimbursement Tracking UI. Then proceed to operator real Amazon Case IDs (manual filing status entry execute) to unblock the reimbursement matcher.
+
+---
+
+## P1 — COGS execute (prior history — operator added 6 sourceNotes)
+
+~~**PHASE-PRODUCT-COGS-UI-INPUT-RECONCILIATION-V1**~~ — **PASS read-only** `20260619T051500Z` — Maysam's `unitCost` values **6/6 present** in operator JSON (4.00/3.25/4.36/5.50/4.75/7.25); `sourceNote` **0/6** → all 6 fail dry-run `source_note:required`; values NOT yet in `cogs_overrides` (0/6). Approval tokens both yes. `execute_prompt_needed: no` — only sourceNote fix needed.
+
+Evidence: `.cursor/audit-reports/phase-product-cogs-ui-input-reconciliation-v1/20260619T051500Z/`
+
+~~**PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 execute**~~ — **BLOCKED (validation)** `20260617T075103Z` — approvals yes; 6/6 rejected — superseded by reconciliation above (unitCosts now filled).
+
+~~**PHASE-PRODUCT-COGS-UI-INPUT-RECONCILIATION-V1 (re-verify)**~~ — **PASS** `20260619T064000Z` — sourceNote **6/6** fixed; **`SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT=yes`**; cogs_overrides still 0/6 (pre-execute). Input is execute-ready.
+
+**NEXT (ready now):** `PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V2` — gate satisfied, approvals yes. Run `npx tsx scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute` → expect accepted 6/6, cogs_overrides 6/6 → then rebuild money lane preview with COGS (recovery 10/10).
 
 ~~**PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 execute**~~ — **BLOCKED (validation)** `20260618T230000Z` — approval yes; 0/10 updated — fill real Seller Central `amazon_case_id` per submission
 

@@ -21,6 +21,7 @@ import {
 
 import { ReimbursementTrackingMoneyTab } from "./ReimbursementTrackingMoneyTab";
 import { ReimbursementTrackingManualFilingSection } from "./ReimbursementTrackingManualFilingSection";
+import { ReimbursementTrackingReferenceHealthSection } from "./ReimbursementTrackingReferenceHealthSection";
 
 type DrawerTab = "overview" | "money" | "evidence" | "raw";
 
@@ -203,6 +204,8 @@ export function ReimbursementTrackingDetailDrawer({
                   full sale, fee, settlement, COGS, and profit/loss formulas.
                 </p>
               </section>
+
+              <ReimbursementTrackingReferenceHealthSection row={row} fetchJson={fetchJson} />
 
               <ReimbursementTrackingManualFilingSection row={row} fetchJson={fetchJson} />
             </div>

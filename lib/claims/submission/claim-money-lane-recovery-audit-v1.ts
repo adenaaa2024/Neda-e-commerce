@@ -4,6 +4,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { loadCogsOverridesCanonicalV1 } from "./product-cogs-source-write-v1";
 import type { ClaimCaseReviewRow } from "../pilot/claim-case-review-readmodel";
 import { buildClaimCaseReviewReadmodel } from "../pilot/claim-case-review-readmodel";
 import {
@@ -228,21 +229,14 @@ export async function auditMoneyLaneRecoveryV1(
   });
   const caseById = new Map(review.rows.map((r) => [r.id, r]));
 
-  const [feePreviewOrg, reimbOrg, costSnapOrg, mapOrg, settingsRow] = await Promise.all([
+  const [feePreviewOrg, reimbOrg, costSnapOrg, mapOrg, cogsOverrides] = await Promise.all([
     safeCount(client, "amazon_fee_preview", [{ col: "organization_id", op: "eq", val: organizationId }]),
     safeCount(client, "amazon_reimbursements", [{ col: "organization_id", op: "eq", val: organizationId }]),
     safeCount(client, "product_cost_snapshots", [{ col: "organization_id", op: "eq", val: organizationId }]),
     safeCount(client, "product_identifier_map", [{ col: "organization_id", op: "eq", val: organizationId }]),
-    client
-      .from("workspace_settings")
-      .select("module_configs")
-      .eq("organization_id", organizationId)
-      .maybeSingle(),
+    // Canonical workspace_settings resolver (org-scoped first, singleton fallback).
+    loadCogsOverridesCanonicalV1(client, organizationId),
   ]);
-
-  const moduleConfigs = metaRecord(settingsRow.data?.module_configs);
-  const claimIntake = metaRecord(moduleConfigs.claim_intake);
-  const cogsOverrides = metaRecord(claimIntake.cogs_overrides);
 
   const matrix: PerSubmissionMoneyMatrix[] = [];
 

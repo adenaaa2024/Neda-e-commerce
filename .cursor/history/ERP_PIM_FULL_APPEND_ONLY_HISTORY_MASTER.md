@@ -230057,10 +230057,10 @@ TOPIC: BOX-INFO-PHOTO-HYDRATE-FIX-ITEM-SCAN-BACK
 Vision/OCR lines restored on Item Scan -> Back, but box photo previews still blank.
 
 ### Root cause
-1. Box photo reload used browser supabase.from('packages') � RLS-blocked (same pattern
+1. Box photo reload used browser supabase.from('packages') � RLS-blocked (same pattern
    as slip_contents which already uses server action per code comment).
 2. saveBoxAndContinue clears slip/outside/inside photo state with no photo carryover;
-   palletPackagePickerList empty during items phase � no cache fallback.
+   palletPackagePickerList empty during items phase � no cache fallback.
 3. reloadBoxPackageIntake set refs + setState inline but fetch path never returned row.
 
 ### UI state source of truth (NOT activeBoxSession)
@@ -230428,7 +230428,7 @@ APPEND SLICE -- 20260611T190000Z
 TOPIC: PHASE-CLAIM-LEGACY-SUBMISSION-PDF-AGENT-BRIDGE-AUDIT
 ================================================================================
 
-### Completed (audit + bridge design only � no code/DB/agent/PDF)
+### Completed (audit + bridge design only � no code/DB/agent/PDF)
 - Mapped legacy submission paths: claim_submissions, claim_history_logs, claim_filing_requests, status lifecycle ready_to_send?submitted?accepted/rejected/closed (UI tab).
 - Mapped PDF paths: react-pdf + claim-reports bucket + Python ReportLab; evidence packet composer (V2).
 - Mapped agent/RPA: Python Selenium/Playwright Seller Central (default OFF); Next.js filing handoff stubs only.
@@ -230481,9 +230481,9 @@ APPEND SLICE -- 20260611T210000Z
 TOPIC: PHASE-MENORIX-CLAIM-CENTER-SHELL
 ================================================================================
 
-### Completed (design system + read-only shell � no DB/writes)
-- components/menorix/* � 12 reusable Menorix Command Apps pattern components
-- lib/menorix/evaluate-menorix-ai-module-access.ts � read-only AI gate (no HTTP)
+### Completed (design system + read-only shell � no DB/writes)
+- components/menorix/* � 12 reusable Menorix Command Apps pattern components
+- lib/menorix/evaluate-menorix-ai-module-access.ts � read-only AI gate (no HTTP)
 - Claim Center on MenorixModuleAppShell; legacy /claim-engine untouched
 - GET /api/claims/center/ai-access + /automation-health
 - Dashboard tiles + AI slots + automation health; settings 15-row read-only overview
@@ -230503,7 +230503,7 @@ TOPIC: PHASE-MENORIX-CLAIM-CENTER-SHELL-V2
 
 ### Completed
 - Menorix Module App Pattern V2: 15 components (ViewSwitcher, MobileDetailSheet, QuickActions, MobileFilterSheet)
-- lib/menorix/module-app-contracts.ts � 9 module design contracts (Claim implemented; others contract-only)
+- lib/menorix/module-app-contracts.ts � 9 module design contracts (Claim implemented; others contract-only)
 - docs/menorix/returns-center-architecture.md + task-center-architecture.md (planning only)
 - Claim Center mobile: search, filter sheet, card/board views, sticky read-only actions, responsive detail sheet/drawer
 - Smoke: scanner paths untouched, zero_writes PASS, safe_to_push true
@@ -230667,7 +230667,7 @@ TOPIC: PHASE-CLAIM-CENTER-V1-DATA-UX-FIX-PACK-BEFORE-WRITE-ACTIONS
 - KPI accuracy: open exposure only active statuses; renamed filed/reimbursed to observed external; sample-cap warning banner; file-ready KPI requires evidence+refs in read model
 - Dashboard command tiles: Find Money, Review Opportunities, Build Evidence, Fix Product Links, Track References, File Claims (locked/bridge), Match Reimbursements
 - Candidates: hidden legacy_seed/quarantined notice (no fake toggles); badges show Observed externally for ORBIT statuses
-- Evidence: HTML preview-only copy; search toolbar; bridge notice � not broken when empty
+- Evidence: HTML preview-only copy; search toolbar; bridge notice � not broken when empty
 - References/TRID: ambiguity groups read-only in detail drawer
 - Product linkage: Product Story link gated by isSafeForProductStory(); else catalog search / queue link
 - Submissions: legacy read-only banner + Manage in Claim Engine link only; no create/submit/promote
@@ -231838,8 +231838,8 @@ TOPIC: PHASE-PRODUCT-FINANCIAL-SPINE-APPROVAL-QUESTIONS-V1
 Architecture approval decision pack for Maysam before any product financial schema implementation. No DB writes, no code changes, no migrations.
 
 ### Prerequisite findings (PHASE-PRODUCT-FINANCIAL-SPINE-ARCHITECTURE-V1)
-- product_prices exists � should remain **latest price cache**; lacks formal versioned history role split
-- products.price legacy cache � no source/timestamp lineage
+- product_prices exists � should remain **latest price cache**; lacks formal versioned history role split
+- products.price legacy cache � no source/timestamp lineage
 - No purchase/invoice cost table; vendors store no cost
 - claim_candidates.cogs_unit only persisted COGS-like value; SellerSnap COGS not wired
 - PC04 packaging stack is canonical dimensions (571 current); raw JSON elsewhere not normalized for fee claims
@@ -231853,9 +231853,9 @@ Architecture approval decision pack for Maysam before any product financial sche
 | claim_candidates = intake snapshot only | **yes** |
 | product_cost_snapshots | **yes** |
 | product_price_history | **yes** |
-| product_dimensions_snapshots | **defer � reuse PC04 versions** |
+| product_dimensions_snapshots | **defer � reuse PC04 versions** |
 | product_fee_snapshots | **later** |
-| claim_money_snapshots | **defer � candidates + FRR initially** |
+| claim_money_snapshots | **defer � candidates + FRR initially** |
 | Purchase module boundary | **confirmed** |
 | Claim money three-lane boundary | **confirmed** |
 | Shipment/fee claim boundary | **confirmed** |
@@ -232486,9 +232486,9 @@ TOPIC: PHASE-AMAZON-SAMPLE-ZIP-SOURCE-COVERAGE-AUDIT-V1
 - 4 unsupported: FBA inbound placement fees, Returns Processing Fee (x2), Low-Inventory-Level Fee (no table)
 - Reports Repository: preamble row mis-scan in auto audit; production importer skips preamble
 - Inventory Ledger sample = Daily Summary View (Lost/Damaged/Disposed columns) not Detail View (reference-id sparse)
-- SAFE-T: 0 data rows � source unavailable not zero claims
+- SAFE-T: 0 data rows � source unavailable not zero claims
 - Misnamed file: `Inbound Placement Service Fees 1_1_2026 - 4_10_2026.csv` = Simple Transactions Summary
-- Open Listings Lite: SKU + product-id only; no UPC � Product Identity CSV still needed
+- Open Listings Lite: SKU + product-id only; no UPC � Product Identity CSV still needed
 - Still missing from zip: Stranded Inventory, Daily Inventory History, Shipment Reconciliation, SellerSnap COGS, non-empty SAFE-T
 - SAFE_TO_STOP_RANDOM_FILE_REQUESTS: partial
 - Evidence: `.cursor/audit-reports/phase-amazon-sample-zip-source-coverage-audit-v1/20260613T003412Z/`
@@ -232510,7 +232510,7 @@ TOPIC: PHASE-AMAZON-SPAPI-REPORTS-API-FIRST-SYNC-ROADMAP-V1
 - 37 sources across catalog, inventory, returns, removals, financial, fees, inbound, third-party
 - Live Reports API: reimbursements, settlements, removal order, removal shipment (4 workers + routes)
 - Finances API: archive-only (amazon_finances_*); no domain normalization yet
-- Phase 0: enable flags + Run Now backfill � no new code
+- Phase 0: enable flags + Run Now backfill � no new code
 - Phase 1: GET_LEDGER_DETAIL_VIEW_DATA + GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA workers
 - File/manual forever: SAFE-T, SellerSnap COGS, Product Identity, internal dims, ORBIT/FRA
 - Architecture law: API ? synthetic upload ? normalized table ? claim generators
@@ -232532,13 +232532,13 @@ TOPIC: PHASE-PRODUCT-LINKAGE-API-ENRICHMENT-ROADMAP-V1
 ### Completed (read-only linkage enrichment roadmap)
 - Script: `scripts/phase-product-linkage-api-enrichment-roadmap-v1-readonly.ts`
 - Main org: 17059 products, 16850 map rows, 8549 with UPC, 8409 with FNSKU
-- Fixture org 7397edff: 0 spine � QA org has no product spine
+- Fixture org 7397edff: 0 spine � QA org has no product spine
 - B0000B11UX ? product 8beddd08 resolves (ASIN+MSKU X0036MJ5ZB)
-- X006OFFM01: 0 global map hits � cross-org seed forbidden
+- X006OFFM01: 0 global map hits � cross-org seed forbidden
 - Linkage health: critical 49.1%; EP 97.5%; claim_candidates 46.1%; safe_for_product_story: no
 - Duplicate risks: 2583 conflict groups (2413 UPC); safe_for_auto_map: false
 - Phase 1 safe: Product Identity CSV + ledger map enrich + COGS importer design
-- Catalog API Phase 3 evidence-only � never auto-create
+- Catalog API Phase 3 evidence-only � never auto-create
 - Existing readmodel: lib/product-linkage-health.ts + GET /api/dashboard/products/linkage-health
 - SAFE_TO_IMPLEMENT_PRODUCT_LINKAGE_ENRICHMENT_READMODEL: yes
 - Evidence: `.cursor/audit-reports/phase-product-linkage-api-enrichment-roadmap-v1/20260613T004313Z/`
@@ -233092,7 +233092,8 @@ Read-only verification on original kxsvedvpjldygtdbylsy after inventory view gat
 - stuck synthetic_upload_ready: **0**; last uploads state **complete**
 
 ### EP rebuild
-- No auto trigger; explicit ebuild_expected_packages_from_removals after domain sync
+- No auto trigger; explicit 
+ebuild_expected_packages_from_removals after domain sync
 - max EP updated **2026-06-10** >= domain **2026-06-09** — fresh within 7d
 
 ### claim_candidates
@@ -233119,7 +233120,7 @@ TOPIC: PHASE-AMAZON-FEE-ADJUSTED-REIMBURSEMENT-READMODEL-IMPLEMENT-V1
 ================================================================================
 
 ### Scope
-Read-model implement only � SELECT joins, no DB writes, no claim_candidates mutation, no scanner changes.
+Read-model implement only � SELECT joins, no DB writes, no claim_candidates mutation, no scanner changes.
 
 ### API
 - GET /api/products/[id]/fee-adjusted-estimate?organization_id=&store_id=
@@ -234427,15 +234428,15 @@ PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1
 ================================================================================
 
 ### Scope
-- Deterministic preview generators for 4 claim-ready V3 families � preview objects only; no claim_candidates writes; no AI; no scanner/resolver/RBAC changes
+- Deterministic preview generators for 4 claim-ready V3 families � preview objects only; no claim_candidates writes; no AI; no scanner/resolver/RBAC changes
 
 ### Implementation
-- lib/claims/center/claim-first-safe-families-preview-generators-v1.ts � aligned classifyDraft parity with dry-run full; V3_FAMILY_INTAKE_BRIDGE_EXTENDED draft filter; all CLAIM_INTAKE_GENERATORS source kinds; family-scoped preview_id; EP disputed quantity bump on removal families; live dry_run_alignment (draft-only baseline + live epDisputed)
+- lib/claims/center/claim-first-safe-families-preview-generators-v1.ts � aligned classifyDraft parity with dry-run full; V3_FAMILY_INTAKE_BRIDGE_EXTENDED draft filter; all CLAIM_INTAKE_GENERATORS source kinds; family-scoped preview_id; EP disputed quantity bump on removal families; live dry_run_alignment (draft-only baseline + live epDisputed)
 - GET /api/claims/center/preview-generators + claim-center-api-handlers wiring
 - scripts/phase-claim-first-safe-families-preview-generators-v1.ts + smoke script
 
 ### Staging verify @ eiqfaapyumhixxoeltgu
-- claim_ready **1121** (6 + 399 + 399 + 317) � matches dry-run baseline
+- claim_ready **1121** (6 + 399 + 399 + 317) � matches dry-run baseline
 - needs_review draft-level **99**; removal family matrix includes **+249** EP disputed bump each (was 1294 at 093000Z dry-run; EP disputed qty reduced post dedupe rebuild)
 - total_previews **1220**; duplicate_key PASS (family:duplicate composite); disputed never claim_ready PASS; money_lane PASS; source_edges PASS
 - claim_candidates delta **0**; build+smoke PASS
@@ -234445,7 +234446,7 @@ PHASE-CLAIM-FIRST-SAFE-FAMILIES-PREVIEW-GENERATORS-V1
 - .cursor/audit-reports/phase-claim-first-safe-families-preview-generators-v1/20260613T202000Z/
 
 ### Next Prompt
-PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1 � wire Claim Center to GET /api/claims/center/preview-generators; no emit
+PHASE-CLAIM-FIRST-GENERATOR-PREVIEW-UI-V1 � wire Claim Center to GET /api/claims/center/preview-generators; no emit
 
 ================================================================================
 END APPEND SLICE -- 20260613T202000Z
@@ -234536,7 +234537,7 @@ Read-only architecture + API/UI contract for claim grouping, filtering, and manu
 
 ### Tables
 - Reuse: claim_candidates, claim_reference_edges, preview generators, composeClaimEvidencePacket
-- New tables: **no (phase 1)** � saved filters in JSONB; optional claim_saved_filter_groups phase 2
+- New tables: **no (phase 1)** � saved filters in JSONB; optional claim_saved_filter_groups phase 2
 
 ### Verify
 - No DB writes; build PASS
@@ -234842,7 +234843,8 @@ PHASE-PIM-PRODUCT-API-SMALL-PREVIEW-RUN-V1
 Preview-only dry-run — 9 sample products; Amazon API live; zero product/map/price/claim writes.
 
 ### Implementation
-- Added dry_run / preview_only to PimCatalogEnrichmentBatchParams + write guards in unPimCatalogEnrichmentBatch
+- Added dry_run / preview_only to PimCatalogEnrichmentBatchParams + write guards in 
+unPimCatalogEnrichmentBatch
 - Script: scripts/phase-pim-product-api-small-preview-run-v1.ts (direct batch, no background job)
 
 ### Staging @ eiqfaapyumhixxoeltgu
@@ -236166,7 +236168,7 @@ APPEND SLICE -- 20260616T110000Z
 PHASE-CLAIM-TRID-REFERENCE-GRAPH-FINAL-VERIFY-V1 VERIFY FAIL (structural pass)
 ================================================================================
 
-### TRID / reference graph final verify V1 � read-only VERIFY
+### TRID / reference graph final verify V1 � read-only VERIFY
 - Module: lib/claims/reference/claim-trid-reference-graph-verify-v1.ts
 - Script: scripts/phase-claim-trid-reference-graph-final-verify-v1.ts
 - Original ref: kxsvedvpjldygtdbylsy; pilot_case_run_id pilot-20260615T190000Z
@@ -236187,7 +236189,7 @@ PHASE-CLAIM-TRID-REFERENCE-GRAPH-FINAL-VERIFY-V1 VERIFY FAIL (structural pass)
 - phase-claim-trid-reference-graph-final-verify-v1/20260616T110000Z/
 
 ### Next Prompt
-PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT � materialize claim_reference_edges + TRID for pilot cases (original approved)
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT � materialize claim_reference_edges + TRID for pilot cases (original approved)
 
 ================================================================================
 END APPEND SLICE -- 20260616T110000Z
@@ -236198,10 +236200,10 @@ APPEND SLICE -- 20260616T120000Z
 PHASE-CLAIM-MANUAL-FILING-HANDOFF-PREVIEW-V1 UI IMPLEMENTED (TRID gate blocked)
 ================================================================================
 
-### Manual filing handoff preview UI V1 � read-only IMPLEMENTED
+### Manual filing handoff preview UI V1 � read-only IMPLEMENTED
 - Contract: lib/claims/submission/claim-manual-filing-handoff-ui-contract.ts
 - UI: components/claim-center/case-review/ClaimCaseReviewManualFilingHandoffSection.tsx
-- Drawer: ClaimCaseReviewDetailDrawer � Manual filing handoff section after Filing packet
+- Drawer: ClaimCaseReviewDetailDrawer � Manual filing handoff section after Filing packet
 - Checklist: 7 items (local-only, not persisted); NOT SUBMITTED banner; TRID/reference graph + missing_trid_warning
 - Draft artifact paths: PDF/HTML/JSON/TXT from export pilot 20260616T090000Z
 - Write actions disabled: create_submission, mark_as_filed, amazon_submit, upload_evidence
@@ -236214,7 +236216,7 @@ PHASE-CLAIM-MANUAL-FILING-HANDOFF-PREVIEW-V1 UI IMPLEMENTED (TRID gate blocked)
 - phase-claim-manual-filing-handoff-preview-v1/20260616T120000Z/
 
 ### Next Prompt
-PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT � materialize claim_reference_edges + TRID for pilot cases (original approved)
+PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT � materialize claim_reference_edges + TRID for pilot cases (original approved)
 
 ================================================================================
 END APPEND SLICE -- 20260616T120000Z
@@ -236225,7 +236227,7 @@ APPEND SLICE -- 20260616T130000Z
 PHASE-CLAIM-SUBMISSION-RECORD-PILOT-V1 DRY-RUN READY (execute blocked)
 ================================================================================
 
-### Claim submission record pilot V1 � dry-run READY
+### Claim submission record pilot V1 � dry-run READY
 - Module: lib/claims/submission/claim-submission-record-pilot-v1.ts
 - Migration: 20260918120000_phase_claim_submission_record_pilot_v1_anchor.sql (not applied on original yet)
 - Planned: 10 claim_submissions INSERT (status=draft, manual_filing mode)
@@ -236505,7 +236507,7 @@ APPEND SLICE -- 20260616T230000Z
 PHASE-7H pilot reference edge materialization ORIGINAL EXECUTE PASS (96 edges)
 ================================================================================
 
-### Phase 7H pilot reference edge materialization � original EXECUTE PASS
+### Phase 7H pilot reference edge materialization � original EXECUTE PASS
 - Run: 20260616T230000Z @ kxsvedvpjldygtdbylsy; Maysam approvals yes (pilot + schema migration)
 - Migration 20260917130000 applied during run (claim_reference_edges.candidate_id)
 - Pilot scope: 10 open cases (6 removal_shipment_missing + 4 removal_order_discrepancy); 10 closed duplicates excluded
@@ -236513,9 +236515,9 @@ PHASE-7H pilot reference edge materialization ORIGINAL EXECUTE PASS (96 edges)
 - Planned edges: 112; created: 96; reused/skipped: 16; source_edges_created: 10
 - claim_reference_edges: 51 -> 147 total; pilot candidate edges: 0 -> 96
 - Coverage: expected_package 10/10; tracking 10/10; removal_order 10/10; removal_shipment 6/6; TRID edges 10/10 (EP-id anchor, no invented product TRID)
-- claim_cases 22, claim_lines 22, claim_candidates 9155, claim_submissions 3 � unchanged
+- claim_cases 22, claim_lines 22, claim_candidates 9155, claim_submissions 3 � unchanged
 - Idempotency PASS; no duplicate edges; no Amazon; no scanner changes; build+smoke PASS
-- Warnings: export_json/html missing + stale (10 each) � regen deferred to reverify phase
+- Warnings: export_json/html missing + stale (10 each) � regen deferred to reverify phase
 - SAFE_REFERENCE_EDGES_MATERIALIZED: yes
 - SAFE_TRID_REFERENCE_GRAPH_VERIFIED: yes (post-materialization script gate)
 - SAFE_TO_REVERIFY_MANUAL_FILING_HANDOFF_PREVIEW: yes
@@ -236525,7 +236527,7 @@ PHASE-7H pilot reference edge materialization ORIGINAL EXECUTE PASS (96 edges)
 - phase7h-claim-reference-edge-materialization-pilot-original-execute-v1/20260616T230000Z/
 
 ### Next Prompt
-PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1 � read-only reverify + local export regen on original
+PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1 � read-only reverify + local export regen on original
 
 ================================================================================
 END APPEND SLICE -- 20260616T230000Z
@@ -236536,7 +236538,7 @@ APPEND SLICE -- 20260617T010000Z
 PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1 PASS
 ================================================================================
 
-### TRID reverify + export regen after 7H � original PASS
+### TRID reverify + export regen after 7H � original PASS
 - Run: 20260617T010000Z @ kxsvedvpjldygtdbylsy; post-7H execute 20260616T230000Z
 - 10 active pilot cases (6+4); 10 closed excluded; materialized edges 10/10
 - Local export regen HTML/JSON/TXT/PDF 10/10; draft labels PASS
@@ -236550,7 +236552,7 @@ PHASE-CLAIM-TRID-REFERENCE-GRAPH-REVERIFY-AND-EXPORT-REGEN-AFTER-7H-V1 PASS
 - phase-claim-trid-reference-graph-reverify-and-export-regen-after-7h-v1/20260617T010000Z/
 
 ### Next Prompt
-PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 � Maysam approvals + migration 20260918120000 + --execute
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 � Maysam approvals + migration 20260918120000 + --execute
 
 ================================================================================
 END APPEND SLICE -- 20260617T010000Z
@@ -236561,7 +236563,7 @@ APPEND SLICE -- 20260617T010500Z
 PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 execute BLOCKED (0 inserts)
 ================================================================================
 
-### Claim submission record pilot EXECUTE V1 � BLOCKED
+### Claim submission record pilot EXECUTE V1 � BLOCKED
 - Run: 20260617T010500Z @ kxsvedvpjldygtdbylsy
 - Blockers: pilot_approval_missing; schema_migration_approval_missing; prerequisites_not_met (SAFE_TO_EXECUTE=no); migration_not_applied
 - Reverify prereq PASS (20260617T010000Z)
@@ -236586,7 +236588,7 @@ APPEND SLICE -- 20260617T020100Z
 PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 read-only BLOCKED (0 pilot submissions)
 ================================================================================
 
-### Reimbursement tracking preview V1 � read-only BLOCKED
+### Reimbursement tracking preview V1 � read-only BLOCKED
 - Run: 20260617T020100Z @ kxsvedvpjldygtdbylsy
 - Implemented: lib/claims/submission/claim-reimbursement-tracking-preview-v1.ts + audit script
 - Prerequisites: SAFE_CLAIM_SUBMISSION_RECORD_PILOT=no; SAFE_TO_BUILD_REIMBURSEMENT_TRACKING_PREVIEW=no
@@ -236599,7 +236601,7 @@ PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 read-only BLOCKED (0 pilot submiss
 - phase-claim-reimbursement-tracking-preview-v1/20260617T020100Z/
 
 ### Next Prompt
-PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 � Maysam approvals + migration + --execute; then re-run reimbursement tracking preview
+PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 � Maysam approvals + migration + --execute; then re-run reimbursement tracking preview
 
 ================================================================================
 END APPEND SLICE -- 20260617T020100Z
@@ -236610,7 +236612,7 @@ APPEND SLICE -- 20260617T030200Z
 PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 PASS (10 inserts)
 ================================================================================
 
-### Claim submission record pilot EXECUTE V1 � PASS
+### Claim submission record pilot EXECUTE V1 � PASS
 - Run: 20260617T030200Z @ kxsvedvpjldygtdbylsy; Maysam approvals yes (pilot + schema migration)
 - Migration 20260918120000 applied (claim_submissions.claim_case_id); pg insert path (PostgREST cache bypass)
 - 10 draft manual_filing rows inserted; export_run_id 20260617T010000Z-export; submission_id null
@@ -236623,7 +236625,7 @@ PHASE-CLAIM-SUBMISSION-RECORD-PILOT-EXECUTE-V1 PASS (10 inserts)
 - phase-claim-submission-record-pilot-execute-v1/20260617T030200Z/
 
 ### Next Prompt
-PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 � re-run read-only preview for 10 pilot submissions
+PHASE-CLAIM-REIMBURSEMENT-TRACKING-PREVIEW-V1 � re-run read-only preview for 10 pilot submissions
 
 ================================================================================
 END APPEND SLICE -- 20260617T030200Z
@@ -237794,3 +237796,1028 @@ PHASE-CLAIM-CENTER-AI-OPTIONAL-OVERLAY-SHELL-V1
 ================================================================================
 END APPEND SLICE -- 20260619T040000Z
 ================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T051500Z
+PHASE-PRODUCT-COGS-UI-INPUT-RECONCILIATION-V1 PASS (read-only reconciliation)
+================================================================================
+
+### Product COGS UI input reconciliation V1
+- Run: 20260619T051500Z
+- Mode: read-only reconciliation -- no DB writes, no claim/cogs mutation, no Amazon, no scanner, no AI
+- Target: original/live kxsvedvpjldygtdbylsy (read-only)
+- Scope: 6 pilot FNSKUs (X004D9AMWV, X003VSWH37, X004TRQBB3, X004LLJMN1, X004WJ8OE5, X004N992LN)
+
+### Question -> Answer
+- Are Maysam-entered COGS values present anywhere? YES
+- Where exactly? .cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json -> entries[].unitCost
+  (6/6: 4.00, 3.25, 4.36, 5.50, 4.75, 7.25). NOT in cogs_overrides, NOT products.metadata, NOT product_cost_snapshots.
+- Production approved or simulation/preview only? PREVIEW-ONLY (operator JSON staged for execute, not yet written).
+  Distinct from simulation costs (values_match_simulation: false).
+- Why did previous execute still show 0/6? All 6 entries fail dry-run validation with error source_note:required
+  (sourceNote empty on all rows). Unit costs present and positive; none equal latest_sold_price; ONLY blocker is empty sourceNote.
+- Exact file/UI action to change before write? Fill non-empty sourceNote for all 6 entries in
+  product-cogs-manual-entry-execute-v1-input.json (e.g. "supplier invoice", "operator estimate").
+- Another execute prompt needed? NO (execute_prompt_needed: no). Approval tokens already set
+  (APPROVED_PRODUCT_COGS_WRITE_V1=yes, APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=yes). Only operator input
+  correction (sourceNote) then re-run existing execute script.
+
+### Output
+- ui_route_checked: /claim-center/reimbursement-tracking/cogs
+- cogs_overrides_current_count: 0/6
+- operator_input_json_has_unit_costs_count: 6/6
+- operator_input_json_has_source_notes_count: 0/6
+- simulation_payload_has_values: yes; preview_only_values_found: yes; production_values_found: no
+- product_cost_snapshots_exists: yes (empty for pilot); products_metadata_cost_fields_count: 0
+- no_db_write/no_claim_mutation/no_amazon/no_scanner: all yes
+- build_result: pass; smoke_result: pass
+- SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT: no (sourceNote 0/6)
+- SAFE_TO_REBUILD_MONEY_LANE_AFTER_COGS: no (until cogs_overrides written)
+
+### Files added
+- lib/claims/submission/product-cogs-ui-input-reconciliation-v1.ts
+- scripts/phase-product-cogs-ui-input-reconciliation-v1.ts
+- scripts/smoke-product-cogs-ui-input-reconciliation-v1.ts
+
+### Evidence
+- phase-product-cogs-ui-input-reconciliation-v1/20260619T051500Z/
+
+### Next Prompt
+Operator: fill sourceNote for all 6 entries in product-cogs-manual-entry-execute-v1-input.json,
+then run PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V1 --execute
+
+================================================================================
+END APPEND SLICE -- 20260619T051500Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T060000Z
+PHASE-LIVE-REFERENCE-API-COMPLETION-V1 PASS (guarded read-only/dry-run impl)
+================================================================================
+
+### Live reference / API completion V1
+- Run: 20260619T060000Z
+- Mode: guarded implementation -- read-only + dry-run only; no DB writes, no claim mutation,
+  no Amazon submit, no live SP-API call, no scanner change, no AI
+- Target: original/live kxsvedvpjldygtdbylsy
+- Prereq: PHASE-CLAIM-LIVE-REFERENCE-API-COMPLETION-AUDIT-V1 PASS
+
+### Endpoints added (4)
+- GET  /api/claims/center/references/trid-resolver        (claim_submission_id|claim_case_id ->
+       trid, trid_source, expected_package_id, resolved_product_id, family, confidence,
+       source_edges, missing_refs)
+- POST /api/claims/center/references/refresh-preview      (dry-run; proposed edges from already-loaded
+       amazon_* tables; would_write:false; live_sp_api_called:false)
+- GET  /api/claims/center/references/coverage             (pilot+family coverage matrix)
+- POST /api/claims/center/reimbursement-match/refresh-preview (dry-run; blocked until real amazon_case_id;
+       no close, no write)
+
+### Lib + UI
+- lib/claims/reference/claim-live-reference-api-completion-v1.ts
+  (LIVE_SP_API_SYNC_ENABLED=false, REFERENCE_WRITE_ENABLED=false; deterministic resolver reuses
+   audit composer + tracking preview; no invented TRID; VRET != TRID)
+- Handlers added to lib/claims/center/claim-center-api-handlers.ts
+- UI: components/claim-center/reimbursement-tracking/ReimbursementTrackingReferenceHealthSection.tsx
+  wired into ReimbursementTrackingDetailDrawer overview tab (TRID status, product link,
+  removal order/shipment refs, missing refs, refresh-preview button, reimbursement match
+  preview button disabled until case id exists)
+
+### Verification (live pilot, 10 submissions)
+- trid_coverage_count: 10/10
+- removal_shipment refs: 6/6; removal_order refs: 4/4; fnsku/sku/asin: 10/10
+- amazon_case_id: 0/10; reimbursement_ref: 0/10 (expected â€” pre-filing)
+- refresh_preview: all dry-run, no write, no amazon call; proposed edges 19-20 per submission
+- reimbursement_match_preview: blocked 10/10 (no real case id); no write, no close
+- write_disabled: live_sp_api_sync_enabled=false, reference_write_enabled=false, all actions dry-run
+- no_claim_mutation: yes; no_amazon_submission: yes; no_scanner_change: yes
+- build_result: pass; smoke_result: pass
+
+### Flags
+- SAFE_LIVE_REFERENCE_API_READY: yes
+- SAFE_TRID_RESOLVER_READY: yes
+- SAFE_TO_BUILD_REFERENCE_MATERIALIZATION_EXECUTE: yes
+- SAFE_TO_BUILD_POST_FILING_REIMBURSEMENT_MATCHER: yes
+
+### Evidence
+- phase-live-reference-api-completion-v1/20260619T060000Z/
+
+### Next Prompt
+PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1 -- governed claim_reference_edges refresh write
+(operator-approved, rollback.sql); parallel: operator real Amazon Case IDs to unblock reimbursement matcher
+
+================================================================================
+END APPEND SLICE -- 20260619T060000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T062000Z
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V2 BLOCKED-AT-GATE (no execute, no writes)
+================================================================================
+
+### Product COGS manual entry execute V2 -- BLOCKED at prerequisite gate
+- Run: 20260619T062000Z
+- Mode: guarded production write -- NOT executed. Gate condition not met.
+- Gate required: SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT = yes
+- Actual (re-confirmed read-only via reconciliation): SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT = NO
+- Reason: operator input .cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json
+  has unitCost 6/6 (4.00/3.25/4.36/5.50/4.75/7.25) but sourceNote 0/6 (all empty "").
+  product-cogs-manual-entry dry-run validation rejects all 6 rows with error source_note:required.
+- Decision: did NOT run scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute
+  (avoids burning an execute attempt that would reject 6/6, per standing instruction).
+
+### Snapshot (read-only, unchanged)
+- cogs_overrides 0/6 (empty); before == after (no write attempted)
+- claim_candidates/cases/lines/submissions: unchanged (not touched)
+- Approval tokens: APPROVED_PRODUCT_COGS_WRITE_V1=yes, APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=yes
+  (approvals fine; blocker is input data, not approval)
+
+### Exact unblock (operator)
+1. Add a non-empty sourceNote to all 6 entries (e.g. "supplier invoice", "operator estimate").
+2. Re-run PHASE-PRODUCT-COGS-UI-INPUT-RECONCILIATION-V1 -> expect SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT=yes.
+3. Then re-run this execute: npx tsx scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute
+
+### Verification
+- no_db_write / no_claim_*_mutation / no_amazon_submission / no_scanner_change: all yes (nothing executed)
+- build_result: pass; smoke_result: pass (reconciliation re-run only)
+- SAFE_PRODUCT_COGS_WRITE_COMPLETE: no
+- SAFE_TO_REBUILD_MONEY_LANE_PREVIEW_WITH_COGS: no
+
+### Evidence
+- phase-product-cogs-ui-input-reconciliation-v1/20260619T062000Z/ (gate re-confirm)
+
+### Next Prompt
+Operator: fill sourceNote for all 6 entries in product-cogs-manual-entry-execute-v1-input.json,
+then PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V2 will pass the gate and write cogs_overrides 6/6.
+
+================================================================================
+END APPEND SLICE -- 20260619T062000Z
+================================================================================
+
+================================================================================
+APPEND SLICE -- 20260619T064000Z
+PHASE-PRODUCT-COGS-UI-INPUT-RECONCILIATION-V1 re-verify PASS (sourceNote fixed; gate=yes)
+================================================================================
+
+### Product COGS UI input reconciliation V1 -- re-verify after operator fix
+- Run: 20260619T064000Z
+- Mode: read-only reconciliation -- no DB writes, no claim mutation, no Amazon, no scanner
+- Target: original/live kxsvedvpjldygtdbylsy
+- Context: Maysam added sourceNote to all 6 entries in
+  .cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json
+  (note text: "supplier invoice / purchase cost confirmed by Maysam")
+
+### Output
+- operator_input_json_exists: yes
+- operator_input_json_has_unit_costs_count: 6/6 (4.00/3.25/4.36/5.50/4.75/7.25)
+- operator_input_json_has_source_notes_count: 6/6 (was 0/6)
+- validation_blockers: none (source_note:required cleared; no sale-price match -- unitCosts != latest_sold_price)
+- sale_price_not_used_as_cogs: confirmed (3.25 vs 14.99, 4.75 vs 22.99, 7.25 vs 9.96 -- all distinct)
+- preview_only_values_found: yes; production_values_found: no (pre-execute)
+- cogs_overrides_current_count: 0/6 (still empty -- nothing written)
+- exact_manual_fix_needed: none -- all rows valid; re-run execute
+- execute_prompt_needed: no
+- no_db_write / no_claim_mutation / no_amazon / no_scanner: all yes
+- build_result: pass; smoke_result: pass
+- SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT: YES (was no)
+- SAFE_TO_REBUILD_MONEY_LANE_AFTER_COGS: no (only yes after cogs_overrides written 6/6)
+
+### Approvals (unchanged, both yes)
+- APPROVED_PRODUCT_COGS_WRITE_V1=yes
+- APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=yes
+
+### Evidence
+- phase-product-cogs-ui-input-reconciliation-v1/20260619T064000Z/
+
+### Next Prompt
+PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V2 -- gate now satisfied; run
+npx tsx scripts/phase-product-cogs-manual-entry-execute-v1.ts --execute -> expect cogs_overrides 6/6,
+then rebuild money lane preview with COGS.
+
+================================================================================
+END APPEND SLICE -- 20260619T064000Z
+================================================================================
+
+---
+
+## 20260619T070000Z â€” PHASE-PRODUCT-COGS-MANUAL-ENTRY-EXECUTE-V2 â€” PASS (production write COMPLETE)
+
+**Mode:** Guarded COGS production write execute using verified operator input. Gate `SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT=yes` satisfied; approvals `APPROVED_PRODUCT_COGS_WRITE_V1=yes` + `APPROVED_PRODUCT_COGS_MANUAL_ENTRY_EXECUTE_V1=yes`.
+
+**Target:** `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`). Scope: 6 pilot FNSKUs only.
+**Input:** `.cursor/operator-approvals/product-cogs-manual-entry-execute-v1-input.json` (unitCost 6/6, sourceNote 6/6).
+
+### First execute attempt â€” silent no-op (root cause found)
+- Validation accepted 6/6, rejected 0/6, `executed=true`, BUT `after_snapshot.cogs_overrides` stayed empty (0/6) and `SAFE_PRODUCT_COGS_WRITE_COMPLETE=false`.
+- **Root cause:** `workspace_settings` has a single canonical row with `organization_id = NULL` (the app-wide singleton); there is **no org-scoped row** for the pilot org. The COGS write/read used `.eq("organization_id", org)`, which matched 0 rows. A bare `.update().eq()` returns **no error when 0 rows match**, so `attemptGuardedCogsWriteV1` falsely reported `written:true`.
+- The rest of the app (module gate, intake policy, white-label, `workspace-settings-actions.ts`, `pim-actions.ts`) reads workspace_settings as a **singleton** via `.order("id").limit(1)` / updates by `id`. The COGS path was the only one using `.eq(org)`.
+
+### Fix (COGS read/write now resolve the canonical row)
+- `lib/claims/submission/product-cogs-source-write-v1.ts`: added `resolveWorkspaceSettingsRowV1` (org-scoped first, singleton fallback) + `loadCogsOverridesCanonicalV1`. Rewrote `attemptGuardedCogsWriteV1` to update by `id` (or insert if no row) **and verify rows affected via `.select()`** â€” returns `written:false` on 0 rows. `snapshotCounts` now uses the canonical loader.
+- `lib/claims/submission/product-cogs-audit-v1.ts`: `loadCogsOverridesForOrg` now org-first + singleton fallback.
+- `lib/claims/submission/product-cogs-manual-entry-execute-v1.ts`: rollback branch resolves the row by `id`.
+- `lib/claims/submission/claim-money-lane-source-discovery-v1.ts`: same `.eq(org)` COGS read bug fixed (org-first + singleton fallback) so the money-lane preview reads the overrides.
+
+### Re-run result (PASS)
+- `accepted_cogs_rows_count = 6`, `rejected_cogs_rows_count = 0`.
+- `cogs_coverage_count = 6/6` â€” cogs_overrides persisted in `workspace_settings.module_configs.claim_intake.cogs_overrides` (interim; `product_cost_snapshots` not applied).
+- `recovery_value_calculable_count = 10/10` â€” recovery values: 8, 8, 6.5, 4, 8.72, 11, 8, 8, 9.5, 29.
+- `sale_price_not_used_as_cogs_verification = true`; `no_claim_submission/case/line/candidate_mutation = true`; `no_amazon_submission = true`; `no_scanner_change = true`; `audit_log_verification = true`.
+- Counts unchanged: submissions 13, cases 22, lines 22, candidates 9155.
+- `SAFE_COGS_APPLIED_FOR_PILOT = true`, `SAFE_PRODUCT_COGS_WRITE_COMPLETE = true`, `SAFE_TO_REBUILD_MONEY_LANE_PREVIEW_WITH_COGS = true`, `SAFE_TO_UPDATE_MONEY_LANE_UI_WITH_RECOVERY_VALUE = true`, `SAFE_TO_PLAN_MANUAL_FILING_STATUS_ENTRY_UI = true`.
+- `build_result = pass`, `smoke_result = pass` (`tsc --noEmit` clean; `smoke-product-cogs-manual-entry-execute-v1: pass`).
+- Rollback: `UPDATE workspace_settings SET module_configs = jsonb_set(..., '{claim_intake,cogs_overrides}', '{}') WHERE id = <canonical row id>`.
+
+**Constraints honored:** no claim table mutation, no Amazon call, no scanner change, sale price / settlement net never used as COGS.
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MONEY-LANE-PREVIEW-AND-UI-INTEGRATION-V1 â€” re-run money lane preview with COGS coverage 6/6 and surface recovery values (10/10) in the Reimbursement Tracking UI.`
+
+---
+
+## 20260619T073000Z â€” PHASE-PRODUCT-COGS-WRITE-PERSISTENCE-FIX-V1 â€” PASS (formalized fix + persistence verification)
+
+**Mode:** Implementation fix + guarded verification. Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`). Approvals both `yes`; gate `SAFE_TO_EXECUTE_COGS_WITH_EXISTING_INPUT=yes`; input unitCost 6/6 + sourceNote 6/6.
+
+**Root cause (formalized):** COGS write/read filtered `workspace_settings` by `.eq("organization_id", org)`, but the app uses a canonical **singleton** row where `organization_id` is **NULL** (row id `5ad12e20-acb6-4813-8a0b-c200d8aaa47d`); no org-scoped row exists for the pilot org. A bare `.update().eq()` matched 0 rows, returned no error, and falsely reported `written:true`.
+
+### files_changed
+- `lib/claims/submission/product-cogs-source-write-v1.ts` â€” added `resolveCanonicalWorkspaceSettingsRowForOrg` (returns `{id, module_configs, source: org_scoped|singleton}`) + `loadCogsOverridesCanonicalV1`; rewrote `attemptGuardedCogsWriteV1` to update by `id` (insert if no row) with `.select()` rows-affected check **and** per-FNSKU re-read-by-id confirmation (returns `written:false` / `persistence_unverified` if the key is missing on re-read); `snapshotCounts` uses the canonical loader.
+- `lib/claims/submission/product-cogs-manual-entry-execute-v1.ts` â€” import renamed to `resolveCanonicalWorkspaceSettingsRowForOrg`; rollback branch targets by `id`; added aggregate `persistence_verification` block (resolver_behavior, workspace_settings_row_targeted, before/after keys, expected keys, all_expected_keys_present, reread_by_id_confirmed) computed by re-reading the resolved row by id after the write loop.
+- `lib/claims/submission/product-cogs-audit-v1.ts` â€” `loadCogsOverridesForOrg` org-first + singleton fallback (prior turn).
+- `lib/claims/submission/claim-money-lane-source-discovery-v1.ts` â€” same `.eq(org)` COGS read fixed to org-first + singleton fallback (prior turn).
+
+### resolver_behavior
+`singleton` â€” no org-scoped row exists; resolver fell back to the app singleton (`workspace_settings.id = 5ad12e20-acb6-4813-8a0b-c200d8aaa47d`). Writes target that row by `id`.
+
+### Execute result (PASS)
+- `accepted_cogs_rows_count = 6`, `rejected_cogs_rows_count = 0`.
+- `cogs_overrides_before_keys = 6` (already persisted by prior-turn fix `20260619T070000Z`), `cogs_overrides_after_keys = 6` (X003VSWH37, X004D9AMWV, X004LLJMN1, X004N992LN, X004TRQBB3, X004WJ8OE5).
+- `persistence_verification`: `all_expected_keys_present = true`, `reread_by_id_confirmed = true`, `workspace_settings_row_targeted = 5ad12e20-acb6-4813-8a0b-c200d8aaa47d`.
+- `cogs_coverage_count = 6/6`, `recovery_value_calculable_count = 10/10` (8, 8, 6.5, 4, 8.72, 11, 8, 8, 9.5, 29).
+- Claim tables unchanged (subs 13 / cases 22 / lines 22 / cands 9155); `no_claim_*_mutation = true`; `no_amazon_submission = true`; `no_scanner_change = true`; no AI/GPT call.
+- `build_result = pass`; `smoke_result = pass` (`tsc --noEmit` clean; `smoke-product-cogs-manual-entry-execute-v1: pass`).
+- `SAFE_PRODUCT_COGS_WRITE_COMPLETE = yes`; `SAFE_TO_REBUILD_MONEY_LANE_PREVIEW_WITH_COGS = yes`.
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MONEY-LANE-PREVIEW-AND-UI-INTEGRATION-V1 â€” re-run money lane preview with COGS coverage 6/6 and surface recovery values (10/10) in the Reimbursement Tracking UI.`
+
+---
+
+## 20260619T074000Z â€” PHASE-CLAIM-MONEY-LANE-PREVIEW-AFTER-COGS-V2 â€” PASS (read-only verification after COGS write)
+
+**Mode:** Read-only verification. Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6â€¦`). Scope: 10 pilot submissions (`pilot_case_run_id=pilot-20260615T190000Z`, `intake_run_id=a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). Prerequisites satisfied: `SAFE_PRODUCT_COGS_WRITE_COMPLETE=yes`, `SAFE_TO_REBUILD_MONEY_LANE_PREVIEW_WITH_COGS=yes`. Re-ran `scripts/phase-claim-money-lane-preview-after-cogs-v1.ts` (read-only composer) now that COGS overrides are persisted 6/6.
+
+### Coverage (all targets met)
+- `pilot_submission_count = 10`
+- `cogs_coverage_count = 10/10`
+- `recovery_value_coverage = 10/10`
+- `latest_sold_price_coverage = 10/10`
+- `amazon_fee_coverage = 10/10`
+- `net_settlement_coverage = 10/10`
+- `observed_reimbursement_coverage = 0/10` â€” **Unknown/Pending preserved (never shown as $0)**
+- `open_gap_coverage = 0/10` (requires observed reimbursement)
+- `total_recovery_value = 100.72`; `total_observed_reimbursement = null` (Unknown)
+
+### per_submission_money_matrix (recovery = clean_qty Ã— approved_cogs_unit)
+| submission | FNSKU | qty | cogs_unit | recovery | sold | fees | settle | reimb |
+|---|---|---|---|---|---|---|---|---|
+| 4222bf72 | X004D9AMWV | 2 | 4.00 | 8 | 0 | 0 | -12.87 | Unknown |
+| d723bb59 | X004D9AMWV | 2 | 4.00 | 8 | 0 | 0 | -12.87 | Unknown |
+| de92f13d | X003VSWH37 | 2 | 3.25 | 6.5 | 18.73 | 15.38 | 3.35 | Unknown |
+| c888aa12 | X004D9AMWV | 1 | 4.00 | 4 | 0 | 0 | 7.10 | Unknown |
+| 5e4f12e8 | X004TRQBB3 | 2 | 4.36 | 8.72 | 0 | 0 | -1.56 | Unknown |
+| 55559d96 | X004LLJMN1 | 2 | 5.50 | 11 | 0 | 0 | -23.17 | Unknown |
+| 836523b3 | X004D9AMWV | 2 | 4.00 | 8 | 0 | 0 | 7.10 | Unknown |
+| 0af26341 | X004D9AMWV | 2 | 4.00 | 8 | 0 | 0 | 7.10 | Unknown |
+| 160a0b54 | X004WJ8OE5 | 2 | 4.75 | 9.5 | 22.99 | 11.06 | 11.93 | Unknown |
+| 98fdb163 | X004N992LN | 4 | 7.25 | 29 | 9.96 | 5.02 | 4.94 | Unknown |
+
+### Verifications
+- `formula_contract_verification`: PASS â€” recovery = clean_quantity Ã— approved_cogs_unit; observed reimbursement Unknown (never 0); sale price informational only.
+- `sale_price_not_used_as_cogs_verification = true`; `null_preservation_verification = true`; `reimbursement_pending_handling = true`; `ui_money_panel_verification = true`.
+- `no_db_write_verification = true`; `no_claim_submission/case/line/candidate_mutation = true` (subs 13/cases 22/lines 22/cands 9155 unchanged); `no_amazon_submission = true`; `no_scanner_change = true`.
+- `build_result = pass`; `smoke_result = pass`; `phase_pass = true`.
+- `SAFE_MONEY_LANE_PREVIEW_READY = yes`; `SAFE_REIMBURSEMENT_TRACKING_UI_MONEY_READY = yes`; `SAFE_TO_EXECUTE_MANUAL_FILING_STATUS_ENTRY = yes`.
+
+**Evidence:** `.cursor/audit-reports/phase-claim-money-lane-preview-after-cogs-v1/20260617T193719Z/`
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 â€” set APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes + fill operator input with real Amazon Case IDs, then record filing status (governed write).`
+
+---
+
+## 20260619T075000Z â€” PHASE-TRID-REFERENCE-TRACE-MATRIX-V1 â€” PASS (read-only per-submission trace)
+
+**Mode:** Read-only trace matrix. Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6â€¦`). Scope: 10 pilot submissions (`pilot_case_run_id=pilot-20260615T190000Z`, `intake_run_id=a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). New read-only composer `lib/claims/reference/trid-reference-trace-matrix-v1.ts` + `scripts/phase-trid-reference-trace-matrix-v1.ts` + smoke. No DB writes, no edge mutation, no Amazon, no scanner, no AI.
+
+### Coverage
+- `pilot_submission_count = 10`; `trid_coverage_count = 10/10`.
+- `total_reference_edges = 96` (candidate-linked); `average_edges_per_submission = 9.6`.
+- `ambiguous_reference_count = 0`; `missing_reference_count = 0`.
+- `primary_trid_per_submission = 1` (single anchor + multiple supporting edges).
+
+### Honest implementation findings (as requested)
+- **Single primary TRID, multiple edges:** each submission has exactly ONE primary TRID anchor but ~9â€“10 supporting `claim_reference_edges` (all `edge_type=source_evidence`, `operator_review_status=needs_review`).
+- **TRID anchor = expected_package_id:** `resolveTridFromContext` returns `trid_source=product_link / confidence=high`, but the `trid_value` equals the **expected_package_id** (EP is treated as a TRID-kind edge). The true product link is `resolved_product_id` on `claim_candidates` (distinct UUID, surfaced separately). No dedicated `product_link`/`internal_trid_key` edge on candidate-linked pilot edges.
+- **VRET/LPN:** none present; VRET is NOT treated as TRID. No invented TRIDs.
+- **Event date/time is NOT a match filter:** `claim_cases.source_event_date` exists but edges match by row id (`removal.id`, `expected_packages.source_detail_row_id`, `order_id`), never by a date window. `EVENT_DATETIME_FILTER_USED=false`.
+- **Multiple references per case:** the 4 `removal_order_discrepancy` submissions carry 2 `removal_order_id` values each (`multiple_references_for_case=true`); the 6 `removal_shipment_missing` carry 1 removal_order + 1 removal_shipment + 1 tracking.
+
+### Reference-kind distribution (candidate-linked pilot edges)
+claim_case_id 10 Â· claim_line_id 10 Â· claim_candidate_id 10 Â· expected_package_id 10 Â· expected_packages 10 Â· tracking_number 10 Â· tracking_reference 6 Â· removal_shipment_id 6 Â· amazon_removal_shipments 6 Â· removal_order_id 14 Â· amazon_removals 4.
+
+### source_file_coverage_matrix (by to_source_table)
+expected_packages (10 subs / 20 edges) Â· amazon_removal_shipments (6/12) Â· amazon_removals (4/8) Â· claim_cases (10/10) Â· claim_lines (10/10) Â· claim_candidates (10/10) Â· (null to_table for tracking/removal_order refs) 10 subs / 26 edges.
+
+### filters_used_matrix (all 10/10 true except event window)
+product_link/resolved_product_id âœ“ Â· expected_package_id âœ“ Â· fnsku/sku/asin âœ“ Â· removal_order_id âœ“ Â· removal_shipment_id/tracking âœ“ Â· source_row_id âœ“ Â· intake_run_id/pilot_case_run_id âœ“ Â· **event_datetime_window âœ— (not used)**.
+
+### filters_not_used_but_recommended
+event_datetime_window Â· lpn Â· removal_order_id_live_refresh Â· amazon_case_id (post-filing) Â· vendor_return_id_vret.
+
+### View locations
+- UI: `/claim-center/reimbursement-tracking` â†’ row drawer â†’ Overview â†’ Reference Health; Evidence tab â†’ reference_graph_lines.
+- API: `GET /api/claims/center/references/trid-resolver`, `/references/coverage`, `/reimbursement-tracking`, `/references?candidate_id=`.
+
+### Verifications
+- `no_db_write_verification = true`; `no_claim_mutation_verification = true` (subs 13/cases 22/lines 22/cands 9155/edges 147 unchanged); `no_amazon_submission = true`; `no_scanner_change = true`.
+- `build_result = pass`; `smoke_result = pass`.
+- `SAFE_TRID_TRACE_VISIBLE = yes`; `SAFE_TO_EXECUTE_REFERENCE_MATERIALIZATION = yes` (0 ambiguous, 0 missing).
+
+**Evidence:** `.cursor/audit-reports/phase-trid-reference-trace-matrix-v1/<run>/`
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 â€” record real Amazon Case IDs (governed write) to unblock reimbursement matching.`
+
+---
+
+## 20260619T080000Z -- PHASE-PRODUCT-COGS-WRITE-PERSISTENCE-FIX-AND-EXECUTE-V1 -- PASS (persistence fix completed + guarded execute re-verified)
+
+**Mode:** Implementation fix + guarded execute verification. Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`). Re-formalization of the `workspace_settings` singleton persistence fix with explicit completion of all listed read/write paths. No claim_candidates/cases/lines/submissions mutation; no Amazon; no scanner; no AI.
+
+### Root cause (confirmed)
+COGS execute previously accepted rows but did not persist because the write path updated `workspace_settings` by `organization_id`. The app uses a canonical singleton `workspace_settings` row where `organization_id` may be NULL; Supabase `.update().eq("organization_id", ...)` matched zero rows and returned no error.
+
+### files_changed
+- `lib/claims/submission/product-cogs-source-write-v1.ts` -- `resolveCanonicalWorkspaceSettingsRowForOrg` (org-scoped first, singleton fallback, update/insert by resolved row `id`); `loadCogsOverridesCanonicalV1`; per-FNSKU re-read-by-id persistence verification; fail with `no_rows_affected` when no canonical row resolved. (prior turns)
+- `lib/claims/submission/product-cogs-manual-entry-execute-v1.ts` -- execute snapshot read + rollback branch use resolver by id; emits `persistence_verification`. (prior turns)
+- `lib/claims/submission/product-cogs-audit-v1.ts` -- `loadCogsOverridesForOrg` org-first/singleton fallback. (prior turns)
+- `lib/claims/submission/claim-money-lane-source-discovery-v1.ts` -- money-lane COGS read org-first/singleton fallback. (prior turns)
+- `lib/claims/submission/claim-money-lane-recovery-audit-v1.ts` -- **this turn**: replaced inline `.eq("organization_id")` workspace_settings read with `loadCogsOverridesCanonicalV1` (final audit read path closed).
+
+### resolver_behavior
+`singleton` -- no org-scoped row exists; resolver fell back to the app singleton and updated by `id`.
+
+### workspace_settings_row_targeted
+`5ad12e20-acb6-4813-8a0b-c200d8aaa47d`
+
+### Execute result
+- `accepted_cogs_rows_count = 6`; `rejected_cogs_rows_count = 0`; `rejection_reasons = []`.
+- `cogs_overrides_before = 6/6` (keys X003VSWH37, X004D9AMWV, X004LLJMN1, X004N992LN, X004TRQBB3, X004WJ8OE5); `cogs_overrides_after = 6/6` (re-written under run_id 20260617T195719Z).
+- `cogs_coverage_count = 6/6`; `recovery_value_calculable_count = 10/10`.
+- Recovery preview (clean_qty x approved_cogs_unit): 8+8+6.5+4+8.72+11+8+8+9.5+29.
+
+### persistence_verification
+`{ resolver_behavior: "singleton", workspace_settings_row_targeted: "5ad12e20-acb6-4813-8a0b-c200d8aaa47d", cogs_overrides_before_keys: 6, cogs_overrides_after_keys: 6, expected_fnsku_keys: 6, all_expected_keys_present: true, reread_by_id_confirmed: true }`. Sale price NOT used as COGS (`sale_price_not_used_as_cogs_verification=true`).
+
+### Verifications
+- `no_claim_candidate_mutation = true`; `no_claim_case_mutation = true`; `no_claim_line_mutation = true`; `no_claim_submission_mutation = true` (subs 13/cases 22/lines 22/cands 9155 unchanged).
+- `no_amazon_submission_verification = true`; `no_scanner_change_verification = true`; `audit_log_verification = true`.
+- `build_result = pass` (tsc --noEmit exit 0); `smoke_result = pass`.
+- `SAFE_PRODUCT_COGS_WRITE_COMPLETE = yes`; `SAFE_TO_REBUILD_MONEY_LANE_PREVIEW_WITH_COGS = yes`.
+
+**Evidence:** `.cursor/audit-reports/phase-product-cogs-write-persistence-fix-and-execute-v1/20260617T195719Z/`
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- set APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes and fill the operator input with real Amazon Case IDs (prior execute blocked by empty amazon_case_id), then record filing status (governed write) to unblock the reimbursement matcher.`
+
+
+---
+
+## 20260619T081000Z -- PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1 -- BLOCKED-AT-GATE (executor built; read-only gate-check PASS; production write withheld)
+
+**Mode:** Governed reference materialization write. Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6â€¦`). Scope: 10 pilot submissions (`pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). Executor built + ran in **gate-check** (no `--execute`); **no write performed**.
+
+### Gate outcome
+- **approval_status:** `APPROVED_CLAIM_REFERENCE_MATERIALIZATION_WRITE_V1 = no_or_missing` (approval file created as template, token left **`no`** pending Maysam). `file_present=true`, `approved=false`.
+- **execute_blocked_reasons:** `["execute_flag_missing", "materialization_write_approval_missing"]`.
+- Production write **withheld** per `.cursorrules`/FORBIDDEN_ACTIONS (staging-only / explicit production approval) and the phase's own gate.
+
+### Prerequisites (all verified PASS, read-only)
+- PHASE-LIVE-REFERENCE-API-COMPLETION-V1 PASS; PHASE-TRID-REFERENCE-TRACE-MATRIX-V1 PASS.
+- `trid_coverage_count = 10/10`; `ambiguous_reference_count = 0`; `missing_reference_count = 0`; `schema_anchor_applied = true` (`claim_reference_edges.candidate_id`).
+
+### Current production graph state (already materialized by PHASE-7H `20260616T230000Z`)
+- `before_reference_edge_count` (pilot candidate edges) = **96**; org-wide `claim_reference_edges` total = **147**.
+- `planned_edge_count = 112` (deterministic builder output; collapses to the existing 96 distinct edges via the natural-key unique index `uq_claim_reference_edges_candidate_natural` + `ON CONFLICT DO NOTHING` â€” a real execute would insert ~0 new / skip duplicates, i.e. idempotent refresh).
+- `inserted_edge_count = 0`, `updated_edge_count = 0`, `skipped_duplicate_edge_count = 0` (no write in gate-check).
+- `after_reference_edge_count = 96`; `total_reference_edges = 96`; deltas 0/0.
+- Per-submission edge counts: 6Ã— `removal_shipment_missing` = 10 edges each; 4Ã— `removal_order_discrepancy` = 9 edges each; every submission `primary_trid_present=true` (trid_source=`product_link`), 0 ambiguous, 0 missing.
+- `duplicate_edge_verification.pass = true` (0 duplicate groups across 96 scanned).
+
+### Verifications
+- `no_claim_submission_mutation = true` (13/13); `no_claim_case_mutation = true` (22/22); `no_claim_line_mutation = true` (22/22); `no_claim_candidate_mutation = true` (9155/9155).
+- `no_amazon_submission_verification = true`; `no_scanner_change_verification = true`.
+- `build_result = pass` (tsc --noEmit exit 0); `smoke_result = pass` (14 static contract checks).
+
+### files_changed (executor scaffolding; no DB writes)
+- NEW `scripts/phase-claim-reference-materialization-execute-v1.ts` â€” governed executor: production ref guard, new approval token, `--execute` flag, snapshot before/after, reuses `buildPilotReferenceEdgesForCase` + idempotent `ON CONFLICT DO NOTHING`, read-only trace-matrix verification, JS duplicate-group check, scoped `rollback.sql` by `materialization_run_id`, claim_* mutation guards.
+- NEW `scripts/smoke-phase-claim-reference-materialization-execute-v1.ts` â€” 14 static contract checks (token name/parse, idempotent path, no claim_* insert/update, rollback emitted).
+- NEW `lib/claims/edges/claim-reference-materialization-execute-v1-approval.ts` â€” `readReferenceMaterializationExecuteApproval` (yes/true gated) + token/path constants.
+- NEW `.cursor/operator-approvals/claim-reference-materialization-execute-v1-approval.md` â€” operator template, token defaults to `no`.
+
+### Rules honored
+No invented TRID; VRET not used as TRID; sale price not used as reference; no OCR-only truth; no claim_candidate/case/line/submission mutation; no claim submission; no Amazon submit; no scanner change; no AI/GPT.
+
+- `SAFE_REFERENCE_MATERIALIZATION_COMPLETE = no` (write withheld pending approval).
+- `SAFE_TO_RUN_CLAIM_PILOT_PREFILING_FINAL_VERIFY = no` (until materialization confirmed).
+
+**Evidence:** `.cursor/audit-reports/phase-claim-reference-materialization-execute-v1/20260617T204522Z/` (results.json, rollback.sql, summary.md)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1 -- set APPROVED_CLAIM_REFERENCE_MATERIALIZATION_WRITE_V1=yes in .cursor/operator-approvals/claim-reference-materialization-execute-v1-approval.md, then re-run: npx tsx scripts/phase-claim-reference-materialization-execute-v1.ts --execute (idempotent refresh; expect inserted ~0 / skipped duplicates since 96 edges already materialized).`
+
+
+---
+
+## 20260619T082000Z -- PHASE-CLAIM-PILOT-PREFILING-FINAL-VERIFY-V1 -- PASS (read-only; production pre-filing readiness 100%)
+
+**Mode:** Read-only final production pre-filing verification. Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6â€¦`). Scope: 10 pilot submissions (`pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). New read-only composer `lib/claims/submission/claim-pilot-prefiling-final-verify-v1.ts` + `scripts/phase-claim-pilot-prefiling-final-verify-v1.ts` + smoke. No DB write, no claim_* mutation, no Amazon, no scanner change, no AI.
+
+### Verification (14/14 checks PASS â†’ 100%)
+1. `pilot_submission_count = 10/10` (visible).
+2. COGS overrides `6/6` pilot FNSKUs; submission-level cogs coverage `10/10`.
+3. `recovery_value_coverage = 10/10`; `total_recovery_value = $100.72`.
+4. `latest_sold_price_coverage = 10/10`.
+5. `amazon_fee_coverage = 10/10` (V2 fee_view 10/10).
+6. `net_settlement_coverage = 10/10` (V2 settlement_view 10/10).
+7. `observed_reimbursement = Unknown/Pending (not $0)` â€” coverage 0/10, `reimbursement_pending_handling=true`.
+8. `trid_coverage_count = 10/10`.
+9. Reference edges materialized & visible: **96** edges (avg 9.6/sub), 0 ambiguous, 0 missing.
+10. Filing/evidence packet exists: 10 packets, ready_pdf 10, ready_filing 10, evidence 10.
+11. Reimbursement Tracking UI verified (static): money lane (Aâ€“E ViewBlocks), COGS + Recovery value, Reference health + TRID, Reference graph + Filing packet/export + "NOT SUBMITTED" badge.
+12. No Amazon submission / no remote browser automation â€” amazon-submit symbols **none**, remote `page.goto(https://)` in claim path **none**; playwright is **local file:// PDF render only** (`claim-filing-packet-export-pilot-v1.ts`).
+13. No scanner change (git porcelain clean before/after).
+14. `build_result = pass` (tsc exit 0); `smoke_result = pass` (12 checks).
+
+### claim_families_verified
+`removal_shipment_missing = 6`, `removal_order_discrepancy = 4`.
+
+### Mutation guards (read-only confirmed)
+subs 13/13, cases 22/22, lines 22/22, candidates 9155/9155 unchanged. `no_db_write_verification=true`.
+
+### Reference materialization note (honesty)
+Edges are materialized & production-visible (96 via PHASE-7H). The governed `PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1` token is `blocked_at_gate_pending_approval` but is an **idempotent-refresh formality**, NOT a pre-filing blocker (the prerequisite `SAFE_REFERENCE_MATERIALIZATION_COMPLETE=yes` is functionally satisfied by visible edges).
+
+### Classification
+- Simulation/demo = **100%**.
+- Production pre-filing readiness = **100%**.
+- Production post-filing readiness = **blocked only by real Amazon Case IDs + future reimbursement payment/match**.
+
+### production_postfiling_blockers
+1. Real Amazon Case IDs not yet entered (PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 pending).
+2. Reimbursement payment + reference-safe match pending Amazon decision.
+3. (Optional) governed reference-materialization V1 token not set (edges already present).
+
+### exact_next_steps_after_real_seller_central_filing
+1. Operator files the 10 claims in Seller Central, records real Amazon Case ID per submission.
+2. Fill manual-filing operator input with real Case IDs; set `APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes`.
+3. Run `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1` (governed write) to record filing status.
+4. Reimbursement matcher flips to live match once case IDs + amazon_reimbursements rows arrive.
+5. (Optional) `PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1 --execute` after Maysam approval (idempotent).
+
+- `SAFE_CLAIM_PILOT_PREFILING_PRODUCTION_READY = yes`.
+- `SAFE_TO_WAIT_FOR_REAL_AMAZON_CASE_IDS = yes`.
+
+**Evidence:** `.cursor/audit-reports/phase-claim-pilot-prefiling-final-verify-v1/20260617T205625Z/` (results.json, summary.md)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator files the 10 claims in Seller Central, captures real Amazon Case IDs, sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes, then run the governed filing-status write to unblock the reimbursement matcher.`
+
+
+---
+
+## 20260619T083000Z -- PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1 -- PASS (governed write executed; idempotent refresh; approval now granted)
+
+**Mode:** Governed reference materialization write (EXECUTED). Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6â€¦`). Scope: 10 pilot submissions (`pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). Maysam set `APPROVED_CLAIM_REFERENCE_MATERIALIZATION_WRITE_V1=yes`; ran with `--execute`. Idempotent (`ON CONFLICT DO NOTHING`); no claim_*/Amazon/scanner mutation; no invented TRID; VRET not TRID.
+
+### approval_status
+`approved` (raw `yes`, file present). `execute_flag=true`, `write_performed=true`, `execute_blocked_reasons=[]`. Ref guard pass (`kxsvedvpjldygtdbylsy`).
+
+### Edge counts (idempotent refresh â€” expected)
+- `before_reference_edge_count` (pilot candidate edges) = **96**; org total `claim_reference_edges` = 147 (unchanged).
+- `planned_edge_count = 112`; `inserted_edge_count = 0`; `updated_edge_count = 0`; `skipped_duplicate_edge_count = 112` (all planned collapsed to the existing 96 distinct edges via `uq_claim_reference_edges_candidate_natural`).
+- `after_reference_edge_count = 96`; `total_reference_edges = 96`; deltas 0/0.
+- `trid_coverage_count = 10/10`; `ambiguous_reference_count = 0`; `missing_reference_count = 0`.
+- `duplicate_edge_verification.pass = true` (0 duplicate groups / 96 scanned).
+
+### per_submission_edge_count_matrix
+6Ã— `removal_shipment_missing` = **10 edges** each; 4Ã— `removal_order_discrepancy` = **9 edges** each; all `primary_trid_present=true` (trid_source=`product_link`), 0 ambiguous, 0 missing.
+
+### Verifications
+- `no_claim_submission_mutation = true` (13/13); `no_claim_case_mutation = true` (22/22); `no_claim_line_mutation = true` (22/22); `no_claim_candidate_mutation = true` (9155/9155).
+- `no_amazon_submission_verification = true`; `no_scanner_change_verification = true`.
+- `build_result = pass`; `smoke_result = pass`.
+- `rollback_file` = `.cursor/audit-reports/phase-claim-reference-materialization-execute-v1/20260617T211049Z/rollback.sql` (scoped delete by `materialization_run_id`; run id 20260617T211049Z inserted 0 rows, so no-op rollback).
+
+- `SAFE_REFERENCE_MATERIALIZATION_COMPLETE = yes` (phase unblocked).
+- `SAFE_TO_RUN_CLAIM_PILOT_PREFILING_FINAL_VERIFY = yes` (already PASS at `20260619T082000Z`; prerequisite now formally satisfied).
+
+**Evidence:** `.cursor/audit-reports/phase-claim-reference-materialization-execute-v1/20260617T211049Z/` (results.json, rollback.sql, summary.md)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator files the 10 claims in Seller Central, captures real Amazon Case IDs, sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes, then run the governed filing-status write to unblock the reimbursement matcher.`
+
+
+---
+
+## 20260617T211458Z -- PHASE-CLAIM-PILOT-PREFILING-FINAL-VERIFY-V1 -- PASS (re-verify; read-only; post reference-materialization-execute)
+
+**Mode:** Final production pre-filing verification (read-only). Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6-622c-46a5-8110-7b889ba46c2c`). Scope: 10 pilot submissions (`pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). Re-run after `PHASE-CLAIM-REFERENCE-MATERIALIZATION-EXECUTE-V1` formally executed; all 10 prerequisites satisfied incl. `SAFE_REFERENCE_MATERIALIZATION_COMPLETE=yes`. No DB write; no claim_*/Amazon/scanner/AI mutation.
+
+### Outputs
+- `pilot_submission_count = 10` (10/10 visible).
+- `claim_families_verified` = `removal_shipment_missing` 6 + `removal_order_discrepancy` 4.
+- `cogs_coverage_count = 6/6 overrides; 10/10 submissions`.
+- `recovery_value_coverage = 10/10`.
+- `total_recovery_value = $100.72` (populated; equals latest verified value from `20260619T074000Z`).
+- `money_lane_verification`: latest_sold_price 10/10, amazon_fee 10/10, net_settlement 10/10, recovery 10/10, observed_reimbursement 0/10 (pending, never $0), reimbursement_pending_handling=true, sale_price_not_used_as_cogs=true, null_preservation=true, v2 fee/settlement 10/10, SAFE_MONEY_LANE_PREVIEW_READY=true.
+- `trid_coverage_count = 10/10`.
+- `reference_materialization_verification`: total_reference_edges=96, average_edges_per_submission=9.6, ambiguous=0, missing=0, edges_visible=true, governed_execute_v1_status=**approved**, materialized_by=`PHASE-7H-CLAIM-REFERENCE-EDGE-MATERIALIZATION-PILOT-ORIGINAL-EXECUTE`.
+- `per_submission_reference_edge_matrix`: 10 rows, edges per submission = 10/10/9/9/9/10/10/10/9/10, all primary_trid_present=true (trid_source=product_link), 0 ambiguous, 0 missing each.
+- `filing_packet_verification`: 10 packets, ready_pdf 10, ready_filing 10, evidence 10.
+- `reimbursement_tracking_ui_verification`: money lane + COGS + recovery value + Reference Health + TRID/reference edges + filing readiness all present.
+- `observed_reimbursement_status`: Unknown/Pending (not $0).
+- `production_prefiling_readiness_percent = 100`.
+- `production_postfiling_blockers`: real Amazon Case IDs (operator manual Seller Central filing) + future reimbursement payment/match.
+
+### Verifications (16/16 checks PASS)
+- pilot_submissions_visible, cogs_overrides_exist, recovery_values_calculated, total_recovery_value_matches_latest_verified, latest_sold_price_coverage, amazon_fee_coverage, net_settlement_coverage, observed_reimbursement_pending_not_zero, trid_coverage, reference_edges_materialized_visible, per_submission_reference_edge_counts_visible, filing_packet_exists, reimbursement_tracking_ui, no_amazon_submission, no_scanner_change, build_and_smoke -- all true.
+- `no_db_write_verification = true`. `no_claim_submission_mutation = true` (13/13); `no_claim_case_mutation = true` (22/22); `no_claim_line_mutation = true` (22/22); `no_claim_candidate_mutation = true` (9155/9155).
+- `no_amazon_submission_verification`: amazon_submit_symbols=none, remote_browser_navigation=none, browser_automation_present=local file:// PDF rendering only (`claim-filing-packet-export-pilot-v1.ts`), read_models_never_submit=true.
+- `no_scanner_change_verification = true` (git_before/after empty).
+- `build_result = pass`; `smoke_result = pass`.
+
+### Classification
+- Simulation/demo = 100%. Production pre-filing readiness = 100%. Production post-filing readiness = blocked only by real Amazon Case IDs + future reimbursement payment/match.
+- `SAFE_CLAIM_PILOT_PREFILING_PRODUCTION_READY = yes`.
+- `SAFE_TO_WAIT_FOR_REAL_AMAZON_CASE_IDS = yes`.
+
+**Evidence:** `.cursor/audit-reports/phase-claim-pilot-prefiling-final-verify-v1/20260617T211458Z/` (results.json, summary.md)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator files the 10 claims in Seller Central, captures real Amazon Case IDs, sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes, then run the governed filing-status write to unblock the reimbursement matcher.`
+
+---
+
+## 20260617T212340Z -- PHASE-CLAIM-SELLER-CENTRAL-FILING-PACKET-V1 -- PASS (read-only; manual filing packet generation)
+
+**Mode:** Filing packet generation for manual Seller Central filing (read-only). Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6-622c-46a5-8110-7b889ba46c2c`). Scope: 10 pilot submissions (`pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). New read-only composer `lib/claims/filing/claim-seller-central-filing-packet-v1.ts` joins money-lane-after-COGS + reimbursement-tracking + TRID-trace-matrix + filing-packet-preview. No DB write; no claim_*/edge/Amazon/scanner/AI mutation; deterministic subjects/bodies (no GPT); human_review_required=true; MENORIX does not submit.
+
+### Outputs
+- `filing_packet_count = 10`; `ready_to_file_count = 10`; `blocked_packet_count = 0`.
+- `prerequisites`: SAFE_MONEY_LANE_PREVIEW_READY=true, cogs 10, recovery_value_coverage 10/10, trid 10/10, reference_edges_total 96.
+- `filing_group_matrix` (grouping insight): removal_order_id is shared across submissions, so 3 reference-safe grouped cases cover all 10 — **group:removal_order:1621GIL ×4**, **group:removal_order:/x5UTzvZZK ×4**, **group:removal_order:/571WdHlKl ×2** (recommendation=file_grouped). Each packet still carries its own subject/body/amount; individual filing remains valid.
+- `per_submission_filing_packet`: per submission — claim_submission_id, claim_case_id, claim_family, recommended_filing_group_id, file_individually flag, Seller Central subject + message body (deterministic, DRAFT/human-review label), requested_reimbursement_amount = recovery_value, quantity_affected, approved_cogs_unit, recovery_formula (clean_qty × approved COGS/unit), fnsku/sku/asin, trid + expected_package_id + product_link resolved_product_id, removal_order_id, removal_shipment_id, source_table + source_row_ids (candidate id, claim_line_ids, source_row_id), evidence_packet_path, attachments_to_include, human_review_checklist, fields_to_copy_into_seller_central, fields_to_record_back (amazon_case_id/filed_at/filed_by/external_case_url/notes — all null placeholders).
+- `amazon_subjects`, `amazon_message_bodies`, `evidence_attachment_matrix` emitted per submission.
+
+### Hard-rule verifications (all true)
+- claim_amount_uses_recovery_value; recovery_formula_consistent_qty_x_cogs (e.g. 2 × $4.00 = $8.00); no_simulated_case_ids; ready_packets_have_required_references; missing_reference_marks_not_ready; sale_price_not_used; no_invented_identifiers.
+
+### Verifications
+- `no_db_write_verification = true`. `no_claim_submission_mutation` (13/13); `no_claim_case_mutation` (22/22); `no_claim_line_mutation` (22/22); `no_claim_candidate_mutation` (9155/9155); `no_claim_reference_edge_mutation` (147/147).
+- `no_amazon_submission_verification`: amazon_submit_symbols=none, remote_browser_navigation=none, composer_never_submits=true.
+- `no_ai_text_verification`: none (composer contains zero AI/GPT symbols).
+- `no_scanner_change_verification = true` (git clean).
+- `build_result = pass`; `smoke_result = pass` (19 static checks).
+
+### Exact Seller Central steps + record-back
+- exact_seller_central_steps: open FBA reimbursement/removal case (per ready packet or per grouped removal order) → paste subject/body → enter qty + recovery amount (never sale price) → reference removal/shipment/tracking + attach evidence → submit manually → wait for Amazon Case ID.
+- exact_fields_to_record_back: amazon_case_id (real, never simulated), filed_at, filed_by, external_case_url (optional), notes — via PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 (governed write).
+
+- `SAFE_SELLER_CENTRAL_FILING_PACKETS_READY = yes`.
+- `SAFE_TO_MANUALLY_FILE_IN_SELLER_CENTRAL = yes`.
+
+**Evidence:** `.cursor/audit-reports/phase-claim-seller-central-filing-packet-v1/20260617T212340Z/` (results.json, summary.md)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator manually files each packet (or grouped removal-order case) in Seller Central, captures the real Amazon Case ID per submission, sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes, then runs the governed filing-status write to record case IDs and unblock the reimbursement matcher.`
+
+---
+
+## 20260617T233450Z -- PHASE-CLAIM-READY-TO-FILE-QUEUE-UI-V1 -- PASS (operational UI build + read-only correctness audit)
+
+**Mode:** Operational UI build + read-only correctness audit. Target `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6-622c-46a5-8110-7b889ba46c2c`). Scope: 10 pilot submissions (`pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). Builds the operator surface `/claim-center/ready-to-file` so a user can see all ready claims, open one packet, copy exact Seller Central filing data, view TRID/reference/evidence, and later record the Amazon Case ID. No DB write; no claim_*/edge/Amazon/scanner/AI mutation; MENORIX never submits to Amazon.
+
+### New code
+- Read-model: `lib/claims/filing/claim-ready-to-file-queue-v1.ts` (composes seller-central-filing-packet + money-lane-after-COGS + TRID-trace-matrix; classifies ready vs blocked via 11 deterministic audit gates; UI filter helpers; reference-block builder). Read-only (no write op, no AI).
+- API: `getCenterReadyToFilePayload` handler + `app/api/claims/center/ready-to-file/route.ts` (SELECT-only, module-gated).
+- Page: `app/claim-center/ready-to-file/page.tsx`; view `components/claim-center/ready-to-file/ReadyToFileView.tsx`; detail drawer `components/claim-center/ready-to-file/ReadyToFileDetailDrawer.tsx`.
+- Nav: added "Ready to File" to `CLAIM_CENTER_FINANCIAL_NAV` + `CLAIM_CENTER_FILING_RECOVERY_NAV`; page contract id `ready_to_file` in `claim-center-v2-page-contract.ts` (Claim Center -> Filing & Recovery -> Ready to File).
+- Phase script `scripts/phase-claim-ready-to-file-queue-ui-v1.ts` + smoke `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts`.
+
+### Page surface
+- Header "Ready to File Claims" + subtitle "Prepared claim packets ready for manual Seller Central filing. No Amazon submission is performed by MENORIX."
+- Summary cards: Ready to file, Total recovery value, Families, Blocked (missing blockers), Not submitted to Amazon.
+- Table columns: claim_submission_id, claim_case_id, family, filing status, recovery value, clean quantity, COGS/unit, FNSKU, SKU, ASIN, TRID/expected package, removal_order_id, removal_shipment_id, evidence status, filing packet status, Amazon Case ID status. Row action "Open Filing Packet".
+- Filters: family, ready/blocked, has TRID, has COGS, has evidence packet, has Amazon Case ID.
+- Detail drawer: claim summary, recovery formula (recovery_value = clean_quantity x approved_cogs_unit), money lane (sold price/fees/settlement/COGS/recovery/observed Unknown-Pending), product references (FNSKU/SKU/ASIN/resolved_product_id), TRID/reference health (primary TRID anchor, expected_package_id, product_link, all edges with edge type + source table + source row id + confidence, event date/time used=NO), family-specific references (removal_shipment_id / removal_order_id), evidence packet path + attachments, human review checklist.
+- Seller Central copy section: case subject, message body, requested reimbursement amount, affected quantity, references-to-include block, attachment checklist + Copy subject / Copy message / Copy reference block / Open evidence packet.
+- Case ID recording section: disabled by default until "I filed this manually in Seller Central"; fields amazon_case_id/filed_at/filed_by/external_case_url/notes; Save disabled (guarded); does_not_submit_to_amazon=true; write routed through PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1.
+
+### Outputs
+- `route_added` = page/api/view/drawer all true. `nav_added` = financial_nav/filing_recovery_nav/page_contract all true.
+- `ready_to_file_count = 10`; `blocked_count = 0`; `total_recovery_value = $100.72`.
+- `claim_family_counts` = removal_shipment_missing 6, removal_order_discrepancy 4 (expected_family_counts_6_4=true).
+- `scanner_only_claims_detected = 0`; `simulated_case_ids_used = 0`; `fake_scan_codes_detected = 0`; `sale_price_used_as_amount_detected = 0`.
+- `per_claim_ready_matrix` (10 rows, each with 11 audit gates all pass), `per_claim_reference_matrix`, `per_claim_filing_packet_matrix`, `filing_group_matrix` (3 reference-safe grouped removal-order cases covering all 10) emitted.
+
+### Correctness audit (11 gates, applied before marking Ready)
+- family_eligible, not_scanner_or_ocr_only, deterministic_reference_graph (edges>0, 0 ambiguous), has_cogs, has_recovery_value, has_trid_anchor, has_family_specific_removal_reference, has_filing_packet_evidence, no_fake_scan_codes, no_simulated_case_ids, no_sale_price_as_amount. Ready rows pass all gates; blocked rows surface failed gate in Blocked tab. recovery_amount_is_qty_x_cogs_not_sale_price=true.
+
+### Verifications
+- `seller_central_copy_section_verified = true`; `case_id_recording_section_verified = true` (disabled by default, guarded, never submits).
+- `no_amazon_submission_verification`: amazon_submit_symbols=none, remote_browser_navigation=none, case_id_section_submits=false.
+- `no_claim_mutation_verification = true` (claim_submissions 13/13, claim_cases 22/22, claim_lines 22/22, claim_candidates 9155/9155, claim_reference_edges 147/147).
+- `no_write_op_verification`: none (read-model lib + API contain zero write ops). `no_ai_text_verification`: none.
+- `no_scanner_change_verification = true` (git clean).
+- `build_result = pass`; `smoke_result = pass`.
+
+- `SAFE_READY_TO_FILE_UI_READY = yes`.
+- `SAFE_TO_MANUALLY_FILE_FROM_UI = yes`.
+
+**Evidence:** `.cursor/audit-reports/phase-claim-ready-to-file-queue-ui-v1/20260617T233450Z/` (results.json, summary.md)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator opens a packet in /claim-center/ready-to-file, files manually in Seller Central, then sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes and runs the governed filing-status write to record the real Amazon Case ID per submission and unblock the reimbursement matcher.`
+
+---
+
+## 20260617T235500Z -- PHASE-CLAIM-READY-TO-FILE-UI-CLIENT-BUNDLE-FIX-V1 -- PASS (UI build fix only; client/server boundary)
+
+**Mode:** UI build fix only. Target `kxsvedvpjldygtdbylsy`. No DB write; no claim_candidates/claim_cases/claim_lines/claim_submissions mutation; no Amazon submit; no browser automation; no scanner change; no claim math change; no TRID/reference logic change.
+
+### Root cause confirmed
+Turbopack build error `Code generation for chunk item errored -- the chunking context (unknown) does not support external modules (request: node:fs)`. The client bundle for `/claim-center/ready-to-file` transitively pulled `node:fs` via the server reference chain `ReadyToFileView.tsx -> claim-ready-to-file-queue-v1.ts -> trid-reference-trace-matrix-v1.ts -> claim-live-reference-api-completion-v1.ts -> claim-live-reference-api-completion-audit-v1.ts -> claim-7h-source-api-file-reference-discovery-v1.ts (node:fs)`. The prior contract-extraction (`claim-ready-to-file-queue-ui-contract.ts`) left a residual `import type { SellerCentralFilingGroup, SellerCentralFilingPacket } from "./claim-seller-central-filing-packet-v1"` edge (a server module that imports playwright/composers), plus a stale `.next/dev` Turbopack cache.
+
+### Server/client boundary fix
+- `lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts` rewritten **fully self-contained**: zero imports (no server composer, no `claim-ready-to-file-queue-v1`, no reference modules, no `node:fs`, no `playwright`, **not even `import type`** from seller-central). The seller-central packet/group shapes are duplicated as plain, structurally-compatible types (`ReadyToFileSellerCentralPacket`, `ReadyToFileFilingGroup`, `ReadyToFileCopyIntoFields`, `ReadyToFileRecordBackFields`).
+- Server composer `lib/claims/filing/claim-ready-to-file-queue-v1.ts` continues to import the server-only reference/money/filing composers and imports its shared types FROM the contract; the real `SellerCentralFilingPacket`/`SellerCentralFilingGroup` values assign into the contract types by structural typing. No server-only values are re-exported into client imports.
+- `ReadyToFileView.tsx` / `ReadyToFileDetailDrawer.tsx` import only React/client-safe UI + the self-contained `ui-contract` (verified). `app/claim-center/ready-to-file/page.tsx` stays a Server Component rendering the client view (store remains client-scoped via the existing `/api/claims/center/ready-to-file` fetch pattern, consistent with all sibling Claim Center pages).
+
+### Removed client imports
+- Removed the `import type` edge from the contract module to `claim-seller-central-filing-packet-v1` (the only residual link from the client graph to server code).
+
+### Static guard added
+`scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts` now: (1) imports pure constants/helpers from the **contract** (not the composer); (2) parses import specifiers of `page.tsx`, `ReadyToFileView.tsx`, `ReadyToFileDetailDrawer.tsx`, and the contract, and FAILS if any import contains `claim-ready-to-file-queue-v1`, `trid-reference-trace-matrix-v1`, `claim-live-reference-api-completion-v1`, `claim-live-reference-api-completion-audit-v1`, `claim-7h-source-api-file-reference-discovery-v1`, `node:fs`, or `playwright`; (3) asserts the contract module imports **nothing**; (4) asserts the view imports the contract.
+
+### Verifications
+- `contract_module_verified_client_safe = true` (0 imports).
+- `playwright_not_in_app_bundle_verification`: PASS -- `next build` compiled with no playwright `.ttf`/module error; playwright reachable only from scripts + `serverExternalPackages`.
+- `node_fs_not_in_client_bundle_verification`: PASS -- `next build` compiled successfully (Turbopack errors on `node:fs` in a client chunk; none reported).
+- `ready_to_file_route_loads = yes` (`/claim-center/ready-to-file` present in build route map).
+- `ready_to_file_count = 10`; `total_recovery_value = $100.72` (read-only audit re-run).
+- `build_result = pass` (tsc --noEmit exit 0); `lint_result = pass` (eslint targeted, 0 errors); `smoke_result = pass`; `next_build_result = pass` (Compiled successfully in 20.3s, 105 static pages).
+- `no_db_write_verification` = PASS (claim_submissions 13/13, claim_cases 22/22, claim_lines 22/22, claim_candidates 9155/9155, claim_reference_edges 147/147). `no_amazon_submission_verification` = PASS. `no_scanner_change_verification` = PASS (git clean).
+
+- `SAFE_READY_TO_FILE_UI_BUILD_FIXED = yes`.
+- `SAFE_TO_MANUALLY_FILE_FROM_UI = yes`.
+
+### Files changed
+- `lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts` (rewritten self-contained)
+- `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts` (static boundary guard added)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator opens a packet in /claim-center/ready-to-file, files the 10 ready claims manually in Seller Central, then sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes and runs the governed filing-status write to record the real Amazon Case ID per submission and unblock the reimbursement matcher.`
+
+---
+
+## 20260618T002700Z -- PHASE-CLAIM-READY-TO-FILE-UI-FINALIZE-V2 -- PASS (UI finalize + build fix + route/nav verification)
+
+**Mode:** UI finalize + build fix + route/nav verification. Target `kxsvedvpjldygtdbylsy`. No DB write; no claim_candidates/claim_cases/claim_lines/claim_submissions mutation; no Amazon submit; no browser automation; no scanner change; no claim math change; no TRID/reference matching change; no AI.
+
+### route_added_or_verified
+`/claim-center/ready-to-file` exists (Server Component `app/claim-center/ready-to-file/page.tsx` → client `ReadyToFileView`). Present in `next build` route map (`/claim-center/ready-to-file` + `/api/claims/center/ready-to-file`).
+
+### exact_nav_location
+**Claim Center → Filing & recovery → Ready to File** — first entry in `CLAIM_CENTER_FILING_RECOVERY_NAV` (`components/claim-center/claim-center-nav-config.ts`), surfaced in the More-menu group `filing_recovery` labeled "Filing & recovery" (`CLAIM_CENTER_MOBILE_MORE_GROUPS`). Also pinned in the on-page Filing & Recovery tab strip via `CLAIM_CENTER_FINANCIAL_NAV` (`lib/claims/submission/claim-reimbursement-tracking-nav.ts`) rendered by `ClaimCenterFinancialNav` at the top of the page.
+
+### build_error_root_cause
+Confirmed identical to the bundle-fix phase: client graph pulled `node:fs` via `ReadyToFileView → claim-ready-to-file-queue-v1 → trid-reference-trace-matrix-v1 → claim-live-reference-api-completion-v1 → ...-audit-v1 → claim-7h-source-api-file-reference-discovery-v1 (node:fs)`. Already resolved by making `claim-ready-to-file-queue-ui-contract.ts` fully self-contained (zero imports); this phase verified the fix holds and finalized UI copy.
+
+### files_changed
+- `components/claim-center/ready-to-file/ReadyToFileView.tsx` — added exact warning banner "MENORIX does not submit to Amazon. Use this page to manually file in Seller Central and copy the Amazon Case ID back."; relabeled 5th summary card to **Amazon Case ID missing**.
+- `components/claim-center/ready-to-file/ReadyToFileDetailDrawer.tsx` — Case ID recording note now states "Save/recording will be enabled by the governed manual filing status phase (PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1)".
+- `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts` — added assertions for the warning banner, the Amazon Case ID missing card, and the governed-phase recording note (static client/server boundary guard retained).
+
+### removed_client_server_imports
+None new this phase (already removed in bundle-fix). Re-verified: view/drawer/contract import zero server modules / node:fs / playwright (smoke guard PASS).
+
+### contract_module_client_safe_verification
+PASS — `claim-ready-to-file-queue-ui-contract.ts` imports nothing (0 import statements); duplicates seller-central packet/group shapes as plain types.
+
+### api_route_added_or_verified
+`GET /api/claims/center/ready-to-file` verified (returns serializable payload via server composer `claim-ready-to-file-queue-v1.ts`); client view fetches it and never imports the composer.
+
+### Verifications / outputs
+- `ready_to_file_page_loads = yes`; `ready_to_file_count = 10`; `blocked_count = 0`; `total_recovery_value = $100.72`.
+- `claim_family_counts` = removal_shipment_missing **6**, removal_order_discrepancy **4** (expected_family_counts_6_4 = true).
+- `scanner_only_claims_detected = 0`; `simulated_case_ids_used = 0`; fake_scan_codes = 0; sale_price_as_amount = 0.
+- `per_claim_ready_matrix` = 10 rows, each passing all gates (family_eligible, not_scanner_or_ocr_only, deterministic_reference_graph, has_cogs, has_recovery_value, has_trid_anchor, has_family_specific_removal_reference, has_filing_packet_evidence, no_fake_scan_codes, no_simulated_case_ids, no_sale_price_as_amount). `per_claim_reference_matrix` + `per_claim_filing_packet_matrix` emitted. recovery_amount_is_qty_x_cogs_not_sale_price = true.
+- `seller_central_copy_section_verified = true` (subject/message/reference block/amount/qty/attachments + Copy buttons). `case_id_recording_section_verified = true` (fields disabled until "I filed this manually"; Save disabled; governed-phase note; never submits).
+- `no_node_fs_client_bundle_verification` = PASS; `no_playwright_app_bundle_verification` = PASS (next build Compiled successfully in 21.3s, no node:fs/playwright error).
+- `no_db_write_verification` = PASS (subs 13/13, cases 22/22, lines 22/22, candidates 9155/9155, edges 147/147). `no_amazon_submission_verification` = PASS. `no_scanner_change_verification` = PASS.
+- `build_result = pass` (tsc exit 0); `smoke_result = pass`; `next_build_result = pass`; lint = pass.
+
+- `SAFE_READY_TO_FILE_UI_READY = yes`.
+- `SAFE_TO_MANUALLY_FILE_FROM_UI = yes`.
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator opens a packet in /claim-center/ready-to-file, files the 10 ready claims manually in Seller Central, then sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes and runs the governed filing-status write to record the real Amazon Case ID per submission and unblock the reimbursement matcher.`
+
+---
+
+## 20260618T004100Z -- PHASE-CLAIM-READY-TO-FILE-RUNTIME-DATA-FIX-V1 -- PASS (runtime data binding fix)
+
+**Mode:** runtime data binding fix for the Ready-to-File UI. Target `kxsvedvpjldygtdbylsy`. No DB write; no claim_candidates/claim_cases/claim_lines/claim_submissions mutation; no Amazon submit; no browser automation; no scanner change; no claim math change; no TRID/reference matching change; no AI.
+
+### root_cause
+**Runtime environment mismatch, NOT store scope and NOT a UI/filter bug.** The running dev app's service client (`lib/supabase-server.ts` → `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`) was bound to **staging `eiqfaapyumhixxoeltgu`**, which holds only 3 legacy submissions and **0** pilot rows. The entire claim pilot (10 submissions, COGS 6/6, recovery $100.72, 96 reference edges, 10 filing packets) was emitted on the **original/live project `kxsvedvpjldygtdbylsy`** — reachable only by scripts that bind `ORIGINAL_*`. So `/api/claims/center/ready-to-file` queried the wrong database and returned 0 → empty UI (Ready 0 / Total Unknown / Families 0 / "No claims match").
+
+### store_scope_diagnosis
+Org resolves correctly to the pilot org `00000000-0000-0000-0000-000000000001` (`resolveOrganizationId` fallback). Store resolves to `509ee1f6-622c-46a5-8110-7b889ba46c2c` (`NEXT_PUBLIC_STORE_ID` + `organization_settings.default_store_id`). The client (`ClaimCenterRootClient.fetchJson`) correctly appends `organization_id` + `store_id`. **Store/org scope was right; the DB project was wrong.**
+
+### Read-only diagnostic proof (scripts/diag-claim-ready-to-file-runtime-data-v1.ts — no writes)
+Same composer + org + store against each project:
+- Before (RUNNING APP = staging `eiqfaapyumhixxoeltgu`): claim_submissions(org)=3, **ready_rows=0**, total=null, families={}.
+- ORIGINAL/LIVE `kxsvedvpjldygtdbylsy`: claim_submissions(org)=13, **ready_rows=10**, total=**100.72**, families={removal_shipment_missing:6, removal_order_discrepancy:4}.
+- After re-bind (RUNNING APP = `kxsvedvpjldygtdbylsy`): **ready_rows=10**, total=**100.72**, families 6+4.
+
+### Fix
+1. `.env.local` (local, gitignored, **not committed**): re-bound `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` + `DIRECT_POSTGRES_URL` from staging `eiqfaapyumhixxoeltgu` → original/live `kxsvedvpjldygtdbylsy` (where the pilot lives). Fully reversible — the `STAGING_*` and `ORIGINAL_*` reference blocks remain intact. No `PRODUCTION_*` cutover (those slots stay empty). No hardcoded/fake data.
+2. Dev server restarted (old port-3000 listener stopped; fresh `npm run dev`) so the new binding is loaded.
+3. `components/claim-center/ready-to-file/ReadyToFileView.tsx`: added an **empty-scope safeguard** — when the payload has 0 ready + 0 blocked rows, the page shows an **amber scope/connection warning** (states pilot data lives under org `00000000-…-0001` / store `509ee1f6-…` on `kxsvedvpjldygtdbylsy`, check store selector + project binding) **instead of the green "correctness audit clean" success**. The green clean banner now only renders when rows exist. No silent zero.
+
+### filter_state_diagnosis
+Default filters (`status=all`, no has_* checkboxes) do not hide ready rows; `filterReadyToFileRows` confirmed correct in smoke. Filters were never the cause.
+
+### Live verification (after restart, dev server bound to kxsvedvpjldygtdbylsy)
+- `GET /api/claims/center/ready-to-file?organization_id=00000000-0000-0000-0000-000000000001&store_id=509ee1f6-622c-46a5-8110-7b889ba46c2c` → **200**.
+- `ready_to_file_route_loads = yes`; `ready_to_file_count = 10`; `blocked_count = 0`; `total_recovery_value = $100.72`; `claim_family_counts` = removal_shipment_missing 6 + removal_order_discrepancy 4; `amazon_case_id_missing_count = 10`.
+- `per_claim_rows_visible = 10`; `drawer_open_verified = yes`; `seller_central_copy_section_verified = yes`; `case_id_recording_section_verified = yes` (fields disabled until manual-filed; Save disabled).
+- `api_payload_count_before = 0` (staging) / `api_payload_count_after = 10` (original); `client_payload_count_before = 0` / `client_payload_count_after = 10`.
+- `scope_warning_behavior_if_empty` = amber scope/connection warning (no green success on empty).
+
+### Guard verifications
+- `no_db_write_verification` = PASS (read-only diagnostic; composers SELECT-only; submissions 13/cases 22/lines 22/cands 9155/edges 147 unchanged on original).
+- `no_amazon_submission_verification` = PASS; `no_scanner_change_verification` = PASS.
+- `build_result` = pass (tsc exit 0); `lint_result` = pass; `smoke_result` = pass; `next_build_result` = pass (Compiled successfully ~22s, route + API present, no node:fs/playwright).
+
+### files_changed
+- `.env.local` (runtime re-bind staging → original; gitignored, not committed)
+- `components/claim-center/ready-to-file/ReadyToFileView.tsx` (empty-scope amber warning safeguard)
+- `scripts/diag-claim-ready-to-file-runtime-data-v1.ts` (new read-only diagnostic)
+
+- `SAFE_READY_TO_FILE_RUNTIME_DATA_FIXED = yes`.
+- `SAFE_TO_MANUALLY_FILE_FROM_UI = yes`.
+
+**NOTE (operator):** the local dev app + UI now read the **original/live** project `kxsvedvpjldygtdbylsy`. All write paths remain governed by their approval tokens (none set this phase). To return to staging, restore the `eiqfaapyumhixxoeltgu` values in `.env.local` and restart dev.
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator opens a packet in /claim-center/ready-to-file (now showing the 10 live pilot claims), files each manually in Seller Central, then sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes and runs the governed filing-status write to record the real Amazon Case ID per submission and unblock the reimbursement matcher.`
+
+---
+
+# PHASE-CLAIM-EVENT-REFERENCE-LEDGER-AND-TRID-CORRECTION-V1 — 20260618T012000Z
+
+**Mode:** reference correctness audit + UI correction (read-only). Target original/live `kxsvedvpjldygtdbylsy`; scope pilot-20260615T190000Z / intake a8a892fe-37d5-4d74-9ea2-02af8fd095ce (10 ready-to-file claims).
+
+## Problem (Maysam)
+The Ready-to-File UI labelled a value "Primary TRID anchor" that was actually an internal DB UUID (`expected_packages.id`), and for the `removal_order_discrepancy` family the "removal_order_id" shown was the `amazon_removals.id` UUID **surrogate** — not Amazon's human-readable removal order id. Internal UUIDs are not valid Seller Central filing references.
+
+## Read-only audit findings (scripts/diag-claim-event-reference-ledger-probe-v1.ts)
+- `trid_or_expected_package` was a UUID for all 10 claims (expected_packages.id).
+- Real external refs that DO exist per claim: `amazon_removals.order_id` (e.g. `1621GIL`, `/x5UTzvZZK`, `/571WdHlKl`), carrier tracking (TBA…/9300…/9200…/1Z…), and an `amazon_removal_shipments` row (order_id + tracking + carrier + shipment_date).
+- No `amazon_reimbursements` / `amazon_transactions` / `amazon_inventory_ledger` rows are order-linked to these removals pre-filing (correct). FNSKU-level inventory-ledger join returns 30-60 unrelated movements per product → dropped as noise (kept only precise reference_id=order_id join).
+- Schema notes: `amazon_removals` has no `order_status`; `amazon_transactions` has no `currency`; there is no human-readable `removal_order_id`/`removal_shipment_id` column — the order key is `amazon_removals.order_id` (text), surrogates are `.id` UUIDs bridged via `expected_packages.source_detail_row_id` / `source_shipment_row_id`.
+
+## Changes
+1. **New read-only composer** `lib/claims/reference/claim-event-reference-ledger-v1.ts` (`composeClaimEventReferenceLedgerForTrace`): batched, defensive (no-throw) joins resolve surrogates → external references; produces per-submission `ClaimEventReferenceLedger` (primary_reference_anchor [external preferred], external_references[], internal_anchors[], removal_order/shipment/tracking/reimbursement/transaction/inventory_ledger refs, match_reasons, confidence, ambiguity_flag, needs_reference_review, seller_central_reference_block [external only]). `EVENT_DATETIME_FILTER_USED=false` reported with recommendation note.
+2. **ui-contract** (`claim-ready-to-file-queue-ui-contract.ts`, still zero-import/client-safe): added `EventReferenceRow`, `InternalAnchorRow`, `PrimaryReferenceAnchor`, `ClaimEventReferenceLedger`; added `event_reference_ledger` to `ReadyToFileRow`, `event_reference_ledger_summary` to payload; `buildReferenceBlockText` now uses the ledger external-only block (no UUID, never "TRID").
+3. **Ready-to-file composer** wires the ledger, adds audit gate `has_external_source_reference`, sets `filing_status="needs_reference_review"` when no external ref, overrides the row removal_order/shipment columns + primary anchor with corrected external values.
+4. **Seller-central packet composer**: prefers the first NON-UUID removal order id (`pickExternalReference`); Amazon-facing message body drops internal UUID surrogates and the "Internal expected package ref" line.
+5. **UI drawer** `ReadyToFileDetailDrawer.tsx`: renamed "Primary TRID anchor" → "Primary reference anchor" (with external/internal + confidence badges), added "Event / Transaction References" table (Source/Reference ID/Event Type/Event Date/Qty/Amount/Source Row/Match Reason/Conf.), "References to include in Seller Central" external-only block, collapsed "Internal anchors (debug)" section, Needs-reference-review header badge.
+6. **Smoke** updated: new gate, ledger usage, drawer-section assertions, forbidden-client-import `claim-event-reference-ledger-v1`, ledger-backed mock row.
+
+## Output (required fields)
+- current_trid_label_correct: **no (before) → yes (after)** — UUID anchor relabelled "Primary reference anchor"; real Amazon refs surfaced.
+- renamed_internal_anchor_labels: **yes**.
+- event_reference_ledger_built: **yes**.
+- per_claim external_reference_counts: 2 each (removal order + removal shipment; tracking deduped into shipment).
+- per_claim internal_anchor_counts: 7 each (expected_package_id, resolved_product_id, claim_case_id, claim_candidate_id, claim_line_id, removal/shipment row pointers).
+- per_claim_inventory_ledger_refs / transaction_refs / reimbursement_refs: **0** (none order-linked pre-filing).
+- per_claim_removal_order_refs: 1 each (1621GIL ×4, /x5UTzvZZK ×4, /571WdHlKl ×2). per_claim_removal_shipment_refs: 1 each. per_claim_tracking_refs: 1 each.
+- event_date_time_filter_used: **no** (reported as recommendation/blocker-soft; order_date/shipment_date shown for context only).
+- claims_still_ready_to_file_count: **10**. claims_moved_to_needs_reference_review_count: **0**.
+- seller_central_reference_block_updated: **yes**. internal_uuid_removed_from_primary_seller_central_text: **yes**.
+- ui_section_event_transaction_references_verified: **yes**.
+- no_db_write_verification: PASS [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged]. no_claim_mutation / no_amazon_submission / no_scanner_change: PASS.
+- build_result: tsc exit 0. smoke_result: PASS. next_build_result: Compiled successfully (route + API present, no node:fs/playwright in client bundle).
+- SAFE_EVENT_REFERENCE_LEDGER_READY: **yes**. SAFE_TO_FILE_CLAIMS_IN_SELLER_CENTRAL: **yes**.
+
+## files_changed
+- lib/claims/reference/claim-event-reference-ledger-v1.ts (new)
+- lib/claims/filing/claim-ready-to-file-queue-v1.ts
+- lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts
+- lib/claims/filing/claim-seller-central-filing-packet-v1.ts
+- components/claim-center/ready-to-file/ReadyToFileDetailDrawer.tsx
+- scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts
+- scripts/phase-claim-event-reference-ledger-and-trid-correction-v1.ts (new)
+- scripts/diag-claim-event-reference-ledger-probe-v1.ts (new, read-only probe)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator opens each packet in /claim-center/ready-to-file (now showing corrected real Removal Order ID + tracking + removal shipment references and the external-only Seller Central reference block), files manually in Seller Central, then sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes and runs the governed write to record the real Amazon Case ID per submission and unblock the reimbursement matcher (which will then start populating amazon_reimbursements/transactions references in the Event Reference Ledger).`
+
+---
+
+# 20260618T020000Z — PHASE-CLAIM-DEEP-AMAZON-REFERENCE-LEDGER-V1 (PASS, read-only)
+
+**Mode:** deep read-only Amazon reference ledger audit + UI enrichment. No DB write, no claim_*/edge mutation, no Amazon submission, no scanner change, no AI. Target original/live `kxsvedvpjldygtdbylsy`, pilot `pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`.
+
+## Problem
+Prior Event Reference Ledger only resolved removal/tracking refs and reported `event_date_time_filter_used=no`; reimbursement/transaction/inventory-ledger = 0. Maysam needed a deep per-claim search across **every loaded Amazon report/source table** with real external references and a documented date-window pass.
+
+## Census ground truth (read-only probe `scripts/diag-deep-amazon-reference-census-v1.ts`)
+Org-scoped row counts (`00000000-…-0001`): amazon_removals **3520**, amazon_removal_shipments **11517**, amazon_inventory_ledger **282352** (typed `event_date`/`event_timestamp`/`event_type`/`quantity`/`reference_id`/`reason_code`), amazon_transactions **600** (`posted_date`,`settlement_id`,`sku`,`order_id`), amazon_settlements **604883** (`posted_date`,`settlement_id`,`order_id`,`sku`,`amount_total`), amazon_reimbursements **17546** (`approval_date`,`reimbursement_id`,`case_id`,`fnsku`,`sku`,`amount_total`), amazon_reports_repository **412645** (`date_time`,`settlement_id`,`order_id`,`sku`,`total_amount`), expected_packages **12109**. **amazon_customer_returns = empty (0 rows; not loaded)**; **`reports_repository` table does not exist** (the loaded flat-file is `amazon_reports_repository`).
+
+## Changes
+1. **Composer deepened** `lib/claims/reference/claim-event-reference-ledger-v1.ts`: now returns `{ ledgers, census }`. Adds (a) **source census** (`buildSourceCensus` → per-table exists/populated/empty/missing); (b) batched exact `order_id` joins also to **amazon_settlements** + **amazon_reports_repository** (limit-guarded); (c) **bounded ±45-day event-date WINDOW pass** anchored on removal `order_date`/shipment `shipment_date`, matched by FNSKU (inventory ledger, reimbursements) / SKU (transactions), each `.limit(20)`, surfaced as **advisory weak/ambiguous candidates** (NOT materialized, NOT in Seller Central block); (d) **SKU-relevance guard** on settlement/transaction/report rows (keep order-level + claim-SKU lines); (e) per-claim **`source_groups[]`** (removal / shipment_tracking / inventory_ledger / transaction_settlement / reimbursement / customer_return / report_metadata) each with `status` in {found, found_but_not_materialized, found_weak_ambiguous, not_found_in_loaded_reports, source_table_empty, source_table_missing}, `candidate_count`, `candidate_samples`, `note`; (f) `matched_by[]`, `date_window_used`, `date_window_candidate_count`, `not_found_sources[]`, `ambiguous_sources[]`, **`filing_sufficiency`** (complete / sufficient_for_manual_filing / needs_reference_review). `EVENT_DATETIME_FILTER_USED=true`, `EVENT_DATETIME_WINDOW_DAYS=45`. Fixed deep-generic risk via existing `MiniQuery` + new `MiniCountQuery`/`safeOrgCount`.
+2. **ui-contract** (zero-import/client-safe): added `DeepReferenceSourceStatus`, `DeepReferenceSourceGroup`, `DeepReferenceFilingSufficiency`, `DeepReferenceTableCensus`, `DeepReferenceCensus`; extended `ClaimEventReferenceLedger` with deep fields; added `deep_reference_census` to payload.
+3. **Queue composer** `claim-ready-to-file-queue-v1.ts`: consumes `{ ledgers, census }`, exposes `deep_reference_census`, extends `emptyLedger` with deep fields.
+4. **UI drawer** `ReadyToFileDetailDrawer.tsx`: "Event / Transaction References" rebuilt as **per-source-group cards** with status badges + materialized rows + muted window-candidate rows + per-group note; added **Deep reference coverage badge** (`filing_sufficiency`), `matched_by` + event-date-window summary chips, and a **"Not found / not applicable"** + weak/ambiguous summary block.
+5. **Smoke** + new phase audit `scripts/phase-claim-deep-amazon-reference-ledger-v1.ts`.
+
+## Live verify (`phase-claim-deep-amazon-reference-ledger-v1.ts`, original/live)
+- source_tables_checked = 9; source_tables_empty_or_missing = `[amazon_customer_returns (empty)]`.
+- claims_total **10**; claims_complete **4**; claims_filing_sufficient **6**; claims_needs_reference_review **0**.
+- total_external_references **88**; removal_order **10**; removal_shipment **10**; tracking **10**; transaction/settlement **52**; report_metadata **16**; inventory_ledger **0** (order-linked); reimbursement **0** (order-linked).
+- **Deep finds NEW real refs:** removal_order_discrepancy + the shipment-missing claim linked to removal order **`/x5UTzvZZK`** now resolve **13 settlement IDs** (e.g. `26090258061`, `26112344891`, …) via `amazon_settlements`/`amazon_transactions` order match + **4-5 report-repository rows** → `transaction_settlement=found`, `report_metadata=found`, `filing_sufficiency=complete`. Claims on `1621GIL` / `/571WdHlKl` have no order-linked settlement (correct pre-reimbursement) → `not_found_in_loaded_reports`.
+- **Window pass works:** inventory_ledger + reimbursement window candidates surfaced per claim (e.g. 20 ledger + 9-20 reimbursement within ±45d of removal event) as **found_weak_ambiguous** advisory — excluded from Seller Central block.
+- event_date_time_filter_used = **yes (±45d)**; customer_return = **source_table_empty** (table not loaded); NO UUID / NO "TRID" in any Seller Central block; removal_order_refs/report_metadata_refs all non-UUID; message body has no "Internal expected package ref".
+- no_db_write_verification **PASS** [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged]; tsc 0; eslint 0; smoke PASS; next build **Compiled successfully**.
+
+## Output (required global fields)
+- source_tables_checked: 9 (8 populated + amazon_customer_returns empty); source_tables_empty_or_missing: `amazon_customer_returns (empty)`, `reports_repository` (not present; superseded by amazon_reports_repository).
+- claims_total 10 / complete 4 / filing_sufficient 6 / needs_reference_review 0.
+- total_external_references 88, total_inventory_ledger_refs 0, total_transaction_refs 52, total_reimbursement_refs 0, total_removal_order_refs 10, total_removal_shipment_refs 10, total_tracking_refs 10, total_report_metadata_refs 16.
+- event_date_time_filter_used **yes** (±45d window pass, advisory).
+- ui_deep_reference_sections_verified **yes**; seller_central_reference_blocks_verified **yes**; internal_uuid_excluded_from_amazon_text **yes**.
+- no_db_write / no_claim_mutation / no_amazon_submission / no_scanner_change **PASS**.
+- build_result tsc 0 / next build Compiled successfully; smoke_result PASS; next_build_result PASS.
+- SAFE_DEEP_REFERENCE_LEDGER_READY **yes**; SAFE_TO_FILE_CLAIMS_IN_SELLER_CENTRAL **yes**.
+
+## files_changed
+- lib/claims/reference/claim-event-reference-ledger-v1.ts
+- lib/claims/filing/claim-ready-to-file-queue-v1.ts
+- lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts
+- components/claim-center/ready-to-file/ReadyToFileDetailDrawer.tsx
+- scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts
+- scripts/phase-claim-deep-amazon-reference-ledger-v1.ts (new)
+- scripts/diag-deep-amazon-reference-census-v1.ts (new, read-only census probe)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- operator opens each packet in /claim-center/ready-to-file (deep ledger now shows per-source coverage: real Removal Order ID + tracking + removal shipment for all 10, plus 13 settlement IDs + report-repository rows for the /x5UTzvZZK-linked claims, and advisory FNSKU/SKU window candidates for inventory-ledger + reimbursement), files manually in Seller Central, then sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes and runs the governed write to record the real Amazon Case ID per submission. Post-filing, re-run the deep ledger so newly-posted amazon_reimbursements rows resolve order-linked and flip those source groups from found_weak_ambiguous to found / filing_sufficiency to complete.`
+
+---
+
+# 20260618T030000Z — PHASE-CLAIM-FILING-DECISION-MATRIX-V1 (PASS, read-only)
+
+**Mode:** read-only filing decision audit + UI. No DB write, no claim_*/edge mutation, no Amazon submission, no scanner change, no AI. Target original/live `kxsvedvpjldygtdbylsy`, pilot `pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`.
+
+## Goal
+For each of the 10 pilot claims, decide whether it is safe to manually file in Seller Central and explain exactly why, distinguishing strong external references (removal order / shipment / tracking, order-linked settlement/report) from weak/advisory FNSKU+date-window ledger/reimbursement candidates.
+
+## Changes
+1. **New pure helper** `computeFilingDecision(row)` in the client-safe `claim-ready-to-file-queue-ui-contract.ts` (zero-import). Returns `FilingDecision { decision: safe_to_file | needs_reference_review | do_not_file, label, tone, reason, high_confidence_refs[], weak_refs_excluded[], internal_anchors_excluded[], human_review_checklist[] }`. Decision rules: **do_not_file** iff `external_reference_count===0` (only internal UUIDs); **needs_reference_review** iff no strong removal_order/removal_shipment/tracking ref; **safe_to_file** iff strong ref AND product identity (FNSKU/SKU/ASIN) AND `clean_quantity>0` AND COGS-based recovery (`recovery_value>0 && approved_cogs_unit>0 && !uses_sale_price_as_amount`). Weak FNSKU/date-window candidates (`source_groups[].status==="found_weak_ambiguous"`) are listed as **excluded from proof**, never used to qualify a claim. high_confidence_refs include removal_order/shipment/tracking + order-linked settlement/transaction/report rows.
+2. **UI list** `ReadyToFileView.tsx`: new **"Decision"** column rendering the filing-decision badge (Safe to file / Needs reference review / Do not file) per row.
+3. **UI drawer** `ReadyToFileDetailDrawer.tsx`: new top **"Filing Decision"** section — decision badge + reason, high-confidence references used vs weak references excluded (two columns), internal anchors excluded line, collapsible human-review checklist, and the final external-only copy block with a Copy button.
+4. **Smoke** extended (safe/do_not_file/needs_reference_review cases, weak-candidate non-leak, badge column, drawer section). New phase audit `scripts/phase-claim-filing-decision-matrix-v1.ts`.
+
+## Live verify (`phase-claim-filing-decision-matrix-v1.ts`, original/live)
+- total_claims **10**; **safe_to_file_count = 10**; needs_reference_review **0**; do_not_file **0**.
+- Every claim carries a strong external reference: Removal Order ID (`1621GIL` ×4 / `/x5UTzvZZK` ×4 / `/571WdHlKl` ×2) + removal shipment + tracking; the `/x5UTzvZZK`-linked claims additionally cite **13 order-linked settlement/transaction IDs + 4-5 report rows**; recovery = clean_quantity × approved COGS/unit (e.g. 4 × $7.25 = $29.00, sale price never used).
+- weak/advisory excluded per claim: Inventory ledger (20 candidates) + Reimbursement (9-20 candidates) FNSKU/SKU+date-window — surfaced but **excluded from Seller Central proof**.
+- seller_central_text_excludes_internal_uuids **yes**; seller_central_text_excludes_weak_refs **yes** (no weak candidate id leaked into any reference block); seller_central_text_uses_cogs_recovery **yes**.
+- no_db_write **PASS** [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged]; tsc 0; eslint 0; smoke PASS; next build **Compiled successfully**.
+
+## Output (required global fields)
+- total_claims 10 / safe_to_file_count **10** / needs_reference_review_count 0 / do_not_file_count 0.
+- per_claim_filing_decision_matrix, per_claim_high_confidence_refs, per_claim_weak_refs_excluded, per_claim_seller_central_subjects, per_claim_seller_central_messages, per_claim_reference_blocks — all emitted by the audit script.
+- ui_filing_decision_badges_verified **yes** (row column + drawer section).
+- seller_central_text_excludes_internal_uuids **yes**; seller_central_text_excludes_weak_refs **yes**; seller_central_text_uses_cogs_recovery **yes**.
+- no_db_write / no_claim_mutation / no_amazon_submission / no_scanner_change **PASS**.
+- build_result tsc 0 / next build Compiled successfully; smoke_result PASS; next_build_result PASS.
+- SAFE_FILING_DECISION_MATRIX_READY **yes**; SAFE_TO_MANUALLY_FILE_APPROVED_CLAIMS **yes**.
+
+## files_changed
+- lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts
+- components/claim-center/ready-to-file/ReadyToFileView.tsx
+- components/claim-center/ready-to-file/ReadyToFileDetailDrawer.tsx
+- scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts
+- scripts/phase-claim-filing-decision-matrix-v1.ts (new)
+
+**NEXT_PROMPT:** `PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1 -- all 10 pilot claims are now Safe to file (per-row Decision badge + drawer Filing Decision section). Operator opens each packet in /claim-center/ready-to-file, copies the external-only reference block + subject + body, files manually in Seller Central, captures the real Amazon Case IDs, sets APPROVED_MANUAL_FILING_STATUS_ENTRY_WRITE_V1=yes, and runs the governed write to record filing status + Amazon Case ID per submission. Post-filing, re-run the deep ledger so newly-posted reimbursement rows resolve order-linked.`
+
+---
+
+## 20260618T040000Z — PHASE-CLAIM-RECOVERY-GAP-AND-REIMBURSEMENT-MATCHING-V1 (PASS, read-only)
+
+**Mode:** read-only reimbursement matching + recovery-gap engine + UI enrichment. No DB write, no claim_*/edge mutation, no Amazon submit, no scanner change, no COGS change, no AI as source of truth. Target original/live `kxsvedvpjldygtdbylsy`, pilot `pilot-20260615T190000Z` / intake `a8a892fe-37d5-4d74-9ea2-02af8fd095ce`.
+
+### What was built
+- New pure, client-safe engine in `lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts` (still **zero imports** — boundary preserved):
+  - `computeRecoveryGap(row): RecoveryGap` — reads ONLY the already-resolved Event Reference Ledger (`source_groups`) and deterministically classifies reimbursement state.
+  - `summarizeRecoveryGap(rows): RecoveryGapSummary` — global totals + status counts.
+  - Types: `ReimbursementStatus` (not_reimbursed / partially_reimbursed / fully_reimbursed / over_reimbursed / unknown_unmatched), `RecoveryGapMatch`, `RecoveryGap`, `RecoveryGapSummary`.
+  - Helper `isReimbursementCreditType(eventType)` — counts reimbursement/credit rows, **explicitly excludes fee/storage/commission/advertising/subscription rows** (e.g. "FBA Inventory Fee").
+- **Matching law:** only STRONG matches count toward observed reimbursement —
+  (a) order-linked `amazon_reimbursements` rows (`reimbursement` group `references`), and
+  (b) order-linked settlement/transaction rows classified as reimbursement/credit with `amount > 0` (`transaction_settlement` group `references`).
+  Weak FNSKU/SKU + date-window candidates (`candidate_samples` / `candidate_count`) are surfaced but **never reduce the open gap**. Fees and non-credit settlement lines are shown as (uncounted) transaction matches.
+- **Gap math:** `open_recovery_gap = confirmed>0 ? max(expected−confirmed,0) : expected`. No confirmed reimbursement → status **unknown_unmatched** (never "$0 paid" without proof). Seller Central requested amount = `open_recovery_gap` when confirmed > 0, else `expected_recovery_value`.
+- **UI** (`ReadyToFileView.tsx`): new recovery summary-card row (Expected recovery / Confirmed reimbursed / Open recovery gap / Unreimbursed claims / Needs reimbursement review); new table columns (Reimbursed / Open gap / Reimb. status / Match conf.); new filters (Reimbursement status dropdown + Has weak candidates). `ReadyToFileDetailDrawer.tsx`: new **"Reimbursement / Recovery Gap"** section (expected/confirmed/open tri-stat, match reason + confidence + requested amount, strong reimbursement matches, settlement credit matches, weak reimbursement candidates, transaction/settlement candidates, inventory-ledger candidates, collapsible "Why candidates were excluded").
+
+### Probe ground truth (read-only `diag-recovery-gap-reimbursement-probe-v1.ts`, org `…-0001`)
+- `amazon_transactions` for pilot order ids → **0 rows**.
+- `amazon_settlements` for pilot order ids → **135 rows, all transaction_type = "FBA Inventory Fee"** (fees, not credits).
+- `amazon_reimbursements` by order_id → **0** for all pilot orders (no order-linked reimbursement).
+- `amazon_reimbursements` by pilot FNSKUs → **289 rows** (Damaged_Warehouse 139, Lost_Warehouse 59, CustomerReturn 38, Reimbursement_Reversal 32, Lost_Inbound 11, Lost_Outbound 10) — FNSKU-level, **not order-linked → weak candidates only**.
+
+### Live verify (`phase-claim-recovery-gap-and-reimbursement-matching-v1.ts`)
+- total_claims **10**; total_expected_recovery **$100.72**; total_confirmed_reimbursed **$0.00**; total_open_recovery_gap **$100.72** (confirmed + open reconciles to expected).
+- reimbursement_status_counts: fully **0** / partial **0** / over **0** / not **0** / **unknown_unmatched 10**; unreimbursed_claims **10**; needs_reimbursement_review **10**.
+- strong_match_count **0**; weak_candidate rows **10/10**; excluded_candidate reasons **24** (incl. the 13 "FBA Inventory Fee" settlement rows on each `/x5UTzvZZK`-linked claim correctly excluded as fee/non-credit).
+- seller_central_requested_amount_logic_verified **yes** (confirmed=0 → requested = expected recovery; amounts unchanged).
+- no_db_write_verification **PASS** [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged]. tsc **0**, eslint **0**, smoke **PASS** (added recovery-gap + fee-exclusion + filter assertions), `next build` **Compiled successfully**.
+
+### Honesty note
+The pilot has **no confirmed reimbursement in loaded reports** — the only order-linked financial rows are FBA Inventory **fees**, and reimbursements exist only at FNSKU/date-window level (weak). The engine therefore reports all 10 as **Unknown / unmatched** with the **full $100.72** still open, rather than asserting "$0 paid".
+
+### Output flags
+recovery_gap_engine_built **yes** · ui_recovery_gap_summary_verified **yes** · ui_per_claim_reimbursement_section_verified **yes** · seller_central_requested_amount_logic_verified **yes** · no_db_write/no_claim_mutation/no_amazon_submission/no_scanner_change **PASS** · build/smoke/next_build **PASS** · **SAFE_RECOVERY_GAP_ENGINE_READY=yes** · **SAFE_TO_FILE_UNREIMBURSED_CLAIMS=yes** (all 10 are unreimbursed/unmatched per loaded reports → safe to file for full COGS recovery, pending operator confirmation that no reimbursement exists under another key).
+
+### Files
+`claim-ready-to-file-queue-ui-contract.ts`, `ReadyToFileView.tsx`, `ReadyToFileDetailDrawer.tsx`, `smoke-phase-claim-ready-to-file-queue-ui-v1.ts`, `phase-claim-recovery-gap-and-reimbursement-matching-v1.ts`, `diag-recovery-gap-reimbursement-probe-v1.ts`.
+
+### NEXT_PROMPT
+PHASE-CLAIM-AMAZON-CASE-ID-RECORD-AND-REIMBURSEMENT-RECONCILE-V1 — after manual Seller Central filing, record the real Amazon Case IDs (governed write) and re-run the recovery-gap engine to reconcile any newly posted reimbursements/credits against the open gap.
+
+---
+
+## 20260618T053000Z — PHASE-AMAZON-REPORT-SOURCE-API-COVERAGE-AND-CLAIM-FAMILY-MAP-V1 (PASS, read-only)
+
+**Mode:** source/API coverage audit + claim-family data map + Data Coverage UI + Ready-to-File drawer enrichment. No DB writes, no claim/edge mutation, no Amazon, no scanner change, no AI as source of truth. Target `kxsvedvpjldygtdbylsy`.
+
+**What was built**
+
+- **Client-safe contract** `lib/claims/center/claim-source-coverage-ui-contract.ts` (ZERO imports, same boundary law as the ready-to-file contract): `SourceCoverageRow`, `ClaimFamilyMapRow`, `LiveSyncPlanRow`, `ClaimSourceCoveragePayload`, `sourceConnectionMeta()`, `familySupportMeta()`.
+- **Server composer** `lib/claims/center/claim-source-coverage-v1.ts` (`composeClaimSourceCoverageV1(client, org)`): probes 17 claim-relevant sources (existence + row count + latest/earliest date via candidate-column fallback), joins `AMAZON_REPORT_REGISTRY` (importer + SP-API capability) + `CLAIM_FAMILY_MATRIX_V3` (formulas + availability), maps the 10 requested families (+ live distinct `claim_candidates.claim_family`), and emits `source_coverage_matrix` / `claim_family_map` / `live_sync_plan` / missing lists / highest-priority builds.
+- **Handler** `getCenterSourceCoveragePayload({organizationId})` in `claim-center-api-handlers.ts` (module-gated, uses `supabaseServer`).
+- **Read APIs:** `GET /api/claims/center/source-coverage` (full payload) + `GET /api/claims/center/claim-family-map` (family-map slice). Both via `runCenterGet`.
+- **New page** `/claim-center/data-coverage` + client view `ClaimDataCoverageView.tsx` (coverage totals KPIs, missing-source warnings, per-source coverage cards, claim-family→source/API map table, live-sync plan table, priority next-builds). Added page contract id `data_coverage` + nav link "Data Coverage" under Filing & recovery.
+- **Recovery-gap enrichment:** added `files_checked[]` + `missing_files_or_api[]` to `RecoveryGap` (derived from the deep `source_groups` statuses; names the SP-API report needed — `GET_FBA_REIMBURSEMENTS_DATA` / `GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2` / `GET_LEDGER_DETAIL_VIEW_DATA` — when a financial group is weak/absent). Drawer now renders "Exact files / sources checked" + "Missing files / API to confirm reimbursement".
+
+**Live audit (`kxsvedvpjldygtdbylsy`, org `…-0001`)** — `phase-amazon-report-source-api-coverage-and-claim-family-map-v1.ts`:
+
+- **Source coverage matrix = 17**, live_loaded **16**, empty **0**, missing/planned **0** (COGS source is `override_based` — workspace_settings.module_configs, no migrated table). Key live counts: amazon_removals **3554**, amazon_removal_shipments **11525**, amazon_inventory_ledger **282352** (latest 2026-04-24), amazon_transactions **600**, amazon_settlements **604883**, amazon_reimbursements **17546**, amazon_returns **2574** (FBA Customer Returns; `amazon_customer_returns` alias empty), amazon_reports_repository **412645**, return_items 26, expected_packages 12144, claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13, claim_reference_edges 147, product_identifier_map 16849.
+- **Claim family map = 10**: removal_shipment_missing **complete (pilot)**, removal_order_discrepancy **complete (pilot)**, customer_return_not_reimbursed partial, refund_without_return partial, reimbursement_reversal complete, warehouse_lost_inventory partial, warehouse_damaged_inventory partial, inbound_shipment_shortage preview_only, fba_fee_overcharge **missing** (fee_preview empty), + observed-in-pool `customer_return_issue` (unmapped → preview_only).
+- **Live sync plan = 9** reports/APIs (removal order/shipment/returns safe+no-approval; ledger/reimbursements/settlement safe+approval; Finances API/Product Fees/Fee Preview not-safe+approval).
+- **Pilot matrix (10):** total_expected **$100.72**, confirmed **$0.00**, open gap **$100.72**, **unknown_unmatched 10**, weak 10/10, confirmed 0. Every claim records exact files checked + missing files/API to confirm reimbursement (ledger Detail View + order-linked reimbursements; settlement for the non-`/x5UTzvZZK` groups).
+
+**Missing APIs flagged:** `/recovery-gap`, `/reimbursement-matches`, `/source-events`, `/report-sync-status` (recommended; not built this phase). **Highest-priority next builds:** P0 order-linked reimbursement auto-match; P1 recovery-gap/reimbursement-matches read APIs; P1 Ledger Detail View ingest; P2 FBA Customer Returns sync; P2 Fee Preview/Product Fees API.
+
+**Verification:** tsc 0, eslint 0, smoke PASS (added files_checked/missing_files_or_api + drawer block assertions), `next build` Compiled successfully (routes `/api/claims/center/source-coverage`, `/api/claims/center/claim-family-map`, `/claim-center/data-coverage` registered). No DB/claim/edge/Amazon/scanner mutation [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged].
+
+**Flags:** `SAFE_SOURCE_COVERAGE_AUDIT_COMPLETE=yes`, `SAFE_TO_BUILD_CLAIM_DATA_COVERAGE_UI=yes` (built), `SAFE_TO_BUILD_LIVE_AMAZON_REPORT_SYNC_LAYER=yes` (plan only; ledger/reimbursement/settlement require approval), `SAFE_TO_IMPROVE_RECOVERY_GAP_MATCHING_ENGINE=yes`.
+
+**Files:** `claim-source-coverage-ui-contract.ts`, `claim-source-coverage-v1.ts`, `claim-center-api-handlers.ts`, `app/api/claims/center/source-coverage/route.ts`, `app/api/claims/center/claim-family-map/route.ts`, `app/claim-center/data-coverage/page.tsx`, `ClaimDataCoverageView.tsx`, `claim-center-v2-page-contract.ts`, `claim-reimbursement-tracking-nav.ts`, `claim-ready-to-file-queue-ui-contract.ts`, `ReadyToFileDetailDrawer.tsx`, `smoke-phase-claim-ready-to-file-queue-ui-v1.ts`, `phase-amazon-report-source-api-coverage-and-claim-family-map-v1.ts`.
+
+**NEXT_PROMPT:** PHASE-CLAIM-RECOVERY-GAP-SERVER-API-AND-REIMBURSEMENT-MATCH-AUTHORITY-V1 — move recovery-gap server-side as `GET /api/claims/center/recovery-gap` + `/reimbursement-matches`, add order-linked `amazon_reimbursements` auto-match (governed read sync) to turn the 10 pilot claims from Unknown → confirmed not/partially/fully reimbursed.
+
+---
+
+## 20260618T140000Z — PHASE-CLAIM-FAMILY-AWARE-RECOVERY-MATCHING-V2 (PASS, read-only)
+
+**Mode:** read-only architecture correction + deterministic matching engine upgrade. No DB writes, no `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions`/`claim_reference_edges` mutation, no Amazon, no scanner change, no AI as source of truth. Target `kxsvedvpjldygtdbylsy`, current 10 Ready-to-File pilot claims.
+
+**Problem corrected**
+The Recovery-Gap UI surfaced reimbursement/ledger/settlement/transaction candidates by FNSKU/date window, mixing claim families. A `Damaged_Warehouse` or `Lost_Outbound` reimbursement must NOT count toward a `removal_shipment_missing` claim unless tied to the same removal order/shipment/tracking event. Expected recovery was hardcoded COGS x qty with no policy for sale-net / business-loss.
+
+**What was built (all in the zero-import client-safe contract `claim-ready-to-file-queue-ui-contract.ts`)**
+
+- **`CLAIM_AMOUNT_POLICY_MATRIX`** (17 families): per-family `default_claim_amount_basis` (cogs_recovery / latest_sale_net / fee_delta / reimbursement_reinstatement / refund_amount / configurable_needs_policy_confirmation), formula, required_source_fields, amount_kind (amazon_claim_amount / internal_business_loss / configurable), sale_price_allowed, amazon_fees_included, inbound_removal_handling_included, current_implementation_formula, recommended_correction, **`policy_resolved`**. Physical-loss families (removal/warehouse/outbound/customer-return/disposed/inbound) default COGS but `policy_resolved=false` -> **needs_policy_confirmation** (operator has not chosen COGS vs latest-sale-net vs business loss). Fee (`fee_delta`), reversal (`reimbursement_reinstatement`), refund (`refund_amount`) families are resolved. `getClaimAmountPolicy(family)`.
+- **`classifyFamilyByReason()`** (reason/event_type keyword -> family, or null) + **`classifyCandidateFamily()`** (keyword, else source-group fallback). `FAMILY_GROUP` map groups families (removal/warehouse/outbound/reimbursement_adj/refund/fee/ledger_adj/inbound) so a candidate only "belongs" to a claim in the same group.
+- **`computeFamilyAwareRecovery(row)`**: reuses `computeRecoveryGap`, then (a) re-examines **counted** (order-linked strong reimbursement + settlement-credit) rows - a counted row whose reason names a DIFFERENT family is **excluded from confirmed** and flagged for a separate claim (linkage no longer auto-counts a cross-family credit); (b) classifies every **weak** candidate, flagging cross-family ones; (c) computes 3 amounts - `current_cogs_expected_recovery`, `alternative_latest_sale_net_estimate` (= positive per-unit net x qty; non-positive -> null, never negative), `business_total_loss_estimate` (COGS replacement floor; inbound/removal/handling not loaded); (d) selects Seller-Central amount by policy basis (+ reason); (e) emits `misclassified_candidates`, `separate_claim_suggestions` (grouped by true family), open gap under current vs alternative policy, and `filing_status` (policy gate first: unresolved -> **needs_policy_confirmation**, else `computeFilingDecision`). **`summarizeFamilyAwareRecovery(rows)`** totals.
+- **UI** `ReadyToFileDetailDrawer.tsx`: section renamed **"Recovery Gap / Claim Amount Policy"**; three amount rows (COGS recovery / Latest sale net est. / Business total loss); "Seller Central amount currently selected" + why + policy descriptor; **"Policy needs confirmation"** badge; confirmed(strong)/open(current)/open(alt) tri-stat; weak candidates rendered family-aware (`CandidateClassRow` - classified family badge + why-it-does-not-belong + "suggests a separate claim opportunity"); new **"Separate claim opportunities suggested"** section.
+
+**Live audit (`phase-claim-family-aware-recovery-matching-v2.ts`, org `...-0001`)**
+
+- claim_family_policy_matrix **17** families; 4 resolved (reimbursement_reversal, refund_without_return, fulfillment_fee_overcharge, storage_fee_overcharge), 13 needs-confirmation.
+- per_claim matrix **10/10 -> needs_policy_confirmation** (COGS basis unconfirmed). total_cogs_recovery **$100.72**, total_latest_sale_net_estimate **$78.48** (positive-only), total_business_loss_estimate **$100.72**, confirmed_reimbursed_total **$0.00**.
+- weak_candidates_total **152**, weak_candidates_excluded_total **152** (every FNSKU/date-window candidate belongs to a different family than its removal claim - Damaged_Warehouse / Lost_Warehouse / Lost_Outbound / Reimbursement_Reversal / CustomerReturn), **separate_claim_candidate_suggestions 31**.
+- safe_to_file **0** / needs_policy_confirmation **10** / needs_reference_review **0** / do_not_file **0**.
+- source_api_coverage_matrix **17** (live_loaded 16; missing_live_sources = **Product cost / COGS source** override_based).
+
+**Honesty note:** under the new policy gate all 10 pilot claims flip from `safe_to_file` (prior phase) to **needs_policy_confirmation** - by design, because amount basis (COGS vs latest-sale-net vs business loss) is not operator-confirmed. The COGS amount is still selected for Seller Central copy; no value is silently changed.
+
+**Verification:** tsc 0, eslint 0, smoke PASS (added policy-matrix + classifier + family-aware recovery + drawer-section assertions; renamed section assertions updated), `next build` Compiled successfully (`/claim-center/ready-to-file` + API registered). No DB/claim/edge/Amazon/scanner mutation [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged].
+
+**Output flags:** family_aware_matching_engine_built **yes** | ui_claim_amount_policy_section_verified **yes** | ui_separate_opportunities_section_verified **yes** | no_db_write/no_claim_mutation/no_amazon_submission/no_scanner_change **PASS** | build/smoke/next_build **PASS** | **SAFE_FAMILY_AWARE_RECOVERY_MATCHING_READY=yes** | **SAFE_TO_FILE_APPROVED_FAMILIES=no** (amount basis pending operator confirmation) | **SAFE_TO_BUILD_SEPARATE_CLAIM_CANDIDATE_GENERATORS=yes**.
+
+**Files:** `claim-ready-to-file-queue-ui-contract.ts`, `ReadyToFileDetailDrawer.tsx`, `smoke-phase-claim-ready-to-file-queue-ui-v1.ts`, `phase-claim-family-aware-recovery-matching-v2.ts`.
+
+**NEXT_PROMPT:** PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1 - present the per-family amount-basis policy matrix to Maysam, capture the chosen basis (COGS vs latest-sale-net vs business loss) into a governed `module_configs` policy record, then re-run the family-aware engine so confirmed families flip `needs_policy_confirmation -> safe_to_file`; and (parallel) PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1 to convert the 31 separate-claim suggestions into real per-family claim candidates.

@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 /** ETL traffic is proxied by `app/api/etl/[[...path]]/route.ts` (streaming) — no rewrites needed. */
 const nextConfig: NextConfig = {
+  // playwright is only used by local scripts (e.g. filing-packet PDF export). Keep it
+  // out of the bundle so Turbopack never tries to process its `.ttf` recorder assets.
+  serverExternalPackages: ["playwright", "playwright-core"],
   headers: async () => [
     {
       source: "/sw.js",

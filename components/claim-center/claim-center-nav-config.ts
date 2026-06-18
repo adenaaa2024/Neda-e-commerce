@@ -45,6 +45,11 @@ export const CLAIM_CENTER_MORE_WORKFLOW: ClaimCenterNavLink[] = [
 /** Pilot filing + financial recovery — visible without digging into Admin/Legacy. */
 export const CLAIM_CENTER_FILING_RECOVERY_NAV: ClaimCenterNavLink[] = [
   {
+    href: "/claim-center/ready-to-file",
+    label: "Ready to File",
+    shortLabel: "Ready",
+  },
+  {
     href: "/claim-center/reimbursement-tracking",
     label: "Reimbursement Tracking",
     shortLabel: "Tracking",

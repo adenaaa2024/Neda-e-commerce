@@ -55,6 +55,13 @@ import {
   applySimulationToReimbursementTrackingPayload,
   composeClaimPilotSimulatedCompletionV1,
 } from "@/lib/claims/submission/claim-pilot-simulated-completion-v1";
+import {
+  buildReferenceCoverageSummary,
+  buildReferenceRefreshPreviewFromContext,
+  buildReimbursementMatchPreviewFromContext,
+  loadReferenceContext,
+  resolveTridFromContext,
+} from "@/lib/claims/reference/claim-live-reference-api-completion-v1";
 import { buildClaimPilotReviewReadmodel } from "@/lib/claims/pilot/claim-pilot-review-readmodel";
 import {
   buildClaimCaseReviewReadmodel,
@@ -64,6 +71,7 @@ import {
   composeClaimFilingPacketPreviewV1,
   type ClaimFilingPacketPreviewQuery,
 } from "@/lib/claims/filing/claim-filing-packet-preview-v1";
+import { composeClaimReadyToFileQueueV1 } from "@/lib/claims/filing/claim-ready-to-file-queue-v1";
 import type { ClaimPilotReviewQuery } from "@/lib/claims/pilot/claim-pilot-review-readmodel";
 import {
   composeClaimCaseCreationPreviewV1,
@@ -75,6 +83,7 @@ import {
 } from "@/lib/claims/evidence/claim-evidence-packet-v1";
 import { loadMaterializedCandidateEdges } from "@/lib/claims/edges/claim-reference-edge-materializer";
 import { supabaseServer } from "@/lib/supabase-server";
+import { composeClaimSourceCoverageV1 } from "@/lib/claims/center/claim-source-coverage-v1";
 
 function str(v: unknown): string | null {
   const s = String(v ?? "").trim();
@@ -682,4 +691,108 @@ export async function getCenterFilingPacketPreviewPayload(args: {
     args.storeId,
     args.query,
   );
+}
+
+/** Read-only Ready-to-File operational queue — classifies pilot packets ready vs blocked. No writes, no Amazon. */
+export async function getCenterReadyToFilePayload(args: {
+  organizationId: string;
+  storeId: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return composeClaimReadyToFileQueueV1(supabaseServer, args.organizationId, args.storeId, {
+    pilot_case_run_id: args.pilot_case_run_id,
+    intake_run_id: args.intake_run_id,
+  });
+}
+
+/** Read-only Amazon source/API coverage + claim-family data map. Probes 17 sources. No writes, no Amazon. */
+export async function getCenterSourceCoveragePayload(args: { organizationId: string }) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return composeClaimSourceCoverageV1(supabaseServer, args.organizationId);
+}
+
+/** Read-only deterministic TRID resolver for a pilot submission/case. No writes. */
+export async function getCenterTridResolverPayload(args: {
+  organizationId: string;
+  storeId: string;
+  claim_submission_id?: string;
+  claim_case_id?: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  if (!str(args.claim_submission_id) && !str(args.claim_case_id)) {
+    throw new CenterApiError("claim_submission_id or claim_case_id is required.", 400);
+  }
+  const ctx = await loadReferenceContext(supabaseServer, args.organizationId, args.storeId, {
+    pilot_case_run_id: args.pilot_case_run_id,
+    intake_run_id: args.intake_run_id,
+  });
+  return resolveTridFromContext(ctx, {
+    claim_submission_id: args.claim_submission_id,
+    claim_case_id: args.claim_case_id,
+  });
+}
+
+/** Dry-run reference refresh from already-loaded amazon_* tables. No Amazon call, no write. */
+export async function getCenterReferenceRefreshPreviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  claim_submission_id: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  if (!str(args.claim_submission_id)) {
+    throw new CenterApiError("claim_submission_id is required.", 400);
+  }
+  const ctx = await loadReferenceContext(supabaseServer, args.organizationId, args.storeId, {
+    pilot_case_run_id: args.pilot_case_run_id,
+    intake_run_id: args.intake_run_id,
+  });
+  const result = buildReferenceRefreshPreviewFromContext(ctx, {
+    claim_submission_id: args.claim_submission_id,
+  });
+  if ("error" in result) throw new CenterApiError(result.error, 404);
+  return result;
+}
+
+/** Reference coverage matrix for pilot + family. Read-only. */
+export async function getCenterReferenceCoveragePayload(args: {
+  organizationId: string;
+  storeId: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  const ctx = await loadReferenceContext(supabaseServer, args.organizationId, args.storeId, {
+    pilot_case_run_id: args.pilot_case_run_id,
+    intake_run_id: args.intake_run_id,
+  });
+  return buildReferenceCoverageSummary(ctx);
+}
+
+/** Dry-run post-filing reimbursement matcher. Blocked until real case id. No close, no write. */
+export async function getCenterReimbursementMatchRefreshPreviewPayload(args: {
+  organizationId: string;
+  storeId: string;
+  claim_submission_id: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  if (!str(args.claim_submission_id)) {
+    throw new CenterApiError("claim_submission_id is required.", 400);
+  }
+  const ctx = await loadReferenceContext(supabaseServer, args.organizationId, args.storeId, {
+    pilot_case_run_id: args.pilot_case_run_id,
+    intake_run_id: args.intake_run_id,
+  });
+  const result = buildReimbursementMatchPreviewFromContext(ctx, {
+    claim_submission_id: args.claim_submission_id,
+  });
+  if ("error" in result) throw new CenterApiError(result.error, 404);
+  return result;
 }

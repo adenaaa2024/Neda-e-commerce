@@ -9,9 +9,19 @@ export const CLAIM_CENTER_FINANCIAL_NAV: ClaimCenterNavLink[] = [
   { href: "/claim-center/case-review", label: "Filing Packets", shortLabel: "Packets" },
   { href: "/claim-center/submissions", label: "Submissions", shortLabel: "Subs", legacy: true },
   {
+    href: "/claim-center/ready-to-file",
+    label: "Ready to File",
+    shortLabel: "Ready",
+  },
+  {
     href: "/claim-center/reimbursement-tracking",
     label: "Reimbursement Tracking",
     shortLabel: "Tracking",
+  },
+  {
+    href: "/claim-center/data-coverage",
+    label: "Data Coverage",
+    shortLabel: "Coverage",
   },
 ];
 

@@ -14,9 +14,9 @@ import {
   SAFETY_LABELS,
   summarizePdfExportEligibility,
 } from "./claim-pdf-export-preview-contract-v1";
+import { PILOT_OUTPUT_ROOT } from "./claim-filing-packet-export-paths";
 
-export const PILOT_OUTPUT_ROOT =
-  ".cursor/audit-reports/phase-claim-pdf-export-preview-pilot-v1" as const;
+export { PILOT_OUTPUT_ROOT };
 
 export const REQUIRED_DRAFT_LABELS = [
   SAFETY_LABELS.draft_only.display,

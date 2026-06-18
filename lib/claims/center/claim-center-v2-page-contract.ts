@@ -14,7 +14,9 @@ export type ClaimCenterV2PageId =
   | "pool"
   | "cases"
   | "submissions"
+  | "ready_to_file"
   | "reimbursement_tracking"
+  | "data_coverage"
   | "policies";
 
 export type ClaimCenterV2PageContract = {
@@ -152,6 +154,22 @@ export const CLAIM_CENTER_V2_PAGES: Record<ClaimCenterV2PageId, ClaimCenterV2Pag
     whyEmpty: "No legacy submissions in scope, or event opportunities are not in this queue yet.",
     helper: "Event-based opportunities are not in this queue until the bridge phase.",
   },
+  ready_to_file: {
+    id: "ready_to_file",
+    route: "/claim-center/ready-to-file",
+    navLabel: "Ready to File",
+    question: "Which prepared claims are ready for manual Seller Central filing?",
+    dataSource:
+      "GET /api/claims/center/ready-to-file — read-only correctness audit over pilot filing packets",
+    appearsHere:
+      "Audited claim packets split into Ready to File and Blocked, with exact Seller Central copy data, TRID/reference health, evidence, and a guarded Case ID recording section.",
+    whatToDoNext:
+      "Open a packet, copy the subject/message/reference block, file manually in Seller Central, then record the Amazon Case ID. MENORIX never submits to Amazon.",
+    whyEmpty:
+      "If no claims are ready, the correctness audit blocked them — open the Blocked tab to see which gate failed.",
+    helper:
+      "Read-only — no Amazon submission, no claim mutation. Recovery amount uses approved COGS (never sale price).",
+  },
   reimbursement_tracking: {
     id: "reimbursement_tracking",
     route: "/claim-center/reimbursement-tracking",
@@ -164,6 +182,22 @@ export const CLAIM_CENTER_V2_PAGES: Record<ClaimCenterV2PageId, ClaimCenterV2Pag
       "Review rows needing follow-up. Manual filing and Amazon submission stay disabled in this preview.",
     whyEmpty: "Run Claim Submission Record Pilot first — legacy submissions are excluded by default.",
     helper: "Read-only — no claim_submissions writes, no Amazon API, NULL money never shown as zero.",
+  },
+  data_coverage: {
+    id: "data_coverage",
+    route: "/claim-center/data-coverage",
+    navLabel: "Data Coverage",
+    question: "Which Amazon files/tables/APIs power each claim type, and what is missing?",
+    dataSource:
+      "GET /api/claims/center/source-coverage — read-only probe of 17 sources + V3 claim-family map + live-sync plan",
+    appearsHere:
+      "Per-source coverage cards (rows, latest date, importer/SP-API/UI usage), the claim-family → source/API map, missing-source warnings, and the live Amazon report sync plan.",
+    whatToDoNext:
+      "Confirm a claim family's required sources are live before relying on its money lane. Use the priority list to sequence the next builds.",
+    whyEmpty:
+      "If a source shows empty/missing, the connector exists but has no rows yet, or the table is not migrated — not demo data.",
+    helper:
+      "Read-only audit — no DB writes, no Amazon calls. Coverage reflects loaded tables, not future sync state.",
   },
   policies: {
     id: "policies",

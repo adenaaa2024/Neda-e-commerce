@@ -20,7 +20,10 @@ import {
   type CogsOverrideRecordV1,
 } from "@/lib/claims/submission/cogs-override-value-v1";
 import { loadCogsOverridesForOrg } from "@/lib/claims/submission/product-cogs-audit-v1";
-import { attemptGuardedCogsWriteV1 } from "@/lib/claims/submission/product-cogs-source-write-v1";
+import {
+  attemptGuardedCogsWriteV1,
+  resolveCanonicalWorkspaceSettingsRowForOrg,
+} from "@/lib/claims/submission/product-cogs-source-write-v1";
 import {
   COGS_BUILD_APPROVAL_KEYS,
   readCogsBuildApprovalStatus,
@@ -93,6 +96,15 @@ export type CogsExecuteResultV1 = {
   no_claim_candidate_mutation_verification: boolean;
   no_amazon_submission_verification: boolean;
   no_scanner_change_verification: boolean;
+  persistence_verification: {
+    resolver_behavior: "org_scoped" | "singleton" | "none";
+    workspace_settings_row_targeted: string | null;
+    cogs_overrides_before_keys: string[];
+    cogs_overrides_after_keys: string[];
+    expected_fnsku_keys: string[];
+    all_expected_keys_present: boolean;
+    reread_by_id_confirmed: boolean;
+  };
   rollback_plan: string;
   executed: boolean;
   SAFE_COGS_APPLIED_FOR_PILOT: boolean;
@@ -324,6 +336,10 @@ export async function runProductCogsManualEntryExecuteV1(args: {
   let auditWritten = false;
   let after: CogsExecuteSnapshotV1 | null = null;
   let executed = false;
+  let resolverBehavior: "org_scoped" | "singleton" | "none" = "none";
+  let workspaceSettingsRowTargeted: string | null = null;
+  let rereadByIdConfirmed = false;
+  let rereadAfterKeys: string[] = [];
 
   if (canExecute) {
     const priorOverrides = { ...before.cogs_overrides_json };
@@ -371,22 +387,20 @@ export async function runProductCogsManualEntryExecuteV1(args: {
     }
 
     if (writeFailures.length > 0 && writesCompleted > 0) {
-      const { data: wsRow } = await args.client
-        .from("workspace_settings")
-        .select("module_configs")
-        .eq("organization_id", args.organizationId)
-        .maybeSingle();
-      const moduleConfigs = metaRecord(wsRow?.module_configs);
-      const claimIntake = metaRecord(moduleConfigs.claim_intake);
-      await args.client
-        .from("workspace_settings")
-        .update({
-          module_configs: {
-            ...moduleConfigs,
-            claim_intake: { ...claimIntake, cogs_overrides: priorOverrides },
-          },
-        })
-        .eq("organization_id", args.organizationId);
+      const target = await resolveCanonicalWorkspaceSettingsRowForOrg(args.client, args.organizationId);
+      if (target?.id) {
+        const moduleConfigs = metaRecord(target.module_configs);
+        const claimIntake = metaRecord(moduleConfigs.claim_intake);
+        await args.client
+          .from("workspace_settings")
+          .update({
+            module_configs: {
+              ...moduleConfigs,
+              claim_intake: { ...claimIntake, cogs_overrides: priorOverrides },
+            },
+          })
+          .eq("id", target.id);
+      }
     }
 
     if (writeFailures.length > 0) {
@@ -400,6 +414,26 @@ export async function runProductCogsManualEntryExecuteV1(args: {
       organizationId: args.organizationId,
       storeId: args.storeId,
     });
+
+    // Aggregate persistence verification: re-read the canonical row by id and confirm
+    // every approved FNSKU key actually landed in cogs_overrides.
+    const verifyTarget = await resolveCanonicalWorkspaceSettingsRowForOrg(
+      args.client,
+      args.organizationId,
+    );
+    resolverBehavior = verifyTarget?.source ?? "none";
+    workspaceSettingsRowTargeted = verifyTarget?.id ?? null;
+    if (verifyTarget?.id) {
+      const { data: verifyRow } = await args.client
+        .from("workspace_settings")
+        .select("module_configs")
+        .eq("id", verifyTarget.id)
+        .maybeSingle();
+      const moduleConfigs = metaRecord(verifyRow?.module_configs);
+      const claimIntake = metaRecord(moduleConfigs.claim_intake);
+      rereadAfterKeys = Object.keys(metaRecord(claimIntake.cogs_overrides));
+      rereadByIdConfirmed = [...approvedRecords.keys()].every((k) => rereadAfterKeys.includes(k));
+    }
   }
 
   const moneyPreview = executed
@@ -499,6 +533,18 @@ export async function runProductCogsManualEntryExecuteV1(args: {
     no_claim_candidate_mutation_verification: claimCountsUnchanged,
     no_amazon_submission_verification: true,
     no_scanner_change_verification: args.scannerUnchanged,
+    persistence_verification: {
+      resolver_behavior: resolverBehavior,
+      workspace_settings_row_targeted: workspaceSettingsRowTargeted,
+      cogs_overrides_before_keys: Object.keys(before.cogs_overrides_json),
+      cogs_overrides_after_keys: after ? Object.keys(after.cogs_overrides_json) : [],
+      expected_fnsku_keys: [...approvedRecords.keys()],
+      all_expected_keys_present:
+        executed &&
+        approvedRecords.size > 0 &&
+        [...approvedRecords.keys()].every((k) => rereadAfterKeys.includes(k)),
+      reread_by_id_confirmed: rereadByIdConfirmed,
+    },
     rollback_plan: buildCogsOverridesRollbackSql({
       organizationId: args.organizationId,
       beforeOverrides: before.cogs_overrides_json,

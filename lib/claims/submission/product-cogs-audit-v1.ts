@@ -195,12 +195,23 @@ export async function loadCogsOverridesForOrg(
   client: SupabaseClient,
   organizationId: string,
 ): Promise<Record<string, unknown>> {
-  const { data } = await client
+  // Prefer an org-scoped workspace_settings row; fall back to the canonical singleton
+  // row used by the rest of the app (organization_id may be NULL on it).
+  const byOrg = await client
     .from("workspace_settings")
     .select("module_configs")
     .eq("organization_id", organizationId)
     .maybeSingle();
-  const moduleConfigs = metaRecord(data?.module_configs);
+  let moduleConfigs = metaRecord(byOrg.data?.module_configs);
+  if (!byOrg.data) {
+    const singleton = await client
+      .from("workspace_settings")
+      .select("module_configs")
+      .order("id", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    moduleConfigs = metaRecord(singleton.data?.module_configs);
+  }
   const claimIntake = metaRecord(moduleConfigs.claim_intake);
   return metaRecord(claimIntake.cogs_overrides);
 }
