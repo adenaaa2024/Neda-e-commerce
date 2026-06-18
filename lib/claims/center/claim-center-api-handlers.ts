@@ -84,6 +84,7 @@ import {
 import { loadMaterializedCandidateEdges } from "@/lib/claims/edges/claim-reference-edge-materializer";
 import { supabaseServer } from "@/lib/supabase-server";
 import { composeClaimSourceCoverageV1 } from "@/lib/claims/center/claim-source-coverage-v1";
+import { composeSeparateFamilyCandidateGeneratorsV1 } from "@/lib/claims/opportunities/separate-family-candidate-generators-v1";
 
 function str(v: unknown): string | null {
   const s = String(v ?? "").trim();
@@ -711,6 +712,23 @@ export async function getCenterReadyToFilePayload(args: {
 export async function getCenterSourceCoveragePayload(args: { organizationId: string }) {
   await centerModuleGateOrThrow(args.organizationId);
   return composeClaimSourceCoverageV1(supabaseServer, args.organizationId);
+}
+
+/**
+ * Read-only per-family separate claim-candidate previews built from family-aware
+ * cross-family suggestions. Removal pilot claims are never modified. No writes.
+ */
+export async function getCenterSeparateFamilyOpportunitiesPayload(args: {
+  organizationId: string;
+  storeId: string;
+  pilot_case_run_id?: string;
+  intake_run_id?: string;
+}) {
+  await centerModuleGateOrThrow(args.organizationId);
+  return composeSeparateFamilyCandidateGeneratorsV1(supabaseServer, args.organizationId, args.storeId, {
+    pilot_case_run_id: args.pilot_case_run_id,
+    intake_run_id: args.intake_run_id,
+  });
 }
 
 /** Read-only deterministic TRID resolver for a pilot submission/case. No writes. */

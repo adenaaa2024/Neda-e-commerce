@@ -327,6 +327,30 @@ export type ReadyToFileRow = {
     resolved_product_id: string | null;
   };
   packet: ReadyToFileSellerCentralPacket;
+
+  /** Confirmed operator amount-basis policy overlay (from governed workspace_settings). */
+  amount_basis_policy_overlay?: AmountBasisPolicyOverlay | null;
+};
+
+// ---- Confirmed amount-basis policy overlay (PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1) ----
+
+export type ConfirmedFamilyAmountPolicy = {
+  family_key: string;
+  basis: AmountBasis;
+  use_as_seller_central_amount: boolean;
+  informational_only: string[];
+  confirmed_by: string;
+  confirmed_at: string;
+  approval_key: string;
+  note: string | null;
+};
+
+export type AmountBasisPolicyOverlay = {
+  version: string;
+  confirmed_by: string;
+  confirmed_at: string;
+  approval_key: string;
+  families: Record<string, ConfirmedFamilyAmountPolicy>;
 };
 
 export type ReadyToFileSummaryCards = {
@@ -1075,7 +1099,10 @@ export type FamilyCandidateClassification = {
   reference_id: string;
   reason: string | null;
   amount: number | null;
+  quantity: number | null;
   event_date: string | null;
+  kind: RecoveryGapMatchKind;
+  source_group: string;
   classified_family: string;
   belongs_to_this_claim: boolean;
   why_not: string | null;
@@ -1099,6 +1126,9 @@ export type ClaimFilingStatusV2 =
 export type FamilyAwareRecovery = {
   claim_family: string;
   policy: ClaimAmountPolicy;
+  policy_confirmed: boolean;
+  policy_confirmation: { confirmed_by: string; confirmed_at: string; approval_key: string } | null;
+  informational_only_bases: AmountBasis[];
   current_cogs_expected_recovery: number | null;
   latest_sold_price: number | null;
   amazon_fees: number | null;
@@ -1140,7 +1170,33 @@ const FILING_STATUS_V2_META: Record<ClaimFilingStatusV2, { label: string; tone: 
 export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareRecovery {
   const gap = computeRecoveryGap(row);
   const family = row.claim_family ?? "other";
-  const pol = getClaimAmountPolicy(family);
+  const basePolicy = getClaimAmountPolicy(family);
+
+  // A confirmed operator policy overlay (governed workspace_settings) supersedes the
+  // static default: it resolves the basis and unblocks needs_policy_confirmation.
+  const overlay = row.amount_basis_policy_overlay ?? null;
+  const confirmedFamily = overlay?.families?.[family] ?? null;
+  const pol: ClaimAmountPolicy = confirmedFamily
+    ? {
+        ...basePolicy,
+        default_claim_amount_basis: confirmedFamily.basis,
+        policy_resolved: true,
+        current_implementation_formula:
+          confirmedFamily.basis === "cogs_recovery" ? COGS_IMPL : basePolicy.current_implementation_formula,
+        recommended_correction: `Confirmed by operator (${confirmedFamily.approval_key}) on ${confirmedFamily.confirmed_at}. ${confirmedFamily.note ?? ""}`.trim(),
+      }
+    : basePolicy;
+  const policyConfirmed = confirmedFamily != null;
+  const informationalOnlyBases: AmountBasis[] = confirmedFamily
+    ? (confirmedFamily.informational_only.filter((b): b is AmountBasis =>
+        b === "cogs_recovery" ||
+        b === "latest_sale_net" ||
+        b === "fee_delta" ||
+        b === "reimbursement_reinstatement" ||
+        b === "refund_amount" ||
+        b === "configurable_needs_policy_confirmation",
+      ))
+    : [];
   const claimGroup = familyGroupOf(family);
   const ml = row.money_lane;
   const qty = row.clean_quantity ?? 0;
@@ -1183,7 +1239,9 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
   switch (pol.default_claim_amount_basis) {
     case "cogs_recovery":
       scAmount = cogs;
-      scReason = "Project spec: recovery = clean_quantity × approved COGS/unit (sale price not used). Operator has not confirmed COGS vs latest-sale-net vs business loss.";
+      scReason = policyConfirmed
+        ? `Operator-confirmed amount basis = COGS recovery (clean_quantity × approved COGS/unit; sale price not used). Confirmed by ${confirmedFamily?.confirmed_by ?? "operator"} (${confirmedFamily?.approval_key ?? "approved"}).`
+        : "Project spec: recovery = clean_quantity × approved COGS/unit (sale price not used). Operator has not confirmed COGS vs latest-sale-net vs business loss.";
       break;
     case "latest_sale_net":
       scAmount = altSaleNet;
@@ -1205,7 +1263,7 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
     { list: gap.settlement_credit_matches, group: "transaction_settlement" },
   ];
   let confirmed = 0;
-  for (const { list } of countedSources) {
+  for (const { list, group } of countedSources) {
     for (const m of list) {
       const kw = classifyFamilyByReason(m.reason, m.reason);
       const belongs = kw == null || familyGroupOf(kw) === claimGroup;
@@ -1218,7 +1276,10 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
         reference_id: m.reference_id,
         reason: m.reason,
         amount: m.amount,
+        quantity: m.quantity,
         event_date: m.event_date,
+        kind: m.kind,
+        source_group: group,
         classified_family: classified,
         belongs_to_this_claim: belongs,
         why_not: belongs
@@ -1248,7 +1309,10 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
         reference_id: m.reference_id,
         reason: m.reason,
         amount: m.amount,
+        quantity: m.quantity,
         event_date: m.event_date,
+        kind: m.kind,
+        source_group: group,
         classified_family: classified,
         belongs_to_this_claim: belongs,
         why_not: belongs
@@ -1300,6 +1364,15 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
   return {
     claim_family: family,
     policy: pol,
+    policy_confirmed: policyConfirmed,
+    policy_confirmation: confirmedFamily
+      ? {
+          confirmed_by: confirmedFamily.confirmed_by,
+          confirmed_at: confirmedFamily.confirmed_at,
+          approval_key: confirmedFamily.approval_key,
+        }
+      : null,
+    informational_only_bases: informationalOnlyBases,
     current_cogs_expected_recovery: cogs,
     latest_sold_price: ml.latest_sold_price,
     amazon_fees: ml.amazon_fees_total,

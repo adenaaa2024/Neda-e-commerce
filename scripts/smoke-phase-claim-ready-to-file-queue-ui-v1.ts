@@ -21,8 +21,14 @@ import {
   computeRecoveryGap,
   filterReadyToFileRows,
   summarizeRecoveryGap,
+  type FamilyCandidateClassification,
   type ReadyToFileRow,
 } from "../lib/claims/filing/claim-ready-to-file-queue-ui-contract";
+import {
+  GENERATOR_SUPPORTED_FAMILIES,
+  buildSeparateFamilyCandidatePreviews,
+  type GeneratorClaimInput,
+} from "../lib/claims/opportunities/separate-family-candidate-generator-contract-v1";
 
 function assert(cond: unknown, msg: string): void {
   if (!cond) {
@@ -346,6 +352,106 @@ assert(drawerSrc.includes("COGS recovery") && drawerSrc.includes("Latest sale ne
 assert(drawerSrc.includes("Seller Central amount currently selected"), "drawer must show the selected Seller Central amount");
 assert(drawerSrc.includes("Policy needs confirmation"), "drawer must render the policy-needs-confirmation badge");
 assert(drawerSrc.includes("Separate claim opportunities suggested"), "drawer must render the separate-opportunities section");
+
+// ---- PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1 ----
+// faRow with no overlay must stay needs_policy_confirmation (default unresolved).
+assert(fa.policy_confirmed === false && fa.filing_status === "needs_policy_confirmation", "no overlay -> needs_policy_confirmation");
+
+// With a confirmed operator overlay, the removal family resolves to COGS basis + safe_to_file.
+const confirmedFaRow = {
+  ...faRow,
+  amount_basis_policy_overlay: {
+    version: "claim-amount-basis-policy-v1",
+    confirmed_by: "operator:maysam",
+    confirmed_at: "2026-06-18T00:00:00.000Z",
+    approval_key: "APPROVED_CLAIM_AMOUNT_BASIS_POLICY_V1",
+    families: {
+      removal_shipment_missing: {
+        family_key: "removal_shipment_missing",
+        basis: "cogs_recovery",
+        use_as_seller_central_amount: true,
+        informational_only: ["latest_sale_net", "business_total_loss"],
+        confirmed_by: "operator:maysam",
+        confirmed_at: "2026-06-18T00:00:00.000Z",
+        approval_key: "APPROVED_CLAIM_AMOUNT_BASIS_POLICY_V1",
+        note: "COGS recovery is the Seller Central claim amount.",
+      },
+    },
+  },
+} as unknown as ReadyToFileRow;
+const faConfirmed = computeFamilyAwareRecovery(confirmedFaRow);
+assert(faConfirmed.policy_confirmed === true, "confirmed overlay must set policy_confirmed=true");
+assert(faConfirmed.policy.policy_resolved === true, "confirmed overlay must resolve the policy");
+assert(faConfirmed.seller_central_amount_basis === "cogs_recovery" && faConfirmed.seller_central_amount === 10, "confirmed basis must be COGS recovery = 10");
+assert(faConfirmed.filing_status === "safe_to_file", `confirmed removal claim with strong ref must be safe_to_file (got ${faConfirmed.filing_status})`);
+assert(faConfirmed.confirmed_reimbursed_strong === 0, "cross-family weak credit must still not count after confirmation");
+assert(faConfirmed.misclassified_candidates.some((c) => c.classified_family === "damaged_warehouse"), "separate-claim flagging must persist after confirmation");
+assert(drawerSrc.includes("Policy confirmed"), "drawer must render the policy-confirmed badge");
+assert(drawerSrc.includes("Informational") && drawerSrc.includes("Selected"), "drawer must tag amounts as Selected vs Informational");
+
+// ---- PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1 ----
+const mkClass = (over: Partial<FamilyCandidateClassification>): FamilyCandidateClassification => ({
+  source_label: "Reimbursement",
+  reference_id: "ref-1",
+  reason: null,
+  amount: 12.5,
+  quantity: 1,
+  event_date: "2026-05-01",
+  kind: "reimbursement",
+  source_group: "reimbursement",
+  classified_family: "reimbursement_reversal",
+  belongs_to_this_claim: false,
+  why_not: "different family",
+  should_create_separate_claim: true,
+  ...over,
+});
+const genInput: GeneratorClaimInput = {
+  claim_submission_id: "sub-1",
+  claim_family: "removal_shipment_missing",
+  product_identity: { fnsku: "X00FNSKU", sku: "SKU-1", asin: "B00ASIN", resolved_product_id: "prod-1" },
+  anchors: ["RO-1"],
+  scanner_only: false,
+  misclassified: [
+    mkClass({ classified_family: "reimbursement_reversal", reason: "Reversal of reimbursement", source_group: "reimbursement", reference_id: "reim-rev-1" }),
+    mkClass({ classified_family: "damaged_warehouse", reason: "Warehouse_Damaged", source_group: "inventory_ledger", kind: "inventory_ledger", reference_id: "ledger-1" }),
+    mkClass({ classified_family: "fulfillment_fee_overcharge", reason: "FBA fee", source_group: "transaction_settlement", kind: "transaction", reference_id: "txn-1" }),
+  ],
+};
+const gen = buildSeparateFamilyCandidatePreviews([genInput]);
+assert(gen.suggestions_input_count === 3, "generator must count all 3 suggestions");
+assert(gen.candidates.length === 3, "generator must build 3 de-duplicated previews");
+assert(gen.candidates.every((c) => !c.recommended_claim_family.startsWith("removal_")), "no generated candidate may be a removal family");
+assert(gen.candidates.every((c) => Boolean(c.product_identity.fnsku)), "every candidate must carry product identity");
+const rev = gen.candidates.find((c) => c.recommended_claim_family === "reimbursement_reversal");
+assert(rev != null && rev.source_table === "amazon_reimbursements" && rev.claim_amount_basis === "reimbursement_reinstatement", "reversal candidate maps to amazon_reimbursements + reinstatement basis");
+assert(rev!.expected_claim_amount === 12.5 && rev!.writeable === true, "resolved reversal candidate is writeable with reinstated amount");
+const dmg = gen.candidates.find((c) => c.recommended_claim_family === "damaged_warehouse");
+assert(dmg != null && dmg.claim_amount_basis === "cogs_recovery" && dmg.blockers.includes("amount_basis_needs_policy_confirmation"), "unresolved damaged_warehouse candidate is blocked on policy confirmation");
+const fee = gen.candidates.find((c) => c.recommended_claim_family === "fulfillment_fee_overcharge");
+assert(fee != null && fee.blockers.includes("fee_expected_value_unavailable_needs_fees_api"), "fee overcharge candidate needs Fees API expected value");
+// Scanner-only claims must never generate candidates without a scanner blocker.
+const scannerGen = buildSeparateFamilyCandidatePreviews([{ ...genInput, scanner_only: true }]);
+assert(scannerGen.candidates.every((c) => c.blockers.includes("scanner_or_ocr_only_excluded")), "scanner/OCR-only origin must block every generated candidate");
+assert(GENERATOR_SUPPORTED_FAMILIES.includes("reimbursement_reversal") && GENERATOR_SUPPORTED_FAMILIES.includes("storage_fee_overcharge"), "generator must support reversal + storage families");
+
+// New files exist + UI wired.
+for (const [p, label] of [
+  [join(cwd, "lib/claims/opportunities/separate-family-candidate-generator-contract-v1.ts"), "generator contract"],
+  [join(cwd, "lib/claims/opportunities/separate-family-candidate-generators-v1.ts"), "generator composer"],
+  [join(cwd, "lib/claims/opportunities/separate-family-candidate-generators-write-v1.ts"), "generator write module"],
+  [join(cwd, "app/api/claims/center/separate-family-opportunities/route.ts"), "opportunities api route"],
+  [join(cwd, "components/claim-center/opportunities/SeparateFamilyOpportunitiesPanel.tsx"), "opportunities panel"],
+] as const) {
+  assert(existsSync(p), `${label} missing`);
+}
+assert(
+  readFileSync(join(cwd, "components/claim-center/ClaimCenterOpportunitiesView.tsx"), "utf8").includes("SeparateFamilyOpportunitiesPanel"),
+  "opportunities view must render the separate-family panel",
+);
+assert(
+  readFileSync(join(cwd, "components/claim-center/data-coverage/ClaimDataCoverageView.tsx"), "utf8").includes("SeparateFamilyOpportunitiesPanel"),
+  "data-coverage view must render the generator support panel",
+);
 assert(/<th[^>]*>Reimb\. status<\/th>/.test(viewSrc) && /<th[^>]*>Open gap<\/th>/.test(viewSrc), "view must render reimbursement table columns");
 assert(viewSrc.includes("Open recovery gap") && viewSrc.includes("Confirmed reimbursed"), "view must render recovery summary cards");
 
@@ -413,5 +519,19 @@ assert(
   viewSpecs.some((s) => s.includes("claim-ready-to-file-queue-ui-contract")),
   "view must import types/helpers from the client-safe ui-contract module",
 );
+
+// ---- Separate-family panel + generator contract stay client-safe ----
+const panelSrc = readFileSync(join(cwd, "components/claim-center/opportunities/SeparateFamilyOpportunitiesPanel.tsx"), "utf8");
+for (const spec of importedSpecifiers(panelSrc)) {
+  for (const forbidden of FORBIDDEN_CLIENT_IMPORTS) {
+    assert(!spec.includes(forbidden), `separate-family panel must not import server-only '${forbidden}' (found "${spec}")`);
+  }
+}
+const genContractSrc = readFileSync(join(cwd, "lib/claims/opportunities/separate-family-candidate-generator-contract-v1.ts"), "utf8");
+for (const spec of importedSpecifiers(genContractSrc)) {
+  for (const forbidden of FORBIDDEN_CLIENT_IMPORTS) {
+    assert(!spec.includes(forbidden), `generator contract must not import server-only '${forbidden}' (found "${spec}")`);
+  }
+}
 
 console.log("SMOKE OK: PHASE-CLAIM-READY-TO-FILE-QUEUE-UI-V1 static contract verified");

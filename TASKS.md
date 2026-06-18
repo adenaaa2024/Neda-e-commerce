@@ -17,8 +17,9 @@ Synced with [`.ai-memory/NEXT_ACTIONS.md`](.ai-memory/NEXT_ACTIONS.md) · [`.ai-
 
 ## P1 — Claim pilot filing (active)
 
-- [ ] **PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1** — capture per-family amount basis (COGS vs latest-sale-net vs business loss) into governed `module_configs`; flips 10 pilot claims `needs_policy_confirmation → safe_to_file`
-- [ ] **PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1** — convert the 31 separate-claim suggestions into real per-family claim candidates
+- [x] **PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1** `20260618T220000Z` — governed write to `workspace_settings.module_configs.claims.amount_basis_policy` (`removal_shipment_missing`+`removal_order_discrepancy`=cogs_recovery); pilot **10/10 flipped `needs_policy_confirmation → safe_to_file`**, total SC $100.72 / confirmed $0.00 / open gap $100.72; weak 152 + separate 31 unchanged; no claim mutation
+- [x] **PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1** `20260618T233000Z` — preview-only: 152 cross-family suggestions → **72** de-dup per-family previews (6 families, 10 writeable); **0** written (write approval absent); removal pilot unchanged ($100.72); generator contract + API + approval-gated write + UI on opportunities/data-coverage
+- [ ] **PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-EXECUTE-V1** — approve + materialize writeable previews into real per-family claim_candidates (NEXT)
 - [ ] **PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1** — operator files in Seller Central via `/claim-center/ready-to-file`, records real Amazon Case IDs (governed write)
 - [x] **PHASE-CLAIM-FAMILY-AWARE-RECOVERY-MATCHING-V2** `20260618T140000Z` — family classifier + amount-basis policy matrix + cross-family credit exclusion (read-only)
 

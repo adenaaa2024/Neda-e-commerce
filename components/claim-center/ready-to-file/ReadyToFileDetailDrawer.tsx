@@ -157,26 +157,43 @@ function ReimbursementRecoveryGapSection({ row }: { row: ReadyToFileRow }) {
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase opacity-60">Recovery Gap / Claim Amount Policy</h3>
         <div className="flex items-center gap-1.5">
-          {!pol.policy_resolved ? (
+          {fa.policy_confirmed ? (
+            <span className={claimCenterBadgeTone("success")}>Policy confirmed</span>
+          ) : (
             <span className={claimCenterBadgeTone("warning")}>Policy needs confirmation</span>
-          ) : null}
+          )}
           <span className={claimCenterBadgeTone(fa.filing_status_tone)}>{fa.filing_status_label}</span>
         </div>
       </div>
 
       {/* Three amount rows under the configurable amount-basis policy. */}
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg border px-2 py-1.5">
+        <div
+          className={`rounded-lg border px-2 py-1.5 ${
+            fa.seller_central_amount_basis === "cogs_recovery" ? "border-emerald-500/40 bg-emerald-500/5" : ""
+          }`}
+        >
           <p className="text-[10px] uppercase opacity-55">COGS recovery</p>
           <p className="text-sm font-bold tabular-nums">{money(fa.current_cogs_expected_recovery)}</p>
+          <p className="text-[9px] uppercase tracking-wide opacity-50">
+            {fa.seller_central_amount_basis === "cogs_recovery" ? "Selected" : "Informational"}
+          </p>
         </div>
-        <div className="rounded-lg border px-2 py-1.5">
+        <div
+          className={`rounded-lg border px-2 py-1.5 ${
+            fa.seller_central_amount_basis === "latest_sale_net" ? "border-emerald-500/40 bg-emerald-500/5" : ""
+          }`}
+        >
           <p className="text-[10px] uppercase opacity-55">Latest sale net est.</p>
           <p className="text-sm font-bold tabular-nums">{money(fa.alternative_latest_sale_net_estimate)}</p>
+          <p className="text-[9px] uppercase tracking-wide opacity-50">
+            {fa.seller_central_amount_basis === "latest_sale_net" ? "Selected" : "Informational"}
+          </p>
         </div>
         <div className="rounded-lg border px-2 py-1.5">
           <p className="text-[10px] uppercase opacity-55">Business total loss</p>
           <p className="text-sm font-bold tabular-nums">{money(fa.business_total_loss_estimate)}</p>
+          <p className="text-[9px] uppercase tracking-wide opacity-50">Informational</p>
         </div>
       </div>
 

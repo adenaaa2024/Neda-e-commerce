@@ -238821,3 +238821,71 @@ The Recovery-Gap UI surfaced reimbursement/ledger/settlement/transaction candida
 **Files:** `claim-ready-to-file-queue-ui-contract.ts`, `ReadyToFileDetailDrawer.tsx`, `smoke-phase-claim-ready-to-file-queue-ui-v1.ts`, `phase-claim-family-aware-recovery-matching-v2.ts`.
 
 **NEXT_PROMPT:** PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1 - present the per-family amount-basis policy matrix to Maysam, capture the chosen basis (COGS vs latest-sale-net vs business loss) into a governed `module_configs` policy record, then re-run the family-aware engine so confirmed families flip `needs_policy_confirmation -> safe_to_file`; and (parallel) PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1 to convert the 31 separate-claim suggestions into real per-family claim candidates.
+
+---
+
+## 20260618T220000Z — PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1 (PASS, governed write)
+
+**Mode:** governed policy confirmation. Maysam approval `APPROVED_CLAIM_AMOUNT_BASIS_POLICY_V1=yes`. Only allowed write = `workspace_settings.module_configs.claims.amount_basis_policy`. No claim_candidates/claim_cases/claim_lines/claim_submissions/claim_reference_edges mutation, no Amazon, no browser, no scanner change, no AI. Target `kxsvedvpjldygtdbylsy`.
+
+**What was built**
+
+- **Governed policy module** `lib/claims/policy/claim-amount-basis-policy-v1.ts`: `loadConfirmedAmountBasisPolicy(client, org)` (dependency-light read, no node:fs), `readAmountBasisPolicyApproval()` (gate on `.cursor/operator-approvals/claim-amount-basis-policy-v1-approval.md`), `writeConfirmedAmountBasisPolicy({client, org, decisions, actorId})` (writes the canonical workspace_settings row **by id**, verifies on re-read, snapshots claim counts before/after). Storage location `workspace_settings.module_configs.claims.amount_basis_policy`.
+- **Contract overlay** (zero-import preserved): `ConfirmedFamilyAmountPolicy` + `AmountBasisPolicyOverlay` types; optional `amount_basis_policy_overlay` on `ReadyToFileRow`; `computeFamilyAwareRecovery` now honors a confirmed overlay (resolves `policy_resolved=true` + sets basis), and returns `policy_confirmed`, `policy_confirmation {confirmed_by, confirmed_at, approval_key}`, `informational_only_bases[]`. Confirmed removal families fall through to `computeFilingDecision` -> `safe_to_file`.
+- **Composer wiring** `claim-ready-to-file-queue-v1.ts`: loads the overlay (`loadConfirmedAmountBasisPolicy`) in the `Promise.all` and attaches it to every row.
+- **Operator approval file** `.cursor/operator-approvals/claim-amount-basis-policy-v1-approval.md` (`APPROVED_CLAIM_AMOUNT_BASIS_POLICY_V1=yes`).
+- **Drawer**: badge now **"Policy confirmed"** (success) vs "Policy needs confirmation"; the 3 amount rows tag the selected basis (COGS) as **Selected** and the others as **Informational** (latest sale net, business total loss).
+- **Execute script** `scripts/phase-claim-amount-basis-policy-operator-confirmation-v1.ts` (`--execute`).
+
+**Confirmed policy (current pilot):** `removal_shipment_missing = cogs_recovery`, `removal_order_discrepancy = cogs_recovery`; latest_sale_net + business_total_loss informational only; weak/cross-family candidates never change removal claim amount; Damaged/Lost/CustomerReturn/Reversal -> separate claim opportunities; sale price is NOT the claim amount.
+
+**Live execute (`kxsvedvpjldygtdbylsy`, org `...-0001`)**
+
+- approval_status **APPROVED**; policy_config_written **yes**; storage `workspace_settings.module_configs.claims.amount_basis_policy` (row id `5ad12e20-acb6-4813-8a0b-c200d8aaa47d`, source singleton).
+- pilot_claims_before **{safe_to_file 0, needs_policy_confirmation 10}** -> after **{safe_to_file 10, needs_policy_confirmation 0}**.
+- total_seller_central_requested_amount **$100.72** = total_cogs_recovery **$100.72** = open_gap_total **$100.72**; confirmed_reimbursed_total **$0.00**; total_business_loss_estimate **$100.72**; total_latest_sale_net_estimate **$101.18** (informational only; positive-per-unit estimate, not the claim amount).
+- weak_candidates_excluded_total **152** (cross-family, unchanged); separate_claim_candidate_suggestions **31** (unchanged); every pilot claim shows confirmed COGS-recovery basis + `policy_confirmed=true`.
+- no claim mutation [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged before==after].
+
+**Verification:** tsc 0, eslint 0 (warning fixed), smoke PASS (added overlay -> policy_confirmed/safe_to_file + drawer Policy-confirmed/Selected/Informational assertions), `next build` Compiled successfully (`/claim-center/ready-to-file` + API registered).
+
+**Output flags:** approval_status APPROVED | policy_config_written yes | ui_policy_badge_verified yes | weak_candidates_excluded_verification PASS | cross_family_candidate_exclusion_verification PASS | no_claim_mutation/no_amazon_submission/no_scanner_change PASS | build/smoke/next_build PASS | **SAFE_CLAIM_AMOUNT_POLICY_CONFIRMED=yes** | **SAFE_TO_FILE_APPROVED_REMOVAL_FAMILIES=yes** | **SAFE_TO_BUILD_SEPARATE_CLAIM_CANDIDATE_GENERATORS=yes**.
+
+**Files:** `claim-amount-basis-policy-v1.ts`, `claim-ready-to-file-queue-ui-contract.ts`, `claim-ready-to-file-queue-v1.ts`, `ReadyToFileDetailDrawer.tsx`, `claim-amount-basis-policy-v1-approval.md`, `phase-claim-amount-basis-policy-operator-confirmation-v1.ts`, `smoke-phase-claim-ready-to-file-queue-ui-v1.ts`.
+
+**NEXT_PROMPT:** PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1 — convert the 31 separate-claim suggestions (Damaged_Warehouse / Lost_Warehouse / Lost_Outbound / Reimbursement_Reversal / CustomerReturn reimbursement candidates currently surfaced under removal claims) into real per-family claim candidates (read-only preview first, then governed write), reusing the family classifier + amount-basis policy matrix; the 10 confirmed removal claims are now `safe_to_file` and only await operator Seller Central filing + real Amazon Case IDs.
+
+---
+
+## 20260618T233000Z — PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1 (PASS, preview-only)
+
+**Mode:** preview (write approval ABSENT → no claim_candidates write). No Amazon, no browser, no scanner change, no AI. Target `kxsvedvpjldygtdbylsy`.
+
+**Goal:** convert the family-aware cross-family "separate claim" suggestions (weak/cross-family candidates surfaced under the 10 removal pilot claims) into proper per-family claim-candidate PREVIEWS so damaged/lost/reversal/customer-return/fee events become their own candidates and never pollute removal_shipment_missing / removal_order_discrepancy.
+
+**What was built**
+
+- **Zero-import-safe generator contract** `lib/claims/opportunities/separate-family-candidate-generator-contract-v1.ts` (imports only the pure queue ui-contract): `SeparateFamilyCandidatePreview` (source_table, source_row_id, event reason/date, product identity, qty, amount, matched_references, family classification reason, claim_amount_basis, expected_claim_amount, reimbursement_matching_status, separate_from_removal_reason, confidence, blockers, writeable), `GENERATOR_SUPPORTED_FAMILIES` (13), `GENERATOR_SUPPORT_MATRIX` + `getGeneratorFamilySupport`, `SOURCE_TABLE_BY_GROUP`, and pure `buildSeparateFamilyCandidatePreviews(inputs)` (dedup by family+group+reference; enforces never-removal, product-identity-required, scanner/OCR-excluded, fee-needs-transaction, reversal-needs-pairing, policy-confirmation gating).
+- **Engine enrichment** (zero-import preserved): `FamilyCandidateClassification` gained `kind` + `quantity` + `source_group` (populated in both counted + weak loops of `computeFamilyAwareRecovery`).
+- **Server composer** `separate-family-candidate-generators-v1.ts`: loads the 10 pilot rows, runs family-aware engine, feeds `misclassified_candidates` into the generator; returns approval status + support matrix + removal open-gap (unchanged). Wired via `getCenterSeparateFamilyOpportunitiesPayload` + `GET /api/claims/center/separate-family-opportunities`.
+- **Approval-gated write module** `separate-family-candidate-generators-write-v1.ts`: `APPROVED_SEPARATE_FAMILY_CANDIDATE_GENERATORS_WRITE_V1` gate (path `.cursor/operator-approvals/separate-family-candidate-generators-write-v1-approval.md`); BLOCKED by default; when approved, schema-agnostic insert of only `writeable` previews + verifies claim_cases/claim_lines/claim_submissions/claim_reference_edges unchanged.
+- **UI**: `SeparateFamilyOpportunitiesPanel` (client-safe) added to `/claim-center/opportunities` (per-family preview cards + approval banner) and `/claim-center/data-coverage` (generator-support matrix). `/claim-center/ready-to-file` unchanged (these never appear there until promoted).
+- **Phase script** `scripts/phase-claim-separate-family-candidate-generators-v1.ts` (`[--execute]`).
+
+**Live preview (`kxsvedvpjldygtdbylsy`, org `…-0001`)**
+
+- mode **preview**; approval_status **BLOCKED** (file missing — exact path emitted).
+- suggestions_input_count **152** → candidates_preview_count **72** (de-duplicated) → candidates_written_count **0**.
+- family_counts: lost_warehouse **39**, fulfillment_fee_overcharge **13**, reimbursement_reversal **11**, damaged_warehouse **6**, customer_return_not_received **2**, lost_outbound **1**; unsupported_families **[]**; writeable **10**.
+- blockers_by_family: cogs families → `amount_basis_needs_policy_confirmation` (+ `source_group_mismatch_*`); fee → `fee_expected_value_unavailable_needs_fees_api`; reversal → `needs_original_reimbursement_pairing` (1).
+- current_removal_claims_unchanged_verification: 10/10 **safe_to_file**, open_gap_total **$100.72**, confirmed **$0.00**, weak_excluded **152** (unchanged).
+- cross_family_pollution_prevented: PASS (no removal family generated; no candidate without product identity; confirmed stays $0).
+- no claim mutation [claim_candidates 9155 before==after; claim_cases/lines/submissions/reference_edges unchanged]; no_amazon_submission PASS; no_scanner_change PASS.
+
+**Verification:** tsc 0; eslint 0 on all new files (2 pre-existing errors in `ClaimCenterOpportunitiesView.tsx` load/useMemo, untouched by this phase, non-blocking — `next build` Compiled successfully); smoke PASS (generator preview assertions + client-safety guards for the panel + generator contract); `next build` registers `/api/claims/center/separate-family-opportunities`, `/claim-center/opportunities`, `/claim-center/data-coverage`.
+
+**Output flags:** mode preview | approval_status BLOCKED | suggestions_input_count 152 | candidates_preview_count 72 | candidates_written_count 0 | current_removal_claims_unchanged_verification PASS | cross_family_pollution_prevented_verification PASS | no_amazon_submission/no_scanner_change PASS | build/smoke/next_build PASS | **SAFE_SEPARATE_FAMILY_GENERATORS_READY=yes** | **SAFE_TO_PROMOTE_NEW_FAMILY_CANDIDATES=no** (write approval absent).
+
+**Files:** `separate-family-candidate-generator-contract-v1.ts`, `separate-family-candidate-generators-v1.ts`, `separate-family-candidate-generators-write-v1.ts`, `claim-ready-to-file-queue-ui-contract.ts`, `claim-center-api-handlers.ts`, `app/api/claims/center/separate-family-opportunities/route.ts`, `SeparateFamilyOpportunitiesPanel.tsx`, `ClaimCenterOpportunitiesView.tsx`, `ClaimDataCoverageView.tsx`, `scripts/phase-claim-separate-family-candidate-generators-v1.ts`, `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts`.
+
+**NEXT_PROMPT:** PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-EXECUTE-V1 — operator sets `APPROVED_SEPARATE_FAMILY_CANDIDATE_GENERATORS_WRITE_V1=yes` to materialize the 72 previews (10 currently writeable: reimbursement_reversal) into real per-family `claim_candidates` (governed insert, idempotent by preview_id, verify other claim_* tables unchanged); in parallel, ingest Inventory Ledger Detail View (unblocks lost_warehouse/damaged_warehouse cogs basis) + Fee Preview/Product Fees API (unblocks fee_delta expected value) so the remaining cogs/fee families become writeable. The 10 confirmed removal claims remain `safe_to_file` awaiting operator Seller Central filing + real Amazon Case IDs (PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1).

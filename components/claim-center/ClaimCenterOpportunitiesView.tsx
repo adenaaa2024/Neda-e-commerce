@@ -19,6 +19,7 @@ import { ClaimCenterSampleWarningBanner } from "./ClaimCenterSampleWarningBanner
 import { ClaimCenterSectionEmptyState } from "./ClaimCenterSectionEmptyState";
 import { ClaimCenterV2PageShell } from "./ClaimCenterV2PageShell";
 import { useClaimCenter } from "./ClaimCenterRootClient";
+import { SeparateFamilyOpportunitiesPanel } from "./opportunities/SeparateFamilyOpportunitiesPanel";
 
 type Payload = {
   items: ClaimCenterV1Row[];
@@ -100,6 +101,9 @@ export function ClaimCenterOpportunitiesView() {
       ) : (
         <ClaimCenterMobileCards rows={filtered} onSelect={setSelectedRow} />
       )}
+      <div className="mt-6 border-t pt-6">
+        <SeparateFamilyOpportunitiesPanel variant="opportunities" />
+      </div>
       <div className="mt-4">
         <ClaimCenterBridgePhaseNotice compact />
       </div>

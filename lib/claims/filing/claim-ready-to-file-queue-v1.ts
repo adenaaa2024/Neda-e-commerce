@@ -28,6 +28,7 @@ import {
   composeClaimEventReferenceLedgerForTrace,
   EVENT_DATETIME_NOTE,
 } from "../reference/claim-event-reference-ledger-v1";
+import { loadConfirmedAmountBasisPolicy } from "../policy/claim-amount-basis-policy-v1";
 import {
   CLAIM_READY_TO_FILE_QUEUE_V1,
   READY_TO_FILE_ELIGIBLE_FAMILIES,
@@ -85,10 +86,11 @@ export async function composeClaimReadyToFileQueueV1(
   const intakeRunId = opts.intake_run_id ?? PILOT_INTAKE_RUN_ID;
   const runOpts = { pilot_case_run_id: pilotCaseRunId, intake_run_id: intakeRunId };
 
-  const [packets, money, trace] = await Promise.all([
+  const [packets, money, trace, amountBasisPolicy] = await Promise.all([
     composeClaimSellerCentralFilingPacketV1(client, organizationId, storeId, runOpts),
     composeMoneyLanePreviewAfterCogsV1(client, organizationId, storeId, runOpts),
     composeTridReferenceTraceMatrixV1(client, organizationId, storeId, runOpts),
+    loadConfirmedAmountBasisPolicy(client, organizationId),
   ]);
 
   const moneyBySubmission = new Map(
@@ -367,6 +369,7 @@ export async function composeClaimReadyToFileQueueV1(
         resolved_product_id: packet.product_link_resolved_product_id,
       },
       packet,
+      amount_basis_policy_overlay: amountBasisPolicy,
     });
   }
 

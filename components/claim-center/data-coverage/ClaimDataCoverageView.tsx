@@ -5,6 +5,7 @@ import { Database, Loader2 } from "lucide-react";
 
 import { ClaimCenterFinancialNav } from "@/components/claim-center/financial/ClaimCenterFinancialNav";
 import { ClaimCenterV2PageShell } from "@/components/claim-center/ClaimCenterV2PageShell";
+import { SeparateFamilyOpportunitiesPanel } from "@/components/claim-center/opportunities/SeparateFamilyOpportunitiesPanel";
 import { useClaimCenter } from "@/components/claim-center/ClaimCenterRootClient";
 import {
   CLAIM_CENTER_KPI_CARD,
@@ -274,6 +275,9 @@ export function ClaimDataCoverageView() {
               </table>
             </div>
           </section>
+
+          {/* ---- Separate-family generator support ---- */}
+          <SeparateFamilyOpportunitiesPanel variant="support" />
 
           {/* ---- Highest priority next builds ---- */}
           <section className="rounded-xl border bg-black/[0.02] px-4 py-3 dark:bg-white/[0.02]">
