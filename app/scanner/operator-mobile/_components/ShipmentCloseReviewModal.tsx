@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 
 import type {
   ShipmentCloseReviewBucketKey,
-  ShipmentCloseReviewLineSummary,
   ShipmentCloseReviewModel,
 } from "@/lib/scanner/shipment-close-review";
 import {
@@ -16,6 +15,7 @@ import {
   type ShipmentExpectedLineStatus,
 } from "@/lib/scanner/shipment-expected-context";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
+import { CloseReviewIssueItemList } from "@/app/scanner/operator-mobile/_components/CloseReviewIssueItemList";
 
 type ShipmentCloseReviewModalProps = {
   formId: string;
@@ -43,7 +43,7 @@ type SummaryCard = {
 const BUCKET_DISPLAY: Partial<Record<ShipmentCloseReviewBucketKey, BucketDisplay>> = {
   missing: {
     title: "Missing items found",
-    subtext: "These units were expected but not received.",
+    subtext: "Expected units not received.",
   },
   partial: {
     title: "Partially received",
@@ -81,7 +81,7 @@ const CRITICAL_ISSUE_DISPLAY: Record<string, string> = {
   "Damaged / problem items": "Damaged / problem items",
 };
 
-const ISSUE_TABLE_SCROLL_ROW_THRESHOLD = 5;
+const ISSUE_LIST_SCROLL_ROW_THRESHOLD = 5;
 
 function bucketDisplayTitle(key: ShipmentCloseReviewBucketKey, fallback: string): BucketDisplay {
   return BUCKET_DISPLAY[key] ?? { title: fallback };
@@ -109,48 +109,6 @@ function oneContainerHint(model: ShipmentCloseReviewModel): string | null {
   if (model.package_count <= 1) return "This shipment contains one box.";
   if (model.pallet_count <= 1) return "This shipment contains one pallet.";
   return null;
-}
-
-function IssueItemsTable(props: {
-  lines: ShipmentCloseReviewLineSummary[];
-  bucketKey: string;
-  maxRows?: number;
-}) {
-  const { lines, bucketKey, maxRows = 6 } = props;
-  const visible = lines.slice(0, maxRows);
-  const overflow = lines.length - visible.length;
-
-  return (
-    <div className="operator-shipment-close-review__table-wrap">
-      <table className="operator-shipment-close-review__table w-full border-collapse">
-        <thead>
-          <tr>
-            <th className="operator-shipment-close-review__table-head text-left">Identifier</th>
-            <th className="operator-shipment-close-review__table-head operator-shipment-close-review__table-head--qty">
-              Qty
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((line) => (
-            <tr key={`${bucketKey}:${line.lineKey}`} className="operator-shipment-close-review__table-row">
-              <td className="operator-shipment-close-review__table-cell">
-                <span className="operator-shipment-close-review__identifier font-mono">{line.label}</span>
-              </td>
-              <td className="operator-shipment-close-review__table-cell operator-shipment-close-review__table-cell--qty">
-                <span className="operator-shipment-close-review__qty-badge tabular-nums">{line.qty}</span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {overflow > 0 ? (
-        <p className="operator-shipment-close-review__more mt-2 px-2 text-[11px] font-semibold">
-          +{overflow} more item{overflow === 1 ? "" : "s"}
-        </p>
-      ) : null}
-    </div>
-  );
 }
 
 const EXPECTED_STATUS_TONE: Record<ShipmentExpectedLineStatus, string> = {
@@ -220,7 +178,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
     [model.buckets],
   );
 
-  const issuesListScrollable = totalIssueRows > ISSUE_TABLE_SCROLL_ROW_THRESHOLD;
+  const issuesListScrollable = totalIssueRows > ISSUE_LIST_SCROLL_ROW_THRESHOLD;
 
   const expectedSummary = useMemo(
     () => (expectedContext ? summarizeShipmentExpectedContext(expectedContext) : null),
@@ -384,7 +342,10 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
                         ) : null}
                       </div>
                       {bucket.lines.length > 0 ? (
-                        <IssueItemsTable lines={bucket.lines} bucketKey={bucket.key} />
+                        <CloseReviewIssueItemList
+                          lines={bucket.lines}
+                          listKey={bucket.key}
+                        />
                       ) : null}
                     </li>
                   );

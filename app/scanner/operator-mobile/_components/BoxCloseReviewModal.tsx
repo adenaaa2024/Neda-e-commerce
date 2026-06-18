@@ -6,10 +6,10 @@ import { useMemo, useState } from "react";
 import type {
   BoxCloseReviewBucket,
   BoxCloseReviewBucketKey,
-  BoxCloseReviewLineSummary,
   BoxCloseReviewModel,
 } from "@/lib/scanner/box-close-review";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
+import { CloseReviewIssueItemList } from "@/app/scanner/operator-mobile/_components/CloseReviewIssueItemList";
 
 type BoxCloseReviewModalProps = {
   formId: string;
@@ -40,7 +40,7 @@ type SummaryCard = {
 const BUCKET_DISPLAY: Partial<Record<BoxCloseReviewBucketKey, BucketDisplay>> = {
   pending_under_scanned: {
     title: "Pending items",
-    subtext: "These expected units were not scanned.",
+    subtext: "Expected units not scanned.",
   },
   marked_missing_operator_note: {
     title: "Marked missing by operator",
@@ -77,7 +77,7 @@ const CRITICAL_ISSUE_DISPLAY: Record<string, string> = {
   "Unresolved missing quantity": "Quantity mismatch",
 };
 
-const ISSUE_TABLE_SCROLL_ROW_THRESHOLD = 5;
+const ISSUE_LIST_SCROLL_ROW_THRESHOLD = 5;
 
 function bucketDisplayTitle(key: BoxCloseReviewBucketKey, fallback: string): BucketDisplay {
   return BUCKET_DISPLAY[key] ?? { title: fallback };
@@ -91,48 +91,6 @@ function bucketQtySum(bucket: BoxCloseReviewBucket | undefined): number {
 function formatUnresolvedIssueBody(labels: string[]): string {
   if (labels.length === 0) return "Review required before closing.";
   return labels.map((label) => CRITICAL_ISSUE_DISPLAY[label] ?? label).join(" · ");
-}
-
-function IssueItemsTable(props: {
-  lines: BoxCloseReviewLineSummary[];
-  bucketKey: string;
-  maxRows?: number;
-}) {
-  const { lines, bucketKey, maxRows = 6 } = props;
-  const visible = lines.slice(0, maxRows);
-  const overflow = lines.length - visible.length;
-
-  return (
-    <div className="operator-shipment-close-review__table-wrap">
-      <table className="operator-shipment-close-review__table w-full border-collapse">
-        <thead>
-          <tr>
-            <th className="operator-shipment-close-review__table-head text-left">Identifier</th>
-            <th className="operator-shipment-close-review__table-head operator-shipment-close-review__table-head--qty">
-              Qty
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((line) => (
-            <tr key={`${bucketKey}:${line.lineKey}`} className="operator-shipment-close-review__table-row">
-              <td className="operator-shipment-close-review__table-cell">
-                <span className="operator-shipment-close-review__identifier font-mono">{line.label}</span>
-              </td>
-              <td className="operator-shipment-close-review__table-cell operator-shipment-close-review__table-cell--qty">
-                <span className="operator-shipment-close-review__qty-badge tabular-nums">{line.qty}</span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {overflow > 0 ? (
-        <p className="operator-shipment-close-review__more mt-2 px-2 text-[11px] font-semibold">
-          +{overflow} more item{overflow === 1 ? "" : "s"}
-        </p>
-      ) : null}
-    </div>
-  );
 }
 
 export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
@@ -212,7 +170,7 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
     [issueBuckets],
   );
 
-  const issuesListScrollable = totalIssueRows > ISSUE_TABLE_SCROLL_ROW_THRESHOLD;
+  const issuesListScrollable = totalIssueRows > ISSUE_LIST_SCROLL_ROW_THRESHOLD;
 
   return (
     <div
@@ -301,7 +259,10 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
                         ) : null}
                       </div>
                       {bucket.lines.length > 0 ? (
-                        <IssueItemsTable lines={bucket.lines} bucketKey={bucket.key} />
+                        <CloseReviewIssueItemList
+                          lines={bucket.lines}
+                          listKey={bucket.key}
+                        />
                       ) : null}
                     </li>
                   );

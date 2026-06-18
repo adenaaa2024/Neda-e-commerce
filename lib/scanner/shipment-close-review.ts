@@ -2,6 +2,10 @@
  * Phase 6E — Shipment close review model (unified review engine shipment scope → finalize gate UI).
  */
 
+import {
+  resolveCloseReviewIdentifiers,
+  resolveCloseReviewLineTitle,
+} from "@/lib/scanner/close-review-line-display";
 import type { PalletShipmentReviewPreview } from "@/lib/scanner/pallet-shipment-review-types";
 import type { UnifiedReviewBucket } from "@/lib/scanner/review-engine/review-engine-types";
 
@@ -10,6 +14,10 @@ export type ShipmentCloseReviewBucketKey = UnifiedReviewBucket | "damaged_or_pro
 export type ShipmentCloseReviewLineSummary = {
   lineKey: string;
   label: string;
+  title: string;
+  fnsku: string | null;
+  asin: string | null;
+  sku: string | null;
   qty: number;
   detail: string | null;
 };
@@ -108,9 +116,28 @@ export function buildShipmentCloseReviewModelFromPreview(
       if (pid) palletIds.add(pid);
     }
     const unifiedKey = legacyBucketToShipmentCloseKey(line);
+    const label = line.label?.trim() || line.grain_key;
+    const ids = resolveCloseReviewIdentifiers({
+      grain: line.grain,
+      fnsku: line.identifiers.fnsku,
+      asin: line.identifiers.asin,
+      sku: line.identifiers.sku,
+      label,
+    });
+    const title = resolveCloseReviewLineTitle({
+      grain: line.grain,
+      fnsku: line.identifiers.fnsku,
+      asin: line.identifiers.asin,
+      sku: line.identifiers.sku,
+      label,
+    });
     const summary: ShipmentCloseReviewLineSummary = {
       lineKey: line.grain_key,
-      label: line.label?.trim() || line.grain_key,
+      label,
+      title,
+      fnsku: ids.fnsku ?? null,
+      asin: ids.asin ?? null,
+      sku: ids.sku ?? null,
       qty: Math.max(line.expected_qty, line.scanned_qty, line.slip_qty, 1),
       detail:
         [

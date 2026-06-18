@@ -5,6 +5,10 @@
  */
 
 import {
+  resolveCloseReviewIdentifiers,
+  resolveCloseReviewLineTitle,
+} from "@/lib/scanner/close-review-line-display";
+import {
   filterPackageItemDiscrepancyTags,
   ITEM_UNIT_SELLABLE_OK_TAG,
 } from "@/lib/scanner/item-unit-discrepancy-tags";
@@ -27,6 +31,10 @@ export type BoxCloseReviewBucketKey =
 export type BoxCloseReviewLineSummary = {
   lineKey: string;
   label: string;
+  title: string;
+  fnsku: string | null;
+  asin: string | null;
+  sku: string | null;
   qty: number;
   detail: string | null;
 };
@@ -76,6 +84,8 @@ const BUCKET_TITLES: Record<BoxCloseReviewBucketKey, string> = {
 
 function lineSummaryFromValidation(line: SlipShipmentValidationLine): BoxCloseReviewLineSummary {
   const label = line.label?.trim() || line.grain_key;
+  const ids = resolveCloseReviewIdentifiers({ grain: line.grain, label });
+  const title = resolveCloseReviewLineTitle({ grain: line.grain, label });
   const qty = Math.max(line.scanned_qty, line.slip_qty, line.shipment_expected_qty);
   const parts: string[] = [];
   if (line.slip_qty > 0) parts.push(`slip ${line.slip_qty}`);
@@ -85,6 +95,10 @@ function lineSummaryFromValidation(line: SlipShipmentValidationLine): BoxCloseRe
   return {
     lineKey: line.grain_key,
     label,
+    title,
+    fnsku: ids.fnsku ?? null,
+    asin: ids.asin ?? null,
+    sku: ids.sku ?? null,
     qty,
     detail: parts.length ? parts.join(" · ") : null,
   };
@@ -110,21 +124,53 @@ function isProblemPackageItem(discrepancyTags: string[] | null | undefined): boo
   return !(tags.length === 1 && tags[0] === ITEM_UNIT_SELLABLE_OK_TAG);
 }
 
-function missingReviewSummaries(entries: OperatorMissingReviewEntry[]): BoxCloseReviewLineSummary[] {
+function missingReviewSummaries(
+  entries: OperatorMissingReviewEntry[],
+  preview: SlipShipmentValidationPreview | null,
+): BoxCloseReviewLineSummary[] {
+  const validationLineBySlipId = new Map<string, SlipShipmentValidationLine>();
+  if (preview) {
+    for (const line of preview.lines) {
+      for (const slipId of line.slip_content_ids) {
+        const sid = slipId?.trim();
+        if (sid) validationLineBySlipId.set(sid, line);
+      }
+    }
+  }
+
   return entries.map((entry, index) => {
-    const label =
-      entry.fnsku?.trim() ||
-      entry.sku?.trim() ||
-      entry.asin?.trim() ||
-      entry.slip_content_id?.trim() ||
-      "Missing review line";
     const slipId = entry.slip_content_id?.trim() || entry.expected_line_id?.trim() || "";
+    const matchedLine = slipId ? validationLineBySlipId.get(slipId) : undefined;
+    const ids = resolveCloseReviewIdentifiers({
+      fnsku: entry.fnsku,
+      asin: entry.asin,
+      sku: entry.sku,
+      grain: matchedLine?.grain ?? null,
+      label: matchedLine?.label,
+    });
+    const label =
+      ids.fnsku ||
+      ids.asin ||
+      ids.sku ||
+      slipId ||
+      "Missing review line";
+    const title = resolveCloseReviewLineTitle({
+      grain: matchedLine?.grain ?? null,
+      label: matchedLine?.label,
+      fnsku: entry.fnsku,
+      asin: entry.asin,
+      sku: entry.sku,
+    });
     const lineKey = slipId
       ? `${slipId}:${entry.marked_at}:${entry.operator_marked_missing_qty}:${index}`
       : `missing-review:${index}:${entry.marked_at}:${entry.operator_marked_missing_qty}`;
     return {
       lineKey,
       label,
+      title,
+      fnsku: ids.fnsku ?? null,
+      asin: ids.asin ?? null,
+      sku: ids.sku ?? null,
       qty: entry.operator_marked_missing_qty,
       detail: entry.note?.trim() || null,
     };
@@ -155,7 +201,7 @@ export function buildBoxCloseReviewModel(input: {
       ]
     : [];
 
-  const missingLines = missingReviewSummaries(input.missingReviewEntries);
+  const missingLines = missingReviewSummaries(input.missingReviewEntries, preview);
   const missingBucket: BoxCloseReviewBucket = {
     key: "marked_missing_operator_note",
     title: BUCKET_TITLES.marked_missing_operator_note,
@@ -164,12 +210,21 @@ export function buildBoxCloseReviewModel(input: {
   };
 
   const problemItems = input.packageItems.filter((row) => isProblemPackageItem(row.discrepancy_tags));
-  const problemLines: BoxCloseReviewLineSummary[] = problemItems.map((row, index) => ({
-    lineKey: `${row.scanned_barcode.trim() || "unit"}:${index}:${filterPackageItemDiscrepancyTags(row.discrepancy_tags).join("|")}`,
-    label: row.scanned_barcode.trim() || "Scanned unit",
-    qty: Math.max(1, Math.floor(Number(row.quantity ?? 1))),
-    detail: filterPackageItemDiscrepancyTags(row.discrepancy_tags).join(", ") || null,
-  }));
+  const problemLines: BoxCloseReviewLineSummary[] = problemItems.map((row, index) => {
+    const barcode = row.scanned_barcode.trim() || "Scanned unit";
+    const title = resolveCloseReviewLineTitle({ label: barcode, fnsku: barcode });
+    const ids = resolveCloseReviewIdentifiers({ fnsku: barcode, label: barcode });
+    return {
+      lineKey: `${row.scanned_barcode.trim() || "unit"}:${index}:${filterPackageItemDiscrepancyTags(row.discrepancy_tags).join("|")}`,
+      label: barcode,
+      title,
+      fnsku: ids.fnsku ?? null,
+      asin: ids.asin ?? null,
+      sku: ids.sku ?? null,
+      qty: Math.max(1, Math.floor(Number(row.quantity ?? 1))),
+      detail: filterPackageItemDiscrepancyTags(row.discrepancy_tags).join(", ") || null,
+    };
+  });
   const problemBucket: BoxCloseReviewBucket = {
     key: "damaged_or_problem_items",
     title: BUCKET_TITLES.damaged_or_problem_items,
