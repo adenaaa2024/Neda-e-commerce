@@ -54,6 +54,8 @@ export type MasterUploaderProps = {
    * When `false`, hides the “Tap to add photos” line in the empty compact card (e.g. when another slot is “active” first).
    */
   compactShowTapSubtitle?: boolean;
+  /** Compact header only — hide trailing add icon once photos exist (Add photo row remains). */
+  compactOmitHeaderAddIconWhenFilled?: boolean;
   /**
    * When set, new uploads use aligned `{org}/{store}/pallets|packages/...` paths.
    * Omit for legacy `{org}/incident/...` behavior (existing workflows).
@@ -67,6 +69,8 @@ export type MasterUploaderProps = {
   viewLocked?: boolean;
   /** When true, thumbnail tap opens an in-app lightbox (no new tab / route). Default true. */
   inAppPreview?: boolean;
+  /** Return false to block opening the add-photo sheet (camera / file picker). */
+  onBeforeAdd?: () => boolean;
 };
 
 function primaryLabelContent(label: ReactNode | undefined, fallback: string): ReactNode {
@@ -141,9 +145,11 @@ export function MasterUploader({
   variant = "legacy",
   compactDensity = "default",
   compactShowTapSubtitle = true,
+  compactOmitHeaderAddIconWhenFilled = false,
   alignedUpload = null,
   viewLocked = false,
   inAppPreview = true,
+  onBeforeAdd,
 }: MasterUploaderProps) {
   /** Latest `viewLocked` for handlers (avoids removes if the UI unmounts the button one frame late). */
   const viewLockedRef = useRef(viewLocked);
@@ -296,11 +302,12 @@ export function MasterUploader({
 
   const openSheet = useCallback(() => {
     if (!canAdd || uploadingRef.current) return;
+    if (onBeforeAdd && !onBeforeAdd()) return;
     setError("");
     setSheetStep("menu");
     setWebcamError(false);
     setSheetOpen(true);
-  }, [canAdd]);
+  }, [canAdd, onBeforeAdd]);
 
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
@@ -339,9 +346,11 @@ export function MasterUploader({
     const countCls = dense
       ? "shrink-0 text-[10px] font-bold tabular-nums text-slate-500 dark:text-slate-400"
       : "shrink-0 text-xs font-bold tabular-nums text-slate-500 dark:text-slate-400";
-    const thumbGrid = dense
-      ? "grid grid-cols-5 gap-1.5 px-2 pb-1.5 pt-1"
-      : "grid grid-cols-4 gap-2 px-3 pb-2 pt-2";
+    const thumbGrid = compactOmitHeaderAddIconWhenFilled
+      ? "master-uploader-slip-thumb-row flex flex-wrap items-start gap-2 px-2 pb-1.5 pt-1"
+      : dense
+        ? "grid grid-cols-5 gap-1.5 px-2 pb-1.5 pt-1"
+        : "grid grid-cols-4 gap-2 px-3 pb-2 pt-2";
     const thumbRadius = dense ? "rounded-lg" : "rounded-xl";
     const rmBtn = dense ? "right-0.5 top-0.5 h-5 w-5" : "right-1 top-1 h-6 w-6";
     const rmIcon = dense ? "h-3 w-3" : "h-3.5 w-3.5";
@@ -411,6 +420,29 @@ export function MasterUploader({
                 <span className={countCls}>0/{maxFiles}</span>
               </div>
             </div>
+          ) : compactOmitHeaderAddIconWhenFilled ? (
+            <div
+              className={`master-uploader-slip-filled-header flex flex-nowrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 ${padHeader}`}
+            >
+              <div
+                className={[
+                  `flex shrink-0 items-center justify-center ${icoBox}`,
+                  isComplete ? "bg-emerald-100 dark:bg-emerald-950/40" : "bg-slate-100 dark:bg-slate-800",
+                ].join(" ")}
+              >
+                {isComplete ? (
+                  <CheckCircle2 className={`${icoSm} text-emerald-600 dark:text-emerald-400`} />
+                ) : (
+                  <Camera className={`${icoSm} text-slate-500 dark:text-slate-400`} />
+                )}
+              </div>
+              <p className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-slate-900 dark:text-slate-50">
+                {primaryLabelContent(label, "Evidence")}
+              </p>
+              <span className={countCls}>
+                {value.length}/{maxFiles}
+              </span>
+            </div>
           ) : (
             <div
               className={`flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 ${padHeader}`}
@@ -433,7 +465,7 @@ export function MasterUploader({
                   {value.length}/{maxFiles}
                 </span>
               </div>
-              {canAdd ? (
+              {canAdd && !(compactOmitHeaderAddIconWhenFilled && value.length > 0) ? (
                 dense ? (
                   <ImagePlus className={`${icoSm} shrink-0 text-slate-400 dark:text-slate-500`} aria-hidden />
                 ) : (

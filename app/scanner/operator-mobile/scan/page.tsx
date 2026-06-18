@@ -805,9 +805,14 @@ async function loadHydratedBoxSlipVisionSnapshot(input: {
 
   const slipCode = sidRow || fromManifest.slipCode || slipCodeFromContents || "";
   const norm = normalizeSlipOrderConflictPair(slipOrder, slipConflicting);
-  const evidenceReview = readBoxSlipEvidenceReview(input.manifestRaw);
+  const evidenceReviewRaw = readBoxSlipEvidenceReview(input.manifestRaw);
+  const { lines: resolvedLines, evidenceReview } = resolveHydratedMergedSlipVisionLines({
+    manifestLines: fromManifest.lines,
+    slipContentLines: lines,
+    evidenceReview: evidenceReviewRaw,
+  });
   return {
-    lines,
+    lines: resolvedLines,
     slipCode,
     rma,
     slipOrderId: norm.slip,
@@ -958,6 +963,16 @@ const OP_HUB_LABEL_SCAN_BOXES_FIRST = "Scan all boxes first";
 const BOX_INTAKE_PACKING_SLIP_REQUIRED_ERROR =
   "Add at least one packing slip photo, or check 'No packing slip available'.";
 const BOX_INTAKE_SLIP_REVIEW_REQUIRED_ERROR = "Review the packing slip before continuing.";
+const BOX_INTAKE_SLIP_REVIEW_MULTI_PAGE_ERROR =
+  "Review each packing slip page before continuing.";
+const SLIP_CONTINUATION_PAGE_NOTE =
+  "Page 1 slip code and order are locked. Confirm, edit, or mark this page before adding another or saving.";
+const SLIP_EVIDENCE_INFO_NOTE = "Slip evidence only — does not change shipment expected.";
+const SLIP_EVIDENCE_PAGE_LOCK_INFO =
+  "Page 1 slip code/order is locked. Additional pages add item lines only.";
+const WRONG_CONTINUATION_SLIP_MODAL_TITLE = "Wrong packing slip page";
+const WRONG_CONTINUATION_SLIP_MODAL_MESSAGE =
+  "This photo appears to be a different packing slip. Page 2 should be a continuation of the same slip, not a new slip with another barcode/header. Remove this photo and upload the correct continuation page.";
 
 type ShipmentCloseReadinessCase =
   | "not_pallet"
@@ -1043,6 +1058,40 @@ function isSlipReviewRequired(
   return hasSlipPhoto(slipBoxPhotoUrls) && !isNoPackingSlip(boxHasNoPackingSlip);
 }
 
+function slipPhotoCount(slipBoxPhotoUrls: readonly string[]): number {
+  return slipBoxPhotoUrls.filter((u) => String(u ?? "").trim().length > 0).length;
+}
+
+function hasSlipReviewPending(
+  boxHasNoPackingSlip: boolean,
+  slipBoxPhotoUrls: readonly string[],
+  reviewedSlipPhotoCount: number,
+): boolean {
+  if (isNoPackingSlip(boxHasNoPackingSlip)) return false;
+  const photos = slipPhotoCount(slipBoxPhotoUrls);
+  if (photos === 0) return false;
+  return reviewedSlipPhotoCount < photos;
+}
+
+type LockedSlipPageOneHeader = {
+  slipCode: string;
+  slipRma: string;
+  slipOrderId: string;
+  slipConflictingOrderId: string;
+  evidenceReview: BoxSlipEvidenceReview;
+  visionLines: BoxSlipVisionLine[];
+};
+
+function shouldBlockNextSlipPhotoUpload(
+  boxHasNoPackingSlip: boolean,
+  slipBoxPhotoUrls: readonly string[],
+  review: BoxSlipEvidenceReview | null,
+): boolean {
+  if (isNoPackingSlip(boxHasNoPackingSlip)) return false;
+  if (!hasSlipPhoto(slipBoxPhotoUrls)) return false;
+  return !isSlipReviewed(review);
+}
+
 function isSlipReviewed(review: BoxSlipEvidenceReview | null): boolean {
   if (!review) return false;
   const status = review.status;
@@ -1054,6 +1103,262 @@ function isSlipReviewed(review: BoxSlipEvidenceReview | null): boolean {
   );
 }
 
+function syncBoxSlipEvidenceReviewToMergedVisionLines(
+  review: BoxSlipEvidenceReview | null,
+  mergedVisionLines: readonly BoxSlipVisionLine[],
+): BoxSlipEvidenceReview | null {
+  if (!review || review.status === "unreadable" || mergedVisionLines.length === 0) {
+    return review;
+  }
+  if (!isSlipReviewed(review)) return review;
+  const mergedEvidence = evidenceLinesFromVisionLines([...mergedVisionLines]);
+  if (review.lines.length >= mergedEvidence.length) return review;
+  return {
+    ...review,
+    lines: cloneBoxSlipEvidenceLines(mergedEvidence),
+  };
+}
+
+function resolveHydratedMergedSlipVisionLines(input: {
+  manifestLines: readonly BoxSlipVisionLine[];
+  slipContentLines: readonly BoxSlipVisionLine[];
+  evidenceReview: BoxSlipEvidenceReview | null;
+}): { lines: BoxSlipVisionLine[]; evidenceReview: BoxSlipEvidenceReview | null } {
+  const reviewVision =
+    input.evidenceReview && isSlipReviewed(input.evidenceReview)
+      ? input.evidenceReview.lines.map(evidenceLineToVisionLine)
+      : [];
+  const candidates = [
+    input.slipContentLines,
+    input.manifestLines,
+    reviewVision,
+  ].filter((c) => c.length > 0);
+  const mergedVision =
+    candidates.length > 0
+      ? clonePersistBoxSlipVisionLines([
+          ...candidates.reduce((best, cur) => (cur.length > best.length ? cur : best), candidates[0]!),
+        ])
+      : [];
+  const evidenceReview = syncBoxSlipEvidenceReviewToMergedVisionLines(
+    input.evidenceReview,
+    mergedVision,
+  );
+  return { lines: mergedVision, evidenceReview };
+}
+
+function reconstructReviewedSlipLinesByPhotoFromHydratedMerge(
+  slipPhotoUrls: readonly string[],
+  mergedLines: readonly BoxSlipVisionLine[],
+  evidenceReview: BoxSlipEvidenceReview | null,
+): { map: Record<string, BoxSlipVisionLine[]>; reviewedCount: number } {
+  const ordered = slipPhotoUrlsHttpsOrdered(slipPhotoUrls);
+  if (ordered.length === 0 || mergedLines.length === 0 || !isSlipReviewed(evidenceReview)) {
+    return { map: {}, reviewedCount: 0 };
+  }
+  const cloned = clonePersistBoxSlipVisionLines([...mergedLines]);
+  const map: Record<string, BoxSlipVisionLine[]> = {
+    [SLIP_MERGED_REVIEW_SYNTHETIC_KEY]: cloned,
+  };
+  return { map, reviewedCount: ordered.length };
+}
+
+function logSlipRehydrateDebug(phase: string, payload: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === "production") return;
+  console.log("[slip-rehydrate-debug] phase:", phase, payload);
+}
+
+function hasReviewedSlipEvidence(review: BoxSlipEvidenceReview | null): boolean {
+  return isSlipReviewed(review);
+}
+
+function isContinuationSlipPhotoOcr(
+  slipPhotoUrlsBeforeOcr: readonly string[],
+  review: BoxSlipEvidenceReview | null,
+): boolean {
+  return hasSlipPhoto(slipPhotoUrlsBeforeOcr) && hasReviewedSlipEvidence(review);
+}
+
+function snapshotLockedSlipPageOneHeader(input: {
+  slipCode: string;
+  slipRma: string;
+  slipOrderId: string;
+  slipConflictingOrderId: string;
+  evidenceReview: BoxSlipEvidenceReview;
+  visionLines: readonly BoxSlipVisionLine[];
+}): LockedSlipPageOneHeader {
+  return {
+    slipCode: input.slipCode.trim(),
+    slipRma: input.slipRma.trim(),
+    slipOrderId: input.slipOrderId.trim(),
+    slipConflictingOrderId: input.slipConflictingOrderId.trim(),
+    evidenceReview: {
+      ...input.evidenceReview,
+      lines: cloneBoxSlipEvidenceLines(input.evidenceReview.lines),
+      ...(input.evidenceReview.original_ocr_snapshot?.length
+        ? {
+            original_ocr_snapshot: clonePersistBoxSlipVisionLines(
+              input.evidenceReview.original_ocr_snapshot,
+            ),
+          }
+        : {}),
+    },
+    visionLines: clonePersistBoxSlipVisionLines([...input.visionLines]),
+  };
+}
+
+type ContinuationSlipHeaderCandidates = {
+  slipCode: string;
+  orderId: string;
+  rma: string;
+};
+
+function extractContinuationSlipHeaderCandidates(slip: BoxSlipVisionExtract): ContinuationSlipHeaderCandidates {
+  const slipCode = String(
+    slip.id_slip_contents ?? (slip as { slip_code?: string | null }).slip_code ?? "",
+  ).trim();
+  const rma = String(slip.rma_number ?? "").trim();
+  const slipExplicitOrder = String(slip.order_id ?? "").trim();
+  const slipTokFromRma = rma ? extractSlipOrderTokenForPalletCompare(rma) : null;
+  const orderId = (slipExplicitOrder || slipTokFromRma || "").trim();
+  return { slipCode, orderId, rma };
+}
+
+function isLikelySlipFooterNoise(candidate: string): boolean {
+  const c = String(candidate ?? "").trim();
+  if (!c) return true;
+  const lower = c.toLowerCase();
+  if (lower.includes("/vendor-returns/")) return true;
+  if (lower.includes("pack type")) return true;
+  if (/\bpage\b/i.test(c) && /\bof\b/i.test(c)) return true;
+  const slashCount = (c.match(/\//g) ?? []).length;
+  if (slashCount >= 3) return true;
+  if (slashCount >= 2 && c.length > 24) return true;
+  return false;
+}
+
+function isStrongContinuationSlipHeaderCandidate(candidate: string): boolean {
+  const c = String(candidate ?? "").trim();
+  if (!c || c.length < 6) return false;
+  if (isLikelySlipFooterNoise(c)) return false;
+  if (/^[A-Z0-9][A-Z0-9._-]+$/i.test(c)) return true;
+  if (/^[A-Z0-9][A-Z0-9._/-]+$/i.test(c) && !c.includes("//")) return true;
+  return false;
+}
+
+function normalizeSlipHeaderCompareToken(value: string): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function slipHeaderTokensMatch(a: string, b: string): boolean {
+  const na = normalizeSlipHeaderCompareToken(a);
+  const nb = normalizeSlipHeaderCompareToken(b);
+  if (!na || !nb) return false;
+  return na === nb;
+}
+
+function shouldRejectContinuationSlipPage(
+  locked: LockedSlipPageOneHeader,
+  candidates: ContinuationSlipHeaderCandidates,
+): boolean {
+  const lockedSlipCode = locked.slipCode.trim();
+  const lockedOrderId = locked.slipOrderId.trim();
+
+  if (
+    lockedSlipCode &&
+    isStrongContinuationSlipHeaderCandidate(candidates.slipCode) &&
+    !slipHeaderTokensMatch(candidates.slipCode, lockedSlipCode)
+  ) {
+    return true;
+  }
+
+  if (
+    lockedOrderId &&
+    isStrongContinuationSlipHeaderCandidate(candidates.orderId) &&
+    !slipHeaderTokensMatch(candidates.orderId, lockedOrderId)
+  ) {
+    return true;
+  }
+
+  if (!candidates.orderId.trim() && candidates.rma.trim()) {
+    const contTok = extractSlipOrderTokenForPalletCompare(candidates.rma);
+    if (
+      contTok &&
+      lockedOrderId &&
+      isStrongContinuationSlipHeaderCandidate(contTok) &&
+      !slipHeaderTokensMatch(contTok, lockedOrderId)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function normalizeSlipPhotoUrl(url: string): string {
+  return String(url ?? "").trim();
+}
+
+function slipPhotoUrlsHttpsOrdered(urls: readonly string[]): string[] {
+  return urls
+    .map((u) => normalizeSlipPhotoUrl(u))
+    .filter((u) => u.length > 0 && /^https?:\/\//i.test(u));
+}
+
+/** Fallback key when per-photo reviewed lines cannot be reconstructed after hydrate. */
+const SLIP_MERGED_REVIEW_SYNTHETIC_KEY = "__merged_reviewed_slip_lines__";
+
+function buildMergedReviewedSlipLinesFromUrls(
+  slipPhotoUrls: readonly string[],
+  reviewedByUrl: Readonly<Record<string, BoxSlipVisionLine[]>>,
+): BoxSlipVisionLine[] {
+  if (Object.prototype.hasOwnProperty.call(reviewedByUrl, SLIP_MERGED_REVIEW_SYNTHETIC_KEY)) {
+    return clonePersistBoxSlipVisionLines(reviewedByUrl[SLIP_MERGED_REVIEW_SYNTHETIC_KEY] ?? []);
+  }
+  const out: BoxSlipVisionLine[] = [];
+  for (const url of slipPhotoUrlsHttpsOrdered(slipPhotoUrls)) {
+    if (!Object.prototype.hasOwnProperty.call(reviewedByUrl, url)) continue;
+    const lines = reviewedByUrl[url] ?? [];
+    if (lines.length > 0) {
+      out.push(...clonePersistBoxSlipVisionLines(lines));
+    }
+  }
+  return out;
+}
+
+function countReviewedSlipPhotosFromMap(
+  slipPhotoUrls: readonly string[],
+  reviewedByUrl: Readonly<Record<string, BoxSlipVisionLine[]>>,
+): number {
+  let n = 0;
+  for (const url of slipPhotoUrlsHttpsOrdered(slipPhotoUrls)) {
+    if (Object.prototype.hasOwnProperty.call(reviewedByUrl, url)) n++;
+  }
+  return n;
+}
+
+function perPhotoReviewedLineCounts(
+  slipPhotoUrls: readonly string[],
+  reviewedByUrl: Readonly<Record<string, BoxSlipVisionLine[]>>,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const url of slipPhotoUrlsHttpsOrdered(slipPhotoUrls)) {
+    counts[url] = Object.prototype.hasOwnProperty.call(reviewedByUrl, url)
+      ? (reviewedByUrl[url]?.length ?? 0)
+      : -1;
+  }
+  return counts;
+}
+
+function resolveActiveSlipReviewPhotoUrl(
+  activePhotoUrl: string | null,
+  slipPhotoUrls: readonly string[],
+): string {
+  const active = normalizeSlipPhotoUrl(activePhotoUrl ?? "");
+  if (active) return active;
+  const ordered = slipPhotoUrlsHttpsOrdered(slipPhotoUrls);
+  return ordered[ordered.length - 1] ?? "";
+}
+
 const SLIP_SINGLE_PAGE_DEBUG = process.env.NODE_ENV === "development";
 
 function logSlipSingleDebug(phase: string, payload: Record<string, unknown>): void {
@@ -1061,11 +1366,21 @@ function logSlipSingleDebug(phase: string, payload: Record<string, unknown>): vo
   console.log("[slip-single-debug] phase:", phase, payload);
 }
 
+function logSlipMergeStep3(phase: string, payload: Record<string, unknown>): void {
+  if (!SLIP_SINGLE_PAGE_DEBUG) return;
+  console.log("[slip-merge-step3] phase:", phase, payload);
+}
+
 function resolveSlipVisionLinesForBoxSave(input: {
+  mergedReviewedSlipLines?: readonly BoxSlipVisionLine[];
+  useMergedReviewedSlipLines?: boolean;
   review: BoxSlipEvidenceReview | null;
   visionPersistRef: readonly BoxSlipVisionLine[];
   displayLines: readonly BoxSlipVisionLine[];
 }): BoxSlipVisionLine[] {
+  if (input.useMergedReviewedSlipLines) {
+    return clonePersistBoxSlipVisionLines([...(input.mergedReviewedSlipLines ?? [])]);
+  }
   if (input.review?.status === "unreadable") return [];
   if (
     input.review &&
@@ -5024,6 +5339,9 @@ function OperatorMobileScanPageContent() {
   const manualEntryModeRef = useRef(false);
   const [lastScannedCode, setLastScannedCode] = useState("");
   const [scanBarcodeHelpOpen, setScanBarcodeHelpOpen] = useState(false);
+  const [slipEvidenceInfoOpen, setSlipEvidenceInfoOpen] = useState(false);
+  const [expectedItemsInfoOpen, setExpectedItemsInfoOpen] = useState(false);
+  const [reviewMissingInfoOpen, setReviewMissingInfoOpen] = useState(false);
 
   const [activePallet, setActivePallet] = useState<OperatorActivePallet | null>(null);
   /** Parent shipment / carrier id when there is no pallet row yet (identify gate, direct tracking). */
@@ -5149,6 +5467,10 @@ function OperatorMobileScanPageContent() {
   const [emptyBoxCloseConfirmOpen, setEmptyBoxCloseConfirmOpen] = useState(false);
   /** Single-page packing slip — operator must confirm/edit/unreadable before Save & Continue. */
   const [slipReviewRequiredModalOpen, setSlipReviewRequiredModalOpen] = useState(false);
+  /** Packing slip — block adding another page until the current slip is reviewed. */
+  const [slipPhotoAddBlockedModalOpen, setSlipPhotoAddBlockedModalOpen] = useState(false);
+  /** Continuation page OCR detected a different packing slip header than page 1. */
+  const [wrongContinuationSlipModalOpen, setWrongContinuationSlipModalOpen] = useState(false);
   const [emptyBoxFinalizeBusy, setEmptyBoxFinalizeBusy] = useState(false);
   /** Brief full-screen success after package save (before hub scroll or item phase). */
   const [packageSaveSuccessOverlay, setPackageSaveSuccessOverlay] = useState(false);
@@ -5507,10 +5829,31 @@ function OperatorMobileScanPageContent() {
     boxSlipRmaRef.current = boxSlipRma;
   }, [boxSlipRma]);
 
-  /** `slip_contents.order_id` — slip-derived token (source of truth for this slip). */
-  const [boxSlipOrderId, setBoxSlipOrderId] = useState("");
   /** `slip_contents.conflicting_order_id`: pallet-assigned order id when it disagreed with slip token at save (else ""). */
+  const [boxSlipOrderId, setBoxSlipOrderId] = useState("");
+  const boxSlipOrderIdRef = useRef("");
+  useEffect(() => {
+    boxSlipOrderIdRef.current = boxSlipOrderId;
+  }, [boxSlipOrderId]);
   const [boxSlipConflictingOrderId, setBoxSlipConflictingOrderId] = useState("");
+  const boxSlipConflictingOrderIdRef = useRef("");
+  useEffect(() => {
+    boxSlipConflictingOrderIdRef.current = boxSlipConflictingOrderId;
+  }, [boxSlipConflictingOrderId]);
+  const lockedSlipPageOneHeaderRef = useRef<LockedSlipPageOneHeader | null>(null);
+  const [reviewedSlipPhotoCount, setReviewedSlipPhotoCount] = useState(0);
+  const reviewedSlipPhotoCountRef = useRef(0);
+  useEffect(() => {
+    reviewedSlipPhotoCountRef.current = reviewedSlipPhotoCount;
+  }, [reviewedSlipPhotoCount]);
+  const [reviewedSlipLinesByPhotoUrl, setReviewedSlipLinesByPhotoUrl] = useState<
+    Record<string, BoxSlipVisionLine[]>
+  >({});
+  const reviewedSlipLinesByPhotoUrlRef = useRef<Record<string, BoxSlipVisionLine[]>>({});
+  reviewedSlipLinesByPhotoUrlRef.current = reviewedSlipLinesByPhotoUrl;
+  const [activeSlipReviewPhotoUrl, setActiveSlipReviewPhotoUrl] = useState<string | null>(null);
+  const activeSlipReviewPhotoUrlRef = useRef<string | null>(null);
+  activeSlipReviewPhotoUrlRef.current = activeSlipReviewPhotoUrl;
 
   const [boxSlipVisionLines, setBoxSlipVisionLines] = useState<BoxSlipVisionLine[]>([]);
   const [boxSlipVisionLineLinkages, setBoxSlipVisionLineLinkages] = useState<
@@ -5530,6 +5873,12 @@ function OperatorMobileScanPageContent() {
     setBoxSlipOrderId("");
     setBoxSlipConflictingOrderId("");
     setBoxSlipEvidenceReview(null);
+    lockedSlipPageOneHeaderRef.current = null;
+    reviewedSlipPhotoCountRef.current = 0;
+    setReviewedSlipPhotoCount(0);
+    reviewedSlipLinesByPhotoUrlRef.current = {};
+    setReviewedSlipLinesByPhotoUrl({});
+    setActiveSlipReviewPhotoUrl(null);
   }, []);
 
   const [boxSlipEvidenceReview, setBoxSlipEvidenceReview] = useState<BoxSlipEvidenceReview | null>(null);
@@ -5546,6 +5895,39 @@ function OperatorMobileScanPageContent() {
     [boxSlipVisionLines, boxSlipEvidenceReview],
   );
   const boxSlipDisplayLines = boxSlipEvidenceDisplay.lines;
+
+  const slipPanelDisplayLines = useMemo((): BoxSlipVisionLine[] => {
+    const merged = buildMergedReviewedSlipLinesFromUrls(
+      slipBoxPhotoUrls,
+      reviewedSlipLinesByPhotoUrl,
+    );
+    const activeUrl = resolveActiveSlipReviewPhotoUrl(activeSlipReviewPhotoUrl, slipBoxPhotoUrls);
+    const activeUrlReviewed =
+      Boolean(activeUrl) &&
+      Object.prototype.hasOwnProperty.call(reviewedSlipLinesByPhotoUrl, activeUrl);
+    const activePending =
+      Boolean(activeUrl) && !activeUrlReviewed && !isSlipReviewed(boxSlipEvidenceReview);
+    if (activePending) {
+      return boxSlipEvidenceDisplay.lines;
+    }
+    if (merged.length > 0) {
+      return merged;
+    }
+    if (
+      isSlipReviewed(boxSlipEvidenceReview) &&
+      boxSlipVisionLines.length > boxSlipEvidenceDisplay.lines.length
+    ) {
+      return boxSlipVisionLines;
+    }
+    return boxSlipEvidenceDisplay.lines;
+  }, [
+    slipBoxPhotoUrls,
+    reviewedSlipLinesByPhotoUrl,
+    activeSlipReviewPhotoUrl,
+    boxSlipEvidenceDisplay.lines,
+    boxSlipEvidenceReview,
+    boxSlipVisionLines,
+  ]);
 
   const applyHydratedBoxSlipVisionSnapshot = useCallback(
     (snap: HydratedBoxSlipVisionSnapshot) => {
@@ -5564,9 +5946,48 @@ function OperatorMobileScanPageContent() {
       }
       commitBoxSlipVisionLinesFromSource(snap.lines);
       setBoxSlipEvidenceReview(snap.evidenceReview);
+      const slipUrls = slipBoxPhotoUrlsRef.current;
+      const { map, reviewedCount } = reconstructReviewedSlipLinesByPhotoFromHydratedMerge(
+        slipUrls,
+        snap.lines,
+        snap.evidenceReview,
+      );
+      reviewedSlipLinesByPhotoUrlRef.current = map;
+      setReviewedSlipLinesByPhotoUrl(map);
+      reviewedSlipPhotoCountRef.current = reviewedCount;
+      setReviewedSlipPhotoCount(reviewedCount);
+      if (reviewedCount > 0) {
+        const ordered = slipPhotoUrlsHttpsOrdered(slipUrls);
+        setActiveSlipReviewPhotoUrl(ordered[ordered.length - 1] ?? null);
+      }
+      if (
+        snap.evidenceReview &&
+        isSlipReviewed(snap.evidenceReview) &&
+        slipPhotoCount(slipUrls) > 1 &&
+        !lockedSlipPageOneHeaderRef.current
+      ) {
+        lockedSlipPageOneHeaderRef.current = snapshotLockedSlipPageOneHeader({
+          slipCode: snap.slipCode,
+          slipRma: snap.rma,
+          slipOrderId: snap.slipOrderId,
+          slipConflictingOrderId: snap.slipConflictingOrderId,
+          evidenceReview: snap.evidenceReview,
+          visionLines: snap.lines,
+        });
+      }
       if (snap.evidenceReview?.status === "unreadable") {
         setBoxSlipInvalidFormatBlocksSave(false);
       }
+      logSlipRehydrateDebug("hydrate_box_info", {
+        slipPhotoUrlsCount: slipPhotoCount(slipUrls),
+        manifestItemsLength: snap.lines.length,
+        operatorReviewLinesLength: snap.evidenceReview?.lines.length ?? 0,
+        slipContentsLength: snap.lines.length,
+        boxSlipDisplayLinesLengthAfterHydrate: snap.evidenceReview
+          ? resolveBoxSlipEvidenceDisplay(snap.lines, snap.evidenceReview).lines.length
+          : snap.lines.length,
+        boxSlipVisionLinesLengthAfterHydrate: snap.lines.length,
+      });
     },
     [
       commitBoxSlipVisionLinesFromSource,
@@ -5626,7 +6047,7 @@ function OperatorMobileScanPageContent() {
     headline: string;
     hint: string | null;
   } => {
-    const displayCount = boxSlipDisplayLines.length;
+    const displayCount = slipPanelDisplayLines.length;
     const ocrCount = boxSlipVisionLines.length;
     const lineCount = Math.max(displayCount, ocrCount);
 
@@ -5648,21 +6069,23 @@ function OperatorMobileScanPageContent() {
     }
     if (boxSlipEvidenceReview?.status === "confirmed") {
       const n = displayCount || lineCount;
+      const pages = slipPhotoCount(slipBoxPhotoUrls);
       return {
         phase: "confirmed",
         lineCount: n,
         headline: "Packing slip confirmed",
-        hint: `${n} line${n === 1 ? "" : "s"} confirmed by operator.`,
+        hint: `${n} line${n === 1 ? "" : "s"} · ${pages} page${pages === 1 ? "" : "s"}`,
       };
     }
     const reviewStatus = boxSlipEvidenceReview?.status;
     if (reviewStatus === "draft" || reviewStatus === "needs_review") {
       const n = displayCount || lineCount;
+      const pages = slipPhotoCount(slipBoxPhotoUrls);
       return {
         phase: "reviewed",
         lineCount: n,
         headline: "Packing slip reviewed",
-        hint: "Operator-reviewed slip lines saved.",
+        hint: `${n} line${n === 1 ? "" : "s"} · ${pages} page${pages === 1 ? "" : "s"}`,
       };
     }
     if (lineCount > 0 || boxSlipVisionBusy) {
@@ -5685,17 +6108,25 @@ function OperatorMobileScanPageContent() {
     };
   }, [
     boxSlipEvidenceDisplay.unreadable,
-    boxSlipDisplayLines.length,
+    slipPanelDisplayLines.length,
     boxSlipVisionLines.length,
     boxSlipVisionBusy,
     boxSlipEvidenceReview?.status,
+    slipBoxPhotoUrls,
   ]);
 
+  const showSlipContinuationPageNote = useMemo(
+    () =>
+      slipPhotoCount(slipBoxPhotoUrls) > 1 &&
+      reviewedSlipPhotoCount < slipPhotoCount(slipBoxPhotoUrls),
+    [slipBoxPhotoUrls, reviewedSlipPhotoCount],
+  );
+
   const slipEvidenceCanConfirm =
-    boxSlipDisplayLines.length > 0 || boxSlipVisionLines.length > 0;
+    slipPanelDisplayLines.length > 0 || boxSlipVisionLines.length > 0;
 
   useEffect(() => {
-    if (!orgId || !sessionStoreId || !isSupabaseConfigured() || boxSlipDisplayLines.length === 0) {
+    if (!orgId || !sessionStoreId || !isSupabaseConfigured() || slipPanelDisplayLines.length === 0) {
       boxSlipVisionLineLinkagesRef.current = [];
       setBoxSlipVisionLineLinkages([]);
       return;
@@ -5705,7 +6136,7 @@ function OperatorMobileScanPageContent() {
       const res = await previewOperatorSlipLinesIdentifiersLinkageAction({
         requestedOrganizationId: orgId,
         storeId: sessionStoreId,
-        lines: boxSlipDisplayLines.map((line) => ({
+        lines: slipPanelDisplayLines.map((line) => ({
           upc: line.upc,
           fnsku: line.fnsku,
           printed_asin: line.printed_asin,
@@ -5719,13 +6150,72 @@ function OperatorMobileScanPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [boxSlipDisplayLines, orgId, sessionStoreId]);
+  }, [slipPanelDisplayLines, orgId, sessionStoreId]);
 
   const openSlipReviewRequiredGate = useCallback(() => {
-    setBoxIntakeError(BOX_INTAKE_SLIP_REVIEW_REQUIRED_ERROR);
+    const multiPagePending = slipPhotoCount(slipBoxPhotoUrlsRef.current) > 1;
+    setBoxIntakeError(
+      multiPagePending
+        ? BOX_INTAKE_SLIP_REVIEW_MULTI_PAGE_ERROR
+        : BOX_INTAKE_SLIP_REVIEW_REQUIRED_ERROR,
+    );
     modalOpenRef.current = true;
     setSlipReviewRequiredModalOpen(true);
   }, []);
+
+  const applyLockedSlipPageOneHeaderToUi = useCallback((locked: LockedSlipPageOneHeader) => {
+    if (locked.slipCode) setBoxSlipCode(locked.slipCode);
+    setBoxSlipRma(locked.slipRma);
+    setBoxSlipOrderId(locked.slipOrderId);
+    setBoxSlipConflictingOrderId(locked.slipConflictingOrderId);
+  }, []);
+
+  const snapshotLockedSlipPageOneHeaderIfNeeded = useCallback(() => {
+    if (lockedSlipPageOneHeaderRef.current) return;
+    const review = boxSlipEvidenceReviewRef.current;
+    if (!review || !isSlipReviewed(review)) return;
+    lockedSlipPageOneHeaderRef.current = snapshotLockedSlipPageOneHeader({
+      slipCode: boxSlipCodeRef.current,
+      slipRma: boxSlipRmaRef.current,
+      slipOrderId: boxSlipOrderIdRef.current,
+      slipConflictingOrderId: boxSlipConflictingOrderIdRef.current,
+      evidenceReview: review,
+      visionLines: boxSlipVisionLinesPersistRef.current,
+    });
+  }, []);
+
+  const markSlipPhotoReviewComplete = useCallback(() => {
+    snapshotLockedSlipPageOneHeaderIfNeeded();
+  }, [snapshotLockedSlipPageOneHeaderIfNeeded]);
+
+  const saveReviewedLinesForCurrentPhoto = useCallback(
+    (lines: readonly BoxSlipVisionLine[]) => {
+      const currentUrl = resolveActiveSlipReviewPhotoUrl(
+        activeSlipReviewPhotoUrlRef.current,
+        slipBoxPhotoUrlsRef.current,
+      );
+      if (!currentUrl) return;
+      const cloned = clonePersistBoxSlipVisionLines([...lines]);
+      const nextMap = {
+        ...reviewedSlipLinesByPhotoUrlRef.current,
+        [currentUrl]: cloned,
+      };
+      reviewedSlipLinesByPhotoUrlRef.current = nextMap;
+      setReviewedSlipLinesByPhotoUrl(nextMap);
+      const merged = buildMergedReviewedSlipLinesFromUrls(slipBoxPhotoUrlsRef.current, nextMap);
+      commitBoxSlipVisionLinesFromSource(merged);
+      const reviewedCount = countReviewedSlipPhotosFromMap(slipBoxPhotoUrlsRef.current, nextMap);
+      reviewedSlipPhotoCountRef.current = reviewedCount;
+      setReviewedSlipPhotoCount(reviewedCount);
+      logSlipMergeStep3("after_page_confirm", {
+        currentPhotoUrl: currentUrl,
+        slipBoxPhotoUrls: slipPhotoUrlsHttpsOrdered(slipBoxPhotoUrlsRef.current),
+        perPhotoLineCounts: perPhotoReviewedLineCounts(slipBoxPhotoUrlsRef.current, nextMap),
+        mergedLineCount: merged.length,
+      });
+    },
+    [commitBoxSlipVisionLinesFromSource],
+  );
 
   const persistBoxSlipEvidenceReview = useCallback(
     async (
@@ -5816,9 +6306,16 @@ function OperatorMobileScanPageContent() {
       );
       if (!ok) throw new Error("Could not save slip evidence.");
       const visionFromEdit = audited.map(evidenceLineToVisionLine);
-      commitBoxSlipVisionLinesFromSource(visionFromEdit);
+      saveReviewedLinesForCurrentPhoto(visionFromEdit);
+      markSlipPhotoReviewComplete();
     },
-    [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview, commitBoxSlipVisionLinesFromSource],
+    [
+      boxSlipVisionLines,
+      boxSlipEvidenceReview,
+      persistBoxSlipEvidenceReview,
+      saveReviewedLinesForCurrentPhoto,
+      markSlipPhotoReviewComplete,
+    ],
   );
 
   const handleConfirmBoxSlipEvidenceLines = useCallback(async () => {
@@ -5827,13 +6324,23 @@ function OperatorMobileScanPageContent() {
       boxSlipEvidenceReview?.lines?.length
         ? cloneBoxSlipEvidenceLines(boxSlipEvidenceReview.lines)
         : evidenceLinesFromVisionLines(ocrSnapshot);
+    const visionFromConfirm = lines.map(evidenceLineToVisionLine);
+    saveReviewedLinesForCurrentPhoto(visionFromConfirm);
+    const mergedForReview = buildMergedReviewedSlipLinesFromUrls(
+      slipBoxPhotoUrlsRef.current,
+      reviewedSlipLinesByPhotoUrlRef.current,
+    );
+    const linesForReviewPersist =
+      mergedForReview.length > 0
+        ? evidenceLinesFromVisionLines(mergedForReview)
+        : lines;
     const auditFields = await resolveOperatorAuditFieldsClient(supabase);
     const actorId = auditFields.created_by ?? "operator";
     const now = new Date().toISOString();
     const ok = await persistBoxSlipEvidenceReview(
       {
         status: "confirmed",
-        lines,
+        lines: linesForReviewPersist,
         edited_by: actorId,
         edited_at: now,
         confirmed_at: now,
@@ -5845,24 +6352,25 @@ function OperatorMobileScanPageContent() {
       },
       {
         auditAction: OPERATOR_BOX_SLIP_OCR_AUDIT_ACTIONS.confirmed,
-        auditMetadata: { line_count: lines.length },
+        auditMetadata: { line_count: linesForReviewPersist.length },
       },
     );
     if (ok) {
-      const visionFromConfirm = lines.map(evidenceLineToVisionLine);
-      commitBoxSlipVisionLinesFromSource(visionFromConfirm);
+      markSlipPhotoReviewComplete();
       logSlipSingleDebug("after_confirm", {
         boxSlipVisionLinesLength: boxSlipVisionLinesPersistRef.current.length,
-        boxSlipDisplayLinesLength: visionFromConfirm.length,
+        boxSlipDisplayLinesLength: linesForReviewPersist.length,
         boxSlipEvidenceReviewStatus: "confirmed",
-        slipLinesForPersistLength: visionFromConfirm.length,
+        slipLinesForPersistLength: boxSlipVisionLinesPersistRef.current.length,
+        reviewedSlipPhotoCount: reviewedSlipPhotoCountRef.current,
       });
     }
   }, [
     boxSlipVisionLines,
     boxSlipEvidenceReview,
     persistBoxSlipEvidenceReview,
-    commitBoxSlipVisionLinesFromSource,
+    saveReviewedLinesForCurrentPhoto,
+    markSlipPhotoReviewComplete,
   ]);
 
   const handleMarkBoxSlipUnreadable = useCallback(async () => {
@@ -5888,8 +6396,16 @@ function OperatorMobileScanPageContent() {
     );
     if (ok) {
       setBoxSlipInvalidFormatBlocksSave(false);
+      saveReviewedLinesForCurrentPhoto([]);
+      markSlipPhotoReviewComplete();
     }
-  }, [boxSlipVisionLines, boxSlipEvidenceReview, persistBoxSlipEvidenceReview]);
+  }, [
+    boxSlipVisionLines,
+    boxSlipEvidenceReview,
+    persistBoxSlipEvidenceReview,
+    saveReviewedLinesForCurrentPhoto,
+    markSlipPhotoReviewComplete,
+  ]);
 
   const handleClearBoxSlipUnreadable = useCallback(async () => {
     const ocrSnapshot =
@@ -5963,6 +6479,26 @@ function OperatorMobileScanPageContent() {
   const [boxSlipInvalidFormatBlocksSave, setBoxSlipInvalidFormatBlocksSave] = useState(false);
   /** Operator marked that this box has no packing slip — exempts the slip photo requirement. */
   const [boxHasNoPackingSlip, setBoxHasNoPackingSlip] = useState(false);
+
+  const openSlipPhotoAddBlockedGate = useCallback(() => {
+    modalOpenRef.current = true;
+    setSlipPhotoAddBlockedModalOpen(true);
+  }, []);
+
+  const guardPackingSlipPhotoAdd = useCallback((): boolean => {
+    if (
+      shouldBlockNextSlipPhotoUpload(
+        boxHasNoPackingSlip,
+        slipBoxPhotoUrlsRef.current,
+        boxSlipEvidenceReviewRef.current,
+      )
+    ) {
+      openSlipPhotoAddBlockedGate();
+      return false;
+    }
+    return true;
+  }, [boxHasNoPackingSlip, openSlipPhotoAddBlockedGate]);
+
   const [boxSaveBusy, setBoxSaveBusy] = useState(false);
   const [boxNotes, setBoxNotes] = useState("");
   const boxNotesRef = useRef("");
@@ -8830,6 +9366,48 @@ function OperatorMobileScanPageContent() {
     [boxSlipVisionLines.length, boxSlipCode],
   );
 
+  const rejectWrongContinuationSlipPhoto = useCallback(
+    (rejectedPhotoUrl: string) => {
+      const lockedHeader = lockedSlipPageOneHeaderRef.current;
+      if (!lockedHeader) return;
+
+      const prev = slipBoxPhotoUrlsRef.current;
+      const rejectedNorm = normalizeSlipPhotoUrl(rejectedPhotoUrl);
+      const urls = prev.filter((u) => normalizeSlipPhotoUrl(u) !== rejectedNorm);
+
+      recordEvidenceSlotRemoval("slip", prev, urls);
+      slipBoxPhotoUrlsRef.current = urls;
+      setSlipBoxPhotoUrls(urls);
+
+      const nextMap = { ...reviewedSlipLinesByPhotoUrlRef.current };
+      if (Object.prototype.hasOwnProperty.call(nextMap, rejectedNorm)) {
+        delete nextMap[rejectedNorm];
+        reviewedSlipLinesByPhotoUrlRef.current = nextMap;
+        setReviewedSlipLinesByPhotoUrl(nextMap);
+      }
+
+      const page1Url = slipPhotoUrlsHttpsOrdered(urls)[0] ?? null;
+      setActiveSlipReviewPhotoUrl(page1Url);
+      applyLockedSlipPageOneHeaderToUi(lockedHeader);
+      setBoxSlipEvidenceReview(lockedHeader.evidenceReview);
+      const merged = buildMergedReviewedSlipLinesFromUrls(urls, reviewedSlipLinesByPhotoUrlRef.current);
+      commitBoxSlipVisionLinesFromSource(
+        merged.length > 0 ? merged : lockedHeader.visionLines,
+      );
+      const reviewedCount = countReviewedSlipPhotosFromMap(urls, reviewedSlipLinesByPhotoUrlRef.current);
+      reviewedSlipPhotoCountRef.current = reviewedCount;
+      setReviewedSlipPhotoCount(reviewedCount);
+      setBoxSlipInvalidFormatBlocksSave(false);
+      modalOpenRef.current = true;
+      setWrongContinuationSlipModalOpen(true);
+    },
+    [
+      recordEvidenceSlotRemoval,
+      applyLockedSlipPageOneHeaderToUi,
+      commitBoxSlipVisionLinesFromSource,
+    ],
+  );
+
   const handleShippingLabelPhotoUrlsChange = useCallback(
     (urls: string[]) => {
       recordEvidenceSlotRemoval("shipping", shippingLabelPhotoUrlsRef.current, urls);
@@ -8876,11 +9454,24 @@ function OperatorMobileScanPageContent() {
   );
 
   const runBoxSlipVisionOnPhotoUrl = useCallback(
-    async (photoUrl: string) => {
+    async (photoUrl: string, slipPhotoUrlsBeforeOcr?: readonly string[]) => {
+      const normalizedPhotoUrl = normalizeSlipPhotoUrl(photoUrl);
+      setActiveSlipReviewPhotoUrl(normalizedPhotoUrl);
+      const urlsBeforeOcr = slipPhotoUrlsBeforeOcr ?? slipBoxPhotoUrlsRef.current;
+      const continuationOcr = isContinuationSlipPhotoOcr(
+        urlsBeforeOcr,
+        boxSlipEvidenceReviewRef.current,
+      );
+      if (continuationOcr && !lockedSlipPageOneHeaderRef.current) {
+        snapshotLockedSlipPageOneHeaderIfNeeded();
+      }
+      const lockedHeader = lockedSlipPageOneHeaderRef.current;
       setBoxSlipVisionBusy(true);
-      setBoxSlipOrderId("");
-      setBoxSlipConflictingOrderId("");
-      setBoxSlipInvalidFormatBlocksSave(false);
+      if (!continuationOcr) {
+        setBoxSlipOrderId("");
+        setBoxSlipConflictingOrderId("");
+        setBoxSlipInvalidFormatBlocksSave(false);
+      }
       try {
         const apiKey = getAIUnifiedKeyFromStorage() || getOpenAIApiKeyFromStorage();
         if (!apiKey && !orgId?.trim()) {
@@ -8912,6 +9503,17 @@ function OperatorMobileScanPageContent() {
         const json = (await res.json()) as { error?: string; message?: string; slip?: BoxSlipVisionExtract };
         if (!res.ok) {
           if (json.error === INVALID_SLIP_FORMAT) {
+            if (continuationOcr && lockedHeader) {
+              setBoxSlipInvalidFormatBlocksSave(true);
+              setBoxSlipVisionLines([]);
+              setBoxSlipEvidenceReview(null);
+              applyLockedSlipPageOneHeaderToUi(lockedHeader);
+              setSyncErrorToast(
+                json.message ??
+                  "INVALID_SLIP_FORMAT — this continuation page is not readable. Mark it unreadable or replace the photo.",
+              );
+              return;
+            }
             setBoxSlipInvalidFormatBlocksSave(true);
             setBoxSlipCode("");
             setBoxSlipRma("");
@@ -8928,6 +9530,16 @@ function OperatorMobileScanPageContent() {
         }
         if (!json.slip) throw new Error("Invalid BOX slip vision response.");
         if (!isStructuredBoxSlipExtractValid(json.slip)) {
+          if (continuationOcr && lockedHeader) {
+            setBoxSlipInvalidFormatBlocksSave(true);
+            setBoxSlipVisionLines([]);
+            setBoxSlipEvidenceReview(null);
+            applyLockedSlipPageOneHeaderToUi(lockedHeader);
+            setSyncErrorToast(
+              "INVALID_SLIP_FORMAT — this continuation page is not readable. Mark it unreadable or replace the photo.",
+            );
+            return;
+          }
           setBoxSlipInvalidFormatBlocksSave(true);
           setBoxSlipCode("");
           setBoxSlipRma("");
@@ -8945,17 +9557,54 @@ function OperatorMobileScanPageContent() {
           (json.slip as { slip_code?: string | null }).slip_code ??
           (json.slip as { slip_id?: string }).slip_id
         )?.trim() ?? "";
-        if (sid) setBoxSlipCode(sid);
+        if (continuationOcr && lockedHeader) {
+          const headerCandidates = extractContinuationSlipHeaderCandidates(json.slip);
+          if (shouldRejectContinuationSlipPage(lockedHeader, headerCandidates)) {
+            rejectWrongContinuationSlipPhoto(normalizedPhotoUrl);
+            logSlipSingleDebug("continuation_wrong_slip_rejected", {
+              rejectedPhotoUrl: normalizedPhotoUrl,
+              lockedSlipCode: lockedHeader.slipCode,
+              lockedOrderId: lockedHeader.slipOrderId,
+              candidateSlipCode: headerCandidates.slipCode || null,
+              candidateOrderId: headerCandidates.orderId || null,
+              slipBoxPhotoUrlsLength: slipBoxPhotoUrlsRef.current.length,
+              reviewedSlipPhotoCount: reviewedSlipPhotoCountRef.current,
+            });
+            return;
+          }
+        }
+        if (!continuationOcr && sid) setBoxSlipCode(sid);
         const rma = json.slip.rma_number?.trim() ?? "";
-        if (rma) setBoxSlipRma((prev) => (prev.trim() ? prev : rma));
+        if (!continuationOcr && rma) setBoxSlipRma((prev) => (prev.trim() ? prev : rma));
         const items = Array.isArray(json.slip.items) ? json.slip.items : [];
-        commitBoxSlipVisionLinesFromSource(items);
+        const activeVisionLines = clonePersistBoxSlipVisionLines(items);
+        if (continuationOcr) {
+          setBoxSlipVisionLines(activeVisionLines);
+          setBoxSlipEvidenceReview(null);
+          if (lockedHeader) {
+            applyLockedSlipPageOneHeaderToUi(lockedHeader);
+          }
+          logSlipSingleDebug("continuation_ocr_applied", {
+            boxSlipVisionLinesLength: items.length,
+            boxSlipDisplayLinesLength: items.length,
+            boxSlipEvidenceReviewStatus: null,
+            slipBoxPhotoUrlsLength: slipBoxPhotoUrlsRef.current.length,
+            reviewedSlipPhotoCount: reviewedSlipPhotoCountRef.current,
+            lockedSlipCode: lockedHeader?.slipCode ?? null,
+            ignoredContinuationSlipCode: sid || null,
+          });
+          return;
+        }
+        commitBoxSlipVisionLinesFromSource(activeVisionLines);
         setBoxSlipEvidenceReview(null);
         logSlipSingleDebug("after_ocr", {
           boxSlipVisionLinesLength: items.length,
           boxSlipDisplayLinesLength: items.length,
           boxSlipEvidenceReviewStatus: null,
           slipBoxPhotoUrlsLength: slipBoxPhotoUrlsRef.current.length,
+          reviewedSlipPhotoCount: reviewedSlipPhotoCountRef.current,
+          lockedSlipCode: null,
+          ignoredContinuationSlipCode: null,
         });
 
         const slipExplicitOrder = String(json.slip.order_id ?? "").trim();
@@ -9139,6 +9788,9 @@ function OperatorMobileScanPageContent() {
       clearPalletOrderIdIfAutoFilledFromRa,
       packageItemHydratedRows,
       boxSlipVisionLines,
+      snapshotLockedSlipPageOneHeaderIfNeeded,
+      applyLockedSlipPageOneHeaderToUi,
+      rejectWrongContinuationSlipPhoto,
     ],
   );
 
@@ -9203,6 +9855,17 @@ function OperatorMobileScanPageContent() {
   const handleSlipBoxPhotoUrlsChange = useCallback(
     (urls: string[]) => {
       const prev = slipBoxPhotoUrlsRef.current;
+      if (
+        urls.length > prev.length &&
+        shouldBlockNextSlipPhotoUpload(
+          boxHasNoPackingSlip,
+          prev,
+          boxSlipEvidenceReviewRef.current,
+        )
+      ) {
+        openSlipPhotoAddBlockedGate();
+        return;
+      }
       const prevHttps = prev.filter((u) => /^https?:\/\//i.test(String(u ?? "").trim()));
       const nextHttps = urls.filter((u) => /^https?:\/\//i.test(String(u ?? "").trim()));
       const prevPrimary = prevHttps[0] ? String(prevHttps[0]).trim() : "";
@@ -9214,6 +9877,33 @@ function OperatorMobileScanPageContent() {
       recordEvidenceSlotRemoval("slip", prev, urls);
       slipBoxPhotoUrlsRef.current = urls;
       setSlipBoxPhotoUrls(urls);
+
+      const prevNorm = slipPhotoUrlsHttpsOrdered(prev);
+      const nextNormSet = new Set(slipPhotoUrlsHttpsOrdered(urls));
+      const removedUrls = prevNorm.filter((u) => !nextNormSet.has(u));
+      if (
+        removedUrls.length > 0 &&
+        !slipPrimaryCleared &&
+        !slipPrimaryReplaced &&
+        nextHttps.length > 0
+      ) {
+        const nextMap = { ...reviewedSlipLinesByPhotoUrlRef.current };
+        for (const url of removedUrls) {
+          delete nextMap[url];
+        }
+        reviewedSlipLinesByPhotoUrlRef.current = nextMap;
+        setReviewedSlipLinesByPhotoUrl(nextMap);
+        const merged = buildMergedReviewedSlipLinesFromUrls(urls, nextMap);
+        commitBoxSlipVisionLinesFromSource(merged);
+        const reviewedCount = countReviewedSlipPhotosFromMap(urls, nextMap);
+        reviewedSlipPhotoCountRef.current = reviewedCount;
+        setReviewedSlipPhotoCount(reviewedCount);
+        const activeUrl = normalizeSlipPhotoUrl(activeSlipReviewPhotoUrlRef.current ?? "");
+        if (activeUrl && removedUrls.includes(activeUrl)) {
+          const remaining = slipPhotoUrlsHttpsOrdered(urls);
+          setActiveSlipReviewPhotoUrl(remaining[remaining.length - 1] ?? null);
+        }
+      }
 
       if (slipPrimaryCleared || slipPrimaryReplaced || nextHttps.length === 0) {
         setBoxSlipInvalidFormatBlocksSave(false);
@@ -9227,13 +9917,21 @@ function OperatorMobileScanPageContent() {
       if (urls.length > prev.length) {
         const last = urls[urls.length - 1];
         if (last && /^https?:\/\//i.test(last)) {
-          void runBoxSlipVisionOnPhotoUrl(String(last).trim());
+          void runBoxSlipVisionOnPhotoUrl(String(last).trim(), prev);
         }
       } else if (slipPrimaryReplaced && nextPrimary) {
-        void runBoxSlipVisionOnPhotoUrl(nextPrimary);
+        void runBoxSlipVisionOnPhotoUrl(nextPrimary, []);
       }
     },
-    [runBoxSlipVisionOnPhotoUrl, recordEvidenceSlotRemoval, clearBoxSlipVisionLinesState, clearPalletOrderIdIfAutoFilledFromRa],
+    [
+      boxHasNoPackingSlip,
+      runBoxSlipVisionOnPhotoUrl,
+      recordEvidenceSlotRemoval,
+      clearBoxSlipVisionLinesState,
+      clearPalletOrderIdIfAutoFilledFromRa,
+      openSlipPhotoAddBlockedGate,
+      commitBoxSlipVisionLinesFromSource,
+    ],
   );
 
   useEffect(() => {
@@ -9286,6 +9984,47 @@ function OperatorMobileScanPageContent() {
     }
     void reloadBoxPackageIntakeRef.current(pid);
   }, [activeBoxSession?.packageId, activeBoxSession?.barcode, orgId, boxHydrateNonce]);
+
+  useEffect(() => {
+    if (flowPhase !== "package_scan" || boxIntakeRestoring) return;
+    const merged = buildMergedReviewedSlipLinesFromUrls(
+      slipBoxPhotoUrls,
+      reviewedSlipLinesByPhotoUrl,
+    );
+    const displayFromReview = boxSlipEvidenceDisplay.lines;
+    const source =
+      merged.length > 0
+        ? "merged_reviewed_by_photo"
+        : isSlipReviewed(boxSlipEvidenceReview) &&
+            boxSlipVisionLines.length > displayFromReview.length
+          ? "vision_merged_over_stale_review"
+          : boxSlipEvidenceDisplay.source;
+    const activeUrl = resolveActiveSlipReviewPhotoUrl(activeSlipReviewPhotoUrl, slipBoxPhotoUrls);
+    const activeOverwroteMerged =
+      merged.length > 0 &&
+      displayFromReview.length > 0 &&
+      displayFromReview.length < merged.length &&
+      Boolean(activeUrl);
+    logSlipRehydrateDebug("after_hydrate_effect", {
+      source,
+      boxSlipDisplayLinesLength: displayFromReview.length,
+      boxSlipVisionLinesLength: boxSlipVisionLines.length,
+      slipPanelDisplayLinesLength: slipPanelDisplayLines.length,
+      activePhotoUrl: activeUrl || null,
+      activePageOverwroteMergedLines: activeOverwroteMerged,
+    });
+  }, [
+    flowPhase,
+    boxIntakeRestoring,
+    slipBoxPhotoUrls,
+    reviewedSlipLinesByPhotoUrl,
+    boxSlipEvidenceDisplay.lines,
+    boxSlipEvidenceDisplay.source,
+    boxSlipEvidenceReview,
+    boxSlipVisionLines,
+    slipPanelDisplayLines.length,
+    activeSlipReviewPhotoUrl,
+  ]);
 
   useEffect(() => {
     if (flowPhase !== "package_scan") return;
@@ -9673,8 +10412,11 @@ function OperatorMobileScanPageContent() {
         return false;
       }
       if (
-        isSlipReviewRequired(boxHasNoPackingSlip, slipBoxPhotoUrls) &&
-        !isSlipReviewed(boxSlipEvidenceReviewRef.current)
+        hasSlipReviewPending(
+          boxHasNoPackingSlip,
+          slipBoxPhotoUrls,
+          reviewedSlipPhotoCountRef.current,
+        )
       ) {
         openSlipReviewRequiredGate();
         return false;
@@ -9702,10 +10444,39 @@ function OperatorMobileScanPageContent() {
           : boxSlipVisionLines,
         reviewForSave,
       ).lines;
+      const mergedReviewedSlipLines = buildMergedReviewedSlipLinesFromUrls(
+        slipBoxPhotoUrlsRef.current,
+        reviewedSlipLinesByPhotoUrlRef.current,
+      );
+      const reviewedPhotoCount = countReviewedSlipPhotosFromMap(
+        slipBoxPhotoUrlsRef.current,
+        reviewedSlipLinesByPhotoUrlRef.current,
+      );
+      const useMergedReviewedSlipLines = reviewedPhotoCount > 0;
       const slipLinesForPersist = resolveSlipVisionLinesForBoxSave({
+        mergedReviewedSlipLines,
+        useMergedReviewedSlipLines,
         review: reviewForSave,
         visionPersistRef: boxSlipVisionLinesPersistRef.current,
         displayLines: displayLinesForSave,
+      });
+      logSlipMergeStep3("before_save_continue", {
+        perPhotoLineCounts: perPhotoReviewedLineCounts(
+          slipBoxPhotoUrlsRef.current,
+          reviewedSlipLinesByPhotoUrlRef.current,
+        ),
+        mergedLineCount: mergedReviewedSlipLines.length,
+        slipLinesForPersistLength: slipLinesForPersist.length,
+      });
+      logSlipRehydrateDebug("before_save", {
+        perPhotoLineCounts: perPhotoReviewedLineCounts(
+          slipBoxPhotoUrlsRef.current,
+          reviewedSlipLinesByPhotoUrlRef.current,
+        ),
+        mergedReviewedLinesLength: mergedReviewedSlipLines.length,
+        slipLinesForPersistLength: slipLinesForPersist.length,
+        manifestItemsLength: slipLinesForPersist.length,
+        slipContentsLength: slipLinesForPersist.length,
       });
       logSlipSingleDebug("before_save_continue", {
         boxSlipEvidenceReviewStatus: reviewForSave?.status ?? null,
@@ -9755,8 +10526,12 @@ function OperatorMobileScanPageContent() {
       if (transitioningToItemScan) {
         manifestPayload = mergeOperatorItemScanStarted(manifestPayload, { atIso: commitIso });
       }
-      const reviewToPersist =
+      const reviewToPersistRaw =
         reviewForSave ?? readBoxSlipEvidenceReview(itemScanPackageManifestData);
+      const reviewToPersist =
+        reviewToPersistRaw && useMergedReviewedSlipLines && slipLinesForPersist.length > 0
+          ? syncBoxSlipEvidenceReviewToMergedVisionLines(reviewToPersistRaw, slipLinesForPersist)
+          : reviewToPersistRaw;
       if (reviewToPersist && reviewToPersist.status !== "detected") {
         manifestPayload = mergeBoxSlipEvidenceReview(manifestPayload, reviewToPersist);
       }
@@ -14076,6 +14851,11 @@ function OperatorMobileScanPageContent() {
       slipRowsForReferenceMergeLength: slipRowsForReferenceMerge.length,
       itemScanMergedReferenceCellsLength: itemScanMergedReferenceCells.length,
       renderSource: itemScanExpectedItemsRenderSource,
+    });
+    logSlipMergeStep3("item_scan_open", {
+      carryoverLineCount: carryoverRows.length,
+      itemInspectionSlipLinesLength: itemInspectionSlipLines.length,
+      renderedReferenceRows: itemScanMergedReferenceCells.length,
     });
   }, [
     flowPhase,
@@ -20792,6 +21572,7 @@ function OperatorMobileScanPageContent() {
                         compactShowTapSubtitle={
                           slipBoxPhotoUrls.length === 0 && !boxScanDocumentationLocked && !savedBoxIntakeViewLocked
                         }
+                        compactOmitHeaderAddIconWhenFilled
                         label={
                           <>
                             PACKING SLIP{" "}
@@ -20815,7 +21596,8 @@ function OperatorMobileScanPageContent() {
                         maxFiles={3}
                         disabled={!orgId?.trim() || boxSlipVisionBusy || boxScanDocumentationLocked}
                         viewLocked={savedBoxIntakeViewLocked}
-                        className="operator-shipment-docs-uploader"
+                        onBeforeAdd={guardPackingSlipPhotoAdd}
+                        className="operator-shipment-docs-uploader operator-shipment-docs-uploader--packing-slip"
                       />
                       {boxSlipInvalidFormatBlocksSave &&
                       !boxHasNoPackingSlip &&
@@ -20957,7 +21739,7 @@ function OperatorMobileScanPageContent() {
                     aria-hidden
                     className="pointer-events-none absolute inset-x-4 top-0 h-[2px] rounded-full bg-gradient-to-r from-transparent via-[rgba(214,183,110,0.38)] to-transparent dark:via-[rgba(214,183,110,0.44)]"
                   />
-                  {boxSlipDisplayLines.length > 0 ||
+                  {slipPanelDisplayLines.length > 0 ||
                   boxSlipEvidenceDisplay.unreadable ||
                   boxSlipVisionLines.length > 0 ||
                   boxSlipVisionBusy ||
@@ -20971,27 +21753,88 @@ function OperatorMobileScanPageContent() {
                     >
                       <div className="operator-slip-evidence-panel__header" role="status">
                         <div className="operator-slip-evidence-panel__header-row">
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <h3 className="operator-slip-evidence-panel__headline text-left tracking-tight">
                               {boxSlipEvidenceUiState.headline}
                             </h3>
                             {boxSlipEvidenceUiState.hint ? (
-                              <p className="operator-slip-evidence-panel__hint operator-slip-evidence-panel__hint--body">
+                              <p
+                                className={
+                                  boxSlipEvidenceUiState.phase === "confirmed" ||
+                                  boxSlipEvidenceUiState.phase === "reviewed"
+                                    ? "operator-slip-evidence-panel__compact-meta"
+                                    : "operator-slip-evidence-panel__hint operator-slip-evidence-panel__hint--body"
+                                }
+                              >
                                 {boxSlipEvidenceUiState.hint}
                               </p>
                             ) : null}
-                            <p className="operator-slip-evidence-panel__subtitle">
-                              Slip evidence only — does not change shipment expected.
-                            </p>
+                            {boxSlipEvidenceUiState.phase !== "confirmed" &&
+                            boxSlipEvidenceUiState.phase !== "reviewed" &&
+                            showSlipContinuationPageNote ? (
+                              <p className="operator-slip-evidence-panel__hint operator-slip-evidence-panel__hint--body mt-1 text-amber-800/90 dark:text-amber-200/90">
+                                {SLIP_CONTINUATION_PAGE_NOTE}
+                              </p>
+                            ) : null}
+                            {boxSlipEvidenceUiState.phase !== "confirmed" &&
+                            boxSlipEvidenceUiState.phase !== "reviewed" ? (
+                              <p className="operator-slip-evidence-panel__subtitle">
+                                {SLIP_EVIDENCE_INFO_NOTE}
+                              </p>
+                            ) : null}
                           </div>
-                          {boxSlipVisionLines.length > 0 || boxSlipVisionBusy ? (
-                            <span className="operator-slip-evidence-panel__ai-badge shrink-0">
-                              <span className="operator-slip-evidence-panel__ai-badge-icon" aria-hidden>
-                                ✨
+                          <div className="flex shrink-0 items-start gap-1">
+                            {boxSlipEvidenceUiState.phase === "confirmed" ||
+                            boxSlipEvidenceUiState.phase === "reviewed" ? (
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  aria-expanded={slipEvidenceInfoOpen}
+                                  aria-label="Packing slip details"
+                                  onClick={() => setSlipEvidenceInfoOpen((o) => !o)}
+                                  className="operator-slip-evidence-panel__info-btn"
+                                >
+                                  <Info className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                                </button>
+                                {slipEvidenceInfoOpen ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      aria-label="Close packing slip details"
+                                      className="fixed inset-0 z-[122] cursor-default bg-black/45"
+                                      onClick={() => setSlipEvidenceInfoOpen(false)}
+                                    />
+                                    <div
+                                      role="dialog"
+                                      aria-label="Packing slip details"
+                                      className="absolute right-0 top-[calc(100%+8px)] z-[123] w-[min(88vw,17.5rem)] rounded-xl border p-3 shadow-[0_16px_40px_rgba(0,0,0,0.55)]"
+                                      style={{ borderColor: BORDER, backgroundColor: CARD_INNER, color: TEXT_PRIMARY }}
+                                    >
+                                      <p className="text-[11px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
+                                        {SLIP_EVIDENCE_INFO_NOTE}
+                                      </p>
+                                      <p className="mt-2 text-[11px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
+                                        {SLIP_EVIDENCE_PAGE_LOCK_INFO}
+                                      </p>
+                                      {showSlipContinuationPageNote ? (
+                                        <p className="mt-2 text-[11px] font-medium leading-snug" style={{ color: MUTED_LABEL }}>
+                                          {SLIP_CONTINUATION_PAGE_NOTE}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {boxSlipVisionLines.length > 0 || boxSlipVisionBusy ? (
+                              <span className="operator-slip-evidence-panel__ai-badge shrink-0">
+                                <span className="operator-slip-evidence-panel__ai-badge-icon" aria-hidden>
+                                  ✨
+                                </span>
+                                <span>AI</span>
                               </span>
-                              <span>AI</span>
-                            </span>
-                          ) : null}
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                       {showSlipOcrTapEditHelper ? (
@@ -21064,10 +21907,10 @@ function OperatorMobileScanPageContent() {
                         </div>
                       ) : null}
                       {!boxSlipEvidenceDisplay.unreadable &&
-                      (boxSlipDisplayLines.length > 0 || boxSlipVisionBusy) ? (
+                      (slipPanelDisplayLines.length > 0 || boxSlipVisionBusy) ? (
                         <div className="operator-slip-evidence-panel__lines space-y-2">
-                          {boxSlipDisplayLines.length > 0 ? (
-                            boxSlipDisplayLines.map((row, i) => {
+                          {slipPanelDisplayLines.length > 0 ? (
+                            slipPanelDisplayLines.map((row, i) => {
                               const descTrim = (row.description ?? "").trim();
                               const fnskuTrim = (row.fnsku ?? "").trim();
                               const upcTrim = (row.upc ?? "").trim();
@@ -21338,8 +22181,11 @@ function OperatorMobileScanPageContent() {
                         }
                         if (activeBoxSession) {
                           if (
-                            isSlipReviewRequired(boxHasNoPackingSlip, slipBoxPhotoUrls) &&
-                            !isSlipReviewed(boxSlipEvidenceReview)
+                            hasSlipReviewPending(
+                              boxHasNoPackingSlip,
+                              slipBoxPhotoUrls,
+                              reviewedSlipPhotoCount,
+                            )
                           ) {
                             openSlipReviewRequiredGate();
                             return;
@@ -21531,82 +22377,139 @@ function OperatorMobileScanPageContent() {
             <section
               className={`operator-item-scan-expected-panel operator-scan-panel--flexible mb-0 flex flex-col overflow-visible p-2.5 ${glassCard}`}
             >
-              <div className="operator-item-scan-expected-panel__header mb-1.5 flex shrink-0 flex-wrap items-end justify-between gap-2">
-                <div className="min-w-0 pr-2">
-                  <h3 className="operator-item-scan-expected-panel__title text-[13px] font-bold leading-tight">Expected Items</h3>
-                  <p className="operator-item-scan-expected-panel__eyebrow mt-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                    Item scan
-                  </p>
-                  <p className="operator-item-scan-expected-panel__hint mt-0.5 line-clamp-2 text-[9px] font-medium leading-snug">
-                    {itemScanEditAllMode ? (
-                      <>Select an item row with scanned units to edit.</>
-                    ) : itemScanExpectedItemsRenderSource === "merged_reference_cells" ? (
-                      <>Scanned items in this box — matched to shipment expected and/or packing slip.</>
-                    ) : (
-                      <>
-                        Slip lines follow the packing list. Use{" "}
-                        <span className="operator-item-scan-expected-panel__hint-strong font-semibold">Add / Scan Item</span> for
-                        each unit.
-                      </>
-                    )}
-                  </p>
-                  {itemScanExpectedItemsLoading ? (
-                    <p className="operator-item-scan-expected-panel__loading mt-1 flex items-center gap-1 text-[9px] font-semibold">
-                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-                      {itemInspectionSlipLinesLoading
-                        ? "Loading slip lines…"
-                        : packageItemsHydrating
-                          ? "Updating counts…"
-                          : "Loading expected lines…"}
-                    </p>
-                  ) : null}
-                  {itemScanExpectedItemsRenderSource === "package_slip_cells" ||
-                  (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox) ? (
-                    <label className="operator-item-scan-review-missing-toggle mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-[rgba(214,183,110,0.2)] bg-[rgba(255,255,255,0.02)] px-2 py-1.5">
-                      <input
-                        type="checkbox"
-                        checked={reviewMissingItemsEnabled}
-                        onChange={(e) => setReviewMissingItemsEnabled(e.target.checked)}
-                        disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
-                        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded"
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-[10px] font-bold leading-tight">Review missing items</span>
-                        <span className="mt-0.5 block text-[9px] font-medium leading-snug text-neutral-400">
-                          Turn on to mark expected items that were not found.
-                        </span>
-                      </span>
-                    </label>
-                  ) : null}
-                  {reviewMissingItemsEnabled &&
-                  itemScanUnresolvedMissingQty > 0 &&
-                  (itemScanExpectedItemsRenderSource === "package_slip_cells" ||
-                    (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox)) ? (
-                    <button
-                      type="button"
-                      disabled={busy || slipMissingMarkBusy}
-                      onClick={() => {
-                        modalOpenRef.current = true;
-                        setMarkAllMissingConfirmOpen(true);
-                      }}
-                      className="operator-item-scan-mark-all-missing-btn mt-2 flex w-full items-center justify-center rounded-lg border border-amber-500/40 bg-amber-950/20 px-2 py-1.5 text-[10px] font-bold text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Mark all remaining as missing
-                    </button>
+              <div className="operator-item-scan-expected-panel__header mb-1 flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                <div className="operator-item-scan-expected-panel__title-row min-w-0">
+                  <h3 className="operator-item-scan-expected-panel__title text-[13px] font-bold leading-tight">
+                    Expected Items
+                  </h3>
+                  {!itemScanEditAllMode ? (
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        aria-expanded={expectedItemsInfoOpen}
+                        aria-label="Expected items help"
+                        onClick={() => setExpectedItemsInfoOpen((o) => !o)}
+                        className="operator-item-scan-expected-panel__info-btn"
+                      >
+                        <Info className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                      </button>
+                      {expectedItemsInfoOpen ? (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Close expected items help"
+                            className="fixed inset-0 z-[122] cursor-default bg-black/45"
+                            onClick={() => setExpectedItemsInfoOpen(false)}
+                          />
+                          <div
+                            role="dialog"
+                            aria-label="Expected items help"
+                            className="absolute left-0 top-[calc(100%+8px)] z-[123] w-[min(88vw,17.5rem)] rounded-xl border p-3 shadow-[0_16px_40px_rgba(0,0,0,0.55)]"
+                            style={{ borderColor: BORDER, backgroundColor: CARD_INNER, color: TEXT_PRIMARY }}
+                          >
+                            <p className="text-[11px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
+                              {itemScanExpectedItemsRenderSource === "merged_reference_cells"
+                                ? "Scanned items in this box — matched to shipment expected and/or packing slip."
+                                : "Slip lines follow the packing list. Use Add / Scan Item for each unit."}
+                            </p>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
-                <p className="operator-item-scan-expected-panel__counts shrink-0 text-right text-[10px] font-semibold leading-snug tabular-nums">
+                <p className="operator-item-scan-expected-panel__counts operator-item-scan-expected-panel__counts--inline shrink-0 text-[10px] font-semibold leading-tight tabular-nums">
                   <span className="operator-item-scan-expected-panel__counts-scanned font-black">
                     {itemInspectionSlipPanelQtyScanned}
                   </span>{" "}
-                  scanned
-                  <br />
+                  scanned ·{" "}
                   <span className="operator-item-scan-expected-panel__counts-expected font-black">
                     {itemInspectionSlipPanelQtyExpected}
                   </span>{" "}
                   expected
                 </p>
               </div>
+              {itemScanEditAllMode ? (
+                <p className="operator-item-scan-expected-panel__hint mb-1 text-[9px] font-medium leading-snug">
+                  Select an item row with scanned units to edit.
+                </p>
+              ) : null}
+              {itemScanExpectedItemsLoading ? (
+                <p className="operator-item-scan-expected-panel__loading mb-1 flex items-center gap-1 text-[9px] font-semibold">
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                  {itemInspectionSlipLinesLoading
+                    ? "Loading slip lines…"
+                    : packageItemsHydrating
+                      ? "Updating counts…"
+                      : "Loading expected lines…"}
+                </p>
+              ) : null}
+              {itemScanExpectedItemsRenderSource === "package_slip_cells" ||
+              (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox) ? (
+                <label className="operator-item-scan-review-missing-toggle operator-item-scan-review-missing-toggle--compact mb-1 flex cursor-pointer items-center gap-2 rounded-lg border border-[rgba(214,183,110,0.2)] bg-[rgba(255,255,255,0.02)]">
+                  <input
+                    type="checkbox"
+                    checked={reviewMissingItemsEnabled}
+                    onChange={(e) => setReviewMissingItemsEnabled(e.target.checked)}
+                    disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
+                    className="h-3.5 w-3.5 shrink-0 rounded"
+                  />
+                  <span className="operator-item-scan-review-missing-toggle__label min-w-0 flex-1 font-bold leading-tight">
+                    Review missing
+                  </span>
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      aria-expanded={reviewMissingInfoOpen}
+                      aria-label="Review missing help"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setReviewMissingInfoOpen((o) => !o);
+                      }}
+                      className="operator-item-scan-expected-panel__info-btn"
+                    >
+                      <Info className="h-3 w-3" strokeWidth={2.25} aria-hidden />
+                    </button>
+                    {reviewMissingInfoOpen ? (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Close review missing help"
+                          className="fixed inset-0 z-[122] cursor-default bg-black/45"
+                          onClick={() => setReviewMissingInfoOpen(false)}
+                        />
+                        <div
+                          role="dialog"
+                          aria-label="Review missing help"
+                          className="absolute right-0 top-[calc(100%+8px)] z-[123] w-[min(88vw,16rem)] rounded-xl border p-3 shadow-[0_16px_40px_rgba(0,0,0,0.55)]"
+                          style={{ borderColor: BORDER, backgroundColor: CARD_INNER, color: TEXT_PRIMARY }}
+                        >
+                          <p className="text-[11px] font-semibold leading-snug" style={{ color: MUTED_LABEL }}>
+                            Turn on to mark expected items that were not found.
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </label>
+              ) : null}
+              {reviewMissingItemsEnabled &&
+              itemScanUnresolvedMissingQty > 0 &&
+              (itemScanExpectedItemsRenderSource === "package_slip_cells" ||
+                (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox)) ? (
+                <button
+                  type="button"
+                  disabled={busy || slipMissingMarkBusy}
+                  onClick={() => {
+                    modalOpenRef.current = true;
+                    setMarkAllMissingConfirmOpen(true);
+                  }}
+                  className="operator-item-scan-mark-all-missing-btn mb-1 flex w-full items-center justify-center rounded-lg border border-amber-500/40 bg-amber-950/20 px-2 py-1.5 text-[10px] font-bold text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Mark all remaining as missing
+                </button>
+              ) : null}
               <div className="operator-item-scan-progress-track mb-2 h-2 w-full shrink-0 overflow-hidden rounded-full">
                 <div
                   className="h-full rounded-full transition-[width] duration-300 ease-out"
@@ -22327,14 +23230,6 @@ function OperatorMobileScanPageContent() {
               </section>
             ) : null}
 
-            {itemScanUnresolvedMissingQty > 0 && !reviewMissingItemsEnabled ? (
-              <p className={`${OP_SCAN_ALERT_WARNING} mx-0 mb-0`} role="status">
-                {itemScanHasOffSlipPhysicalItems
-                  ? `${itemScanUnresolvedMissingQty} expected item${itemScanUnresolvedMissingQty === 1 ? "" : "s"} missing from the packing slip.`
-                  : `${itemScanUnresolvedMissingQty} expected unit${itemScanUnresolvedMissingQty === 1 ? "" : "s"} still missing.`}
-              </p>
-            ) : null}
-
             {itemsChromeStickyLayout ? (
               <div aria-hidden className="operator-item-scan-footer-spacer" />
             ) : null}
@@ -22607,6 +23502,80 @@ function OperatorMobileScanPageContent() {
         </div>
       ) : null}
 
+      {slipPhotoAddBlockedModalOpen ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-slip-photo-add-blocked-title`}
+          aria-describedby={`${formId}-slip-photo-add-blocked-body`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-slip-photo-add-blocked-title`}
+              className="operator-shipment-flow-modal__title text-center text-[17px] font-black leading-snug text-amber-950 dark:text-amber-100"
+            >
+              Review current packing slip first
+            </p>
+            <p
+              id={`${formId}-slip-photo-add-blocked-body`}
+              className="operator-shipment-flow-modal__body mt-3 text-center text-[14px] font-semibold leading-relaxed text-amber-950/90 dark:text-amber-50/90"
+            >
+              Confirm, edit, or mark the current packing slip as unreadable before adding another page.
+            </p>
+            <div className="mt-6">
+              <button
+                type="button"
+                className="operator-shipment-flow-modal__btn-warning h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                onClick={() => {
+                  setSlipPhotoAddBlockedModalOpen(false);
+                  modalOpenRef.current = false;
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {wrongContinuationSlipModalOpen ? (
+        <div
+          className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={`${formId}-wrong-continuation-slip-title`}
+          aria-describedby={`${formId}-wrong-continuation-slip-body`}
+        >
+          <div className="operator-shipment-flow-modal__panel w-full max-w-md rounded-[24px] border p-5">
+            <p
+              id={`${formId}-wrong-continuation-slip-title`}
+              className="operator-shipment-flow-modal__title text-center text-[17px] font-black leading-snug text-amber-950 dark:text-amber-100"
+            >
+              {WRONG_CONTINUATION_SLIP_MODAL_TITLE}
+            </p>
+            <p
+              id={`${formId}-wrong-continuation-slip-body`}
+              className="operator-shipment-flow-modal__body mt-3 text-center text-[14px] font-semibold leading-relaxed text-amber-950/90 dark:text-amber-50/90"
+            >
+              {WRONG_CONTINUATION_SLIP_MODAL_MESSAGE}
+            </p>
+            <div className="mt-6">
+              <button
+                type="button"
+                className="operator-shipment-flow-modal__btn-warning h-11 w-full rounded-xl border text-[13px] font-bold transition active:scale-[0.98]"
+                onClick={() => {
+                  setWrongContinuationSlipModalOpen(false);
+                  modalOpenRef.current = false;
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {slipReviewRequiredModalOpen ? (
         <div
           className="operator-shipment-flow-modal fixed inset-0 z-[143] flex items-center justify-center p-4"
@@ -22626,7 +23595,8 @@ function OperatorMobileScanPageContent() {
               id={`${formId}-slip-review-required-body`}
               className="operator-shipment-flow-modal__body mt-3 text-center text-[14px] font-semibold leading-relaxed text-amber-950/90 dark:text-amber-50/90"
             >
-              Confirm, edit, or mark the packing slip as unreadable before continuing to item scan.
+              {boxIntakeError ??
+                "Confirm, edit, or mark the packing slip as unreadable before continuing to item scan."}
             </p>
             <div className="mt-6">
               <button

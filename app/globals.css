@@ -6438,31 +6438,33 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
 }
 
 .operator-shipment-handheld-compact .operator-box-info-docs-row-active .operator-shipment-docs-uploader button .min-w-0 > div:first-child p {
-  flex: 1 1 auto !important;
+  flex: 0 1 auto !important;
   min-width: 0 !important;
   text-align: left !important;
 }
 
 .operator-shipment-handheld-compact .operator-box-info-docs-row-active .operator-shipment-docs-uploader button .min-w-0 > div:first-child span {
   flex: 0 0 auto !important;
-  margin-left: auto !important;
+  margin-left: 0.25rem !important;
 }
 
-/* Photo rows with thumbnails — horizontal document row (label left, thumbs right) */
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div {
+/* Photo rows with thumbnails — horizontal document row (label left, thumbs right); not packing slip */
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-columns: minmax(0, max-content) auto !important;
   grid-template-rows: auto auto !important;
   align-items: center !important;
+  justify-content: space-between !important;
+  column-gap: 0.375rem !important;
 }
 
 .operator-shipment-handheld-compact .operator-box-info-docs-row-complete,
-.operator-shipment-handheld-compact .operator-box-info-docs-row-active:has(.grid.grid-cols-5) {
+.operator-shipment-handheld-compact .operator-box-info-docs-row-active:has(.operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip) .grid.grid-cols-5) {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b {
   grid-column: 1 / 2 !important;
   grid-row: 1 !important;
   border-bottom-width: 0 !important;
@@ -6472,7 +6474,7 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   justify-content: flex-start !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 {
   display: flex !important;
   align-items: center !important;
   justify-content: flex-start !important;
@@ -6481,38 +6483,39 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   min-width: 0 !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 p {
-  flex: 1 1 auto !important;
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 p {
+  flex: 0 1 auto !important;
   min-width: 0 !important;
   text-align: left !important;
+  white-space: nowrap !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 span {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b > div.min-w-0 span {
   flex: 0 0 auto !important;
-  margin-left: auto !important;
+  margin-left: 0.25rem !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b .h-6.w-6 {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b .h-6.w-6 {
   height: 1.25rem !important;
   width: 1.25rem !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b .lucide {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b .lucide {
   height: 0.75rem !important;
   width: 0.75rem !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b p {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b p {
   font-size: 0.625rem !important;
   line-height: 1.1 !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > div.border-b span {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > div.border-b span {
   font-size: 0.5625rem !important;
   line-height: 1.1 !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) .grid.grid-cols-5 {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) .grid.grid-cols-5 {
   grid-column: 2 / 3 !important;
   grid-row: 1 !important;
   display: flex !important;
@@ -6523,7 +6526,7 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   padding: 0.1875rem 0.375rem 0.1875rem 0 !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) .grid.grid-cols-5 > div {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) .grid.grid-cols-5 > div {
   width: 2.25rem !important;
   max-width: 2.25rem !important;
   height: 2.25rem !important;
@@ -6531,7 +6534,7 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
   flex-shrink: 0 !important;
 }
 
-.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:has(.grid.grid-cols-5) > div > div > button.border-t {
+.operator-shipment-handheld-compact .operator-box-info-screen .operator-shipment-docs-uploader:not(.operator-shipment-docs-uploader--packing-slip):has(.grid.grid-cols-5) > div > div > button.border-t {
   grid-column: 1 / -1 !important;
   grid-row: 2 !important;
   min-height: 2.25rem !important;
@@ -6544,6 +6547,96 @@ html.light .operator-box-info-screen .operator-shipment-notes-card .scanner-inpu
 .operator-shipment-handheld-compact .operator-box-info-docs-row-complete .operator-shipment-docs-uploader > div > div > div.border-b {
   padding-top: 0.1875rem !important;
   padding-bottom: 0.1875rem !important;
+}
+
+/* Packing slip only — stacked header + left-aligned thumbnails (no shared grid-cols-5 rules) */
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  .master-uploader-slip-filled-header {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  grid-column: unset !important;
+  grid-row: unset !important;
+  border-bottom-width: 1px !important;
+}
+
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  .master-uploader-slip-filled-header
+  > div:first-child {
+  flex: 0 0 auto !important;
+}
+
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  .master-uploader-slip-filled-header
+  > p {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  text-align: left !important;
+}
+
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  .master-uploader-slip-filled-header
+  > span:last-child {
+  flex: 0 0 auto !important;
+  margin-left: 0.25rem !important;
+}
+
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  > div
+  > div:has(.master-uploader-slip-filled-header) {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+}
+
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  .master-uploader-slip-thumb-row {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+  gap: 0.5rem !important;
+}
+
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  .master-uploader-slip-thumb-row
+  > div {
+  width: 2.25rem !important;
+  max-width: 2.25rem !important;
+  height: 2.25rem !important;
+  max-height: 2.25rem !important;
+  flex-shrink: 0 !important;
+}
+
+.operator-shipment-handheld-compact
+  .operator-box-info-screen
+  .operator-shipment-docs-uploader.operator-shipment-docs-uploader--packing-slip
+  > div
+  > div:has(.master-uploader-slip-filled-header)
+  > button.border-t {
+  width: 100% !important;
+  grid-column: unset !important;
+  grid-row: unset !important;
 }
 
 .operator-shipment-handheld-compact .operator-shipment-entry-order-meta {
@@ -7467,6 +7560,48 @@ html.light .operator-slip-evidence-panel__hint {
   font-size: 0.625rem;
   line-height: 1.35;
   color: #9aa3ad;
+}
+
+.operator-slip-evidence-panel__compact-meta {
+  margin-top: 0.125rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #b8c0c9;
+}
+
+html.light .operator-slip-evidence-panel__compact-meta {
+  color: #4b5563 !important;
+}
+
+.operator-slip-evidence-panel__info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+  width: 1.375rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(214, 183, 110, 0.28);
+  color: #b8c0c9;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.operator-slip-evidence-panel__info-btn:hover {
+  border-color: rgba(214, 183, 110, 0.42);
+  background: rgba(214, 183, 110, 0.08);
+  color: #e8d19a;
+}
+
+html.light .operator-slip-evidence-panel__info-btn {
+  border-color: rgba(138, 104, 31, 0.24);
+  color: #6b7280;
+}
+
+html.light .operator-slip-evidence-panel__info-btn:hover {
+  border-color: rgba(138, 104, 31, 0.36);
+  background: rgba(138, 104, 31, 0.06);
+  color: #4b5563;
 }
 
 html.light .operator-slip-evidence-panel__subtitle {
@@ -11192,6 +11327,41 @@ html.dark .operator-item-scan-screen .operator-item-scan-expected-panel__counts-
 
 html.light .operator-item-scan-screen .operator-item-scan-expected-panel__counts-expected {
   color: #8a681f !important;
+}
+
+.operator-item-scan-expected-panel__title-row {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.operator-item-scan-expected-panel__info-btn {
+  display: inline-flex;
+  height: 1.25rem;
+  width: 1.25rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(214, 183, 110, 0.24);
+  color: #9aa3ad;
+}
+
+.operator-item-scan-expected-panel__counts--inline {
+  white-space: nowrap;
+}
+
+.operator-item-scan-review-missing-toggle--compact {
+  margin-top: 0.375rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.operator-item-scan-review-missing-toggle--compact .operator-item-scan-review-missing-toggle__label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 html.dark .operator-item-scan-screen .operator-item-scan-over-panel.scanner-page-glass-card {
