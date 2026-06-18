@@ -16,6 +16,10 @@ import {
 } from "@/lib/scanner/shipment-expected-context";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 import { CloseReviewIssueItemList } from "@/app/scanner/operator-mobile/_components/CloseReviewIssueItemList";
+import {
+  CloseReviewDisclaimer,
+  CloseReviewUnresolvedBlock,
+} from "@/app/scanner/operator-mobile/_components/CloseReviewModalParts";
 
 type ShipmentCloseReviewModalProps = {
   formId: string;
@@ -43,7 +47,7 @@ type SummaryCard = {
 const BUCKET_DISPLAY: Partial<Record<ShipmentCloseReviewBucketKey, BucketDisplay>> = {
   missing: {
     title: "Missing items found",
-    subtext: "Expected units not received.",
+    subtext: "Expected but not received.",
   },
   partial: {
     title: "Partially received",
@@ -73,7 +77,7 @@ const BUCKET_DISPLAY: Partial<Record<ShipmentCloseReviewBucketKey, BucketDisplay
 
 const CRITICAL_ISSUE_DISPLAY: Record<string, string> = {
   "Partial lines": "Partial receive",
-  "Missing / final shortage": "Missing / final shortage",
+  "Missing / final shortage": "Final shortage",
   "Over lines": "Over-received",
   "Unexpected scans": "Unexpected scans",
   "Slip-only evidence": "Slip-only evidence",
@@ -95,11 +99,6 @@ function issueSummaryLabel(model: ShipmentCloseReviewModel): string {
   if (model.bucket_counts.unexpected > 0) return "Unexpected";
   if (model.bucket_counts.damaged_or_problem_items > 0) return "Problem items";
   return "Review";
-}
-
-function formatUnresolvedIssueBody(labels: string[]): string {
-  if (labels.length === 0) return "Review required before closing.";
-  return labels.map((label) => CRITICAL_ISSUE_DISPLAY[label] ?? label).join(" · ");
 }
 
 function oneContainerHint(model: ShipmentCloseReviewModel): string | null {
@@ -131,7 +130,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
   const missingUnits = model.totals.final_shortage_qty || model.totals.missing_qty;
 
   const ackLabel = model.has_critical_issues
-    ? "I reviewed the shipment and understand the unresolved issues."
+    ? "I reviewed this shipment and understand the issues."
     : "I reviewed this shipment and want to close it.";
 
   const closeButtonLabel = model.has_critical_issues ? "Close Shipment with Issues" : "Close Shipment";
@@ -157,6 +156,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
         key: "missing-units",
         label: "Missing units",
         value: String(missingUnits),
+        issueTone: missingUnits > 0,
       },
       {
         key: "issues",
@@ -166,11 +166,6 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
       },
     ],
     [model, missingUnits],
-  );
-
-  const unresolvedIssueBody = useMemo(
-    () => formatUnresolvedIssueBody(model.critical_issue_labels),
-    [model.critical_issue_labels],
   );
 
   const totalIssueRows = useMemo(
@@ -194,7 +189,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
       aria-modal="true"
       aria-labelledby={`${formId}-shipment-review-title`}
     >
-      <div className="operator-shipment-flow-modal__panel operator-shipment-close-review__shell flex max-h-[calc(100dvh-32px)] w-full max-w-md flex-col overflow-hidden rounded-[24px] border p-4">
+      <div className="operator-shipment-flow-modal__panel operator-shipment-close-review__shell flex max-h-[calc(100dvh-32px)] w-full max-w-md flex-col overflow-hidden rounded-[24px] border p-3.5">
         <header className="operator-shipment-close-review__header shrink-0 text-center">
           <p
             id={`${formId}-shipment-review-title`}
@@ -202,14 +197,12 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
           >
             Shipment Review
           </p>
-          <p className="operator-shipment-flow-modal__body mt-1 text-[13px] font-semibold leading-snug">
-            Review the shipment before closing warehouse receive.
+          <p className="operator-shipment-flow-modal__body mt-0.5 text-[13px] font-semibold leading-snug">
+            Review shipment before closing receive.
           </p>
-          <p className="operator-shipment-close-review__disclaimer mt-1 text-[11px] font-medium leading-snug">
-            Closing this shipment does not create claims. Issues are saved as review evidence.
-          </p>
+          <CloseReviewDisclaimer scope="shipment" />
           {containerHint ? (
-            <p className="operator-shipment-flow-modal__note mt-1 text-[11px] font-semibold leading-snug">
+            <p className="operator-shipment-flow-modal__note mt-0.5 text-[10px] font-semibold leading-snug">
               {containerHint}
             </p>
           ) : null}
@@ -217,7 +210,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
 
         <div className="operator-shipment-close-review__body min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <section
-            className="operator-shipment-close-review__summary mt-3"
+            className="operator-shipment-close-review__summary operator-shipment-close-review__summary--compact mt-2.5"
             aria-label="Shipment summary"
           >
             {summaryCards.map((card) => (
@@ -317,7 +310,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
           ) : null}
 
           <div
-            className={`operator-shipment-close-review__issues mt-3 rounded-xl${
+            className={`operator-shipment-close-review__issues mt-2.5 rounded-xl${
               issuesListScrollable ? " operator-shipment-close-review__issues--scrollable" : ""
             }`}
           >
@@ -327,7 +320,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
               </p>
             ) : (
               <ul
-                className={`space-y-3 p-2.5${
+                className={`space-y-2.5 p-2${
                   issuesListScrollable ? " operator-shipment-close-review__issues-list--scrollable" : ""
                 }`}
               >
@@ -355,17 +348,10 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
           </div>
 
           {model.has_critical_issues ? (
-            <section
-              className="operator-shipment-close-review__unresolved operator-shipment-close-review__unresolved-card mt-3 rounded-xl px-3.5 py-2.5"
-              aria-label="Unresolved issues"
-            >
-              <p className="operator-shipment-close-review__unresolved-title text-[12px] font-bold leading-snug">
-                Unresolved issues
-              </p>
-              <p className="operator-shipment-close-review__unresolved-body mt-0.5 text-[12px] font-semibold leading-snug">
-                {unresolvedIssueBody}
-              </p>
-            </section>
+            <CloseReviewUnresolvedBlock
+              labels={model.critical_issue_labels}
+              displayMap={CRITICAL_ISSUE_DISPLAY}
+            />
           ) : null}
         </div>
 
@@ -399,9 +385,7 @@ export function ShipmentCloseReviewModal(props: ShipmentCloseReviewModalProps) {
 
           {showAckHint ? (
             <p className="operator-shipment-close-review__ack-hint mt-2 text-center text-[11px] font-semibold leading-snug">
-              {model.has_critical_issues
-                ? "Review and acknowledge issues to continue."
-                : "Check the review box to continue."}
+              Review and acknowledge issues to continue.
             </p>
           ) : null}
 

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  formatCloseReviewIdentifierLine,
   type CloseReviewIdentifierFields,
 } from "@/lib/scanner/close-review-line-display";
 
@@ -17,6 +16,19 @@ type CloseReviewIssueItemListProps = {
   maxRows?: number;
 };
 
+function cell(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
+}
+
+function extraIdentifierMeta(ids: CloseReviewIdentifierFields): string | null {
+  const parts = [
+    cell(ids.asin) ? `ASIN: ${cell(ids.asin)}` : null,
+    cell(ids.sku) ? `SKU: ${cell(ids.sku)}` : null,
+  ].filter(Boolean) as string[];
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function CloseReviewIssueItemList(props: CloseReviewIssueItemListProps) {
   const { lines, listKey, maxRows = 6 } = props;
   const visible = lines.slice(0, maxRows);
@@ -24,21 +36,25 @@ export function CloseReviewIssueItemList(props: CloseReviewIssueItemListProps) {
 
   return (
     <div className="operator-shipment-close-review__item-list-wrap">
-      <ul className="operator-shipment-close-review__item-list space-y-1.5">
+      <ul className="operator-shipment-close-review__item-list">
         {visible.map((line) => {
-          const identifierLine = formatCloseReviewIdentifierLine(line);
+          const fnsku = cell(line.fnsku);
+          const extraMeta = extraIdentifierMeta(line);
           return (
             <li
               key={`${listKey}:${line.lineKey}`}
-              className="operator-shipment-close-review__item-row flex items-start justify-between gap-2.5"
+              className="operator-shipment-close-review__item-row"
             >
-              <div className="min-w-0 flex-1">
-                <p className="operator-shipment-close-review__item-title text-[12px] font-semibold leading-snug">
-                  {line.title}
-                </p>
-                {identifierLine ? (
-                  <p className="operator-shipment-close-review__item-ids mt-0.5 font-mono text-[10px] leading-snug">
-                    {identifierLine}
+              <div className="operator-shipment-close-review__item-body min-w-0 flex-1">
+                <p className="operator-shipment-close-review__item-title">{line.title}</p>
+                {fnsku ? (
+                  <p className="operator-shipment-close-review__item-fnsku mt-0.5 font-mono leading-snug">
+                    FNSKU: {fnsku}
+                  </p>
+                ) : null}
+                {extraMeta ? (
+                  <p className="operator-shipment-close-review__item-meta mt-0.5 font-mono leading-snug">
+                    {extraMeta}
                   </p>
                 ) : null}
               </div>
@@ -46,14 +62,14 @@ export function CloseReviewIssueItemList(props: CloseReviewIssueItemListProps) {
                 className="operator-shipment-close-review__qty-badge shrink-0 tabular-nums"
                 aria-label={`Quantity ${line.qty}`}
               >
-                {line.qty}
+                Qty {line.qty}
               </span>
             </li>
           );
         })}
       </ul>
       {overflow > 0 ? (
-        <p className="operator-shipment-close-review__more mt-2 px-1 text-[11px] font-semibold">
+        <p className="operator-shipment-close-review__more mt-2 px-0.5 text-[11px] font-semibold">
           +{overflow} more item{overflow === 1 ? "" : "s"}
         </p>
       ) : null}

@@ -8733,19 +8733,23 @@ html.light .operator-shipment-flow-modal__alert .operator-shipment-flow-modal__a
 .operator-shipment-close-review__summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   width: 100%;
+}
+
+.operator-shipment-close-review__summary--compact {
+  gap: 7px;
 }
 
 .operator-shipment-close-review__chip {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  justify-content: flex-start;
-  gap: 6px;
-  min-height: 3.5rem;
-  border-radius: 12px;
-  padding: 10px 12px;
+  justify-content: center;
+  gap: 3px;
+  min-height: 2.75rem;
+  border-radius: 10px;
+  padding: 7px 10px;
   min-width: 0;
 }
 
@@ -8792,13 +8796,13 @@ html.light .operator-shipment-close-review__chip-label {
 
 html.dark .operator-shipment-close-review__chip-value {
   color: #faf6ed !important;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
 }
 
 html.light .operator-shipment-close-review__chip-value {
   color: #16181b !important;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
 }
 
@@ -8807,15 +8811,23 @@ html.dark .operator-shipment-close-review__chip-value--issue {
 }
 
 html.light .operator-shipment-close-review__chip-value--issue {
-  color: #8a681f !important;
+  color: #b45309 !important;
 }
 
 html.dark .operator-shipment-close-review__disclaimer {
-  color: #9aa3ad !important;
+  color: #7f8a96 !important;
 }
 
 html.light .operator-shipment-close-review__disclaimer {
-  color: #5c6670 !important;
+  color: #6b7280 !important;
+}
+
+html.dark .operator-shipment-close-review__disclaimer-icon {
+  color: #7f8a96 !important;
+}
+
+html.light .operator-shipment-close-review__disclaimer-icon {
+  color: #9ca3af !important;
 }
 
 html.dark .operator-shipment-close-review__issues {
@@ -8906,36 +8918,75 @@ html.light .operator-shipment-close-review__section-subtext {
 }
 
 .operator-shipment-close-review__item-list-wrap {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .operator-shipment-close-review__item-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .operator-shipment-close-review__item-row {
-  border-radius: 10px;
-  padding: 9px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 12px;
+  padding: 9px 11px;
 }
 
 html.dark .operator-shipment-close-review__item-row {
-  border: 1px solid rgba(185, 194, 204, 0.1);
-  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(185, 194, 204, 0.14);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 html.light .operator-shipment-close-review__item-row {
-  border: 1px solid rgba(138, 104, 31, 0.1);
+  border: 1px solid rgba(138, 104, 31, 0.12);
   background: #ffffff;
+  box-shadow: 0 1px 2px rgba(22, 24, 27, 0.04);
 }
 
 html.dark .operator-shipment-close-review__item-title {
   color: #f3f4f6;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 html.light .operator-shipment-close-review__item-title {
   color: #1f2937;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+html.dark .operator-shipment-close-review__item-fnsku {
+  color: #b8c0ca;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+html.light .operator-shipment-close-review__item-fnsku {
+  color: #4b5563;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+html.dark .operator-shipment-close-review__item-meta {
+  color: #8b95a1;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+html.light .operator-shipment-close-review__item-meta {
+  color: #6b7280;
+  font-size: 9px;
+  font-weight: 500;
 }
 
 html.dark .operator-shipment-close-review__item-ids {
@@ -9040,28 +9091,34 @@ html.dark .operator-shipment-close-review__qty-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.75rem;
-  border: 1px solid rgba(185, 194, 204, 0.2);
-  background: rgba(255, 255, 255, 0.06);
+  min-width: 2.5rem;
+  align-self: center;
+  border: 1px solid rgba(185, 194, 204, 0.22);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 999px;
   color: #faf6ed !important;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 2px 8px;
+  letter-spacing: 0.01em;
+  padding: 3px 8px;
+  white-space: nowrap;
 }
 
 html.light .operator-shipment-close-review__qty-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.75rem;
-  border: 1px solid rgba(138, 104, 31, 0.18);
-  background: #ffffff;
+  min-width: 2.5rem;
+  align-self: center;
+  border: 1px solid rgba(138, 104, 31, 0.2);
+  background: #f8f6f1;
   border-radius: 999px;
   color: #2f3844 !important;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 2px 8px;
+  letter-spacing: 0.01em;
+  padding: 3px 8px;
+  white-space: nowrap;
 }
 
 html.dark .operator-shipment-close-review__more {
@@ -9074,20 +9131,48 @@ html.light .operator-shipment-close-review__more {
 
 html.dark .operator-shipment-close-review__unresolved,
 html.dark .operator-shipment-close-review__unresolved-card {
-  border: 1px solid rgba(214, 183, 110, 0.28);
-  background: linear-gradient(
-    180deg,
-    rgba(214, 183, 110, 0.11) 0%,
-    rgba(214, 183, 110, 0.05) 100%
-  );
-  box-shadow: inset 3px 0 0 rgba(241, 213, 138, 0.55);
+  border: 1px solid rgba(214, 183, 110, 0.24);
+  background: rgba(214, 183, 110, 0.07);
+  box-shadow: inset 3px 0 0 rgba(241, 213, 138, 0.5);
 }
 
 html.light .operator-shipment-close-review__unresolved,
 html.light .operator-shipment-close-review__unresolved-card {
-  border: 1px solid rgba(183, 121, 31, 0.24);
-  background: linear-gradient(180deg, rgba(255, 247, 230, 0.95) 0%, rgba(255, 241, 214, 0.72) 100%);
-  box-shadow: inset 3px 0 0 rgba(183, 121, 31, 0.42);
+  border: 1px solid rgba(183, 121, 31, 0.2);
+  background: rgba(255, 247, 230, 0.88);
+  box-shadow: inset 3px 0 0 rgba(183, 121, 31, 0.38);
+}
+
+.operator-shipment-close-review__unresolved-badges {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+html.dark .operator-shipment-close-review__unresolved-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(241, 213, 138, 0.28);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+  color: #f3e6c2 !important;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 3px 8px;
+}
+
+html.light .operator-shipment-close-review__unresolved-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(183, 121, 31, 0.22);
+  background: #fffdf8;
+  border-radius: 999px;
+  color: #8a681f !important;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 3px 8px;
 }
 
 html.dark .operator-shipment-close-review__unresolved-title {

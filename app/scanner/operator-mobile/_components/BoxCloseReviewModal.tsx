@@ -10,6 +10,10 @@ import type {
 } from "@/lib/scanner/box-close-review";
 import { OperatorScannerFooterActions } from "@/app/scanner/operator-mobile/_components/OperatorScannerFooterActions";
 import { CloseReviewIssueItemList } from "@/app/scanner/operator-mobile/_components/CloseReviewIssueItemList";
+import {
+  CloseReviewDisclaimer,
+  CloseReviewUnresolvedBlock,
+} from "@/app/scanner/operator-mobile/_components/CloseReviewModalParts";
 
 type BoxCloseReviewModalProps = {
   formId: string;
@@ -40,7 +44,7 @@ type SummaryCard = {
 const BUCKET_DISPLAY: Partial<Record<BoxCloseReviewBucketKey, BucketDisplay>> = {
   pending_under_scanned: {
     title: "Pending items",
-    subtext: "Expected units not scanned.",
+    subtext: "Expected but not scanned.",
   },
   marked_missing_operator_note: {
     title: "Marked missing by operator",
@@ -88,11 +92,6 @@ function bucketQtySum(bucket: BoxCloseReviewBucket | undefined): number {
   return bucket.lines.reduce((sum, line) => sum + line.qty, 0);
 }
 
-function formatUnresolvedIssueBody(labels: string[]): string {
-  if (labels.length === 0) return "Review required before closing.";
-  return labels.map((label) => CRITICAL_ISSUE_DISPLAY[label] ?? label).join(" · ");
-}
-
 export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
   const {
     formId,
@@ -126,7 +125,7 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
   );
 
   const ackLabel = model.has_critical_issues
-    ? "I reviewed this box and understand the unresolved issues."
+    ? "I reviewed this box and understand the issues."
     : "I reviewed this box and want to close it.";
 
   const closeButtonLabel =
@@ -160,11 +159,6 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
     [liveExpected, liveScanned, pendingQty, markedMissingQty],
   );
 
-  const unresolvedIssueBody = useMemo(
-    () => formatUnresolvedIssueBody(model.critical_issue_labels),
-    [model.critical_issue_labels],
-  );
-
   const totalIssueRows = useMemo(
     () => issueBuckets.reduce((sum, bucket) => sum + bucket.lines.length, 0),
     [issueBuckets],
@@ -181,7 +175,7 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
       aria-modal="true"
       aria-labelledby={`${formId}-box-review-title`}
     >
-      <div className="operator-shipment-flow-modal__panel operator-shipment-close-review__shell flex max-h-[calc(100dvh-32px)] w-full max-w-md flex-col overflow-hidden rounded-[24px] border p-4">
+      <div className="operator-shipment-flow-modal__panel operator-shipment-close-review__shell flex max-h-[calc(100dvh-32px)] w-full max-w-md flex-col overflow-hidden rounded-[24px] border p-3.5">
         <header className="operator-shipment-close-review__header shrink-0 text-center">
           <p
             id={`${formId}-box-review-title`}
@@ -189,12 +183,10 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
           >
             Box Review
           </p>
-          <p className="operator-shipment-flow-modal__body mt-1 text-[13px] font-semibold leading-snug">
+          <p className="operator-shipment-flow-modal__body mt-0.5 text-[13px] font-semibold leading-snug">
             Review this box before closing.
           </p>
-          <p className="operator-shipment-close-review__disclaimer mt-1 text-[11px] font-medium leading-snug">
-            Closing this box does not create claims. Issues are saved as review evidence.
-          </p>
+          <CloseReviewDisclaimer scope="box" />
         </header>
 
         <div className="operator-shipment-close-review__body min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -213,7 +205,7 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
           ) : null}
 
           <section
-            className="operator-shipment-close-review__summary mt-3"
+            className="operator-shipment-close-review__summary operator-shipment-close-review__summary--compact mt-2.5"
             aria-label="Box summary"
           >
             {summaryCards.map((card) => (
@@ -234,7 +226,7 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
           </section>
 
           <div
-            className={`operator-shipment-close-review__issues mt-3 rounded-xl${
+            className={`operator-shipment-close-review__issues mt-2.5 rounded-xl${
               issuesListScrollable ? " operator-shipment-close-review__issues--scrollable" : ""
             }`}
           >
@@ -244,7 +236,7 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
               </p>
             ) : (
               <ul
-                className={`space-y-3 p-2.5${
+                className={`space-y-2.5 p-2${
                   issuesListScrollable ? " operator-shipment-close-review__issues-list--scrollable" : ""
                 }`}
               >
@@ -272,17 +264,10 @@ export function BoxCloseReviewModal(props: BoxCloseReviewModalProps) {
           </div>
 
           {model.has_critical_issues ? (
-            <section
-              className="operator-shipment-close-review__unresolved operator-shipment-close-review__unresolved-card mt-3 rounded-xl px-3.5 py-2.5"
-              aria-label="Unresolved issues"
-            >
-              <p className="operator-shipment-close-review__unresolved-title text-[12px] font-bold leading-snug">
-                Unresolved issues
-              </p>
-              <p className="operator-shipment-close-review__unresolved-body mt-0.5 text-[12px] font-semibold leading-snug">
-                {unresolvedIssueBody}
-              </p>
-            </section>
+            <CloseReviewUnresolvedBlock
+              labels={model.critical_issue_labels}
+              displayMap={CRITICAL_ISSUE_DISPLAY}
+            />
           ) : null}
 
           {hasItemDraft ? (

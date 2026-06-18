@@ -10,6 +10,12 @@ import {
   buildBoxCloseReviewModel,
   buildBoxCloseReviewSnapshot,
 } from "../lib/scanner/box-close-review";
+import {
+  activeMarkedMissingReviewEntries,
+  removeMissingReviewEntryFromManifest,
+  totalOperatorMarkedMissingQty,
+} from "../lib/scanner/package-missing-review-manifest";
+import { computeSlipLineExpectedVsReceived } from "../lib/scanner/slip-contents-missing-expected";
 import type { SlipShipmentValidationPreview } from "../lib/scanner/slip-shipment-validation-types";
 
 function emptyPreview(): SlipShipmentValidationPreview {
@@ -125,11 +131,11 @@ function runUnitTests(): Record<string, boolean> {
         sources_present: ["packing_slip"],
         slip_qty: 2,
         shipment_expected_qty: 0,
-        scanned_qty: 1,
+        scanned_qty: 0,
         off_manifest_scanned_qty: 0,
-        recorded_missing_qty: 0,
+        recorded_missing_qty: 1,
         remaining_missing_qty: 1,
-        delta_scanned_vs_expected: -1,
+        delta_scanned_vs_expected: -2,
         ui_badge: "pending",
         claim_meaning: "quantity_short_pending",
         slip_content_ids: ["00000000-0000-4000-8000-000000000004"],
@@ -150,9 +156,9 @@ function runUnitTests(): Record<string, boolean> {
         {
           slip_content_id: "00000000-0000-4000-8000-000000000004",
           expected_qty: 2,
-          scanned_qty: 1,
+          scanned_qty: 0,
           operator_marked_missing_qty: 1,
-          computed_shortage_at_mark_time: 1,
+          computed_shortage_at_mark_time: 2,
           marked_by: "00000000-0000-0000-0000-000000000099",
           marked_at: "2026-05-29T00:00:00.000Z",
           source: "operator_missing_review",
@@ -188,6 +194,214 @@ function runUnitTests(): Record<string, boolean> {
     return true;
   })();
 
+  out.pending_excludes_fully_marked = (() => {
+    const slipId = "00000000-0000-4000-8000-000000000010";
+    const preview = emptyPreview();
+    preview.lines = [
+      {
+        grain_key: "fnsku:ALLMISSING",
+        bucket: "pending_under_scanned",
+        grain: {
+          fnsku: "X0030EEN1R",
+          sku: null,
+          asin: null,
+          upc: null,
+          gtin: null,
+          title: "Melitta Coffee Filters",
+        },
+        confidence: "fnsku",
+        sources_present: ["packing_slip"],
+        slip_qty: 5,
+        shipment_expected_qty: 0,
+        scanned_qty: 0,
+        off_manifest_scanned_qty: 0,
+        recorded_missing_qty: 5,
+        remaining_missing_qty: 0,
+        delta_scanned_vs_expected: -5,
+        ui_badge: "pending",
+        claim_meaning: "quantity_short_pending",
+        slip_content_ids: [slipId],
+        expected_package_ids: [],
+        return_item_ids: [],
+        build_sources: [],
+        label: "X0030EEN1R",
+      },
+    ];
+    preview.bucket_counts.pending_under_scanned = 1;
+
+    const model = buildBoxCloseReviewModel({
+      preview,
+      missingReviewEntries: [
+        {
+          slip_content_id: slipId,
+          fnsku: "X0030EEN1R",
+          expected_qty: 5,
+          scanned_qty: 0,
+          operator_marked_missing_qty: 5,
+          computed_shortage_at_mark_time: 5,
+          marked_by: "00000000-0000-0000-0000-000000000099",
+          marked_at: "2026-05-29T00:00:00.000Z",
+          source: "operator_missing_review",
+        },
+      ],
+      packageItems: [],
+    });
+
+    const pending = model.buckets.find((b) => b.key === "pending_under_scanned");
+    const marked = model.buckets.find((b) => b.key === "marked_missing_operator_note");
+    assert.equal(pending, undefined);
+    assert.ok(marked);
+    assert.equal(marked?.lines.reduce((s, l) => s + l.qty, 0), 5);
+    assert.equal(model.bucket_counts.pending_under_scanned, 0);
+    assert.equal(model.bucket_counts.marked_missing_operator_note, 1);
+    return true;
+  })();
+
+  out.partial_qty_case_supported = (() => {
+    const slipId = "00000000-0000-4000-8000-000000000011";
+    const preview = emptyPreview();
+    preview.lines = [
+      {
+        grain_key: "fnsku:PARTIAL",
+        bucket: "pending_under_scanned",
+        grain: {
+          fnsku: "X003Y5EJN3",
+          sku: null,
+          asin: null,
+          upc: null,
+          gtin: null,
+          title: "Partial Missing Item",
+        },
+        confidence: "fnsku",
+        sources_present: ["packing_slip"],
+        slip_qty: 2,
+        shipment_expected_qty: 0,
+        scanned_qty: 0,
+        off_manifest_scanned_qty: 0,
+        recorded_missing_qty: 1,
+        remaining_missing_qty: 1,
+        delta_scanned_vs_expected: -2,
+        ui_badge: "pending",
+        claim_meaning: "quantity_short_pending",
+        slip_content_ids: [slipId],
+        expected_package_ids: [],
+        return_item_ids: [],
+        build_sources: [],
+        label: "X003Y5EJN3",
+      },
+    ];
+    preview.bucket_counts.pending_under_scanned = 1;
+
+    const model = buildBoxCloseReviewModel({
+      preview,
+      missingReviewEntries: [
+        {
+          slip_content_id: slipId,
+          fnsku: "X003Y5EJN3",
+          expected_qty: 2,
+          scanned_qty: 0,
+          operator_marked_missing_qty: 1,
+          computed_shortage_at_mark_time: 2,
+          marked_by: "00000000-0000-0000-0000-000000000099",
+          marked_at: "2026-05-29T00:00:00.000Z",
+          source: "operator_missing_review",
+        },
+      ],
+      packageItems: [],
+    });
+
+    const pending = model.buckets.find((b) => b.key === "pending_under_scanned");
+    const marked = model.buckets.find((b) => b.key === "marked_missing_operator_note");
+    assert.ok(pending);
+    assert.ok(marked);
+    assert.equal(pending?.lines[0]?.qty, 1);
+    assert.equal(marked?.lines[0]?.qty, 1);
+    assert.equal(pending?.lines[0]?.fnsku, marked?.lines[0]?.fnsku);
+    return true;
+  })();
+
+  out.no_marked_missing_pending_only = (() => {
+    const preview = emptyPreview();
+    preview.lines = [
+      {
+        grain_key: "fnsku:PENDINGONLY",
+        bucket: "pending_under_scanned",
+        grain: {
+          fnsku: "X0047TMFEF",
+          sku: null,
+          asin: null,
+          upc: null,
+          gtin: null,
+          title: "Pending Only Item",
+        },
+        confidence: "fnsku",
+        sources_present: ["packing_slip"],
+        slip_qty: 5,
+        shipment_expected_qty: 0,
+        scanned_qty: 0,
+        off_manifest_scanned_qty: 0,
+        recorded_missing_qty: 0,
+        remaining_missing_qty: 5,
+        delta_scanned_vs_expected: -5,
+        ui_badge: "pending",
+        claim_meaning: "quantity_short_pending",
+        slip_content_ids: ["00000000-0000-4000-8000-000000000012"],
+        expected_package_ids: [],
+        return_item_ids: [],
+        build_sources: [],
+        label: "X0047TMFEF",
+      },
+    ];
+    preview.bucket_counts.pending_under_scanned = 1;
+
+    const model = buildBoxCloseReviewModel({
+      preview,
+      missingReviewEntries: [],
+      packageItems: [],
+    });
+
+    const pending = model.buckets.find((b) => b.key === "pending_under_scanned");
+    const marked = model.buckets.find((b) => b.key === "marked_missing_operator_note");
+    assert.ok(pending);
+    assert.equal(marked, undefined);
+    assert.equal(pending?.lines.reduce((s, l) => s + l.qty, 0), 5);
+    return true;
+  })();
+
+  out.reopened_marked_missing_editable = (() => {
+    const slipId = "00000000-0000-4000-8000-000000000020";
+    const manifest = {
+      operator_item_scan: {
+        receive_state: "open",
+        missing_review: [
+          {
+            slip_content_id: slipId,
+            expected_qty: 1,
+            scanned_qty: 0,
+            operator_marked_missing_qty: 1,
+            marked_by: "00000000-0000-0000-0000-000000000099",
+            marked_at: "2026-05-29T00:00:00.000Z",
+            source: "operator_missing_review",
+          },
+        ],
+      },
+    };
+    assert.equal(activeMarkedMissingReviewEntries(manifest).length, 1);
+    const cleared = removeMissingReviewEntryFromManifest(manifest, slipId);
+    assert.equal(activeMarkedMissingReviewEntries(cleared).length, 0);
+    assert.equal(totalOperatorMarkedMissingQty(cleared), 0);
+    const pending = computeSlipLineExpectedVsReceived({
+      expectedQty: 1,
+      receivedQty: 0,
+      manifestRecordedMissingQty: totalOperatorMarkedMissingQty(cleared),
+    });
+    assert.equal(pending.remainingMissing, 1);
+    assert.equal(pending.recordedMissing, 0);
+    return true;
+  })();
+
+  out.unmark_updates_counts = out.reopened_marked_missing_editable;
+
   return out;
 }
 
@@ -211,6 +425,9 @@ async function main(): Promise<void> {
   const safe =
     build_result !== "FAIL" &&
     unit.buckets_displayed &&
+    unit.pending_excludes_fully_marked &&
+    unit.partial_qty_case_supported &&
+    unit.no_marked_missing_pending_only &&
     unit.review_modal_added &&
     unit.finalize_blocked_until_confirm;
 

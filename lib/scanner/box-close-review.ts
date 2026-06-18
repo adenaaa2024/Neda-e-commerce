@@ -104,6 +104,148 @@ function lineSummaryFromValidation(line: SlipShipmentValidationLine): BoxCloseRe
   };
 }
 
+function cell(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
+}
+
+function normalizeCloseReviewIdentityKey(input: {
+  fnsku?: string | null;
+  asin?: string | null;
+  sku?: string | null;
+  label?: string | null;
+}): string | null {
+  const fnsku = cell(input.fnsku)?.toUpperCase();
+  if (fnsku) return `fnsku:${fnsku}`;
+  const asin = cell(input.asin)?.toUpperCase();
+  if (asin) return `asin:${asin}`;
+  const sku = cell(input.sku)?.toUpperCase();
+  if (sku) return `sku:${sku}`;
+  const label = cell(input.label)?.toUpperCase();
+  if (label) return `id:${label}`;
+  return null;
+}
+
+type MarkedMissingQtyIndex = {
+  bySlipId: Map<string, number>;
+  byIdentity: Map<string, number>;
+};
+
+function buildMarkedMissingQtyIndex(entries: OperatorMissingReviewEntry[]): MarkedMissingQtyIndex {
+  const bySlipId = new Map<string, number>();
+  const byIdentity = new Map<string, number>();
+
+  for (const entry of entries) {
+    const qty = Math.max(0, Math.floor(entry.operator_marked_missing_qty));
+    if (qty <= 0) continue;
+
+    const slipId = cell(entry.slip_content_id) ?? cell(entry.expected_line_id);
+    if (slipId) {
+      bySlipId.set(slipId, (bySlipId.get(slipId) ?? 0) + qty);
+    }
+
+    const identityKey = normalizeCloseReviewIdentityKey({
+      fnsku: entry.fnsku,
+      asin: entry.asin,
+      sku: entry.sku,
+    });
+    if (identityKey) {
+      byIdentity.set(identityKey, (byIdentity.get(identityKey) ?? 0) + qty);
+    }
+  }
+
+  return { bySlipId, byIdentity };
+}
+
+function markedMissingQtyForValidationLine(
+  line: SlipShipmentValidationLine,
+  index: MarkedMissingQtyIndex,
+): number {
+  let fromSlipIds = 0;
+  for (const slipId of line.slip_content_ids) {
+    const sid = cell(slipId);
+    if (sid) fromSlipIds += index.bySlipId.get(sid) ?? 0;
+  }
+  if (fromSlipIds > 0) return fromSlipIds;
+
+  const ids = resolveCloseReviewIdentifiers({ grain: line.grain, label: line.label });
+  const identityKey = normalizeCloseReviewIdentityKey({
+    fnsku: ids.fnsku,
+    asin: ids.asin,
+    sku: ids.sku,
+    label: line.label,
+  });
+  if (identityKey) return index.byIdentity.get(identityKey) ?? 0;
+  return 0;
+}
+
+/** Pending qty excludes units already marked missing by operator (mutually exclusive buckets). */
+function computeUnmarkedPendingQty(
+  line: SlipShipmentValidationLine,
+  markedIndex: MarkedMissingQtyIndex,
+): number {
+  const expectedCap = Math.max(line.slip_qty, line.shipment_expected_qty);
+  const shortage = Math.max(0, expectedCap - line.scanned_qty);
+  const markedQty = Math.max(
+    Math.floor(line.recorded_missing_qty),
+    markedMissingQtyForValidationLine(line, markedIndex),
+  );
+  const pendingFromShortage = Math.max(0, shortage - markedQty);
+  const previewRemaining = Math.max(0, Math.floor(line.remaining_missing_qty));
+
+  if (markedQty > 0) {
+    return Math.min(previewRemaining, pendingFromShortage);
+  }
+
+  return previewRemaining > 0 ? previewRemaining : pendingFromShortage;
+}
+
+function pendingLineSummaryFromValidation(
+  line: SlipShipmentValidationLine,
+  markedIndex: MarkedMissingQtyIndex,
+): BoxCloseReviewLineSummary | null {
+  const pendingQty = computeUnmarkedPendingQty(line, markedIndex);
+  if (pendingQty <= 0) return null;
+
+  const label = line.label?.trim() || line.grain_key;
+  const ids = resolveCloseReviewIdentifiers({ grain: line.grain, label });
+  const title = resolveCloseReviewLineTitle({ grain: line.grain, label });
+  const parts: string[] = [];
+  if (line.slip_qty > 0) parts.push(`slip ${line.slip_qty}`);
+  if (line.shipment_expected_qty > 0) parts.push(`ship ${line.shipment_expected_qty}`);
+  if (line.scanned_qty > 0) parts.push(`scan ${line.scanned_qty}`);
+  if (line.recorded_missing_qty > 0) parts.push(`marked ${line.recorded_missing_qty}`);
+  parts.push(`pending ${pendingQty}`);
+
+  return {
+    lineKey: line.grain_key,
+    label,
+    title,
+    fnsku: ids.fnsku ?? null,
+    asin: ids.asin ?? null,
+    sku: ids.sku ?? null,
+    qty: pendingQty,
+    detail: parts.join(" · "),
+  };
+}
+
+function bucketPendingFromValidation(
+  preview: SlipShipmentValidationPreview,
+  markedIndex: MarkedMissingQtyIndex,
+): BoxCloseReviewBucket {
+  const lines = preview.lines
+    .filter((line) => line.bucket === "pending_under_scanned")
+    .map((line) => pendingLineSummaryFromValidation(line, markedIndex))
+    .filter((line): line is BoxCloseReviewLineSummary => line !== null);
+
+  return {
+    key: "pending_under_scanned",
+    title: BUCKET_TITLES.pending_under_scanned,
+    count: lines.length,
+    lines,
+  };
+}
+
 function bucketFromValidationLines(
   key: BoxCloseReviewBucketKey,
   preview: SlipShipmentValidationPreview,
@@ -190,10 +332,12 @@ export function buildBoxCloseReviewModel(input: {
     off_manifest_units: 0,
   };
 
+  const markedMissingIndex = buildMarkedMissingQtyIndex(input.missingReviewEntries);
+
   const validationBuckets: BoxCloseReviewBucket[] = preview
     ? [
         bucketFromValidationLines("received_complete", preview, "shipment_and_slip_expected"),
-        bucketFromValidationLines("pending_under_scanned", preview, "pending_under_scanned"),
+        bucketPendingFromValidation(preview, markedMissingIndex),
         bucketFromValidationLines("over_scanned", preview, "over_scanned"),
         bucketFromValidationLines("slip_only", preview, "slip_only"),
         bucketFromValidationLines("shipment_only", preview, "shipment_only"),
@@ -239,13 +383,18 @@ export function buildBoxCloseReviewModel(input: {
     bucket_counts[key] = buckets.find((b) => b.key === key)?.count ?? 0;
   }
 
+  const pendingQtyTotal = buckets
+    .find((b) => b.key === "pending_under_scanned")
+    ?.lines.reduce((sum, line) => sum + line.qty, 0) ?? 0;
+  const markedMissingQtyTotal = missingLines.reduce((sum, line) => sum + line.qty, 0);
+
   const critical_issue_labels: string[] = [];
-  if (bucket_counts.pending_under_scanned > 0) critical_issue_labels.push("Pending under-scanned lines");
+  if (pendingQtyTotal > 0) critical_issue_labels.push("Pending under-scanned lines");
   if (bucket_counts.over_scanned > 0) critical_issue_labels.push("Over scanned lines");
   if (bucket_counts.scanned_off_manifest > 0) critical_issue_labels.push("Off manifest scans");
   if (bucket_counts.slip_only > 0) critical_issue_labels.push("Slip-only evidence");
   if (bucket_counts.shipment_only > 0) critical_issue_labels.push("Shipment-only expected");
-  if (missingLines.reduce((s, l) => s + l.qty, 0) > 0 && bucket_counts.pending_under_scanned > 0) {
+  if (markedMissingQtyTotal > 0 && pendingQtyTotal > 0) {
     critical_issue_labels.push("Unresolved missing quantity");
   }
 

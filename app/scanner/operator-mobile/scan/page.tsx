@@ -339,8 +339,10 @@ import {
   readOperatorItemScanStartedAt,
 } from "@/lib/scanner/package-operator-item-scan";
 import {
+  activeMarkedMissingReviewEntries,
   missingReviewEntryForSlip,
   missingReviewRecordedQtyForSlip,
+  totalOperatorMarkedMissingQty,
 } from "@/lib/scanner/package-missing-review-manifest";
 import { useUserRole } from "@/components/UserRoleContext";
 import type { SlipExtractResult } from "@/lib/scanner/operator-slip-scan";
@@ -2890,6 +2892,80 @@ function operatorMissingReviewMarkedLabel(
     return `Marked missing: ${recordedMissing} of ${computedMissing}`;
   }
   return "Marked missing";
+}
+
+function itemScanMarkedMissingIdentityKey(input: {
+  slipContentId?: string | null;
+  fnsku?: string | null;
+  asin?: string | null;
+  sku?: string | null;
+}): string | null {
+  const slipId = String(input.slipContentId ?? "").trim();
+  if (slipId && isUuidString(slipId)) return `slip:${slipId}`;
+  const fnsku = String(input.fnsku ?? "").trim().toUpperCase();
+  if (fnsku) return `fnsku:${fnsku}`;
+  const asin = String(input.asin ?? "").trim().toUpperCase();
+  if (asin) return `asin:${asin}`;
+  const sku = String(input.sku ?? "").trim().toUpperCase();
+  if (sku) return `sku:${sku}`;
+  return null;
+}
+
+function buildItemScanMarkedMissingIdentityKeys(
+  rows: Array<{
+    slipContentId: string;
+    missingReviewEntry: {
+      fnsku?: string | null;
+      asin?: string | null;
+      sku?: string | null;
+    };
+  }>,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const key = itemScanMarkedMissingIdentityKey({
+      slipContentId: row.slipContentId,
+      fnsku: row.missingReviewEntry.fnsku,
+      asin: row.missingReviewEntry.asin,
+      sku: row.missingReviewEntry.sku,
+    });
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+function mergedReferenceCellMarkedMissingIdentityKey(
+  cell: {
+    slip?: { id?: string | null; fnsku?: string | null; parsed_asin?: string | null; sku?: string | null } | null;
+    row: { primarySlipContentId?: string | null; grain: { fnsku?: string | null; asin?: string | null; sku?: string | null } };
+    missingReviewEntry?: { slip_content_id?: string | null; fnsku?: string | null; asin?: string | null; sku?: string | null } | null;
+  },
+): string | null {
+  const slipId =
+    cell.slip?.id && isUuidString(String(cell.slip.id))
+      ? String(cell.slip.id)
+      : cell.row.primarySlipContentId ?? cell.missingReviewEntry?.slip_content_id ?? null;
+  return itemScanMarkedMissingIdentityKey({
+    slipContentId: slipId,
+    fnsku: cell.slip?.fnsku ?? cell.row.grain.fnsku ?? cell.missingReviewEntry?.fnsku,
+    asin: cell.slip?.parsed_asin ?? cell.row.grain.asin ?? cell.missingReviewEntry?.asin,
+    sku: cell.slip?.sku ?? cell.row.grain.sku ?? cell.missingReviewEntry?.sku,
+  });
+}
+
+function slipCellMarkedMissingIdentityKey(
+  cell: {
+    slip: { id?: string | null; fnsku?: string | null; parsed_asin?: string | null; sku?: string | null };
+    missingReviewEntry?: { slip_content_id?: string | null; fnsku?: string | null; asin?: string | null; sku?: string | null } | null;
+  },
+): string | null {
+  const slipId = cell.slip.id && isUuidString(String(cell.slip.id)) ? String(cell.slip.id) : null;
+  return itemScanMarkedMissingIdentityKey({
+    slipContentId: slipId ?? cell.missingReviewEntry?.slip_content_id,
+    fnsku: cell.slip.fnsku ?? cell.missingReviewEntry?.fnsku,
+    asin: cell.slip.parsed_asin ?? cell.missingReviewEntry?.asin,
+    sku: cell.slip.sku ?? cell.missingReviewEntry?.sku,
+  });
 }
 
 function packageItemRowUnitQty(row: OperatorPackageItemRow): number {
@@ -14720,8 +14796,18 @@ function OperatorMobileScanPageContent() {
   const itemScanMergedReferenceCells = useMemo(() => {
     if (!itemScanReferenceBuckets?.topRows.length) return [];
     const topRows = itemScanReferenceBuckets.topRows;
+    const markedMissingSlipIds = new Set(
+      activeMarkedMissingReviewEntries(itemScanPackageManifestData)
+        .map((entry) => String(entry.slip_content_id ?? entry.expected_line_id ?? "").trim())
+        .filter(Boolean),
+    );
     const rowsForCells = itemScanHasSlipOnBox
-      ? topRows.filter((row) => row.slipQty > 0 || row.scannedQty > 0)
+      ? topRows.filter(
+          (row) =>
+            row.slipQty > 0 ||
+            row.scannedQty > 0 ||
+            (row.primarySlipContentId != null && markedMissingSlipIds.has(row.primarySlipContentId)),
+        )
       : itemScanReferenceTopRowsWithScans(topRows);
     if (rowsForCells.length === 0) return [];
     return rowsForCells.map((row: ItemScanReferenceDisplayRow) => {
@@ -14781,6 +14867,103 @@ function OperatorMobileScanPageContent() {
     itemScanHasSlipOnBox,
     itemDraft,
     itemQtyStepper,
+  ]);
+
+  const itemScanMarkedMissingQtyTotal = useMemo(
+    () => totalOperatorMarkedMissingQty(itemScanPackageManifestData),
+    [itemScanPackageManifestData],
+  );
+
+  const itemScanMarkedMissingReviewRows = useMemo(() => {
+    const entries = activeMarkedMissingReviewEntries(itemScanPackageManifestData);
+    if (entries.length === 0) return [];
+
+    const slipById = new Map<string, (typeof slipLikeRowsForInspection)[number]>();
+    for (const slip of slipLikeRowsForInspection) {
+      const slipId = slip.id && isUuidString(String(slip.id)) ? String(slip.id) : null;
+      if (slipId) slipById.set(slipId, slip);
+    }
+
+    return entries
+      .map((entry) => {
+        const slipContentId = String(entry.slip_content_id ?? entry.expected_line_id ?? "").trim();
+        if (!slipContentId || !isUuidString(slipContentId)) return null;
+        const slip = slipById.get(slipContentId) ?? null;
+        const expected = Math.max(
+          0,
+          Math.floor(Number(entry.expected_qty ?? slip?.quantity ?? 0)),
+        );
+        const scanned = Math.max(0, packageItemScanState.bySlipId[slipContentId] ?? entry.scanned_qty ?? 0);
+        const markedQty = Math.min(
+          expected > 0 ? expected : Math.max(0, Math.floor(entry.operator_marked_missing_qty)),
+          Math.max(0, Math.floor(entry.operator_marked_missing_qty)),
+        );
+        if (markedQty <= 0) return null;
+        const qtyLine = computeSlipLineExpectedVsReceived({
+          expectedQty: expected,
+          receivedQty: scanned,
+          manifestRecordedMissingQty: markedQty,
+        });
+        const linkage = slip
+          ? slipRowProductLinkage(slip)
+          : buildProductLinkageDisplayContract(
+              {
+                description: entry.fnsku ?? entry.sku ?? slipContentId,
+                fnsku: entry.fnsku,
+                upc: entry.sku,
+              },
+              EMPTY_PRODUCT_NAME_LOOKUP,
+            );
+        return {
+          key: `marked-missing:${slipContentId}`,
+          slipContentId,
+          slip,
+          linkage,
+          expected,
+          scanned,
+          markedQty,
+          qtyLine,
+          missingReviewEntry: entry,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
+  }, [
+    itemScanPackageManifestData,
+    slipLikeRowsForInspection,
+    packageItemScanState.bySlipId,
+  ]);
+
+  const itemScanMarkedMissingIdentityKeys = useMemo(
+    () => buildItemScanMarkedMissingIdentityKeys(itemScanMarkedMissingReviewRows),
+    [itemScanMarkedMissingReviewRows],
+  );
+
+  const itemScanPendingMergedReferenceCells = useMemo(() => {
+    if (!reviewMissingItemsEnabled || itemScanMarkedMissingIdentityKeys.size === 0) {
+      return itemScanMergedReferenceCells;
+    }
+    return itemScanMergedReferenceCells.filter((cell) => {
+      const identityKey = mergedReferenceCellMarkedMissingIdentityKey(cell);
+      return !identityKey || !itemScanMarkedMissingIdentityKeys.has(identityKey);
+    });
+  }, [
+    reviewMissingItemsEnabled,
+    itemScanMergedReferenceCells,
+    itemScanMarkedMissingIdentityKeys,
+  ]);
+
+  const itemScanPendingSlipCells = useMemo(() => {
+    if (!reviewMissingItemsEnabled || itemScanMarkedMissingIdentityKeys.size === 0) {
+      return itemInspectionSlipCells;
+    }
+    return itemInspectionSlipCells.filter((cell) => {
+      const identityKey = slipCellMarkedMissingIdentityKey(cell);
+      return !identityKey || !itemScanMarkedMissingIdentityKeys.has(identityKey);
+    });
+  }, [
+    reviewMissingItemsEnabled,
+    itemInspectionSlipCells,
+    itemScanMarkedMissingIdentityKeys,
   ]);
 
   type ItemScanExpectedItemsRenderSource =
@@ -15022,9 +15205,13 @@ function OperatorMobileScanPageContent() {
       case "hydrated_return_items_only":
         return 1;
       case "package_slip_cells":
-        return itemInspectionSlipCells.length;
+        return reviewMissingItemsEnabled
+          ? itemScanPendingSlipCells.length + itemScanMarkedMissingReviewRows.length
+          : itemInspectionSlipCells.length;
       case "merged_reference_cells":
-        return itemScanMergedReferenceCells.length;
+        return reviewMissingItemsEnabled
+          ? itemScanPendingMergedReferenceCells.length + itemScanMarkedMissingReviewRows.length
+          : itemScanMergedReferenceCells.length;
       case "empty_box":
       case "empty":
         return 0;
@@ -15037,6 +15224,10 @@ function OperatorMobileScanPageContent() {
     packageItemHydratedRows.length,
     itemInspectionSlipCells.length,
     itemScanMergedReferenceCells.length,
+    itemScanPendingSlipCells.length,
+    itemScanPendingMergedReferenceCells.length,
+    reviewMissingItemsEnabled,
+    itemScanMarkedMissingReviewRows.length,
   ]);
 
   /** Packing-slip قلم + off-slip قلم (grouped scans / residual); excludes EP-unmatched slip rows already in slip cells. */
@@ -15396,13 +15587,14 @@ function OperatorMobileScanPageContent() {
     scheduleFocusScanner();
   }, [scheduleFocusScanner]);
 
-  const undoSlipLineMissingReview = useCallback(
-    async (cell: (typeof itemInspectionSlipCells)[number]) => {
+  const undoMarkedMissingReview = useCallback(
+    async (slipContentId: string, editCellKey?: string | null) => {
+      if (!itemScanReceiveEditable) return;
       const pkgId = itemScanPackageId && isUuidString(itemScanPackageId) ? itemScanPackageId : null;
       const oid = (orgId ?? "").trim();
       const store = sessionStoreId?.trim() ?? "";
-      const slipId = cell.slip.id && isUuidString(String(cell.slip.id)) ? String(cell.slip.id) : null;
-      if (!pkgId || !oid || !slipId) {
+      const slipId = String(slipContentId ?? "").trim();
+      if (!pkgId || !oid || !slipId || !isUuidString(slipId)) {
         setSyncErrorToast("Cannot undo missing review — package or slip line is not saved yet.");
         return;
       }
@@ -15419,7 +15611,7 @@ function OperatorMobileScanPageContent() {
           setSyncErrorToast(res.message);
           return;
         }
-        if (editMissingReviewCellKey === cell.key) closeEditMissingReview();
+        if (editCellKey && editMissingReviewCellKey === editCellKey) closeEditMissingReview();
         setItemSlipMissingReviewNonce((n) => n + 1);
         playOperatorSuccessBeep();
         setScanActionToast({ message: "Removed missing review mark.", variant: "success" });
@@ -15428,12 +15620,28 @@ function OperatorMobileScanPageContent() {
       }
     },
     [
+      itemScanReceiveEditable,
       itemScanPackageId,
       orgId,
       sessionStoreId,
       editMissingReviewCellKey,
       closeEditMissingReview,
     ],
+  );
+
+  const undoSlipLineMissingReview = useCallback(
+    async (cell: (typeof itemInspectionSlipCells)[number]) => {
+      const slipId =
+        cell.slip.id && isUuidString(String(cell.slip.id))
+          ? String(cell.slip.id)
+          : String(cell.missingReviewEntry?.slip_content_id ?? "").trim() || null;
+      if (!slipId) {
+        setSyncErrorToast("Cannot undo missing review — slip line is not saved yet.");
+        return;
+      }
+      await undoMarkedMissingReview(slipId, cell.key);
+    },
+    [undoMarkedMissingReview],
   );
 
   const saveEditMissingReview = useCallback(async () => {
@@ -22495,6 +22703,13 @@ function OperatorMobileScanPageContent() {
                 </label>
               ) : null}
               {reviewMissingItemsEnabled &&
+              (itemScanExpectedItemsRenderSource === "package_slip_cells" ||
+                (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox)) ? (
+                <p className="operator-item-scan-review-missing-summary mb-1 text-[9px] font-semibold tabular-nums leading-snug text-amber-100/90">
+                  Pending {itemScanUnresolvedMissingQty} · Marked missing {itemScanMarkedMissingQtyTotal}
+                </p>
+              ) : null}
+              {reviewMissingItemsEnabled &&
               itemScanUnresolvedMissingQty > 0 &&
               (itemScanExpectedItemsRenderSource === "package_slip_cells" ||
                 (itemScanExpectedItemsRenderSource === "merged_reference_cells" && itemScanHasSlipOnBox)) ? (
@@ -22572,13 +22787,14 @@ function OperatorMobileScanPageContent() {
                   </p>
                 ) : itemScanExpectedItemsRenderSource === "merged_reference_cells" ? (
                   <>
-                    {itemScanMergedReferenceCells.length === 0 ? (
+                    {itemScanPendingMergedReferenceCells.length === 0 &&
+                    !(reviewMissingItemsEnabled && itemScanMarkedMissingReviewRows.length > 0) ? (
                       <p className={`operator-item-scan-empty-note rounded-md px-2 py-1 ${SLIP_CARD_SECTION} text-[10px] font-semibold text-neutral-400`}>
                         Scan items to add them here. Shipment expected lines for other boxes are not listed until
                         scanned in this box.
                       </p>
                     ) : null}
-                    {itemScanMergedReferenceCells.map((cell) => {
+                    {itemScanPendingMergedReferenceCells.map((cell) => {
                       const itemScanDiscrepancyUi =
                         isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen;
                       const vis = itemInspectionSlipLinePresentation(
@@ -22683,7 +22899,6 @@ function OperatorMobileScanPageContent() {
                           </p>
                           {reviewMissingItemsEnabled &&
                           !itemScanEditAllMode &&
-                          cell.slip &&
                           cell.qtyLine.remainingMissing > 0 &&
                           !cell.hasMissingReviewEntry ? (
                             <button
@@ -22721,7 +22936,7 @@ function OperatorMobileScanPageContent() {
                   </>
                 ) : itemScanExpectedItemsRenderSource === "package_slip_cells" ? (
                   <>
-                    {itemInspectionSlipCells.map((cell) => {
+                    {itemScanPendingSlipCells.map((cell) => {
                       const itemScanDiscrepancyUi =
                         isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen;
                       const vis = itemInspectionSlipLinePresentation(
@@ -22850,44 +23065,6 @@ function OperatorMobileScanPageContent() {
                                   : `Mark remaining ${cell.qtyLine.remainingMissing} as missing`}
                             </button>
                           ) : null}
-                          {reviewMissingItemsEnabled && cell.hasMissingReviewEntry ? (
-                            <div className="operator-item-scan-slip-row__marked-missing mt-1 space-y-1">
-                              <p className="text-center text-[10px] font-bold text-amber-300/95">
-                                {operatorMissingReviewMarkedLabel(
-                                  cell.expected,
-                                  cell.scanned,
-                                  cell.qtyLine.recordedMissing,
-                                )}
-                              </p>
-                              {!itemScanEditAllMode ? (
-                                <div className="flex gap-1.5">
-                                  <button
-                                    type="button"
-                                    disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openEditMissingReview(cell);
-                                    }}
-                                    className="operator-item-scan-edit-missing-btn flex flex-1 items-center justify-center gap-1 rounded-lg border border-amber-500/35 bg-amber-950/15 px-2 py-1 text-[10px] font-bold text-amber-100 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                                  >
-                                    <Pencil className="h-2.5 w-2.5 shrink-0" strokeWidth={2.25} aria-hidden />
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void undoSlipLineMissingReview(cell);
-                                    }}
-                                    className="operator-item-scan-undo-missing-btn flex flex-1 items-center justify-center rounded-lg border border-slate-500/35 bg-slate-950/20 px-2 py-1 text-[10px] font-bold text-slate-200 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                                  >
-                                    Undo
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
                           {cell.draftExtra > 0 ? (
                             <p className={`operator-item-scan-slip-row__draft mt-0.5 ${SLIP_CARD_SUBTEXT}`}>
                               +{cell.draftExtra} staged (open draft)
@@ -22897,6 +23074,79 @@ function OperatorMobileScanPageContent() {
                       );
                     })}
                   </>
+                ) : null}
+                {reviewMissingItemsEnabled && itemScanMarkedMissingReviewRows.length > 0 ? (
+                  <section
+                    className="operator-item-scan-marked-missing-section mt-2 rounded-md border border-amber-500/25 bg-amber-950/10 p-2"
+                    aria-label="Marked missing items"
+                  >
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <h3 className="text-[11px] font-bold text-amber-100">Marked missing</h3>
+                      <span className="text-[9px] font-semibold tabular-nums text-amber-200/80">
+                        {itemScanMarkedMissingReviewRows.length} line
+                        {itemScanMarkedMissingReviewRows.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <p className="mb-2 text-[9px] font-medium leading-snug text-amber-100/70">
+                      Undo missing to restore units as pending for scanning.
+                    </p>
+                    <ul className="operator-item-scan-marked-missing-section__list space-y-2">
+                      {itemScanMarkedMissingReviewRows.map((row) => {
+                        const fnskuLabel = row.missingReviewEntry.fnsku?.trim() || row.slip?.fnsku?.trim() || "—";
+                        const upcLabel = row.slip?.upc?.trim() || row.missingReviewEntry.sku?.trim() || "—";
+                        const itemScanDiscrepancyUi =
+                          isItemsQtyDiscrepancy && itemsBoxFinalizeModalOpen;
+                        const vis = itemInspectionSlipLinePresentation(
+                          row.expected,
+                          row.scanned,
+                          itemScanDiscrepancyUi,
+                        );
+                        return (
+                          <li key={row.key} className="operator-item-scan-marked-missing-row">
+                            <div
+                              className={itemScanSlipRowShellClass(vis.matchedRing)}
+                              style={itemScanSlipRowStyle(row.expected, row.scanned, itemScanDiscrepancyUi)}
+                            >
+                              <ProductLinkagePrimaryLink
+                                linkage={row.linkage}
+                                linkWhenResolved={false}
+                                detailFrom="scan"
+                                className={SLIP_CARD_HEADING}
+                              />
+                              <div className={SLIP_CARD_META_LINKAGE}>
+                                <OperatorProductLinkageMeta
+                                  linkage={row.linkage}
+                                  linkResolvedProductId={false}
+                                  detailFrom="scan"
+                                />
+                              </div>
+                              <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                                <p className={`operator-item-scan-marked-missing-row__meta min-w-0 flex-1 truncate leading-none ${SLIP_CARD_TECH_ID}`}>
+                                  UPC {upcLabel}
+                                  <span className="mx-1 text-neutral-600">·</span>
+                                  FNSKU {fnskuLabel}
+                                </p>
+                                <SlipLinePassiveStatusBadge line={row.qtyLine} hasMissingReviewEntry={true} />
+                              </div>
+                              <p className={`operator-item-scan-marked-missing-row__qty mt-0.5 ${SLIP_CARD_TECH_ID} text-[10px] font-semibold tabular-nums leading-snug`}>
+                                {formatSlipLineQtySummary(row.qtyLine)}
+                              </p>
+                              {!itemScanEditAllMode ? (
+                                <button
+                                  type="button"
+                                  disabled={busy || slipMissingMarkBusy || !itemScanReceiveEditable}
+                                  onClick={() => void undoMarkedMissingReview(row.slipContentId, row.key)}
+                                  className="operator-item-scan-undo-missing-btn mt-1.5 flex w-full items-center justify-center rounded-lg border border-slate-500/35 bg-slate-950/20 px-2 py-1.5 text-[10px] font-bold text-slate-200 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  {slipMissingMarkBusy ? "Saving…" : "Undo missing"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
                 ) : null}
                 {!directBox && parentIdentified && expectedPkgLines.length > 0 ? (
                   <section className="operator-item-scan-shipment-summary mt-2 p-2">

@@ -127,7 +127,6 @@ import {
   releaseExpectedItemUnit,
   releaseExpectedItemsForPackage,
   resolveAllocatableExpectedPackageHint,
-  softVoidPalletWithExpectedRelease,
   softVoidReturnItemWithExpectedRelease,
   syncReturnItemsPalletForPackage,
 } from "@/lib/scanner/receive-expected-with-split";
@@ -5202,12 +5201,217 @@ export type VoidOperatorIntakePalletResult =
   | { ok: true; palletId: string; packagesVoided: number; itemsVoided: number }
   | { ok: false; message: string };
 
+function logVoidPalletDebug(entry: Record<string, unknown>): void {
+  console.info("[void-pallet-debug]", JSON.stringify(entry));
+}
+
+function mapVoidPalletError(message: string): string {
+  const m = String(message ?? "").trim().toLowerCase();
+  if (m === "permission_denied") {
+    return "You do not have permission to void this pallet.";
+  }
+  return String(message ?? "").trim() || "Could not void pallet.";
+}
+
+async function softVoidOperatorIntakePackageDirect(input: {
+  packageId: string;
+  organizationId: string;
+  actorUserId: string | null;
+  now: string;
+}): Promise<
+  | { ok: true; itemsReleased: number }
+  | { ok: false; message: string; table: string; error: { code?: string; message?: string; details?: string; hint?: string } }
+> {
+  const releaseAlloc = await releaseExpectedItemsForPackage(supabaseServer, {
+    packageId: input.packageId,
+    organizationId: input.organizationId,
+    softDelete: true,
+  });
+  if (!releaseAlloc.ok) {
+    return {
+      ok: false,
+      message: releaseAlloc.error,
+      table: "return_items (releaseExpectedItemsForPackage)",
+      error: { message: releaseAlloc.error },
+    };
+  }
+
+  const patch: Record<string, unknown> = {
+    deleted_at: input.now,
+    updated_at: input.now,
+  };
+  if (input.actorUserId) patch.updated_by = input.actorUserId;
+
+  const { error: pkgErr } = await supabaseServer
+    .from("packages")
+    .update(patch)
+    .eq("id", input.packageId)
+    .eq("organization_id", input.organizationId);
+  if (pkgErr) {
+    return {
+      ok: false,
+      message: pkgErr.message,
+      table: "packages",
+      error: {
+        code: pkgErr.code,
+        message: pkgErr.message,
+        details: pkgErr.details ?? undefined,
+        hint: pkgErr.hint ?? undefined,
+      },
+    };
+  }
+
+  const { error: riErr } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .update(patch)
+    .eq("package_id", input.packageId)
+    .eq("organization_id", input.organizationId)
+    .is("deleted_at", null);
+  if (riErr) {
+    return {
+      ok: false,
+      message: riErr.message,
+      table: RETURN_ITEMS_TABLE,
+      error: {
+        code: riErr.code,
+        message: riErr.message,
+        details: riErr.details ?? undefined,
+        hint: riErr.hint ?? undefined,
+      },
+    };
+  }
+
+  return { ok: true, itemsReleased: releaseAlloc.releasedCount };
+}
+
+/**
+ * Operator-mobile pallet void: service-role direct soft-delete after app-layer org/permission guards.
+ * Avoids `delete_pallet_cascade` RPC which requires `ops.delete_pallet_cascade` (operators only have void_box).
+ */
+async function softVoidOperatorIntakePalletDirect(input: {
+  palletId: string;
+  organizationId: string;
+  actorUserId: string | null;
+}): Promise<
+  | { ok: true; packagesVoided: number; itemsVoided: number }
+  | { ok: false; message: string; table?: string; error?: Record<string, unknown> }
+> {
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { deleted_at: now, updated_at: now };
+  if (input.actorUserId) patch.updated_by = input.actorUserId;
+
+  const { data: packages, error: listErr } = await supabaseServer
+    .from("packages")
+    .select("id")
+    .eq("pallet_id", input.palletId)
+    .eq("organization_id", input.organizationId)
+    .is("deleted_at", null);
+  if (listErr) {
+    return {
+      ok: false,
+      message: listErr.message,
+      table: "packages (list)",
+      error: {
+        code: listErr.code,
+        message: listErr.message,
+        details: listErr.details ?? undefined,
+        hint: listErr.hint ?? undefined,
+      },
+    };
+  }
+
+  let packagesVoided = 0;
+  let itemsVoided = 0;
+  for (const row of packages ?? []) {
+    const pkgId = String((row as { id?: string }).id ?? "").trim();
+    if (!isUuidString(pkgId)) continue;
+    const voided = await softVoidOperatorIntakePackageDirect({
+      packageId: pkgId,
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      now,
+    });
+    if (!voided.ok) {
+      return {
+        ok: false,
+        message: voided.message,
+        table: voided.table,
+        error: voided.error,
+      };
+    }
+    packagesVoided += 1;
+    itemsVoided += voided.itemsReleased;
+  }
+
+  const { data: orphanRows, error: orphanListErr } = await supabaseServer
+    .from(RETURN_ITEMS_TABLE)
+    .select("id")
+    .eq("pallet_id", input.palletId)
+    .eq("organization_id", input.organizationId)
+    .is("package_id", null)
+    .is("deleted_at", null);
+  if (orphanListErr) {
+    return {
+      ok: false,
+      message: orphanListErr.message,
+      table: `${RETURN_ITEMS_TABLE} (orphan list)`,
+      error: {
+        code: orphanListErr.code,
+        message: orphanListErr.message,
+        details: orphanListErr.details ?? undefined,
+        hint: orphanListErr.hint ?? undefined,
+      },
+    };
+  }
+
+  for (const row of orphanRows ?? []) {
+    const riId = String((row as { id?: string }).id ?? "").trim();
+    if (!isUuidString(riId)) continue;
+    const released = await releaseExpectedItemUnit(supabaseServer, {
+      returnItemId: riId,
+      organizationId: input.organizationId,
+      softDelete: true,
+    });
+    if (!released.ok) {
+      return {
+        ok: false,
+        message: released.error,
+        table: `${RETURN_ITEMS_TABLE} (releaseExpectedItemUnit)`,
+        error: { message: released.error },
+      };
+    }
+    if (released.result.released) itemsVoided += 1;
+  }
+
+  const { error: palErr } = await supabaseServer
+    .from("pallets")
+    .update(patch)
+    .eq("id", input.palletId)
+    .eq("organization_id", input.organizationId);
+  if (palErr) {
+    return {
+      ok: false,
+      message: palErr.message,
+      table: "pallets",
+      error: {
+        code: palErr.code,
+        message: palErr.message,
+        details: palErr.details ?? undefined,
+        hint: palErr.hint ?? undefined,
+      },
+    };
+  }
+
+  return { ok: true, packagesVoided, itemsVoided };
+}
+
 /**
  * Soft-voids a pallet (`deleted_at`) and cascades packages/return_items per existing void rules.
  */
 export async function voidOperatorIntakePalletAction(
   input: VoidOperatorIntakePalletInput,
 ): Promise<VoidOperatorIntakePalletResult> {
+  const actionName = "voidOperatorIntakePalletAction";
   const organizationId = await resolveWriteOrganizationId(null, input.requestedOrganizationId);
   if (!organizationId || !isUuidString(organizationId)) {
     return { ok: false, message: "Could not resolve organization." };
@@ -5224,15 +5428,33 @@ export async function voidOperatorIntakePalletAction(
 
   const { data: palRow, error: palErr } = await supabaseServer
     .from("pallets")
-    .select("id, organization_id, store_id, pallet_number, tracking_number")
+    .select("id, organization_id, store_id, pallet_number, tracking_number, status")
     .eq("id", palletId)
     .eq("organization_id", organizationId)
     .is("deleted_at", null)
     .maybeSingle();
-  if (palErr) return { ok: false, message: palErr.message };
+  if (palErr) {
+    logVoidPalletDebug({
+      action: actionName,
+      phase: "select_pallet",
+      pallet_id: palletId,
+      org_id: organizationId,
+      user_id: gate.userId,
+      store_id: storeScope || null,
+      table: "pallets",
+      error: {
+        code: palErr.code,
+        message: palErr.message,
+        details: palErr.details ?? undefined,
+        hint: palErr.hint ?? undefined,
+      },
+    });
+    return { ok: false, message: palErr.message };
+  }
   if (!palRow) {
     return { ok: false, message: "Pallet not found for this organization." };
   }
+
   const palStore = String((palRow as { store_id?: string | null }).store_id ?? "").trim();
   if (
     storeScope &&
@@ -5244,14 +5466,88 @@ export async function voidOperatorIntakePalletAction(
     return { ok: false, message: "This pallet belongs to another store — select the correct store." };
   }
 
-  // Cascade void via softVoidPalletWithExpectedRelease (packages + return_items + allocation release).
+  const statusNorm = String((palRow as { status?: string | null }).status ?? "").trim().toLowerCase();
+  if (statusNorm === "closed" || statusNorm === "submitted") {
+    return { ok: false, message: "Pallet is already closed — reopen for correction first." };
+  }
+
+  const palletCode = String(
+    (palRow as { pallet_number?: string | null }).pallet_number ??
+      (palRow as { tracking_number?: string | null }).tracking_number ??
+      palletId,
+  ).trim();
   const actor = await resolveAuditActorForSession();
-  const voided = await softVoidPalletWithExpectedRelease(supabaseServer, {
+  const actorUserId =
+    actor.userId && isUuidString(actor.userId) ? actor.userId : gate.userId;
+
+  logVoidPalletDebug({
+    action: actionName,
+    phase: "start",
+    pallet_id: palletId,
+    pallet_code: palletCode,
+    org_id: organizationId,
+    user_id: actorUserId,
+    store_id: storeScope || palStore || null,
+  });
+
+  const voided = await softVoidOperatorIntakePalletDirect({
     palletId,
     organizationId,
-    updatedBy: actor.userId && isUuidString(actor.userId) ? actor.userId : null,
+    actorUserId,
   });
-  if (!voided.ok) return { ok: false, message: voided.error };
+  if (!voided.ok) {
+    logVoidPalletDebug({
+      action: actionName,
+      phase: "void_failed",
+      pallet_id: palletId,
+      pallet_code: palletCode,
+      org_id: organizationId,
+      user_id: actorUserId,
+      store_id: storeScope || palStore || null,
+      update_table: voided.table ?? null,
+      update_payload_keys: ["deleted_at", "updated_at", "updated_by"],
+      error: voided.error ?? { message: voided.message },
+    });
+    return { ok: false, message: mapVoidPalletError(voided.message) };
+  }
+
+  logVoidPalletDebug({
+    action: actionName,
+    phase: "void_success",
+    pallet_id: palletId,
+    pallet_code: palletCode,
+    org_id: organizationId,
+    user_id: actorUserId,
+    store_id: storeScope || palStore || null,
+    update_table: "pallets",
+    update_payload_keys: ["deleted_at", "updated_at", "updated_by"],
+    packages_voided: voided.packagesVoided,
+    items_voided: voided.itemsVoided,
+  });
+
+  try {
+    await insertOperatorPalletAuditLog({
+      organizationId,
+      palletId,
+      action: "voided",
+      field: "deleted_at",
+      oldValue: null,
+      newValue: new Date().toISOString(),
+      actor: actor.displayName || actorUserId,
+    });
+  } catch (auditErr) {
+    logVoidPalletDebug({
+      action: actionName,
+      phase: "audit_log_failed",
+      pallet_id: palletId,
+      org_id: organizationId,
+      user_id: actorUserId,
+      update_table: "pallet_audit_log",
+      error: {
+        message: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      },
+    });
+  }
 
   return {
     ok: true,
