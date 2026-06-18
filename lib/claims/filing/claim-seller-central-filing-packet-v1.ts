@@ -76,6 +76,10 @@ function money(v: number | null): string {
   return v == null ? "—" : `$${v.toFixed(2)}`;
 }
 
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
 export type SellerCentralRecordBackFields = {
   amazon_case_id: string | null;
   filed_at: string | null;
@@ -207,6 +211,10 @@ function messageBodyFor(args: {
   quantity: number | null;
   recoveryValue: number | null;
   approvedCogsUnit: number | null;
+  /** Seller Central requested amount actually presented to Amazon (policy-selected basis). */
+  requestedAmount: number | null;
+  /** Human note explaining how requestedAmount was derived. */
+  requestedAmountNote: string;
   removalOrderId: string | null;
   removalShipmentId: string | null;
   expectedPackageId: string | null;
@@ -249,11 +257,7 @@ function messageBodyFor(args: {
   lines.push("");
 
   lines.push(`Quantity affected: ${args.quantity == null ? "—" : args.quantity}`);
-  lines.push(
-    `Requested reimbursement: ${money(args.recoveryValue)} (= clean quantity ${
-      args.quantity ?? "—"
-    } x approved cost/unit ${money(args.approvedCogsUnit)}).`,
-  );
+  lines.push(`Requested reimbursement: ${money(args.requestedAmount)} (${args.requestedAmountNote}).`);
   lines.push("");
 
   if (args.evidenceSummary) {
@@ -277,7 +281,7 @@ function humanReviewChecklist(args: {
   const list = [
     "Confirm the product identity (ASIN / FNSKU / SKU) matches the Seller Central inventory record.",
     "Confirm the quantity affected against the removal order / shipment in Seller Central.",
-    "Confirm the requested amount uses approved COGS/unit (NOT the sale/list price).",
+    "Confirm the requested amount = latest sold price − Amazon fees (expected reimbursement); approved COGS is internal cost only, NOT the requested amount.",
     "Confirm the removal_order_id / removal_shipment_id / tracking reference exist in your Amazon reports.",
     "Attach the evidence packet (removal + shipment + expected-package records) before submitting.",
     "Review and edit the draft subject/body wording — it is a deterministic draft, not final copy.",
@@ -440,6 +444,25 @@ export async function composeClaimSellerCentralFilingPacketV1(
       ? "References (removal order / shipment / expected package) are unique to this submission — file individually."
       : `Shares removal_order_id ${sharedRo} with other pilot submission(s) — grouped filing is reference-safe.`;
 
+    // PHASE-CLAIM-AMOUNT-BASIS-LATEST-SALE-NET-POLICY-FIX-V1 (Maysam):
+    // For the two removal families the Seller Central requested amount is the
+    // latest-sale-net expected reimbursement = (latest_sold_price − amazon_fees) × qty.
+    // COGS / purchase cost remain internal accounting only. Other families keep COGS.
+    const REMOVAL_FAMILIES = new Set(["removal_shipment_missing", "removal_order_discrepancy"]);
+    const perUnitSaleNet =
+      m?.latest_sold_price != null ? round2(m.latest_sold_price - (m.amazon_fees_total ?? 0)) : null;
+    const latestSaleNet =
+      perUnitSaleNet != null && perUnitSaleNet > 0
+        ? round2(perUnitSaleNet * (quantity != null && quantity > 0 ? quantity : 1))
+        : null;
+    const isRemovalFamily = REMOVAL_FAMILIES.has(family ?? "");
+    const requestedAmount = isRemovalFamily ? latestSaleNet : recoveryValue;
+    const requestedAmountNote = isRemovalFamily
+      ? `= latest sold price ${money(m?.latest_sold_price ?? null)} − Amazon fees ${money(
+          m?.amazon_fees_total ?? null,
+        )} per unit x quantity ${quantity ?? "—"}; internal COGS is not the requested amount`
+      : `= clean quantity ${quantity ?? "—"} x approved cost/unit ${money(approvedCogsUnit)}`;
+
     const subject = subjectFor(family, fnsku, quantity);
     const body = messageBodyFor({
       family,
@@ -449,6 +472,8 @@ export async function composeClaimSellerCentralFilingPacketV1(
       quantity,
       recoveryValue,
       approvedCogsUnit,
+      requestedAmount,
+      requestedAmountNote,
       removalOrderId,
       removalShipmentId,
       expectedPackageId,

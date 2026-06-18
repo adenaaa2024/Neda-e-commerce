@@ -462,8 +462,38 @@ export function filterReadyToFileRows(
  * Uses ONLY real external/source references from the Event Reference Ledger — no
  * internal DB UUIDs, and never labels expected_package_id as a "TRID".
  */
+/** Removal-family claim families whose Seller Central proof must focus on
+ * removal order / shipment / tracking / product / quantity only. */
+const REMOVAL_CLAIM_FAMILIES = new Set(["removal_shipment_missing", "removal_order_discrepancy"]);
+
 export function buildReferenceBlockText(row: ReadyToFileRow): string {
-  const block = row.event_reference_ledger?.seller_central_reference_block;
+  const led = row.event_reference_ledger;
+
+  // PHASE-CLAIM-FAMILY-SEPARATION-UI-CLEANUP-V1: for removal claim families the
+  // Seller Central copy block must contain ONLY same-family evidence. Cross-family
+  // financial proximity references (reimbursement / settlement / inventory-ledger
+  // window candidates) belong to OTHER claim families and are excluded here so they
+  // never leak into this claim's copy block.
+  if (led && REMOVAL_CLAIM_FAMILIES.has(row.claim_family ?? "")) {
+    const lines: string[] = [];
+    if (row.asin) lines.push(`ASIN: ${row.asin}`);
+    if (row.fnsku) lines.push(`FNSKU: ${row.fnsku}`);
+    if (row.sku) lines.push(`SKU: ${row.sku}`);
+    if (led.removal_order_refs.length > 0) lines.push(`Removal Order ID: ${led.removal_order_refs.join(", ")}`);
+    const shipmentOnly = led.removal_shipment_refs.filter((v) => !led.tracking_refs.includes(v));
+    if (shipmentOnly.length > 0) lines.push(`Removal Shipment reference: ${shipmentOnly.join(", ")}`);
+    if (led.tracking_refs.length > 0) lines.push(`Tracking / shipment reference: ${led.tracking_refs.join(", ")}`);
+    lines.push(`Quantity affected: ${row.clean_quantity ?? led.quantity ?? "—"}`);
+    if (led.needs_reference_review) {
+      lines.push("");
+      lines.push(
+        "NEEDS REFERENCE REVIEW — no external Amazon report reference resolved; do not file with internal IDs only.",
+      );
+    }
+    return lines.join("\n");
+  }
+
+  const block = led?.seller_central_reference_block;
   if (block && block.trim()) return block;
 
   // Fallback (ledger unavailable): identity + quantity + amount only, no UUIDs.
@@ -1135,6 +1165,13 @@ export type FamilyAwareRecovery = {
   settlement_net: number | null;
   alternative_latest_sale_net_estimate: number | null;
   business_total_loss_estimate: number | null;
+  /** Authoritative latest-sale-net expected reimbursement = (latest_sold_price − amazon_fees) × qty.
+   * Settlement net is NEVER used for this basis. */
+  expected_reimbursement_latest_sale_net: number | null;
+  /** Internal cost = clean_quantity × approved COGS/unit (NOT the Seller Central amount). */
+  total_cogs: number | null;
+  /** Internal business profit/loss context = latest-sale-net expected − total COGS. */
+  business_profit_loss_context: number | null;
   amount_estimates: FamilyAwareAmountEstimate[];
   seller_central_amount_basis: AmountBasis;
   seller_central_amount: number | null;
@@ -1202,15 +1239,19 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
   const qty = row.clean_quantity ?? 0;
 
   const cogs = row.recovery_value;
-  const perUnitNet =
-    ml.net_settlement_amount != null
-      ? ml.net_settlement_amount
-      : ml.latest_sold_price != null
-        ? round2(ml.latest_sold_price - (ml.amazon_fees_total ?? 0))
-        : null;
-  // Only a POSITIVE per-unit net is a meaningful sale-based recovery basis; negative
-  // settlement nets (fee/return rows) are not estimable → null, not a negative amount.
-  const altSaleNet = perUnitNet != null && perUnitNet > 0 ? round2(perUnitNet * (qty > 0 ? qty : 1)) : null;
+  // PHASE-CLAIM-AMOUNT-BASIS-LATEST-SALE-NET-POLICY-FIX-V1 (Maysam):
+  // The latest-sale-net basis is STRICTLY (latest_sold_price − amazon_fees) × qty.
+  // Settlement net is NEVER used as the claim amount (only shown as context), and
+  // sale price alone is never used. A non-positive net is not estimable → null.
+  const perUnitSaleNet =
+    ml.latest_sold_price != null ? round2(ml.latest_sold_price - (ml.amazon_fees_total ?? 0)) : null;
+  const altSaleNet =
+    perUnitSaleNet != null && perUnitSaleNet > 0 ? round2(perUnitSaleNet * (qty > 0 ? qty : 1)) : null;
+  const expectedLatestSaleNet = altSaleNet;
+  // Internal accounting only — never the Seller Central reimbursement amount.
+  const totalCogs = cogs;
+  const profitLossContext =
+    expectedLatestSaleNet != null && totalCogs != null ? round2(expectedLatestSaleNet - totalCogs) : null;
   // Business loss floor = COGS replacement cost (inbound/removal/handling not loaded).
   const businessLoss = cogs;
 
@@ -1222,8 +1263,8 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
       amount: altSaleNet,
       note:
         altSaleNet == null
-          ? "No positive latest sale net available (no sale loaded, or settlement net ≤ 0)."
-          : "Estimate = (latest_sold_price − amazon_fees) × qty (or net settlement × qty). Not used unless operator policy allows sale-based recovery.",
+          ? "No positive latest sale net available (no sale price loaded, or latest_sold_price − amazon_fees ≤ 0)."
+          : "Expected reimbursement = (latest_sold_price − amazon_fees) × qty. Settlement net is NOT used. Selected for removal families per operator policy.",
     },
     {
       basis: "cogs_recovery",
@@ -1244,8 +1285,10 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
         : "Project spec: recovery = clean_quantity × approved COGS/unit (sale price not used). Operator has not confirmed COGS vs latest-sale-net vs business loss.";
       break;
     case "latest_sale_net":
-      scAmount = altSaleNet;
-      scReason = "Policy basis = latest sale net.";
+      scAmount = expectedLatestSaleNet;
+      scReason = policyConfirmed
+        ? `Operator-confirmed amount basis = latest sale net: expected reimbursement = (latest_sold_price − amazon_fees) × qty. COGS / purchase cost is internal accounting only, not the Seller Central amount. Confirmed by ${confirmedFamily?.confirmed_by ?? "operator"} (${confirmedFamily?.approval_key ?? "approved"}).`
+        : "Policy basis = latest sale net: expected reimbursement = (latest_sold_price − amazon_fees) × qty (settlement net not used).";
       break;
     default:
       scAmount = null;
@@ -1290,7 +1333,11 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
     }
   }
   confirmed = round2(confirmed);
-  const openCurrent = scAmount != null ? Math.max(round2(scAmount - confirmed), 0) : gap.open_recovery_gap;
+  // Open claim amount = selected Seller Central amount − confirmed reimbursed. When the
+  // policy-selected amount is unknown (e.g. latest_sale_net with no loaded sale price),
+  // the open amount is UNKNOWN (null) — we never fall back to a COGS-based gap, since
+  // COGS is internal accounting only and not the Seller Central claim amount.
+  const openCurrent = scAmount != null ? Math.max(round2(scAmount - confirmed), 0) : null;
   const openAlt = altSaleNet != null ? Math.max(round2(altSaleNet - confirmed), 0) : null;
 
   // Weak candidates (FNSKU/date-window only): classify into true family; never counted.
@@ -1379,6 +1426,9 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
     settlement_net: ml.net_settlement_amount,
     alternative_latest_sale_net_estimate: altSaleNet,
     business_total_loss_estimate: businessLoss,
+    expected_reimbursement_latest_sale_net: expectedLatestSaleNet,
+    total_cogs: totalCogs,
+    business_profit_loss_context: profitLossContext,
     amount_estimates: amountEstimates,
     seller_central_amount_basis: pol.default_claim_amount_basis,
     seller_central_amount: scAmount,

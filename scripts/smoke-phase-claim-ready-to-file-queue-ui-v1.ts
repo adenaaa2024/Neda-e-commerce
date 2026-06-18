@@ -265,8 +265,8 @@ assert(
   "missing files/API must name the ledger Detail View report when the ledger group is weak/ambiguous",
 );
 assert(
-  drawerSrc.includes("Missing files / API") && drawerSrc.includes("Exact files / sources checked"),
-  "drawer must render files-checked + missing-files/API blocks",
+  drawerSrc.includes("Missing files / API"),
+  "drawer must render the missing-files/API block",
 );
 
 // A real order-linked reimbursement credit IS counted.
@@ -296,9 +296,9 @@ const weakFiltered = filterReadyToFileRows([sampleRow, creditRow], { ...DEFAULT_
 assert(weakFiltered.length === 1 && weakFiltered[0] === sampleRow, "has_weak_candidates filter must isolate rows with weak candidates");
 
 // UI surfaces the recovery-gap section + summary cards + columns.
-assert(drawerSrc.includes("Recovery Gap / Claim Amount Policy") && drawerSrc.includes("computeFamilyAwareRecovery"), "drawer must render the Recovery Gap / Claim Amount Policy section");
-assert(drawerSrc.includes("Confirmed (strong)") && drawerSrc.includes("Open gap (current)"), "drawer recovery section must show confirmed (strong) + open gap (current)");
-assert(viewSrc.includes("computeRecoveryGap") && viewSrc.includes("summarizeRecoveryGap"), "view must compute recovery gap + summary");
+assert(drawerSrc.includes("2 · Financial Breakdown") && drawerSrc.includes("computeFamilyAwareRecovery"), "drawer must render the Financial Breakdown section");
+assert(drawerSrc.includes("Confirmed reimbursed (strong, same-family)") && drawerSrc.includes("Open claim amount"), "Financial Breakdown must show confirmed reimbursed (strong, same-family) + open claim amount");
+assert(viewSrc.includes("computeFamilyAwareRecovery") && viewSrc.includes("summarizeRecoveryGap"), "view must compute family-aware recovery + summary");
 
 // ---- PHASE-CLAIM-FAMILY-AWARE-RECOVERY-MATCHING-V2 ----
 // Amount-basis policy matrix: physical-loss families default COGS but need confirmation;
@@ -347,11 +347,13 @@ assert(fa.confirmed_reimbursed_strong === 0, "cross-family weak reimbursement mu
 assert(fa.misclassified_candidates.some((c) => c.classified_family === "damaged_warehouse"), "Damaged_Warehouse candidate must be flagged misclassified under a removal claim");
 assert(fa.separate_claim_suggestions.some((s) => s.recommended_claim_family === "damaged_warehouse"), "must suggest a separate damaged_warehouse claim");
 
-// UI surfaces the amount-basis policy + separate opportunities.
-assert(drawerSrc.includes("COGS recovery") && drawerSrc.includes("Latest sale net") && drawerSrc.includes("Business total loss"), "drawer must show the three amount rows");
+// UI surfaces the Financial Breakdown (two cards) + separate opportunities.
+assert(drawerSrc.includes("A · Amazon Claim Amount") && drawerSrc.includes("B · Internal Cost / Profit-Loss"), "Financial Breakdown must split into Amazon Claim Amount + Internal Cost / Profit-Loss cards");
+assert(drawerSrc.includes("Expected reimbursement (sold price − fees)") && drawerSrc.includes("Total purchase cost / COGS"), "Financial Breakdown must show expected reimbursement (sold price − fees) + internal total COGS");
+assert(drawerSrc.includes("Seller Central amount basis:") && drawerSrc.includes("seller_central_amount_basis"), "drawer must render the Seller Central amount basis policy badge");
 assert(drawerSrc.includes("Seller Central amount currently selected"), "drawer must show the selected Seller Central amount");
-assert(drawerSrc.includes("Policy needs confirmation"), "drawer must render the policy-needs-confirmation badge");
-assert(drawerSrc.includes("Separate claim opportunities suggested"), "drawer must render the separate-opportunities section");
+assert(drawerSrc.includes("needs_policy_confirmation"), "drawer must render the policy-needs-confirmation badge");
+assert(drawerSrc.includes("Separate Claim Opportunities"), "drawer must render the separate-opportunities section");
 
 // ---- PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1 ----
 // faRow with no overlay must stay needs_policy_confirmation (default unresolved).
@@ -387,7 +389,41 @@ assert(faConfirmed.filing_status === "safe_to_file", `confirmed removal claim wi
 assert(faConfirmed.confirmed_reimbursed_strong === 0, "cross-family weak credit must still not count after confirmation");
 assert(faConfirmed.misclassified_candidates.some((c) => c.classified_family === "damaged_warehouse"), "separate-claim flagging must persist after confirmation");
 assert(drawerSrc.includes("Policy confirmed"), "drawer must render the policy-confirmed badge");
-assert(drawerSrc.includes("Informational") && drawerSrc.includes("Selected"), "drawer must tag amounts as Selected vs Informational");
+assert(drawerSrc.includes("Internal accounting only") && drawerSrc.includes("COGS is NOT the"), "Financial Breakdown must label COGS as internal-only and not the requested amount");
+
+// ---- PHASE-CLAIM-AMOUNT-BASIS-LATEST-SALE-NET-POLICY-FIX-V1 ----
+// New latest-sale-net amount fields: expected = (latest_sold_price − amazon_fees) × qty,
+// total COGS internal, business profit/loss context = expected − COGS. Settlement net is NOT the basis.
+assert(fa.expected_reimbursement_latest_sale_net === 28, `expected latest-sale-net must be (20−6)×2 = 28 (got ${fa.expected_reimbursement_latest_sale_net})`);
+assert(fa.total_cogs === 10, "internal total COGS must equal recovery_value (10)");
+assert(fa.business_profit_loss_context === 18, `profit/loss context must be 28 − 10 = 18 (got ${fa.business_profit_loss_context})`);
+// A confirmed latest_sale_net overlay must select the latest-sale-net expected amount (NOT COGS).
+const latestSaleNetFaRow = {
+  ...faRow,
+  amount_basis_policy_overlay: {
+    version: "claim-amount-basis-policy-v1",
+    confirmed_by: "operator:maysam",
+    confirmed_at: "2026-06-18T00:00:00.000Z",
+    approval_key: "APPROVED_CLAIM_AMOUNT_BASIS_LATEST_SALE_NET_POLICY_FIX_V1",
+    families: {
+      removal_shipment_missing: {
+        family_key: "removal_shipment_missing",
+        basis: "latest_sale_net",
+        use_as_seller_central_amount: true,
+        informational_only: ["cogs_recovery", "business_total_loss", "settlement_net"],
+        confirmed_by: "operator:maysam",
+        confirmed_at: "2026-06-18T00:00:00.000Z",
+        approval_key: "APPROVED_CLAIM_AMOUNT_BASIS_LATEST_SALE_NET_POLICY_FIX_V1",
+        note: "Seller Central amount = latest sold price − Amazon fees.",
+      },
+    },
+  },
+} as unknown as ReadyToFileRow;
+const faLatestSaleNet = computeFamilyAwareRecovery(latestSaleNetFaRow);
+assert(faLatestSaleNet.seller_central_amount_basis === "latest_sale_net" && faLatestSaleNet.seller_central_amount === 28, `latest_sale_net overlay must select expected = 28 (got basis=${faLatestSaleNet.seller_central_amount_basis}, amount=${faLatestSaleNet.seller_central_amount})`);
+assert(faLatestSaleNet.seller_central_amount !== faLatestSaleNet.current_cogs_expected_recovery, "Seller Central amount must NOT be the COGS amount under latest_sale_net policy");
+assert(faLatestSaleNet.open_gap_under_current_policy === 28, `open claim amount must equal expected when confirmed=0 (got ${faLatestSaleNet.open_gap_under_current_policy})`);
+assert(faLatestSaleNet.filing_status === "safe_to_file", `confirmed latest_sale_net removal claim must be safe_to_file (got ${faLatestSaleNet.filing_status})`);
 
 // ---- PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1 ----
 const mkClass = (over: Partial<FamilyCandidateClassification>): FamilyCandidateClassification => ({
@@ -452,7 +488,8 @@ assert(
   readFileSync(join(cwd, "components/claim-center/data-coverage/ClaimDataCoverageView.tsx"), "utf8").includes("SeparateFamilyOpportunitiesPanel"),
   "data-coverage view must render the generator support panel",
 );
-assert(/<th[^>]*>Reimb\. status<\/th>/.test(viewSrc) && /<th[^>]*>Open gap<\/th>/.test(viewSrc), "view must render reimbursement table columns");
+assert(/<th[^>]*>Reimb\. status<\/th>/.test(viewSrc) && /<th[^>]*>Open claim amount<\/th>/.test(viewSrc), "view must render reimbursement table columns");
+assert(/<th[^>]*>Expected reimbursement<\/th>/.test(viewSrc) && /<th[^>]*>Internal COGS<\/th>/.test(viewSrc) && /<th[^>]*>Profit\/loss context<\/th>/.test(viewSrc), "view must render expected reimbursement / internal COGS / profit-loss columns");
 assert(viewSrc.includes("Open recovery gap") && viewSrc.includes("Confirmed reimbursed"), "view must render recovery summary cards");
 
 // ---- STATIC CLIENT/SERVER BOUNDARY GUARD ----
@@ -533,5 +570,60 @@ for (const spec of importedSpecifiers(genContractSrc)) {
     assert(!spec.includes(forbidden), `generator contract must not import server-only '${forbidden}' (found "${spec}")`);
   }
 }
+
+// ---- PHASE-CLAIM-FAMILY-SEPARATION-UI-CLEANUP-V1 ----
+// Drawer separates the four sections cleanly (A current evidence, B gap, C excluded, D opportunities).
+assert(drawerSrc.includes("1 · Current Claim Evidence"), "drawer must render section 1 Current Claim Evidence");
+assert(drawerSrc.includes("2 · Financial Breakdown"), "drawer must render section 2 Financial Breakdown");
+assert(drawerSrc.includes("3 · Excluded Cross-Family Candidates"), "drawer must render section 3 Excluded Cross-Family Candidates");
+assert(drawerSrc.includes("4 · Separate Claim Opportunities"), "drawer must render section 4 Separate Claim Opportunities");
+// Excluded section uses misclassified_candidates (cross-family) and is collapsed by default (<details> without `open`).
+assert(drawerSrc.includes("misclassified_candidates"), "drawer must source the excluded section from misclassified_candidates");
+assert(
+  /ExcludedCrossFamilySection[\s\S]*?<details>[\s\S]*?<summary/.test(drawerSrc) &&
+    !/ExcludedCrossFamilySection[\s\S]*?<details open/.test(drawerSrc),
+  "excluded cross-family section must be a <details> collapsed by default (no open attribute)",
+);
+// Excluded section columns: event type, suggested family, source table, amount, date, why excluded, separate?
+for (const col of ["Event type", "Suggested family", "Source table", "Why excluded"]) {
+  assert(drawerSrc.includes(col), `excluded cross-family table must show '${col}'`);
+}
+// Current evidence section must show same-family anchors only.
+for (const f of ["Removal order ID", "Removal shipment ID", "Tracking / shipment ref", "Recovery value"]) {
+  assert(drawerSrc.includes(f), `current claim evidence must show '${f}'`);
+}
+// Seller Central copy block must use the external-only reference block (buildReferenceBlockText), never cross-family classifications.
+assert(
+  drawerSrc.includes("buildReferenceBlockText") && drawerSrc.includes("References to include in Seller Central"),
+  "Seller Central copy must use the external-only reference block (no cross-family refs)",
+);
+assert(
+  !/seller_central_message_body[\s\S]{0,40}misclassified/.test(drawerSrc),
+  "Seller Central copy must not interpolate misclassified cross-family candidates",
+);
+
+// Ready-to-File table exposes the required family-separation columns + per-row badges.
+for (const col of [
+  "Current family",
+  "Filing status",
+  "Policy status",
+  "Decision",
+  "Expected reimbursement",
+  "Confirmed reimbursed",
+  "Open claim amount",
+  "Internal COGS",
+  "Profit/loss context",
+  "Sep. opps",
+]) {
+  assert(viewSrc.includes(col), `ready-to-file table must add the '${col}' column`);
+}
+for (const badge of ["current claim only", "cross-family excluded", "not Amazon-submitted", "needs_policy_confirmation"]) {
+  assert(viewSrc.includes(badge), `ready-to-file row must render the '${badge}' badge`);
+}
+assert(
+  viewSrc.includes("open_gap_under_current_policy") && viewSrc.includes("confirmed_reimbursed_strong"),
+  "table open-gap/reimbursed columns must use family-aware values (exclude cross-family weak candidates)",
+);
+assert(!viewSrc.includes("computeRecoveryGap"), "table must no longer use raw computeRecoveryGap for the gap columns");
 
 console.log("SMOKE OK: PHASE-CLAIM-READY-TO-FILE-QUEUE-UI-V1 static contract verified");

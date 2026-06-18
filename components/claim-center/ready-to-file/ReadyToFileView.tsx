@@ -18,8 +18,8 @@ import {
 import { getClaimCenterV2Page } from "@/lib/claims/center/claim-center-v2-page-contract";
 import {
   DEFAULT_READY_TO_FILE_FILTERS,
+  computeFamilyAwareRecovery,
   computeFilingDecision,
-  computeRecoveryGap,
   filterReadyToFileRows,
   summarizeRecoveryGap,
   type ReadyToFileFilterState,
@@ -278,12 +278,17 @@ export function ReadyToFileView() {
                 <tr className="text-[11px] uppercase opacity-60">
                   <th className="px-3 py-2">Submission</th>
                   <th className="px-3 py-2">Case</th>
-                  <th className="px-3 py-2">Family</th>
-                  <th className="px-3 py-2">Filing</th>
+                  <th className="px-3 py-2">Current family</th>
+                  <th className="px-3 py-2">Filing status</th>
+                  <th className="px-3 py-2">Policy status</th>
                   <th className="px-3 py-2">Decision</th>
-                  <th className="px-3 py-2 text-right">Recovery</th>
-                  <th className="px-3 py-2 text-right">Reimbursed</th>
-                  <th className="px-3 py-2 text-right">Open gap</th>
+                  <th className="px-3 py-2">Flags</th>
+                  <th className="px-3 py-2 text-right">Expected reimbursement</th>
+                  <th className="px-3 py-2 text-right">Confirmed reimbursed</th>
+                  <th className="px-3 py-2 text-right">Open claim amount</th>
+                  <th className="px-3 py-2 text-right">Internal COGS</th>
+                  <th className="px-3 py-2 text-right">Profit/loss context</th>
+                  <th className="px-3 py-2 text-right">Sep. opps</th>
                   <th className="px-3 py-2">Reimb. status</th>
                   <th className="px-3 py-2">Match conf.</th>
                   <th className="px-3 py-2 text-right">Qty</th>
@@ -311,33 +316,65 @@ export function ReadyToFileView() {
                     <td className="px-3 py-2 font-mono text-[11px]">
                       {r.claim_case_id ? `${r.claim_case_id.slice(0, 8)}…` : "—"}
                     </td>
-                    <td className="px-3 py-2 text-xs">{r.claim_family ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      {r.ready_to_file ? (
-                        <span className={claimCenterBadgeTone("success")}>Ready</span>
-                      ) : (
-                        <span className={claimCenterBadgeTone("warning")}>Blocked</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      {(() => {
-                        const d = computeFilingDecision(r);
-                        return <span className={claimCenterBadgeTone(d.tone)}>{d.label}</span>;
-                      })()}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{money(r.recovery_value)}</td>
                     {(() => {
-                      const g = computeRecoveryGap(r);
+                      const fa = computeFamilyAwareRecovery(r);
+                      const d = computeFilingDecision(r);
+                      const sepCount = fa.separate_claim_suggestions.length;
+                      const excludedCount = fa.misclassified_candidates.length;
+                      const gap = fa.gap;
                       return (
                         <>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {g.confirmed_reimbursed > 0 ? money(g.confirmed_reimbursed) : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums">{money(g.open_recovery_gap)}</td>
+                          <td className="px-3 py-2 text-xs">{r.claim_family ?? "—"}</td>
                           <td className="px-3 py-2 text-xs">
-                            <span className={claimCenterBadgeTone(g.status_tone)}>{g.status_label}</span>
+                            <span className={claimCenterBadgeTone(fa.filing_status_tone)}>{fa.filing_status_label}</span>
                           </td>
-                          <td className="px-3 py-2 text-xs capitalize opacity-70">{g.match_confidence}</td>
+                          <td className="px-3 py-2 text-xs">
+                            {fa.policy_confirmed ? (
+                              <span className={claimCenterBadgeTone("success")}>Policy confirmed</span>
+                            ) : (
+                              <span className={claimCenterBadgeTone("warning")}>needs_policy_confirmation</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            <span className={claimCenterBadgeTone(d.tone)}>{d.label}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col gap-1 text-[10px]">
+                              <span className={claimCenterBadgeTone("info")}>current claim only</span>
+                              {excludedCount > 0 ? (
+                                <span className={claimCenterBadgeTone("warning")}>{excludedCount} cross-family excluded</span>
+                              ) : null}
+                              {r.amazon_case_id_status !== "recorded" ? (
+                                <span className={claimCenterBadgeTone("neutral")}>not Amazon-submitted</span>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-700 dark:text-emerald-300">
+                            {money(fa.seller_central_amount)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {fa.confirmed_reimbursed_strong > 0 ? money(fa.confirmed_reimbursed_strong) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-amber-700 dark:text-amber-300">
+                            {money(fa.open_gap_under_current_policy)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums opacity-65" title="Internal cost — not the Seller Central claim amount">
+                            {money(fa.total_cogs)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums opacity-65" title="Internal profit/loss context">
+                            {money(fa.business_profit_loss_context)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {sepCount > 0 ? (
+                              <span className={claimCenterBadgeTone("info")}>{sepCount}</span>
+                            ) : (
+                              <span className="opacity-50">0</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            <span className={claimCenterBadgeTone(gap.status_tone)}>{gap.status_label}</span>
+                          </td>
+                          <td className="px-3 py-2 text-xs capitalize opacity-70">{gap.match_confidence}</td>
                         </>
                       );
                     })()}
@@ -384,7 +421,7 @@ export function ReadyToFileView() {
                 ))}
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={22} className="px-3 py-10 text-center text-sm opacity-60">
+                    <td colSpan={27} className="px-3 py-10 text-center text-sm opacity-60">
                       No claims match the current filters.
                     </td>
                   </tr>

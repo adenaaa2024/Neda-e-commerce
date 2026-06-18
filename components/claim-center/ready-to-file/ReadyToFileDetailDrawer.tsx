@@ -16,10 +16,9 @@ import {
   type DeepReferenceFilingSufficiency,
   type DeepReferenceSourceStatus,
   type EventReferenceRow,
-  type FamilyCandidateClassification,
+  type FamilyAwareRecovery,
   type ReadyToFileCaseIdRecordingConfig,
   type ReadyToFileRow,
-  type RecoveryGapMatch,
 } from "@/lib/claims/filing/claim-ready-to-file-queue-ui-contract";
 
 type Props = {
@@ -103,97 +102,186 @@ function CopyTextButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-function MatchRow({ m }: { m: RecoveryGapMatch }) {
-  return (
-    <li className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border px-2 py-1 text-[11px]">
-      <span className="min-w-0">
-        <span className="opacity-60">{m.source_label}: </span>
-        <span className="font-mono">{m.reference_id}</span>
-        {m.reason ? <span className="opacity-60"> · {m.reason}</span> : null}
-        {m.event_date ? <span className="opacity-50"> · {m.event_date}</span> : null}
-      </span>
-      <span className="tabular-nums">{m.amount != null ? `$${m.amount.toFixed(2)}` : "—"}</span>
-    </li>
-  );
-}
+/** Maps a family-aware source group to the real Amazon source table (display only). */
+const SOURCE_GROUP_TABLE: Record<string, string> = {
+  reimbursement: "amazon_reimbursements",
+  transaction_settlement: "amazon_settlement_transactions",
+  inventory_ledger: "inventory_ledger_detail",
+  customer_return: "amazon_returns",
+  removal: "amazon_removal_order_detail",
+  shipment_tracking: "amazon_removal_shipment_detail",
+};
 
-function CandidateClassRow({ c }: { c: FamilyCandidateClassification }) {
+/* ============================================================================
+ * PHASE-CLAIM-FAMILY-SEPARATION-UI-CLEANUP-V1
+ * The drawer separates: (A) current-claim evidence, (B) current-claim recovery
+ * gap, (C) excluded cross-family candidates (collapsed), (D) separate claim
+ * opportunities — so removal claims never visually mix with damaged/lost/
+ * reversal/customer-return candidates.
+ * ========================================================================== */
+
+/** (A) Current claim evidence — ONLY same-family references. */
+function CurrentClaimEvidenceSection({ row, fa }: { row: ReadyToFileRow; fa: FamilyAwareRecovery }) {
+  const led = row.event_reference_ledger;
+  const tracking = led.tracking_refs?.[0] ?? null;
+  // Counted matches that belong to THIS removal/order/shipment event (same family).
+  const sameFamilyConfirmed = fa.candidate_classifications.filter(
+    (c) => c.belongs_to_this_claim && (c.kind === "reimbursement" || c.kind === "settlement_credit"),
+  );
   return (
-    <li className="rounded-md border px-2 py-1.5 text-[11px]">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="min-w-0">
-          <span className="opacity-60">{c.source_label}: </span>
-          <span className="font-mono">{c.reference_id}</span>
-          {c.reason ? <span className="opacity-60"> · {c.reason}</span> : null}
-          {c.event_date ? <span className="opacity-50"> · {c.event_date}</span> : null}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className={claimCenterBadgeTone(c.belongs_to_this_claim ? "neutral" : "warning")}>
-            {c.classified_family}
-          </span>
-          <span className="tabular-nums">{c.amount != null ? `$${c.amount.toFixed(2)}` : "—"}</span>
-        </span>
+    <section className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase opacity-70">1 · Current Claim Evidence</h3>
+        <div className="flex items-center gap-1.5">
+          <span className={claimCenterBadgeTone("neutral")}>{fa.claim_family}</span>
+          <span className={claimCenterBadgeTone("info")}>current claim only</span>
+        </div>
       </div>
-      {c.why_not ? <p className="mt-1 text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">{c.why_not}</p> : null}
-      {c.should_create_separate_claim ? (
-        <p className="mt-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-          → Suggests a separate claim opportunity ({c.classified_family}).
+      <p className="mb-2 text-[10px] leading-relaxed opacity-60">
+        Only references that belong to this {fa.claim_family} event. Damaged / lost / reversal / customer-return
+        items are NOT part of this claim and are listed separately below.
+      </p>
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Field label="Removal order ID" value={row.removal_order_id} mono />
+        <Field label="Removal shipment ID" value={row.removal_shipment_id} mono />
+        <Field label="Tracking / shipment ref" value={tracking} mono />
+        <Field label="FNSKU" value={row.fnsku} mono />
+        <Field label="SKU" value={row.sku} mono />
+        <Field label="ASIN" value={row.asin} mono />
+        <Field label="Clean quantity" value={row.clean_quantity ?? "—"} />
+        <Field label="COGS / unit" value={money(row.approved_cogs_unit)} />
+        <Field
+          label="Recovery value"
+          value={<span className="font-bold text-emerald-700 dark:text-emerald-300">{money(row.recovery_value)}</span>}
+        />
+      </dl>
+      <div className="mt-3">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          Confirmed reimbursement tied to this event (strong, same-family)
         </p>
-      ) : null}
-    </li>
+        {sameFamilyConfirmed.length > 0 ? (
+          <ul className="space-y-1">
+            {sameFamilyConfirmed.map((c, i) => (
+              <li key={`cfm-${i}`} className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border px-2 py-1 text-[11px]">
+                <span className="min-w-0">
+                  <span className="opacity-60">{c.source_label}: </span>
+                  <span className="font-mono">{c.reference_id}</span>
+                  {c.reason ? <span className="opacity-60"> · {c.reason}</span> : null}
+                </span>
+                <span className="tabular-nums">{c.amount != null ? `$${c.amount.toFixed(2)}` : "—"}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[11px] opacity-60">No confirmed reimbursement tied to this event (open claim).</p>
+        )}
+      </div>
+    </section>
   );
 }
 
-function ReimbursementRecoveryGapSection({ row }: { row: ReadyToFileRow }) {
-  const fa = computeFamilyAwareRecovery(row);
+/** Small labelled amount row used inside the Financial Breakdown cards. */
+function AmountLine({
+  label,
+  value,
+  emphasis,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  emphasis?: boolean;
+  tone?: "emerald" | "amber" | "default";
+}) {
+  const valueTone =
+    tone === "emerald"
+      ? "text-emerald-700 dark:text-emerald-300"
+      : tone === "amber"
+        ? "text-amber-700 dark:text-amber-300"
+        : "";
+  return (
+    <div className="flex items-baseline justify-between gap-2 py-0.5">
+      <span className={`text-[11px] ${emphasis ? "font-semibold" : "opacity-65"}`}>{label}</span>
+      <span className={`tabular-nums ${emphasis ? "text-sm font-bold" : "text-[12px] font-medium"} ${valueTone}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * (B) Financial Breakdown — PHASE-CLAIM-AMOUNT-BASIS-LATEST-SALE-NET-POLICY-FIX-V1.
+ * Split into two clearly separated cards so the Seller Central claim amount
+ * (A · Amazon Claim Amount = latest sold price − Amazon fees) is never confused
+ * with internal COGS / purchase cost / settlement net (B · Internal Cost /
+ * Profit-Loss). COGS is shown only as internal accounting context.
+ */
+function FinancialBreakdownSection({ row, fa }: { row: ReadyToFileRow; fa: FamilyAwareRecovery }) {
   const gap = fa.gap;
   const pol = fa.policy;
-  const txnRows = [...gap.settlement_credit_matches, ...gap.strong_transaction_matches].slice(0, 8);
-  const ledgerRows = gap.inventory_ledger_candidates.slice(0, 6);
-  const weakClasses = fa.candidate_classifications.slice(0, 10);
-
   return (
     <section className="rounded-xl border p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase opacity-60">Recovery Gap / Claim Amount Policy</h3>
-        <div className="flex items-center gap-1.5">
+        <h3 className="text-xs font-semibold uppercase opacity-60">2 · Financial Breakdown</h3>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className={claimCenterBadgeTone("info")}>Seller Central amount basis: {fa.seller_central_amount_basis}</span>
           {fa.policy_confirmed ? (
             <span className={claimCenterBadgeTone("success")}>Policy confirmed</span>
           ) : (
-            <span className={claimCenterBadgeTone("warning")}>Policy needs confirmation</span>
+            <span className={claimCenterBadgeTone("warning")}>needs_policy_confirmation</span>
           )}
           <span className={claimCenterBadgeTone(fa.filing_status_tone)}>{fa.filing_status_label}</span>
         </div>
       </div>
 
-      {/* Three amount rows under the configurable amount-basis policy. */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div
-          className={`rounded-lg border px-2 py-1.5 ${
-            fa.seller_central_amount_basis === "cogs_recovery" ? "border-emerald-500/40 bg-emerald-500/5" : ""
-          }`}
-        >
-          <p className="text-[10px] uppercase opacity-55">COGS recovery</p>
-          <p className="text-sm font-bold tabular-nums">{money(fa.current_cogs_expected_recovery)}</p>
-          <p className="text-[9px] uppercase tracking-wide opacity-50">
-            {fa.seller_central_amount_basis === "cogs_recovery" ? "Selected" : "Informational"}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {/* A · Amazon Claim Amount (Seller Central) */}
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] p-3">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+            A · Amazon Claim Amount
+          </p>
+          <AmountLine label="Latest sold price" value={money(fa.latest_sold_price)} />
+          <AmountLine label="Amazon fees" value={money(fa.amazon_fees)} />
+          <AmountLine
+            label="Expected reimbursement (sold price − fees)"
+            value={money(fa.expected_reimbursement_latest_sale_net)}
+            emphasis
+            tone="emerald"
+          />
+          <AmountLine label="Confirmed reimbursed (strong, same-family)" value={money(fa.confirmed_reimbursed_strong)} />
+          <AmountLine
+            label="Open claim amount"
+            value={money(fa.open_gap_under_current_policy)}
+            emphasis
+            tone="amber"
+          />
+          <div className="mt-1.5 flex items-center justify-between gap-2 border-t pt-1.5">
+            <span className="text-[10px] uppercase opacity-55">Reimbursement match status</span>
+            <span className={claimCenterBadgeTone(gap.status_tone)}>{gap.status_label}</span>
+          </div>
+          <p className="mt-1.5 text-[10px] leading-relaxed opacity-60">
+            Seller Central requested amount = expected reimbursement (latest sold price − Amazon fees). COGS is NOT the
+            requested amount.
           </p>
         </div>
-        <div
-          className={`rounded-lg border px-2 py-1.5 ${
-            fa.seller_central_amount_basis === "latest_sale_net" ? "border-emerald-500/40 bg-emerald-500/5" : ""
-          }`}
-        >
-          <p className="text-[10px] uppercase opacity-55">Latest sale net est.</p>
-          <p className="text-sm font-bold tabular-nums">{money(fa.alternative_latest_sale_net_estimate)}</p>
-          <p className="text-[9px] uppercase tracking-wide opacity-50">
-            {fa.seller_central_amount_basis === "latest_sale_net" ? "Selected" : "Informational"}
+
+        {/* B · Internal Cost / Profit-Loss */}
+        <div className="rounded-lg border p-3">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-60">
+            B · Internal Cost / Profit-Loss
           </p>
-        </div>
-        <div className="rounded-lg border px-2 py-1.5">
-          <p className="text-[10px] uppercase opacity-55">Business total loss</p>
-          <p className="text-sm font-bold tabular-nums">{money(fa.business_total_loss_estimate)}</p>
-          <p className="text-[9px] uppercase tracking-wide opacity-50">Informational</p>
+          <AmountLine label="Approved COGS / unit" value={money(row.approved_cogs_unit)} />
+          <AmountLine label="Affected quantity" value={row.clean_quantity ?? "—"} />
+          <AmountLine label="Total purchase cost / COGS" value={money(fa.total_cogs)} />
+          <AmountLine label="Settlement net (context)" value={money(fa.settlement_net)} />
+          <AmountLine
+            label="Business profit/loss context"
+            value={money(fa.business_profit_loss_context)}
+            emphasis
+          />
+          <p className="mt-1.5 text-[10px] leading-relaxed opacity-60">
+            Internal accounting only — NOT the Seller Central claim amount. Settlement net is shown as context and is
+            never auto-used as the requested amount.
+          </p>
         </div>
       </div>
 
@@ -204,160 +292,20 @@ function ReimbursementRecoveryGapSection({ row }: { row: ReadyToFileRow }) {
           <span className="opacity-60">({fa.seller_central_amount_basis})</span>
         </p>
         <p className="mt-0.5 leading-relaxed opacity-75">{fa.seller_central_amount_reason}</p>
-        <p className="mt-1 leading-relaxed opacity-60">
-          Policy basis <span className="font-semibold">{pol.default_claim_amount_basis}</span> ·{" "}
-          {pol.amount_kind === "amazon_claim_amount"
-            ? "Amazon claim amount"
-            : pol.amount_kind === "internal_business_loss"
-              ? "internal business loss"
-              : "configurable"}{" "}
-          · sale price {pol.sale_price_allowed ? "allowed" : "not allowed"} · fees{" "}
-          {pol.amazon_fees_included ? "included" : "excluded"} · inbound/removal/handling{" "}
-          {pol.inbound_removal_handling_included ? "included" : "excluded"}.
-        </p>
         {!pol.policy_resolved ? (
-          <p className="mt-1 leading-relaxed text-amber-700 dark:text-amber-300">
-            Recommended: {pol.recommended_correction}
-          </p>
+          <p className="mt-1 leading-relaxed text-amber-700 dark:text-amber-300">Recommended: {pol.recommended_correction}</p>
         ) : null}
       </div>
 
-      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg border px-2 py-1.5">
-          <p className="text-[10px] uppercase opacity-55">Confirmed (strong)</p>
-          <p className="text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
-            {fa.confirmed_reimbursed_strong > 0 ? money(fa.confirmed_reimbursed_strong) : "—"}
-          </p>
-        </div>
-        <div className="rounded-lg border px-2 py-1.5">
-          <p className="text-[10px] uppercase opacity-55">Open gap (current)</p>
-          <p className="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">
-            {money(fa.open_gap_under_current_policy)}
-          </p>
-        </div>
-        <div className="rounded-lg border px-2 py-1.5">
-          <p className="text-[10px] uppercase opacity-55">Open gap (alt)</p>
-          <p className="text-sm font-bold tabular-nums opacity-80">{money(fa.open_gap_under_alternative_policy)}</p>
-        </div>
-      </div>
-
-      <p className="mt-2 text-[11px] leading-relaxed opacity-80">{gap.match_reason}</p>
-      <p className="mt-1 text-[10px] uppercase tracking-wide opacity-55">
-        Match confidence: <span className="font-semibold">{gap.match_confidence}</span> · Filing status:{" "}
-        <span className="font-semibold">{fa.filing_status}</span>
+      <p className="mt-2 text-[10px] uppercase tracking-wide opacity-55">
+        Match confidence: <span className="font-semibold">{gap.match_confidence}</span> · only strong same-family
+        matches reduce the open claim amount. Cross-family weak candidates are excluded (see section 3) and never
+        reduce this amount.
       </p>
-
-      {fa.separate_claim_suggestions.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-          <p className="text-[11px] font-bold text-amber-950 dark:text-amber-100">
-            Separate claim opportunities suggested ({fa.separate_claim_suggestions.length})
-          </p>
-          <ul className="mt-1 space-y-1">
-            {fa.separate_claim_suggestions.map((s, i) => (
-              <li key={`sep-${i}`} className="text-[11px] text-amber-950/90 dark:text-amber-100/90">
-                <span className="font-semibold">{s.recommended_claim_family}</span>{" "}
-                <span className="opacity-70">({s.basis})</span> · {s.candidate_count} candidate(s) ·{" "}
-                {s.reason}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {gap.strong_reimbursement_matches.length > 0 ? (
-        <div className="mt-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-            Strong reimbursement matches (counted)
-          </p>
-          <ul className="space-y-1">
-            {gap.strong_reimbursement_matches.map((m, i) => (
-              <MatchRow key={`sr-${i}`} m={m} />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {gap.settlement_credit_matches.length > 0 ? (
-        <div className="mt-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-            Settlement credit matches (counted)
-          </p>
-          <ul className="space-y-1">
-            {gap.settlement_credit_matches.map((m, i) => (
-              <MatchRow key={`sc-${i}`} m={m} />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {weakClasses.length > 0 ? (
-        <div className="mt-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-            Weak candidates — family-aware (excluded from claim amount)
-          </p>
-          <ul className="space-y-1">
-            {weakClasses.map((c, i) => (
-              <CandidateClassRow key={`wc-${i}`} c={c} />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {txnRows.length > 0 ? (
-        <div className="mt-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-60">
-            Transaction / settlement candidates
-          </p>
-          <ul className="space-y-1">
-            {txnRows.map((m, i) => (
-              <MatchRow key={`tx-${i}`} m={m} />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {ledgerRows.length > 0 ? (
-        <div className="mt-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-60">
-            Inventory-ledger candidates (advisory)
-          </p>
-          <ul className="space-y-1">
-            {ledgerRows.map((m, i) => (
-              <MatchRow key={`il-${i}`} m={m} />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {gap.excluded_candidates_and_reason.length > 0 ? (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-[11px] font-semibold opacity-70">Why candidates were excluded</summary>
-          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[11px] opacity-80">
-            {gap.excluded_candidates_and_reason.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-
-      {gap.files_checked.length > 0 ? (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-[11px] font-semibold opacity-70">
-            Exact files / sources checked ({gap.files_checked.length})
-          </summary>
-          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[11px] opacity-80">
-            {gap.files_checked.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
 
       {gap.missing_files_or_api.length > 0 ? (
         <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-          <p className="text-[11px] font-bold text-amber-950 dark:text-amber-100">
-            Missing files / API to confirm reimbursement
-          </p>
+          <p className="text-[11px] font-bold text-amber-950 dark:text-amber-100">Missing files / API to confirm reimbursement</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[11px] text-amber-950/90 dark:text-amber-100/90">
             {gap.missing_files_or_api.map((c, i) => (
               <li key={i}>{c}</li>
@@ -365,6 +313,123 @@ function ReimbursementRecoveryGapSection({ row }: { row: ReadyToFileRow }) {
           </ul>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/** (C) Excluded cross-family candidates — collapsed by default. */
+function ExcludedCrossFamilySection({ fa }: { fa: FamilyAwareRecovery }) {
+  const excluded = fa.misclassified_candidates;
+  return (
+    <section className="rounded-xl border border-amber-500/30">
+      <details>
+        <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-3 py-2">
+          <span className="text-xs font-semibold uppercase opacity-70">3 · Excluded Cross-Family Candidates</span>
+          <span className="flex items-center gap-1.5">
+            <span className={claimCenterBadgeTone("warning")}>{excluded.length} excluded</span>
+            <span className={claimCenterBadgeTone("neutral")}>not part of this claim</span>
+          </span>
+        </summary>
+        <div className="border-t p-3">
+          <p className="mb-2 text-[10px] leading-relaxed opacity-60">
+            These weak / cross-family candidates were surfaced by FNSKU/date-window proximity but belong to a
+            DIFFERENT claim family. They are NOT matched reimbursement for this claim and do NOT reduce its open gap.
+          </p>
+          {excluded.length === 0 ? (
+            <p className="text-[11px] opacity-60">None for this claim.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full text-left text-[11px]">
+                <thead className="border-b bg-black/[0.03] dark:bg-white/[0.04]">
+                  <tr className="opacity-60">
+                    <th className="px-2 py-1.5 font-semibold">Event type</th>
+                    <th className="px-2 py-1.5 font-semibold">Suggested family</th>
+                    <th className="px-2 py-1.5 font-semibold">Source table</th>
+                    <th className="px-2 py-1.5 font-semibold">Amount</th>
+                    <th className="px-2 py-1.5 font-semibold">Date</th>
+                    <th className="px-2 py-1.5 font-semibold">Why excluded</th>
+                    <th className="px-2 py-1.5 font-semibold">Separate?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {excluded.map((c, i) => (
+                    <tr key={`xf-${i}`} className="border-b align-top last:border-0">
+                      <td className="px-2 py-1.5">
+                        <span className="opacity-70">{c.source_label}</span>
+                        {c.reason ? <span className="block opacity-55">{c.reason}</span> : null}
+                        <span className="block font-mono opacity-50">{c.reference_id}</span>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <span className={claimCenterBadgeTone("warning")}>{c.classified_family}</span>
+                      </td>
+                      <td className="px-2 py-1.5 font-mono opacity-70">{SOURCE_GROUP_TABLE[c.source_group] ?? c.source_group}</td>
+                      <td className="px-2 py-1.5 tabular-nums">{c.amount != null ? `$${c.amount.toFixed(2)}` : "—"}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{c.event_date ?? "—"}</td>
+                      <td className="px-2 py-1.5 text-amber-700 dark:text-amber-300">{c.why_not ?? "Different family."}</td>
+                      <td className="px-2 py-1.5">
+                        {c.should_create_separate_claim ? (
+                          <span className={claimCenterBadgeTone("info")}>separate claim</span>
+                        ) : (
+                          <span className="opacity-50">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+/** (D) Separate claim opportunities — grouped by family, distinct from this claim. */
+function SeparateClaimOpportunitiesSection({ fa }: { fa: FamilyAwareRecovery }) {
+  const groups = new Map<string, { count: number; total: number; hasAmount: boolean; reasonKeyword: boolean }>();
+  for (const c of fa.misclassified_candidates) {
+    const g = groups.get(c.classified_family) ?? { count: 0, total: 0, hasAmount: false, reasonKeyword: false };
+    g.count += 1;
+    if (c.amount != null) {
+      g.total += Math.abs(c.amount);
+      g.hasAmount = true;
+    }
+    if (c.reason && /reversal|refund|damaged|lost|fee|storage|return|dispos|expir/i.test(c.reason)) g.reasonKeyword = true;
+    groups.set(c.classified_family, g);
+  }
+  const entries = [...groups.entries()].sort((a, b) => b[1].count - a[1].count);
+  if (entries.length === 0) return null;
+
+  return (
+    <section className="rounded-xl border-2 border-dashed border-indigo-500/40 bg-indigo-500/[0.04] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase opacity-70">4 · Separate Claim Opportunities</h3>
+        <span className={claimCenterBadgeTone("info")}>{entries.length} family group(s)</span>
+      </div>
+      <p className="mb-2 text-[10px] leading-relaxed opacity-60">
+        Grouped opportunities for OTHER claim families — separate from this removal claim. Generate them in
+        Claim Center → Opportunities; they are not part of the Ready-to-File removal claim.
+      </p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {entries.map(([family, g]) => (
+          <div key={family} className="rounded-lg border bg-white/40 px-3 py-2 dark:bg-black/20">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[12px] font-bold">{family}</p>
+              <span className={claimCenterBadgeTone("neutral")}>{g.count}</span>
+            </div>
+            <dl className="mt-1 grid grid-cols-2 gap-x-2 text-[11px] opacity-80">
+              <dt className="opacity-55">Total possible</dt>
+              <dd className="text-right tabular-nums">{g.hasAmount ? `$${g.total.toFixed(2)}` : "not calculable"}</dd>
+              <dt className="opacity-55">Confidence</dt>
+              <dd className="text-right">{g.reasonKeyword ? "medium" : "low"}</dd>
+            </dl>
+            <p className="mt-1 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+              Next action: review / generate separate claim candidate
+            </p>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -379,6 +444,7 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
   const led = row.event_reference_ledger;
   const referenceBlock = buildReferenceBlockText(row);
   const decision = computeFilingDecision(row);
+  const fa = computeFamilyAwareRecovery(row);
 
   const confidenceTone =
     led.confidence === "high" ? "success" : led.confidence === "medium" ? "neutral" : "warning";
@@ -491,8 +557,11 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
             </div>
           </section>
 
-          {/* ---- Reimbursement / Recovery Gap ---- */}
-          <ReimbursementRecoveryGapSection row={row} />
+          {/* ---- Family-separated claim sections (1-4) ---- */}
+          <CurrentClaimEvidenceSection row={row} fa={fa} />
+          <FinancialBreakdownSection row={row} fa={fa} />
+          <ExcludedCrossFamilySection fa={fa} />
+          <SeparateClaimOpportunitiesSection fa={fa} />
 
           {/* ---- Claim summary ---- */}
           <section>
@@ -529,7 +598,8 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
               />
             </dl>
             <p className="mt-2 text-[10px] opacity-60">
-              Sale price is informational only — the claim amount uses approved COGS.
+              For removal families the Seller Central claim amount = latest sold price − Amazon fees (see Financial
+              Breakdown). COGS / purchase cost / settlement net are internal accounting context only.
             </p>
           </section>
 
@@ -763,9 +833,22 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
                 </pre>
               </div>
               <dl className="grid grid-cols-2 gap-3">
-                <Field label="Requested reimbursement" value={money(row.recovery_value)} />
+                <Field
+                  label="Requested reimbursement (expected)"
+                  value={
+                    <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                      {money(fa.seller_central_amount)}
+                    </span>
+                  }
+                />
+                <Field label="Open claim amount" value={money(fa.open_gap_under_current_policy)} />
                 <Field label="Affected quantity" value={row.clean_quantity ?? "—"} />
+                <Field label="Amount basis" value={fa.seller_central_amount_basis} />
               </dl>
+              <p className="text-[10px] leading-relaxed opacity-60">
+                Requested reimbursement = expected reimbursement / open claim amount based on latest sold price minus
+                Amazon fees. COGS is not the requested amount.
+              </p>
               <div>
                 <p className="text-[10px] font-semibold uppercase opacity-55">
                   References to include in Seller Central

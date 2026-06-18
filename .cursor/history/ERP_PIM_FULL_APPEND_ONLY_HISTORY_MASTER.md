@@ -238889,3 +238889,98 @@ The Recovery-Gap UI surfaced reimbursement/ledger/settlement/transaction candida
 **Files:** `separate-family-candidate-generator-contract-v1.ts`, `separate-family-candidate-generators-v1.ts`, `separate-family-candidate-generators-write-v1.ts`, `claim-ready-to-file-queue-ui-contract.ts`, `claim-center-api-handlers.ts`, `app/api/claims/center/separate-family-opportunities/route.ts`, `SeparateFamilyOpportunitiesPanel.tsx`, `ClaimCenterOpportunitiesView.tsx`, `ClaimDataCoverageView.tsx`, `scripts/phase-claim-separate-family-candidate-generators-v1.ts`, `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts`.
 
 **NEXT_PROMPT:** PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-EXECUTE-V1 — operator sets `APPROVED_SEPARATE_FAMILY_CANDIDATE_GENERATORS_WRITE_V1=yes` to materialize the 72 previews (10 currently writeable: reimbursement_reversal) into real per-family `claim_candidates` (governed insert, idempotent by preview_id, verify other claim_* tables unchanged); in parallel, ingest Inventory Ledger Detail View (unblocks lost_warehouse/damaged_warehouse cogs basis) + Fee Preview/Product Fees API (unblocks fee_delta expected value) so the remaining cogs/fee families become writeable. The 10 confirmed removal claims remain `safe_to_file` awaiting operator Seller Central filing + real Amazon Case IDs (PHASE-CLAIM-MANUAL-FILING-STATUS-ENTRY-EXECUTE-V1).
+
+---
+
+## 20260618T240000Z — PHASE-CLAIM-FAMILY-SEPARATION-UI-CLEANUP-V1 (PASS, UI cleanup + read-only verification)
+
+**Mode:** UI separation cleanup + read-only verification. No DB write, no claim mutation (claim_candidates / claim_cases / claim_lines / claim_submissions / claim_reference_edges), no Amazon submit, no scanner change, no claim-math change, no AI. Target `kxsvedvpjldygtdbylsy`.
+
+**Problem:** the Ready-to-File drawer visually mixed weak/cross-family candidates (Damaged_Warehouse / Lost_Warehouse / Lost_Outbound / Reimbursement_Reversal / CustomerReturn) directly under the current removal claim, making removal_shipment_missing / removal_order_discrepancy look polluted. A real leak was also found: the Seller Central reference block (`seller_central_reference_block`) emitted cross-family `Reimbursement ID:` / `Transaction / settlement:` / `Inventory Ledger reference:` lines (same financial IDs repeated across multiple claims).
+
+**What changed (UI + client-safe contract only)**
+
+- **`ReadyToFileDetailDrawer.tsx`** rebuilt the mixed `ReimbursementRecoveryGapSection` into four cleanly separated sections driven by a single `computeFamilyAwareRecovery(row)`:
+  1. **Current Claim Evidence** (same-family only): removal_order_id, removal_shipment_id, tracking/shipment ref, FNSKU/SKU/ASIN, qty, COGS/u, recovery value, + strong same-family confirmed reimbursement (none for pilot → "open claim").
+  2. **Current Claim Recovery Gap / Amount Policy**: 3 amount estimates (COGS selected / latest-sale-net + business-loss informational), Seller Central selected amount + reason, confirmed (strong, same-family) / open gap / reimbursement status, match confidence — strong same-family only; explicit note that cross-family weak candidates never reduce this gap.
+  3. **Excluded Cross-Family Candidates** — collapsed `<details>` by default, sourced from `misclassified_candidates`; table columns Event type / Suggested family / Source table / Amount / Date / Why excluded / Separate?.
+  4. **Separate Claim Opportunities** — grouped by family (count, total possible amount if calculable, confidence, next action), visually distinct (dashed indigo).
+- **`buildReferenceBlockText` (zero-import contract)**: for removal claim families now rebuilds a removal-focused block (ASIN/FNSKU/SKU + Removal Order ID + Removal Shipment reference + Tracking + Quantity affected) and **excludes** cross-family financial proximity lines (reimbursement/settlement/inventory-ledger). Closes the Seller Central copy leak. Message body was already removal-focused (unchanged).
+- **`ReadyToFileView.tsx` table** switched gap columns from raw `computeRecoveryGap` to `computeFamilyAwareRecovery`; added/renamed columns: **Current family, Filing status, Policy status, Decision, Flags, Current claim open gap, Sep. opps**; per-row Flags badges: **current claim only**, **N cross-family excluded**, **not Amazon-submitted**, **needs_policy_confirmation**/Policy confirmed.
+
+**Live read-only verification (`kxsvedvpjldygtdbylsy`, org `…-0001`, 10 pilot claims)**
+
+- per_claim_current_proof_matrix: all 10 show only same-family removal order/shipment/tracking/product/qty/COGS/recovery.
+- per_claim_excluded_cross_family_matrix: 6 claims × 10 excluded + 4 claims × 23 excluded (families damaged_warehouse / lost_warehouse / lost_outbound / reimbursement_reversal / fulfillment_fee_overcharge / customer_return_not_received).
+- per_claim_separate_opportunity_summary grouped per family; store-wide: lost_warehouse 59 / fulfillment_fee_overcharge 52 ($305.12) / damaged_warehouse 18 ($127.05) / reimbursement_reversal 11 ($83.05) / lost_outbound 10 ($71.00) / customer_return_not_received 2 ($10.94).
+- **total_expected_recovery $100.72 · total_confirmed_reimbursed $0.00 · total_open_gap $100.72** (unchanged); weak_candidates_excluded_total **152**.
+- **seller_central_copy_excludes_cross_family_candidates: yes** (was leaking 13 financial IDs per `/x5UTzvZZK` claim before the fix).
+- pilot_claim_status_counts: **safe_to_file 10** (the amount-basis policy was already operator-confirmed in PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1; the prompt's "needs_policy_confirmation" snapshot predates that confirmation — reported honestly, no regression).
+- no_db_write / no_claim_mutation / no_amazon_submission / no_scanner_change: PASS (compose-only).
+
+**Verification:** tsc 0; ReadLints 0 on changed components + contract; smoke PASS (4-section assertions, collapsed-by-default guard, excluded columns, family-aware table columns + badges, Seller-Central-excludes-cross-family guard); `next build` exit 0.
+
+**Output flags:** files_changed = ReadyToFileDetailDrawer.tsx, ReadyToFileView.tsx, claim-ready-to-file-queue-ui-contract.ts, smoke-phase-claim-ready-to-file-queue-ui-v1.ts, phase-claim-family-separation-ui-cleanup-v1.ts | current_claim_sections_verified PASS | excluded_cross_family_section_verified PASS | separate_opportunities_section_verified PASS | ready_table_columns_verified PASS | seller_central_copy_excludes_cross_family_candidates yes | total_expected_recovery $100.72 | total_confirmed_reimbursed $0.00 | total_open_gap $100.72 | pilot_claim_status_counts safe_to_file=10 | build/smoke/next_build PASS | **SAFE_FAMILY_SEPARATION_UI_CLEAR=yes** | **SAFE_TO_RUN_AMOUNT_BASIS_POLICY_CONFIRMATION=yes** (already confirmed; safe to re-run).
+
+**Files:** `ReadyToFileDetailDrawer.tsx`, `ReadyToFileView.tsx`, `claim-ready-to-file-queue-ui-contract.ts`, `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts`, `scripts/phase-claim-family-separation-ui-cleanup-v1.ts`.
+
+**NEXT_PROMPT:** PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-EXECUTE-V1 — operator sets `APPROVED_SEPARATE_FAMILY_CANDIDATE_GENERATORS_WRITE_V1=yes` to materialize the writeable previews (reimbursement_reversal) into per-family `claim_candidates`; in parallel ingest Inventory Ledger Detail View + Fee Preview API to unblock the cogs/fee families. The 10 confirmed removal claims remain `safe_to_file` awaiting operator Seller Central filing + real Amazon Case IDs.
+
+---
+
+## 20260618T250000Z — PHASE-CLAIM-AMOUNT-BASIS-LATEST-SALE-NET-POLICY-FIX-V1 (PASS — governed amount-basis correction + financial UI cleanup)
+
+**Memory version:** AI-SHARED-MEMORY-V176
+**Mode:** governed amount-basis correction (write only `workspace_settings.module_configs.claims.amount_basis_policy`) + financial UI cleanup. No claim/candidate/Amazon/scanner/AI mutation.
+**Target:** original/live `kxsvedvpjldygtdbylsy` (org `00000000-…-0001`, store `509ee1f6-…`).
+
+### Problem (Maysam)
+
+After PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1 + UI separation, the 10 removal pilot claims still used **COGS recovery** as the selected Seller Central amount (expected/open **$100.72**, confirmed **$0.00**, safe_to_file 10). Maysam policy correction: for the two removal claim families the **expected Amazon reimbursement = latest_sold_price − amazon_fees**; COGS / purchase cost / settlement net remain visible only as **internal cost / profit-loss context**, never the Seller Central claim amount.
+
+### Policy applied (governed write)
+
+- New per-family basis = **`latest_sale_net`** for `removal_shipment_missing` + `removal_order_discrepancy` (informational_only = cogs_recovery, business_total_loss, settlement_net).
+- `expected_reimbursement = (latest_sold_price − amazon_fees) × qty` (settlement net NEVER used; sale price alone never used).
+- `confirmed_reimbursed` = strong same-family matched reimbursements/credits only.
+- `open_claim_amount = expected_reimbursement − confirmed_reimbursed`; when expected is unknown (no loaded sale price) open is **UNKNOWN (null)** — never falls back to a COGS gap.
+- Internal accounting: `cogs_total = clean_quantity × approved_cogs_unit`; `business_profit_loss_context = expected − cogs_total`; settlement_net shown as context only.
+
+### Contract changes (`claim-ready-to-file-queue-ui-contract.ts`, still zero-import)
+
+- `computeFamilyAwareRecovery`: latest-sale-net is now STRICTLY `(latest_sold_price − amazon_fees) × qty` (dropped the prior `net_settlement_amount`-first preference). New `FamilyAwareRecovery` fields `expected_reimbursement_latest_sale_net`, `total_cogs`, `business_profit_loss_context`. `latest_sale_net` switch case selects the expected amount + operator-confirmed reason. **Open-amount fallback to `gap.open_recovery_gap` (COGS) removed** → null when the policy amount is unknown.
+
+### Governed policy write
+
+- New phase-specific approval `.cursor/operator-approvals/claim-amount-basis-latest-sale-net-policy-fix-v1-approval.md` (`APPROVED_CLAIM_AMOUNT_BASIS_LATEST_SALE_NET_POLICY_FIX_V1=yes`) in addition to the module gate (`APPROVED_CLAIM_AMOUNT_BASIS_POLICY_V1=yes`). Write reuses `writeConfirmedAmountBasisPolicy` (write-by-id + re-read verify, no other table mutation).
+
+### Server packet (`claim-seller-central-filing-packet-v1.ts`)
+
+- Seller Central message body requested-reimbursement line + human-review checklist now use the **latest-sale-net** amount for removal families (`= latest sold price − Amazon fees per unit × qty; internal COGS is not the requested amount`); other families keep COGS. Added `round2` helper.
+
+### UI cleanup
+
+- **Drawer** (`ReadyToFileDetailDrawer.tsx`): section 2 renamed **"2 · Financial Breakdown"** with policy badge **"Seller Central amount basis: latest_sale_net"**, split into two cards — **A · Amazon Claim Amount** (latest sold price / Amazon fees / expected reimbursement / confirmed reimbursed / open claim amount / reimbursement match status) and **B · Internal Cost / Profit-Loss** (approved COGS/unit / affected qty / total purchase cost-COGS / settlement net / business profit-loss context / internal-only note). Seller Central copy block "Requested reimbursement (expected)" now uses the latest-sale-net amount + open claim amount + amount basis. Money-lane note corrected. Sections 1 Current Claim Evidence / 3 Excluded Cross-Family Candidates / 4 Separate Claim Opportunities preserved.
+- **Table** (`ReadyToFileView.tsx`): replaced ambiguous "Recovery" amount columns with **Expected reimbursement / Confirmed reimbursed / Open claim amount / Internal COGS / Profit/loss context** (+ Sep. opps); colSpan 25→27.
+
+### Live execute results (`--execute`, all 10 pilot)
+
+- policy_config_written **yes** · storage `workspace_settings.module_configs.claims.amount_basis_policy` (singleton row `5ad12e20…`).
+- old_total_cogs_expected **$100.72** → new_total_expected_reimbursement_latest_sale_net **≈$59–61** (varies run-to-run because latest_sold_price is a non-deterministic "latest" lookup; 7/10 claims currently have **no loaded sale price** → expected UNKNOWN, honestly surfaced).
+- total_confirmed_reimbursed **$0.00**; total_open_claim_amount **== expected total**; total_internal_cogs **$100.72** (unchanged); pilot_claim_status_counts **safe_to_file 10**.
+- every removal pilot claim: basis **latest_sale_net**, policy **confirmed**, seller_central_requested == expected (NOT COGS).
+- cross-family weak candidates still excluded **152**; separate suggestions **31** (unchanged).
+- no_claim_mutation [subs 13, cases 22, lines 22, cands 9155, edges 147 unchanged]; no_amazon_submission; no_scanner_change; no AI.
+
+### Verification
+
+tsc 0; ReadLints 0 (changed contract/packet/components/script); smoke PASS (new latest_sale_net assertions: expected=(20−6)×2=28, total_cogs=10, profit/loss=18, latest_sale_net overlay selects 28 ≠ COGS, open=28; Financial Breakdown two-card + policy badge guards; table columns); `next build` exit 0; phase script **PASS** (`SAFE_AMOUNT_BASIS_LATEST_SALE_NET_CONFIRMED=yes`, `SAFE_TO_FILE_APPROVED_REMOVAL_FAMILIES=yes`).
+
+### Output flags
+
+policy_config_written **yes** | policy_storage_location `workspace_settings.module_configs.claims.amount_basis_policy` | old_total_cogs_expected **$100.72** | total_confirmed_reimbursed **$0.00** | total_open_claim_amount **== new expected** | total_internal_cogs **$100.72** | pilot_claim_status_counts safe_to_file=10 | seller_central_copy_amount_basis_verified **yes** | ui_financial_breakdown_verified **yes** | cross_family_candidates_still_excluded **yes** (152) | separate_opportunities_still_separate **yes** (31) | no_claim_mutation_verification **PASS** | no_candidate_mutation_verification **PASS** | no_amazon_submission_verification **PASS** | no_scanner_change_verification **PASS** | build_result **PASS** | smoke_result **PASS** | next_build_result **PASS** | **SAFE_AMOUNT_BASIS_LATEST_SALE_NET_CONFIRMED=yes** | **SAFE_READY_TO_FILE_FINANCIAL_UI_CLEAR=yes** | **SAFE_TO_FILE_APPROVED_REMOVAL_FAMILIES=yes**.
+
+**Files:** `claim-ready-to-file-queue-ui-contract.ts`, `claim-seller-central-filing-packet-v1.ts`, `ReadyToFileDetailDrawer.tsx`, `ReadyToFileView.tsx`, `claim-amount-basis-latest-sale-net-policy-fix-v1-approval.md`, `scripts/phase-claim-amount-basis-latest-sale-net-policy-fix-v1.ts`, `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts`.
+
+**NEXT_PROMPT:** PHASE-CLAIM-LATEST-SALE-NET-SOURCE-COVERAGE-BACKFILL-V1 — ingest/wire the latest sold-price + Amazon-fee source (Transaction View / all_orders item_price) for the **7/10 removal pilot claims currently missing `latest_sold_price`**, so every removal claim has a real expected reimbursement = latest sold price − Amazon fees before Seller Central filing. Then re-verify the 10 confirmed claims and proceed to operator filing + real Amazon Case ID record-back.
+
