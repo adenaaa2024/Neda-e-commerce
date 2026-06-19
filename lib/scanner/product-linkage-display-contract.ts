@@ -28,6 +28,7 @@ export type ProductLinkageSourceRow = {
   fnsku?: string | null;
   upc?: string | null;
   sku?: string | null;
+  asin?: string | null;
   product_identifier?: string | null;
   item_name?: string | null;
 };
@@ -55,7 +56,7 @@ export function buildProductLinkageFallbackName(row: ProductLinkageSourceRow): s
   if (desc) return desc;
   const item = trimOrNull(row.item_name);
   if (item) return item;
-  const parts = [trimOrNull(row.fnsku), trimOrNull(row.upc), trimOrNull(row.sku), trimOrNull(row.product_identifier)].filter(
+  const parts = [trimOrNull(row.fnsku), trimOrNull(row.upc), trimOrNull(row.sku), trimOrNull(row.asin), trimOrNull(row.product_identifier)].filter(
     Boolean,
   ) as string[];
   if (parts.length) return parts.join(" · ");
