@@ -517,7 +517,6 @@ export default function ReturnsPage() {
                   onRowEdit={openItemEdit}
                   onBulkDeleted={bulkRemoveReturns}
                   onBulkMoved={bulkUpdateReturns}
-                  onNewItem={() => openWizard()}
                 />
               </div>
             )}
@@ -563,7 +562,6 @@ export default function ReturnsPage() {
                   onRowEdit={(p)  => openDrawer({ type: "package", record: p })}
                   onBulkDeleted={bulkRemovePackages}
                   onBulkPackagesUpdated={bulkUpdatePackages}
-                  onNewPackage={() => setCreatePackageOpen(true)}
                 />
               </div>
             )}
@@ -585,7 +583,6 @@ export default function ReturnsPage() {
                   onRowClick={(p) => openDrawer({ type: "pallet", record: p })}
                   onRowEdit={(p)  => openDrawer({ type: "pallet", record: p })}
                   onBulkDeleted={bulkRemovePallets}
-                  onNewPallet={() => setCreatePalletOpen(true)}
                 />
               </div>
             )}

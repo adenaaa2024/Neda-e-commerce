@@ -6808,7 +6808,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
 
 // ─── Items Data Table ──────────────────────────────────────────────────────────
 
-export function ItemsDataTable({ items, packages, pallets, role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, platformIconBySlug = {}, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, onNewItem, externalSearch = "", onToast, returnsTotalInDb = null }: {
+export function ItemsDataTable({ items, packages, pallets, role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, platformIconBySlug = {}, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, externalSearch = "", onToast, returnsTotalInDb = null }: {
   items: ReturnRecord[]; packages: PackageRecord[]; pallets: PalletRecord[];
   role: UserRole; actor: string;
   actorProfileId?: string | null;
@@ -6820,7 +6820,6 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
   onRowClick: (r: ReturnRecord) => void; onRowEdit: (r: ReturnRecord) => void;
   onBulkDeleted: (ids: string[]) => void;
   onBulkMoved: (updated: ReturnRecord[]) => void;
-  onNewItem: () => void;
   /** Merged with local search — set from TopHeader global search on Returns. */
   externalSearch?: string;
   /** Copy-to-clipboard feedback (page-level toast). */
@@ -6945,7 +6944,6 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
             <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-[150px]`} title="To date" />
         </div>
         {(search || statusF || marketF || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo(""); setPage(1); }} className="flex h-10 items-center gap-1 rounded-xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-3 text-xs font-medium text-[#4C5661] hover:bg-[#F8F6F1] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]"><X className="h-3.5 w-3.5" />Clear</button>}
-        <button onClick={onNewItem} className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-[#8A681F] px-4 text-sm font-semibold text-[#F7F3EA] hover:bg-[#B08A3C] dark:bg-[#D6B76E] dark:text-[#171A1E] dark:hover:bg-[#F1D58A]"><Plus className="h-4 w-4" />Scan Item</button>
       </div>
 
       <div className="w-full overflow-x-auto rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C]">
@@ -7112,7 +7110,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
 
 // ─── Packages Data Table ───────────────────────────────────────────────────────
 
-export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, onNewPackage, externalSearch = "", onToast }: {
+export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, externalSearch = "", onToast }: {
   packages: PackageRecord[]; returns?: ReturnRecord[]; pallets?: PalletRecord[];
   role: UserRole; actor: string;
   actorProfileId?: string | null;
@@ -7122,7 +7120,6 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   onBulkDeleted: (ids: string[]) => void;
   /** Called after bulk assign to pallet so parent state stays in sync with DB */
   onBulkPackagesUpdated?: (updated: PackageRecord[]) => void;
-  onNewPackage: () => void;
   externalSearch?: string;
   onToast?: (msg: string, kind?: ToastKind) => void;
 }) {
@@ -7229,7 +7226,6 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
         <select value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`}><option value="">All Statuses</option>{Object.entries(PKG_STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
         <select value={carrierF} onChange={(e) => { setCarrierF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`}><option value="">All Carriers</option>{usedCarriers.map((c) => <option key={c!} value={c!}>{c}</option>)}</select>
         <div className="flex items-center gap-1.5"><Calendar className="h-4 w-4 shrink-0 text-slate-400" /><input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /><span className="text-xs text-slate-400">–</span><input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /></div>
-        <button onClick={onNewPackage} className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-violet-500 px-4 text-sm font-semibold text-white hover:bg-violet-600"><Plus className="h-4 w-4" />New Package</button>
       </div>
       <div className="w-full overflow-hidden rounded-2xl border border-border">
         <div className="w-full min-w-0 overflow-x-auto">
@@ -7405,13 +7401,13 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
 
 // ─── Pallets Data Table ────────────────────────────────────────────────────────
 
-export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onNewPallet, externalSearch = "", onToast }: {
+export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, externalSearch = "", onToast }: {
   pallets: PalletRecord[]; packages?: PackageRecord[]; returns?: ReturnRecord[]; role: UserRole; actor: string;
   actorProfileId?: string | null;
   showCompanyColumn?: boolean;
   organizationLabelById?: Record<string, string>;
   onRowClick: (p: PalletRecord) => void; onRowEdit: (p: PalletRecord) => void;
-  onBulkDeleted: (ids: string[]) => void; onNewPallet: () => void;
+  onBulkDeleted: (ids: string[]) => void;
   externalSearch?: string;
   onToast?: (msg: string, kind?: ToastKind) => void;
 }) {
@@ -7510,7 +7506,6 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
         <div className="relative min-w-[180px] flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input placeholder="Search pallet #…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} pl-9`} /></div>
         <select value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`}><option value="">All Statuses</option>{Object.entries(PALLET_STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
         <div className="flex items-center gap-1.5"><Calendar className="h-4 w-4 shrink-0 text-slate-400" /><input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /><span className="text-xs text-slate-400">–</span><input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /></div>
-        <button onClick={onNewPallet} className="ml-auto flex h-10 items-center gap-2 rounded-xl bg-slate-700 px-4 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500"><Plus className="h-4 w-4" />New Pallet</button>
       </div>
       <div className="w-full overflow-hidden rounded-2xl border border-border">
         <div className="w-full min-w-0 overflow-x-auto">
