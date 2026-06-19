@@ -82,6 +82,24 @@ export function packageManifestHasEmptyBox(raw: unknown): boolean {
   return emptyBoxTruthy(o.empty_box);
 }
 
+/** Box intake — operator marked no packing slip (stored on `manifest_data.no_packing_slip`). */
+export function packageManifestHasNoPackingSlip(raw: unknown): boolean {
+  const md = parseManifestObject(raw);
+  return md.no_packing_slip === true;
+}
+
+export type BoxIntakeManifestFlags = {
+  empty_box: boolean;
+  no_packing_slip: boolean;
+};
+
+export function readBoxIntakeManifestFlags(raw: unknown): BoxIntakeManifestFlags {
+  return {
+    empty_box: packageManifestHasEmptyBox(raw),
+    no_packing_slip: packageManifestHasNoPackingSlip(raw),
+  };
+}
+
 function priorOperatorItemScanBlock(existingManifest: unknown): Record<string, unknown> {
   const md = parseManifestObject(existingManifest);
   const block = md[PACKAGE_EMPTY_BOX_MANIFEST_KEY];

@@ -13,12 +13,12 @@ import {
 import { queryEpAllocationMismatchBreakdown, rebuildValidFromBreakdown } from "./removal/ep-allocation-mismatch-breakdown";
 import { evaluateExplicitRebuildSkipFromDb } from "./removal/expected-packages-explicit-rebuild-guard";
 import { bindProductionSupabaseEnv, productionPostgresUrl, PRODUCTION_REF } from "./production-db-bind";
+import { PRODUCTION_ORG_ID, PRODUCTION_STORE_ID } from "./production-tenant-ids";
 
 const require = createRequire(import.meta.url);
 require.cache[require.resolve("server-only")] = { exports: {} } as Module;
 
-export const PRODUCTION_ORG_ID = "00000000-0000-0000-0000-000000000001";
-export const PRODUCTION_STORE_ID = "509ee1f6-622c-46a5-8110-7b889ba46c2c";
+export { PRODUCTION_ORG_ID, PRODUCTION_STORE_ID };
 
 export type SyncCounts = {
   removals: number;

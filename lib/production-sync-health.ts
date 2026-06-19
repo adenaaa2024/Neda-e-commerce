@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pickHealthImportRow, type HealthImportRow } from "./command-center-health";
-import { PRODUCTION_ORG_ID, PRODUCTION_STORE_ID } from "./production-removal-sync-run";
+import { PRODUCTION_ORG_ID, PRODUCTION_STORE_ID } from "./production-tenant-ids";
 import { readStoreAutomationSettings } from "./platform-automation-scope-storage";
 import { computeRemovalRecentNextRun } from "./platform-automation-schedule";
-import { VERCEL_REMOVAL_CRON_WAKE_SCHEDULE } from "./removal-cron-schedule-gate";
+import { VERCEL_REMOVAL_CRON_WAKE_SCHEDULE } from "./removal-cron-schedule-constants";
 
 const REMOVAL_TYPES = ["REMOVAL_ORDER", "REMOVAL_SHIPMENT"] as const;
 

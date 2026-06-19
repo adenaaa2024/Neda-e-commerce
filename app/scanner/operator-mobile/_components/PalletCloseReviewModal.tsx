@@ -43,8 +43,8 @@ export function PalletCloseReviewModal(props: PalletCloseReviewModalProps) {
           Pallet review
         </p>
         <p className="operator-shipment-flow-modal__body mt-2 text-center text-[13px] font-semibold leading-snug">
-          Review all boxes on this pallet before close. Missing stays review status only — claims are
-          created later.
+          This is a pallet receive review. Review aggregated results for all boxes on this pallet. It does not
+          create claims — missing marks remain review evidence only and will be reviewed later.
         </p>
         <p className="operator-shipment-flow-modal__body mt-2 text-center text-[13px] font-semibold leading-relaxed tabular-nums">
           Boxes <span className="font-mono font-bold">{model.package_count}</span>

@@ -93,7 +93,19 @@ function mapRpcRow(raw: Record<string, unknown>, orgId: string, storeId: string)
       const n = Number(raw.identifier_resolution_confidence);
       return Number.isFinite(n) ? n : null;
     })(),
-    carrier: null,
+    carrier: (() => {
+      for (const key of [
+        "carrier",
+        "carrier_name",
+        "carrier_name_snapshot",
+        "carrier_code",
+        "carrier_code_snapshot",
+      ]) {
+        const v = String(raw[key] ?? "").trim();
+        if (v) return v;
+      }
+      return null;
+    })(),
     total_expected: coerceInt(raw.total_expected),
     total_scanned: coerceInt(raw.total_scanned),
   };

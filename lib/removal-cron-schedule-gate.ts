@@ -12,13 +12,13 @@ import {
   type RemovalRecentSyncSchedule,
   type StoreAutomationSettings,
 } from "./platform-automation-settings-types";
-import { PRODUCTION_ORG_ID, PRODUCTION_STORE_ID } from "./production-removal-sync-run";
+import { PRODUCTION_ORG_ID, PRODUCTION_STORE_ID } from "./production-tenant-ids";
 import { productionPostgresUrl } from "./production-db-bind";
+import { VERCEL_REMOVAL_CRON_WAKE_SCHEDULE } from "./removal-cron-schedule-constants";
+
+export { VERCEL_REMOVAL_CRON_WAKE_SCHEDULE };
 import { readRemovalCronRuntimeFromPg } from "./removal-cron-runtime-storage";
 import { supabaseServer } from "./supabase-server";
-
-/** Vercel Hobby: daily cron only. Business slots still from platform_settings. */
-export const VERCEL_REMOVAL_CRON_WAKE_SCHEDULE = "30 6 * * *";
 
 export type RemovalCronGateEvaluation = {
   settings_source: "platform_settings.automation_settings.scopes[org:store].removal_api_sync";

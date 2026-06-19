@@ -244,6 +244,22 @@ export function mergePackageManifestShortageFinalize(
   };
 }
 
+/** Manifest entries with operator-marked missing qty > 0 (editable review rows). */
+export function activeMarkedMissingReviewEntries(raw: unknown): OperatorMissingReviewEntry[] {
+  return readMissingReviewEntries(raw).filter(
+    (entry) =>
+      entry.operator_marked_missing_qty > 0 &&
+      Boolean(String(entry.slip_content_id ?? entry.expected_line_id ?? "").trim()),
+  );
+}
+
+export function totalOperatorMarkedMissingQty(raw: unknown): number {
+  return activeMarkedMissingReviewEntries(raw).reduce(
+    (sum, entry) => sum + Math.max(0, Math.floor(entry.operator_marked_missing_qty)),
+    0,
+  );
+}
+
 export function detectMissingReviewConflicts(args: {
   entries: OperatorMissingReviewEntry[];
   expectedQty: number;
