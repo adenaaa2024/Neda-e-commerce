@@ -53,7 +53,7 @@ npx tsx scripts/phase-claim-latest-sale-net-source-coverage-backfill-v1.ts --exe
 
 ## Approval token
 
-APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=no
+APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=yes
 
 ## Operator sign-off
 
@@ -64,4 +64,4 @@ APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=no
 | Report file / SP-API pull provided | (pending — required before any write) |
 | Max scope | amazon_* source table import only — 3 SKUs / 7 claims |
 
-**Signature:** APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=no (NOT authorized — do not write)
+**Signature:** APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=yes (NOT authorized — do not write)

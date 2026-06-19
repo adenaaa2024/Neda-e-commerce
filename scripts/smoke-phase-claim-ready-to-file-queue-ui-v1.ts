@@ -16,6 +16,7 @@ import {
   READY_TO_FILE_ELIGIBLE_FAMILIES,
   buildReferenceBlockText,
   classifyCandidateFamily,
+  computeAmountStatus,
   computeFamilyAwareRecovery,
   computeFilingDecision,
   computeRecoveryGap,
@@ -634,7 +635,7 @@ for (const spec of importedSpecifiers(genContractSrc)) {
 // Drawer separates the four sections cleanly (A current evidence, B gap, C excluded, D opportunities).
 assert(drawerSrc.includes("1 · Current Claim Evidence"), "drawer must render section 1 Current Claim Evidence");
 assert(drawerSrc.includes("2 · Financial Breakdown"), "drawer must render section 2 Financial Breakdown");
-assert(drawerSrc.includes("3 · Excluded Cross-Family Candidates"), "drawer must render section 3 Excluded Cross-Family Candidates");
+assert(drawerSrc.includes("3 · Other possible claim opportunities for this product"), "drawer must render section 3 Other possible claim opportunities (collapsed)");
 assert(drawerSrc.includes("4 · Separate Claim Opportunities"), "drawer must render section 4 Separate Claim Opportunities");
 // Excluded section uses misclassified_candidates (cross-family) and is collapsed by default (<details> without `open`).
 assert(drawerSrc.includes("misclassified_candidates"), "drawer must source the excluded section from misclassified_candidates");
@@ -769,7 +770,7 @@ assert(fullyReceived.badges.includes("has_receipt"), "fully received must carry 
 // View must render the origin/basis columns.
 for (const col of [
   "Origin",
-  "Missing basis",
+  "Why created",
   "Age days",
   "Threshold days",
   "Expected qty",
@@ -803,5 +804,70 @@ assert(
   !/openai|gpt-|anthropic|claude|chat\.completions|generateText/i.test(originLibSrc),
   "removal-origin-basis loader must not use AI/GPT",
 );
+
+// ---- PHASE-CLAIM-REMOVAL-INTAKE-SETTINGS-AND-UI-FINALIZE-V1 ----
+
+// (E) Amount status helper: priced when latest_sold_price loaded; needs source otherwise. No COGS fallback.
+const amtPriced = computeAmountStatus(faRow);
+assert(amtPriced.amount_status === "priced" && amtPriced.amount_available === true, "loaded sale price → priced/available");
+assert(amtPriced.price_source_loaded === true && amtPriced.fee_source_loaded === true, "priced row must report price + fee sources loaded");
+assert(amtPriced.source_missing === false && amtPriced.needs_sale_price_source_import === false, "priced row must not need a source import");
+const amtUnknown = computeAmountStatus(missingSaleRow);
+assert(amtUnknown.amount_status === "needs_sale_price_source" && amtUnknown.amount_available === false, "missing sale price → needs_sale_price_source");
+assert(amtUnknown.amount_status_label === "UNKNOWN — sale source missing", "unknown amount label wording");
+assert(amtUnknown.needs_sale_price_source_import === true && amtUnknown.source_missing === true, "unknown row must need a sale price source import");
+assert(amtUnknown.unknown_reason === "NO_VALID_ORDER_SALE_AT_OR_BEFORE_EVENT", "unknown amount must carry the deterministic unknown reason");
+
+// (B) Origin reason now carries a compact scan status for the table.
+assert(validMissing.scan_status_compact === "No scan/receipt", `valid missing scan status compact (got "${validMissing.scan_status_compact}")`);
+assert(discrepancy.scan_status_compact === "Received 1/2", `discrepancy scan status compact (got "${discrepancy.scan_status_compact}")`);
+
+// (A) Server composer builds a read-only settings audit from the effective policy.
+assert(libSrc.includes("loadEffectiveClaimIntakePolicy"), "lib must load the effective intake policy for the settings audit");
+assert(libSrc.includes("settings_audit:") && libSrc.includes("scan_availability_start_found"), "lib payload must expose the settings_audit (scan availability)");
+assert(libSrc.includes("scan_go_live_date") && libSrc.includes("missing_setting"), "lib must report scan_go_live_date or missing_setting (no invented value)");
+assert(
+  !libSrc.includes("scan_go_live_date: \"") && !/scan_go_live_date\s*=\s*["']\d/.test(libSrc),
+  "lib must not hardcode/invent a scan_go_live_date value",
+);
+
+// (A) View renders the settings-audit strip (threshold + scan availability + missing-setting affordance).
+for (const s of [
+  "Intake settings that created these claims",
+  "Missing threshold",
+  "Scan / receipt reliable from",
+  "missing setting",
+  "Expected-package match window",
+  "settings_audit",
+]) {
+  assert(viewSrc.includes(s), `view settings-audit strip must include '${s}'`);
+}
+
+// (C) View renders the new clarity columns.
+for (const col of ["Why created", "Scan status", "Amount status", "Price source status"]) {
+  assert(/<th[^>]*>(?:[^<]*)<\/th>/.test(viewSrc) && viewSrc.includes(col), `ready-to-file table must add the '${col}' column`);
+}
+assert(viewSrc.includes("computeAmountStatus"), "view must compute amount status per row");
+assert(viewSrc.includes("needs sale price source import"), "view must surface 'needs sale price source import' for unknown-amount rows");
+
+// (C/A) Drawer "Why this claim exists" gains scan availability + plain-language separation text.
+assert(drawerSrc.includes("Scan / receipt reliable from"), "drawer Why-this-claim section must show scan/receipt availability start");
+assert(drawerSrc.includes("This is a") && drawerSrc.includes("removal claim"), "drawer must state in plain language this is a removal claim");
+assert(
+  /not<\/span>\s*based on damaged \/ lost \/ reversal \/[\s\S]*?customer-return/.test(drawerSrc),
+  "drawer must state the claim is not based on damaged/lost/reversal/customer-return candidates",
+);
+
+// (E) Drawer renders the third Data Status amount box + 3-up grid.
+assert(drawerSrc.includes("C · Data Status"), "Financial Breakdown must render the C · Data Status box");
+assert(drawerSrc.includes("Latest sale price source loaded") && drawerSrc.includes("Fee source loaded") && drawerSrc.includes("API / source missing"), "Data Status box must show price/fee/source-missing yes-no");
+assert(drawerSrc.includes("sm:grid-cols-3"), "Financial Breakdown must use a 3-up grid for A/B/C boxes");
+
+// (D) Other-opportunities section is collapsed + clearly marked not part of THIS removal claim.
+assert(drawerSrc.includes("not part of this removal claim"), "excluded/other-opportunities section must be badged 'not part of this removal claim'");
+
+// (A) computeAmountStatus is in the client-safe contract (no server import added).
+assert(contractSrc.includes("export function computeAmountStatus"), "computeAmountStatus must live in the client-safe ui-contract");
+assert(contractSrc.includes("export type ReadyToFileSettingsAudit"), "ReadyToFileSettingsAudit type must live in the client-safe ui-contract");
 
 console.log("SMOKE OK: PHASE-CLAIM-READY-TO-FILE-QUEUE-UI-V1 static contract verified");

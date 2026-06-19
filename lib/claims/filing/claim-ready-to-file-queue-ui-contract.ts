@@ -399,6 +399,8 @@ export type RemovalOriginReason = {
   missing_qty: number | null;
   build_status: string | null;
   scanner_status_lines: string[];
+  /** One-line scan/receipt status for the table ("No scan/receipt", "Scanned N", "Received N/expected"). */
+  scan_status_compact: string;
   validity: RemovalClaimValidity;
   validity_label: string;
   validity_tone: "success" | "warning" | "danger" | "neutral";
@@ -442,6 +444,7 @@ function notApplicableRemovalReason(): RemovalOriginReason {
     missing_qty: null,
     build_status: null,
     scanner_status_lines: [],
+    scan_status_compact: "—",
     validity: "not_applicable",
     validity_label: REMOVAL_VALIDITY_META.not_applicable.label,
     validity_tone: REMOVAL_VALIDITY_META.not_applicable.tone,
@@ -491,6 +494,10 @@ export function computeRemovalOriginReason(row: ReadyToFileRow): RemovalOriginRe
     i.scanned_units > 0 ? `scanned return_items: ${i.scanned_units} unit(s)` : "no scanned return_items",
     `actual_scanned_count = ${received ?? 0}`,
   ];
+  const scanStatusCompact =
+    i.package_received || recv > 0 || i.scanned_units > 0
+      ? `Received ${recv}${expected != null ? `/${expected}` : ""}`
+      : "No scan/receipt";
 
   let validity: RemovalClaimValidity;
   let missingBasis: string;
@@ -568,6 +575,7 @@ export function computeRemovalOriginReason(row: ReadyToFileRow): RemovalOriginRe
     missing_qty: missingQty,
     build_status: i.build_status,
     scanner_status_lines: scannerStatusLines,
+    scan_status_compact: scanStatusCompact,
     validity,
     validity_label: meta.label,
     validity_tone: meta.tone,
@@ -575,6 +583,42 @@ export function computeRemovalOriginReason(row: ReadyToFileRow): RemovalOriginRe
     compact_reason: compactReason,
     final_reason: finalReason,
     badges,
+  };
+}
+
+// ---- Amount / data-source status (PHASE-CLAIM-REMOVAL-INTAKE-SETTINGS-AND-UI-FINALIZE-V1) ----
+
+/** Plain operator-facing status of the Amazon claim amount + its data sources.
+ * Pure read of money_lane. NO COGS / settlement-net fallback — when the latest
+ * sale price is not loaded the amount is "needs sale price source import", never
+ * silently backfilled. Drives the "Amount status" / "Price source status" table
+ * columns and the drawer "Data Status" box. */
+export type AmountStatus = {
+  amount_available: boolean;
+  amount_status: "priced" | "needs_sale_price_source";
+  amount_status_label: string;
+  amount_tone: "success" | "warning";
+  price_source_loaded: boolean;
+  fee_source_loaded: boolean;
+  source_missing: boolean;
+  unknown_reason: string | null;
+  needs_sale_price_source_import: boolean;
+};
+
+export function computeAmountStatus(row: ReadyToFileRow): AmountStatus {
+  const m = row.money_lane;
+  const priceLoaded = m.latest_sold_price != null;
+  const feeLoaded = m.amazon_fees_total != null;
+  return {
+    amount_available: priceLoaded,
+    amount_status: priceLoaded ? "priced" : "needs_sale_price_source",
+    amount_status_label: priceLoaded ? "Priced" : "UNKNOWN — sale source missing",
+    amount_tone: priceLoaded ? "success" : "warning",
+    price_source_loaded: priceLoaded,
+    fee_source_loaded: feeLoaded,
+    source_missing: !priceLoaded || !feeLoaded,
+    unknown_reason: priceLoaded ? null : (m.latest_sale_net_unknown_reason ?? "no loaded sale source"),
+    needs_sale_price_source_import: !priceLoaded,
   };
 }
 
@@ -606,6 +650,27 @@ export type ReadyToFileSummaryCards = {
   family_counts: Record<string, number>;
   missing_blockers_count: number;
   not_submitted_to_amazon_count: number;
+};
+
+/** Part A — read-only audit of the intake/effective-policy settings that govern
+ * removal-claim missing detection, surfaced in the UI so operators can see which
+ * configured value created the missing threshold and from what date scanner/
+ * receipt data is considered reliable. No invented values: missing settings are
+ * reported as such with a recommended key (never written by this phase). */
+export type ReadyToFileSettingsAudit = {
+  delayed_not_received_days: number;
+  delayed_not_received_days_source: string;
+  scan_availability_start_found: boolean;
+  scan_availability_start_value: string | null;
+  scan_availability_start_source: string;
+  claim_start_date: string | null;
+  claim_eligibility_window_days: number;
+  expiration_warning_days: number;
+  expected_package_matching_window_days: number | null;
+  expected_package_matching_window_source: string;
+  sources_read: string[];
+  has_org_override: boolean;
+  missing_settings: Array<{ key: string; meaning: string; recommended_setting_key: string }>;
 };
 
 export type ReadyToFileCaseIdRecordingConfig = {
@@ -644,6 +709,9 @@ export type ReadyToFileQueuePayload = {
   };
 
   deep_reference_census: DeepReferenceCensus;
+
+  /** Part A — intake/effective-policy settings audit (read-only). */
+  settings_audit?: ReadyToFileSettingsAudit | null;
 
   case_id_recording: ReadyToFileCaseIdRecordingConfig;
 

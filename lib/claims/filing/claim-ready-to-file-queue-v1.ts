@@ -30,6 +30,7 @@ import {
 } from "../reference/claim-event-reference-ledger-v1";
 import { loadConfirmedAmountBasisPolicy } from "../policy/claim-amount-basis-policy-v1";
 import { loadClaimIntakeSettings } from "../intake/claim-intake-settings";
+import { loadEffectiveClaimIntakePolicy } from "../intake/claim-intake-policy-contract";
 import { loadRemovalOriginInputsForRows } from "./claim-removal-origin-basis-v1";
 import {
   CLAIM_READY_TO_FILE_QUEUE_V1,
@@ -88,20 +89,62 @@ export async function composeClaimReadyToFileQueueV1(
   const intakeRunId = opts.intake_run_id ?? PILOT_INTAKE_RUN_ID;
   const runOpts = { pilot_case_run_id: pilotCaseRunId, intake_run_id: intakeRunId };
 
-  const [packets, money, trace, amountBasisPolicy, intake] = await Promise.all([
+  const [packets, money, trace, amountBasisPolicy, intake, effectivePolicy] = await Promise.all([
     composeClaimSellerCentralFilingPacketV1(client, organizationId, storeId, runOpts),
     composeMoneyLanePreviewAfterCogsV1(client, organizationId, storeId, runOpts),
     composeTridReferenceTraceMatrixV1(client, organizationId, storeId, runOpts),
     loadConfirmedAmountBasisPolicy(client, organizationId),
     loadClaimIntakeSettings(client, organizationId),
+    loadEffectiveClaimIntakePolicy(client, organizationId, storeId),
   ]);
 
+  const hasOrgIntakeOverride = intake.sources_read.some(
+    (s) => s.startsWith("organization_settings.claim_policy.intake") && !s.includes("absent"),
+  );
   const missingThresholdDays = intake.settings.delayed_not_received_days;
-  const missingThresholdSource = intake.sources_read.some((s) =>
-    s.startsWith("organization_settings.claim_policy.intake") && !s.includes("absent"),
-  )
+  const missingThresholdSource = hasOrgIntakeOverride
     ? "organization_settings.claim_policy.intake.delayed_not_received_days"
     : "workspace_settings.module_configs.claim_intake.delayed_not_received_days";
+
+  // ---- Part A: read-only settings audit (no invented values) ----
+  const scanStartValue = effectivePolicy.scan_go_live_date;
+  type SettingsAudit = NonNullable<ReadyToFileQueuePayload["settings_audit"]>;
+  const missingSettings: SettingsAudit["missing_settings"] = [];
+  if (!scanStartValue) {
+    missingSettings.push({
+      key: "scan_go_live_date",
+      meaning: "Date from which scanner/receipt data is considered reliable (scan/receipt availability start).",
+      recommended_setting_key: "organization_settings.claim_policy.scan_go_live_date",
+    });
+  }
+  if (!effectivePolicy.claim_start_date) {
+    missingSettings.push({
+      key: "claim_start_date",
+      meaning: "Earliest event date eligible for import/API-sourced claims.",
+      recommended_setting_key: "organization_settings.claim_policy.claim_start_date",
+    });
+  }
+  const settingsAudit: SettingsAudit = {
+    delayed_not_received_days: missingThresholdDays,
+    delayed_not_received_days_source: missingThresholdSource,
+    scan_availability_start_found: scanStartValue != null,
+    scan_availability_start_value: scanStartValue,
+    scan_availability_start_source: scanStartValue
+      ? (hasOrgIntakeOverride
+          ? "organization_settings.claim_policy.scan_go_live_date"
+          : "organization_settings.claim_policy.scan_go_live_date (effective)")
+      : "missing_setting",
+    claim_start_date: effectivePolicy.claim_start_date,
+    claim_eligibility_window_days: effectivePolicy.claim_eligibility_window_days,
+    expiration_warning_days: effectivePolicy.expiration_warning_days,
+    expected_package_matching_window_days: intake.settings.rolling_window_days ?? null,
+    expected_package_matching_window_source: hasOrgIntakeOverride
+      ? "organization_settings.claim_policy.intake.rolling_window_days"
+      : "workspace_settings.module_configs.claim_intake.rolling_window_days (or default)",
+    sources_read: effectivePolicy.sources_read,
+    has_org_override: hasOrgIntakeOverride,
+    missing_settings: missingSettings,
+  };
 
   const moneyBySubmission = new Map(
     money.per_submission_money_matrix.map((r) => [r.claim_submission_id, r]),
@@ -450,6 +493,7 @@ export async function composeClaimReadyToFileQueueV1(
       claims_needs_reference_review: rows.filter((r) => r.event_reference_ledger.needs_reference_review).length,
     },
     deep_reference_census: deepReferenceCensus,
+    settings_audit: settingsAudit,
     case_id_recording: {
       enabled_by_default: false,
       unlock_label: "I filed this manually in Seller Central",

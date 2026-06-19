@@ -18,6 +18,7 @@ import {
 import { getClaimCenterV2Page } from "@/lib/claims/center/claim-center-v2-page-contract";
 import {
   DEFAULT_READY_TO_FILE_FILTERS,
+  computeAmountStatus,
   computeFamilyAwareRecovery,
   computeFilingDecision,
   computeRemovalOriginReason,
@@ -111,6 +112,83 @@ export function ReadyToFileView() {
         </p>
       ) : payload && cards ? (
         <div className="space-y-6">
+          {/* ---- Part A: intake settings audit strip ---- */}
+          {payload.settings_audit ? (
+            <section className="rounded-xl border border-sky-500/30 bg-sky-500/[0.05] px-4 py-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                  Intake settings that created these claims
+                </h2>
+                {payload.settings_audit.has_org_override ? (
+                  <span className={claimCenterBadgeTone("info")}>company override active</span>
+                ) : (
+                  <span className={claimCenterBadgeTone("neutral")}>platform default</span>
+                )}
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase opacity-55">Missing threshold</dt>
+                  <dd className="mt-0.5 font-semibold">
+                    {payload.settings_audit.delayed_not_received_days} days
+                  </dd>
+                  <dd className="text-[10px] opacity-50">{payload.settings_audit.delayed_not_received_days_source}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase opacity-55">
+                    Scan / receipt reliable from
+                  </dt>
+                  {payload.settings_audit.scan_availability_start_found ? (
+                    <dd className="mt-0.5 font-semibold">
+                      {payload.settings_audit.scan_availability_start_value}
+                    </dd>
+                  ) : (
+                    <dd className="mt-0.5 font-semibold text-amber-700 dark:text-amber-300">
+                      missing setting
+                    </dd>
+                  )}
+                  <dd className="text-[10px] opacity-50">{payload.settings_audit.scan_availability_start_source}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase opacity-55">Claim start date</dt>
+                  <dd className="mt-0.5 font-semibold">
+                    {payload.settings_audit.claim_start_date ?? (
+                      <span className="text-amber-700 dark:text-amber-300">missing setting</span>
+                    )}
+                  </dd>
+                  <dd className="text-[10px] opacity-50">
+                    eligibility window {payload.settings_audit.claim_eligibility_window_days}d
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-semibold uppercase opacity-55">
+                    Expected-package match window
+                  </dt>
+                  <dd className="mt-0.5 font-semibold">
+                    {payload.settings_audit.expected_package_matching_window_days != null
+                      ? `${payload.settings_audit.expected_package_matching_window_days} days`
+                      : "—"}
+                  </dd>
+                  <dd className="text-[10px] opacity-50">
+                    expiry warning {payload.settings_audit.expiration_warning_days}d
+                  </dd>
+                </div>
+              </dl>
+              {payload.settings_audit.missing_settings.length > 0 ? (
+                <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-950 dark:text-amber-100">
+                  <p className="font-semibold">Missing settings (not invented — recommend adding):</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                    {payload.settings_audit.missing_settings.map((m) => (
+                      <li key={m.key}>
+                        <span className="font-mono">{m.key}</span> — {m.meaning} → recommended key:{" "}
+                        <span className="font-mono">{m.recommended_setting_key}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
           {/* ---- Summary cards ---- */}
           <section className={CLAIM_CENTER_KPI_GRID}>
             <div className={CLAIM_CENTER_KPI_CARD}>
@@ -286,11 +364,12 @@ export function ReadyToFileView() {
                   <th className="px-3 py-2">Submission</th>
                   <th className="px-3 py-2">Case</th>
                   <th className="px-3 py-2">Origin</th>
-                  <th className="px-3 py-2">Missing basis</th>
+                  <th className="px-3 py-2">Why created</th>
                   <th className="px-3 py-2 text-right">Age days</th>
                   <th className="px-3 py-2 text-right">Threshold days</th>
                   <th className="px-3 py-2 text-right">Expected qty</th>
                   <th className="px-3 py-2 text-right">Received/scanned qty</th>
+                  <th className="px-3 py-2">Scan status</th>
                   <th className="px-3 py-2 text-right">Missing qty</th>
                   <th className="px-3 py-2">Validity</th>
                   <th className="px-3 py-2">Current family</th>
@@ -299,6 +378,8 @@ export function ReadyToFileView() {
                   <th className="px-3 py-2">Decision</th>
                   <th className="px-3 py-2">Flags</th>
                   <th className="px-3 py-2 text-right">Expected reimbursement</th>
+                  <th className="px-3 py-2">Amount status</th>
+                  <th className="px-3 py-2">Price source status</th>
                   <th className="px-3 py-2">Sale source</th>
                   <th className="px-3 py-2 text-right">Confirmed reimbursed</th>
                   <th className="px-3 py-2 text-right">Open claim amount</th>
@@ -344,6 +425,19 @@ export function ReadyToFileView() {
                     <td className="px-3 py-2 text-right tabular-nums">{o.applicable ? o.threshold_days : "—"}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{o.expected_qty ?? "—"}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{o.received_qty ?? "—"}</td>
+                    <td className="px-3 py-2 text-[11px]">
+                      {o.applicable ? (
+                        <span
+                          className={claimCenterBadgeTone(
+                            o.scan_status_compact.startsWith("No scan") ? "neutral" : "info",
+                          )}
+                        >
+                          {o.scan_status_compact}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">{o.missing_qty ?? "—"}</td>
                     <td className="px-3 py-2 text-xs">
                       {o.applicable ? (
@@ -355,6 +449,7 @@ export function ReadyToFileView() {
                     {(() => {
                       const fa = computeFamilyAwareRecovery(r);
                       const d = computeFilingDecision(r);
+                      const amt = computeAmountStatus(r);
                       const sepCount = fa.separate_claim_suggestions.length;
                       const excludedCount = fa.misclassified_candidates.length;
                       const gap = fa.gap;
@@ -391,6 +486,29 @@ export function ReadyToFileView() {
                             ) : (
                               money(fa.seller_central_amount)
                             )}
+                          </td>
+                          <td className="px-3 py-2 text-[11px]">
+                            <span className={claimCenterBadgeTone(amt.amount_tone)}>
+                              {amt.amount_status_label}
+                            </span>
+                            {amt.needs_sale_price_source_import ? (
+                              <span className="mt-0.5 block text-[10px] leading-tight text-amber-700 dark:text-amber-300">
+                                needs sale price source import
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-[11px]">
+                            <span
+                              className={claimCenterBadgeTone(amt.price_source_loaded ? "success" : "warning")}
+                              title={amt.unknown_reason ?? undefined}
+                            >
+                              price {amt.price_source_loaded ? "loaded" : "missing"}
+                            </span>
+                            <span
+                              className={`mt-0.5 block ${claimCenterBadgeTone(amt.fee_source_loaded ? "success" : "neutral")}`}
+                            >
+                              fees {amt.fee_source_loaded ? "loaded" : "missing"}
+                            </span>
                           </td>
                           <td className="px-3 py-2">
                             {fa.latest_sold_price == null ? (
@@ -481,7 +599,7 @@ export function ReadyToFileView() {
                 })}
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={36} className="px-3 py-10 text-center text-sm opacity-60">
+                    <td colSpan={39} className="px-3 py-10 text-center text-sm opacity-60">
                       No claims match the current filters.
                     </td>
                   </tr>
@@ -498,6 +616,7 @@ export function ReadyToFileView() {
 
       <ReadyToFileDetailDrawer
         row={selected}
+        settingsAudit={payload?.settings_audit ?? null}
         caseIdRecording={
           payload?.case_id_recording ?? {
             enabled_by_default: false,

@@ -11,6 +11,7 @@ import {
 } from "@/components/claim-center/claim-center-ui";
 import {
   buildReferenceBlockText,
+  computeAmountStatus,
   computeFamilyAwareRecovery,
   computeFilingDecision,
   computeRemovalOriginReason,
@@ -20,11 +21,13 @@ import {
   type FamilyAwareRecovery,
   type ReadyToFileCaseIdRecordingConfig,
   type ReadyToFileRow,
+  type ReadyToFileSettingsAudit,
 } from "@/lib/claims/filing/claim-ready-to-file-queue-ui-contract";
 
 type Props = {
   row: ReadyToFileRow | null;
   caseIdRecording: ReadyToFileCaseIdRecordingConfig;
+  settingsAudit?: ReadyToFileSettingsAudit | null;
   onClose: () => void;
 };
 
@@ -230,6 +233,7 @@ function AmountLine({
 function FinancialBreakdownSection({ row, fa }: { row: ReadyToFileRow; fa: FamilyAwareRecovery }) {
   const gap = fa.gap;
   const pol = fa.policy;
+  const amt = computeAmountStatus(row);
   return (
     <section className="rounded-xl border p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -245,7 +249,7 @@ function FinancialBreakdownSection({ row, fa }: { row: ReadyToFileRow; fa: Famil
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {/* A · Amazon Claim Amount (Seller Central) */}
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] p-3">
           <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
@@ -322,6 +326,45 @@ function FinancialBreakdownSection({ row, fa }: { row: ReadyToFileRow; fa: Famil
             never auto-used as the requested amount.
           </p>
         </div>
+
+        {/* C · Data Status (sale-price / fee source loading) */}
+        <div className="rounded-lg border p-3">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-60">C · Data Status</p>
+          <div className="space-y-1.5 text-[11px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="opacity-65">Latest sale price source loaded</span>
+              <span className={claimCenterBadgeTone(amt.price_source_loaded ? "success" : "warning")}>
+                {amt.price_source_loaded ? "yes" : "no"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="opacity-65">Fee source loaded</span>
+              <span className={claimCenterBadgeTone(amt.fee_source_loaded ? "success" : "neutral")}>
+                {amt.fee_source_loaded ? "yes" : "no"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="opacity-65">API / source missing</span>
+              <span className={claimCenterBadgeTone(amt.source_missing ? "warning" : "success")}>
+                {amt.source_missing ? "yes" : "no"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t pt-1.5">
+              <span className="font-semibold">Amount status</span>
+              <span className={claimCenterBadgeTone(amt.amount_tone)}>{amt.amount_status_label}</span>
+            </div>
+          </div>
+          {amt.needs_sale_price_source_import ? (
+            <p className="mt-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-950 dark:text-amber-100">
+              Needs sale price source import — {amt.unknown_reason}. Amount is shown as UNKNOWN; no COGS / settlement-net
+              fallback is applied and this claim is not amount-fileable until a deterministic sale source is loaded.
+            </p>
+          ) : (
+            <p className="mt-1.5 text-[10px] leading-relaxed opacity-60">
+              Deterministic sale source loaded — Amazon claim amount is available for manual filing.
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-[11px]">
@@ -363,10 +406,12 @@ function ExcludedCrossFamilySection({ fa }: { fa: FamilyAwareRecovery }) {
     <section className="rounded-xl border border-amber-500/30">
       <details>
         <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-3 py-2">
-          <span className="text-xs font-semibold uppercase opacity-70">3 · Excluded Cross-Family Candidates</span>
+          <span className="text-xs font-semibold uppercase opacity-70">
+            3 · Other possible claim opportunities for this product
+          </span>
           <span className="flex items-center gap-1.5">
             <span className={claimCenterBadgeTone("warning")}>{excluded.length} excluded</span>
-            <span className={claimCenterBadgeTone("neutral")}>not part of this claim</span>
+            <span className={claimCenterBadgeTone("neutral")}>not part of this removal claim</span>
           </span>
         </summary>
         <div className="border-t p-3">
@@ -494,14 +539,38 @@ const ORIGIN_BADGE_TONE: Record<string, string> = {
  * strictly separate from the financial breakdown. Read-only; renders only for
  * removal-family rows that have resolved origin inputs.
  */
-function WhyThisClaimExistsSection({ row }: { row: ReadyToFileRow }) {
+function WhyThisClaimExistsSection({
+  row,
+  settingsAudit,
+}: {
+  row: ReadyToFileRow;
+  settingsAudit?: ReadyToFileSettingsAudit | null;
+}) {
   const o = computeRemovalOriginReason(row);
   if (!o.applicable) return null;
+  const family = row.claim_family ?? "removal claim";
+  const scanFound = settingsAudit?.scan_availability_start_found ?? false;
+  const scanValue = settingsAudit?.scan_availability_start_value ?? null;
   return (
     <section className="rounded-xl border border-sky-500/30 bg-sky-500/[0.05] p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase opacity-70">Why this claim exists</h3>
         <span className={claimCenterBadgeTone(o.validity_tone)}>{o.validity_label}</span>
+      </div>
+
+      {/* Plain-language explanation (Part C) */}
+      <div className="mb-2 space-y-1 rounded-md border bg-white/50 px-2.5 py-2 text-[11px] leading-relaxed dark:bg-black/20">
+        <p>
+          • This is a <span className="font-semibold">removal claim</span> ({family}).
+        </p>
+        <p>
+          • It was created because the shipment/order exists in Amazon removal data and an expected package
+          exists, but no physical scan/receipt was found after the configured {o.threshold_days}-day threshold.
+        </p>
+        <p>
+          • This claim is <span className="font-semibold">not</span> based on damaged / lost / reversal /
+          customer-return candidates. Those are separate opportunities only (see the collapsed section below).
+        </p>
       </div>
 
       <p className="mb-2 rounded-md border bg-white/50 px-2.5 py-1.5 text-[12px] font-medium dark:bg-black/20">
@@ -531,6 +600,18 @@ function WhyThisClaimExistsSection({ row }: { row: ReadyToFileRow }) {
           value={`${o.threshold_days} days`}
           hint={o.threshold_source}
         />
+        <Field
+          label="Scan / receipt reliable from"
+          value={
+            scanFound ? (
+              scanValue
+            ) : (
+              <span className="text-amber-700 dark:text-amber-300">missing setting</span>
+            )
+          }
+          hint={settingsAudit?.scan_availability_start_source ?? "scan_go_live_date"}
+        />
+        <Field label="Scan status" value={o.scan_status_compact} />
         <Field label="Expected quantity" value={o.expected_qty ?? "—"} />
         <Field label="Received / scanned quantity" value={o.received_qty ?? "—"} />
         <Field label="Missing / discrepancy quantity" value={o.missing_qty ?? "—"} />
@@ -561,7 +642,7 @@ function WhyThisClaimExistsSection({ row }: { row: ReadyToFileRow }) {
   );
 }
 
-export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props) {
+export function ReadyToFileDetailDrawer({ row, caseIdRecording, settingsAudit, onClose }: Props) {
   const [filedManually, setFiledManually] = useState(false);
 
   if (!row) return null;
@@ -617,7 +698,7 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
           </p>
 
           {/* ---- Why this claim exists (origin / missing basis) ---- */}
-          <WhyThisClaimExistsSection row={row} />
+          <WhyThisClaimExistsSection row={row} settingsAudit={settingsAudit} />
 
           {/* ---- Filing Decision ---- */}
           <section className="rounded-xl border p-3">
