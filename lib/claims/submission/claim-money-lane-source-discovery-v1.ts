@@ -22,6 +22,12 @@ import {
   loadExistingPilotSubmissions,
   type ExistingPilotSubmission,
 } from "./claim-submission-record-pilot-v1";
+import {
+  readLatestSaleNetCache,
+  resolveLatestSaleNetDeterministic,
+  type CachedLatestSaleNetEntry,
+  type LatestSaleNetResolution,
+} from "./latest-sale-net-resolver-v1";
 
 export const CLAIM_MONEY_LANE_SOURCE_DISCOVERY_V1_VERSION =
   "claim-money-lane-source-discovery-v1" as const;
@@ -57,8 +63,16 @@ export type PerSubmissionSourceDiscovery = {
   latest_sold_price_found: boolean;
   latest_sold_price_value: number | null;
   latest_sold_price_source: string | null;
+  latest_sold_price_date: string | null;
+  latest_sale_net_deterministic: boolean;
+  sale_match_confidence: "high" | "medium" | "none";
+  latest_sale_net_unknown_reason: string | null;
+  latest_sale_net_source_origin: "cache" | "live" | "none";
   fee_deductions_found: boolean;
   fee_breakdown: FeeBreakdown | null;
+  amazon_fees_total: number | null;
+  amazon_fees_source: string | null;
+  fee_source_confidence: "high" | "unknown";
   settlement_amount_found: boolean;
   settlement_amount: number | null;
   settlement_source: string | null;
@@ -100,11 +114,6 @@ function num(v: unknown): number | null {
 
 function metaRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-}
-
-function absFee(v: number | null): number | null {
-  if (v == null) return null;
-  return Math.abs(v);
 }
 
 async function safeQuery(
@@ -163,46 +172,6 @@ async function safeCount(
   return count ?? 0;
 }
 
-function pickLatestRow(
-  rows: Record<string, unknown>[],
-  dateFields: string[],
-): Record<string, unknown> | null {
-  if (rows.length === 0) return null;
-  const scored = rows
-    .map((r) => {
-      let best = "";
-      for (const f of dateFields) {
-        const d = str(r[f]);
-        if (d && d > best) best = d;
-      }
-      return { row: r, date: best };
-    })
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  return scored[0]?.row ?? null;
-}
-
-function feeBreakdownFromWideRow(
-  row: Record<string, unknown>,
-  sourceTable: string,
-): FeeBreakdown {
-  const taxPassthrough =
-    (num(row.product_sales_tax) ?? 0) +
-    (num(row.marketplace_withheld_tax) ?? 0) +
-    (num(row.shipping_credits_tax) ?? 0);
-  return {
-    principal: num(row.product_sales),
-    fba_per_unit_fulfillment_fee: absFee(num(row.fba_fees)),
-    commission: absFee(num(row.selling_fees)),
-    refund_commission: null,
-    shipping: num(row.shipping_credits),
-    promotions: num(row.promotional_rebates),
-    tax_passthrough: taxPassthrough !== 0 ? taxPassthrough : null,
-    source_table: sourceTable,
-    source_row_id: str(row.id) || null,
-    posted_date: str(row.posted_date) || str(row.date_time) || str(row.purchase_date) || null,
-  };
-}
-
 function hasFeeSignal(fee: FeeBreakdown | null): boolean {
   if (!fee) return false;
   return (
@@ -214,98 +183,6 @@ function hasFeeSignal(fee: FeeBreakdown | null): boolean {
   );
 }
 
-async function queryBySku(
-  client: SupabaseClient,
-  table: string,
-  select: string,
-  organizationId: string,
-  storeId: string | null,
-  sku: string | null,
-  dateFields: string[],
-  limit = 8,
-): Promise<Record<string, unknown>[]> {
-  if (!sku) return [];
-  const filters: Array<{ col: string; op: "eq" | "in" | "not" | "neq"; val: string | string[] }> = [
-    { col: "organization_id", op: "eq", val: organizationId },
-    { col: "sku", op: "eq", val: sku },
-  ];
-  if (storeId && table !== "amazon_reports_repository") {
-    filters.push({ col: "store_id", op: "eq", val: storeId });
-  }
-  return safeQuery(client, table, select, filters, limit).then((rows) =>
-    [...rows].sort((a, b) => {
-      const da = dateFields.map((f) => str(a[f])).filter(Boolean).sort().reverse()[0] ?? "";
-      const db = dateFields.map((f) => str(b[f])).filter(Boolean).sort().reverse()[0] ?? "";
-      return da < db ? 1 : da > db ? -1 : 0;
-    }),
-  );
-}
-
-async function resolveLatestSoldPrice(args: {
-  client: SupabaseClient;
-  organizationId: string;
-  storeId: string;
-  sku: string | null;
-  asin: string | null;
-}): Promise<{ found: boolean; value: number | null; source: string | null; row: Record<string, unknown> | null }> {
-  const repoSelect =
-    "id, sku, date_time, product_sales, selling_fees, fba_fees, shipping_credits, promotional_rebates, product_sales_tax, marketplace_withheld_tax, total_amount";
-  const settlementSelect =
-    "id, sku, posted_date, product_sales, selling_fees, fba_fees, shipping_credits, promotional_rebates, amount_total, transaction_type";
-  const ordersSelect = "id, sku, purchase_date, item_price, quantity, order_id";
-
-  const [repoRows, settlementRows, orderRows] = await Promise.all([
-    queryBySku(args.client, "amazon_reports_repository", repoSelect, args.organizationId, null, args.sku, [
-      "date_time",
-    ]),
-    queryBySku(args.client, "amazon_settlements", settlementSelect, args.organizationId, args.storeId, args.sku, [
-      "posted_date",
-    ]),
-    queryBySku(args.client, "amazon_all_orders", ordersSelect, args.organizationId, args.storeId, args.sku, [
-      "purchase_date",
-    ]),
-  ]);
-
-  const candidates: Array<{ value: number | null; source: string; row: Record<string, unknown>; date: string }> = [];
-
-  const repo = pickLatestRow(repoRows, ["date_time"]);
-  if (repo && num(repo.product_sales) != null) {
-    candidates.push({
-      value: num(repo.product_sales),
-      source: "amazon_reports_repository.product_sales",
-      row: repo,
-      date: str(repo.date_time),
-    });
-  }
-
-  const settlement = pickLatestRow(settlementRows, ["posted_date"]);
-  if (settlement && num(settlement.product_sales) != null) {
-    candidates.push({
-      value: num(settlement.product_sales),
-      source: "amazon_settlements.product_sales",
-      row: settlement,
-      date: str(settlement.posted_date),
-    });
-  }
-
-  const order = pickLatestRow(orderRows, ["purchase_date"]);
-  if (order && num(order.item_price) != null) {
-    candidates.push({
-      value: num(order.item_price),
-      source: "amazon_all_orders.item_price",
-      row: order,
-      date: str(order.purchase_date),
-    });
-  }
-
-  if (candidates.length === 0) {
-    return { found: false, value: null, source: null, row: null };
-  }
-
-  candidates.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  const best = candidates[0]!;
-  return { found: true, value: best.value, source: best.source, row: best.row };
-}
 
 async function resolveCogs(args: {
   client: SupabaseClient;
@@ -541,6 +418,10 @@ export async function discoverMoneyLaneSourcesV1(
 
   const org_inventory = await loadOrgSourceInventory(client, organizationId, storeId);
 
+  // Governed deterministic latest-sale-net cache (pinned values, no drift). Live
+  // deterministic resolution is the fallback when a submission is not yet cached.
+  const latestSaleNetCache = await readLatestSaleNetCache(client, organizationId);
+
   const pilotOrderIds = new Set<string>();
   for (const preview of composed.previews) {
     const submission = submissionById.get(preview.claim_submission_id)!;
@@ -588,19 +469,40 @@ export async function discoverMoneyLaneSourcesV1(
     const candidateCogs =
       candidateRows.map((r) => num(r.cogs_unit)).find((v) => v != null) ?? null;
 
-    const sold = await resolveLatestSoldPrice({
-      client,
-      organizationId,
-      storeId,
-      sku: preview.sku,
-      asin: preview.asin,
-    });
+    const cached: CachedLatestSaleNetEntry | undefined = latestSaleNetCache[preview.claim_submission_id];
+    let saleNet: LatestSaleNetResolution;
+    let sourceOrigin: "cache" | "live" | "none";
+    if (cached) {
+      saleNet = cached;
+      sourceOrigin = "cache";
+    } else {
+      saleNet = await resolveLatestSaleNetDeterministic(client, {
+        organizationId,
+        storeId,
+        sku: preview.sku,
+        eventDate: preview.source_event_date,
+      });
+      sourceOrigin = saleNet.found ? "live" : "none";
+    }
 
     let fee_breakdown: FeeBreakdown | null = null;
-    if (sold.row) {
-      const table =
-        sold.source?.startsWith("amazon_settlements") ? "amazon_settlements" : "amazon_reports_repository";
-      fee_breakdown = feeBreakdownFromWideRow(sold.row, table);
+    if (saleNet.found) {
+      const tableName = saleNet.latest_sold_price_source?.split(".")[0] ?? "amazon_reports_repository";
+      const fc = saleNet.fee_components;
+      fee_breakdown = {
+        principal: saleNet.latest_sold_price,
+        // sumKnownFees totals |commission|+|fba|+|promos|+|shipping|; fold "other" into
+        // commission so the recomputed total equals the resolver's authoritative total.
+        fba_per_unit_fulfillment_fee: fc?.fba_fees ?? null,
+        commission: fc ? (fc.selling_fees ?? 0) + (fc.other_fees ?? 0) || null : null,
+        refund_commission: null,
+        shipping: null,
+        promotions: null,
+        tax_passthrough: null,
+        source_table: tableName,
+        source_row_id: saleNet.latest_sold_price_source_row_id,
+        posted_date: saleNet.sale_event_date,
+      };
     }
 
     const linkedReimb = matchReimbursementRows({ rows: reimbursementRows, joinKeys });
@@ -608,9 +510,7 @@ export async function discoverMoneyLaneSourcesV1(
     const settlementAmount =
       linkedSettlement.length > 0
         ? linkedSettlement.reduce((s, r) => s + (r.amount ?? 0), 0)
-        : sold.row
-          ? num(sold.row.amount_total) ?? num(sold.row.total_amount)
-          : null;
+        : null;
 
     const cogs = await resolveCogs({
       client,
@@ -628,7 +528,7 @@ export async function discoverMoneyLaneSourcesV1(
       cogs.found && cogs.value != null && qty != null ? cogs.value * qty : null;
 
     const blockers: string[] = [];
-    if (!sold.found) blockers.push("LATEST_SOLD_PRICE_NOT_FOUND_FOR_SKU");
+    if (!saleNet.found) blockers.push("LATEST_SOLD_PRICE_NOT_FOUND_FOR_SKU");
     if (!hasFeeSignal(fee_breakdown)) blockers.push("FEE_DEDUCTIONS_NOT_FOUND");
     if (settlementAmount == null) blockers.push("NET_SETTLEMENT_NOT_TIED_TO_REFERENCE");
     if (linkedReimb.length === 0) blockers.push("OBSERVED_REIMBURSEMENT_NO_SAFE_MATCH_NOT_FILED");
@@ -646,19 +546,23 @@ export async function discoverMoneyLaneSourcesV1(
       tracking: refs.tracking,
       removal_order: refs.removal_order,
       removal_shipment: refs.removal_shipment,
-      latest_sold_price_found: sold.found,
-      latest_sold_price_value: sold.value,
-      latest_sold_price_source: sold.source,
-      fee_deductions_found: hasFeeSignal(fee_breakdown),
+      latest_sold_price_found: saleNet.found,
+      latest_sold_price_value: saleNet.latest_sold_price,
+      latest_sold_price_source: saleNet.latest_sold_price_source,
+      latest_sold_price_date: saleNet.sale_event_date,
+      latest_sale_net_deterministic: saleNet.deterministic,
+      sale_match_confidence: saleNet.sale_match_confidence,
+      latest_sale_net_unknown_reason: saleNet.unknown_reason,
+      latest_sale_net_source_origin: sourceOrigin,
+      fee_deductions_found: saleNet.amazon_fees_total != null,
       fee_breakdown,
+      amazon_fees_total: saleNet.amazon_fees_total,
+      amazon_fees_source: saleNet.amazon_fees_source,
+      fee_source_confidence: saleNet.fee_source_confidence,
       settlement_amount_found: settlementAmount != null,
       settlement_amount: settlementAmount,
       settlement_source:
-        linkedSettlement.length > 0
-          ? "amazon_settlements.reference_safe_order_match"
-          : sold.source?.includes("settlements")
-            ? sold.source
-            : null,
+        linkedSettlement.length > 0 ? "amazon_settlements.reference_safe_order_match" : null,
       reimbursement_found: linkedReimb.length > 0,
       reimbursement_amount:
         linkedReimb.length > 0 ? linkedReimb.reduce((s, r) => s + (r.amount ?? 0), 0) : null,

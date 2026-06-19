@@ -238984,3 +238984,121 @@ policy_config_written **yes** | policy_storage_location `workspace_settings.modu
 
 **NEXT_PROMPT:** PHASE-CLAIM-LATEST-SALE-NET-SOURCE-COVERAGE-BACKFILL-V1 — ingest/wire the latest sold-price + Amazon-fee source (Transaction View / all_orders item_price) for the **7/10 removal pilot claims currently missing `latest_sold_price`**, so every removal claim has a real expected reimbursement = latest sold price − Amazon fees before Seller Central filing. Then re-verify the 10 confirmed claims and proceed to operator filing + real Amazon Case ID record-back.
 
+
+---
+
+## 20260619T193000Z — PHASE-CLAIM-LATEST-SALE-NET-SOURCE-COVERAGE-BACKFILL-V1 — PASS (governed cache write EXECUTED)
+
+**Target:** Original/live `kxsvedvpjldygtdbylsy` only. **Scope:** 10 pilot removal claims (`pilot_case_run_id=pilot-20260615T190000Z`, `intake_run_id=a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). **Mode:** source coverage + deterministic backfill of the latest-sale-net claim amount. No claims submitted, no Amazon submit API, no browser, no scanner change, no AI, no `claim_*` mutation.
+
+### Root cause of run-to-run drift (found + fixed)
+
+Old `resolveLatestSoldPrice` in `claim-money-lane-source-discovery-v1.ts`: (1) fetched `limit 8` rows per source with **no SQL `ORDER BY`** → Postgres returned an arbitrary subset → "latest of an arbitrary 8" drifted between runs; (2) accepted `product_sales = 0` `Adjustment` rows as sale price; (3) picked the latest row **overall**, not the latest valid sale at/before the removal event; (4) did not exclude refunds/reversals/fee-only/non-sale rows.
+
+### Deterministic resolver (new `lib/claims/submission/latest-sale-net-resolver-v1.ts`)
+
+`resolveLatestSaleNetDeterministic`: priority `amazon_reports_repository` (Transaction View) → `amazon_settlements`; same SKU (ASIN null on all pilot rows; `amazon_all_orders` + `amazon_transactions` empty for org); `transaction_type='Order'` AND `product_sales > 0`; `<= end-of-day(source_event_date)`; ordered `date DESC, id DESC` (one stable winner); fees `|selling_fees|+|fba_fees|+|other|` from the SAME row; no settlement-net/COGS/scanner fallback; UNKNOWN + `unknown_reason='NO_VALID_ORDER_SALE_AT_OR_BEFORE_EVENT'` when none. Returns source/row_id/sale_date/fee components/`fee_source_confidence`/`sale_match_confidence`/`deterministic`/`alternates[]`.
+
+### Governed cache (only write path)
+
+Read `readLatestSaleNetCache`; gated write `latest-sale-net-cache-write-v1.ts` (`writeLatestSaleNetCache`) via `.cursor/operator-approvals/claim-latest-sale-net-source-backfill-v1-approval.md` `APPROVED_LATEST_SALE_NET_SOURCE_BACKFILL_V1=yes`. Storage: `workspace_settings.module_configs.claims.latest_sale_net_cache` (per `claim_submission_id`). Pins values (no drift); discovery prefers cache, else live deterministic.
+
+### Provenance + UI
+
+Threaded discovery→preview→after-cogs matrix→queue (`ReadyToFileMoneyLane`)→contract (`FamilyAwareRecovery`): `latest_sold_price_source`/`_date`, `amazon_fees_source`, `fee_source_confidence`, `sale_match_confidence`, `latest_sale_net_deterministic`, `latest_sale_net_unknown_reason`. Fee total = resolver authoritative. Dead helpers removed (`resolveLatestSoldPrice`, `queryBySku`, `pickLatestRow`, `feeBreakdownFromWideRow`, `absFee`). Drawer A · Amazon Claim Amount shows source/date/conf + UNKNOWN reason; money-lane `Field` `hint`; table **Sale source** column + UNKNOWN badges; colSpan 27→28.
+
+### Ground truth + live execute
+
+Only **3/10** SKUs have real Order sales: `2025JUN08-B0057FBQTC` $14.99/fees $8.25→exp **$13.48**; `FBA-B0FYDT88GQ` $22.99/$11.06→**$23.86**; `B075XC6C69-VEN` $9.96/$5.02→**$19.76**. Other 7 (`I6-VR35-FSXQ`×5, `WD-VY8Z-CZ3F`, `2H-7ZAX-Z2IP`) only `$0` Adjustment rows → UNKNOWN (no COGS fallback). Execute (singleton row `5ad12e20…`): cache written **yes**; coverage **3/10** before==after (price+fees); total_expected **$57.10**; total_open **$57.10**; old_drifting_total **$57.10** pinned; **drift_fixed yes** (run1==run2 $57.10); ambiguous **1** (B0057 same-day → deterministic 14.99@19:14); ui_verified **yes**; no claim/candidate mutation [subs 13, cases 22, lines 22, cands 9155, edges 147]; no Amazon submit; no scanner change.
+
+### Verification + flags
+
+tsc 0; ReadLints 0; smoke `smoke-phase-claim-ready-to-file-queue-ui-v1.ts` **PASS** (provenance surfaced; missing price → UNKNOWN expected/open no COGS fallback + reason; Sale source column; drawer source + fee confidence); `next build` exit 0; phase script **PASS**. (Pre-existing unrelated failure in `smoke-claim-money-lane-profit-loss-ui-after-cogs-v1.ts`, untouched here.) Flags: sale_price_source_coverage_before/after **3/10**, amazon_fee_source_coverage_before/after **3/10**, total_expected_reimbursement_latest_sale_net **$57.10**, total_open_claim_amount **$57.10**, old_drifting_total **$57.10**, drift_fixed **yes**, cache_or_config_written **yes**, cache_or_config_location `workspace_settings.module_configs.claims.latest_sale_net_cache`, ui_latest_sale_net_source_verified **yes**, no_claim_mutation **PASS**, no_candidate_mutation **PASS**, no_amazon_submission **PASS**, no_scanner_change **PASS**, build/smoke/next_build **PASS**, **SAFE_LATEST_SALE_NET_BACKFILL_COMPLETE=yes**, **SAFE_TO_AUDIT_REMOVAL_MISSING_BASIS=yes**.
+
+**Files:** `lib/claims/submission/latest-sale-net-resolver-v1.ts`, `lib/claims/submission/latest-sale-net-cache-write-v1.ts`, `lib/claims/submission/claim-money-lane-source-discovery-v1.ts`, `lib/claims/submission/claim-money-lane-preview-v1.ts`, `lib/claims/submission/claim-money-lane-preview-after-cogs-v1.ts`, `lib/claims/filing/claim-ready-to-file-queue-v1.ts`, `lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts`, `components/claim-center/ready-to-file/ReadyToFileDetailDrawer.tsx`, `components/claim-center/ready-to-file/ReadyToFileView.tsx`, `.cursor/operator-approvals/claim-latest-sale-net-source-backfill-v1-approval.md`, `scripts/phase-claim-latest-sale-net-source-coverage-backfill-v1.ts`, `scripts/diag-latest-sale-net-source-coverage-v1.ts`, `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts`.
+
+**NEXT_PROMPT:** PHASE-CLAIM-MISSING-SALE-PRICE-SOURCE-IMPORT-V1 — import Transaction View / settlement `Order` rows (or SP-API `GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2`) for the 7 SKUs (`I6-VR35-FSXQ`, `WD-VY8Z-CZ3F`, `2H-7ZAX-Z2IP`) with no loaded sale at/before the removal event, then re-run this backfill to lift coverage above 3/10; operator then files the 3 priced removal claims and records real Amazon Case IDs.
+
+---
+
+## 20260619T200000Z — PHASE-CLAIM-REMOVAL-MISSING-BASIS-AUDIT-V1 — PASS (read-only origin + threshold audit)
+
+**Target:** Original/live `kxsvedvpjldygtdbylsy` only. **Scope:** 10 pilot removal claims (`pilot_case_run_id=pilot-20260615T190000Z`, `intake_run_id=a8a892fe-37d5-4d74-9ea2-02af8fd095ce`) — families `removal_shipment_missing` (6) + `removal_order_discrepancy` (4). **Mode:** read-only claim-origin + missing-threshold audit. No DB write, no `claim_*` mutation, no Amazon, no scanner change, no AI. New script `scripts/phase-claim-removal-missing-basis-audit-v1.ts` (SELECT-only; composes `composeClaimReadyToFileQueueV1` + `composeReimbursementTrackingPreviewV1` + `loadClaimIntakeSettings` + raw reads of `expected_packages`/`amazon_removals`/`amazon_removal_shipments`/`packages`/`return_items`).
+
+### Missing threshold (found + governed)
+
+`missing_threshold_setting_found=yes`; `missing_threshold_days=14`; `threshold_source=workspace_settings.module_configs.claim_intake.delayed_not_received_days` (NOT hardcoded — `DEFAULT_CLAIM_INTAKE_SETTINGS.delayed_not_received_days=14` default + JSONB override path; value is present at workspace level for this org; `organization_settings.claim_policy.intake` absent → platform/default). Formula (per `claim-family-quantity-money-formula-contract-v2`): removal/shipment missing = expected clean units WHERE tracking NOT received AND `days_since(shipment_date) > delayed_not_received_days`.
+
+### Per-claim origin matrix (all 10 identical structure)
+
+Every claim: `from_removal_shipment_detail=Y` (EP `source_shipment_row_id` + `amazon_removal_shipments` row), `from_removal_order_detail=Y` (`amazon_removals` row + removal_order_id), `from_expected_packages=Y` (EP present, `build_status=matched` — none disputed), `from_scanner_receipt_absence=Y` (no `packages` row for tracking, 0 scanned `return_items`, EP `actual_scanned_count=0`), `from_deadline_threshold=Y` (age > 14d), `from_quantity_mismatch=·` (received=0 → full-missing, not partial). Removal Order IDs: `1621GIL` (4), `/x5UTzvZZK` (4), `/571WdHlKl` (2). Event ages 33–84 days (all > 14d). expected_qty per claim 1–4 (from EP clean `expected_scan_quantity`), received_qty 0/10, discrepancy_qty = expected (full shortfall), scanner_status `no_scan_no_receipt` 10/10.
+
+### Classification (deterministic)
+
+`claims_valid_count=10` (all `missing_candidate_age_exceeds_threshold` — not received AND age>threshold), `claims_waiting_threshold_count=0`, `claims_wrong_family_count=0` (no claim has a physical receipt that would force discrepancy/shortage reclass), `claims_need_manual_review_count=0` (no disputed EP, all have event dates). Rules honored: scanned/received ⇒ not missing (none here); no receipt + too new ⇒ waiting (none); no receipt + age>threshold ⇒ missing candidate (all 10); expected>received>0 ⇒ discrepancy-qty only (none); no fake scan codes; missing not inferred from shipment existence alone (requires scanner-absence + threshold). `recommended_setting_changes`: none (threshold governed; all deterministic).
+
+### Verification + flags
+
+`ui_origin_reason_verified=no` — Ready-to-File drawer/table currently surface family + filing-decision reason + recovery formula + references, but NOT the explicit per-claim missing-basis + configured threshold + origin matrix (recommended next phase). `no_db_write_verification=PASS` (SELECT-only), `no_claim_mutation_verification=PASS`, `no_amazon_submission_verification=PASS`, `no_scanner_change_verification=PASS`. `build_result` tsc 0 / ReadLints 0; `smoke_result` `smoke-phase-claim-ready-to-file-queue-ui-v1.ts` PASS; `next_build_result` exit 0. **SAFE_REMOVAL_MISSING_BASIS_AUDITED=yes**, **SAFE_TO_FILE_VALID_REMOVAL_CLAIMS=yes (10 valid)**.
+
+**Files:** `scripts/phase-claim-removal-missing-basis-audit-v1.ts` (new, read-only).
+
+**NEXT_PROMPT:** PHASE-CLAIM-REMOVAL-ORIGIN-REASON-UI-SURFACE-V1 — surface per-claim missing-basis + configured `delayed_not_received_days` threshold + origin matrix (removal-order-detail / removal-shipment-detail / EP / scanner-receipt-absence / age-vs-threshold / quantity-mismatch) in the Ready-to-File drawer + table (read-only display, no claim writes), so operators see WHY each claim exists before filing; then file the 10 valid removal claims (3 with deterministic latest-sale-net amounts) and record real Amazon Case IDs.
+
+## 20260619T210000Z — PHASE-CLAIM-REMOVAL-ORIGIN-REASON-UI-SURFACE-V1 — PASS (read-only UI clarity for removal-claim origin/missing basis)
+
+**Target:** Original/live `kxsvedvpjldygtdbylsy` only. **Scope:** Ready-to-File table + detail drawer for the 10 pilot removal claims (`pilot_case_run_id=pilot-20260615T190000Z`, `intake_run_id=a8a892fe-37d5-4d74-9ea2-02af8fd095ce`) — families `removal_shipment_missing` (6) + `removal_order_discrepancy` (4). **Mode:** read-only UI clarity fix. No DB write, no `claim_*` mutation, no Amazon, no scanner change, no claim math change, no AI.
+
+### What changed
+
+Surfaced the PHASE-CLAIM-REMOVAL-MISSING-BASIS-AUDIT-V1 findings directly in the operator UI, kept strictly separate from the financial (latest_sale_net) lane.
+
+- **Contract** (`claim-ready-to-file-queue-ui-contract.ts`, still **zero-import**): new `RemovalOriginInputs` type + optional `removal_origin_inputs` on `ReadyToFileRow`; new `RemovalClaimValidity` + `RemovalOriginReason` types; new pure `computeRemovalOriginReason(row)` deterministic classifier (mirrors the audit): scanned/received-in-full → `not_missing` (reclassify); partial (0<r<expected) → `valid_discrepancy` ("Discrepancy: expected X, received Y"); no receipt + age ≤ threshold → `waiting_threshold` (NOT ready to file); no receipt + age > threshold → `valid_missing` ("Missing: no scan/receipt after Nd"); disputed EP / no event date → `needs_manual_review`. Missing never inferred from removal-shipment existence alone (requires scanner-receipt absence AND age over threshold). Emits origin_sources, scanner_status_lines, missing_qty, badges, compact_reason, final_reason.
+- **Server** (new `lib/claims/filing/claim-removal-origin-basis-v1.ts`, SELECT-only): `loadRemovalOriginInputsForRows` batch-resolves per claim from `expected_packages` / `amazon_removals` / `amazon_removal_shipments` / `packages` / `return_items` (origin flags, event_date/age, expected vs received/scanned qty, package_received, scanned_units, build_status). Composer `claim-ready-to-file-queue-v1.ts` loads `loadClaimIntakeSettings` (threshold 14 + source) and attaches `removal_origin_inputs` to each row (financial lane untouched).
+- **Table** (`ReadyToFileView.tsx`): added columns Origin · Missing basis (compact reason) · Age days · Threshold days · Expected qty · Received/scanned qty · Missing qty · Validity (badge); colSpan 28→36.
+- **Drawer** (`ReadyToFileDetailDrawer.tsx`): new top section **"Why this claim exists"** (Source, Tracking/shipment ref, Removal order id, Removal shipment id, Event date, Event age days, Configured threshold 14 days + threshold source, Expected/Received/Missing qty, Scanner status lines, Final reason) + badges (`valid_missing`/`over_threshold`/`scanner_absent`/`full_missing`/`no_manual_review_needed`, plus `waiting_threshold`/`has_receipt`/`valid_discrepancy`); header shows **Waiting threshold** badge when validity is waiting. Financial breakdown kept separate (amount still latest_sale_net).
+
+### Live verification (`scripts/phase-claim-removal-origin-reason-ui-surface-v1.ts`, read-only)
+
+Exercises the exact UI path (`composeClaimReadyToFileQueueV1` → `row.removal_origin_inputs` → `computeRemovalOriginReason`). All 10 removal claims: `validity=valid_missing`; origin = Shipment+Order+EP; `missing_threshold_days=14`; `threshold_source=workspace_settings.module_configs.claim_intake.delayed_not_received_days`; event ages 50/55/84/38/84/33/56/51/84/67 (all >14); expected_qty 2/2/2/1/2/2/2/2/2/4; received 0/10; missing = expected; scanner_status `no packages row for tracking` + `no scanned return_items` + `actual_scanned_count=0`. `claims_valid_count=10`, `claims_waiting_threshold_count=0`, `claims_wrong_family_count=0`, `claims_need_manual_review_count=0`.
+
+### Verification + flags
+
+`ui_origin_reason_verified=yes`, `table_origin_columns_verified=yes`, `drawer_why_claim_exists_verified=yes`, `missing_threshold_days=14`, `threshold_source=workspace_settings.module_configs.claim_intake.delayed_not_received_days`. `no_db_write_verification=PASS`, `no_claim_mutation_verification=PASS`, `no_amazon_submission_verification=PASS`, `no_scanner_change_verification=PASS`. `build_result` tsc 0 / ReadLints 0; `smoke_result` `smoke-phase-claim-ready-to-file-queue-ui-v1.ts` **PASS** (new origin-reason fixtures: valid_missing/waiting/discrepancy/not_missing/not_applicable + table columns + drawer section + read-only loader guard); `next_build_result` Compiled successfully exit 0; live phase script **ALL CHECKS PASSED**. **SAFE_REMOVAL_ORIGIN_REASON_UI_READY=yes**, **SAFE_TO_IMPORT_MISSING_SALE_PRICE_SOURCES=yes**.
+
+**Files:** `lib/claims/filing/claim-ready-to-file-queue-ui-contract.ts`, `lib/claims/filing/claim-removal-origin-basis-v1.ts` (new), `lib/claims/filing/claim-ready-to-file-queue-v1.ts`, `components/claim-center/ready-to-file/ReadyToFileView.tsx`, `components/claim-center/ready-to-file/ReadyToFileDetailDrawer.tsx`, `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts`, `scripts/phase-claim-removal-origin-reason-ui-surface-v1.ts` (new).
+
+**NEXT_PROMPT:** PHASE-CLAIM-MISSING-SALE-PRICE-SOURCE-IMPORT-V1 — import Transaction View / settlement `Order` rows (or SP-API `GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2`) for the 7 SKUs (`I6-VR35-FSXQ`×5, `WD-VY8Z-CZ3F`, `2H-7ZAX-Z2IP`) with no loaded sale at/before the removal event, then re-run the latest-sale-net backfill to lift coverage above 3/10; operator then files the 10 valid removal claims and records real Amazon Case IDs.
+
+---
+
+## 20260619T220000Z — PHASE-CLAIM-MISSING-SALE-PRICE-SOURCE-IMPORT-V1 — PASS (read-only source-import determination; import required + approval pending; NO write)
+
+**Target:** Original/live `kxsvedvpjldygtdbylsy` only. **Scope:** the 7 pilot removal claims whose latest-sale-net is UNKNOWN (`pilot_case_run_id=pilot-20260615T190000Z`, `intake_run_id=a8a892fe-37d5-4d74-9ea2-02af8fd095ce`). **Mode:** source import/sync plan + guarded backfill. No claim submit, no Amazon submit API, no browser, no scanner change, no AI as truth, no mutation of `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions`/`claim_reference_edges`. **No write executed** (import + cache both BLOCKED on approval).
+
+### Missing claims (before)
+
+`missing_claims_before=7` across **3 distinct SKUs**: `I6-VR35-FSXQ` (FNSKU X004D9AMWV, ×5: subs 4222bf72/d723bb59/c888aa12/836523b3/0af26341, events 2026-04-30/04-25/05-12/04-24/04-29), `WD-VY8Z-CZ3F` (FNSKU X004TRQBB3, ×1: sub 5e4f12e8, event 2026-03-27), `2H-7ZAX-Z2IP` (FNSKU X004LLJMN1, ×1: sub 55559d96, event 2026-05-17). ASIN null on all. `unknown_reason_by_claim` = `NO_VALID_ORDER_SALE_AT_OR_BEFORE_EVENT` for all 7.
+
+### Source discovery (read-only)
+
+`source_tables_checked`: `amazon_reports_repository` (412,645 rows; cols incl. date_time/transaction_type/sku/product_sales/selling_fees/fba_fees — **no fnsku/asin**), `amazon_settlements` (604,883 rows; posted_date/sku/transaction_type/product_sales/selling_fees/fba_fees, store-scoped), `amazon_transactions` (600 rows, **no product_sales column** → not a price source), `amazon_all_orders` (**exists but 0 rows**); `all_orders`/`amazon_order_items`/`amazon_orders`/`order_items`/`amazon_settlement_transactions` **do not exist**. `loaded_order_rows_found=0` for all 3 missing SKUs — limit-based timeout-safe re-probe (`diag-repo-order-sale-reprobe-v1.ts`) confirmed **zero `product_sales>0` rows of ANY transaction_type** in either repo or settlement; only `$0 Adjustment` rows are loaded (settlement sku_rows: I6-VR35-FSXQ 150, WD-VY8Z-CZ3F 14, 2H-7ZAX-Z2IP 10 — all Adjustment×$0). `Order`+`product_sales>0` rows **DO exist for other SKUs** (e.g. `OX-ITQ9-7MWI` ps=14.99 sf=-1.20 fba=-5.82; `60-QNFL-6761` ps=74.99) → importer/schema map `product_sales`+`selling_fees`+`fba_fees` correctly. **Conclusion: data-coverage gap, not a wiring gap.**
+
+### Determination
+
+`import_required=yes`. `required_report_or_api` = `GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2` (settlement flat file; `Order` rows w/ product_sales+selling_fees+fba_fees) covering the full sale history of the 3 SKUs up to each removal event; equivalently a Seller Central **Transaction View** export (all-time → removal event) → `amazon_reports_repository`; `GET_FLAT_FILE_ALL_ORDERS_DATA_BY_ORDER_DATE_GENERAL` → `amazon_all_orders` is a **price-only fallback (no Amazon fees)**. `report_mapped=yes` (settlement + transaction-view importers wired; `amazon_all_orders` table exists but empty). `approval_required=yes`; `approval_file_path=.cursor/operator-approvals/claim-missing-sale-price-source-import-v1-approval.md` (token `APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=no` — NOT authorized; report data must be provided before any write).
+
+### Coverage + matrix (unchanged — no import executed)
+
+`sale_price_coverage_before=3/10`, `sale_price_coverage_after=3/10`; `fee_coverage_before=3/10`, `fee_coverage_after=3/10`. The 3 priced (deterministic, drift-free): `2025JUN08-B0057FBQTC` $14.99/fees $8.25 → exp $13.48; `FBA-B0FYDT88GQ` $22.99/$11.06 → $23.86; `B075XC6C69-VEN` $9.96/$5.02 → $19.76. `total_expected_reimbursement_latest_sale_net=$57.10`, `total_open_claim_amount=$57.10`. `drift_fixed=yes` (run1==run2 $57.10). `source_import_written=no`, `latest_sale_net_cache_written=no`.
+
+### Verification + flags
+
+`no_claim_mutation_verification=yes` [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13, claim_reference_edges 147 — unchanged across two reads], `no_candidate_mutation_verification` claim_candidates 9155→9155, `no_amazon_submission_verification=yes`, `no_scanner_change_verification=yes`. `build_result` tsc 0 / ReadLints 0; `smoke_result` `smoke-phase-claim-ready-to-file-queue-ui-v1.ts` **PASS**; `next_build_result` Compiled successfully exit 0; phase script **PASS** (7 missing asserted, coverage 3/10, drift_fixed). **SAFE_MISSING_SALE_PRICE_SOURCE_IMPORTED=no** (import required + approval pending; no source rows available to load yet), **SAFE_LATEST_SALE_NET_COVERAGE_COMPLETE=no** (3/10), **SAFE_TO_FILE_PRICED_REMOVAL_CLAIMS=yes** (file the 3 priced = $57.10; hold the 7 UNKNOWN).
+
+**Files:** `scripts/diag-missing-sale-price-source-import-v1.ts` (new, read-only), `scripts/diag-repo-order-sale-reprobe-v1.ts` (new, read-only), `scripts/diag-source-pipeline-mapped-v1.ts` (new, read-only), `scripts/phase-claim-missing-sale-price-source-import-v1.ts` (new, read-only), `.cursor/operator-approvals/claim-missing-sale-price-source-import-v1-approval.md` (new, BLOCKED token).
+
+**NEXT_PROMPT:** PHASE-CLAIM-SETTLEMENT-ORDER-IMPORT-EXECUTE-V1 — after operator approval + provided `GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2` (or Transaction View export) covering SKUs `I6-VR35-FSXQ`/`WD-VY8Z-CZ3F`/`2H-7ZAX-Z2IP`, ingest `Order` rows into `amazon_settlements`/`amazon_reports_repository` via the existing mapped importer, then re-run `scripts/phase-claim-latest-sale-net-source-coverage-backfill-v1.ts --execute` to lift coverage above 3/10; meanwhile file the 3 priced removal claims ($57.10) and record real Amazon Case IDs.
+
+---
+

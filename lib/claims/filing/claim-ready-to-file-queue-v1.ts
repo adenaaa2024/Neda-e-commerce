@@ -29,6 +29,8 @@ import {
   EVENT_DATETIME_NOTE,
 } from "../reference/claim-event-reference-ledger-v1";
 import { loadConfirmedAmountBasisPolicy } from "../policy/claim-amount-basis-policy-v1";
+import { loadClaimIntakeSettings } from "../intake/claim-intake-settings";
+import { loadRemovalOriginInputsForRows } from "./claim-removal-origin-basis-v1";
 import {
   CLAIM_READY_TO_FILE_QUEUE_V1,
   READY_TO_FILE_ELIGIBLE_FAMILIES,
@@ -86,12 +88,20 @@ export async function composeClaimReadyToFileQueueV1(
   const intakeRunId = opts.intake_run_id ?? PILOT_INTAKE_RUN_ID;
   const runOpts = { pilot_case_run_id: pilotCaseRunId, intake_run_id: intakeRunId };
 
-  const [packets, money, trace, amountBasisPolicy] = await Promise.all([
+  const [packets, money, trace, amountBasisPolicy, intake] = await Promise.all([
     composeClaimSellerCentralFilingPacketV1(client, organizationId, storeId, runOpts),
     composeMoneyLanePreviewAfterCogsV1(client, organizationId, storeId, runOpts),
     composeTridReferenceTraceMatrixV1(client, organizationId, storeId, runOpts),
     loadConfirmedAmountBasisPolicy(client, organizationId),
+    loadClaimIntakeSettings(client, organizationId),
   ]);
+
+  const missingThresholdDays = intake.settings.delayed_not_received_days;
+  const missingThresholdSource = intake.sources_read.some((s) =>
+    s.startsWith("organization_settings.claim_policy.intake") && !s.includes("absent"),
+  )
+    ? "organization_settings.claim_policy.intake.delayed_not_received_days"
+    : "workspace_settings.module_configs.claim_intake.delayed_not_received_days";
 
   const moneyBySubmission = new Map(
     money.per_submission_money_matrix.map((r) => [r.claim_submission_id, r]),
@@ -295,7 +305,14 @@ export async function composeClaimReadyToFileQueueV1(
 
     const moneyLane: ReadyToFileMoneyLane = {
       latest_sold_price: latestSoldPrice,
+      latest_sold_price_source: m?.latest_sold_price_source ?? null,
+      latest_sold_price_date: m?.latest_sold_price_date ?? null,
+      latest_sale_net_deterministic: m?.latest_sale_net_deterministic ?? false,
+      sale_match_confidence: m?.sale_match_confidence ?? "none",
+      latest_sale_net_unknown_reason: m?.latest_sale_net_unknown_reason ?? null,
       amazon_fees_total: m?.amazon_fees_total ?? null,
+      amazon_fees_source: m?.amazon_fees_source ?? null,
+      fee_source_confidence: m?.fee_source_confidence ?? "unknown",
       net_settlement_amount: m?.net_settlement_amount ?? null,
       approved_cogs_unit: cogsUnit,
       recovery_value: recoveryValue,
@@ -371,6 +388,20 @@ export async function composeClaimReadyToFileQueueV1(
       packet,
       amount_basis_policy_overlay: amountBasisPolicy,
     });
+  }
+
+  // Read-only removal-claim origin / missing-basis inputs (PHASE-CLAIM-REMOVAL-ORIGIN-REASON-UI-SURFACE-V1).
+  // Resolved separately from money — keeps the "why this claim exists" explanation
+  // strictly separate from the latest_sale_net financial calculation.
+  const removalOriginInputs = await loadRemovalOriginInputsForRows(
+    client,
+    organizationId,
+    rows,
+    missingThresholdDays,
+    missingThresholdSource,
+  );
+  for (const r of rows) {
+    r.removal_origin_inputs = removalOriginInputs.get(r.claim_submission_id) ?? null;
   }
 
   const ready_rows = rows.filter((r) => r.ready_to_file);

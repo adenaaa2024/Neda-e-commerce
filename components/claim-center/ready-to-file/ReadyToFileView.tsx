@@ -20,6 +20,7 @@ import {
   DEFAULT_READY_TO_FILE_FILTERS,
   computeFamilyAwareRecovery,
   computeFilingDecision,
+  computeRemovalOriginReason,
   filterReadyToFileRows,
   summarizeRecoveryGap,
   type ReadyToFileFilterState,
@@ -34,6 +35,12 @@ const PAGE_CONTRACT = getClaimCenterV2Page("ready_to_file");
 function money(v: number | null): string {
   return v == null ? "Unknown" : `$${v.toFixed(2)}`;
 }
+
+const ORIGIN_SHORT: Record<string, string> = {
+  "Removal Shipment Detail": "Shipment",
+  "Removal Order Detail": "Order",
+  "Expected Package": "EP",
+};
 
 export function ReadyToFileView() {
   const { fetchJson, storeId } = useClaimCenter();
@@ -278,12 +285,21 @@ export function ReadyToFileView() {
                 <tr className="text-[11px] uppercase opacity-60">
                   <th className="px-3 py-2">Submission</th>
                   <th className="px-3 py-2">Case</th>
+                  <th className="px-3 py-2">Origin</th>
+                  <th className="px-3 py-2">Missing basis</th>
+                  <th className="px-3 py-2 text-right">Age days</th>
+                  <th className="px-3 py-2 text-right">Threshold days</th>
+                  <th className="px-3 py-2 text-right">Expected qty</th>
+                  <th className="px-3 py-2 text-right">Received/scanned qty</th>
+                  <th className="px-3 py-2 text-right">Missing qty</th>
+                  <th className="px-3 py-2">Validity</th>
                   <th className="px-3 py-2">Current family</th>
                   <th className="px-3 py-2">Filing status</th>
                   <th className="px-3 py-2">Policy status</th>
                   <th className="px-3 py-2">Decision</th>
                   <th className="px-3 py-2">Flags</th>
                   <th className="px-3 py-2 text-right">Expected reimbursement</th>
+                  <th className="px-3 py-2">Sale source</th>
                   <th className="px-3 py-2 text-right">Confirmed reimbursed</th>
                   <th className="px-3 py-2 text-right">Open claim amount</th>
                   <th className="px-3 py-2 text-right">Internal COGS</th>
@@ -306,7 +322,9 @@ export function ReadyToFileView() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((r) => (
+                {filteredRows.map((r) => {
+                  const o = computeRemovalOriginReason(r);
+                  return (
                   <tr
                     key={r.claim_submission_id}
                     className={CLAIM_CENTER_TABLE_ROW_CLASS}
@@ -315,6 +333,24 @@ export function ReadyToFileView() {
                     <td className="px-3 py-2 font-mono text-[11px]">{r.claim_submission_id.slice(0, 8)}…</td>
                     <td className="px-3 py-2 font-mono text-[11px]">
                       {r.claim_case_id ? `${r.claim_case_id.slice(0, 8)}…` : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-[11px]">
+                      {o.applicable && o.origin_sources.length > 0
+                        ? o.origin_sources.map((s) => ORIGIN_SHORT[s] ?? s).join(" + ")
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-[11px]">{o.applicable ? o.compact_reason : "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{o.event_age_days ?? "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{o.applicable ? o.threshold_days : "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{o.expected_qty ?? "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{o.received_qty ?? "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{o.missing_qty ?? "—"}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {o.applicable ? (
+                        <span className={claimCenterBadgeTone(o.validity_tone)}>{o.validity_label}</span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     {(() => {
                       const fa = computeFamilyAwareRecovery(r);
@@ -350,7 +386,30 @@ export function ReadyToFileView() {
                             </div>
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-700 dark:text-emerald-300">
-                            {money(fa.seller_central_amount)}
+                            {fa.seller_central_amount == null ? (
+                              <span className="text-amber-700 dark:text-amber-300">UNKNOWN</span>
+                            ) : (
+                              money(fa.seller_central_amount)
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {fa.latest_sold_price == null ? (
+                              <span
+                                className={claimCenterBadgeTone("warning")}
+                                title={fa.latest_sale_net_unknown_reason ?? "no loaded sale source"}
+                              >
+                                UNKNOWN
+                              </span>
+                            ) : (
+                              <span
+                                className="text-[10px] leading-tight opacity-60"
+                                title={`fees: ${fa.amazon_fees_source ?? "—"} · ${fa.fee_source_confidence}`}
+                              >
+                                {(fa.latest_sold_price_source ?? "—").replace("amazon_", "").replace(".product_sales", "")}
+                                {fa.latest_sold_price_date ? ` · ${fa.latest_sold_price_date.slice(0, 10)}` : ""}
+                                {` · ${fa.sale_match_confidence}`}
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">
                             {fa.confirmed_reimbursed_strong > 0 ? money(fa.confirmed_reimbursed_strong) : "—"}
@@ -418,10 +477,11 @@ export function ReadyToFileView() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={27} className="px-3 py-10 text-center text-sm opacity-60">
+                    <td colSpan={36} className="px-3 py-10 text-center text-sm opacity-60">
                       No claims match the current filters.
                     </td>
                   </tr>

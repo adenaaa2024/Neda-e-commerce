@@ -86,6 +86,12 @@ export type PerSubmissionMoneyPreview = {
   fnsku: string | null;
   asin: string | null;
   latest_sold_price: MoneyLaneFieldPreview;
+  latest_sold_price_date: string | null;
+  latest_sale_net_deterministic: boolean;
+  sale_match_confidence: "high" | "medium" | "none";
+  latest_sale_net_unknown_reason: string | null;
+  amazon_fees_source: string | null;
+  fee_source_confidence: "high" | "unknown";
   amazon_fee_breakdown: AmazonFeeBreakdownPreview;
   net_settlement_amount: MoneyLaneFieldPreview;
   observed_reimbursement: MoneyLaneFieldPreview;
@@ -197,6 +203,11 @@ function buildSubmissionPreview(row: PerSubmissionSourceDiscovery): PerSubmissio
     recovery != null && observed != null ? recovery - observed : null;
 
   const { breakdown: feePreview } = sumKnownFees(row.fee_breakdown);
+  // The resolver's authoritative fee total + source supersede the recomputed breakdown.
+  feePreview.amazon_fees_total = row.amazon_fees_total;
+  feePreview.status = row.amazon_fees_total != null ? "known" : "unknown";
+  feePreview.source = row.amazon_fees_source ?? feePreview.source;
+  feePreview.blockers = row.amazon_fees_total != null ? [] : ["FEE_DEDUCTIONS_NOT_FOUND"];
 
   const soldBlockers = row.latest_sold_price_found ? [] : ["LATEST_SOLD_PRICE_NOT_FOUND_FOR_SKU"];
   const cogsBlockers = row.cogs_found ? [] : ["COGS_MISSING", "APPROVED_COGS_UNIT_NULL"];
@@ -231,6 +242,12 @@ function buildSubmissionPreview(row: PerSubmissionSourceDiscovery): PerSubmissio
       source: row.latest_sold_price_source,
       blockers: soldBlockers,
     },
+    latest_sold_price_date: row.latest_sold_price_date,
+    latest_sale_net_deterministic: row.latest_sale_net_deterministic,
+    sale_match_confidence: row.sale_match_confidence,
+    latest_sale_net_unknown_reason: row.latest_sale_net_unknown_reason,
+    amazon_fees_source: row.amazon_fees_source,
+    fee_source_confidence: row.fee_source_confidence,
     amazon_fee_breakdown: feePreview,
     net_settlement_amount: {
       value: row.settlement_amount,

@@ -13,6 +13,7 @@ import {
   buildReferenceBlockText,
   computeFamilyAwareRecovery,
   computeFilingDecision,
+  computeRemovalOriginReason,
   type DeepReferenceFilingSufficiency,
   type DeepReferenceSourceStatus,
   type EventReferenceRow,
@@ -69,11 +70,22 @@ function ReferenceRows({ rows, muted }: { rows: EventReferenceRow[]; muted?: boo
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
+function Field({
+  label,
+  value,
+  mono,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  hint?: string;
+}) {
   return (
     <div className="min-w-0">
       <dt className="text-[10px] font-semibold uppercase tracking-wide opacity-55">{label}</dt>
       <dd className={`mt-0.5 text-sm font-medium ${mono ? "break-all font-mono text-xs" : ""}`}>{value ?? "—"}</dd>
+      {hint ? <p className="mt-0.5 text-[10px] leading-tight opacity-45">{hint}</p> : null}
     </div>
   );
 }
@@ -239,18 +251,45 @@ function FinancialBreakdownSection({ row, fa }: { row: ReadyToFileRow; fa: Famil
           <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
             A · Amazon Claim Amount
           </p>
-          <AmountLine label="Latest sold price" value={money(fa.latest_sold_price)} />
-          <AmountLine label="Amazon fees" value={money(fa.amazon_fees)} />
+          <AmountLine
+            label="Latest sold price"
+            value={fa.latest_sold_price == null ? "UNKNOWN" : money(fa.latest_sold_price)}
+          />
+          {fa.latest_sold_price != null ? (
+            <p className="-mt-0.5 mb-1 text-[10px] leading-tight opacity-50">
+              src: {fa.latest_sold_price_source ?? "—"}
+              {fa.latest_sold_price_date ? ` · sale ${fa.latest_sold_price_date.slice(0, 10)}` : ""} · match{" "}
+              {fa.sale_match_confidence}
+              {fa.latest_sale_net_deterministic ? " · deterministic" : ""}
+            </p>
+          ) : (
+            <p className="-mt-0.5 mb-1 text-[10px] leading-tight text-amber-700 dark:text-amber-300">
+              UNKNOWN — {fa.latest_sale_net_unknown_reason ?? "no loaded sale source"}
+            </p>
+          )}
+          <AmountLine
+            label="Amazon fees"
+            value={fa.amazon_fees == null ? "UNKNOWN" : money(fa.amazon_fees)}
+          />
+          {fa.amazon_fees != null ? (
+            <p className="-mt-0.5 mb-1 text-[10px] leading-tight opacity-50">
+              src: {fa.amazon_fees_source ?? "—"} · confidence {fa.fee_source_confidence}
+            </p>
+          ) : null}
           <AmountLine
             label="Expected reimbursement (sold price − fees)"
-            value={money(fa.expected_reimbursement_latest_sale_net)}
+            value={
+              fa.expected_reimbursement_latest_sale_net == null
+                ? "UNKNOWN"
+                : money(fa.expected_reimbursement_latest_sale_net)
+            }
             emphasis
             tone="emerald"
           />
           <AmountLine label="Confirmed reimbursed (strong, same-family)" value={money(fa.confirmed_reimbursed_strong)} />
           <AmountLine
             label="Open claim amount"
-            value={money(fa.open_gap_under_current_policy)}
+            value={fa.open_gap_under_current_policy == null ? "UNKNOWN" : money(fa.open_gap_under_current_policy)}
             emphasis
             tone="amber"
           />
@@ -260,7 +299,7 @@ function FinancialBreakdownSection({ row, fa }: { row: ReadyToFileRow; fa: Famil
           </div>
           <p className="mt-1.5 text-[10px] leading-relaxed opacity-60">
             Seller Central requested amount = expected reimbursement (latest sold price − Amazon fees). COGS is NOT the
-            requested amount.
+            requested amount. Amount is UNKNOWN (not COGS-backfilled) when no deterministic sale source is loaded.
           </p>
         </div>
 
@@ -434,6 +473,94 @@ function SeparateClaimOpportunitiesSection({ fa }: { fa: FamilyAwareRecovery }) 
   );
 }
 
+/** Badge tone per origin/validity badge token (PHASE-CLAIM-REMOVAL-ORIGIN-REASON-UI-SURFACE-V1). */
+const ORIGIN_BADGE_TONE: Record<string, string> = {
+  valid_missing: "success",
+  valid_discrepancy: "success",
+  over_threshold: "info",
+  scanner_absent: "neutral",
+  full_missing: "warning",
+  no_manual_review_needed: "success",
+  waiting_threshold: "warning",
+  needs_manual_review: "warning",
+  has_receipt: "info",
+  not_missing: "danger",
+  partial_receipt: "info",
+  disputed: "danger",
+};
+
+/**
+ * "Why this claim exists" — plain-language origin/missing-basis explanation, kept
+ * strictly separate from the financial breakdown. Read-only; renders only for
+ * removal-family rows that have resolved origin inputs.
+ */
+function WhyThisClaimExistsSection({ row }: { row: ReadyToFileRow }) {
+  const o = computeRemovalOriginReason(row);
+  if (!o.applicable) return null;
+  return (
+    <section className="rounded-xl border border-sky-500/30 bg-sky-500/[0.05] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase opacity-70">Why this claim exists</h3>
+        <span className={claimCenterBadgeTone(o.validity_tone)}>{o.validity_label}</span>
+      </div>
+
+      <p className="mb-2 rounded-md border bg-white/50 px-2.5 py-1.5 text-[12px] font-medium dark:bg-black/20">
+        {o.compact_reason}
+      </p>
+
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {o.badges.map((b) => (
+          <span key={b} className={claimCenterBadgeTone(ORIGIN_BADGE_TONE[b] ?? "neutral")}>
+            {b}
+          </span>
+        ))}
+      </div>
+
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Field
+          label="Source"
+          value={o.origin_sources.length > 0 ? o.origin_sources.join(" + ") : "—"}
+        />
+        <Field label="Tracking / shipment ref" value={o.tracking} mono />
+        <Field label="Removal order ID" value={o.removal_order_id} mono />
+        <Field label="Removal shipment ID" value={o.removal_shipment_id} mono />
+        <Field label="Event date" value={o.event_date ? o.event_date.slice(0, 10) : "—"} />
+        <Field label="Event age (days)" value={o.event_age_days ?? "—"} />
+        <Field
+          label="Configured threshold"
+          value={`${o.threshold_days} days`}
+          hint={o.threshold_source}
+        />
+        <Field label="Expected quantity" value={o.expected_qty ?? "—"} />
+        <Field label="Received / scanned quantity" value={o.received_qty ?? "—"} />
+        <Field label="Missing / discrepancy quantity" value={o.missing_qty ?? "—"} />
+        <Field label="Expected-package build status" value={o.build_status ?? "—"} />
+      </dl>
+
+      <div className="mt-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wide opacity-55">Scanner status</p>
+        <ul className="mt-1 space-y-0.5 text-[11px] opacity-80">
+          {o.scanner_status_lines.map((s, i) => (
+            <li key={i} className="flex items-start gap-1.5">
+              <span className="mt-0.5 opacity-50">•</span>
+              <span>{s}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <p className="mt-3 rounded-md border border-sky-500/30 bg-white/40 px-2.5 py-1.5 text-[11px] leading-relaxed dark:bg-black/20">
+        <span className="font-semibold">Final reason: </span>
+        {o.final_reason}
+      </p>
+      <p className="mt-2 text-[10px] leading-relaxed opacity-55">
+        This explains the missing/discrepancy basis only. The Amazon claim amount is computed separately under
+        Financial Breakdown (latest_sale_net policy).
+      </p>
+    </section>
+  );
+}
+
 export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props) {
   const [filedManually, setFiledManually] = useState(false);
 
@@ -445,6 +572,7 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
   const referenceBlock = buildReferenceBlockText(row);
   const decision = computeFilingDecision(row);
   const fa = computeFamilyAwareRecovery(row);
+  const origin = computeRemovalOriginReason(row);
 
   const confidenceTone =
     led.confidence === "high" ? "success" : led.confidence === "medium" ? "neutral" : "warning";
@@ -457,7 +585,9 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-bold">Filing packet</h2>
-              {row.ready_to_file ? (
+              {origin.applicable && origin.validity === "waiting_threshold" ? (
+                <span className={claimCenterBadgeTone("warning")}>Waiting threshold</span>
+              ) : row.ready_to_file ? (
                 <span className={claimCenterBadgeTone("success")}>Ready to file</span>
               ) : row.filing_status === "needs_reference_review" ? (
                 <span className={claimCenterBadgeTone("warning")}>Needs reference review</span>
@@ -465,6 +595,9 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
                 <span className={claimCenterBadgeTone("warning")}>Blocked</span>
               )}
               <span className={claimCenterBadgeTone("neutral")}>{row.claim_family ?? "—"}</span>
+              {origin.applicable ? (
+                <span className={claimCenterBadgeTone(origin.validity_tone)}>{origin.validity_label}</span>
+              ) : null}
             </div>
             <p className="mt-1 font-mono text-[11px] opacity-60">{row.claim_submission_id}</p>
           </div>
@@ -482,6 +615,9 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
           <p className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-950 dark:text-sky-100">
             MENORIX does not submit anything to Amazon. This packet is for manual Seller Central filing only.
           </p>
+
+          {/* ---- Why this claim exists (origin / missing basis) ---- */}
+          <WhyThisClaimExistsSection row={row} />
 
           {/* ---- Filing Decision ---- */}
           <section className="rounded-xl border p-3">
@@ -582,8 +718,24 @@ export function ReadyToFileDetailDrawer({ row, caseIdRecording, onClose }: Props
           <section>
             <h3 className="mb-2 text-xs font-semibold uppercase opacity-60">Money lane</h3>
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Field label="Latest sold price" value={money(m.latest_sold_price)} />
-              <Field label="Amazon fees" value={money(m.amazon_fees_total)} />
+              <Field
+                label="Latest sold price"
+                value={m.latest_sold_price == null ? "UNKNOWN" : money(m.latest_sold_price)}
+                hint={
+                  m.latest_sold_price == null
+                    ? (m.latest_sale_net_unknown_reason ?? "no loaded sale source")
+                    : `${m.latest_sold_price_source ?? "—"}${m.latest_sold_price_date ? ` · ${m.latest_sold_price_date.slice(0, 10)}` : ""} · ${m.sale_match_confidence}`
+                }
+              />
+              <Field
+                label="Amazon fees"
+                value={m.amazon_fees_total == null ? "UNKNOWN" : money(m.amazon_fees_total)}
+                hint={
+                  m.amazon_fees_total == null
+                    ? "no fee row tied to sale"
+                    : `${m.amazon_fees_source ?? "—"} · ${m.fee_source_confidence}`
+                }
+              />
               <Field label="Settlement net" value={money(m.net_settlement_amount)} />
               <Field label="COGS / unit" value={money(m.approved_cogs_unit)} />
               <Field

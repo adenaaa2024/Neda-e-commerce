@@ -113,7 +113,14 @@ export type ReadyToFileAuditItem = {
 
 export type ReadyToFileMoneyLane = {
   latest_sold_price: number | null;
+  latest_sold_price_source: string | null;
+  latest_sold_price_date: string | null;
+  latest_sale_net_deterministic: boolean;
+  sale_match_confidence: "high" | "medium" | "none";
+  latest_sale_net_unknown_reason: string | null;
   amazon_fees_total: number | null;
+  amazon_fees_source: string | null;
+  fee_source_confidence: "high" | "unknown";
   net_settlement_amount: number | null;
   approved_cogs_unit: number | null;
   recovery_value: number | null;
@@ -330,7 +337,246 @@ export type ReadyToFileRow = {
 
   /** Confirmed operator amount-basis policy overlay (from governed workspace_settings). */
   amount_basis_policy_overlay?: AmountBasisPolicyOverlay | null;
+
+  /** Raw removal-claim origin/missing-basis inputs (read-only, server-resolved).
+   * Drives the "Why this claim exists" explanation. Null for non-removal families
+   * or when not resolved. Carries NO money — financials stay in money_lane. */
+  removal_origin_inputs?: RemovalOriginInputs | null;
 };
+
+// ---- Removal claim origin / missing basis (PHASE-CLAIM-REMOVAL-ORIGIN-REASON-UI-SURFACE-V1) ----
+
+/** Raw, already-resolved inputs explaining WHY a removal claim exists. Read-only;
+ * resolved server-side from expected_packages / amazon_removals /
+ * amazon_removal_shipments / packages / return_items + the configured threshold.
+ * Contains no Amazon amount — the missing-basis explanation is kept strictly
+ * separate from the latest_sale_net financial calculation. */
+export type RemovalOriginInputs = {
+  from_removal_shipment_detail: boolean;
+  from_removal_order_detail: boolean;
+  from_expected_packages: boolean;
+  tracking: string | null;
+  removal_order_id: string | null;
+  removal_shipment_id: string | null;
+  expected_package_id: string | null;
+  event_date: string | null;
+  event_age_days: number | null;
+  threshold_days: number;
+  threshold_source: string;
+  expected_qty: number | null;
+  received_qty: number | null;
+  build_status: string | null;
+  package_received: boolean;
+  scanned_units: number;
+};
+
+export type RemovalClaimValidity =
+  | "valid_missing"
+  | "valid_discrepancy"
+  | "waiting_threshold"
+  | "needs_manual_review"
+  | "not_missing"
+  | "not_applicable";
+
+export type RemovalOriginReason = {
+  applicable: boolean;
+  origin_sources: string[];
+  from_removal_shipment_detail: boolean;
+  from_removal_order_detail: boolean;
+  from_expected_packages: boolean;
+  from_scanner_receipt_absence: boolean;
+  from_deadline_threshold: boolean;
+  from_quantity_mismatch: boolean;
+  tracking: string | null;
+  removal_order_id: string | null;
+  removal_shipment_id: string | null;
+  event_date: string | null;
+  event_age_days: number | null;
+  threshold_days: number;
+  threshold_source: string;
+  expected_qty: number | null;
+  received_qty: number | null;
+  missing_qty: number | null;
+  build_status: string | null;
+  scanner_status_lines: string[];
+  validity: RemovalClaimValidity;
+  validity_label: string;
+  validity_tone: "success" | "warning" | "danger" | "neutral";
+  missing_basis: string;
+  compact_reason: string;
+  final_reason: string;
+  badges: string[];
+};
+
+const REMOVAL_VALIDITY_META: Record<
+  RemovalClaimValidity,
+  { label: string; tone: RemovalOriginReason["validity_tone"] }
+> = {
+  valid_missing: { label: "Valid missing", tone: "success" },
+  valid_discrepancy: { label: "Valid discrepancy", tone: "success" },
+  waiting_threshold: { label: "Waiting threshold", tone: "warning" },
+  needs_manual_review: { label: "Needs manual review", tone: "warning" },
+  not_missing: { label: "Not missing — reclassify", tone: "danger" },
+  not_applicable: { label: "—", tone: "neutral" },
+};
+
+function notApplicableRemovalReason(): RemovalOriginReason {
+  return {
+    applicable: false,
+    origin_sources: [],
+    from_removal_shipment_detail: false,
+    from_removal_order_detail: false,
+    from_expected_packages: false,
+    from_scanner_receipt_absence: false,
+    from_deadline_threshold: false,
+    from_quantity_mismatch: false,
+    tracking: null,
+    removal_order_id: null,
+    removal_shipment_id: null,
+    event_date: null,
+    event_age_days: null,
+    threshold_days: 0,
+    threshold_source: "n/a",
+    expected_qty: null,
+    received_qty: null,
+    missing_qty: null,
+    build_status: null,
+    scanner_status_lines: [],
+    validity: "not_applicable",
+    validity_label: REMOVAL_VALIDITY_META.not_applicable.label,
+    validity_tone: REMOVAL_VALIDITY_META.not_applicable.tone,
+    missing_basis: "n/a",
+    compact_reason: "—",
+    final_reason: "Origin basis not resolved for this row.",
+    badges: [],
+  };
+}
+
+/**
+ * Deterministic, read-only "why this claim exists" explanation for one removal row.
+ * Pure (no I/O, no AI, no claim math). Mirrors PHASE-CLAIM-REMOVAL-MISSING-BASIS-AUDIT-V1:
+ *
+ *  - scanned/received in full          → not_missing (reclassify to discrepancy/other)
+ *  - partially received (0<r<expected) → valid_discrepancy ("expected X, received Y")
+ *  - no receipt + age ≤ threshold      → waiting_threshold (NOT ready to file)
+ *  - no receipt + age > threshold      → valid_missing ("no scan/receipt after Nd")
+ *  - disputed EP / no event date       → needs_manual_review
+ *
+ * Missing is never inferred from removal-shipment existence alone — it requires
+ * scanner-receipt absence AND age over the configured threshold.
+ */
+export function computeRemovalOriginReason(row: ReadyToFileRow): RemovalOriginReason {
+  const i = row.removal_origin_inputs ?? null;
+  if (!i) return notApplicableRemovalReason();
+
+  const expected = i.expected_qty;
+  const received = i.received_qty;
+  const recv = received ?? 0;
+  const missingQty = expected != null && received != null ? Math.max(0, expected - received) : null;
+  const age = i.event_age_days;
+  const threshold = i.threshold_days;
+  const disputed = i.build_status != null && /conflict|disputed|overflow/i.test(i.build_status);
+
+  const fromScannerReceiptAbsence = recv === 0 && !i.package_received;
+  const fromDeadlineThreshold = age != null && age > threshold && recv === 0;
+  const fromQuantityMismatch = expected != null && received != null && recv > 0 && recv < expected;
+
+  const originSources: string[] = [];
+  if (i.from_removal_shipment_detail) originSources.push("Removal Shipment Detail");
+  if (i.from_removal_order_detail) originSources.push("Removal Order Detail");
+  if (i.from_expected_packages) originSources.push("Expected Package");
+
+  const scannerStatusLines: string[] = [
+    i.package_received ? "package row present for tracking" : "no packages row for tracking",
+    i.scanned_units > 0 ? `scanned return_items: ${i.scanned_units} unit(s)` : "no scanned return_items",
+    `actual_scanned_count = ${received ?? 0}`,
+  ];
+
+  let validity: RemovalClaimValidity;
+  let missingBasis: string;
+  let compactReason: string;
+  let finalReason: string;
+  const badges: string[] = [];
+
+  if (disputed) {
+    validity = "needs_manual_review";
+    missingBasis = "disputed_expected_package";
+    compactReason = `Manual review: disputed package (${i.build_status})`;
+    finalReason = `Needs manual review: expected_package build_status='${i.build_status}' is disputed — exclude until reconciled.`;
+    badges.push("needs_manual_review", "disputed");
+  } else if (recv > 0 && expected != null && recv >= expected) {
+    validity = "not_missing";
+    missingBasis = "received_not_missing";
+    compactReason = `Received ${recv}/${expected}: not missing`;
+    finalReason = `Physical receipt found (${recv} ≥ expected ${expected}) — this is NOT a missing claim; reclassify to discrepancy/damaged/other family.`;
+    badges.push("has_receipt", "not_missing");
+  } else if (fromQuantityMismatch) {
+    validity = "valid_discrepancy";
+    missingBasis = "discrepancy_quantity_short_receive";
+    compactReason = `Discrepancy: expected ${expected}, received ${recv}`;
+    finalReason = `Partial receipt (${recv}/${expected}) → discrepancy of ${missingQty} unit(s). File as discrepancy/shortage, not full missing.`;
+    badges.push("valid_discrepancy", "partial_receipt");
+    if (age != null && age > threshold) badges.push("over_threshold");
+  } else if (recv === 0) {
+    if (age == null) {
+      validity = "needs_manual_review";
+      missingBasis = "no_event_date";
+      compactReason = "Manual review: no event date";
+      finalReason = "Needs manual review: no shipment/removal event date available to evaluate age vs threshold.";
+      badges.push("needs_manual_review");
+    } else if (age <= threshold) {
+      validity = "waiting_threshold";
+      missingBasis = "waiting_threshold_not_yet_overdue";
+      compactReason = `Waiting: not received, ${age}d old (≤ ${threshold}d)`;
+      finalReason = `Not received but only ${age} day(s) old (≤ ${threshold}-day threshold) — waiting, NOT yet a missing claim.`;
+      badges.push("waiting_threshold", "scanner_absent");
+    } else {
+      validity = "valid_missing";
+      missingBasis = "missing_candidate_age_exceeds_threshold";
+      compactReason = `Missing: no scan/receipt after ${threshold} days`;
+      finalReason =
+        "Valid missing claim: no physical receipt/scanner evidence after configured threshold.";
+      badges.push("valid_missing", "over_threshold", "scanner_absent", "full_missing", "no_manual_review_needed");
+    }
+  } else {
+    validity = "needs_manual_review";
+    missingBasis = "indeterminate";
+    compactReason = "Manual review: indeterminate basis";
+    finalReason = "Needs manual review: could not determine a deterministic missing/discrepancy basis.";
+    badges.push("needs_manual_review");
+  }
+
+  const meta = REMOVAL_VALIDITY_META[validity];
+  return {
+    applicable: true,
+    origin_sources: originSources,
+    from_removal_shipment_detail: i.from_removal_shipment_detail,
+    from_removal_order_detail: i.from_removal_order_detail,
+    from_expected_packages: i.from_expected_packages,
+    from_scanner_receipt_absence: fromScannerReceiptAbsence,
+    from_deadline_threshold: fromDeadlineThreshold,
+    from_quantity_mismatch: fromQuantityMismatch,
+    tracking: i.tracking,
+    removal_order_id: i.removal_order_id,
+    removal_shipment_id: i.removal_shipment_id,
+    event_date: i.event_date,
+    event_age_days: age,
+    threshold_days: threshold,
+    threshold_source: i.threshold_source,
+    expected_qty: expected,
+    received_qty: received,
+    missing_qty: missingQty,
+    build_status: i.build_status,
+    scanner_status_lines: scannerStatusLines,
+    validity,
+    validity_label: meta.label,
+    validity_tone: meta.tone,
+    missing_basis: missingBasis,
+    compact_reason: compactReason,
+    final_reason: finalReason,
+    badges,
+  };
+}
 
 // ---- Confirmed amount-basis policy overlay (PHASE-CLAIM-AMOUNT-BASIS-POLICY-OPERATOR-CONFIRMATION-V1) ----
 
@@ -1161,7 +1407,14 @@ export type FamilyAwareRecovery = {
   informational_only_bases: AmountBasis[];
   current_cogs_expected_recovery: number | null;
   latest_sold_price: number | null;
+  latest_sold_price_source: string | null;
+  latest_sold_price_date: string | null;
   amazon_fees: number | null;
+  amazon_fees_source: string | null;
+  fee_source_confidence: "high" | "unknown";
+  sale_match_confidence: "high" | "medium" | "none";
+  latest_sale_net_deterministic: boolean;
+  latest_sale_net_unknown_reason: string | null;
   settlement_net: number | null;
   alternative_latest_sale_net_estimate: number | null;
   business_total_loss_estimate: number | null;
@@ -1422,7 +1675,14 @@ export function computeFamilyAwareRecovery(row: ReadyToFileRow): FamilyAwareReco
     informational_only_bases: informationalOnlyBases,
     current_cogs_expected_recovery: cogs,
     latest_sold_price: ml.latest_sold_price,
+    latest_sold_price_source: ml.latest_sold_price_source,
+    latest_sold_price_date: ml.latest_sold_price_date,
     amazon_fees: ml.amazon_fees_total,
+    amazon_fees_source: ml.amazon_fees_source,
+    fee_source_confidence: ml.fee_source_confidence,
+    sale_match_confidence: ml.sale_match_confidence,
+    latest_sale_net_deterministic: ml.latest_sale_net_deterministic,
+    latest_sale_net_unknown_reason: ml.latest_sale_net_unknown_reason,
     settlement_net: ml.net_settlement_amount,
     alternative_latest_sale_net_estimate: altSaleNet,
     business_total_loss_estimate: businessLoss,

@@ -40,7 +40,14 @@ export type PerSubmissionMoneyMatrixRow = {
   fnsku: string | null;
   sku: string | null;
   latest_sold_price: number | null;
+  latest_sold_price_source: string | null;
+  latest_sold_price_date: string | null;
+  latest_sale_net_deterministic: boolean;
+  sale_match_confidence: "high" | "medium" | "none";
+  latest_sale_net_unknown_reason: string | null;
   amazon_fees_total: number | null;
+  amazon_fees_source: string | null;
+  fee_source_confidence: "high" | "unknown";
   net_settlement_amount: number | null;
   approved_cogs_unit: number | null;
   recovery_value: number | null;
@@ -125,7 +132,14 @@ function toMatrixRow(p: PerSubmissionMoneyPreview): PerSubmissionMoneyMatrixRow 
     fnsku: p.fnsku,
     sku: p.sku,
     latest_sold_price: p.latest_sold_price.value,
+    latest_sold_price_source: p.latest_sold_price.source,
+    latest_sold_price_date: p.latest_sold_price_date,
+    latest_sale_net_deterministic: p.latest_sale_net_deterministic,
+    sale_match_confidence: p.sale_match_confidence,
+    latest_sale_net_unknown_reason: p.latest_sale_net_unknown_reason,
     amazon_fees_total: p.amazon_fee_breakdown.amazon_fees_total,
+    amazon_fees_source: p.amazon_fees_source,
+    fee_source_confidence: p.fee_source_confidence,
     net_settlement_amount: p.net_settlement_amount.value,
     approved_cogs_unit: p.approved_cogs_unit.value,
     recovery_value: p.recovery_value.value,

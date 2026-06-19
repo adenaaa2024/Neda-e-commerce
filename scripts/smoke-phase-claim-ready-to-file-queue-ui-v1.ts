@@ -19,10 +19,12 @@ import {
   computeFamilyAwareRecovery,
   computeFilingDecision,
   computeRecoveryGap,
+  computeRemovalOriginReason,
   filterReadyToFileRows,
   summarizeRecoveryGap,
   type FamilyCandidateClassification,
   type ReadyToFileRow,
+  type RemovalOriginInputs,
 } from "../lib/claims/filing/claim-ready-to-file-queue-ui-contract";
 import {
   GENERATOR_SUPPORTED_FAMILIES,
@@ -322,7 +324,14 @@ const faRow = {
   clean_quantity: 2,
   money_lane: {
     latest_sold_price: 20,
+    latest_sold_price_source: "amazon_reports_repository.product_sales",
+    latest_sold_price_date: "2026-03-27T19:14:27+00:00",
+    latest_sale_net_deterministic: true,
+    sale_match_confidence: "high",
+    latest_sale_net_unknown_reason: null,
     amazon_fees_total: 6,
+    amazon_fees_source: "amazon_reports_repository.selling_fees+fba_fees",
+    fee_source_confidence: "high",
     net_settlement_amount: 14,
     approved_cogs_unit: 5,
     recovery_value: 10,
@@ -424,6 +433,56 @@ assert(faLatestSaleNet.seller_central_amount_basis === "latest_sale_net" && faLa
 assert(faLatestSaleNet.seller_central_amount !== faLatestSaleNet.current_cogs_expected_recovery, "Seller Central amount must NOT be the COGS amount under latest_sale_net policy");
 assert(faLatestSaleNet.open_gap_under_current_policy === 28, `open claim amount must equal expected when confirmed=0 (got ${faLatestSaleNet.open_gap_under_current_policy})`);
 assert(faLatestSaleNet.filing_status === "safe_to_file", `confirmed latest_sale_net removal claim must be safe_to_file (got ${faLatestSaleNet.filing_status})`);
+
+// ---- PHASE-CLAIM-LATEST-SALE-NET-SOURCE-COVERAGE-BACKFILL-V1 ----
+// Provenance + deterministic source must surface on the family-aware recovery.
+assert(
+  fa.latest_sold_price_source === "amazon_reports_repository.product_sales" &&
+    fa.latest_sold_price_date === "2026-03-27T19:14:27+00:00" &&
+    fa.sale_match_confidence === "high" &&
+    fa.latest_sale_net_deterministic === true &&
+    fa.amazon_fees_source === "amazon_reports_repository.selling_fees+fba_fees" &&
+    fa.fee_source_confidence === "high",
+  "family-aware recovery must surface deterministic sale price/fee source provenance",
+);
+// Missing sale price → UNKNOWN expected/open (NO COGS fallback) + an explicit reason.
+const missingSaleRow = {
+  ...latestSaleNetFaRow,
+  money_lane: {
+    ...(latestSaleNetFaRow as unknown as ReadyToFileRow).money_lane,
+    latest_sold_price: null,
+    latest_sold_price_source: null,
+    latest_sold_price_date: null,
+    latest_sale_net_deterministic: true,
+    sale_match_confidence: "none",
+    latest_sale_net_unknown_reason: "NO_VALID_ORDER_SALE_AT_OR_BEFORE_EVENT",
+    amazon_fees_total: null,
+    amazon_fees_source: null,
+    fee_source_confidence: "unknown",
+  },
+} as unknown as ReadyToFileRow;
+const faMissingSale = computeFamilyAwareRecovery(missingSaleRow);
+assert(
+  faMissingSale.expected_reimbursement_latest_sale_net === null &&
+    faMissingSale.seller_central_amount === null &&
+    faMissingSale.open_gap_under_current_policy === null,
+  "missing sale price must yield UNKNOWN expected/open (no COGS fallback)",
+);
+assert(
+  faMissingSale.latest_sale_net_unknown_reason === "NO_VALID_ORDER_SALE_AT_OR_BEFORE_EVENT",
+  "missing sale price must carry an explicit unknown_reason for the UI",
+);
+// UI must render the sale-source column + provenance/UNKNOWN affordances.
+assert(/<th[^>]*>Sale source<\/th>/.test(viewSrc), "view must render a Sale source column");
+assert(viewSrc.includes("latest_sale_net_unknown_reason") && viewSrc.includes("UNKNOWN"), "view must show UNKNOWN + reason when no sale source");
+assert(
+  drawerSrc.includes("latest_sold_price_source") && drawerSrc.includes("latest_sale_net_unknown_reason"),
+  "drawer must render latest sold price source + UNKNOWN reason",
+);
+assert(
+  drawerSrc.includes("amazon_fees_source") && drawerSrc.includes("fee_source_confidence"),
+  "drawer must render Amazon fees source + fee confidence",
+);
 
 // ---- PHASE-CLAIM-SEPARATE-FAMILY-CANDIDATE-GENERATORS-V1 ----
 const mkClass = (over: Partial<FamilyCandidateClassification>): FamilyCandidateClassification => ({
@@ -625,5 +684,124 @@ assert(
   "table open-gap/reimbursed columns must use family-aware values (exclude cross-family weak candidates)",
 );
 assert(!viewSrc.includes("computeRecoveryGap"), "table must no longer use raw computeRecoveryGap for the gap columns");
+
+// ---- PHASE-CLAIM-REMOVAL-ORIGIN-REASON-UI-SURFACE-V1 ----
+// Pure origin/missing-basis classifier mirrors the audit: valid_missing when no
+// receipt + age over threshold; waiting when under threshold; discrepancy when
+// partially received; not_missing when fully received; not_applicable when null.
+const mkOrigin = (over: Partial<RemovalOriginInputs>): RemovalOriginInputs => ({
+  from_removal_shipment_detail: true,
+  from_removal_order_detail: true,
+  from_expected_packages: true,
+  tracking: "TRK-1",
+  removal_order_id: "RO-1",
+  removal_shipment_id: "RS-1",
+  expected_package_id: "ep-1",
+  event_date: "2026-04-01T00:00:00Z",
+  event_age_days: 40,
+  threshold_days: 14,
+  threshold_source: "workspace_settings.module_configs.claim_intake.delayed_not_received_days",
+  expected_qty: 2,
+  received_qty: 0,
+  build_status: "matched",
+  package_received: false,
+  scanned_units: 0,
+  ...over,
+});
+
+const originRowBase = { ...sampleRow, claim_family: "removal_shipment_missing" } as unknown as ReadyToFileRow;
+
+// Non-removal / unresolved → not applicable.
+const naReason = computeRemovalOriginReason({ ...originRowBase, removal_origin_inputs: null } as ReadyToFileRow);
+assert(naReason.applicable === false && naReason.validity === "not_applicable", "null origin inputs → not_applicable");
+
+// Valid missing (the 10 pilot claims): age 40 > 14, received 0, no receipt.
+const validMissing = computeRemovalOriginReason({
+  ...originRowBase,
+  removal_origin_inputs: mkOrigin({}),
+} as ReadyToFileRow);
+assert(validMissing.validity === "valid_missing", `age>threshold + received 0 → valid_missing (got ${validMissing.validity})`);
+assert(validMissing.threshold_days === 14, "valid missing must carry threshold 14");
+assert(validMissing.event_age_days === 40 && validMissing.received_qty === 0, "valid missing must carry age 40 + received 0");
+assert(validMissing.missing_qty === 2, "valid missing missing_qty = expected − received = 2");
+assert(validMissing.compact_reason === "Missing: no scan/receipt after 14 days", `compact reason wording (got "${validMissing.compact_reason}")`);
+assert(
+  validMissing.final_reason ===
+    "Valid missing claim: no physical receipt/scanner evidence after configured threshold.",
+  "valid missing final reason wording",
+);
+for (const b of ["valid_missing", "over_threshold", "scanner_absent", "full_missing", "no_manual_review_needed"]) {
+  assert(validMissing.badges.includes(b), `valid missing must carry badge '${b}'`);
+}
+assert(validMissing.from_scanner_receipt_absence && validMissing.from_deadline_threshold, "valid missing origin flags set");
+assert(
+  validMissing.origin_sources.includes("Removal Shipment Detail") &&
+    validMissing.origin_sources.includes("Removal Order Detail") &&
+    validMissing.origin_sources.includes("Expected Package"),
+  "valid missing must list all three origin sources",
+);
+
+// Waiting threshold: too new (age 5 ≤ 14), received 0 → NOT ready to file.
+const waiting = computeRemovalOriginReason({
+  ...originRowBase,
+  removal_origin_inputs: mkOrigin({ event_age_days: 5 }),
+} as ReadyToFileRow);
+assert(waiting.validity === "waiting_threshold", `age≤threshold + received 0 → waiting_threshold (got ${waiting.validity})`);
+assert(waiting.badges.includes("waiting_threshold"), "waiting must carry waiting_threshold badge");
+
+// Discrepancy: partial receipt (1 of 2).
+const discrepancy = computeRemovalOriginReason({
+  ...originRowBase,
+  removal_origin_inputs: mkOrigin({ received_qty: 1, package_received: true, scanned_units: 1 }),
+} as ReadyToFileRow);
+assert(discrepancy.validity === "valid_discrepancy", `partial receipt → valid_discrepancy (got ${discrepancy.validity})`);
+assert(discrepancy.compact_reason === "Discrepancy: expected 2, received 1", `discrepancy wording (got "${discrepancy.compact_reason}")`);
+assert(discrepancy.missing_qty === 1, "discrepancy missing_qty = 1");
+
+// Fully received → not missing (reclassify).
+const fullyReceived = computeRemovalOriginReason({
+  ...originRowBase,
+  removal_origin_inputs: mkOrigin({ received_qty: 2, package_received: true, scanned_units: 2 }),
+} as ReadyToFileRow);
+assert(fullyReceived.validity === "not_missing", `full receipt → not_missing (got ${fullyReceived.validity})`);
+assert(fullyReceived.badges.includes("has_receipt"), "fully received must carry has_receipt badge");
+
+// View must render the origin/basis columns.
+for (const col of [
+  "Origin",
+  "Missing basis",
+  "Age days",
+  "Threshold days",
+  "Expected qty",
+  "Received/scanned qty",
+  "Missing qty",
+  "Validity",
+]) {
+  assert(viewSrc.includes(col), `ready-to-file table must add the '${col}' origin column`);
+}
+assert(viewSrc.includes("computeRemovalOriginReason"), "view must compute the removal origin reason per row");
+
+// Drawer must render the "Why this claim exists" section + threshold source + scanner status + final reason.
+assert(drawerSrc.includes("Why this claim exists"), "drawer must render the 'Why this claim exists' section");
+assert(drawerSrc.includes("computeRemovalOriginReason"), "drawer must compute the removal origin reason");
+assert(drawerSrc.includes("Configured threshold") && drawerSrc.includes("threshold_source"), "drawer must show configured threshold + source");
+assert(drawerSrc.includes("Scanner status"), "drawer must render scanner status lines");
+assert(drawerSrc.includes("Final reason"), "drawer must render the final reason");
+assert(drawerSrc.includes("Waiting threshold"), "drawer must surface a Waiting threshold badge for waiting claims");
+
+// Server composer must resolve the origin inputs read-only from the threshold + source tables.
+assert(libSrc.includes("loadRemovalOriginInputsForRows"), "lib must attach removal origin inputs to rows");
+assert(libSrc.includes("loadClaimIntakeSettings"), "lib must load the missing threshold from claim intake settings");
+const originLibPath = join(cwd, "lib/claims/filing/claim-removal-origin-basis-v1.ts");
+assert(existsSync(originLibPath), "removal-origin-basis loader must exist");
+const originLibSrc = readFileSync(originLibPath, "utf8");
+assert(
+  !/\.update\(|\.insert\(|\.delete\(|\.upsert\(/.test(originLibSrc),
+  "removal-origin-basis loader must be read-only (no write ops)",
+);
+assert(
+  !/openai|gpt-|anthropic|claude|chat\.completions|generateText/i.test(originLibSrc),
+  "removal-origin-basis loader must not use AI/GPT",
+);
 
 console.log("SMOKE OK: PHASE-CLAIM-READY-TO-FILE-QUEUE-UI-V1 static contract verified");
