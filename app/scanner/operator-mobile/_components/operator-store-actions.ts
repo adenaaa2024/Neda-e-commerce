@@ -1,11 +1,6 @@
 "use server";
 
 import { supabaseServer } from "@/lib/supabase-server";
-import {
-  emitBoxCloseCandidates,
-  emitPerProblemScanCandidate,
-  emitShipmentReviewCloseCandidates,
-} from "@/lib/claims/intake/claim-live-trigger-emitters";
 import { getSessionUserIdFromCookies } from "@/lib/supabase-server-auth";
 import { loadTenantProfile, resolveWriteOrganizationId } from "@/lib/server-tenant";
 import { canPickWorkspaceOrganizationForTenantBranding } from "@/lib/tenant-branding-permissions";
@@ -196,7 +191,6 @@ import {
   buildProductLinkageFromResolveResult,
   hydrateReturnItemProductLinkage,
 } from "@/lib/scanner/hydrate-return-item-product-linkage";
-import { normalizeScannerProductLinkageDisplay, productLinkageShowsLinkedStatus } from "@/lib/scanner/normalize-scanner-product-linkage-display";
 import { applyReturnItemProductEnrichmentAfterInsert } from "@/lib/scanner/apply-return-item-product-enrichment";
 import { updateRowWithScannerLinkagePatch } from "@/lib/scanner/scanner-linkage-patch";
 
@@ -674,29 +668,31 @@ export async function listOperatorSlipContentsForPackageAction(
     };
   });
 
-  const effectiveStore =
-    scope && isUuidString(scope) ? scope : pkgStore && isUuidString(pkgStore) ? pkgStore : null;
+  const productIds = linkageStubs
+    .map((s) => s.resolved_product_id)
+    .filter((id): id is string => Boolean(id));
+  const productNameById = await fetchProductNamesByResolvedIds(
+    supabaseServer as unknown as ProductsLookupClient,
+    productIds,
+  );
 
-  const normalized: OperatorSlipContentsListRow[] = [];
-  for (const stub of linkageStubs) {
-    const { resolved_product_id, identifier_resolution_status, identifier_resolution_confidence, ...rest } =
-      stub;
-    const product_linkage = await normalizeScannerProductLinkageDisplay(supabaseServer, {
-      organizationId,
-      storeId: effectiveStore,
-      sourceTable: "slip_contents",
-      sourceRowId: stub.id,
-      row: {
-        resolved_product_id,
-        identifier_resolution_status,
-        identifier_resolution_confidence,
-        description: stub.description,
-        fnsku: stub.fnsku,
-        upc: stub.upc,
-      },
-    });
-    normalized.push({ ...rest, product_linkage });
-  }
+  const normalized: OperatorSlipContentsListRow[] = linkageStubs.map((stub) => {
+    const { resolved_product_id, identifier_resolution_status, identifier_resolution_confidence, ...rest } = stub;
+    return {
+      ...rest,
+      product_linkage: buildProductLinkageDisplayContract(
+        {
+          resolved_product_id,
+          identifier_resolution_status,
+          identifier_resolution_confidence,
+          description: stub.description,
+          fnsku: stub.fnsku,
+          upc: stub.upc,
+        },
+        productNameById,
+      ),
+    };
+  });
 
   return { ok: true, rows: normalized };
 }
@@ -1329,17 +1325,6 @@ export async function finalizeOperatorShipmentCloseAction(
       actor: actor.displayName || gate.userId,
     });
 
-    // Phase 7F — shipment_review_close live candidate emitter (policy-gated; never blocks close).
-    try {
-      await emitShipmentReviewCloseCandidates(supabaseServer, {
-        organizationId,
-        storeId,
-        trackingNumber,
-      });
-    } catch (e) {
-      console.error("[claim-live-emitter shipment_review_close]", e instanceof Error ? e.message : e);
-    }
-
     return { ok: true, close_state: "finalized", storage_kind: "pallet_photo_evidence" };
   }
 
@@ -1394,17 +1379,6 @@ export async function finalizeOperatorShipmentCloseAction(
     }).slice(0, 4000),
     actor: actor.displayName || gate.userId,
   });
-
-  // Phase 7F — shipment_review_close live candidate emitter (policy-gated; never blocks close).
-  try {
-    await emitShipmentReviewCloseCandidates(supabaseServer, {
-      organizationId,
-      storeId,
-      trackingNumber,
-    });
-  } catch (e) {
-    console.error("[claim-live-emitter shipment_review_close]", e instanceof Error ? e.message : e);
-  }
 
   return { ok: true, close_state: "finalized", storage_kind: "package_manifest_data" };
 }
@@ -3119,13 +3093,6 @@ export async function finalizeOperatorPackageReceiveAction(
     });
   }
 
-  // Phase 7F — box_close live candidate emitter (policy-gated; never blocks finalize).
-  try {
-    await emitBoxCloseCandidates(supabaseServer, { organizationId, packageId });
-  } catch (e) {
-    console.error("[claim-live-emitter box_close]", e instanceof Error ? e.message : e);
-  }
-
   return {
     ok: true,
     package_id: payload.package_id,
@@ -3626,11 +3593,18 @@ export async function listOperatorPackageItemsForPackageAction(
     }
   }
 
-  const effectiveStore =
-    scope && isUuidString(scope) ? scope : pkgStore && isUuidString(pkgStore) ? pkgStore : null;
+  const productIds = stubs
+    .flatMap((s) => {
+      const slipLink = s.slip_content_id ? slipLinkageById.get(s.slip_content_id) : undefined;
+      return [s.resolved_product_id, slipLink?.resolved_product_id ?? null];
+    })
+    .filter((id): id is string => Boolean(id));
+  const productNameById = await fetchProductNamesByResolvedIds(
+    supabaseServer as unknown as ProductsLookupClient,
+    productIds,
+  );
 
-  const rows: OperatorPackageItemRow[] = [];
-  for (const stub of stubs) {
+  const rows: OperatorPackageItemRow[] = stubs.map((stub) => {
     const {
       resolved_product_id: riResolvedId,
       identifier_resolution_status: riStatus,
@@ -3640,7 +3614,6 @@ export async function listOperatorPackageItemsForPackageAction(
       sku,
       product_identifier,
       slip_content_id,
-      id,
       ...rest
     } = stub;
     const slipLink = slip_content_id ? slipLinkageById.get(slip_content_id) : undefined;
@@ -3651,40 +3624,29 @@ export async function listOperatorPackageItemsForPackageAction(
     const identifier_resolution_confidence = riResolvedId
       ? riConfidence
       : (slipLink?.identifier_resolution_confidence ?? riConfidence);
-
-    const product_linkage =
-      slipLink && productLinkageShowsLinkedStatus(slipLink)
-        ? slipLink
-        : await normalizeScannerProductLinkageDisplay(supabaseServer, {
-            organizationId,
-            storeId: effectiveStore,
-            sourceTable: RETURN_ITEMS_TABLE,
-            sourceRowId: id,
-            row: {
-              resolved_product_id,
-              identifier_resolution_status,
-              identifier_resolution_confidence,
-              item_name,
-              fnsku,
-              sku,
-              product_identifier,
-              upc: product_identifier,
-              description: slipLink?.fallback_display_name ?? item_name,
-            },
-          });
-
-    rows.push({
+    return {
       ...rest,
-      id,
       slip_content_id,
       fnsku: fnsku?.trim() ? fnsku.trim() : null,
       sku: sku?.trim() ? sku.trim() : null,
       product_identifier: product_identifier?.trim() ? product_identifier.trim() : null,
       created_by_display: null,
       updated_by_display: null,
-      product_linkage,
-    });
-  }
+      product_linkage: buildProductLinkageDisplayContract(
+        {
+          resolved_product_id,
+          identifier_resolution_status,
+          identifier_resolution_confidence,
+          item_name,
+          fnsku,
+          sku,
+          product_identifier,
+          description: slipLink?.fallback_display_name ?? null,
+        },
+        productNameById,
+      ),
+    };
+  });
 
   const filtered = rows.filter((r) => r.id);
   const enriched = await enrichOperatorPackageItemRowsWithAuditLabels(filtered);
@@ -4555,16 +4517,6 @@ export async function insertOperatorPackageItemAction(
     return { ok: false, message: finalizePrimary.error };
   }
   await tryPromoteScannerClaimForReturnItem(primaryId, organizationId, sessionUserId);
-
-  // Phase 7F — per_problem_scan live candidate emitter (policy-gated; never blocks the scan).
-  try {
-    await emitPerProblemScanCandidate(supabaseServer, {
-      organizationId,
-      returnItemId: primaryId,
-    });
-  } catch (e) {
-    console.error("[claim-live-emitter per_problem_scan]", e instanceof Error ? e.message : e);
-  }
 
   const { linkage } = await hydrateReturnItemProductLinkage(supabaseServer, primaryId, organizationId);
   const product_linkage =

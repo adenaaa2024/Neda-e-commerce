@@ -9,7 +9,7 @@ import {
 } from "@/lib/scanner/operator-product-detail-path";
 import {
   formatProductLinkageConfidencePct,
-  PRODUCT_LINKAGE_NEEDS_PRODUCT_REVIEW_LABEL,
+  PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL,
   PRODUCT_LINKAGE_UNMAPPED_LABEL,
   productLinkageIsAmbiguous,
   productLinkageNoCatalogProduct,
@@ -98,7 +98,7 @@ export function OperatorProductLinkageMeta({
       {ambiguous ? (
         <LinkageChip
           chipKey="ambiguous"
-          label={PRODUCT_LINKAGE_NEEDS_PRODUCT_REVIEW_LABEL}
+          label={PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL}
           title={unresolvedReasonTitle(linkage)}
           style={NEEDS_REVIEW_STYLE}
         />

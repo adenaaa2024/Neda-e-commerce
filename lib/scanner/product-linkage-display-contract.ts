@@ -27,7 +27,6 @@ export type ProductLinkageSourceRow = {
   description?: string | null;
   fnsku?: string | null;
   upc?: string | null;
-  asin?: string | null;
   sku?: string | null;
   product_identifier?: string | null;
   item_name?: string | null;
@@ -118,14 +117,13 @@ export function productLinkageShowsUnmappedLabel(linkage: ProductLinkageDisplayC
 
 export const PRODUCT_LINKAGE_UNMAPPED_LABEL = "No product link yet";
 export const PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL = "Needs review";
-export const PRODUCT_LINKAGE_NEEDS_PRODUCT_REVIEW_LABEL = "Needs product review";
 
 /** Operator-facing unresolved reason when catalog name is absent. */
 export function productLinkageUnresolvedReasonLabel(
   identifierResolutionStatus: string | null | undefined,
 ): string {
   const s = String(identifierResolutionStatus ?? "").trim().toLowerCase();
-  if (s === "ambiguous") return PRODUCT_LINKAGE_NEEDS_PRODUCT_REVIEW_LABEL;
+  if (s === "ambiguous") return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
   if (s === "quarantined_dirty_source") return "Needs source identifier fix";
   if (s.includes("amazon") || s === "catalog_lookup_failed") return "Needs Amazon evidence";
   if (s === "missing_identifier" || s === "missing_identifiers") return "Missing identifier";
@@ -152,15 +150,11 @@ function productLinkageIsDisplayLinked(linkage: ProductLinkageDisplayContract): 
 
 /** Operator row title per Neda display contract (resolved title vs fixed unmapped / review copy). */
 export function productLinkageOperatorPrimaryDisplayLabel(linkage: ProductLinkageDisplayContract): string {
-  if (productLinkageIsAmbiguous(linkage)) return PRODUCT_LINKAGE_NEEDS_PRODUCT_REVIEW_LABEL;
+  if (productLinkageIsAmbiguous(linkage)) return PRODUCT_LINKAGE_NEEDS_REVIEW_LABEL;
   const catalogName = linkage.product_name?.trim();
   const resolvedId = linkage.resolved_product_id?.trim();
   if (resolvedId && catalogName) return catalogName;
   if (!resolvedId) {
-    const fallback = linkage.fallback_display_name.trim();
-    if (fallback && fallback !== "Line item") {
-      return fallback;
-    }
     const st = linkage.identifier_resolution_status;
     if (st === "unresolved" || st === "quarantined_dirty_source" || !st) {
       return productLinkageUnresolvedReasonLabel(st);

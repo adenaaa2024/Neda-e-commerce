@@ -3,16 +3,12 @@ import { RETURN_ITEMS_TABLE, RETURN_SCANNER_LINKAGE_SELECT } from "@/app/returns
 import { isUuidString } from "@/lib/uuid";
 import {
   buildProductLinkageDisplayContract,
+  fetchProductNamesByResolvedIds,
   type ProductLinkageDisplayContract,
   type ProductLinkageSourceRow,
+  type ProductsLookupClient,
 } from "@/lib/scanner/product-linkage-display-contract";
-import { normalizeScannerProductLinkageDisplay } from "@/lib/scanner/normalize-scanner-product-linkage-display";
 import type { ResolveProductForScannerItemResult } from "@/lib/scanner/resolve-product-for-scanner-item";
-
-function trimOrNull(v: unknown): string | null {
-  const s = String(v ?? "").trim();
-  return s || null;
-}
 
 const RETURN_LINKAGE_ROW_SELECT = `id, organization_id, store_id, item_name, fnsku, sku, product_identifier, asin, ${RETURN_SCANNER_LINKAGE_SELECT}`;
 
@@ -57,14 +53,16 @@ export async function hydrateReturnItemProductLinkage(
   }
 
   const row = data as ReturnItemLinkageRow;
-  const orgId =
-    org && isUuidString(org) ? org : trimOrNull(row.organization_id) ?? "";
-  const linkage = await normalizeScannerProductLinkageDisplay(supabase, {
-    organizationId: orgId,
-    storeId: trimOrNull(row.store_id),
-    sourceTable: RETURN_ITEMS_TABLE,
-    sourceRowId: rid,
+  const resolvedId =
+    typeof row.resolved_product_id === "string" && isUuidString(row.resolved_product_id.trim())
+      ? row.resolved_product_id.trim()
+      : null;
+  const productNameById = await fetchProductNamesByResolvedIds(
+    supabase as unknown as ProductsLookupClient,
+    resolvedId ? [resolvedId] : [],
+  );
+  return {
+    linkage: buildProductLinkageDisplayContract(row, productNameById),
     row,
-  });
-  return { linkage, row };
+  };
 }
