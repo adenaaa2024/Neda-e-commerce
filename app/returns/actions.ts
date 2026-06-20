@@ -575,7 +575,12 @@ function parseManifestData(raw: unknown): ExpectedItem[] | null | undefined {
 function normalizePackageRow(row: Record<string, unknown>): PackageRecord {
   const canon = normalizePackageRowFromDb(row);
   const base = canon as unknown as PackageRecord;
-  const md = parseManifestData(canon.manifest_data);
+  const rawManifest = canon.manifest_data;
+  const md = parseManifestData(rawManifest);
+  const manifestBlob =
+    rawManifest != null && typeof rawManifest === "object" && !Array.isArray(rawManifest)
+      ? (rawManifest as Record<string, unknown>)
+      : null;
   const next: PackageRecord = {
     ...base,
     package_code: String(base.package_code ?? "").trim(),
@@ -585,6 +590,7 @@ function normalizePackageRow(row: Record<string, unknown>): PackageRecord {
     inside_photo_urls: base.inside_photo_urls ?? [],
     outside_photo_urls: base.outside_photo_urls ?? [],
     slip_photo_urls: base.slip_photo_urls ?? [],
+    ...(manifestBlob ? { manifest_data_raw: manifestBlob } : {}),
   };
   return md !== undefined ? { ...next, manifest_data: md } : next;
 }
