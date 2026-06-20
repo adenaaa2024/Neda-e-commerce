@@ -356,6 +356,27 @@ export const PALLET_STATUS_CFG: Record<PalletStatus, { label: string; cls: strin
 export const INPUT      = "admin-form-input admin-form-input--lg";
 export const LABEL      = "admin-form-label";
 export const INPUT_SM   = "admin-form-input admin-form-input--sm";
+
+/** MENORIX color tokens — desktop Returns & Logistics tables (Items / Packages / Pallets). */
+const RT_BORDER = "border-[rgba(138,104,31,0.18)] dark:border-[rgba(214,183,110,0.18)]";
+const RT_INPUT = `${INPUT_SM} border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] text-[#171A1E] placeholder:text-[#737C86] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA] dark:placeholder:text-[#7E8894]`;
+const RT_TABLE_WRAP = `w-full overflow-x-auto rounded-2xl border ${RT_BORDER} bg-[#FFFFFF] dark:bg-[#1D242C]`;
+const RT_THEAD_ROW = `border-b ${RT_BORDER} bg-[#F8F6F1] dark:bg-[#232C35]`;
+const RT_TBODY_DIVIDE = "divide-y divide-[rgba(138,104,31,0.10)] dark:divide-[rgba(214,183,110,0.12)]";
+const RT_ROW_HOVER = "hover:bg-[#F8F4EC] dark:hover:bg-[#232C35]";
+const RT_TH_LABEL = "text-xs font-semibold uppercase tracking-wide text-[#4C5661] dark:text-[#B8C1CB]";
+const RT_SECONDARY = "text-[#4C5661] dark:text-[#B8C1CB]";
+const RT_MUTED = "text-[#737C86] dark:text-[#7E8894]";
+const RT_PRIMARY = "text-[#171A1E] dark:text-[#F7F3EA]";
+const RT_COMPANY = "text-[#8A681F] dark:text-[#D6B76E]";
+const RT_WARNING_BANNER = "rounded-xl border border-[rgba(138,104,31,0.28)] bg-[#F5E9D2] px-3 py-2 text-xs text-[#6A4C16] dark:border-[rgba(214,183,110,0.30)] dark:bg-[#2C2314] dark:text-[#EFD49A]";
+const RT_NESTED_ROW_BG = "bg-[#F8F4EC]/70 dark:bg-[#151A20]/80";
+const RT_NESTED_TABLE_BORDER = `overflow-hidden rounded-xl border ${RT_BORDER}`;
+const RT_NESTED_THEAD = `border-b ${RT_BORDER} bg-[#F8F6F1] dark:bg-[#232C35]`;
+const RT_NESTED_TH = "font-bold uppercase tracking-wide text-[#4C5661] dark:text-[#B8C1CB]";
+const RT_PAGINATION_BTN = `flex h-9 items-center gap-1 rounded-xl border ${RT_BORDER} bg-[#FFFFFF] px-3 text-sm font-medium text-[#4C5661] hover:bg-[#F8F6F1] disabled:opacity-40 dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]`;
+const RT_EXPAND_BTN = "flex h-6 w-6 items-center justify-center rounded-lg text-[#737C86] hover:bg-[#F8F6F1] hover:text-[#4C5661] dark:text-[#B8C1CB] dark:hover:bg-[#232C35] dark:hover:text-[#F7F3EA]";
+const RT_CLEAR_BTN = `flex h-10 items-center gap-1 rounded-xl border ${RT_BORDER} bg-[#FFFFFF] px-3 text-xs font-medium text-[#4C5661] hover:bg-[#F8F6F1] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]`;
 export const BTN_PRIMARY = "admin-btn-primary flex h-14 w-full active:scale-[0.98] disabled:opacity-50";
 /** Primary actions in drawer/modal footers — avoids `w-full` collapsing in flex layouts. */
 export const BTN_PRIMARY_INLINE = "admin-btn-primary inline-flex h-14 shrink-0 min-w-[12rem] px-6 active:scale-[0.98] disabled:opacity-50";
@@ -828,9 +849,16 @@ export function SortButton({ field, label, sortField, sortAsc, onSort }: {
 }) {
   const active = sortField === field;
   return (
-    <button onClick={() => onSort(field)} className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-[#737C86] hover:text-[#4C5661] dark:text-[#7E8894] dark:hover:text-[#B8C1CB]">
+    <button
+      onClick={() => onSort(field)}
+      className={`flex items-center gap-1 text-xs font-bold uppercase tracking-wide transition ${
+        active
+          ? "text-[#8A681F] dark:text-[#F1D58A]"
+          : "text-[#4C5661] hover:text-[#171A1E] dark:text-[#B8C1CB] dark:hover:text-[#F7F3EA]"
+      }`}
+    >
       {label}
-      {active ? (sortAsc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <span className="h-3 w-3 opacity-40">↕</span>}
+      {active ? (sortAsc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <span className="h-3 w-3 opacity-50">↕</span>}
     </button>
   );
 }
@@ -970,7 +998,7 @@ function PhotoThumb({ url, alt = "Evidence photo" }: { url: string; alt?: string
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen(true); }}
-        className="group relative inline-block h-8 w-8 overflow-hidden rounded-lg border border-slate-200 shadow-sm hover:ring-2 hover:ring-sky-400 dark:border-slate-700"
+        className="group relative inline-block h-8 w-8 overflow-hidden rounded-lg border border-[rgba(138,104,31,0.18)] shadow-sm hover:ring-2 hover:ring-[#B08A3C]/50 dark:border-[rgba(214,183,110,0.20)] dark:hover:ring-[#D6B76E]/50"
         title="View evidence photo"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1293,7 +1321,7 @@ export function RowActionMenu({ onView, onEdit, onDelete }: {
             e.stopPropagation();
             setOpen((o) => !o);
           }}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737C86] transition hover:bg-[#F8F6F1] hover:text-[#4C5661] dark:text-[#B8C1CB] dark:hover:bg-[#232C35] dark:hover:text-[#F7F3EA]"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#4C5661] transition hover:bg-[#F8F6F1] hover:text-[#171A1E] dark:text-[#B8C1CB] dark:hover:bg-[#232C35] dark:hover:text-[#F7F3EA]"
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
@@ -1310,18 +1338,18 @@ export function BulkActionsBar({ count, onDelete, onMove, onAssignPallet, onClea
   onAssignPallet?: () => void; onClear: () => void; deleting?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-700/60 dark:bg-sky-950/30">
+    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[rgba(138,104,31,0.24)] bg-[#EFE6D2] px-4 py-3 dark:border-[rgba(214,183,110,0.28)] dark:bg-[#2A2418]">
       <div className="flex items-center gap-2">
-        <CheckSquare className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-        <span className="text-sm font-bold text-sky-700 dark:text-sky-300">{count} selected</span>
-        <button onClick={onClear} className="text-xs text-sky-500 underline hover:text-sky-700 dark:text-sky-400">Clear</button>
+        <CheckSquare className="h-4 w-4 text-[#8A681F] dark:text-[#F1D58A]" />
+        <span className="text-sm font-bold text-[#6C5320] dark:text-[#E8CF98]">{count} selected</span>
+        <button onClick={onClear} className="text-xs text-[#8A681F] underline hover:text-[#6C5320] dark:text-[#D6B76E] dark:hover:text-[#F1D58A]">Clear</button>
       </div>
       <div className="ml-auto flex flex-wrap gap-2">
-        {onMove && <button onClick={onMove} className="flex h-9 items-center gap-1.5 rounded-xl bg-sky-500 px-3 text-sm font-semibold text-white transition hover:bg-sky-600"><ArrowRight className="h-4 w-4" />Move / Reassign</button>}
-        {onAssignPallet && <button onClick={onAssignPallet} className="flex h-9 items-center gap-1.5 rounded-xl bg-violet-600 px-3 text-sm font-semibold text-white transition hover:bg-violet-700"><Boxes className="h-4 w-4" />Assign to Pallet</button>}
+        {onMove && <button onClick={onMove} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#8A681F] px-3 text-sm font-semibold text-[#F7F3EA] transition hover:bg-[#6C5320] dark:bg-[#D6B76E] dark:text-[#171A1E] dark:hover:bg-[#F1D58A]"><ArrowRight className="h-4 w-4" />Move / Reassign</button>}
+        {onAssignPallet && <button onClick={onAssignPallet} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#B08A3C] px-3 text-sm font-semibold text-[#F7F3EA] transition hover:bg-[#8A681F] dark:bg-[#F1D58A] dark:text-[#171A1E] dark:hover:bg-[#D6B76E]"><Boxes className="h-4 w-4" />Assign to Pallet</button>}
         {onDelete && (
           <button onClick={onDelete} disabled={deleting}
-            className="flex h-9 items-center gap-1.5 rounded-xl border border-rose-200 px-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700/60 dark:text-rose-400 dark:hover:bg-rose-950/30">
+            className="flex h-9 items-center gap-1.5 rounded-xl border border-[rgba(138,104,31,0.28)] px-3 text-sm font-semibold text-[#6C3E34] transition hover:bg-[#F3E5DE] disabled:opacity-50 dark:border-[rgba(214,183,110,0.24)] dark:text-[#D7B2A8] dark:hover:bg-[#302025]">
             {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Delete ({count})
           </button>
         )}
@@ -6909,17 +6937,17 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
     }
   }
 
-  const INPUT_SM_DARK = `${INPUT_SM} border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] text-[#171A1E] placeholder:text-[#737C86] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA] dark:placeholder:text-[#7E8894]`;
+  const INPUT_SM_DARK = RT_INPUT;
 
   return (
     <div className="space-y-3">
       {returnsTotalInDb != null && returnsTotalInDb > items.length && (
-        <div className="rounded-xl border border-[rgba(138,104,31,0.28)] bg-[#F5E9D2] px-3 py-2 text-xs text-[#6A4C16] dark:border-[rgba(214,183,110,0.30)] dark:bg-[#2C2314] dark:text-[#EFD49A]">
+        <div className={RT_WARNING_BANNER}>
           This session loads the latest {items.length} of {returnsTotalInDb} return items in the database. The table shows {PER} rows per page; use Next / Prev below or narrow with filters.
         </div>
       )}
       {returnsTotalInDb != null && returnsTotalInDb <= 50 ? (
-        <div className="rounded-xl border border-[rgba(138,104,31,0.28)] bg-[#F5E9D2] px-3 py-2 text-xs text-[#6A4C16] dark:border-[rgba(214,183,110,0.30)] dark:bg-[#2C2314] dark:text-[#EFD49A]">
+        <div className={RT_WARNING_BANNER}>
           <strong>Staging data note:</strong> <code className="font-mono">return_items</code> on staging is mostly
           fake/test data (low row count). Resolver coverage on this table is not production truth — see{" "}
           <code className="font-mono">PROJECT_CONTEXT.md</code> and V178 audit{" "}
@@ -6932,8 +6960,8 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[230px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#737C86] dark:text-[#7E8894]" />
-          <input placeholder="Filter: ID, ASIN, tracking, RMA…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full pl-9`} />
+          <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#737C86] dark:text-[#7E8894]" />
+          <input placeholder="Filter: ID, ASIN, tracking, RMA…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full pr-9`} />
         </div>
         <select value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 min-w-[230px] flex-1`}><option value="">All Statuses</option>{Object.entries(STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
         <select value={marketF} onChange={(e) => { setMarketF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 min-w-[230px] flex-1`} title="Filter by store"><option value="">All Stores</option>{MARKETPLACES.map((m) => <option key={m} value={m}>{MP_LABELS[m]}</option>)}</select>
@@ -6943,25 +6971,24 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
             <span className="text-xs text-[#737C86] dark:text-[#7E8894]">–</span>
             <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-[150px]`} title="To date" />
         </div>
-        {(search || statusF || marketF || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo(""); setPage(1); }} className="flex h-10 items-center gap-1 rounded-xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-3 text-xs font-medium text-[#4C5661] hover:bg-[#F8F6F1] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]"><X className="h-3.5 w-3.5" />Clear</button>}
+        {(search || statusF || marketF || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo(""); setPage(1); }} className={RT_CLEAR_BTN}><X className="h-3.5 w-3.5" />Clear</button>}
       </div>
 
-      <div className="w-full overflow-x-auto rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C]">
+      <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0">
-          <table className="w-full min-w-[1580px] text-sm">
+          <table className="w-full min-w-[1528px] text-sm">
             <thead>
-              <tr className="border-b border-[rgba(138,104,31,0.18)] bg-[#F8F6F1] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#232C35]">
+              <tr className={RT_THEAD_ROW}>
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
                   <div className={CHK_FLEX}>
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((r) => r.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
                 {showCompanyColumn && (
-                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-[#4C5661] dark:text-[#B8C1CB]">Company</th>
+                  <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Company</th>
                 )}
-                <th className="w-12 px-2 py-3 text-center text-xs font-semibold uppercase tracking-wide text-[#4C5661] dark:text-[#B8C1CB]" title="Marketplace">MP</th>
                 <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Item / Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Product</th>
+                <th className={`px-4 py-3 text-left ${RT_TH_LABEL}`}>Product</th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="lpn" label="LPN" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -6970,14 +6997,14 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                 {/* ── NEW: Expiry Date column ── */}
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="expiration_date" label="Expiry" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 {/* ── NEW: Evidence Photo column ── */}
-                <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold text-slate-500 uppercase tracking-wide">Photo</th>
+                <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Photo</th>
                 <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="hierarchy_key" label="Hierarchy" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left xl:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-3 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-[rgba(138,104,31,0.10)] dark:divide-[rgba(214,183,110,0.12)]">
+            <tbody className={RT_TBODY_DIVIDE}>
               {rows.map((r) => {
                 const linkedPkg = r.package_id ? pkgMap.get(r.package_id) : null;
                 const linkedPlt = r.pallet_id  ? pltMap.get(r.pallet_id)  : null;
@@ -6985,20 +7012,17 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                 const expiryStatus = getExpiryStatus(r.expiration_date, fefo_critical, fefo_warning);
                 const peUrls = getReturnPhotoEvidenceUrls(r.photo_evidence);
                 return (
-                  <tr key={r.id} onClick={() => onRowClick(r)} className="group cursor-pointer transition hover:bg-[#F8F4EC] dark:hover:bg-[#232C35]">
+                  <tr key={r.id} onClick={() => onRowClick(r)} className={`group cursor-pointer transition ${RT_ROW_HOVER}`}>
                     <td className={TD_CHK} onClick={(e) => e.stopPropagation()}>
                       <div className={CHK_FLEX}>
                         <input type="checkbox" checked={selectedIds.has(r.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(r.id) : s.delete(r.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                       </div>
                     </td>
                     {showCompanyColumn && (
-                      <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold text-[#8A681F] dark:text-[#D6B76E] md:table-cell" title={organizationLabelById[r.organization_id] ?? r.organization_id}>
-                        {organizationLabelById[r.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/70 dark:text-[#D6B76E]/60">Resolving…</span>}
+                      <td className={`hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold ${RT_COMPANY} md:table-cell`} title={organizationLabelById[r.organization_id] ?? r.organization_id}>
+                        {organizationLabelById[r.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/80 dark:text-[#D6B76E]/70">Resolving…</span>}
                       </td>
                     )}
-                    <td className="w-12 px-2 py-3 align-middle">
-                      <MarketplaceIconCell r={r} platformIconBySlug={platformIconBySlug} />
-                    </td>
                     <td className="px-4 py-3 min-w-[200px]">
                       <ReturnIdentifiersColumn
                         itemName={r.item_name}
@@ -7008,6 +7032,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         upc={upcFromProductIdentifier(r.product_identifier)}
                         storePlatform={r.stores?.platform}
                         onToast={onToast}
+                        menorixTable
                       />
                     </td>
                     <td className="min-w-[220px] px-4 py-3 align-top" onClick={(e) => e.stopPropagation()}>
@@ -7015,15 +7040,16 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         organizationId={r.organization_id}
                         fields={r}
                         compact
+                        menorixTable
                       />
                     </td>
                     <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+                      <div className={`flex items-center gap-1 font-mono text-[11px] ${RT_MUTED}`}>
                         <span className="min-w-0 truncate">{track || "—"}</span>
                         {track ? <InlineCopy value={track} label="Tracking #" onToast={onToast} stopPropagation /> : null}
                       </div>
                     </td>
-                    <td className="hidden px-4 py-3 font-mono text-xs text-muted-foreground sm:table-cell" onClick={(e) => e.stopPropagation()}>
+                    <td className={`hidden px-4 py-3 font-mono text-xs ${RT_MUTED} sm:table-cell`} onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
                         <span>{r.lpn ?? "—"}</span>
                         {r.lpn ? <InlineCopy value={r.lpn} label="LPN" onToast={onToast} stopPropagation /> : null}
@@ -7046,10 +7072,10 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                             <span className={`h-1.5 w-1.5 rounded-full ${expiryStatus.dotCls}`} />
                             {expiryStatus.label}
                           </span>
-                          <span className="pl-0.5 text-[10px] text-[#737C86] dark:text-[#7E8894]">{expiryStatus.daysLabel}</span>
+                          <span className={`pl-0.5 text-[10px] ${RT_MUTED}`}>{expiryStatus.daysLabel}</span>
                         </div>
                       ) : (
-                        <span className="text-xs text-[#737C86] dark:text-[#7E8894]">—</span>
+                        <span className={`text-xs ${RT_MUTED}`}>—</span>
                       )}
                     </td>
                     {/* ── Evidence Photo cell ── */}
@@ -7057,7 +7083,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                       {peUrls.item_url ? (
                         <PhotoThumb url={peUrls.item_url} alt={`Evidence: ${r.item_name}`} />
                       ) : (
-                        <span className="text-xs text-slate-400">—</span>
+                        <span className={`text-xs ${RT_MUTED}`}>—</span>
                       )}
                     </td>
                     <td className="hidden px-4 py-3 lg:table-cell">
@@ -7065,8 +7091,8 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         ? <span className="inline-flex items-center gap-1 rounded-full bg-[#EFE6D2] px-2 py-0.5 font-mono text-[10px] font-bold text-[#6C5320] dark:bg-[#2A2418] dark:text-[#E8CF98]">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
                         : <span className="inline-flex items-center gap-1 rounded-full bg-[#F5E9D2] px-2 py-0.5 text-[10px] font-bold text-[#6A4C16] dark:bg-[#312613] dark:text-[#EFD49A]">⚠ Orphaned / Loose</span>}
                     </td>
-                    <td className="hidden px-4 py-3 xl:table-cell text-xs text-[#737C86] dark:text-[#7E8894]">{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
-                    <td className="hidden px-4 py-3 text-xs text-[#737C86] dark:text-[#7E8894] lg:table-cell">{fmt(r.created_at)}</td>
+                    <td className={`hidden px-4 py-3 xl:table-cell text-xs ${RT_MUTED}`}>{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
+                    <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(r.created_at)}</td>
                     <td className="px-3 py-3">
                       <RowActionMenu
                         onView={() => onRowClick(r)}
@@ -7089,7 +7115,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           </table>
         </div>
         {rows.length === 0 && (
-          <p className="py-10 text-center text-sm text-[#737C86] dark:text-[#7E8894]">
+          <p className={`py-10 text-center text-sm ${RT_MUTED}`}>
             {items.length === 0 && !hasActiveFilters
               ? "No return items yet. Scan or add an item to get started."
               : "No records match your filters."}
@@ -7097,7 +7123,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
         )}
       </div>
 
-      {total > 1 && <div className="flex items-center justify-between text-sm text-[#4C5661] dark:text-[#B8C1CB]"><p>Page {page} of {total} · {filtered.length} items</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-3 text-sm font-medium text-[#4C5661] hover:bg-[#F8F6F1] disabled:opacity-40 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-3 text-sm font-medium text-[#4C5661] hover:bg-[#F8F6F1] disabled:opacity-40 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]">Next →</button></div></div>}
+      {total > 1 && <div className={`flex items-center justify-between text-sm ${RT_SECONDARY}`}><p>Page {page} of {total} · {filtered.length} items</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className={RT_PAGINATION_BTN}>← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className={RT_PAGINATION_BTN}>Next →</button></div></div>}
 
       {showBulkMove && (
         <BulkMoveModal selectedIds={[...selectedIds]} packages={packages} pallets={pallets} returns={items} actor={actor} actorProfileId={actorProfileId} onClose={() => setShowBulkMove(false)}
@@ -7180,7 +7206,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   const rows  = filtered.slice((page-1)*PER, page*PER);
   const allSelected = filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
   const usedCarriers = useMemo(() => [...new Set(packages.map((p) => p.carrier_name).filter(Boolean))], [packages]);
-  const INPUT_SM_DARK = `${INPUT_SM} dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500`;
+  const INPUT_SM_DARK = RT_INPUT;
 
   async function handleBulkDelete() {
     if (!window.confirm(`Delete ${selectedIds.size} package(s)?`)) return;
@@ -7222,16 +7248,65 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
         />
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[180px] flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input placeholder="Search package # or tracking…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} pl-9`} /></div>
-        <select value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`}><option value="">All Statuses</option>{Object.entries(PKG_STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-        <select value={carrierF} onChange={(e) => { setCarrierF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`}><option value="">All Carriers</option>{usedCarriers.map((c) => <option key={c!} value={c!}>{c}</option>)}</select>
-        <div className="flex items-center gap-1.5"><Calendar className="h-4 w-4 shrink-0 text-slate-400" /><input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /><span className="text-xs text-slate-400">–</span><input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /></div>
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:items-center">
+          <div className="relative min-w-0">
+            <Search className={`pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 ${RT_MUTED}`} />
+            <input
+              placeholder="Search package # or tracking…"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className={`${INPUT_SM_DARK} h-10 w-full pr-9`}
+            />
+          </div>
+          <select
+            value={statusF}
+            onChange={(e) => { setStatusF(e.target.value); setPage(1); }}
+            className={`${INPUT_SM_DARK} h-10 w-full min-w-0`}
+          >
+            <option value="">All Statuses</option>
+            {Object.entries(PKG_STATUS_CFG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <select
+            value={carrierF}
+            onChange={(e) => { setCarrierF(e.target.value); setPage(1); }}
+            className={`${INPUT_SM_DARK} h-10 w-full min-w-0`}
+          >
+            <option value="">All Carriers</option>
+            {usedCarriers.map((c) => <option key={c!} value={c!}>{c}</option>)}
+          </select>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Calendar className={`h-4 w-4 shrink-0 ${RT_MUTED}`} />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+              className={`${INPUT_SM_DARK} h-10 min-w-0 flex-1`}
+              title="From date"
+            />
+            <span className={`text-xs ${RT_MUTED}`}>–</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+              className={`${INPUT_SM_DARK} h-10 min-w-0 flex-1`}
+              title="To date"
+            />
+          </div>
+        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={() => { setSearch(""); setStatusF(""); setCarrierF(""); setDateFrom(""); setDateTo(""); setPage(1); }}
+            className={RT_CLEAR_BTN}
+          >
+            <X className="h-3.5 w-3.5" />Clear
+          </button>
+        )}
       </div>
-      <div className="w-full overflow-hidden rounded-2xl border border-border">
+      <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
+              <tr className={RT_THEAD_ROW}>
                 <th className={TH_EXP} aria-hidden />
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
                   <div className={CHK_FLEX}>
@@ -7239,7 +7314,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                   </div>
                 </th>
                 {showCompanyColumn && (
-                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
+                  <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Company</th>
                 )}
                 <th className="px-4 py-3 text-left"><SortButton field="package_code" label="Package #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -7251,7 +7326,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 <th className="px-3 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            <tbody className={RT_TBODY_DIVIDE}>
               {rows.map((p) => {
                 const assignedCount = assignedByPackage.get(p.id) ?? 0;
                 const pct = p.expected_item_count > 0 ? Math.min(100, (assignedCount / p.expected_item_count) * 100) : null;
@@ -7259,9 +7334,9 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 const pkgItems = allReturns.filter((r) => r.package_id === p.id);
                 return (
                   <React.Fragment key={p.id}>
-                    <tr onClick={() => onRowClick(p)} className="group cursor-pointer transition hover:bg-violet-50/50 dark:hover:bg-violet-950/20">
+                    <tr onClick={() => onRowClick(p)} className={`group cursor-pointer transition ${RT_ROW_HOVER}`}>
                       <td className={TD_EXP} onClick={(e) => toggleExpand(p.id, e)}>
-                        <button type="button" className="flex h-6 w-6 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300" title={isExpanded ? "Collapse items" : `Show ${pkgItems.length} item(s)`}>
+                        <button type="button" className={RT_EXPAND_BTN} title={isExpanded ? "Collapse items" : `Show ${pkgItems.length} item(s)`}>
                           {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                         </button>
                       </td>
@@ -7271,12 +7346,12 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                         </div>
                       </td>
                       {showCompanyColumn && (
-                        <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold text-violet-600 dark:text-violet-400 md:table-cell" title={organizationLabelById[p.organization_id] ?? p.organization_id}>
-                          {organizationLabelById[p.organization_id] ?? <span className="animate-pulse text-violet-300 dark:text-violet-700">Resolving…</span>}
+                        <td className={`hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold ${RT_COMPANY} md:table-cell`} title={organizationLabelById[p.organization_id] ?? p.organization_id}>
+                          {organizationLabelById[p.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/80 dark:text-[#D6B76E]/70">Resolving…</span>}
                         </td>
                       )}
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-foreground">
+                        <div className={`flex items-center gap-1.5 font-mono text-xs font-bold ${RT_PRIMARY}`}>
                           <span>{p.package_code}</span>
                           <InlineCopy value={p.package_code} label="Package #" onToast={onToast} stopPropagation />
                         </div>
@@ -7287,23 +7362,23 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                       <td className="hidden px-4 py-3 sm:table-cell" onClick={(e) => e.stopPropagation()}>
                         <div className="flex flex-col gap-0.5">
                           {p.carrier_name && (
-                            <span className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                            <span className={`flex items-center gap-1 text-xs ${RT_SECONDARY}`}>
                               <Truck className="h-3 w-3" />
                               {p.carrier_name}
                             </span>
                           )}
                           {p.tracking_number && (
-                            <span className="flex items-center gap-1 font-mono text-[10px] text-slate-400">
+                            <span className={`flex items-center gap-1 font-mono text-[10px] ${RT_MUTED}`}>
                               <span className="min-w-0 truncate">{p.tracking_number}</span>
                               <InlineCopy value={p.tracking_number} label="Tracking #" onToast={onToast} stopPropagation />
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3"><div className="flex items-center gap-2"><span className="text-sm font-bold text-slate-700 dark:text-slate-300">{assignedCount}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</span>{pct !== null && <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-muted sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-sky-500"}`} style={{ width: `${pct}%` }} /></div>}</div></td>
+                      <td className="px-4 py-3"><div className="flex items-center gap-2"><span className={`text-sm font-bold ${RT_PRIMARY}`}>{assignedCount}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</span>{pct !== null && <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-[#E8E2D6] dark:bg-[#2E3740] sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-[#B08A3C] dark:bg-[#D6B76E]"}`} style={{ width: `${pct}%` }} /></div>}</div></td>
                       <td className="px-4 py-3"><PkgStatusBadge status={p.status} /></td>
-                      <td className="hidden px-4 py-3 text-xs capitalize text-slate-400 md:table-cell">{operatorDisplayLabel(p, pkgTableOperatorNames)}</td>
-                      <td className="hidden px-4 py-3 text-xs text-slate-400 md:table-cell">{fmt(p.created_at)}</td>
+                      <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pkgTableOperatorNames)}</td>
+                      <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} md:table-cell`}>{fmt(p.created_at)}</td>
                       <td className="px-3 py-3">
                         <RowActionMenu
                           onView={() => onRowClick(p)} onEdit={() => onRowEdit(p)}
@@ -7312,24 +7387,24 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="bg-violet-50/40 dark:bg-violet-950/10">
+                      <tr className={RT_NESTED_ROW_BG}>
                         <td colSpan={showCompanyColumn ? 11 : 10} className="px-6 py-3">
                           {pkgItems.length === 0
-                            ? <p className="py-2 text-center text-xs text-slate-400">No items scanned for this package yet.</p>
+                            ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No items scanned for this package yet.</p>
                             : (
-                              <div className="overflow-hidden rounded-xl border border-violet-200 dark:border-violet-800/50">
+                              <div className={RT_NESTED_TABLE_BORDER}>
                                 <table className="w-full text-xs">
-                                  <thead><tr className="border-b border-violet-200 bg-violet-100/60 dark:border-violet-800/50 dark:bg-violet-950/40">
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Item</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Product</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Store</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Condition</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Status</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-violet-500">Operator</th>
+                                  <thead><tr className={RT_NESTED_THEAD}>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Item</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Product</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Store</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Condition</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Status</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Operator</th>
                                   </tr></thead>
-                                  <tbody className="divide-y divide-violet-100 dark:divide-violet-900/40">
+                                  <tbody className={RT_TBODY_DIVIDE}>
                                     {pkgItems.map((r) => (
-                                      <tr key={r.id} className="hover:bg-violet-50 dark:hover:bg-violet-950/20">
+                                      <tr key={r.id} className={RT_ROW_HOVER}>
                                         <td className="px-3 py-2">
                                           <ReturnIdentifiersColumn
                                             compact
@@ -7340,21 +7415,22 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                                             upc={upcFromProductIdentifier(r.product_identifier)}
                                             storePlatform={r.stores?.platform}
                                             onToast={onToast}
+                                            menorixTable
                                           />
                                         </td>
                                         <td className="px-3 py-2">
-                                          <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
+                                          <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact menorixTable />
                                         </td>
                                         <td className="px-3 py-2">
                                           {r.stores ? (
-                                            <span className="max-w-[100px] truncate text-[11px] font-medium text-slate-600 dark:text-slate-300" title={r.stores.name}>{r.stores.name}</span>
+                                            <span className={`max-w-[100px] truncate text-[11px] font-medium ${RT_SECONDARY}`} title={r.stores.name}>{r.stores.name}</span>
                                           ) : (
-                                            <span className="text-[11px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
+                                            <span className={`text-[11px] ${RT_MUTED}`}>{formatMarketplaceSource(r.marketplace)}</span>
                                           )}
                                         </td>
                                         <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                         <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
-                                        <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(r, pkgTableOperatorNames)}</td>
+                                        <td className={`px-3 py-2 capitalize ${RT_MUTED}`}>{operatorDisplayLabel(r, pkgTableOperatorNames)}</td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -7371,14 +7447,14 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
           </table>
         </div>
         {rows.length === 0 && (
-          <p className="py-10 text-center text-sm text-slate-400">
+          <p className={`py-10 text-center text-sm ${RT_MUTED}`}>
             {packages.length === 0 && !hasActiveFilters
               ? "No data."
               : "No packages match your filters."}
           </p>
         )}
       </div>
-      {total > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><p>Page {page} of {total}</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">Next →</button></div></div>}
+      {total > 1 && <div className={`flex items-center justify-between text-sm ${RT_SECONDARY}`}><p>Page {page} of {total}</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className={RT_PAGINATION_BTN}>← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className={RT_PAGINATION_BTN}>Next →</button></div></div>}
 
       {showBulkPallet && (
         <BulkAssignPackagesModal
@@ -7401,7 +7477,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
 
 // ─── Pallets Data Table ────────────────────────────────────────────────────────
 
-export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, externalSearch = "", onToast }: {
+export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, externalSearch = "", storeFilter = "", storeOptions = [], onStoreFilterChange, onToast }: {
   pallets: PalletRecord[]; packages?: PackageRecord[]; returns?: ReturnRecord[]; role: UserRole; actor: string;
   actorProfileId?: string | null;
   showCompanyColumn?: boolean;
@@ -7409,6 +7485,10 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
   onRowClick: (p: PalletRecord) => void; onRowEdit: (p: PalletRecord) => void;
   onBulkDeleted: (ids: string[]) => void;
   externalSearch?: string;
+  /** Page-level store filter — display + clear only; filtering stays in `page.tsx`. */
+  storeFilter?: string;
+  storeOptions?: { id: string; name: string; platform: string }[];
+  onStoreFilterChange?: (storeId: string) => void;
   onToast?: (msg: string, kind?: ToastKind) => void;
 }) {
   const [search, setSearch] = useState(""); const [statusF, setStatusF] = useState("");
@@ -7464,12 +7544,12 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
     return d;
   }, [pallets, allPackages, allReturns, search, externalSearch, statusF, dateFrom, dateTo, sortField, sortAsc, pltTableOperatorNames]);
 
-  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || dateFrom || dateTo);
+  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || storeFilter || dateFrom || dateTo);
 
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
   const allSelected = filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
-  const INPUT_SM_DARK = `${INPUT_SM} dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500`;
+  const INPUT_SM_DARK = RT_INPUT;
 
   async function handleBulkDelete() {
     if (!window.confirm(`Delete ${selectedIds.size} pallet(s)?`)) return;
@@ -7503,15 +7583,78 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
     <div className="space-y-3">
       {selectedIds.size > 0 && <BulkActionsBar count={selectedIds.size} onDelete={canDelete(role) ? handleBulkDelete : undefined} onClear={() => setSelectedIds(new Set())} deleting={bulkDeleting} />}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[180px] flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input placeholder="Search pallet #…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} pl-9`} /></div>
-        <select value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-auto`}><option value="">All Statuses</option>{Object.entries(PALLET_STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-        <div className="flex items-center gap-1.5"><Calendar className="h-4 w-4 shrink-0 text-slate-400" /><input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /><span className="text-xs text-slate-400">–</span><input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} w-36`} /></div>
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:items-center">
+          <div className="relative min-w-0">
+            <Search className={`pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 ${RT_MUTED}`} />
+            <input
+              placeholder="Search pallet #…"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className={`${INPUT_SM_DARK} h-10 w-full pr-9`}
+            />
+          </div>
+          <select
+            value={statusF}
+            onChange={(e) => { setStatusF(e.target.value); setPage(1); }}
+            className={`${INPUT_SM_DARK} h-10 w-full min-w-0`}
+          >
+            <option value="">All Statuses</option>
+            {Object.entries(PALLET_STATUS_CFG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <select
+            value={storeFilter}
+            onChange={(e) => { onStoreFilterChange?.(e.target.value); setPage(1); }}
+            className={`${INPUT_SM_DARK} h-10 w-full min-w-0`}
+            title="Filter by store"
+            aria-label="Filter by store"
+          >
+            <option value="">All Stores</option>
+            {storeOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}{s.platform ? ` (${s.platform})` : ""}
+              </option>
+            ))}
+          </select>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Calendar className={`h-4 w-4 shrink-0 ${RT_MUTED}`} />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+              className={`${INPUT_SM_DARK} h-10 min-w-0 flex-1`}
+              title="From date"
+            />
+            <span className={`text-xs ${RT_MUTED}`}>–</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+              className={`${INPUT_SM_DARK} h-10 min-w-0 flex-1`}
+              title="To date"
+            />
+          </div>
+        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={() => {
+              setSearch("");
+              setStatusF("");
+              onStoreFilterChange?.("");
+              setDateFrom("");
+              setDateTo("");
+              setPage(1);
+            }}
+            className={RT_CLEAR_BTN}
+          >
+            <X className="h-3.5 w-3.5" />Clear
+          </button>
+        )}
       </div>
-      <div className="w-full overflow-hidden rounded-2xl border border-border">
+      <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
+              <tr className={RT_THEAD_ROW}>
                 <th className={TH_EXP} aria-hidden />
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
                   <div className={CHK_FLEX}>
@@ -7519,14 +7662,14 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                   </div>
                 </th>
                 {showCompanyColumn && (
-                  <th className="hidden px-4 py-3 text-left md:table-cell text-xs font-semibold uppercase tracking-wide text-slate-500">Company</th>
+                  <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Company</th>
                 )}
                 <th className="px-4 py-3 text-left"><SortButton field="pallet_number" label="Pallet #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left">
                   <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                     <SortButton field="rollup_pkgs" label="Pkgs" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
-                    <span className="text-[10px] font-bold text-slate-300 dark:text-slate-600">/</span>
+                    <span className="text-[10px] font-bold text-[#CFC6B6] dark:text-[#4E5862]">/</span>
                     <SortButton field="rollup_items" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
                   </div>
                 </th>
@@ -7536,15 +7679,15 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                 <th className="px-3 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            <tbody className={RT_TBODY_DIVIDE}>
               {rows.map((p) => {
                 const isExpanded = expandedIds.has(p.id);
                 const pltPackages = allPackages.filter((pk) => pk.pallet_id === p.id);
                 return (
                   <React.Fragment key={p.id}>
-                    <tr onClick={() => onRowClick(p)} className="group cursor-pointer transition hover:bg-accent hover:text-accent-foreground/50">
+                    <tr onClick={() => onRowClick(p)} className={`group cursor-pointer transition ${RT_ROW_HOVER}`}>
                       <td className={TD_EXP} onClick={(e) => toggleExpand(p.id, e)}>
-                        <button type="button" className="flex h-6 w-6 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300" title={isExpanded ? "Collapse packages" : `Show ${pltPackages.length} package(s)`}>
+                        <button type="button" className={RT_EXPAND_BTN} title={isExpanded ? "Collapse packages" : `Show ${pltPackages.length} package(s)`}>
                           {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                         </button>
                       </td>
@@ -7554,12 +7697,12 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                         </div>
                       </td>
                       {showCompanyColumn && (
-                        <td className="hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold text-violet-600 dark:text-violet-400 md:table-cell" title={organizationLabelById[p.organization_id] ?? p.organization_id}>
-                          {organizationLabelById[p.organization_id] ?? <span className="animate-pulse text-violet-300 dark:text-violet-700">Resolving…</span>}
+                        <td className={`hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold ${RT_COMPANY} md:table-cell`} title={organizationLabelById[p.organization_id] ?? p.organization_id}>
+                          {organizationLabelById[p.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/80 dark:text-[#D6B76E]/70">Resolving…</span>}
                         </td>
                       )}
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-foreground">
+                        <div className={`flex items-center gap-1.5 font-mono text-xs font-bold ${RT_PRIMARY}`}>
                           <span>{p.pallet_number}</span>
                           <InlineCopy value={p.pallet_number} label="Pallet #" onToast={onToast} stopPropagation />
                         </div>
@@ -7567,10 +7710,10 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                       <td className="hidden px-4 py-3 md:table-cell">
                         <StoreBadge name={p.stores?.name} platform={p.stores?.platform} fallback="Multi-Store" />
                       </td>
-                      <td className="px-4 py-3"><span className="font-bold text-slate-700 dark:text-slate-300">{p._rollupPkgs}</span><span className="mx-1 text-slate-300 dark:text-slate-600">pkgs</span><span className="font-bold text-slate-500">{p._rollupItems}</span><span className="ml-1 text-slate-300 dark:text-slate-600">items</span></td>
+                      <td className="px-4 py-3"><span className={`font-bold ${RT_PRIMARY}`}>{p._rollupPkgs}</span><span className={`mx-1 ${RT_MUTED}`}>pkgs</span><span className={`font-bold ${RT_SECONDARY}`}>{p._rollupItems}</span><span className={`ml-1 ${RT_MUTED}`}>items</span></td>
                       <td className="px-4 py-3"><PalletStatusBadge status={p.status} /></td>
-                      <td className="hidden px-4 py-3 text-xs capitalize text-slate-400 md:table-cell">{operatorDisplayLabel(p, pltTableOperatorNames)}</td>
-                      <td className="hidden px-4 py-3 text-xs text-slate-400 lg:table-cell">{fmt(p.created_at)}</td>
+                      <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pltTableOperatorNames)}</td>
+                      <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(p.created_at)}</td>
                       <td className="px-3 py-3">
                         <RowActionMenu
                           onView={() => onRowClick(p)} onEdit={() => onRowEdit(p)}
@@ -7579,23 +7722,23 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="bg-slate-50/70 dark:bg-slate-900/50">
+                      <tr className={RT_NESTED_ROW_BG}>
                         <td colSpan={showCompanyColumn ? 10 : 9} className="px-6 py-3">
                           {pltPackages.length === 0
-                            ? <p className="py-2 text-center text-xs text-slate-400">No packages linked to this pallet yet.</p>
+                            ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No packages linked to this pallet yet.</p>
                             : (
-                              <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                              <div className={RT_NESTED_TABLE_BORDER}>
                                 <table className="w-full text-xs">
-                                  <thead><tr className="border-b border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800">
+                                  <thead><tr className={RT_NESTED_THEAD}>
                                     <th className={TH_EXP} aria-hidden />
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Package #</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Carrier</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Tracking</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Items</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Status</th>
-                                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Operator</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Package #</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Carrier</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Tracking</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Items</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Status</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Operator</th>
                                   </tr></thead>
-                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                  <tbody className={RT_TBODY_DIVIDE}>
                                     {pltPackages.map((pk) => {
                                       const pkItemCount = allReturns.filter((r) => r.package_id === pk.id).length;
                                       const pkgItems = allReturns.filter((r) => r.package_id === pk.id);
@@ -7603,21 +7746,21 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                       const pct = pk.expected_item_count > 0 ? Math.min(100, (pkItemCount / pk.expected_item_count) * 100) : null;
                                       return (
                                         <React.Fragment key={pk.id}>
-                                          <tr className="group hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                          <tr className={`group ${RT_ROW_HOVER}`}>
                                             <td className={TD_EXP} onClick={(e) => toggleNestedPkgExpand(pk.id, e)}>
-                                              <button type="button" className="flex h-6 w-6 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300" title={nestedOpen ? "Collapse items" : `Show ${pkgItems.length} item(s)`}>
+                                              <button type="button" className={RT_EXPAND_BTN} title={nestedOpen ? "Collapse items" : `Show ${pkgItems.length} item(s)`}>
                                                 {nestedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                               </button>
                                             </td>
                                             <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                                              <div className="flex items-center gap-1 font-mono font-semibold text-slate-700 dark:text-slate-300">
+                                              <div className={`flex items-center gap-1 font-mono font-semibold ${RT_PRIMARY}`}>
                                                 <span>{pk.package_code}</span>
                                                 <InlineCopy value={pk.package_code} label="Package #" onToast={onToast} stopPropagation />
                                               </div>
                                             </td>
-                                            <td className="px-3 py-2 text-slate-500">{pk.carrier_name ?? "—"}</td>
+                                            <td className={`px-3 py-2 ${RT_SECONDARY}`}>{pk.carrier_name ?? "—"}</td>
                                             <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                                              <div className="flex items-center gap-1 font-mono text-slate-400">
+                                              <div className={`flex items-center gap-1 font-mono ${RT_MUTED}`}>
                                                 <span className="min-w-0 truncate">{pk.tracking_number ?? "—"}</span>
                                                 {pk.tracking_number ? (
                                                   <InlineCopy value={pk.tracking_number} label="Tracking #" onToast={onToast} stopPropagation />
@@ -7626,32 +7769,32 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                             </td>
                                             <td className="px-3 py-2">
                                               <div className="flex items-center gap-2">
-                                                <span className="font-bold text-slate-600 dark:text-slate-300">{pkItemCount}/{pk.expected_item_count > 0 ? pk.expected_item_count : "?"}</span>
-                                                {pct !== null && <div className="hidden h-1.5 w-10 overflow-hidden rounded-full bg-muted sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-sky-500"}`} style={{ width: `${pct}%` }} /></div>}
+                                                <span className={`font-bold ${RT_PRIMARY}`}>{pkItemCount}/{pk.expected_item_count > 0 ? pk.expected_item_count : "?"}</span>
+                                                {pct !== null && <div className="hidden h-1.5 w-10 overflow-hidden rounded-full bg-[#E8E2D6] dark:bg-[#2E3740] sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-[#B08A3C] dark:bg-[#D6B76E]"}`} style={{ width: `${pct}%` }} /></div>}
                                               </div>
                                             </td>
                                             <td className="px-3 py-2"><PkgStatusBadge status={pk.status} /></td>
-                                            <td className="px-3 py-2 capitalize text-slate-400">{operatorDisplayLabel(pk, pltTableOperatorNames)}</td>
+                                            <td className={`px-3 py-2 capitalize ${RT_MUTED}`}>{operatorDisplayLabel(pk, pltTableOperatorNames)}</td>
                                           </tr>
                                           {nestedOpen && (
-                                            <tr className="bg-slate-100/60 dark:bg-slate-900/40">
+                                            <tr className={RT_NESTED_ROW_BG}>
                                               <td colSpan={7} className="px-4 py-2">
                                                 {pkgItems.length === 0
-                                                  ? <p className="py-2 text-center text-[11px] text-slate-400">No items scanned for this package yet.</p>
+                                                  ? <p className={`py-2 text-center text-[11px] ${RT_MUTED}`}>No items scanned for this package yet.</p>
                                                   : (
-                                                    <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-600">
+                                                    <div className={`overflow-hidden rounded-lg border ${RT_BORDER}`}>
                                                       <table className="w-full text-[11px]">
-                                                        <thead><tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
-                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Item</th>
-                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Product</th>
-                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Store</th>
-                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Condition</th>
-                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Status</th>
-                                                          <th className="px-2 py-1.5 text-left font-bold uppercase tracking-wide text-slate-500">Operator</th>
+                                                        <thead><tr className={RT_NESTED_THEAD}>
+                                                          <th className={`px-2 py-1.5 text-left ${RT_NESTED_TH}`}>Item</th>
+                                                          <th className={`px-2 py-1.5 text-left ${RT_NESTED_TH}`}>Product</th>
+                                                          <th className={`px-2 py-1.5 text-left ${RT_NESTED_TH}`}>Store</th>
+                                                          <th className={`px-2 py-1.5 text-left ${RT_NESTED_TH}`}>Condition</th>
+                                                          <th className={`px-2 py-1.5 text-left ${RT_NESTED_TH}`}>Status</th>
+                                                          <th className={`px-2 py-1.5 text-left ${RT_NESTED_TH}`}>Operator</th>
                                                         </tr></thead>
-                                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                        <tbody className={RT_TBODY_DIVIDE}>
                                                           {pkgItems.map((r) => (
-                                                            <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-950/30">
+                                                            <tr key={r.id} className={RT_ROW_HOVER}>
                                                               <td className="px-2 py-1.5">
                                                                 <ReturnIdentifiersColumn
                                                                   compact
@@ -7662,21 +7805,22 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                                                   upc={upcFromProductIdentifier(r.product_identifier)}
                                                                   storePlatform={r.stores?.platform}
                                                                   onToast={onToast}
+                                                                  menorixTable
                                                                 />
                                                               </td>
                                                               <td className="px-2 py-1.5">
-                                                                <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact />
+                                                                <ReturnItemProductLinkage organizationId={r.organization_id} fields={r} compact menorixTable />
                                                               </td>
                                                               <td className="px-2 py-1.5">
                                                                 {r.stores ? (
-                                                                  <span className="max-w-[90px] truncate text-[10px] font-medium text-slate-600 dark:text-slate-300" title={r.stores.name}>{r.stores.name}</span>
+                                                                  <span className={`max-w-[90px] truncate text-[10px] font-medium ${RT_SECONDARY}`} title={r.stores.name}>{r.stores.name}</span>
                                                                 ) : (
-                                                                  <span className="text-[10px] text-slate-500">{formatMarketplaceSource(r.marketplace)}</span>
+                                                                  <span className={`text-[10px] ${RT_MUTED}`}>{formatMarketplaceSource(r.marketplace)}</span>
                                                                 )}
                                                               </td>
                                                               <td className="px-2 py-1.5"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0, 2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
                                                               <td className="px-2 py-1.5"><StatusBadge status={r.status} /></td>
-                                                              <td className="px-2 py-1.5 capitalize text-slate-400">{operatorDisplayLabel(r, pltTableOperatorNames)}</td>
+                                                              <td className={`px-2 py-1.5 capitalize ${RT_MUTED}`}>{operatorDisplayLabel(r, pltTableOperatorNames)}</td>
                                                             </tr>
                                                           ))}
                                                         </tbody>
@@ -7703,14 +7847,14 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
           </table>
         </div>
         {rows.length === 0 && (
-          <p className="py-10 text-center text-sm text-slate-400">
+          <p className={`py-10 text-center text-sm ${RT_MUTED}`}>
             {pallets.length === 0 && !hasActiveFilters
               ? "No data."
               : "No pallets match your filters."}
           </p>
         )}
       </div>
-      {total > 1 && <div className="flex items-center justify-between text-sm text-slate-500"><p>Page {page} of {total}</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className="flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">Next →</button></div></div>}
+      {total > 1 && <div className={`flex items-center justify-between text-sm ${RT_SECONDARY}`}><p>Page {page} of {total}</p><div className="flex gap-2"><button disabled={page<=1} onClick={() => setPage((p)=>p-1)} className={RT_PAGINATION_BTN}>← Prev</button><button disabled={page>=total} onClick={() => setPage((p)=>p+1)} className={RT_PAGINATION_BTN}>Next →</button></div></div>}
     </div>
   );
 }
