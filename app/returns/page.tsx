@@ -456,7 +456,7 @@ export default function ReturnsPage() {
       accent: "text-[#8A681F] border-[#8A681F] dark:text-[#D6B76E] dark:border-[#D6B76E]",
     },
     { id: "packages", label: "Packages", icon: Package2,  count: filteredPackages.length, accent: "text-[#B08A3C] border-[#B08A3C] dark:text-[#F1D58A] dark:border-[#F1D58A]" },
-    { id: "pallets",  label: "Pallets",  icon: Boxes,     count: filteredPallets.length,  accent: "text-[#4C5661] border-[#4C5661] dark:text-[#B8C1CB] dark:border-[#B8C1CB]" },
+    { id: "pallets",  label: "Pallets",  icon: Boxes,     count: filteredPallets.length,  accent: "text-[#8A681F] border-[#8A681F] dark:text-[#D6B76E] dark:border-[#D6B76E]" },
   ];
 
   return (
@@ -471,7 +471,7 @@ export default function ReturnsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {showCompanyFilter ? (
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <label className="flex items-center gap-2 text-xs font-medium text-[#4C5661] dark:text-[#B8C1CB]">
               <span className="whitespace-nowrap">Company</span>
               <select
                 value={viewAllCompanies ? "" : reportCompanyFilterOrganizationId}
@@ -496,8 +496,8 @@ export default function ReturnsPage() {
             </label>
           ) : null}
 
-          {showStoreFilter ? (
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          {showStoreFilter && activeTab !== "pallets" ? (
+            <label className="flex items-center gap-2 text-xs font-medium text-[#4C5661] dark:text-[#B8C1CB]">
               <Store className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="whitespace-nowrap">Store</span>
               <select
@@ -525,12 +525,16 @@ export default function ReturnsPage() {
             const Icon = t.icon; const active = activeTab === t.id;
             return (
               <button key={t.id} role="tab" aria-selected={active} onClick={() => setActiveTab(t.id)}
-                className={`flex items-center gap-2 border-b-2 px-5 py-4 text-sm font-semibold transition whitespace-nowrap ${active ? t.accent : "border-transparent text-[#737C86] hover:text-[#4C5661] dark:text-[#7E8894] dark:hover:text-[#B8C1CB]"}`}>
+                className={`flex items-center gap-2 border-b-2 px-5 py-4 text-sm font-semibold transition whitespace-nowrap ${
+                  active
+                    ? `${t.accent} bg-[#EFE6D2]/40 dark:bg-[#2A2418]/50`
+                    : "border-transparent text-[#4C5661] hover:text-[#171A1E] dark:text-[#B8C1CB] dark:hover:text-[#F7F3EA]"
+                }`}>
                 <Icon className="h-4 w-4" />
                 {t.label}
                 <span
                   title={t.countTitle}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? "bg-[#EFE6D2] text-[#8A681F] dark:bg-[#2A2418] dark:text-[#F1D58A]" : "bg-[#EEE8DC] text-[#737C86] dark:bg-[#232C35] dark:text-[#7E8894]"}`}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${active ? "bg-[#EFE6D2] text-[#8A681F] dark:bg-[#2A2418] dark:text-[#F1D58A]" : "bg-[#EEE8DC] text-[#4C5661] dark:bg-[#232C35] dark:text-[#B8C1CB]"}`}
                 >{t.count}</span>
               </button>
             );
@@ -562,8 +566,8 @@ export default function ReturnsPage() {
         ) : (
           <>
             {refreshing ? (
-              <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-sky-500" />
+              <div className="mb-3 flex items-center gap-2 text-sm text-[#4C5661] dark:text-[#B8C1CB]" aria-live="polite">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#D9CBB1] border-t-[#8A681F] dark:border-[#2E3740] dark:border-t-[#D6B76E]" />
                 Refreshing…
               </div>
             ) : null}
@@ -627,6 +631,9 @@ export default function ReturnsPage() {
                   showCompanyColumn={showCompanyColumn}
                   organizationLabelById={organizationLabelById}
                   externalSearch={globalSearchQuery}
+                  storeFilter={storeFilter}
+                  storeOptions={storeOptions}
+                  onStoreFilterChange={setStoreFilter}
                   onToast={showToast}
                   onRowClick={(p) => openDrawer({ type: "pallet", record: p })}
                   onRowEdit={(p)  => openDrawer({ type: "pallet", record: p })}

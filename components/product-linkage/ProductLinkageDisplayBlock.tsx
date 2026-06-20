@@ -15,6 +15,7 @@ import {
 import {
   RESOLVER_SOURCE_LABEL,
   isAmbiguousLinkageStatus,
+  isMismatchLinkageStatus,
   isUnresolvedLinkageStatus,
   normalizeResolutionStatus,
 } from "@/lib/scanner-product-linkage-ui";
@@ -25,13 +26,24 @@ type Props = {
   compact?: boolean;
   showPimLink?: boolean;
   className?: string;
+  /** MENORIX palette for Returns desktop tables only. */
+  menorixTable?: boolean;
 };
+
+const MENORIX_LINKAGE_BADGE = {
+  resolved: "border-[rgba(138,104,31,0.20)] bg-[#EFE6D2] text-[#6C5320] dark:border-[rgba(214,183,110,0.25)] dark:bg-[#2A2418] dark:text-[#E8CF98]",
+  unresolved: "border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] text-[#4C5661] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#B8C1CB]",
+  ambiguous: "border-[rgba(138,104,31,0.24)] bg-[#F5E9D2] text-[#6A4C16] dark:border-[rgba(214,183,110,0.28)] dark:bg-[#312613] dark:text-[#EFD49A]",
+  mismatch: "border-[rgba(138,104,31,0.22)] bg-[#F3E5DE] text-[#6C3E34] dark:border-[rgba(214,183,110,0.24)] dark:bg-[#302025] dark:text-[#D7B2A8]",
+  default: "border-[rgba(138,104,31,0.18)] bg-[#F2EEE5] text-[#737C86] dark:border-[rgba(214,183,110,0.20)] dark:bg-[#20272F] dark:text-[#7E8894]",
+} as const;
 
 export function ProductLinkageDisplayBlock({
   linkage,
   compact = false,
   showPimLink = true,
   className = "",
+  menorixTable = false,
 }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -55,6 +67,27 @@ export function ProductLinkageDisplayBlock({
     linkage.upc ? `UPC ${linkage.upc}` : null,
   ].filter(Boolean);
 
+  function menorixBadgeClass(): string {
+    const s = normalizeResolutionStatus(linkage.identifier_resolution_status);
+    if (linkage.is_resolved && !isAmbiguousLinkageStatus(s) && !isUnresolvedLinkageStatus(s)) {
+      return MENORIX_LINKAGE_BADGE.resolved;
+    }
+    if (isAmbiguousLinkageStatus(s)) return MENORIX_LINKAGE_BADGE.ambiguous;
+    if (isMismatchLinkageStatus(s)) return MENORIX_LINKAGE_BADGE.mismatch;
+    if (isUnresolvedLinkageStatus(s) || !linkage.is_resolved) return MENORIX_LINKAGE_BADGE.unresolved;
+    return MENORIX_LINKAGE_BADGE.default;
+  }
+
+  const statusBadgeClass = menorixTable ? menorixBadgeClass() : productLinkageUserStatusBadgeClass(linkage);
+  const metaTextClass = menorixTable ? "text-[#737C86] dark:text-[#7E8894]" : "text-muted-foreground";
+  const headlineClass = menorixTable ? "text-[#171A1E] dark:text-[#F7F3EA]" : "text-foreground";
+  const linkClass = menorixTable
+    ? "font-medium leading-snug text-[#171A1E] underline decoration-[#B08A3C]/50 underline-offset-2 hover:text-[#8A681F] dark:text-[#F7F3EA] dark:decoration-[#D6B76E]/50 dark:hover:text-[#F1D58A]"
+    : "font-medium leading-snug text-foreground underline decoration-sky-400/60 underline-offset-2 hover:text-sky-700 dark:hover:text-sky-300";
+  const reviewBadgeClass = menorixTable
+    ? "inline-flex items-center gap-0.5 rounded-md border border-[rgba(138,104,31,0.24)] bg-[#F5E9D2] px-1.5 py-0.5 font-semibold text-[#6A4C16] dark:border-[rgba(214,183,110,0.28)] dark:bg-[#312613] dark:text-[#EFD49A]"
+    : "inline-flex items-center gap-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-semibold text-amber-900 dark:text-amber-200";
+
   return (
     <div className={compact ? `space-y-1 ${className}` : `space-y-2 ${className}`}>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -62,7 +95,7 @@ export function ProductLinkageDisplayBlock({
           className={[
             "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-medium leading-snug",
             compact ? "text-[9px]" : "text-[10px]",
-            productLinkageUserStatusBadgeClass(linkage),
+            statusBadgeClass,
           ].join(" ")}
           title={`Resolver: ${RESOLVER_SOURCE_LABEL}`}
         >
@@ -72,7 +105,7 @@ export function ProductLinkageDisplayBlock({
         {ambiguous ? (
           <span
             className={[
-              "inline-flex items-center gap-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-semibold text-amber-900 dark:text-amber-200",
+              reviewBadgeClass,
               compact ? "text-[9px]" : "text-[10px]",
             ].join(" ")}
           >
@@ -87,18 +120,18 @@ export function ProductLinkageDisplayBlock({
           <Link
             href={productHref}
             onClick={(e) => e.stopPropagation()}
-            className="font-medium leading-snug text-foreground underline decoration-sky-400/60 underline-offset-2 hover:text-sky-700 dark:hover:text-sky-300"
+            className={linkClass}
           >
             {headline}
           </Link>
         ) : (
-          <p className="font-medium text-foreground leading-snug">{headline}</p>
+          <p className={`font-medium leading-snug ${headlineClass}`}>{headline}</p>
         )}
         {(unresolved || ambiguous) && identifiers.length > 0 ? (
-          <p className="mt-0.5 text-[10px] text-muted-foreground">{identifiers.join(" · ")}</p>
+          <p className={`mt-0.5 text-[10px] ${metaTextClass}`}>{identifiers.join(" · ")}</p>
         ) : null}
         {!compact && (
-          <p className="text-[10px] text-muted-foreground">
+          <p className={`text-[10px] ${metaTextClass}`}>
             Source: {RESOLVER_SOURCE_LABEL}
             {confidence ? ` · confidence ${confidence}` : ""}
             {linkage.source_table ? ` · ${linkage.source_table}` : ""}
@@ -107,7 +140,7 @@ export function ProductLinkageDisplayBlock({
       </div>
 
       {showPimLink && productHref && linkedProductId && !compact ? (
-        <p className="text-[10px] text-muted-foreground">Product {linkedProductId.slice(0, 8)}…</p>
+        <p className={`text-[10px] ${metaTextClass}`}>Product {linkedProductId.slice(0, 8)}…</p>
       ) : null}
     </div>
   );

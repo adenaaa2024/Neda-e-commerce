@@ -21,6 +21,8 @@ export type IdentifierStackProps = {
   onToast?: IdentifierToastFn;
   /** Hide item title row (e.g. compact table cells). */
   hideItemName?: boolean;
+  /** MENORIX palette for Returns desktop tables only. */
+  menorixTable?: boolean;
 };
 
 /**
@@ -37,8 +39,12 @@ export function IdentifierStack({
   compact,
   onToast,
   hideItemName,
+  menorixTable = false,
 }: IdentifierStackProps) {
   const labelCls = compact ? "text-[11px]" : "text-xs";
+  const iconBtnMenorix =
+    "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] text-[#4C5661] transition hover:bg-[#F8F6F1] hover:text-[#171A1E] disabled:pointer-events-none disabled:opacity-35 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35] dark:hover:text-[#F7F3EA]";
+  const rowIconBtn = menorixTable ? iconBtnMenorix : iconBtn;
 
   async function copyVal(v: string, label: string) {
     try {
@@ -60,14 +66,14 @@ export function IdentifierStack({
     const hasValue = !!(raw ?? "").trim();
 
     return (
-      <div className={`flex min-w-0 items-center gap-1 ${labelCls} text-muted-foreground`}>
-        <span className="shrink-0 font-semibold text-slate-500 dark:text-slate-400">{label}:</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-foreground/90">{display}</span>
+      <div className={`flex min-w-0 items-center gap-1 ${labelCls} ${menorixTable ? "text-[#737C86] dark:text-[#7E8894]" : "text-muted-foreground"}`}>
+        <span className={`shrink-0 font-semibold ${menorixTable ? "text-[#4C5661] dark:text-[#B8C1CB]" : "text-slate-500 dark:text-slate-400"}`}>{label}:</span>
+        <span className={`min-w-0 flex-1 truncate font-mono ${menorixTable ? "text-[#171A1E] dark:text-[#F7F3EA]" : "text-foreground/90"}`}>{display}</span>
         <button
           type="button"
           title={hasValue ? `Copy ${label}` : "Nothing to copy"}
           disabled={!hasValue}
-          className={iconBtn}
+          className={rowIconBtn}
           onClick={(e) => {
             e.stopPropagation();
             if (hasValue) void copyVal((raw ?? "").trim(), label);
@@ -79,7 +85,7 @@ export function IdentifierStack({
           type="button"
           title={hasValue ? "Search marketplace" : "Enter a code first"}
           disabled={!hasValue}
-          className={iconBtn}
+          className={rowIconBtn}
           onClick={(e) => {
             e.stopPropagation();
             if (hasValue) openSearch((raw ?? "").trim());
@@ -95,7 +101,7 @@ export function IdentifierStack({
     <div className="flex min-w-[200px] max-w-[min(100%,320px)] flex-col gap-1">
       {!hideItemName ? (
         <p
-          className={`font-bold leading-tight text-slate-900 dark:text-slate-100 ${compact ? "text-xs" : "text-sm"}`}
+          className={`font-bold leading-tight ${menorixTable ? "text-[#171A1E] dark:text-[#F7F3EA]" : "text-slate-900 dark:text-slate-100"} ${compact ? "text-xs" : "text-sm"}`}
         >
           {itemName?.trim() || "—"}
         </p>
