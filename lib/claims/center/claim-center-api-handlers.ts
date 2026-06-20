@@ -82,6 +82,7 @@ import {
   type ComposeEvidencePacketV1Query,
 } from "@/lib/claims/evidence/claim-evidence-packet-v1";
 import { loadMaterializedCandidateEdges } from "@/lib/claims/edges/claim-reference-edge-materializer";
+import { buildTridEdgeReadModel } from "@/lib/claims/readmodel/trid-edge-readmodel-v1";
 import { supabaseServer } from "@/lib/supabase-server";
 import { composeClaimSourceCoverageV1 } from "@/lib/claims/center/claim-source-coverage-v1";
 import { composeSeparateFamilyCandidateGeneratorsV1 } from "@/lib/claims/opportunities/separate-family-candidate-generators-v1";
@@ -297,7 +298,32 @@ export async function getCenterReferencesPayload(
       grouped[kind] = grouped[kind] ?? [];
       grouped[kind].push(e);
     }
-    return { candidate_id: candidateId, grouped, total: list.length };
+
+    let familyKey: string | null = null;
+    let resolvedProduct = false;
+    const { data: candRow } = await supabaseServer
+      .from("claim_candidates")
+      .select("claim_family, resolved_product_id, metadata")
+      .eq("organization_id", organizationId)
+      .eq("id", candidateId)
+      .maybeSingle();
+    if (candRow) {
+      const meta =
+        candRow.metadata && typeof candRow.metadata === "object" && !Array.isArray(candRow.metadata)
+          ? (candRow.metadata as Record<string, unknown>)
+          : {};
+      familyKey = str(meta.family_key_v3) ?? str(candRow.claim_family);
+      resolvedProduct = !!str(candRow.resolved_product_id);
+    }
+
+    const read_model = buildTridEdgeReadModel({
+      candidateId,
+      familyKey,
+      resolvedProduct,
+      edges: list,
+    });
+
+    return { candidate_id: candidateId, grouped, total: list.length, read_model };
   }
 
   const rows = await fetchCenterCandidateRows(organizationId, { storeId, limit: CLAIM_CENTER_REFERENCES_SCAN_LIMIT });

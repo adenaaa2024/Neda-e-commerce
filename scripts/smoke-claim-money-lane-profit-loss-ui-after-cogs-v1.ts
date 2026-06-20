@@ -68,11 +68,11 @@ assert.match(moneyTab, /H\. Formula explanations/);
 assert.match(moneyTab, /Sale price is never used as COGS/);
 assert.match(drawer, /moneyPreview\?\.cost_recovery_view\.recovery_value/);
 assert.match(view, /Approved COGS applied/);
-assert.match(api, /phase-claim-money-lane-profit-loss-ui-after-cogs-v1/);
+assert.match(api, /buildMoneyLaneUiBundle/);
 assert.ok(!moneyTab.includes('?? "$0"'));
 
 assert.equal(parseCogsCoverageRatio("6/10")?.known, 6);
-assert.equal(reimbursementMatchStatusLabel("unknown"), "Unknown");
+assert.equal(reimbursementMatchStatusLabel("unknown"), "Not filed / no safe match");
 
 const mockPreview = {
   claim_submission_id: "sub-1",

@@ -21,6 +21,7 @@ import {
   computeAmountStatus,
   computeFamilyAwareRecovery,
   computeFilingDecision,
+  computeHardenedReadyToFileGate,
   computeRemovalOriginReason,
   filterReadyToFileRows,
   summarizeRecoveryGap,
@@ -50,6 +51,7 @@ export function ReadyToFileView() {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ReadyToFileFilterState>(DEFAULT_READY_TO_FILE_FILTERS);
   const [selected, setSelected] = useState<ReadyToFileRow | null>(null);
+  const [activeTab, setActiveTab] = useState<"ready" | "needs_data">("ready");
 
   const load = useCallback(async () => {
     if (!storeId) {
@@ -78,7 +80,11 @@ export function ReadyToFileView() {
     () => (payload ? [...payload.ready_rows, ...payload.blocked_rows] : []),
     [payload],
   );
-  const filteredRows = useMemo(() => filterReadyToFileRows(allRows, filters), [allRows, filters]);
+  const tabSourceRows = useMemo(
+    () => (activeTab === "ready" ? (payload?.ready_rows ?? []) : (payload?.blocked_rows ?? [])),
+    [payload, activeTab],
+  );
+  const filteredRows = useMemo(() => filterReadyToFileRows(tabSourceRows, filters), [tabSourceRows, filters]);
   const recovery = useMemo(() => summarizeRecoveryGap(allRows), [allRows]);
 
   const families = useMemo(
@@ -279,6 +285,66 @@ export function ReadyToFileView() {
             </p>
           )}
 
+          {/* ---- Tab bar: Ready to File / Needs Data ---- */}
+          {allRows.length > 0 ? (
+            <div className="flex items-center gap-1 rounded-xl border bg-black/[0.02] p-1 dark:bg-white/[0.02]">
+              <button
+                type="button"
+                onClick={() => setActiveTab("ready")}
+                className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+                  activeTab === "ready"
+                    ? "bg-white shadow dark:bg-white/10"
+                    : "opacity-60 hover:opacity-90"
+                }`}
+              >
+                Ready to File
+                <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
+                  activeTab === "ready"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    : "bg-black/10 dark:bg-white/10"
+                }`}>
+                  {payload?.ready_rows.length ?? 0}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("needs_data")}
+                className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+                  activeTab === "needs_data"
+                    ? "bg-white shadow dark:bg-white/10"
+                    : "opacity-60 hover:opacity-90"
+                }`}
+              >
+                Needs Data
+                <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
+                  activeTab === "needs_data"
+                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                    : "bg-black/10 dark:bg-white/10"
+                }`}>
+                  {payload?.blocked_rows.length ?? 0}
+                </span>
+              </button>
+            </div>
+          ) : null}
+
+          {/* ---- Needs Data explanation banner ---- */}
+          {activeTab === "needs_data" && (payload?.blocked_rows.length ?? 0) > 0 ? (
+            <section className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs">
+              <p className="font-semibold text-amber-900 dark:text-amber-100">
+                These claims do not meet all 9 filing gate requirements and are held from Ready to File.
+              </p>
+              <p className="mt-1 text-amber-800 dark:text-amber-200">
+                Each row shows its specific blockers below. Common hold reasons for this pilot:
+                {" "}<strong>physical_receiving_not_started</strong> (no packages/scan row — removal packages were never checked in physically),
+                {" "}<strong>live_reimbursement_check_missing</strong> (status unknown_unmatched — need GET_FBA_REIMBURSEMENTS_DATA sync),
+                {" "}<strong>missing_sale_price_source</strong> (7/10 claims — no Order sale loaded for those SKUs).
+              </p>
+              <p className="mt-1 text-amber-800/70 dark:text-amber-200/70">
+                Non-fileable candidates appear here. Damaged/Lost/Disposed/Reversal/CustomerReturn candidates are in drawer section "Other possible claim opportunities" — not part of the removal claim.
+              </p>
+            </section>
+          ) : null}
+
           {/* ---- Filters ---- */}
           <section className="flex flex-wrap items-end gap-3 rounded-xl border bg-black/[0.02] p-3 dark:bg-white/[0.02]">
             <label className="text-xs">
@@ -374,6 +440,7 @@ export function ReadyToFileView() {
                   <th className="px-3 py-2">Validity</th>
                   <th className="px-3 py-2">Current family</th>
                   <th className="px-3 py-2">Filing status</th>
+                  <th className="px-3 py-2">Gate blockers</th>
                   <th className="px-3 py-2">Policy status</th>
                   <th className="px-3 py-2">Decision</th>
                   <th className="px-3 py-2">Flags</th>
@@ -453,11 +520,23 @@ export function ReadyToFileView() {
                       const sepCount = fa.separate_claim_suggestions.length;
                       const excludedCount = fa.misclassified_candidates.length;
                       const gap = fa.gap;
+                      const gate = r.hardened_gate ?? computeHardenedReadyToFileGate(r);
                       return (
                         <>
                           <td className="px-3 py-2 text-xs">{r.claim_family ?? "—"}</td>
                           <td className="px-3 py-2 text-xs">
                             <span className={claimCenterBadgeTone(fa.filing_status_tone)}>{fa.filing_status_label}</span>
+                          </td>
+                          <td className="max-w-[200px] px-3 py-2">
+                            {gate.is_ready ? (
+                              <span className={claimCenterBadgeTone("success")}>All gates pass</span>
+                            ) : (
+                              <div className="flex flex-col gap-0.5">
+                                {gate.blockers.map((b) => (
+                                  <span key={b} className={`${claimCenterBadgeTone("warning")} block whitespace-nowrap text-[10px]`}>{b}</span>
+                                ))}
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-xs">
                             {fa.policy_confirmed ? (
@@ -599,8 +678,10 @@ export function ReadyToFileView() {
                 })}
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={39} className="px-3 py-10 text-center text-sm opacity-60">
-                      No claims match the current filters.
+                    <td colSpan={40} className="px-3 py-10 text-center text-sm opacity-60">
+                      {activeTab === "ready"
+                        ? "No claims are currently Ready to File — see the Needs Data tab for blockers."
+                        : "No claims match the current filters."}
                     </td>
                   </tr>
                 ) : null}

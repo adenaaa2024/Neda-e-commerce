@@ -338,6 +338,22 @@ export function normalizeStoreAutomationSettings(
       src.claim_candidate_intake != null
         ? normalizeClaimCandidateIntakePolicy(src.claim_candidate_intake)
         : null,
+    fba_returns_api: normalizeApiCard(
+      src.fba_returns_api,
+      DEFAULT_STORE_AUTOMATION_SETTINGS.fba_returns_api!,
+    ),
+    inventory_ledger_api: normalizeApiCard(
+      src.inventory_ledger_api,
+      DEFAULT_STORE_AUTOMATION_SETTINGS.inventory_ledger_api!,
+    ),
+    fee_preview_api: normalizeApiCard(
+      src.fee_preview_api,
+      DEFAULT_STORE_AUTOMATION_SETTINGS.fee_preview_api!,
+    ),
+    inbound_performance_api: normalizeApiCard(
+      src.inbound_performance_api,
+      DEFAULT_STORE_AUTOMATION_SETTINGS.inbound_performance_api!,
+    ),
   };
 }
 

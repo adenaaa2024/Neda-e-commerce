@@ -5,11 +5,13 @@ import {
   BookOpen,
   Database,
   DollarSign,
+  FileCheck2,
   FileStack,
   GitBranch,
   LayoutDashboard,
   Link2,
   ScrollText,
+  TriangleAlert,
   Wallet,
 } from "lucide-react";
 
@@ -22,6 +24,18 @@ const META_BY_PATH: Record<string, ClaimCenterMoreNavMeta> = {
   "/claim-center/opportunities": {
     purpose: "Recoverable events sorted by value",
     icon: DollarSign,
+  },
+  "/claim-center/needs-data": {
+    purpose: "Candidates blocked by missing data",
+    icon: TriangleAlert,
+  },
+  "/claim-center/ready-to-file": {
+    purpose: "Claims that passed every gate",
+    icon: FileCheck2,
+  },
+  "/claim-center/data-coverage": {
+    purpose: "Source coverage per claim family",
+    icon: Database,
   },
   "/claim-center/recovery": {
     purpose: "Observed reimbursement signals",

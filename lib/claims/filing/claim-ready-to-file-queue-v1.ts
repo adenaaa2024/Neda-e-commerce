@@ -35,6 +35,7 @@ import { loadRemovalOriginInputsForRows } from "./claim-removal-origin-basis-v1"
 import {
   CLAIM_READY_TO_FILE_QUEUE_V1,
   READY_TO_FILE_ELIGIBLE_FAMILIES,
+  computeHardenedReadyToFileGate,
   type ClaimEventReferenceLedger,
   type ReadyToFileAuditItem,
   type ReadyToFileMoneyLane,
@@ -51,6 +52,7 @@ export {
   DEFAULT_READY_TO_FILE_FILTERS,
   filterReadyToFileRows,
   buildReferenceBlockText,
+  computeHardenedReadyToFileGate,
 } from "./claim-ready-to-file-queue-ui-contract";
 export type {
   ReadyToFileAuditItem,
@@ -445,6 +447,38 @@ export async function composeClaimReadyToFileQueueV1(
   );
   for (const r of rows) {
     r.removal_origin_inputs = removalOriginInputs.get(r.claim_submission_id) ?? null;
+  }
+
+  // ---- PHASE-CLAIM-READY-TO-FILE-GATE-HARDENING-V1 ----
+  // Apply the strict 9-gate check AFTER all inputs (money_lane, removal_origin_inputs,
+  // event_reference_ledger) are loaded. This may demote rows that previously passed
+  // the 11-audit-gate check but do not yet satisfy physical-receiving, sale-price, or
+  // reimbursement-confirmation requirements.
+  // This is a pure read-model derivation — no DB write.
+  for (const r of rows) {
+    const gate = computeHardenedReadyToFileGate(r);
+    r.hardened_gate = gate;
+    if (!gate.is_ready) {
+      r.ready_to_file = false;
+      r.filing_packet_status = "blocked";
+      // Merge hardened gate blockers into the existing blockers list (dedup).
+      for (const b of gate.blockers) {
+        if (!r.blockers.includes(b)) r.blockers.push(b);
+      }
+      // Assign a descriptive filing_status driven by the primary blocker.
+      const pb = gate.primary_blocker;
+      if (pb === "physical_receiving_not_started") {
+        r.filing_status = "waiting_physical_receiving";
+      } else if (pb === "missing_sale_price_source") {
+        r.filing_status = "needs_sale_price_source";
+      } else if (pb === "live_reimbursement_check_missing") {
+        r.filing_status = "needs_reimbursement_check";
+      } else if (pb === "waiting_threshold") {
+        r.filing_status = "waiting_threshold";
+      } else if (pb != null) {
+        r.filing_status = "blocked";
+      }
+    }
   }
 
   const ready_rows = rows.filter((r) => r.ready_to_file);

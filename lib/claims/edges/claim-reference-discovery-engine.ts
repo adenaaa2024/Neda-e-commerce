@@ -26,7 +26,20 @@
  * ambiguity_group_key (multi-match) — never auto-collapsed. Duplicate edges
  * impossible: every insert targets uq_claim_reference_edges_candidate_natural
  * with ON CONFLICT DO NOTHING.
+ *
+ * Family-aware edge gating (PHASE-CLAIM-TRID-EDGE-READMODEL-IMPLEMENT-V1):
+ * `gateDiscoveredEdge` reuses FAMILY_EDGE_REQUIREMENTS so the engine and the
+ * read model share one verdict on whether a given edge kind counts toward
+ * claim_ready for a family. The `product_id` rule already skips when
+ * `resolved_product_id IS NULL` (product_link is never invented from
+ * title/OCR); disputed source rows are downgraded to review_signal only.
  */
+import {
+  FAMILY_EDGE_REQUIREMENTS,
+  type FamilyEdgeRequirement,
+  type MissingEdgeBehavior,
+  type TridEdgeKindId,
+} from "../contracts/trid-edge-requirements-contract-v1";
 
 export type DiscoveryQueryExecutor = (sql: string) => Promise<{ rowCount: number | null; rows: Array<Record<string, unknown>> }>;
 
@@ -497,4 +510,93 @@ export async function runReferenceDiscovery(
     }
   }
   return out;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Family-aware edge gating (shared with the TRID edge read model).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** claim_family / claim_subtype labels that are not exact family_key matches. */
+const DISCOVERY_FAMILY_ALIASES: Record<string, string> = {
+  physical_return_issue: "physical_return_scanner_issue",
+  physical_return_off_manifest: "wrong_item_returned",
+  physical_return_damaged: "customer_damaged_return",
+  removal_shipment_missing_units: "removal_shipment_missing",
+  removal_discrepancy: "removal_order_discrepancy",
+  lost_inventory: "warehouse_lost_inventory",
+  damaged_inventory: "warehouse_damaged_inventory",
+};
+
+/** Resolve a candidate's claim_family/family_key_v3 label to a contract requirement. */
+export function findFamilyEdgeRequirement(
+  familyKey: string | null | undefined,
+): FamilyEdgeRequirement | null {
+  const key = String(familyKey ?? "").trim();
+  if (!key) return null;
+  const direct = FAMILY_EDGE_REQUIREMENTS.find((f) => f.family_key === key);
+  if (direct) return direct;
+  const aliased = DISCOVERY_FAMILY_ALIASES[key];
+  if (aliased) {
+    const hit = FAMILY_EDGE_REQUIREMENTS.find((f) => f.family_key === aliased);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export type DiscoveryEdgeGatingMode = "claim_ready" | "review_signal" | "defer";
+
+export type DiscoveryEdgeGatingVerdict = {
+  family_key: string | null;
+  edge_kind_id: TridEdgeKindId;
+  mode: DiscoveryEdgeGatingMode;
+  required_for_claim_ready: boolean;
+  required_for_money: boolean;
+  required_for_product_story: boolean;
+  missing_behavior: MissingEdgeBehavior | null;
+  reason: string;
+};
+
+/**
+ * Decide how one discovered edge kind is gated for a candidate's family.
+ *
+ *  - Disputed source rows → review_signal only (never claim-ready lineage).
+ *  - product_link required but identity unresolved → defer_until_linkage
+ *    (skip product_link; do NOT invent from title/OCR).
+ *  - review_signal_only / lifecycle_only families → review_signal.
+ *  - Otherwise the edge is claim_ready-eligible per the contract requirement.
+ */
+export function gateDiscoveredEdge(args: {
+  familyKey: string | null;
+  edgeKindId: TridEdgeKindId;
+  resolvedProduct: boolean;
+  disputed?: boolean;
+}): DiscoveryEdgeGatingVerdict {
+  const requirement = findFamilyEdgeRequirement(args.familyKey);
+  const edgeReq = requirement?.edges.find((e) => e.edge_kind_id === args.edgeKindId) ?? null;
+  const base: Omit<DiscoveryEdgeGatingVerdict, "mode" | "reason"> = {
+    family_key: requirement?.family_key ?? args.familyKey ?? null,
+    edge_kind_id: args.edgeKindId,
+    required_for_claim_ready: edgeReq?.required_for_claim_ready ?? false,
+    required_for_money: edgeReq?.required_for_money ?? false,
+    required_for_product_story: edgeReq?.required_for_product_story ?? false,
+    missing_behavior: edgeReq?.missing_behavior ?? null,
+  };
+
+  if (args.disputed) {
+    return { ...base, mode: "review_signal", reason: "disputed source row — review_signal only" };
+  }
+  if (
+    requirement?.classification === "review_signal_only" ||
+    requirement?.classification === "lifecycle_only"
+  ) {
+    return { ...base, mode: "review_signal", reason: `family classification ${requirement.classification}` };
+  }
+  if (args.edgeKindId === "product_link" && !args.resolvedProduct) {
+    return {
+      ...base,
+      mode: "defer",
+      reason: "product identity unresolved — product_link deferred (no title/OCR auto-create)",
+    };
+  }
+  return { ...base, mode: "claim_ready", reason: "edge eligible for claim_ready lineage" };
 }

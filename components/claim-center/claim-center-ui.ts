@@ -35,11 +35,11 @@ export function claimCenterBadgeTone(tone: string): string {
 }
 
 export const CLAIM_CENTER_DRAWER_CLASS =
-  "claim-center-drawer fixed inset-y-0 right-0 z-[500] w-full max-w-md border-l shadow-2xl sm:max-w-lg";
+  "claim-center-drawer fixed inset-y-0 right-0 z-[500] w-full max-w-md border-l bg-white shadow-2xl dark:bg-[#12161c] sm:max-w-lg";
 
 /** Wide desktop detail drawer — six-block story layout (xl: monitor width). */
 export const CLAIM_CENTER_DETAIL_DRAWER_CLASS =
-  "claim-center-detail-drawer fixed inset-y-0 right-0 z-[500] w-full max-w-3xl border-l shadow-2xl xl:max-w-5xl";
+  "claim-center-detail-drawer claim-center-drawer fixed inset-y-0 right-0 z-[500] w-full max-w-3xl overflow-hidden border-l shadow-2xl bg-white dark:bg-[#12161c] xl:max-w-5xl";
 
 export const CLAIM_CENTER_DISABLED_BTN =
   "claim-center-btn claim-center-btn--disabled cursor-not-allowed opacity-60";

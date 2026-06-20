@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  allReportsApiWorkerFlags,
   isAmazonReportsApiReimbursementsEnabled,
   isAmazonReportsApiSettlementEnabled,
   isAmazonReportsApiWorkerEnabled,
@@ -22,6 +23,7 @@ function flagsPayload() {
     settlement_enabled: isAmazonReportsApiSettlementEnabled(),
     disabled_reason: reimbDisabled,
     settlement_disabled_reason: settlementDisabled,
+    all_flags: allReportsApiWorkerFlags(),
   };
 }
 

@@ -3,6 +3,10 @@ import {
   isAmazonFinancesApiWorkerEnabled,
 } from "./amazon/finances-api-worker-flags";
 import {
+  isAmazonReportsApiFbaReturnsEnabled,
+  isAmazonReportsApiFeePreviewEnabled,
+  isAmazonReportsApiInboundPerformanceEnabled,
+  isAmazonReportsApiInventoryLedgerEnabled,
   isAmazonReportsApiReimbursementsEnabled,
   isAmazonReportsApiRemovalOrderEnabled,
   isAmazonReportsApiRemovalShipmentEnabled,
@@ -20,6 +24,10 @@ export function readPlatformAutomationApiFlags(): PlatformAutomationApiFlags {
     removal_shipment_enabled: isAmazonReportsApiRemovalShipmentEnabled(),
     finances_worker_enabled: isAmazonFinancesApiWorkerEnabled(),
     finances_ingest_enabled: isAmazonFinancesApiIngestEnabled(),
+    fba_returns_enabled: isAmazonReportsApiFbaReturnsEnabled(),
+    inventory_ledger_enabled: isAmazonReportsApiInventoryLedgerEnabled(),
+    fee_preview_enabled: isAmazonReportsApiFeePreviewEnabled(),
+    inbound_performance_enabled: isAmazonReportsApiInboundPerformanceEnabled(),
   };
 }
 

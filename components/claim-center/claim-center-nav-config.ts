@@ -7,7 +7,13 @@ export type ClaimCenterNavLink = MenorixModuleNavItem & {
   legacy?: boolean;
 };
 
-export type ClaimCenterNavGroupId = "workflow" | "filing_recovery" | "blockers" | "sources" | "admin_legacy";
+export type ClaimCenterNavGroupId =
+  | "sections"
+  | "workflow"
+  | "filing_recovery"
+  | "blockers"
+  | "sources"
+  | "admin_legacy";
 
 export type ClaimCenterNavGroup = {
   id: ClaimCenterNavGroupId;
@@ -105,8 +111,23 @@ export const CLAIM_CENTER_LEGACY_TOOLS: ClaimCenterNavLink[] = [
   { href: "/returns/claims", label: "Returns draft pool (legacy)", external: true, legacy: true },
 ];
 
+/** The 9 unified primary sections — surfaced first on the mobile More sheet so the
+ * top-level Claim Center structure matches the desktop primary nav. */
+export const CLAIM_CENTER_PRIMARY_SECTIONS_NAV: ClaimCenterNavLink[] = [
+  { href: "/claim-center", label: "Dashboard", shortLabel: "Home", exact: true },
+  { href: "/claim-center/opportunities", label: "Opportunities", shortLabel: "Opps" },
+  { href: "/claim-center/needs-data", label: "Needs Data", shortLabel: "Needs" },
+  { href: "/claim-center/ready-to-file", label: "Ready to File", shortLabel: "Ready" },
+  { href: "/claim-center/reimbursement-tracking", label: "Filed / Tracking", shortLabel: "Filed" },
+  { href: "/claim-center/recovery", label: "Reimbursements", shortLabel: "Paid" },
+  { href: "/claim-center/references", label: "Product Story", shortLabel: "Story" },
+  { href: "/claim-center/data-coverage", label: "Data Sources / Coverage", shortLabel: "Sources" },
+  { href: "/claim-center/policies", label: "Policies / Settings", shortLabel: "Rules" },
+];
+
 /** More menu groups — desktop overflow + mobile sheet. */
 export const CLAIM_CENTER_MOBILE_MORE_GROUPS: ClaimCenterNavGroup[] = [
+  { id: "sections", label: "Claim Center", items: CLAIM_CENTER_PRIMARY_SECTIONS_NAV },
   { id: "workflow", label: "Workflow", items: CLAIM_CENTER_MORE_WORKFLOW },
   { id: "filing_recovery", label: "Filing & recovery", items: CLAIM_CENTER_FILING_RECOVERY_NAV },
   { id: "blockers", label: "Blockers", items: CLAIM_CENTER_MORE_BLOCKERS },

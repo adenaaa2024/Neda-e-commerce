@@ -64,4 +64,11 @@ APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=yes
 | Report file / SP-API pull provided | (pending — required before any write) |
 | Max scope | amazon_* source table import only — 3 SKUs / 7 claims |
 
+Status: APPROVED
+APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=yes
+Signature / confirmation: APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=yes
+Approved by: Maysam
+Date: 2026-06-19
+Report file provided: <مسیر فایل واقعی>
+
 **Signature:** APPROVED_MISSING_SALE_PRICE_SOURCE_IMPORT_V1=yes (NOT authorized — do not write)

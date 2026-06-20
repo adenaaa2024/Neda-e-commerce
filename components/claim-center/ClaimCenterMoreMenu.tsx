@@ -30,7 +30,7 @@ export function ClaimCenterMoreMenu({ trigger }: { trigger: ReactNode }) {
       <div onClick={() => setOpen((v) => !v)}>{trigger}</div>
       {open ? (
         <div className="claim-center-card absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border p-2 shadow-lg sm:w-64">
-          {CLAIM_CENTER_MOBILE_MORE_GROUPS.map((group) => (
+          {CLAIM_CENTER_MOBILE_MORE_GROUPS.filter((group) => group.id !== "sections").map((group) => (
             <div key={group.id} className="mb-2 last:mb-0">
               <p className="mb-1 px-2 text-[10px] font-bold uppercase tracking-wider opacity-50">{group.label}</p>
               <ul className="space-y-0.5">

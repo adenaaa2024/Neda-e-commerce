@@ -125,6 +125,11 @@ export interface StoreAutomationSettings {
   claim_discovery: ClaimDiscoverySchedule;
   /** Optional store-level candidate intake override (Phase 7E). Null = inherit company. */
   claim_candidate_intake: ClaimCandidateIntakePolicy | null;
+  /** Live-source sync workers (PHASE-AMAZON-LIVE-REPORTS-FINANCES-SYNC-WORKERS-V1). Optional for backward compat with stored settings. */
+  fba_returns_api?: ApiAutomationCardSchedule;
+  inventory_ledger_api?: ApiAutomationCardSchedule;
+  fee_preview_api?: ApiAutomationCardSchedule;
+  inbound_performance_api?: ApiAutomationCardSchedule;
 }
 
 /** v2 persisted document shape. */
@@ -154,6 +159,10 @@ export interface PlatformAutomationApiFlags {
   removal_shipment_enabled: boolean;
   finances_worker_enabled: boolean;
   finances_ingest_enabled: boolean;
+  fba_returns_enabled: boolean;
+  inventory_ledger_enabled: boolean;
+  fee_preview_enabled: boolean;
+  inbound_performance_enabled: boolean;
 }
 
 /** Client-safe run environment hints (no secrets). */
@@ -356,6 +365,10 @@ export const DEFAULT_STORE_AUTOMATION_SETTINGS: StoreAutomationSettings = {
   claim_pool_generation: { ...DEFAULT_CLAIM_POOL_GENERATION_SCHEDULE },
   claim_discovery: { ...DEFAULT_CLAIM_DISCOVERY_SCHEDULE },
   claim_candidate_intake: null,
+  fba_returns_api: { ...DEFAULT_API_CARD_SCHEDULE, run_hours_utc: [8] },
+  inventory_ledger_api: { ...DEFAULT_API_CARD_SCHEDULE, run_hours_utc: [9] },
+  fee_preview_api: { ...DEFAULT_API_CARD_SCHEDULE, run_hours_utc: [10] },
+  inbound_performance_api: { ...DEFAULT_API_CARD_SCHEDULE, run_hours_utc: [11] },
 };
 
 export const DEFAULT_PLATFORM_AUTOMATION_SETTINGS: PlatformAutomationSettings = {
@@ -378,4 +391,8 @@ export type AutomationApiCardId =
   | "finances_archive_api"
   | "historical_backfill"
   | "claim_pool_generation"
-  | "claim_discovery";
+  | "claim_discovery"
+  | "fba_returns_api"
+  | "inventory_ledger_api"
+  | "fee_preview_api"
+  | "inbound_performance_api";

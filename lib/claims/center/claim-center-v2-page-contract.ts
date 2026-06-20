@@ -15,6 +15,7 @@ export type ClaimCenterV2PageId =
   | "cases"
   | "submissions"
   | "ready_to_file"
+  | "needs_data"
   | "reimbursement_tracking"
   | "data_coverage"
   | "policies";
@@ -169,6 +170,22 @@ export const CLAIM_CENTER_V2_PAGES: Record<ClaimCenterV2PageId, ClaimCenterV2Pag
       "If no claims are ready, the correctness audit blocked them — open the Blocked tab to see which gate failed.",
     helper:
       "Read-only — no Amazon submission, no claim mutation. Recovery amount uses approved COGS (never sale price).",
+  },
+  needs_data: {
+    id: "needs_data",
+    route: "/claim-center/needs-data",
+    navLabel: "Needs Data",
+    question: "Which candidates are blocked, and what data unblocks them?",
+    dataSource:
+      "GET /api/claims/center/ready-to-file — blocked rows + hardened-gate blockers grouped by data gap",
+    appearsHere:
+      "Candidates blocked by missing live source, missing sale price, missing reimbursement check, missing TRID/reference, missing product linkage, physical receiving not started, or waiting threshold.",
+    whatToDoNext:
+      "Resolve the blocker shown on each group (import a source, enter sale price, start receiving). Rows move to Ready to File automatically once every gate passes.",
+    whyEmpty:
+      "No blocked candidates in scope — either nothing was generated yet, or every candidate already passed its gates.",
+    helper:
+      "Read-only — these rows are not yet fileable. No Amazon submission, no claim mutation.",
   },
   reimbursement_tracking: {
     id: "reimbursement_tracking",

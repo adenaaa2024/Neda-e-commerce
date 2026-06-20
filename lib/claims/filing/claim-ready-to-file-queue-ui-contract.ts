@@ -342,6 +342,10 @@ export type ReadyToFileRow = {
    * Drives the "Why this claim exists" explanation. Null for non-removal families
    * or when not resolved. Carries NO money — financials stay in money_lane. */
   removal_origin_inputs?: RemovalOriginInputs | null;
+
+  /** Hardened 9-gate filing readiness result (PHASE-CLAIM-READY-TO-FILE-GATE-HARDENING-V1).
+   * Applied by the server composer after all inputs are loaded. null = not yet evaluated. */
+  hardened_gate?: HardenedGateResult | null;
 };
 
 // ---- Removal claim origin / missing basis (PHASE-CLAIM-REMOVAL-ORIGIN-REASON-UI-SURFACE-V1) ----
@@ -583,6 +587,211 @@ export function computeRemovalOriginReason(row: ReadyToFileRow): RemovalOriginRe
     compact_reason: compactReason,
     final_reason: finalReason,
     badges,
+  };
+}
+
+// ---- Hardened 9-gate filing gate (PHASE-CLAIM-READY-TO-FILE-GATE-HARDENING-V1) ----
+
+/** One named gate in the strict 9-gate filing readiness check. */
+export type HardenedGateStatus = {
+  gate_id: string;
+  label: string;
+  pass: boolean;
+  /** Blocker key added to the row's blockers[] when the gate fails (null when gate passes). */
+  blocker_key: string | null;
+  /** Human-readable blocker explanation (null when gate passes). */
+  blocker_label: string | null;
+  detail: string;
+};
+
+/** Result of the strict 9-gate check for one ready-to-file row.
+ * Pure (no I/O, no AI). All inputs come from the already-resolved fields on
+ * ReadyToFileRow (money_lane, removal_origin_inputs, event_reference_ledger). */
+export type HardenedGateResult = {
+  is_ready: boolean;
+  gates: HardenedGateStatus[];
+  /** Blocker keys for all failing gates (in gate order). */
+  blockers: string[];
+  /** Human-readable labels matching blockers[] 1-to-1. */
+  blocker_labels: string[];
+  /** First failing gate's blocker key — the primary hold reason. */
+  primary_blocker: string | null;
+};
+
+function hGate(
+  gate_id: string,
+  label: string,
+  pass: boolean,
+  blocker_key: string | null,
+  blocker_label: string | null,
+  detail: string,
+): HardenedGateStatus {
+  return { gate_id, label, pass, blocker_key: pass ? null : blocker_key, blocker_label: pass ? null : blocker_label, detail };
+}
+
+/**
+ * Strict 9-gate filing readiness check for removal_shipment_missing /
+ * removal_order_discrepancy claims. Pure (no I/O, no AI, no DB).
+ *
+ * Gates:
+ *  1. Valid removal order/shipment source.
+ *  2. Product identity resolved.
+ *  3. Quantity basis resolved.
+ *  4. Physical receiving started AND/OR live Amazon delivery proof.
+ *  5. delayed_not_received_days threshold satisfied (age > threshold, validity valid_missing or valid_discrepancy).
+ *  6. latest_sale_net amount resolved (no COGS fallback — UNKNOWN stays UNKNOWN).
+ *  7. Reimbursement check sufficient to confirm not reimbursed (not unknown_unmatched).
+ *  8. No cross-family candidates counted in this claim.
+ *  9. Seller Central copy contains only same-family evidence.
+ *
+ * A claim is Ready to File ONLY when all 9 gates pass.
+ * Failing gates produce a named blocker_key added to the row's blockers list.
+ */
+export function computeHardenedReadyToFileGate(row: ReadyToFileRow): HardenedGateResult {
+  const i = row.removal_origin_inputs ?? null;
+  const isRemovalFamily = (READY_TO_FILE_ELIGIBLE_FAMILIES as readonly string[]).includes(row.claim_family ?? "");
+
+  // Gate 1: valid removal source
+  const gate1 = hGate(
+    "valid_removal_source",
+    "Valid removal order/shipment source exists",
+    !!(row.removal_order_id || row.removal_shipment_id),
+    "missing_removal_source",
+    "No removal order or shipment reference resolved from Amazon data",
+    `removal_order_id=${row.removal_order_id ?? "—"} removal_shipment_id=${row.removal_shipment_id ?? "—"}`,
+  );
+
+  // Gate 2: product identity
+  const gate2 = hGate(
+    "product_identity_resolved",
+    "Product identity resolved (FNSKU/SKU/ASIN)",
+    !!(row.fnsku || row.sku || row.asin),
+    "missing_product_identity",
+    "Product identity (FNSKU/SKU/ASIN) not resolved",
+    `fnsku=${row.fnsku ?? "—"} sku=${row.sku ?? "—"} asin=${row.asin ?? "—"}`,
+  );
+
+  // Gate 3: quantity basis
+  const gate3 = hGate(
+    "quantity_basis_resolved",
+    "Quantity basis resolved (clean_quantity > 0)",
+    row.clean_quantity != null && row.clean_quantity > 0,
+    "missing_quantity",
+    "Affected quantity not resolved",
+    `clean_quantity=${row.clean_quantity ?? "—"}`,
+  );
+
+  // Gate 4: physical receiving started OR live Amazon delivery proof.
+  // Applies to removal families only. Live API delivery proof is not yet available
+  // (removal sync workers are file-import only; no auto-pull SP-API delivery status).
+  // Physical receiving = packages row exists OR units were scanned OR received_qty > 0.
+  let gate4Pass: boolean;
+  let gate4Detail: string;
+  if (!isRemovalFamily) {
+    gate4Pass = true;
+    gate4Detail = "gate 4 not required for non-removal family";
+  } else if (i == null) {
+    gate4Pass = false;
+    gate4Detail = "removal_origin_inputs not loaded — cannot evaluate physical receiving";
+  } else {
+    const physReceiving = i.package_received || i.scanned_units > 0 || (i.received_qty ?? 0) > 0;
+    // api_shows_removal_delivered: no live SP-API delivery confirmation in current
+    // architecture (all removal sources are file-import; auto-pull workers disabled).
+    const apiDeliveryProof = false;
+    gate4Pass = physReceiving || apiDeliveryProof;
+    gate4Detail = `package_received=${i.package_received} scanned_units=${i.scanned_units} received_qty=${i.received_qty ?? 0} api_delivery_proof=no(sync_workers_disabled)`;
+  }
+  const gate4 = hGate(
+    "physical_receiving_or_delivery_proof",
+    "Physical receiving started OR live API delivery proof",
+    gate4Pass,
+    "physical_receiving_not_started",
+    "No physical receiving/scanning occurred (packages row absent, scanned_units=0, received_qty=0) and no live Amazon delivery confirmation (SP-API removal sync workers not yet enabled)",
+    gate4Detail,
+  );
+
+  // Gate 5: threshold satisfied (validity = valid_missing or valid_discrepancy).
+  let gate5Pass: boolean;
+  let gate5Detail: string;
+  if (!isRemovalFamily) {
+    gate5Pass = true;
+    gate5Detail = "gate 5 not required for non-removal family";
+  } else {
+    const originReason = computeRemovalOriginReason(row);
+    gate5Pass = originReason.validity === "valid_missing" || originReason.validity === "valid_discrepancy";
+    gate5Detail = `validity=${originReason.validity} age=${i?.event_age_days ?? "—"}d threshold=${i?.threshold_days ?? "—"}d`;
+  }
+  const gate5 = hGate(
+    "threshold_satisfied",
+    "delayed_not_received_days threshold satisfied",
+    gate5Pass,
+    "waiting_threshold",
+    "Removal event age has not yet exceeded the configured delayed_not_received_days threshold",
+    gate5Detail,
+  );
+
+  // Gate 6: latest_sale_net resolved (no COGS / settlement-net fallback).
+  const priceLoaded = row.money_lane.latest_sold_price != null;
+  const gate6 = hGate(
+    "latest_sale_net_resolved",
+    "Latest-sale-net amount resolved (no COGS fallback)",
+    priceLoaded,
+    "missing_sale_price_source",
+    "Latest sale price source not loaded — needs sale price source import (NO COGS fallback; amount stays UNKNOWN)",
+    `latest_sold_price=${row.money_lane.latest_sold_price ?? "UNKNOWN"} unknown_reason=${row.money_lane.latest_sale_net_unknown_reason ?? "—"}`,
+  );
+
+  // Gate 7: reimbursement check sufficient to say not reimbursed.
+  // unknown_unmatched = cannot confirm either way (absence in loaded reports ≠ not reimbursed;
+  // live GET_FBA_REIMBURSEMENTS_DATA sync needed to convert to confirmed not_reimbursed).
+  const gap = computeRecoveryGap(row);
+  const gate7Pass = gap.reimbursement_status !== "unknown_unmatched";
+  const gate7 = hGate(
+    "reimbursement_check_complete",
+    "Reimbursement check sufficient to confirm not reimbursed",
+    gate7Pass,
+    "live_reimbursement_check_missing",
+    `Reimbursement status is '${gap.reimbursement_status}' — live GET_FBA_REIMBURSEMENTS_DATA sync required to confirm not reimbursed before filing`,
+    `reimbursement_status=${gap.reimbursement_status} match_confidence=${gap.match_confidence} confirmed=$${gap.confirmed_reimbursed.toFixed(2)}`,
+  );
+
+  // Gate 8: no cross-family candidates counted in this claim.
+  // computeFamilyAwareRecovery already excludes them from confirmed; the raw
+  // presence of misclassified_candidates is expected — they just must not be counted.
+  // We check confirmed_reimbursed_strong was not inflated by cross-family rows.
+  // (This is enforced by computeFamilyAwareRecovery; we mark pass unconditionally
+  // here to make the gate explicit and surfaceable.)
+  const gate8 = hGate(
+    "no_cross_family_included",
+    "No cross-family candidates counted in this claim",
+    true,
+    "cross_family_pollution",
+    "Cross-family candidates are being counted in this claim's reimbursement total",
+    "cross-family candidates excluded by computeFamilyAwareRecovery — not counted",
+  );
+
+  // Gate 9: Seller Central copy contains only same-family evidence.
+  // buildReferenceBlockText already filters to removal-family-only evidence.
+  const gate9 = hGate(
+    "seller_central_copy_clean",
+    "Seller Central copy contains only same-family evidence",
+    true,
+    "seller_central_copy_polluted",
+    "Seller Central copy contains cross-family or internal-UUID evidence",
+    "buildReferenceBlockText enforces removal-family-only evidence block",
+  );
+
+  const allGates = [gate1, gate2, gate3, gate4, gate5, gate6, gate7, gate8, gate9];
+  const failing = allGates.filter((g) => !g.pass);
+  const blockers = failing.map((g) => g.blocker_key).filter((k): k is string => k != null);
+  const blockerLabels = failing.map((g) => g.blocker_label).filter((l): l is string => l != null);
+
+  return {
+    is_ready: failing.length === 0,
+    gates: allGates,
+    blockers,
+    blocker_labels: blockerLabels,
+    primary_blocker: blockers[0] ?? null,
   };
 }
 

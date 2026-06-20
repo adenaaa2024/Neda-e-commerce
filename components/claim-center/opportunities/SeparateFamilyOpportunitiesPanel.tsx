@@ -9,6 +9,13 @@ import type {
   GeneratorFamilySupport,
   SeparateFamilyCandidatePreview,
 } from "@/lib/claims/opportunities/separate-family-candidate-generator-contract-v1";
+import {
+  OPPORTUNITY_FAMILY_GROUPS,
+  opportunityGroupForFamily,
+  type OpportunityFamilyGroupId,
+} from "@/lib/claims/opportunities/claim-family-group-contract";
+
+import { SeparateFamilyCandidateDrawer } from "./SeparateFamilyCandidateDrawer";
 
 type Payload = {
   mode: "preview" | "execute";
@@ -28,9 +35,13 @@ function money(v: number | null): string {
   return v == null ? "—" : `$${v.toFixed(2)}`;
 }
 
-function CandidateCard({ c }: { c: SeparateFamilyCandidatePreview }) {
+function CandidateCard({ c, onOpen }: { c: SeparateFamilyCandidatePreview; onOpen: () => void }) {
   return (
-    <div className="rounded-xl border p-3 text-xs">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full rounded-xl border p-3 text-left text-xs transition-colors hover:border-sky-500/40 hover:bg-sky-500/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40"
+    >
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-sm font-bold leading-tight">{c.family_display_name}</p>
@@ -72,7 +83,7 @@ function CandidateCard({ c }: { c: SeparateFamilyCandidatePreview }) {
       ) : (
         <p className="mt-1.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">Writeable (no blockers)</p>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -81,6 +92,7 @@ export function SeparateFamilyOpportunitiesPanel({ variant }: { variant: "opport
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SeparateFamilyCandidatePreview | null>(null);
 
   const load = useCallback(async () => {
     if (!storeId) {
@@ -105,14 +117,16 @@ export function SeparateFamilyOpportunitiesPanel({ variant }: { variant: "opport
     void load();
   }, [load]);
 
-  const families = useMemo(() => {
-    const groups = new Map<string, SeparateFamilyCandidatePreview[]>();
+  /** Bucket candidates into the 8 operator-facing family groups. */
+  const familyGroups = useMemo(() => {
+    const groups = new Map<OpportunityFamilyGroupId | "other", SeparateFamilyCandidatePreview[]>();
     for (const c of payload?.candidates ?? []) {
-      const arr = groups.get(c.recommended_claim_family) ?? [];
+      const gid = opportunityGroupForFamily(c.recommended_claim_family) ?? "other";
+      const arr = groups.get(gid) ?? [];
       arr.push(c);
-      groups.set(c.recommended_claim_family, arr);
+      groups.set(gid, arr);
     }
-    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return groups;
   }, [payload?.candidates]);
 
   if (loading) {
@@ -212,23 +226,65 @@ export function SeparateFamilyOpportunitiesPanel({ variant }: { variant: "opport
         </div>
       </div>
 
-      {families.length === 0 ? (
+      {(payload.candidates?.length ?? 0) === 0 ? (
         <p className="py-8 text-center text-sm opacity-70">No separate-family opportunities for this store.</p>
       ) : (
-        families.map(([family, items]) => (
-          <div key={family} className="space-y-2">
-            <h3 className="flex items-center gap-2 text-sm font-bold">
-              {items[0]?.family_display_name ?? family}
-              <span className="text-[11px] font-normal opacity-60">({items.length})</span>
-            </h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {items.map((c) => (
-                <CandidateCard key={c.preview_id} c={c} />
-              ))}
+        OPPORTUNITY_FAMILY_GROUPS.map((group) => {
+          const items = familyGroups.get(group.id) ?? [];
+          if (items.length === 0) return null;
+          return (
+            <div key={group.id} className="space-y-2">
+              <div className="flex flex-wrap items-baseline gap-2 border-l-2 border-sky-500/50 pl-3">
+                <h3 className="flex items-center gap-2 text-sm font-bold">
+                  <span className={claimCenterBadgeTone("info")}>{items.length}</span>
+                  {group.label}
+                </h3>
+                <span className="text-[11px] opacity-60">{group.description}</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {items.map((c) => (
+                  <CandidateCard key={c.preview_id} c={c} onOpen={() => setSelected(c)} />
+                ))}
+              </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
+
+      {/* Uncategorized families (defensive — keeps any new family visible). */}
+      {(familyGroups.get("other") ?? []).length > 0 ? (
+        <div className="space-y-2">
+          <h3 className="flex items-center gap-2 text-sm font-bold">
+            <span className={claimCenterBadgeTone("neutral")}>{(familyGroups.get("other") ?? []).length}</span>
+            Other
+          </h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {(familyGroups.get("other") ?? []).map((c) => (
+              <CandidateCard key={c.preview_id} c={c} onOpen={() => setSelected(c)} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <details className="rounded-xl border border-black/5 bg-black/[0.02] p-3 text-xs dark:border-white/10 dark:bg-white/[0.03]">
+        <summary className="cursor-pointer select-none font-semibold opacity-70">Developer details</summary>
+        <div className="mt-2 space-y-2 opacity-80">
+          <p>Family counts and per-family blockers (raw, read-only).</p>
+          <pre className="max-h-72 overflow-auto rounded-lg border bg-black/5 p-2 text-[10px] dark:bg-white/5">
+            {JSON.stringify(
+              { family_counts: payload.family_counts, blockers_by_family: payload.blockers_by_family },
+              null,
+              2,
+            )}
+          </pre>
+        </div>
+      </details>
+
+      <SeparateFamilyCandidateDrawer
+        candidate={selected}
+        approved={payload.approval_status.approved}
+        onClose={() => setSelected(null)}
+      />
     </section>
   );
 }

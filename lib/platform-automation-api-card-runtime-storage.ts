@@ -15,13 +15,23 @@ import {
   type StoreAutomationSettings,
 } from "./platform-automation-settings-types";
 
-export type ApiCardScheduleKey = "reimbursements_api" | "settlement_api" | "finances_archive_api";
+export type ApiCardScheduleKey =
+  | "reimbursements_api"
+  | "settlement_api"
+  | "finances_archive_api"
+  | "fba_returns_api"
+  | "inventory_ledger_api"
+  | "fee_preview_api"
+  | "inbound_performance_api";
 
 function cardSchedule(
   scope: StoreAutomationSettings,
   key: ApiCardScheduleKey,
 ): ApiAutomationCardSchedule | FinancesArchiveApiSchedule {
-  return scope[key];
+  return (
+    scope[key] ??
+    (DEFAULT_STORE_AUTOMATION_SETTINGS[key] as ApiAutomationCardSchedule | FinancesArchiveApiSchedule)
+  );
 }
 
 export async function readApiCardCronRuntimeFromPg(

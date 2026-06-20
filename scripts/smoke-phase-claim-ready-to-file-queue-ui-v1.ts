@@ -19,6 +19,7 @@ import {
   computeAmountStatus,
   computeFamilyAwareRecovery,
   computeFilingDecision,
+  computeHardenedReadyToFileGate,
   computeRecoveryGap,
   computeRemovalOriginReason,
   filterReadyToFileRows,
@@ -869,5 +870,97 @@ assert(drawerSrc.includes("not part of this removal claim"), "excluded/other-opp
 // (A) computeAmountStatus is in the client-safe contract (no server import added).
 assert(contractSrc.includes("export function computeAmountStatus"), "computeAmountStatus must live in the client-safe ui-contract");
 assert(contractSrc.includes("export type ReadyToFileSettingsAudit"), "ReadyToFileSettingsAudit type must live in the client-safe ui-contract");
+
+// ---- PHASE-CLAIM-READY-TO-FILE-GATE-HARDENING-V1 ----
+
+// Contract exports the 9-gate function and types.
+assert(contractSrc.includes("export function computeHardenedReadyToFileGate"), "computeHardenedReadyToFileGate must be exported from the client-safe ui-contract");
+assert(contractSrc.includes("export type HardenedGateResult"), "HardenedGateResult type must live in the client-safe ui-contract");
+assert(contractSrc.includes("export type HardenedGateStatus"), "HardenedGateStatus type must live in the client-safe ui-contract");
+
+// Contract gate IDs match the 9 required gates.
+for (const gateId of [
+  "valid_removal_source",
+  "product_identity_resolved",
+  "quantity_basis_resolved",
+  "physical_receiving_or_delivery_proof",
+  "threshold_satisfied",
+  "latest_sale_net_resolved",
+  "reimbursement_check_complete",
+  "no_cross_family_included",
+  "seller_central_copy_clean",
+]) {
+  assert(contractSrc.includes(`"${gateId}"`), `hardened gate '${gateId}' must be defined in contract`);
+}
+
+// Gate 4 explicitly tests physical receiving inputs (not invented).
+assert(contractSrc.includes("physical_receiving_not_started"), "contract must emit physical_receiving_not_started blocker");
+assert(contractSrc.includes("api_delivery_proof"), "contract must evaluate api_delivery_proof (currently false — no SP-API sync)");
+
+// Gate 6 uses money_lane.latest_sold_price (no COGS fallback).
+assert(contractSrc.includes("missing_sale_price_source"), "contract must emit missing_sale_price_source blocker for unloaded sale price");
+assert(!contractSrc.includes("approved_cogs_unit as fallback"), "contract must not fall back to COGS for gate 6");
+
+// Gate 7 checks reimbursement status (not invented).
+assert(contractSrc.includes("live_reimbursement_check_missing"), "contract must emit live_reimbursement_check_missing blocker");
+assert(contractSrc.includes("unknown_unmatched"), "contract must detect unknown_unmatched reimbursement status");
+
+// ReadyToFileRow gains hardened_gate field.
+assert(contractSrc.includes("hardened_gate"), "ReadyToFileRow must expose a hardened_gate field");
+
+// Server composer applies the hardened gate after removal_origin_inputs are loaded.
+assert(libSrc.includes("computeHardenedReadyToFileGate"), "server composer must apply computeHardenedReadyToFileGate");
+assert(libSrc.includes("waiting_physical_receiving"), "server composer must set filing_status=waiting_physical_receiving for gate 4 failure");
+assert(libSrc.includes("PHASE-CLAIM-READY-TO-FILE-GATE-HARDENING-V1"), "server composer must document the hardened gate phase");
+
+// View: "Needs Data" tab exists and shows blocked rows.
+assert(viewSrc.includes("needs_data"), "view must have a Needs Data tab state");
+assert(viewSrc.includes("Needs Data"), "view must render 'Needs Data' tab label");
+assert(viewSrc.includes("blocked_rows"), "view must reference payload.blocked_rows for Needs Data tab");
+assert(viewSrc.includes("physical_receiving_not_started"), "view must explain physical_receiving_not_started blocker in Needs Data banner");
+assert(viewSrc.includes("Gate blockers"), "view table must add a Gate blockers column");
+assert(viewSrc.includes("computeHardenedReadyToFileGate"), "view must call computeHardenedReadyToFileGate per row");
+
+// Hardened gate evaluation (pure, static — no DB).
+{
+  // Build a minimal row for gate testing (missing physical receiving + missing sale price + unknown reimbursement).
+  // Uses sampleRow.event_reference_ledger (inventory-ledger weak only, no reimbursement references)
+  // so computeRecoveryGap returns unknown_unmatched (not partially_reimbursed from faRow's REIMB-DW ref).
+  const gateTestRow = {
+    ...missingSaleRow,
+    removal_order_id: "1621GIL",
+    removal_shipment_id: "RS-001",
+    fnsku: "X004D9AMWV",
+    sku: "I6-VR35-FSXQ",
+    asin: null,
+    clean_quantity: 2,
+    event_reference_ledger: { ...sampleRow.event_reference_ledger },
+    removal_origin_inputs: {
+      from_removal_shipment_detail: true,
+      from_removal_order_detail: true,
+      from_expected_packages: true,
+      tracking: "TRACK001",
+      removal_order_id: "1621GIL",
+      removal_shipment_id: "RS-001",
+      expected_package_id: "EP-001",
+      event_date: "2026-03-27",
+      event_age_days: 50,
+      threshold_days: 14,
+      threshold_source: "workspace_settings",
+      expected_qty: 2,
+      received_qty: 0,
+      build_status: "matched",
+      package_received: false,
+      scanned_units: 0,
+    },
+  } as ReadyToFileRow;
+  const gateResult = computeHardenedReadyToFileGate(gateTestRow);
+  assert(!gateResult.is_ready, "gate test: row with no physical receiving + no sale price must not be ready");
+  assert(gateResult.blockers.includes("physical_receiving_not_started"), "gate test: must emit physical_receiving_not_started blocker");
+  assert(gateResult.blockers.includes("missing_sale_price_source"), "gate test: must emit missing_sale_price_source blocker");
+  assert(gateResult.blockers.includes("live_reimbursement_check_missing"), "gate test: must emit live_reimbursement_check_missing blocker");
+  assert(gateResult.primary_blocker === "physical_receiving_not_started", `gate test: primary blocker must be physical_receiving_not_started (got ${gateResult.primary_blocker})`);
+  assert(gateResult.gates.find(g => g.gate_id === "threshold_satisfied")?.pass === true, "gate test: age=50d > threshold=14d → threshold gate must pass");
+}
 
 console.log("SMOKE OK: PHASE-CLAIM-READY-TO-FILE-QUEUE-UI-V1 static contract verified");

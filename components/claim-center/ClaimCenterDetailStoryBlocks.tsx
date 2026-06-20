@@ -236,9 +236,10 @@ function ReferenceBlock({
   organizationId: string;
 }) {
   return (
-    <DetailStoryBlock index={4} title="Reference / TRID" icon={<Shield className="h-4 w-4" />} variant={variant}>
+    <DetailStoryBlock index={4} title="Reference story &amp; product TRID" icon={<Shield className="h-4 w-4" />} variant={variant}>
       <p className="mb-3 text-xs leading-relaxed opacity-75">
-        Amazon reference IDs and shipment/order/package links — read-only graph summary with ambiguity warnings.
+        Amazon reference IDs, TRID timeline (SC proof vs internal), and reference story — why this candidate exists,
+        what references support it, what is missing, and whether it can become a claim. No writes.
       </p>
       <FieldGrid>
         <Field label="TRID status" value={claimCenterReferenceStatusSummary(row)} />

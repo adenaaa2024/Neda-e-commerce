@@ -33,12 +33,39 @@ export function isAmazonReportsApiRemovalShipmentEnabled(): boolean {
   return isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_REMOVAL_SHIPMENT");
 }
 
+// Live-source sync workers (PHASE-AMAZON-LIVE-REPORTS-FINANCES-SYNC-WORKERS-V1):
+/** Sub-flag: GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA — requires master flag. */
+export function isAmazonReportsApiFbaReturnsEnabled(): boolean {
+  return isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_FBA_RETURNS");
+}
+
+/** Sub-flag: GET_LEDGER_DETAIL_VIEW_DATA — requires master flag. */
+export function isAmazonReportsApiInventoryLedgerEnabled(): boolean {
+  return isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_INVENTORY_LEDGER");
+}
+
+/** Sub-flag: GET_FBA_ESTIMATED_FBA_FEES_TXT_DATA — requires master flag. */
+export function isAmazonReportsApiFeePreviewEnabled(): boolean {
+  return isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_FEE_PREVIEW");
+}
+
+/** Sub-flag: GET_FBA_FULFILLMENT_INBOUND_PERFORMANCE_DATA — requires master flag. */
+export function isAmazonReportsApiInboundPerformanceEnabled(): boolean {
+  return (
+    isAmazonReportsApiWorkerEnabled() && envFlag("ENABLE_AMAZON_REPORTS_API_INBOUND_PERFORMANCE")
+  );
+}
+
 export type ReportsApiDisabledReason =
   | "worker_disabled"
   | "reimbursements_disabled"
   | "settlement_disabled"
   | "removal_order_disabled"
-  | "removal_shipment_disabled";
+  | "removal_shipment_disabled"
+  | "fba_returns_disabled"
+  | "inventory_ledger_disabled"
+  | "fee_preview_disabled"
+  | "inbound_performance_disabled";
 
 export function reportsApiDisabledReasonForReimbursements(): ReportsApiDisabledReason | null {
   if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
@@ -62,4 +89,43 @@ export function reportsApiDisabledReasonForRemovalShipment(): ReportsApiDisabled
   if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
   if (!isAmazonReportsApiRemovalShipmentEnabled()) return "removal_shipment_disabled";
   return null;
+}
+
+export function reportsApiDisabledReasonForFbaReturns(): ReportsApiDisabledReason | null {
+  if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
+  if (!isAmazonReportsApiFbaReturnsEnabled()) return "fba_returns_disabled";
+  return null;
+}
+
+export function reportsApiDisabledReasonForInventoryLedger(): ReportsApiDisabledReason | null {
+  if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
+  if (!isAmazonReportsApiInventoryLedgerEnabled()) return "inventory_ledger_disabled";
+  return null;
+}
+
+export function reportsApiDisabledReasonForFeePreview(): ReportsApiDisabledReason | null {
+  if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
+  if (!isAmazonReportsApiFeePreviewEnabled()) return "fee_preview_disabled";
+  return null;
+}
+
+export function reportsApiDisabledReasonForInboundPerformance(): ReportsApiDisabledReason | null {
+  if (!isAmazonReportsApiWorkerEnabled()) return "worker_disabled";
+  if (!isAmazonReportsApiInboundPerformanceEnabled()) return "inbound_performance_disabled";
+  return null;
+}
+
+/** Full worker flags snapshot (no secrets). */
+export function allReportsApiWorkerFlags() {
+  return {
+    worker_enabled: isAmazonReportsApiWorkerEnabled(),
+    reimbursements_enabled: isAmazonReportsApiReimbursementsEnabled(),
+    settlement_enabled: isAmazonReportsApiSettlementEnabled(),
+    removal_order_enabled: isAmazonReportsApiRemovalOrderEnabled(),
+    removal_shipment_enabled: isAmazonReportsApiRemovalShipmentEnabled(),
+    fba_returns_enabled: isAmazonReportsApiFbaReturnsEnabled(),
+    inventory_ledger_enabled: isAmazonReportsApiInventoryLedgerEnabled(),
+    fee_preview_enabled: isAmazonReportsApiFeePreviewEnabled(),
+    inbound_performance_enabled: isAmazonReportsApiInboundPerformanceEnabled(),
+  };
 }
