@@ -69,7 +69,7 @@ export function InventoryItemStatusLinkagePanel({
   const load = useCallback(async () => {
     if (!organizationId?.trim()) return;
     if (showFilters && !effectiveTracking && !effectiveSlip && !effectivePackageCode) {
-      setError("Enter a tracking number, slip code, or package #.");
+      setError("Enter a tracking number, slip code, or box #.");
       return;
     }
 
@@ -156,7 +156,7 @@ export function InventoryItemStatusLinkagePanel({
           </label>
           <label className="flex min-w-[120px] flex-1 flex-col gap-1">
             <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              Package #
+              Box #
             </span>
             <input
               className="h-9 rounded-lg border border-border bg-background px-2 text-xs font-mono"
@@ -189,7 +189,7 @@ export function InventoryItemStatusLinkagePanel({
 
       {!hidePackageRollup && packageStatus ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-semibold text-muted-foreground">Package (v_inventory_status):</span>
+          <span className="text-[10px] font-semibold text-muted-foreground">Box (v_inventory_status):</span>
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${inventoryPackageStatusChipClass(packageStatus)}`}
           >

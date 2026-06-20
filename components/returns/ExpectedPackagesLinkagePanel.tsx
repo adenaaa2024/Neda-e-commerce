@@ -194,7 +194,7 @@ export function ExpectedPackagesLinkagePanel({
       {loading && !loaded ? (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading expected packages…
+          Loading expected boxes…
         </p>
       ) : null}
 
@@ -202,7 +202,7 @@ export function ExpectedPackagesLinkagePanel({
 
       {loaded && rows.length === 0 && !loading && !error ? (
         <p className="text-center text-[13px] text-muted-foreground">
-          No expected_packages rows for this order / tracking filter.
+          No expected box rows for this order / tracking filter.
         </p>
       ) : null}
 
@@ -211,7 +211,7 @@ export function ExpectedPackagesLinkagePanel({
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
               <Package2 className="h-3 w-3" />
-              Expected packages
+              Expected boxes
             </span>
             {readiness ? (
               <span className="text-[10px] font-semibold text-muted-foreground">Linkage {readiness}</span>

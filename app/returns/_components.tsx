@@ -5,7 +5,7 @@ import { usePhysicalScanner } from "../../hooks/usePhysicalScanner";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Barcode, Boxes, Calendar, CalendarX2,
+  AlertTriangle, ArrowLeft, ArrowRight, BadgeInfo, Barcode, Boxes, Calendar, CalendarX2,
   Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, CircleDot, ClipboardCheck,
   Clock, Copy, ExternalLink, Eye, FileImage, FileText, Loader2, Minus, MoreHorizontal, Package2, Store,
   PackageCheck, PackageX, Pencil, Plus, QrCode, Save, ScanLine, Search,
@@ -132,7 +132,7 @@ function validateCreatePackageModal(input: {
   insideUrls: string[];
 }): { ok: boolean; error?: string } {
   if (!input.pkgNum.trim()) {
-    return { ok: false, error: "Package number is required." };
+    return { ok: false, error: "Box number is required." };
   }
   if (!input.pkgStoreId.trim()) {
     return { ok: false, error: "Select a store." };
@@ -328,13 +328,13 @@ type PhotoCategoryDef = { id: string; label: string; hint: string; optional?: bo
 
 const ALL_PHOTO_CATEGORIES: Record<string, PhotoCategoryDef> = {
   shipping_label:  { id: "shipping_label",  label: "Shipping Label & LPN",          hint: "Full label with LPN and tracking.",                          accentClass: "border-sky-200 dark:border-sky-800/50",       iconColor: "text-sky-600 dark:text-sky-400",    icon: Barcode },
-  outer_box:       { id: "outer_box",       label: "Outer Box Condition",            hint: "All sides — how the package arrived.",                       accentClass: "border-slate-300 dark:border-slate-700",      iconColor: "text-muted-foreground", icon: Package2 },
+  outer_box:       { id: "outer_box",       label: "Outer Box Condition",            hint: "All sides — how the box arrived.",                       accentClass: "border-slate-300 dark:border-slate-700",      iconColor: "text-muted-foreground", icon: Package2 },
   empty_interior:  { id: "empty_interior",  label: "Empty Box Interior",             hint: "Open interior — confirms no item is present.",               accentClass: "border-rose-200 dark:border-rose-800/50",     iconColor: "text-rose-600 dark:text-rose-400",   icon: PackageX },
   damage_closeup:  { id: "damage_closeup",  label: "Close-up of Damage",             hint: "Multiple angles showing every damage area.",                 accentClass: "border-amber-200 dark:border-amber-800/50",   iconColor: "text-amber-600 dark:text-amber-400", icon: ShieldAlert },
   incorrect_item:  { id: "incorrect_item",  label: "Incorrect Item",                 hint: "Wrong product — label and brand clearly visible.",           accentClass: "border-violet-200 dark:border-violet-800/50", iconColor: "text-violet-600 dark:text-violet-400", icon: Package2 },
   expiry_label:    { id: "expiry_label",    label: "Expiration Date Label",          hint: "Close-up of the expiry date on packaging.",                 accentClass: "border-orange-200 dark:border-orange-800/50", iconColor: "text-orange-600 dark:text-orange-400", icon: Calendar },
   fnsku_label:     { id: "fnsku_label",     label: "FNSKU / ASIN Barcode",           hint: "Product barcode (ASIN / UPC / FNSKU).",                      accentClass: "border-sky-200 dark:border-sky-800/50",       iconColor: "text-sky-600 dark:text-sky-400",    icon: Barcode },
-  orphan_label:    { id: "orphan_label",    label: "Return label (optional)",        hint: "Only when this item is not linked to a package.",            optional: true,                                                accentClass: "border-sky-200 dark:border-sky-800/50",       iconColor: "text-sky-600 dark:text-sky-400",    icon: Barcode },
+  orphan_label:    { id: "orphan_label",    label: "Return label (optional)",        hint: "Only when this item is not linked to a box.",            optional: true,                                                accentClass: "border-sky-200 dark:border-sky-800/50",       iconColor: "text-sky-600 dark:text-sky-400",    icon: Barcode },
   pallet_manifest: { id: "pallet_manifest", label: "Pallet Manifest / Packing Slip", hint: "Supporting docs.", optional: true,                           accentClass: "border-border",      iconColor: "text-muted-foreground", icon: FileText },
 };
 
@@ -852,24 +852,67 @@ export function StepIndicator({ step, total }: { step: number; total: number }) 
   );
 }
 
+// ─── Returns report column help (operational / scanner terms) ───────────────────
+
+const RETURNS_REPORT_COLUMN_HELP = {
+  inventoryStatus:
+    "Shows where each scanned unit currently stands: received, condition, linked box/pallet, orphan/loose, missing, or voided.",
+  expected: "Quantity expected from shipment/box records.",
+  scanned: "Quantity physically scanned by the operator.",
+  missing: "Expected units not received/scanned.",
+  markedMissing: "Units the operator explicitly marked as missing during review.",
+  slipReview: "Packing slip evidence review status for this box.",
+  issues:
+    "Operational issues such as missing units, quantity mismatch, open boxes, or review problems.",
+} as const;
+
+function ReportColumnHelpIcon({ label, text }: { label: string; text: string }) {
+  return (
+    <span className="group/colhelp relative inline-flex shrink-0 align-middle">
+      <button
+        type="button"
+        className="inline-flex cursor-help rounded p-0.5 text-[#737C86] transition hover:text-[#171A1E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8A681F]/40 dark:text-[#7E8894] dark:hover:text-[#F7F3EA]"
+        title={text}
+        aria-label={`About ${label}`}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <BadgeInfo className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-[min(16rem,calc(100vw-2rem))] rounded-lg border border-[#E8E2D6] bg-[#FFFCF7] px-2 py-1.5 text-[10px] font-normal normal-case leading-snug tracking-normal text-[#4C5661] shadow-lg group-hover/colhelp:block group-focus-within/colhelp:block dark:border-[#2E3740] dark:bg-[#1D242C] dark:text-[#B8C1CB]"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
 // ─── SortButton ────────────────────────────────────────────────────────────────
 
-export function SortButton({ field, label, sortField, sortAsc, onSort }: {
-  field: string; label: string; sortField: string; sortAsc: boolean; onSort: (f: string) => void;
+export function SortButton({ field, label, sortField, sortAsc, onSort, help }: {
+  field: string; label: string; sortField: string; sortAsc: boolean; onSort: (f: string) => void; help?: string;
 }) {
   const active = sortField === field;
   return (
-    <button
-      onClick={() => onSort(field)}
-      className={`flex items-center gap-1 text-xs font-bold uppercase tracking-wide transition ${
-        active
-          ? "text-[#8A681F] dark:text-[#F1D58A]"
-          : "text-[#4C5661] hover:text-[#171A1E] dark:text-[#B8C1CB] dark:hover:text-[#F7F3EA]"
-      }`}
-    >
-      {label}
-      {active ? (sortAsc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <span className="h-3 w-3 opacity-50">↕</span>}
-    </button>
+    <span className="inline-flex items-center gap-0.5">
+      <button
+        onClick={() => onSort(field)}
+        className={`flex items-center gap-1 text-xs font-bold uppercase tracking-wide transition ${
+          active
+            ? "text-[#8A681F] dark:text-[#F1D58A]"
+            : "text-[#4C5661] hover:text-[#171A1E] dark:text-[#B8C1CB] dark:hover:text-[#F7F3EA]"
+        }`}
+      >
+        {label}
+        {active ? (sortAsc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <span className="h-3 w-3 opacity-50">↕</span>}
+      </button>
+      {help ? <ReportColumnHelpIcon label={label} text={help} /> : null}
+    </span>
   );
 }
 
@@ -1459,8 +1502,8 @@ export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts
   }));
 
   async function handleMove() {
-    if (!targetPkgId && !targetPltId) { setError("Select at least a target package or pallet."); return; }
-    const pkgErr = uuidFkInvalidMessage(targetPkgId, "Package");
+    if (!targetPkgId && !targetPltId) { setError("Select at least a target box or pallet."); return; }
+    const pkgErr = uuidFkInvalidMessage(targetPkgId, "Box");
     const pltErr = uuidFkInvalidMessage(targetPltId, "Pallet");
     if (pkgErr || pltErr) {
       setError(pkgErr ?? pltErr ?? "Invalid selection.");
@@ -1486,7 +1529,7 @@ export function BulkMoveModal({ selectedIds, packages: allPkgs, pallets: allPlts
           <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3 dark:border-sky-700/60 dark:bg-sky-950/30">
             <p className="text-xs text-sky-700 dark:text-sky-300"><span className="font-bold">{selectedIds.length} items</span> will be reassigned. Fields left blank are unchanged.</p>
           </div>
-          <ComboboxField label="Move to Package" hint="(optional)" icon={Tag} options={pkgOpts} value={targetPkgId} onChange={setTargetPkgId} onClear={() => setTargetPkgId("")} placeholder="Select open package…" />
+          <ComboboxField label="Move to Box" hint="(optional)" icon={Tag} options={pkgOpts} value={targetPkgId} onChange={setTargetPkgId} onClear={() => setTargetPkgId("")} placeholder="Select open box…" />
           <ComboboxField label="Move to Pallet"  hint="(optional)" icon={Boxes} options={pltOpts} value={targetPltId} onChange={setTargetPltId} onClear={() => setTargetPltId("")} placeholder="Select open pallet…" />
           {error && <p className="rounded-xl bg-rose-50 px-4 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">{error}</p>}
         </div>
@@ -1539,14 +1582,14 @@ export function BulkAssignPackagesModal({ selectedIds, pallets: allPlts, actor, 
         <div className="flex items-center justify-between border-b border-slate-200 p-4 sm:p-6 dark:border-slate-700">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Bulk Action</p>
-            <h2 className="mt-0.5 text-xl font-bold text-foreground">Assign {selectedIds.length} Packages to Pallet</h2>
+            <h2 className="mt-0.5 text-xl font-bold text-foreground">Assign {selectedIds.length} Boxes to Pallet</h2>
           </div>
           <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-accent hover:text-accent-foreground"><X className="h-5 w-5" /></button>
         </div>
         <div className="space-y-5 p-4 sm:p-6">
           <div className="rounded-2xl border border-violet-200 bg-violet-50 p-3 dark:border-violet-700/60 dark:bg-violet-950/30">
             <p className="text-xs text-violet-800 dark:text-violet-200">
-              <span className="font-bold">{selectedIds.length} package(s)</span> will get the same <span className="font-semibold">pallet_id</span> in the database (same as editing a single package).
+              <span className="font-bold">{selectedIds.length} box(es)</span> will get the same <span className="font-semibold">pallet_id</span> in the database (same as editing a single box).
             </p>
           </div>
           <div>
@@ -1860,13 +1903,13 @@ function PackagesSubTable({ palletId, packages, returns: returnsForCount = [], o
     return m;
   }, [returnsForCount]);
   const rows = useMemo(() => packages.filter((p) => p.pallet_id === palletId), [packages, palletId]);
-  if (rows.length === 0) return <p className="py-4 text-center text-xs text-slate-400">No packages linked to this pallet yet.</p>;
+  if (rows.length === 0) return <p className="py-4 text-center text-xs text-slate-400">No boxes linked to this pallet yet.</p>;
   return (
     <div className="overflow-hidden rounded-xl border border-border">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
-            <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Package #</th>
+            <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Box #</th>
             <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 sm:table-cell">Carrier</th>
             <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Count</th>
             <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Status</th>
@@ -1880,7 +1923,7 @@ function PackagesSubTable({ palletId, packages, returns: returnsForCount = [], o
               <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-1.5 font-mono font-bold text-foreground">
                   <span>{p.package_code}</span>
-                  <InlineCopy value={p.package_code} label="Package #" onToast={showToast} stopPropagation />
+                  <InlineCopy value={p.package_code} label="Box #" onToast={showToast} stopPropagation />
                 </div>
               </td>
               <td className="hidden px-3 py-2.5 text-muted-foreground sm:table-cell">{p.carrier_name ?? "—"}</td>
@@ -2344,9 +2387,9 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
               )}
             </div>
             <div>
-              <label className={LABEL}>Assign to Package <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+              <label className={LABEL}>Assign to Box <span className="text-xs font-normal text-slate-400">(optional)</span></label>
               <select className={INPUT} value={editPackageId} onChange={(e) => setEditPackageId(e.target.value)}>
-                <option value="">— no package —</option>
+                <option value="">— no box —</option>
                 {packages.filter((p) => p.status === "open").map((p) => (
                   <option key={p.id} value={p.id}>{p.package_code}{p.carrier_name ? ` · ${p.carrier_name}` : ""}</option>
                 ))}
@@ -2396,7 +2439,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                   <p className="text-sm font-bold text-violet-900 dark:text-violet-100">Inherited Package Evidence</p>
                 </div>
                 <p className="text-xs leading-relaxed text-violet-800/90 dark:text-violet-200/90">
-                  Photos tied to claim categories from the linked package flow. Manage existing slots or add more by category below.
+                  Photos tied to claim categories from the linked box flow. Manage existing slots or add more by category below.
                 </p>
               </div>
               <div className="space-y-3 rounded-xl border border-violet-200/90 bg-white/70 p-4 dark:border-violet-800/50 dark:bg-slate-900/50">
@@ -2578,7 +2621,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
             </div>
           )}
           <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300">
-            Status is recalculated on save from defect reasons, photos, and linked package box/label shots (for claims).
+            Status is recalculated on save from defect reasons, photos, and box/label shots from the linked box (for claims).
           </p>
           <div><label className={LABEL}>Notes</label><textarea rows={3} className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} /></div>
 
@@ -2618,7 +2661,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
               <div className="col-span-2 rounded-2xl border border-violet-200 bg-violet-50/90 p-4 dark:border-violet-800/50 dark:bg-violet-950/30">
                 <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300">Claim filing context</p>
                 <p className="mb-3 text-[10px] leading-relaxed text-violet-600/90 dark:text-violet-400/90">
-                  Pallet and package hierarchy with copyable product codes for your claim.
+                  Pallet and box hierarchy with copyable product codes for your claim.
                 </p>
                 <div className="mb-4 grid gap-2 sm:grid-cols-2">
                   <div className="group flex min-w-0 items-center gap-2 rounded-xl border border-violet-200 bg-white/80 px-3 py-2 dark:border-violet-800/60 dark:bg-slate-900/50">
@@ -2629,10 +2672,10 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                     ) : null}
                   </div>
                   <div className="group flex min-w-0 items-center gap-2 rounded-xl border border-violet-200 bg-white/80 px-3 py-2 dark:border-violet-800/60 dark:bg-slate-900/50">
-                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">Package #</span>
+                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">Box #</span>
                     <span className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-foreground">{linkedPkg?.package_code ?? "—"}</span>
                     {linkedPkg?.package_code ? (
-                      <InlineCopy value={linkedPkg.package_code} label="Package #" onToast={onToast} />
+                      <InlineCopy value={linkedPkg.package_code} label="Box #" onToast={onToast} />
                     ) : null}
                   </div>
                 </div>
@@ -2713,7 +2756,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
             })()}
             {(record.inherited_tracking_number || linkedPkg?.tracking_number) && (
               <div className="col-span-2">
-                <p className="text-xs text-slate-400">Tracking (from package)</p>
+                <p className="text-xs text-slate-400">Tracking (from box)</p>
                 <div className="group flex flex-wrap items-center gap-2">
                   <p className="font-mono text-sm text-foreground">
                     {record.inherited_tracking_number ?? linkedPkg?.tracking_number ?? "—"}
@@ -2726,7 +2769,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
                 </div>
                 {(record.inherited_carrier || linkedPkg?.carrier_name) && (
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Carrier (inherited from package):{" "}
+                    Carrier (inherited from box):{" "}
                     <span className="font-semibold text-foreground">{record.inherited_carrier ?? linkedPkg?.carrier_name}</span>
                   </p>
                 )}
@@ -2735,7 +2778,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
             {(linkedPkg?.order_id?.trim() || (isLooseItem && record.order_id?.trim())) && (
               <div className="col-span-2">
                 <p className="text-xs text-slate-400">
-                  {linkedPkg?.order_id?.trim() ? "Amazon order ID (from package)" : "Amazon order ID"}
+                  {linkedPkg?.order_id?.trim() ? "Amazon order ID (from box)" : "Amazon order ID"}
                 </p>
                 <div className="group flex flex-wrap items-center gap-2">
                   <p className="font-mono text-sm text-foreground">
@@ -2868,7 +2911,7 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, actorPr
             <input autoFocus placeholder="Search item name or RMA…" value={search} onChange={(e) => setSearch(e.target.value)} className={`${INPUT} pl-9`} />
           </div>
           <div className="max-h-72 overflow-y-auto space-y-1">
-            {candidates.length === 0 && <p className="py-6 text-center text-sm text-slate-400">{search ? "No matches." : "All items are already in this package."}</p>}
+            {candidates.length === 0 && <p className="py-6 text-center text-sm text-slate-400">{search ? "No matches." : "All items are already in this box."}</p>}
             {candidates.map((r) => (
               <button key={r.id} type="button" onClick={() => handleAssign(r)} disabled={assigning}
                 className="flex w-full items-start gap-3 rounded-xl border border-border px-3 py-2.5 text-left hover:bg-accent transition">
@@ -3214,7 +3257,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
         onPackageUpdated(res.data);
         setEditExpected(String(res.data.expected_item_count));
       } else {
-        setEditManifestErr(res.error ?? "Could not save manifest to the package.");
+        setEditManifestErr(res.error ?? "Could not save manifest to the box.");
       }
     } catch (err) {
       setEditManifestErr(err instanceof Error ? err.message : "Upload or OCR failed. Try again.");
@@ -3260,7 +3303,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
     setClosing(true);
     const res = await closePackage(pkg.id, { discrepancyNote: discNote, actor, actorProfileId });
     setClosing(false);
-    if (res.ok) { setPkg((p) => ({ ...p, status: res.status! })); onPackageUpdated({ ...pkg, status: res.status! }); showToast(res.status === "suspicious" ? "Package flagged — discrepancy recorded." : "Package closed.", res.status === "suspicious" ? "warning" : "success"); setDiscOpen(false); }
+    if (res.ok) { setPkg((p) => ({ ...p, status: res.status! })); onPackageUpdated({ ...pkg, status: res.status! }); showToast(res.status === "suspicious" ? "Box flagged — discrepancy recorded." : "Box closed.", res.status === "suspicious" ? "warning" : "success"); setDiscOpen(false); }
     else showToast(res.error ?? "Failed.", "error");
   }
 
@@ -3269,7 +3312,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
       <div className="flex flex-wrap gap-2">
         <PkgStatusBadge status={pkg.status} />
         {effectiveCarrierDisplay && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title={pkg.pallet_id ? "Carrier (pallet shipment — from this or a sibling package on the pallet)" : undefined}>
+          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title={pkg.pallet_id ? "Carrier (pallet shipment — from this or a sibling box on the pallet)" : undefined}>
             <Truck className="h-3 w-3" />
             {effectiveCarrierDisplay}
           </span>
@@ -3325,7 +3368,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               <p className={LABEL}>Carrier</p>
               <p className="text-sm font-semibold text-foreground">{effectiveCarrierDisplay ?? "—"}</p>
               <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                This package is linked to a pallet. Carrier is inherited from the pallet shipment (first package on this pallet with a carrier). To set a different carrier, move the package off the pallet first.
+                This box is linked to a pallet. Carrier is inherited from the pallet shipment (first box on this pallet with a carrier). To set a different carrier, move the box off the pallet first.
               </p>
             </div>
           ) : (
@@ -3381,7 +3424,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               <p className="text-sm font-bold text-violet-800 dark:text-violet-200">Packing slip / manifest</p>
             </div>
             <p className="text-xs text-violet-700 dark:text-violet-300">
-              Photo is stored on the package; line items drive Expected vs Scanned reconciliation in the drawer.
+              Photo is stored on the box; line items drive Expected vs Scanned reconciliation in the drawer.
             </p>
             <input
               ref={editSlipCameraRef}
@@ -3396,7 +3439,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
                   {reconciliationSource === "expected_packages"
-                    ? "Expected packages loaded — packing slip scan not required."
+                    ? "Expected boxes loaded — packing slip scan not required."
                     : "Amazon Sync active — packing slip scan not required."}
                 </span>
               </div>
@@ -3460,12 +3503,12 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             {editPhotoClosedUrl ? (
               <SavedUrlEvidenceCard
                 label="Closed box"
-                hint="Optional — claim evidence for the sealed package."
+                hint="Optional — claim evidence for the sealed box."
                 imageUrl={editPhotoClosedUrl}
                 onRemove={() => setEditPhotoClosedUrl("")}
                 Icon={Camera}
                 iconColor="text-rose-600 dark:text-rose-400"
-                footerNote="Stored on this package"
+                footerNote="Stored on this box"
               />
             ) : (
               <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition ${editPhotoClosedUploading ? "border-rose-300 text-rose-500" : "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-700/60 dark:bg-rose-950/30 dark:text-rose-300"}`}>
@@ -3483,7 +3526,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                 Icon={Camera}
                 iconColor="text-amber-600 dark:text-amber-400"
                 required
-                footerNote="Stored on this package"
+                footerNote="Stored on this box"
               />
             ) : (
               <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition ${editPhotoOpenedUploading ? "border-amber-300 text-amber-500" : "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300"}`}>
@@ -3504,7 +3547,7 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
                 Icon={Camera}
                 iconColor="text-violet-600 dark:text-violet-400"
                 required
-                footerNote="Stored on this package"
+                footerNote="Stored on this box"
               />
             ) : (
               <label className={`flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-semibold transition ${editPhotoReturnLabelUploading ? "border-violet-300 text-violet-500" : "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-700/60 dark:bg-violet-950/30 dark:text-violet-300"}`}>
@@ -3645,7 +3688,13 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
 
       {pkg.tracking_number?.trim() ? (
         <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-800 dark:bg-sky-950/20">
-          <p className="mb-3 text-sm font-bold text-foreground">Inventory status</p>
+          <p className="mb-3 inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
+            Inventory status
+            <ReportColumnHelpIcon
+              label="Inventory status"
+              text={RETURNS_REPORT_COLUMN_HELP.inventoryStatus}
+            />
+          </p>
           <InventoryItemStatusLinkagePanel
             organizationId={pkg.organization_id}
             storeId={pkg.store_id}
@@ -4011,7 +4060,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
 
       {/* Packages sub-table */}
       <div>
-        <p className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">Packages in this Pallet</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">Boxes in this Pallet</p>
         <PackagesSubTable palletId={plt.id} packages={packages} returns={allReturns} onPackageClick={onOpenPackage} showToast={showToast} />
       </div>
 
@@ -4165,7 +4214,7 @@ export function DiscrepancyModal({ pkg, scannedCount, onConfirm, onCancel }: {
     <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-sm">
       <div className="w-[95vw] max-w-lg overflow-hidden rounded-2xl sm:rounded-3xl border border-amber-200 bg-white shadow-2xl dark:border-amber-700/50 dark:bg-slate-950">
         <div className="bg-amber-50 p-6 dark:bg-amber-950/40">
-          <div className="flex items-center gap-3 mb-4"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/60"><AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" /></div><div><h3 className="text-lg font-bold text-foreground">Count Discrepancy</h3><p className="text-sm text-amber-700 dark:text-amber-300">Package will be flagged</p></div></div>
+          <div className="flex items-center gap-3 mb-4"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/60"><AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" /></div><div><h3 className="text-lg font-bold text-foreground">Count Discrepancy</h3><p className="text-sm text-amber-700 dark:text-amber-300">Box will be flagged</p></div></div>
           <div className="grid grid-cols-3 gap-2">
             {[["Expected", pkg.expected_item_count], ["Scanned", scanned], ["Diff", diff > 0 ? `+${diff}` : diff]].map(([l, v]) => (
               <div key={String(l)} className="rounded-xl bg-white/80 p-3 text-center dark:bg-slate-900/60"><p className="text-2xl font-bold text-foreground">{v}</p><p className="text-xs text-slate-400">{l}</p></div>
@@ -4527,22 +4576,22 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
             <div>
               <p className="text-sm font-semibold text-foreground">Loose Item (No Box)</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Skip package assignment. In Step 2 you can add an optional return-label photo for this item only.
+                Skip box assignment. In Step 2 you can add an optional return-label photo for this item only.
               </p>
             </div>
           </label>
           {!state.loose_item && (
             <div className="rounded-2xl border-2 border-sky-200 bg-sky-50 p-3 dark:border-sky-700/50 dark:bg-sky-950/30">
               <p className="mb-2 flex items-center gap-2 text-xs font-bold text-sky-700 dark:text-sky-300">
-                <Package2 className="h-3.5 w-3.5" />Step 1 — Assign to Package <span className="font-normal text-sky-500">(recommended)</span>
+                <Package2 className="h-3.5 w-3.5" />Step 1 — Assign to Box <span className="font-normal text-sky-500">(recommended)</span>
               </p>
-              <ComboboxField label="" hint="" icon={Tag} options={pkgOpts} value={state.package_link_id} onChange={(id) => up("package_link_id", id)} onClear={() => up("package_link_id", "")} placeholder="Scan tracking # or search package…" onCreateNew={onCreatePackage} createLabel="Create new package…" />
-              {!state.package_link_id && <p className="mt-1.5 text-[10px] text-sky-500">⚠ Without a package this item will be marked <strong>Orphaned / Loose</strong></p>}
+              <ComboboxField label="" hint="" icon={Tag} options={pkgOpts} value={state.package_link_id} onChange={(id) => up("package_link_id", id)} onClear={() => up("package_link_id", "")} placeholder="Scan tracking # or search box…" onCreateNew={onCreatePackage} createLabel="Create new box…" />
+              {!state.package_link_id && <p className="mt-1.5 text-[10px] text-sky-500">⚠ Without a box this item will be marked <strong>Orphaned / Loose</strong></p>}
             </div>
           )}
           {state.loose_item && (
             <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/35 dark:text-amber-200">
-              Loose item — no package link. Tracking and carrier are captured at the item / notes level.
+              Loose item — no box link. Tracking and carrier are captured at the item / notes level.
             </div>
           )}
         </div>
@@ -4594,7 +4643,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
       )}
       {!inherited && state.package_link_id && (
         <div className="rounded-xl border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs dark:border-sky-800/50 dark:bg-sky-950/20">
-          <span className="font-semibold text-sky-800 dark:text-sky-200">Linked package: </span>
+          <span className="font-semibold text-sky-800 dark:text-sky-200">Linked box: </span>
           {onNavigateToPackage ? (
             <button
               type="button"
@@ -4709,7 +4758,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
       {!hasPackageLink && (
         <div>
           <label className={LABEL}>Return label / LPN <span className="ml-1 text-xs font-normal text-slate-400">(optional — orphaned items)</span></label>
-          <div className="relative"><Barcode className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input ref={rmaRef} type="text" className={`${INPUT} pl-11`} placeholder="Only if not assigned to a package…" value={state.lpn} onChange={(e) => up("lpn", e.target.value)} /></div>
+          <div className="relative"><Barcode className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input ref={rmaRef} type="text" className={`${INPUT} pl-11`} placeholder="Only if not assigned to a box…" value={state.lpn} onChange={(e) => up("lpn", e.target.value)} /></div>
         </div>
       )}
       {hasPackageLink && (
@@ -4760,7 +4809,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
         </select>
         {storeInherited && (
           <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">
-            ↳ Auto-filled from package — override if needed.
+            ↳ Auto-filled from box — override if needed.
           </p>
         )}
         {connectedStores.length === 0 && (
@@ -5044,11 +5093,11 @@ export function WizardStep2({
         <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
           {isLooseItem ? (
             <>
-              <span className="font-semibold">Loose item</span> — no linked package. Add optional return-label and item photos below; condition photos follow.
+              <span className="font-semibold">Loose item</span> — no linked box. Add optional return-label and item photos below; condition photos follow.
             </>
           ) : (
             <>
-              Carton and return-label reference shots on the <span className="font-semibold">Package</span> are inherited here. Item-level shots and condition photos are grouped below.
+              Carton and return-label reference shots on the <span className="font-semibold">Box</span> are inherited here. Item-level shots and condition photos are grouped below.
             </>
           )}
         </p>
@@ -5056,7 +5105,7 @@ export function WizardStep2({
         <div className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-600">
           {photoCtx?.hasPackageLink && (outerBoxUrl || openedBoxUrl || closedBoxUrl || labelUrl) && (
             <div>
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Inherited from linked package</p>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Inherited from linked box</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 {outerBoxUrl && (
                   <a href={outerBoxUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-950">
@@ -5064,7 +5113,7 @@ export function WizardStep2({
                       <img src={outerBoxUrl} alt="Outer box" className="max-h-28 w-full object-contain" />
                     </div>
                     <p className="border-t border-slate-100 px-2 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                      Package — outer box (optional)
+                      Box — outer box (optional)
                     </p>
                   </a>
                 )}
@@ -5074,7 +5123,7 @@ export function WizardStep2({
                       <img src={openedBoxUrl} alt="Opened box" className="max-h-28 w-full object-contain" />
                     </div>
                     <p className="border-t border-slate-100 px-2 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                      Package — opened box
+                      Box — opened box
                     </p>
                   </a>
                 )}
@@ -5084,17 +5133,17 @@ export function WizardStep2({
                       <img src={closedBoxUrl} alt="Closed box" className="max-h-28 w-full object-contain" />
                     </div>
                     <p className="border-t border-slate-100 px-2 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                      Package — closed box
+                      Box — closed box
                     </p>
                   </a>
                 )}
                 {labelUrl && (
                   <a href={labelUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-950">
                     <div className="flex h-28 w-full items-center justify-center bg-slate-100 dark:bg-slate-900">
-                      <img src={labelUrl} alt="Package return label" className="max-h-28 w-full object-contain" />
+                      <img src={labelUrl} alt="Box return label" className="max-h-28 w-full object-contain" />
                     </div>
                     <p className="border-t border-slate-100 px-2 py-1.5 text-[10px] font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                      Package — return label
+                      Box — return label
                     </p>
                   </a>
                 )}
@@ -5123,7 +5172,7 @@ export function WizardStep2({
                 Package claim photos missing on file
               </p>
               <p className="mb-3 text-[11px] leading-snug text-amber-950/90 dark:text-amber-100/90">
-                The linked package does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">returns.photo_evidence</span>), not on the package row.
+                The linked box does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">returns.photo_evidence</span>), not on the box row.
               </p>
               <div className="space-y-4">
                 {!hasPkgOpenedOnly && (
@@ -5240,7 +5289,7 @@ export function WizardStep2({
       )}
 
       <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-        Packing slip / manifest scans belong to <span className="font-semibold text-foreground">Package</span> setup only — not here.
+        Packing slip / manifest scans belong to <span className="font-semibold text-foreground">Box</span> setup only — not here.
       </p>
     </div>
   );
@@ -5338,14 +5387,14 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
       });
     });
     const pkgUrls = packageEvidenceGalleryUrls(linkedPkg);
-    const pkgLabels = ["Package — opened box", "Package — return label", "Package — closed box"];
+    const pkgLabels = ["Box — opened box", "Box — return label", "Box — closed box"];
     pkgUrls.forEach((src, i) => {
       if (i <= 2) {
         lines.push({ label: pkgLabels[i], src });
       } else if (i === 3) {
-        lines.push({ label: "Package — reference", src });
+        lines.push({ label: "Box — reference", src });
       } else {
-        lines.push({ label: `Package — evidence ${i + 1}`, src });
+        lines.push({ label: `Box — evidence ${i + 1}`, src });
       }
     });
     if (state.photo_item_url?.trim()) {
@@ -5373,7 +5422,7 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
       lines.push({ label: "Return — opened box (item wizard)", src: state.wizard_opened_box_url.trim() });
     }
     if (state.wizard_pkg_return_label_url?.trim()) {
-      lines.push({ label: "Return — package return label (item wizard)", src: state.wizard_pkg_return_label_url.trim() });
+      lines.push({ label: "Return — box return label (item wizard)", src: state.wizard_pkg_return_label_url.trim() });
     }
     for (const [cat, files] of Object.entries(state.photos)) {
       files.forEach((f, i) => {
@@ -5462,7 +5511,7 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
                   ) : (
                     <span className="font-mono">{linkedPkg.package_code}</span>
                   )}
-                  <InlineCopy value={linkedPkg.package_code} label="Package #" onToast={onToast} />
+                  <InlineCopy value={linkedPkg.package_code} label="Box #" onToast={onToast} />
                 </span>
               )}
               {linkedPlt && (
@@ -5515,7 +5564,7 @@ export function WizardStep3({ state, conditions, packages, pallets, inherited, o
         <label className={LABEL}>
           Amazon order ID
           {pkgOrder ? (
-            <span className="text-xs font-normal text-slate-400"> (from package)</span>
+            <span className="text-xs font-normal text-slate-400"> (from box)</span>
           ) : (
             <span className="text-xs font-normal text-slate-400"> (optional)</span>
           )}
@@ -5832,7 +5881,7 @@ export function SingleItemWizardModal({ onClose, onSuccess, actor, openPackages,
     const rawLink = (inheritedContext?.packageId ?? state.package_link_id)?.trim() ?? "";
     if (!isLooseItem && rawLink && !isUuidString(rawLink)) {
       setSubmitErr(
-        "Package link is invalid. Open Step 1 and pick the package again (search by tracking # — the saved value must be the package record id, not a tracking code).",
+        "Box link is invalid. Open Step 1 and pick the box again (search by tracking # — the saved value must be the box record id, not a tracking code).",
       );
       setSubmitting(false);
       return;
@@ -6364,7 +6413,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
                 <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Batch Flow</p>
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"><ScanLine className="h-3 w-3" />Scanner-Ready</span>
               </div>
-              <h2 className="mt-0.5 text-xl font-bold text-foreground">Create Package</h2>
+              <h2 className="mt-0.5 text-xl font-bold text-foreground">Create Box</h2>
             </div>
             <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-accent hover:text-accent-foreground"><X className="h-5 w-5" /></button>
           </div>
@@ -6394,7 +6443,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
               <input ref={fileRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleOcr(f); e.target.value = ""; }} />
             </>
           )}
-          <div><label className={LABEL}>Package # <span className="text-rose-500">*</span></label><input type="text" className={INPUT} value={pkgNum} onChange={(e) => setPkgNum(e.target.value)} /></div>
+          <div><label className={LABEL}>Box # <span className="text-rose-500">*</span></label><input type="text" className={INPUT} value={pkgNum} onChange={(e) => setPkgNum(e.target.value)} /></div>
           <div><label className={LABEL}>Carrier</label><select className={INPUT} value={carrier} onChange={(e) => setCarrier(e.target.value)}><option value="">Select…</option>{CARRIERS.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
           <div>
             <label className={LABEL}>Tracking # <span className="text-xs font-normal text-slate-400">(unique)</span></label>
@@ -6529,7 +6578,7 @@ export function CreatePackageModal({ onClose, onCreated, actor, openPallets, aiP
           <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-4 space-y-4 dark:border-rose-700/50 dark:bg-rose-950/20">
             <div className="flex flex-wrap items-center gap-2">
               <Camera className="h-4 w-4 text-rose-600 dark:text-rose-400" />
-              <p className="text-sm font-bold text-rose-800 dark:text-rose-200">Package photos</p>
+              <p className="text-sm font-bold text-rose-800 dark:text-rose-200">Box photos</p>
               <span className="ml-auto rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600 dark:bg-rose-900/40 dark:text-rose-300">Box level</span>
             </div>
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-rose-200 bg-white/80 p-3 dark:border-rose-800/50 dark:bg-slate-900/40">
@@ -6870,7 +6919,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
               </p>
             ) : (
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Packages created inside this pallet will inherit this store automatically.
+                Boxes created inside this pallet will inherit this store automatically.
               </p>
             )}
           </div>
@@ -7077,7 +7126,16 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="expiration_date" label="Expiry" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 {/* ── NEW: Evidence Photo column ── */}
                 <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Photo</th>
-                <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="hierarchy_key" label="Hierarchy" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="hidden px-4 py-3 text-left lg:table-cell">
+                  <SortButton
+                    field="hierarchy_key"
+                    label="Hierarchy"
+                    sortField={sortField}
+                    sortAsc={sortAsc}
+                    onSort={handleSort}
+                    help={RETURNS_REPORT_COLUMN_HELP.inventoryStatus}
+                  />
+                </th>
                 <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Box #</th>
                 <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}>Pallet #</th>
                 <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Scan Source</th>
@@ -7334,7 +7392,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   const INPUT_SM_DARK = RT_INPUT;
 
   async function handleBulkDelete() {
-    if (!window.confirm(`Delete ${selectedIds.size} package(s)?`)) return;
+    if (!window.confirm(`Delete ${selectedIds.size} box(es)?`)) return;
     setBulkDeleting(true);
     const ids = [...selectedIds];
     try {
@@ -7347,7 +7405,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
         onToast?.(
           failed.length === ids.length
             ? `Could not delete packages: ${firstErr}`
-            : `${failed.length} package(s) could not be deleted (${firstErr}). ${succeeded.length} removed.`,
+            : `${failed.length} box(es) could not be deleted (${firstErr}). ${succeeded.length} removed.`,
           "error",
         );
       }
@@ -7377,7 +7435,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
           <div className="relative min-w-0">
             <Search className={`pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 ${RT_MUTED}`} />
             <input
-              placeholder="Search package # or tracking…"
+              placeholder="Search box # or tracking…"
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               className={`${INPUT_SM_DARK} h-10 w-full pr-9`}
@@ -7441,15 +7499,15 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 {showCompanyColumn && (
                   <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Company</th>
                 )}
-                <th className="px-4 py-3 text-left"><SortButton field="package_code" label="Package #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className="px-4 py-3 text-left"><SortButton field="package_code" label="Box #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="carrier_tracking" label="Carrier / Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="pkg_items_sort" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_marked_missing" label="Marked Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_slip_review" label="Slip Review" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.expected} /></th>
+                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.scanned} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.missing} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_marked_missing" label="Marked Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.markedMissing} /></th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_slip_review" label="Slip Review" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.slipReview} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -7486,7 +7544,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className={`flex items-center gap-1.5 font-mono text-xs font-bold ${RT_PRIMARY}`}>
                           <span>{p.package_code}</span>
-                          <InlineCopy value={p.package_code} label="Package #" onToast={onToast} stopPropagation />
+                          <InlineCopy value={p.package_code} label="Box #" onToast={onToast} stopPropagation />
                         </div>
                       </td>
                       <td className="hidden px-4 py-3 md:table-cell">
@@ -7537,7 +7595,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                       <td className="px-3 py-3">
                         <RowActionMenu
                           onView={() => onRowClick(p)} onEdit={() => onRowEdit(p)}
-                          onDelete={canDelete(role) ? async () => { if (!window.confirm("Delete this package?")) return; const r = await deletePackage(p.id, actor, actorProfileId); if (r.ok) onBulkDeleted([p.id]); } : undefined}
+                          onDelete={canDelete(role) ? async () => { if (!window.confirm("Delete this box?")) return; const r = await deletePackage(p.id, actor, actorProfileId); if (r.ok) onBulkDeleted([p.id]); } : undefined}
                         />
                       </td>
                     </tr>
@@ -7545,7 +7603,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                       <tr className={RT_NESTED_ROW_BG}>
                         <td colSpan={showCompanyColumn ? 18 : 17} className="px-6 py-3">
                           {pkgItems.length === 0
-                            ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No items scanned for this package yet.</p>
+                            ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No items scanned for this box yet.</p>
                             : (
                               <div className={RT_NESTED_TABLE_BORDER}>
                                 <table className="w-full text-xs">
@@ -7605,7 +7663,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
           <p className={`py-10 text-center text-sm ${RT_MUTED}`}>
             {packages.length === 0 && !hasActiveFilters
               ? "No data."
-              : "No packages match your filters."}
+              : "No boxes match your filters."}
           </p>
         )}
       </div>
@@ -7622,7 +7680,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
             if (onBulkPackagesUpdated && updated.length) onBulkPackagesUpdated(updated);
             setSelectedIds(new Set());
             setShowBulkPallet(false);
-            if (failed > 0) window.alert(`${failed} package(s) failed to update.`);
+            if (failed > 0) window.alert(`${failed} box(es) failed to update.`);
           }}
         />
       )}
@@ -7845,10 +7903,10 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                   </div>
                 </th>
                 <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_boxes" label="Boxes" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_issues" label="Issues" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.expected} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.scanned} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.missing} /></th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_issues" label="Issues" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.issues} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -7866,7 +7924,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                   <React.Fragment key={p.id}>
                     <tr onClick={() => onRowClick(p)} className={`group cursor-pointer transition ${RT_ROW_HOVER}`}>
                       <td className={TD_EXP} onClick={(e) => toggleExpand(p.id, e)}>
-                        <button type="button" className={RT_EXPAND_BTN} title={isExpanded ? "Collapse packages" : `Show ${pltPackages.length} package(s)`}>
+                        <button type="button" className={RT_EXPAND_BTN} title={isExpanded ? "Collapse boxes" : `Show ${pltPackages.length} box(es)`}>
                           {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                         </button>
                       </td>
@@ -7923,13 +7981,13 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                       <tr className={RT_NESTED_ROW_BG}>
                         <td colSpan={showCompanyColumn ? 17 : 16} className="px-6 py-3">
                           {pltPackages.length === 0
-                            ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No packages linked to this pallet yet.</p>
+                            ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No boxes linked to this pallet yet.</p>
                             : (
                               <div className={RT_NESTED_TABLE_BORDER}>
                                 <table className="w-full text-xs">
                                   <thead><tr className={RT_NESTED_THEAD}>
                                     <th className={TH_EXP} aria-hidden />
-                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Package #</th>
+                                    <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Box #</th>
                                     <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Carrier</th>
                                     <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Tracking</th>
                                     <th className={`px-3 py-2 text-left ${RT_NESTED_TH}`}>Items</th>
@@ -7953,7 +8011,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                             <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                                               <div className={`flex items-center gap-1 font-mono font-semibold ${RT_PRIMARY}`}>
                                                 <span>{pk.package_code}</span>
-                                                <InlineCopy value={pk.package_code} label="Package #" onToast={onToast} stopPropagation />
+                                                <InlineCopy value={pk.package_code} label="Box #" onToast={onToast} stopPropagation />
                                               </div>
                                             </td>
                                             <td className={`px-3 py-2 ${RT_SECONDARY}`}>{pk.carrier_name ?? "—"}</td>
@@ -7978,7 +8036,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                                             <tr className={RT_NESTED_ROW_BG}>
                                               <td colSpan={7} className="px-4 py-2">
                                                 {pkgItems.length === 0
-                                                  ? <p className={`py-2 text-center text-[11px] ${RT_MUTED}`}>No items scanned for this package yet.</p>
+                                                  ? <p className={`py-2 text-center text-[11px] ${RT_MUTED}`}>No items scanned for this box yet.</p>
                                                   : (
                                                     <div className={`overflow-hidden rounded-lg border ${RT_BORDER}`}>
                                                       <table className="w-full text-[11px]">
