@@ -419,7 +419,7 @@ export default function ReturnsPage() {
         if (retCount.ok) setReturnsTotalCount(retCount.count);
         else { setReturnsTotalCount(null); console.error("[ReturnsPage] countReturns failed:", retCount.error); }
         if (p.ok)  setPackages(p.data  ?? []);
-        else       errs.push(`Packages: ${p.error ?? "unknown error"}`);
+        else       errs.push(`Boxes: ${p.error ?? "unknown error"}`);
         if (pl.ok) setPallets(pl.data  ?? []);
         else       errs.push(`Pallets: ${pl.error ?? "unknown error"}`);
         if (errs.length) setFetchErrors(errs);
@@ -560,7 +560,7 @@ export default function ReturnsPage() {
     if (!activeDrawer) return "";
     if (activeDrawer.type === "item")
       return activeDrawer.startInEditMode ? "Return Item · Edit" : "Return Item";
-    if (activeDrawer.type === "package") return "Package";
+    if (activeDrawer.type === "package") return "Box";
     if (activeDrawer.type === "pallet")  return "Pallet";
     return "";
   }
@@ -584,7 +584,7 @@ export default function ReturnsPage() {
       })(),
       accent: "text-[#8A681F] border-[#8A681F] dark:text-[#D6B76E] dark:border-[#D6B76E]",
     },
-    { id: "packages", label: "Packages", icon: Package2,  count: filteredPackages.length, accent: "text-[#B08A3C] border-[#B08A3C] dark:text-[#F1D58A] dark:border-[#F1D58A]" },
+    { id: "packages", label: "Boxes", icon: Package2,  count: filteredPackages.length, accent: "text-[#B08A3C] border-[#B08A3C] dark:text-[#F1D58A] dark:border-[#F1D58A]" },
     { id: "pallets",  label: "Pallets",  icon: Boxes,     count: filteredPallets.length,  accent: "text-[#8A681F] border-[#8A681F] dark:text-[#D6B76E] dark:border-[#D6B76E]" },
   ];
 
@@ -831,7 +831,7 @@ export default function ReturnsPage() {
             onItemAdded={(r) => { addReturn(r); showToast(`✓ Item logged — ${r.asin ?? r.fnsku ?? r.sku ?? r.item_name}`); }}
             onReturnAssigned={syncReturnAfterPackageAssignment}
             onReturnRemoved={removeReturn}
-            onPackageDeleted={(id) => { removePackage(id); closeDrawer(); showToast("Package deleted.", "warning"); }}
+            onPackageDeleted={(id) => { removePackage(id); closeDrawer(); showToast("Box deleted.", "warning"); }}
             onOpenItem={(r) => pushDrawer({ type: "item", record: r })}
             onOpenPallet={(plt) => pushDrawer({ type: "pallet", record: plt })}
             showToast={showToast as (msg: string, kind?: ToastKind) => void}
@@ -871,7 +871,7 @@ export default function ReturnsPage() {
           onCreatePallet={() => { setWizardOpen(false); setCreatePalletOpen(true); }}
           inheritedContext={wizardInherited}
           aiLabelEnabled={orgSettings.is_ai_label_ocr_enabled}
-          onSoftPackageWarning={() => showToast("Warning: This item is not on the package's expected list.", "warning")}
+          onSoftPackageWarning={() => showToast("Warning: This item is not on the box's expected list.", "warning")}
           onToast={showToast}
           onNavigateToPackage={(id) => {
             const p = packages.find((x) => x.id === id);
@@ -897,7 +897,7 @@ export default function ReturnsPage() {
       {createPackageOpen && (
         <CreatePackageModal
           onClose={() => setCreatePackageOpen(false)}
-          onCreated={(p) => { addPackage(p); setCreatePackageOpen(false); showToast(`Package ${p.package_code} created.`); }}
+          onCreated={(p) => { addPackage(p); setCreatePackageOpen(false); showToast(`Box ${p.package_code} created.`); }}
           actor={actor}
           organizationId={effectiveWriteOrgId}
           actorProfileId={actorUserId}
