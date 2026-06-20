@@ -72,9 +72,22 @@ export type PalletIssuesDisplay = {
   primaryLabel: string;
   title: string;
   kind: "muted" | "warn";
-  /** Extra compact type badges when multiple issue categories apply. */
-  typeBadges: PalletIssueLabel[];
+  /** Extra compact type badges when multiple issue categories apply (display labels). */
+  typeBadges: string[];
 };
+
+/** UI-facing issue labels — does not affect issue detection/counting. */
+const ISSUE_LABEL_DISPLAY: Record<PalletIssueLabel, string> = {
+  "Missing units": "Missing",
+  "Marked missing": "Marked missing",
+  "Open box": "Open box",
+  "Slip review": "Slip review",
+  Discrepancy: "Qty mismatch",
+};
+
+function toIssueDisplayLabels(labels: PalletIssueLabel[]): string[] {
+  return labels.map((label) => ISSUE_LABEL_DISPLAY[label]);
+}
 
 export type ReturnsReportScannerIndex = {
   itemByReturnId: Map<string, ReturnItemScannerRow>;
@@ -277,6 +290,50 @@ function packageHasIssue(pkg: PackageRecord, summary: PackageScannerRow): boolea
   return packageIssueLabels(pkg, summary).length > 0;
 }
 
+/** Issue categories for one package — read-only; mirrors `packageHasIssue` predicates. */
+export function derivePackageIssueLabels(
+  pkg: PackageRecord,
+  summary: PackageScannerRow | null | undefined,
+): PalletIssueLabel[] {
+  if (!summary) return [];
+  return packageIssueLabels(pkg, summary);
+}
+
+/** Compact Issues cell copy + tooltip for the Boxes report table. */
+export function formatPackageIssuesDisplay(
+  pkg: PackageRecord,
+  summary: PackageScannerRow | null | undefined,
+): PalletIssuesDisplay {
+  const labels = derivePackageIssueLabels(pkg, summary);
+  const displayLabels = toIssueDisplayLabels(labels);
+
+  if (labels.length <= 0) {
+    return {
+      primaryLabel: "—",
+      title: summary ? "No issues" : "",
+      kind: "muted",
+      typeBadges: [],
+    };
+  }
+
+  if (labels.length === 1) {
+    return {
+      primaryLabel: displayLabels[0],
+      title: displayLabels[0],
+      kind: "warn",
+      typeBadges: [],
+    };
+  }
+
+  const title = displayLabels.join(", ");
+  return {
+    primaryLabel: `${labels.length} issues`,
+    title,
+    kind: "warn",
+    typeBadges: displayLabels.slice(0, 2),
+  };
+}
+
 /** Compact Issues cell copy + tooltip for the Pallets report table. */
 export function formatPalletIssuesDisplay(row: PalletScannerRow | null | undefined): PalletIssuesDisplay {
   if (!row || row.issues <= 0) {
@@ -289,15 +346,13 @@ export function formatPalletIssuesDisplay(row: PalletScannerRow | null | undefin
   }
 
   const types = row.issueLabels;
+  const displayTypes = toIssueDisplayLabels(types);
   const packageWord = row.issues === 1 ? "package" : "packages";
   const fallbackTitle = `${row.issues} ${packageWord} with scanner discrepancies`;
-  const title =
-    types.length > 0
-      ? types.join(", ")
-      : fallbackTitle;
+  const title = types.length > 0 ? displayTypes.join(", ") : fallbackTitle;
 
   if (row.issues === 1 && types.length === 1) {
-    return { primaryLabel: types[0], title, kind: "warn", typeBadges: [] };
+    return { primaryLabel: displayTypes[0], title, kind: "warn", typeBadges: [] };
   }
 
   const countLabel = row.issues === 1 ? "1 issue" : `${row.issues} issues`;
@@ -305,7 +360,7 @@ export function formatPalletIssuesDisplay(row: PalletScannerRow | null | undefin
     primaryLabel: countLabel,
     title,
     kind: "warn",
-    typeBadges: types.length > 1 ? types.slice(0, 2) : types,
+    typeBadges: displayTypes.length > 1 ? displayTypes.slice(0, 2) : displayTypes,
   };
 }
 

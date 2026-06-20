@@ -73,13 +73,15 @@ import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
 import {
   buildReturnsReportScannerIndex,
+  derivePackageIssueLabels,
   exceptionBadgePillKind,
+  formatPackageIssuesDisplay,
   formatPalletIssuesDisplay,
   formatReportCount,
   scannerReportPillClass,
   slipReviewPillKind,
   type ItemExceptionBadgeLabel,
-  type PalletScannerRow,
+  type PalletIssuesDisplay,
 } from "../../lib/returns-report-scanner-columns";
 import {
   getReturnPhotoEvidenceUrls,
@@ -1123,10 +1125,13 @@ function ScannerReportDash() {
   return <span className={`text-xs ${RT_MUTED}`}>—</span>;
 }
 
-function PalletIssuesCell({ row }: { row: PalletScannerRow | null | undefined }) {
-  const display = formatPalletIssuesDisplay(row);
+function ReportIssuesCell({ display }: { display: PalletIssuesDisplay }) {
   if (display.kind === "muted") {
-    return <ScannerReportDash />;
+    return (
+      <span className={`text-xs ${RT_MUTED}`} title={display.title || undefined}>
+        —
+      </span>
+    );
   }
   return (
     <div className="flex max-w-[140px] flex-wrap items-center gap-1" title={display.title || undefined}>
@@ -1194,6 +1199,7 @@ function sortKeyPackage(p: PackageRecord, field: string, nameMap?: Record<string
     case "scanner_missing": return (p as unknown as { _scannerMissing?: number })._scannerMissing ?? -1;
     case "scanner_marked_missing": return (p as unknown as { _scannerMarkedMissing?: number })._scannerMarkedMissing ?? -1;
     case "scanner_slip_review": return String((p as unknown as { _scannerSlipReview?: string })._scannerSlipReview ?? "").toLowerCase();
+    case "scanner_issues": return (p as unknown as { _scannerIssues?: number })._scannerIssues ?? -1;
     case "scanner_last_operator": return String((p as unknown as { _scannerLastOperator?: string })._scannerLastOperator ?? "").toLowerCase();
     case "scanner_last_activity": return (p as unknown as { _scannerLastActivity?: number })._scannerLastActivity ?? 0;
     default: return String((p as unknown as Record<string, unknown>)[field] ?? "").toLowerCase();
@@ -7362,12 +7368,14 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     if (dateTo)   d = d.filter((p) => p.created_at <= dateTo + "T23:59:59.999Z");
     d = d.map((p) => {
       const ctx = scannerIndex.packageById.get(p.id);
+      const issueLabels = derivePackageIssueLabels(p, ctx);
       return Object.assign(p, {
         _scannerExpected: ctx?.expected ?? -1,
         _scannerScanned: ctx?.scanned ?? 0,
         _scannerMissing: ctx?.missing ?? -1,
         _scannerMarkedMissing: ctx?.markedMissing ?? -1,
         _scannerSlipReview: ctx?.slipReview ?? "",
+        _scannerIssues: issueLabels.length,
         _scannerLastOperator: ctx?.lastOperatorId ?? "",
         _scannerLastActivity: ctx?.lastActivityAt ? new Date(ctx.lastActivityAt).getTime() : 0,
       });
@@ -7508,6 +7516,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.missing} /></th>
                 <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_marked_missing" label="Marked Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.markedMissing} /></th>
                 <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_slip_review" label="Slip Review" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.slipReview} /></th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_issues" label="Issues" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.issues} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
@@ -7581,6 +7590,9 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                           )
                           : <ScannerReportDash />}
                       </td>
+                      <td className={`hidden px-3 py-3 lg:table-cell ${RT_PRIMARY}`}>
+                        <ReportIssuesCell display={formatPackageIssuesDisplay(p, scanCtx)} />
+                      </td>
                       <td className="px-4 py-3"><PkgStatusBadge status={p.status} /></td>
                       <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
                         {scanCtx?.lastOperatorId
@@ -7601,7 +7613,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                     </tr>
                     {isExpanded && (
                       <tr className={RT_NESTED_ROW_BG}>
-                        <td colSpan={showCompanyColumn ? 18 : 17} className="px-6 py-3">
+                        <td colSpan={showCompanyColumn ? 19 : 18} className="px-6 py-3">
                           {pkgItems.length === 0
                             ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No items scanned for this box yet.</p>
                             : (
@@ -7957,7 +7969,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                       <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.scanned)}</td>
                       <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.missing)}</td>
                       <td className={`hidden px-3 py-3 lg:table-cell ${RT_PRIMARY}`}>
-                        <PalletIssuesCell row={scanCtx} />
+                        <ReportIssuesCell display={formatPalletIssuesDisplay(scanCtx)} />
                       </td>
                       <td className="px-4 py-3"><PalletStatusBadge status={p.status} /></td>
                       <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
