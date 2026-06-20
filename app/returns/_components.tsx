@@ -72,6 +72,16 @@ import {
 import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
 import {
+  buildReturnsReportScannerIndex,
+  exceptionBadgePillKind,
+  formatPalletIssuesDisplay,
+  formatReportCount,
+  scannerReportPillClass,
+  slipReviewPillKind,
+  type ItemExceptionBadgeLabel,
+  type PalletScannerRow,
+} from "../../lib/returns-report-scanner-columns";
+import {
   getReturnPhotoEvidenceUrls,
   mergeReturnPhotoEvidence,
   photoEvidenceCategoryCounts,
@@ -1047,6 +1057,44 @@ function compareSortKeys(a: string | number, b: string | number, asc: boolean): 
   return asc ? sa.localeCompare(sb) : sb.localeCompare(sa);
 }
 
+function ScannerReportPill({
+  label,
+  kind = "neutral",
+  title,
+}: {
+  label: string;
+  kind?: "neutral" | "info" | "warn" | "ok" | "muted";
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={`inline-flex max-w-[120px] truncate rounded-full border px-1.5 py-0.5 text-[10px] font-bold leading-none ${scannerReportPillClass(kind)}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ScannerReportDash() {
+  return <span className={`text-xs ${RT_MUTED}`}>—</span>;
+}
+
+function PalletIssuesCell({ row }: { row: PalletScannerRow | null | undefined }) {
+  const display = formatPalletIssuesDisplay(row);
+  if (display.kind === "muted") {
+    return <ScannerReportDash />;
+  }
+  return (
+    <div className="flex max-w-[140px] flex-wrap items-center gap-1" title={display.title || undefined}>
+      <ScannerReportPill label={display.primaryLabel} kind="warn" title={display.title || undefined} />
+      {display.typeBadges.map((badge) => (
+        <ScannerReportPill key={badge} label={badge} kind="info" title={display.title || undefined} />
+      ))}
+    </div>
+  );
+}
+
 function sortKeyItem(
   r: ReturnRecord,
   field: string,
@@ -1073,6 +1121,10 @@ function sortKeyItem(
       const pltPart = linkedPlt?.pallet_number ?? "";
       return `${linkedPkg.package_code}\0${pltPart}`.toLowerCase();
     }
+    case "box_code": return (linkedPkg?.package_code ?? "").toLowerCase();
+    case "pallet_number_col": return (linkedPlt?.pallet_number ?? "").toLowerCase();
+    case "scan_source": return String((r as unknown as { _scanSource?: string })._scanSource ?? "").toLowerCase();
+    case "exception_badge": return String((r as unknown as { _exceptionBadge?: string })._exceptionBadge ?? "").toLowerCase();
     case "expiration_date": return r.expiration_date ? r.expiration_date : "\uffff";
     case "created_by": return operatorDisplayLabel(r, nameMap).toLowerCase();
     case "created_at": return new Date(r.created_at).getTime();
@@ -1094,6 +1146,13 @@ function sortKeyPackage(p: PackageRecord, field: string, nameMap?: Record<string
     case "store_name": return (p.stores?.name ?? "").toLowerCase();
     case "created_by": return operatorDisplayLabel(p, nameMap).toLowerCase();
     case "created_at": return new Date(p.created_at).getTime();
+    case "scanner_expected": return (p as unknown as { _scannerExpected?: number })._scannerExpected ?? -1;
+    case "scanner_scanned": return (p as unknown as { _scannerScanned?: number })._scannerScanned ?? -1;
+    case "scanner_missing": return (p as unknown as { _scannerMissing?: number })._scannerMissing ?? -1;
+    case "scanner_marked_missing": return (p as unknown as { _scannerMarkedMissing?: number })._scannerMarkedMissing ?? -1;
+    case "scanner_slip_review": return String((p as unknown as { _scannerSlipReview?: string })._scannerSlipReview ?? "").toLowerCase();
+    case "scanner_last_operator": return String((p as unknown as { _scannerLastOperator?: string })._scannerLastOperator ?? "").toLowerCase();
+    case "scanner_last_activity": return (p as unknown as { _scannerLastActivity?: number })._scannerLastActivity ?? 0;
     default: return String((p as unknown as Record<string, unknown>)[field] ?? "").toLowerCase();
   }
 }
@@ -1109,11 +1168,16 @@ function sortKeyPallet(p: PalletSortRow, field: string, nameMap?: Record<string,
     case "store_name": return (p.stores?.name ?? "").toLowerCase();
     case "created_by": return operatorDisplayLabel(p, nameMap).toLowerCase();
     case "created_at": return new Date(p.created_at).getTime();
+    case "scanner_boxes": return (p as unknown as { _scannerBoxesClosed?: number })._scannerBoxesClosed ?? -1;
+    case "scanner_expected": return (p as unknown as { _scannerExpected?: number })._scannerExpected ?? -1;
+    case "scanner_scanned": return (p as unknown as { _scannerScanned?: number })._scannerScanned ?? -1;
+    case "scanner_missing": return (p as unknown as { _scannerMissing?: number })._scannerMissing ?? -1;
+    case "scanner_issues": return (p as unknown as { _scannerIssues?: number })._scannerIssues ?? -1;
+    case "scanner_last_operator": return String((p as unknown as { _scannerLastOperator?: string })._scannerLastOperator ?? "").toLowerCase();
+    case "scanner_last_activity": return (p as unknown as { _scannerLastActivity?: number })._scannerLastActivity ?? 0;
     default: return String((p as unknown as Record<string, unknown>)[field] ?? "").toLowerCase();
   }
 }
-
-// ─── ComboboxField ─────────────────────────────────────────────────────────────
 
 interface ComboboxOption {
   id: string;
@@ -6869,10 +6933,18 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
   const pkgMap = useMemo(() => new Map(packages.map((p) => [p.id, p])), [packages]);
   const pltMap = useMemo(() => new Map(pallets.map((p) => [p.id, p])), [pallets]);
 
+  const scannerIndex = useMemo(
+    () => buildReturnsReportScannerIndex({ returns: items, packages, pallets }),
+    [items, packages, pallets],
+  );
+
   // Resolve all created_by UUIDs to human-readable names for the Operator column.
   const allItemCreatorIds = useMemo(
-    () => items.map((r) => r.created_by).filter((id): id is string => !!id),
-    [items],
+    () => [
+      ...items.map((r) => r.created_by).filter((id): id is string => !!id),
+      ...scannerIndex.extraOperatorIds,
+    ],
+    [items, scannerIndex.extraOperatorIds],
   );
   const itemTableOperatorNames = useProfileNames(allItemCreatorIds);
 
@@ -6900,6 +6972,13 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
     if (marketF)  d = d.filter((r) => r.marketplace === marketF);
     if (dateFrom) d = d.filter((r) => r.created_at >= dateFrom);
     if (dateTo)   d = d.filter((r) => r.created_at <= dateTo + "T23:59:59.999Z");
+    d = d.map((r) => {
+      const ctx = scannerIndex.itemByReturnId.get(r.id);
+      return Object.assign(r, {
+        _scanSource: ctx?.scanSource ?? "",
+        _exceptionBadge: ctx?.exceptionBadge ?? "",
+      });
+    });
     d.sort((a, b) =>
       compareSortKeys(
         sortKeyItem(a, sortField, pkgMap, pltMap, itemTableOperatorNames),
@@ -6908,7 +6987,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
       ),
     );
     return d;
-  }, [items, search, externalSearch, statusF, marketF, dateFrom, dateTo, sortField, sortAsc, pkgMap, pltMap, itemTableOperatorNames]);
+  }, [items, search, externalSearch, statusF, marketF, dateFrom, dateTo, sortField, sortAsc, pkgMap, pltMap, itemTableOperatorNames, scannerIndex]);
 
   const hasActiveFilters = !!(externalSearch.trim() || search || statusF || marketF || dateFrom || dateTo);
 
@@ -6976,7 +7055,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
 
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0">
-          <table className="w-full min-w-[1528px] text-sm">
+          <table className="w-full min-w-[1780px] text-sm">
             <thead>
               <tr className={RT_THEAD_ROW}>
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
@@ -6999,6 +7078,10 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                 {/* ── NEW: Evidence Photo column ── */}
                 <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Photo</th>
                 <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="hierarchy_key" label="Hierarchy" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Box #</th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}>Pallet #</th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Scan Source</th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}>Exception</th>
                 <th className="hidden px-4 py-3 text-left xl:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-3 py-3" />
@@ -7011,6 +7094,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                 const track = r.inherited_tracking_number ?? linkedPkg?.tracking_number ?? "";
                 const expiryStatus = getExpiryStatus(r.expiration_date, fefo_critical, fefo_warning);
                 const peUrls = getReturnPhotoEvidenceUrls(r.photo_evidence);
+                const scanCtx = scannerIndex.itemByReturnId.get(r.id);
                 return (
                   <tr key={r.id} onClick={() => onRowClick(r)} className={`group cursor-pointer transition ${RT_ROW_HOVER}`}>
                     <td className={TD_CHK} onClick={(e) => e.stopPropagation()}>
@@ -7091,6 +7175,27 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         ? <span className="inline-flex items-center gap-1 rounded-full bg-[#EFE6D2] px-2 py-0.5 font-mono text-[10px] font-bold text-[#6C5320] dark:bg-[#2A2418] dark:text-[#E8CF98]">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
                         : <span className="inline-flex items-center gap-1 rounded-full bg-[#F5E9D2] px-2 py-0.5 text-[10px] font-bold text-[#6A4C16] dark:bg-[#312613] dark:text-[#EFD49A]">⚠ Orphaned / Loose</span>}
                     </td>
+                    <td className={`hidden px-3 py-3 font-mono text-[11px] md:table-cell ${RT_MUTED}`}>
+                      {scanCtx?.boxCode ?? linkedPkg?.package_code ?? <ScannerReportDash />}
+                    </td>
+                    <td className={`hidden px-3 py-3 font-mono text-[11px] lg:table-cell ${RT_MUTED}`}>
+                      {scanCtx?.palletNumber ?? linkedPlt?.pallet_number ?? <ScannerReportDash />}
+                    </td>
+                    <td className="hidden px-3 py-3 md:table-cell">
+                      {scanCtx?.scanSource
+                        ? <ScannerReportPill label={scanCtx.scanSource} kind="info" />
+                        : <ScannerReportDash />}
+                    </td>
+                    <td className="hidden px-3 py-3 lg:table-cell">
+                      {scanCtx?.exceptionBadge
+                        ? (
+                          <ScannerReportPill
+                            label={scanCtx.exceptionBadge}
+                            kind={exceptionBadgePillKind(scanCtx.exceptionBadge)}
+                          />
+                        )
+                        : <ScannerReportDash />}
+                    </td>
                     <td className={`hidden px-4 py-3 xl:table-cell text-xs ${RT_MUTED}`}>{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
                     <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(r.created_at)}</td>
                     <td className="px-3 py-3">
@@ -7168,10 +7273,18 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     return m;
   }, [allReturns]);
 
+  const scannerIndex = useMemo(
+    () => buildReturnsReportScannerIndex({ returns: allReturns, packages, pallets }),
+    [allReturns, packages, pallets],
+  );
+
   // Resolve created_by UUIDs → display names for the Operator column.
   const allPkgCreatorIds = useMemo(
-    () => packages.map((p) => p.created_by).filter((id): id is string => !!id),
-    [packages],
+    () => [
+      ...packages.map((p) => p.created_by).filter((id): id is string => !!id),
+      ...scannerIndex.extraOperatorIds,
+    ],
+    [packages, scannerIndex.extraOperatorIds],
   );
   const pkgTableOperatorNames = useProfileNames(allPkgCreatorIds);
 
@@ -7189,6 +7302,18 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     if (carrierF) d = d.filter((p) => p.carrier_name === carrierF);
     if (dateFrom) d = d.filter((p) => p.created_at >= dateFrom);
     if (dateTo)   d = d.filter((p) => p.created_at <= dateTo + "T23:59:59.999Z");
+    d = d.map((p) => {
+      const ctx = scannerIndex.packageById.get(p.id);
+      return Object.assign(p, {
+        _scannerExpected: ctx?.expected ?? -1,
+        _scannerScanned: ctx?.scanned ?? 0,
+        _scannerMissing: ctx?.missing ?? -1,
+        _scannerMarkedMissing: ctx?.markedMissing ?? -1,
+        _scannerSlipReview: ctx?.slipReview ?? "",
+        _scannerLastOperator: ctx?.lastOperatorId ?? "",
+        _scannerLastActivity: ctx?.lastActivityAt ? new Date(ctx.lastActivityAt).getTime() : 0,
+      });
+    });
     d.sort((a, b) => {
       if (sortField === "pkg_items_sort") {
         const ca = assignedByPackage.get(a.id) ?? 0;
@@ -7198,7 +7323,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
       return compareSortKeys(sortKeyPackage(a, sortField, pkgTableOperatorNames), sortKeyPackage(b, sortField, pkgTableOperatorNames), sortAsc);
     });
     return d;
-  }, [packages, search, externalSearch, statusF, carrierF, dateFrom, dateTo, sortField, sortAsc, assignedByPackage, pkgTableOperatorNames]);
+  }, [packages, search, externalSearch, statusF, carrierF, dateFrom, dateTo, sortField, sortAsc, assignedByPackage, pkgTableOperatorNames, scannerIndex]);
 
   const hasActiveFilters = !!(externalSearch.trim() || search || statusF || carrierF || dateFrom || dateTo);
 
@@ -7304,7 +7429,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
       </div>
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[1280px] text-sm">
             <thead>
               <tr className={RT_THEAD_ROW}>
                 <th className={TH_EXP} aria-hidden />
@@ -7320,7 +7445,14 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="carrier_tracking" label="Carrier / Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="pkg_items_sort" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_marked_missing" label="Marked Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_slip_review" label="Slip Review" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-3 py-3" />
@@ -7332,6 +7464,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                 const pct = p.expected_item_count > 0 ? Math.min(100, (assignedCount / p.expected_item_count) * 100) : null;
                 const isExpanded = expandedIds.has(p.id);
                 const pkgItems = allReturns.filter((r) => r.package_id === p.id);
+                const scanCtx = scannerIndex.packageById.get(p.id);
                 return (
                   <React.Fragment key={p.id}>
                     <tr onClick={() => onRowClick(p)} className={`group cursor-pointer transition ${RT_ROW_HOVER}`}>
@@ -7376,7 +7509,29 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                         </div>
                       </td>
                       <td className="px-4 py-3"><div className="flex items-center gap-2"><span className={`text-sm font-bold ${RT_PRIMARY}`}>{assignedCount}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</span>{pct !== null && <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-[#E8E2D6] dark:bg-[#2E3740] sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-[#B08A3C] dark:bg-[#D6B76E]"}`} style={{ width: `${pct}%` }} /></div>}</div></td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.expected)}</td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.scanned)}</td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.missing)}</td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.markedMissing)}</td>
+                      <td className="hidden px-3 py-3 lg:table-cell">
+                        {scanCtx?.slipReview
+                          ? (
+                            <ScannerReportPill
+                              label={scanCtx.slipReview}
+                              kind={slipReviewPillKind(scanCtx.slipReview)}
+                            />
+                          )
+                          : <ScannerReportDash />}
+                      </td>
                       <td className="px-4 py-3"><PkgStatusBadge status={p.status} /></td>
+                      <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
+                        {scanCtx?.lastOperatorId
+                          ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pkgTableOperatorNames)
+                          : <ScannerReportDash />}
+                      </td>
+                      <td className={`hidden px-3 py-3 text-xs md:table-cell lg:table-cell ${RT_MUTED}`}>
+                        {scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : <ScannerReportDash />}
+                      </td>
                       <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pkgTableOperatorNames)}</td>
                       <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} md:table-cell`}>{fmt(p.created_at)}</td>
                       <td className="px-3 py-3">
@@ -7388,7 +7543,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                     </tr>
                     {isExpanded && (
                       <tr className={RT_NESTED_ROW_BG}>
-                        <td colSpan={showCompanyColumn ? 11 : 10} className="px-6 py-3">
+                        <td colSpan={showCompanyColumn ? 18 : 17} className="px-6 py-3">
                           {pkgItems.length === 0
                             ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No items scanned for this package yet.</p>
                             : (
@@ -7502,10 +7657,18 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
   const [nestedPkgExpandedIds, setNestedPkgExpandedIds] = useState<Set<string>>(new Set());
   const PER = 25;
 
+  const scannerIndex = useMemo(
+    () => buildReturnsReportScannerIndex({ returns: allReturns, packages: allPackages, pallets }),
+    [allReturns, allPackages, pallets],
+  );
+
   // Resolve created_by UUIDs → display names for the Operator column.
   const allPltCreatorIds = useMemo(
-    () => pallets.map((p) => p.created_by).filter((id): id is string => !!id),
-    [pallets],
+    () => [
+      ...pallets.map((p) => p.created_by).filter((id): id is string => !!id),
+      ...scannerIndex.extraOperatorIds,
+    ],
+    [pallets, scannerIndex.extraOperatorIds],
   );
   const pltTableOperatorNames = useProfileNames(allPltCreatorIds);
 
@@ -7527,10 +7690,18 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
     let d: PalletSortRow[] = pallets.map((p) => {
       const pkgsOnPallet = allPackages.filter((pk) => pk.pallet_id === p.id);
       const rollupItems = allReturns.filter((r) => r.pallet_id === p.id).length;
+      const scanCtx = scannerIndex.palletById.get(p.id);
       return {
         ...p,
         _rollupPkgs: p.child_packages_count ?? pkgsOnPallet.length,
         _rollupItems: p.child_returns_count ?? rollupItems,
+        _scannerBoxesClosed: scanCtx?.boxesClosed ?? 0,
+        _scannerExpected: scanCtx?.expected ?? -1,
+        _scannerScanned: scanCtx?.scanned ?? 0,
+        _scannerMissing: scanCtx?.missing ?? -1,
+        _scannerIssues: scanCtx?.issues ?? 0,
+        _scannerLastOperator: scanCtx?.lastOperatorId ?? "",
+        _scannerLastActivity: scanCtx?.lastActivityAt ? new Date(scanCtx.lastActivityAt).getTime() : 0,
       };
     });
     const q = (externalSearch.trim() || search).trim().toLowerCase();
@@ -7542,7 +7713,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
       compareSortKeys(sortKeyPallet(a, sortField, pltTableOperatorNames), sortKeyPallet(b, sortField, pltTableOperatorNames), sortAsc),
     );
     return d;
-  }, [pallets, allPackages, allReturns, search, externalSearch, statusF, dateFrom, dateTo, sortField, sortAsc, pltTableOperatorNames]);
+  }, [pallets, allPackages, allReturns, search, externalSearch, statusF, dateFrom, dateTo, sortField, sortAsc, pltTableOperatorNames, scannerIndex]);
 
   const hasActiveFilters = !!(externalSearch.trim() || search || statusF || storeFilter || dateFrom || dateTo);
 
@@ -7652,7 +7823,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
       </div>
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[1120px] text-sm">
             <thead>
               <tr className={RT_THEAD_ROW}>
                 <th className={TH_EXP} aria-hidden />
@@ -7673,7 +7844,14 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                     <SortButton field="rollup_items" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
                   </div>
                 </th>
+                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_boxes" label="Boxes" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_issues" label="Issues" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-3 py-3" />
@@ -7683,6 +7861,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
               {rows.map((p) => {
                 const isExpanded = expandedIds.has(p.id);
                 const pltPackages = allPackages.filter((pk) => pk.pallet_id === p.id);
+                const scanCtx = scannerIndex.palletById.get(p.id);
                 return (
                   <React.Fragment key={p.id}>
                     <tr onClick={() => onRowClick(p)} className={`group cursor-pointer transition ${RT_ROW_HOVER}`}>
@@ -7711,7 +7890,26 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                         <StoreBadge name={p.stores?.name} platform={p.stores?.platform} fallback="Multi-Store" />
                       </td>
                       <td className="px-4 py-3"><span className={`font-bold ${RT_PRIMARY}`}>{p._rollupPkgs}</span><span className={`mx-1 ${RT_MUTED}`}>pkgs</span><span className={`font-bold ${RT_SECONDARY}`}>{p._rollupItems}</span><span className={`ml-1 ${RT_MUTED}`}>items</span></td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>
+                        {scanCtx && scanCtx.boxesTotal > 0
+                          ? `${scanCtx.boxesClosed}/${scanCtx.boxesTotal}`
+                          : <ScannerReportDash />}
+                      </td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.expected)}</td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.scanned)}</td>
+                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.missing)}</td>
+                      <td className={`hidden px-3 py-3 lg:table-cell ${RT_PRIMARY}`}>
+                        <PalletIssuesCell row={scanCtx} />
+                      </td>
                       <td className="px-4 py-3"><PalletStatusBadge status={p.status} /></td>
+                      <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
+                        {scanCtx?.lastOperatorId
+                          ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pltTableOperatorNames)
+                          : <ScannerReportDash />}
+                      </td>
+                      <td className={`hidden px-3 py-3 text-xs lg:table-cell ${RT_MUTED}`}>
+                        {scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : <ScannerReportDash />}
+                      </td>
                       <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pltTableOperatorNames)}</td>
                       <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(p.created_at)}</td>
                       <td className="px-3 py-3">
@@ -7723,7 +7921,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                     </tr>
                     {isExpanded && (
                       <tr className={RT_NESTED_ROW_BG}>
-                        <td colSpan={showCompanyColumn ? 10 : 9} className="px-6 py-3">
+                        <td colSpan={showCompanyColumn ? 17 : 16} className="px-6 py-3">
                           {pltPackages.length === 0
                             ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No packages linked to this pallet yet.</p>
                             : (

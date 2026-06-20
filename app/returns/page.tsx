@@ -42,6 +42,59 @@ import {
 
 type ActiveTab = "items" | "packages" | "pallets";
 
+type ReturnsScopeDebugPhase =
+  | "initial_load"
+  | "company_filter_change"
+  | "tab_change"
+  | "before_items_query"
+  | "before_packages_query"
+  | "before_pallets_query";
+
+function logReturnsScopeDebug(
+  phase: ReturnsScopeDebugPhase,
+  payload: Record<string, unknown>,
+): void {
+  if (process.env.NODE_ENV === "production") return;
+  console.log("[returns-scope-debug]", { phase, ...payload });
+}
+
+/** Report list scope — super_admin on parent workspace defaults to all companies when no explicit pick. */
+function resolveReturnsListFilterOrganizationId(opts: {
+  canViewAllCompanies: boolean;
+  viewAllCompanies: boolean;
+  reportCompanyFilterOrganizationId: string;
+  workspaceOrganizationId: string | null;
+  homeOrganizationId: string | null;
+}): string | undefined {
+  const {
+    canViewAllCompanies,
+    viewAllCompanies,
+    reportCompanyFilterOrganizationId,
+    workspaceOrganizationId,
+    homeOrganizationId,
+  } = opts;
+  if (canViewAllCompanies) {
+    if (viewAllCompanies) return undefined;
+    const picked = reportCompanyFilterOrganizationId.trim();
+    if (picked && isUuidString(picked)) return picked;
+    return undefined;
+  }
+  const workspace = (workspaceOrganizationId ?? "").trim();
+  if (workspace && isUuidString(workspace)) return workspace;
+  const home = (homeOrganizationId ?? "").trim();
+  return home && isUuidString(home) ? home : undefined;
+}
+
+function returnsQueryScopeMode(
+  canViewAllCompanies: boolean,
+  filterOrganizationId: string | undefined,
+): "all_companies" | "single_company" | "workspace_scoped" {
+  if (canViewAllCompanies) {
+    return filterOrganizationId ? "single_company" : "all_companies";
+  }
+  return "workspace_scoped";
+}
+
 export default function ReturnsPage() {
   // ── Data State ──────────────────────────────────────────────────────────────
   const [returns,      setReturns]      = useState<ReturnRecord[]>([]);
@@ -70,6 +123,7 @@ export default function ReturnsPage() {
     workspaceOrganizations,
     workspaceViewMode,
     workspaceViewModeReady,
+    profileLoading,
   } = useUserRole();
   /** Report-only: All companies mode (super_admin parent workspace). Does not change header workspace. */
   const [viewAllCompanies, setViewAllCompanies] = useState(true);
@@ -98,23 +152,34 @@ export default function ReturnsPage() {
   const [storeFilter, setStoreFilter] = useState<string>("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string; platform: string }[]>([]);
 
-  const listFilterOrganizationId = useMemo((): string | undefined => {
-    if (canViewAllCompanies && viewAllCompanies) return undefined;
-    if (canViewAllCompanies && !viewAllCompanies) {
-      const picked = reportCompanyFilterOrganizationId.trim();
-      if (picked && isUuidString(picked)) return picked;
-    }
-    const workspace = (userOrgId ?? "").trim();
-    if (workspace && isUuidString(workspace)) return workspace;
-    const home = (homeOrganizationId ?? "").trim();
-    return home && isUuidString(home) ? home : undefined;
-  }, [
-    canViewAllCompanies,
-    viewAllCompanies,
-    reportCompanyFilterOrganizationId,
-    userOrgId,
-    homeOrganizationId,
-  ]);
+  /** Super Admin parent workspace: wait for org type before resolving All-companies scope. */
+  const reportFilterReady = useMemo(
+    () => !profileLoading && (!isSuperAdmin || workspaceViewModeReady),
+    [profileLoading, isSuperAdmin, workspaceViewModeReady],
+  );
+
+  const listFilterOrganizationId = useMemo(
+    () =>
+      resolveReturnsListFilterOrganizationId({
+        canViewAllCompanies,
+        viewAllCompanies,
+        reportCompanyFilterOrganizationId,
+        workspaceOrganizationId: userOrgId,
+        homeOrganizationId,
+      }),
+    [
+      canViewAllCompanies,
+      viewAllCompanies,
+      reportCompanyFilterOrganizationId,
+      userOrgId,
+      homeOrganizationId,
+    ],
+  );
+
+  const queryScopeMode = useMemo(
+    () => returnsQueryScopeMode(canViewAllCompanies, listFilterOrganizationId),
+    [canViewAllCompanies, listFilterOrganizationId],
+  );
 
   const tenantQuery = useMemo(
     () => ({ actorProfileId: actorUserId, filterOrganizationId: listFilterOrganizationId }),
@@ -179,13 +244,72 @@ export default function ReturnsPage() {
     return () => { cancelled = true; };
   }, [showCompanyFilter]);
 
-  /** Child-org / tenant workspace: never keep All-companies report mode active. */
+  /** Child-org / tenant workspace: clear All-companies report mode once workspace type is known. */
   useEffect(() => {
-    if (!canViewAllCompanies && viewAllCompanies) {
+    if (!workspaceViewModeReady) return;
+    if (!canViewAllCompanies && (viewAllCompanies || reportCompanyFilterOrganizationId)) {
       setViewAllCompanies(false);
       setReportCompanyFilterOrganizationId("");
     }
-  }, [canViewAllCompanies, viewAllCompanies]);
+  }, [
+    workspaceViewModeReady,
+    canViewAllCompanies,
+    viewAllCompanies,
+    reportCompanyFilterOrganizationId,
+  ]);
+
+  /** Parent workspace super_admin: restore All-companies when no explicit company pick. */
+  useEffect(() => {
+    if (!workspaceViewModeReady || !canViewAllCompanies) return;
+    if (!reportCompanyFilterOrganizationId.trim() && !viewAllCompanies) {
+      setViewAllCompanies(true);
+    }
+  }, [
+    workspaceViewModeReady,
+    canViewAllCompanies,
+    reportCompanyFilterOrganizationId,
+    viewAllCompanies,
+  ]);
+
+  const scopeDebugPayload = useMemo(
+    () => ({
+      role,
+      isParentWorkspace: isViewingParentOrganization,
+      workspaceOrganizationId: userOrgId,
+      reportCompanyFilterOrganizationId,
+      viewAllCompanies,
+      effectiveListOrganizationId: listFilterOrganizationId,
+      activeTab,
+      queryScopeMode,
+    }),
+    [
+      role,
+      isViewingParentOrganization,
+      userOrgId,
+      reportCompanyFilterOrganizationId,
+      viewAllCompanies,
+      listFilterOrganizationId,
+      activeTab,
+      queryScopeMode,
+    ],
+  );
+
+  const scopeDebugPayloadRef = useRef(scopeDebugPayload);
+  scopeDebugPayloadRef.current = scopeDebugPayload;
+
+  const initialLoadLoggedRef = useRef(false);
+  useEffect(() => {
+    if (!reportFilterReady || initialLoadLoggedRef.current) return;
+    initialLoadLoggedRef.current = true;
+    logReturnsScopeDebug("initial_load", scopeDebugPayloadRef.current);
+  }, [reportFilterReady]);
+
+  const prevTabRef = useRef(activeTab);
+  useEffect(() => {
+    if (prevTabRef.current === activeTab) return;
+    prevTabRef.current = activeTab;
+    logReturnsScopeDebug("tab_change", scopeDebugPayloadRef.current);
+  }, [activeTab]);
 
   // After data loads, resolve the real DB name for every org_id present in the
   // rows. This catches the case where list_workspace_organizations_for_admin()
@@ -268,6 +392,7 @@ export default function ReturnsPage() {
 
   // ── Data Loading ─────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!reportFilterReady) return;
     let cancelled = false;
     async function load() {
       if (!hasLoadedOnceRef.current) setInitialLoading(true);
@@ -275,6 +400,10 @@ export default function ReturnsPage() {
       setFetchErrors([]);
       try {
         const settingsOrg = effectiveListOrganizationId;
+        const debug = scopeDebugPayloadRef.current;
+        logReturnsScopeDebug("before_items_query", debug);
+        logReturnsScopeDebug("before_packages_query", debug);
+        logReturnsScopeDebug("before_pallets_query", debug);
         const [r, p, pl, settings, fefo, retCount] = await Promise.all([
           listReturns(tenantQuery),
           listPackages(tenantQuery),
@@ -310,7 +439,7 @@ export default function ReturnsPage() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [tenantQuery, effectiveListOrganizationId]);
+  }, [reportFilterReady, tenantQuery, effectiveListOrganizationId]);
 
   // ── Derived helpers ──────────────────────────────────────────────────────────
   const openPackages = useMemo(() => packages.filter((p) => p.status === "open"), [packages]);
@@ -480,10 +609,30 @@ export default function ReturnsPage() {
                   if (v === "") {
                     setViewAllCompanies(true);
                     setReportCompanyFilterOrganizationId("");
+                    logReturnsScopeDebug("company_filter_change", {
+                      role,
+                      isParentWorkspace: isViewingParentOrganization,
+                      workspaceOrganizationId: userOrgId,
+                      reportCompanyFilterOrganizationId: "",
+                      viewAllCompanies: true,
+                      effectiveListOrganizationId: undefined,
+                      activeTab,
+                      queryScopeMode: "all_companies",
+                    });
                     return;
                   }
                   setViewAllCompanies(false);
                   setReportCompanyFilterOrganizationId(v);
+                  logReturnsScopeDebug("company_filter_change", {
+                    role,
+                    isParentWorkspace: isViewingParentOrganization,
+                    workspaceOrganizationId: userOrgId,
+                    reportCompanyFilterOrganizationId: v,
+                    viewAllCompanies: false,
+                    effectiveListOrganizationId: v,
+                    activeTab,
+                    queryScopeMode: "single_company",
+                  });
                 }}
                 className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
                 aria-label="Filter report by company"

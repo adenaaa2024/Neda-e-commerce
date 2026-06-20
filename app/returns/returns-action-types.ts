@@ -96,6 +96,11 @@ export type PackageRecord = {
   slip_photo_urls?: string[];
   /** Parsed packing-slip lines (JSONB) — normalized in `normalizePackageRow` for reconciliation UI. */
   manifest_data?: ExpectedItem[] | null;
+  /**
+   * Raw `packages.manifest_data` JSON when stored as an object (scanner ops: `operator_item_scan`, `box_slip_vision`).
+   * Read-only list payload — not written back on update.
+   */
+  manifest_data_raw?: Record<string, unknown> | null;
 };
 
 export type PackageInsertPayload = {
@@ -179,6 +184,8 @@ export type ReturnRecord = {
   store_id?: string | null;
   stores?: { name: string; platform: string } | null;
   pallet_id: string | null; package_id: string | null;
+  /** FK to expected_packages row this unit was received against (scanner split). */
+  expected_item_id?: string | null;
   order_id?: string | null;
   customer_id?: string | null;
   created_by?: string | null;
