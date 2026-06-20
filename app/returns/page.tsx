@@ -11,7 +11,7 @@ import { DatabaseTag } from "../../components/DatabaseTag";
 import { useGlobalSearch } from "../../components/GlobalSearchContext";
 import { useUserRole } from "../../components/UserRoleContext";
 import { listReturns, listPackages, listPallets, getOrgSettings, countReturns } from "./actions";
-import { listStores } from "../settings/adapters/actions";
+import { listStoresForOrganization } from "../settings/adapters/actions";
 import type { OrgSettings, PackageRecord, PalletRecord, ReturnRecord } from "./returns-action-types";
 import { getFefoSettings } from "../settings/workspace-settings-actions";
 import {
@@ -19,6 +19,7 @@ import {
   type InventoryModuleConfig,
 } from "../settings/workspace-settings-types";
 import { resolveOrganizationId } from "../../lib/organization";
+import { normalizeRoleKeyForBranding } from "../../lib/tenant-branding-permissions";
 import { isUuidString } from "../../lib/uuid";
 import {
   listWorkspaceOrganizationsForAdmin,
@@ -59,12 +60,35 @@ export default function ReturnsPage() {
 
   // ── UI State ────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>("items");
-  const { role, actorName: actor, actorUserId, organizationId: userOrgId } = useUserRole();
-  /** Super Admin: empty string = all tenants on lists */
-  const [superAdminListFilter, setSuperAdminListFilter] = useState("");
-  /** Super Admin: org id for new returns / packages / pallets */
-  const [superAdminCreateOrg, setSuperAdminCreateOrg] = useState<string>("");
+  const {
+    role,
+    actorName: actor,
+    actorUserId,
+    actorCanonicalRoleKey,
+    organizationId: userOrgId,
+    homeOrganizationId,
+    workspaceOrganizations,
+    workspaceViewMode,
+    workspaceViewModeReady,
+  } = useUserRole();
+  /** Report-only: All companies mode (super_admin parent workspace). Does not change header workspace. */
+  const [viewAllCompanies, setViewAllCompanies] = useState(true);
+  /** Report-only company filter — scopes list queries; never updates global workspace. */
+  const [reportCompanyFilterOrganizationId, setReportCompanyFilterOrganizationId] = useState("");
   const [companyOptions, setCompanyOptions] = useState<WorkspaceOrganizationOption[]>([]);
+  const companyOptionsForUi =
+    workspaceOrganizations.length > 0 ? workspaceOrganizations : companyOptions;
+
+  const isSuperAdmin =
+    normalizeRoleKeyForBranding(actorCanonicalRoleKey) === "super_admin";
+  /** Parent/root workspace = `organizations.type` internal → platform shell (`workspaceViewMode`). */
+  const isViewingParentOrganization =
+    workspaceViewModeReady && workspaceViewMode === "platform";
+  const canViewAllCompanies = isSuperAdmin && isViewingParentOrganization;
+  const showCompanyFilter =
+    isSuperAdmin && isViewingParentOrganization && companyOptionsForUi.length > 0;
+  /** Store filter is always available on Items / Packages / Pallets for allowed users. */
+  const showStoreFilter = true;
   /** Real org names fetched directly from organizations + organization_settings tables.
    *  Populated for every org_id found in the loaded data rows. */
   const [extraOrgLabels, setExtraOrgLabels] = useState<Record<string, string>>({});
@@ -74,36 +98,51 @@ export default function ReturnsPage() {
   const [storeFilter, setStoreFilter] = useState<string>("");
   const [storeOptions, setStoreOptions] = useState<{ id: string; name: string; platform: string }[]>([]);
 
-  const tenantQuery = useMemo(() => {
-    const filterOrg =
-      role === "super_admin"
-        ? (() => {
-            const t = superAdminListFilter.trim();
-            return t && isUuidString(t) ? t : undefined;
-          })()
-        : undefined;
-    return { actorProfileId: actorUserId, filterOrganizationId: filterOrg };
-  }, [actorUserId, role, superAdminListFilter]);
+  const listFilterOrganizationId = useMemo((): string | undefined => {
+    if (canViewAllCompanies && viewAllCompanies) return undefined;
+    if (canViewAllCompanies && !viewAllCompanies) {
+      const picked = reportCompanyFilterOrganizationId.trim();
+      if (picked && isUuidString(picked)) return picked;
+    }
+    const workspace = (userOrgId ?? "").trim();
+    if (workspace && isUuidString(workspace)) return workspace;
+    const home = (homeOrganizationId ?? "").trim();
+    return home && isUuidString(home) ? home : undefined;
+  }, [
+    canViewAllCompanies,
+    viewAllCompanies,
+    reportCompanyFilterOrganizationId,
+    userOrgId,
+    homeOrganizationId,
+  ]);
+
+  const tenantQuery = useMemo(
+    () => ({ actorProfileId: actorUserId, filterOrganizationId: listFilterOrganizationId }),
+    [actorUserId, listFilterOrganizationId],
+  );
+
+  /** Org used for store dropdown + org settings while lists are company-scoped. */
+  const effectiveListOrganizationId = useMemo((): string => {
+    if (listFilterOrganizationId) return listFilterOrganizationId;
+    return userOrgId ?? homeOrganizationId ?? resolveOrganizationId();
+  }, [listFilterOrganizationId, userOrgId, homeOrganizationId]);
+
+  const showCompanyColumn = canViewAllCompanies && viewAllCompanies;
 
   const organizationLabelById = useMemo(() => {
     // Layer 1: real DB names from organizations.name (lowest priority base)
     const m: Record<string, string> = { ...extraOrgLabels };
     // Layer 2: admin-set display names from companyOptions, but ONLY when the
     // RPC returned a real name — not when it fell back to the raw UUID string.
-    for (const o of companyOptions) {
+    for (const o of companyOptionsForUi) {
       if (o.display_name && o.display_name !== o.organization_id) {
         m[o.organization_id] = o.display_name;
       }
     }
     return m;
-  }, [companyOptions, extraOrgLabels]);
+  }, [companyOptionsForUi, extraOrgLabels]);
 
-  const effectiveWriteOrgId =
-    role === "super_admin"
-      ? (superAdminCreateOrg.trim() && isUuidString(superAdminCreateOrg.trim())
-          ? superAdminCreateOrg.trim()
-          : userOrgId ?? resolveOrganizationId())
-      : (userOrgId ?? resolveOrganizationId());
+  const effectiveWriteOrgId = userOrgId ?? homeOrganizationId ?? resolveOrganizationId();
 
   // ── Drawer Stack ─────────────────────────────────────────────────────────────
   // Stack allows drilling down: Pallet → Package → Item and going back.
@@ -132,20 +171,28 @@ export default function ReturnsPage() {
   const { query: globalSearchQuery } = useGlobalSearch();
 
   useEffect(() => {
-    if (role !== "super_admin") return;
+    if (!showCompanyFilter) return;
     let cancelled = false;
     void listWorkspaceOrganizationsForAdmin().then((res) => {
       if (!cancelled && res.ok) setCompanyOptions(res.rows);
     });
     return () => { cancelled = true; };
-  }, [role]);
+  }, [showCompanyFilter]);
+
+  /** Child-org / tenant workspace: never keep All-companies report mode active. */
+  useEffect(() => {
+    if (!canViewAllCompanies && viewAllCompanies) {
+      setViewAllCompanies(false);
+      setReportCompanyFilterOrganizationId("");
+    }
+  }, [canViewAllCompanies, viewAllCompanies]);
 
   // After data loads, resolve the real DB name for every org_id present in the
   // rows. This catches the case where list_workspace_organizations_for_admin()
   // returned a raw UUID as display_name (happens when company_display_name is
   // NULL in organization_settings but organizations.name has the real value).
   useEffect(() => {
-    if (role !== "super_admin") return;
+    if (!showCompanyColumn) return;
     const orgIds = new Set<string>();
     for (const r of returns)  if (r.organization_id) orgIds.add(r.organization_id);
     for (const p of packages) if (p.organization_id) orgIds.add(p.organization_id);
@@ -166,7 +213,7 @@ export default function ReturnsPage() {
       });
     });
     return () => { cancelled = true; };
-  }, [role, returns, packages, pallets]);
+  }, [showCompanyColumn, returns, packages, pallets]);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,26 +223,48 @@ export default function ReturnsPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load stores for the store filter dropdown (scoped to the effective org automatically
-  // by the server action's RLS / tenant scope).
+  // Load stores for the store filter — scoped to one company, or merged across tenants in All-companies mode.
   useEffect(() => {
     let cancelled = false;
-    void listStores().then((res) => {
+    async function loadStoreOptions() {
+      if (canViewAllCompanies && viewAllCompanies && companyOptionsForUi.length > 0) {
+        const results = await Promise.all(
+          companyOptionsForUi.map((o) => listStoresForOrganization(o.organization_id)),
+        );
+        if (cancelled) return;
+        const byId = new Map<string, { id: string; name: string; platform: string }>();
+        for (const res of results) {
+          if (!res.ok || !res.data) continue;
+          for (const s of res.data) {
+            if (s.is_active === false) continue;
+            byId.set(s.id, { id: s.id, name: s.name, platform: s.platform });
+          }
+        }
+        setStoreOptions(
+          [...byId.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        return;
+      }
+      const res = await listStoresForOrganization(effectiveListOrganizationId);
       if (cancelled || !res.ok || !res.data) return;
       setStoreOptions(
         res.data
           .filter((s) => s.is_active !== false)
           .map((s) => ({ id: s.id, name: s.name, platform: s.platform })),
       );
-    });
+    }
+    void loadStoreOptions();
     return () => { cancelled = true; };
-  }, [userOrgId]);
+  }, [
+    canViewAllCompanies,
+    viewAllCompanies,
+    effectiveListOrganizationId,
+    companyOptionsForUi,
+  ]);
 
   useEffect(() => {
-    if (userOrgId && !superAdminCreateOrg.trim()) {
-      setSuperAdminCreateOrg(userOrgId);
-    }
-  }, [userOrgId, superAdminCreateOrg]);
+    setStoreFilter("");
+  }, [listFilterOrganizationId, viewAllCompanies, reportCompanyFilterOrganizationId]);
 
   // ── Data Loading ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -205,7 +274,7 @@ export default function ReturnsPage() {
       else setRefreshing(true);
       setFetchErrors([]);
       try {
-        const settingsOrg = userOrgId ?? resolveOrganizationId();
+        const settingsOrg = effectiveListOrganizationId;
         const [r, p, pl, settings, fefo, retCount] = await Promise.all([
           listReturns(tenantQuery),
           listPackages(tenantQuery),
@@ -241,7 +310,7 @@ export default function ReturnsPage() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [tenantQuery, userOrgId]);
+  }, [tenantQuery, effectiveListOrganizationId]);
 
   // ── Derived helpers ──────────────────────────────────────────────────────────
   const openPackages = useMemo(() => packages.filter((p) => p.status === "open"), [packages]);
@@ -261,8 +330,18 @@ export default function ReturnsPage() {
     [packages, storeFilter],
   );
 
+  const filteredPallets = useMemo(() => {
+    if (!storeFilter) return pallets;
+    return pallets.filter((p) => {
+      if (p.store_id === storeFilter) return true;
+      if (packages.some((pkg) => pkg.pallet_id === p.id && pkg.store_id === storeFilter)) return true;
+      return returns.some((r) => r.pallet_id === p.id && r.store_id === storeFilter);
+    });
+  }, [pallets, packages, returns, storeFilter]);
+
   /** Tab counts and Items table use this array only — loaded via `listReturns()` (no mock / no fixed length). */
   const visibleReturns = filteredReturns;
+  const visiblePallets = filteredPallets;
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   function addReturn(r: ReturnRecord, photos?: Record<string, File[]>) {
@@ -377,7 +456,7 @@ export default function ReturnsPage() {
       accent: "text-[#8A681F] border-[#8A681F] dark:text-[#D6B76E] dark:border-[#D6B76E]",
     },
     { id: "packages", label: "Packages", icon: Package2,  count: filteredPackages.length, accent: "text-[#B08A3C] border-[#B08A3C] dark:text-[#F1D58A] dark:border-[#F1D58A]" },
-    { id: "pallets",  label: "Pallets",  icon: Boxes,     count: pallets.length,  accent: "text-[#4C5661] border-[#4C5661] dark:text-[#B8C1CB] dark:border-[#B8C1CB]" },
+    { id: "pallets",  label: "Pallets",  icon: Boxes,     count: filteredPallets.length,  accent: "text-[#4C5661] border-[#4C5661] dark:text-[#B8C1CB] dark:border-[#B8C1CB]" },
   ];
 
   return (
@@ -391,47 +470,41 @@ export default function ReturnsPage() {
           <p className="text-xs text-[#737C86] dark:text-[#7E8894]">FBA Reimbursement ERP · tenant-scoped data</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Super-admin: company filter + "create as" picker */}
-          {role === "super_admin" && companyOptions.length > 0 && (
-            <>
-              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <span className="whitespace-nowrap">Company</span>
-                <select
-                  value={superAdminListFilter}
-                  onChange={(e) => setSuperAdminListFilter(e.target.value)}
-                  className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
-                >
-                  <option value="">All companies</option>
-                  {companyOptions.map((o) => (
-                    <option key={o.organization_id} value={o.organization_id}>{o.display_name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <span className="whitespace-nowrap">Create as</span>
-                <select
-                  value={superAdminCreateOrg}
-                  onChange={(e) => setSuperAdminCreateOrg(e.target.value)}
-                  className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
-                >
-                  {companyOptions.map((o) => (
-                    <option key={o.organization_id} value={o.organization_id}>{o.display_name}</option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
+          {showCompanyFilter ? (
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="whitespace-nowrap">Company</span>
+              <select
+                value={viewAllCompanies ? "" : reportCompanyFilterOrganizationId}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "") {
+                    setViewAllCompanies(true);
+                    setReportCompanyFilterOrganizationId("");
+                    return;
+                  }
+                  setViewAllCompanies(false);
+                  setReportCompanyFilterOrganizationId(v);
+                }}
+                className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
+                aria-label="Filter report by company"
+              >
+                <option value="">All companies</option>
+                {companyOptionsForUi.map((o) => (
+                  <option key={o.organization_id} value={o.organization_id}>{o.display_name}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
-          {/* Store / Marketplace filter — available to all admin roles */}
-          {storeOptions.length > 0 && (
+          {showStoreFilter ? (
             <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <Store className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="whitespace-nowrap">Marketplace</span>
+              <span className="whitespace-nowrap">Store</span>
               <select
                 value={storeFilter}
                 onChange={(e) => setStoreFilter(e.target.value)}
                 className="h-9 min-w-[150px] rounded-lg border border-[rgba(138,104,31,0.18)] bg-[#FFFFFF] px-2 text-xs font-semibold text-[#171A1E] dark:border-[rgba(214,183,110,0.18)] dark:bg-[#1D242C] dark:text-[#F7F3EA]"
-                aria-label="Filter by store / marketplace"
+                aria-label="Filter by store"
               >
                 <option value="">All stores</option>
                 {storeOptions.map((s) => (
@@ -441,7 +514,7 @@ export default function ReturnsPage() {
                 ))}
               </select>
             </label>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -504,7 +577,7 @@ export default function ReturnsPage() {
                   role={role}
                   actor={actor}
                   actorProfileId={actorUserId}
-                  showCompanyColumn={role === "super_admin"}
+                  showCompanyColumn={showCompanyColumn}
                   organizationLabelById={organizationLabelById}
                   platformIconBySlug={platformIconBySlug}
                   fefoSettings={fefoSettings}
@@ -529,7 +602,7 @@ export default function ReturnsPage() {
                   role={role}
                   actor={actor}
                   actorProfileId={actorUserId}
-                  showCompanyColumn={role === "super_admin"}
+                  showCompanyColumn={showCompanyColumn}
                   organizationLabelById={organizationLabelById}
                   externalSearch={globalSearchQuery}
                   onToast={showToast}
@@ -545,13 +618,13 @@ export default function ReturnsPage() {
               <div className="relative min-h-0">
                 <DatabaseTag table="pallets" />
                 <PalletsDataTable
-                  pallets={pallets}
-                  packages={packages}
+                  pallets={visiblePallets}
+                  packages={filteredPackages}
                   returns={visibleReturns}
                   role={role}
                   actor={actor}
                   actorProfileId={actorUserId}
-                  showCompanyColumn={role === "super_admin"}
+                  showCompanyColumn={showCompanyColumn}
                   organizationLabelById={organizationLabelById}
                   externalSearch={globalSearchQuery}
                   onToast={showToast}

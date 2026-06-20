@@ -170,6 +170,10 @@ export function isSuperAdminRole(role: string | null | undefined): boolean {
   return normalizeRoleKeyForBranding(role) === "super_admin";
 }
 
+function canListAllOrganizations(role: string | null | undefined): boolean {
+  return isSuperAdminRole(role);
+}
+
 /**
  * Resolves list queries: non–super-admins always scope to their profile organization (ignores client filters).
  * Super Admins: all rows unless `filterOrganizationId` is set (then that tenant only).
@@ -191,9 +195,10 @@ export async function resolveTenantListScope(
     if (forcedOk) return { mode: "single", organizationId: forcedOk };
     return { mode: "all" };
   }
-  if (isSuperAdminRole(profile.role)) {
+  if (canPickWorkspaceOrganizationForTenantBranding(profile.role)) {
     if (forcedOk) return { mode: "single", organizationId: forcedOk };
-    return { mode: "all" };
+    if (canListAllOrganizations(profile.role)) return { mode: "all" };
+    return { mode: "single", organizationId: profile.organization_id };
   }
   return { mode: "single", organizationId: profile.organization_id };
 }
