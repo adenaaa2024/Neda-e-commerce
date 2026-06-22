@@ -97,6 +97,20 @@ import {
   type ItemsColumnId,
 } from "../../lib/returns-items-columns";
 import {
+  availableBoxesColumns,
+  defaultVisibleBoxesColumns,
+  readVisibleBoxesColumns,
+  writeVisibleBoxesColumns,
+  type BoxesColumnId,
+} from "../../lib/returns-boxes-columns";
+import {
+  availablePalletsColumns,
+  defaultVisiblePalletsColumns,
+  readVisiblePalletsColumns,
+  writeVisiblePalletsColumns,
+  type PalletsColumnId,
+} from "../../lib/returns-pallets-columns";
+import {
   getReturnPhotoEvidenceUrls,
   mergeReturnPhotoEvidence,
   photoEvidenceCategoryCounts,
@@ -7196,6 +7210,120 @@ function ItemsColumnManager({
   );
 }
 
+// ─── Generic Report Column Manager (view settings) ───────────────────────────────
+
+/**
+ * Phase 1 column manager shared by the Boxes and Pallets reports. Same UX as the
+ * Items manager: a "Columns" button opening a Visible / Hidden checklist with Reset.
+ * Pure presentation — toggling never touches data or sorting. The caller supplies the
+ * scope-filtered `available` columns and owns persistence.
+ */
+function ReportColumnManager({
+  available,
+  visible,
+  onToggle,
+  onReset,
+}: {
+  available: { id: string; label: string }[];
+  visible: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const visibleCols = available.filter((c) => visible.has(c.id));
+  const hiddenCols = available.filter((c) => !visible.has(c.id));
+
+  const renderRow = (id: string, label: string, checked: boolean) => (
+    <label
+      key={id}
+      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[#4C5661] transition hover:bg-[#F8F6F1] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]"
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={() => onToggle(id)}
+        className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400"
+      />
+      <span className="truncate">{label}</span>
+    </label>
+  );
+
+  return (
+    <div className="relative shrink-0" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`${RT_CLEAR_BTN} h-10`}
+        title="Show / hide columns"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        Columns
+        <ChevronDown className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Column settings"
+          className="absolute right-0 z-50 mt-2 w-72 rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFCF7] p-3 shadow-2xl dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C]"
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#737C86] dark:text-[#7E8894]">
+              View settings
+            </p>
+            <button
+              type="button"
+              onClick={onReset}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#8A681F] transition hover:bg-[#EFE6D2] dark:text-[#D6B76E] dark:hover:bg-[#2A2418]"
+              title="Reset to default columns"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </button>
+          </div>
+          <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+            <div>
+              <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-[#9AA2AC] dark:text-[#7E8894]">
+                Visible columns
+              </p>
+              {visibleCols.length > 0
+                ? visibleCols.map((c) => renderRow(c.id, c.label, true))
+                : <p className="px-2 py-1 text-[11px] italic text-[#9AA2AC]">None</p>}
+            </div>
+            <div>
+              <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-[#9AA2AC] dark:text-[#7E8894]">
+                Hidden columns
+              </p>
+              {hiddenCols.length > 0
+                ? hiddenCols.map((c) => renderRow(c.id, c.label, false))
+                : <p className="px-2 py-1 text-[11px] italic text-[#9AA2AC]">None</p>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Items Data Table ──────────────────────────────────────────────────────────
 
 export function ItemsDataTable({ items, packages, pallets, role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, platformIconBySlug = {}, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, externalSearch = "", onToast, returnsTotalInDb = null }: {
@@ -7630,6 +7758,38 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const PER = 25;
 
+  // ── Column manager (view settings) — persisted per tab in localStorage ──
+  const [visibleCols, setVisibleCols] = useState<Set<BoxesColumnId>>(
+    () => new Set(defaultVisibleBoxesColumns(showCompanyColumn)),
+  );
+  useEffect(() => {
+    setVisibleCols(new Set(readVisibleBoxesColumns(showCompanyColumn)));
+  }, [showCompanyColumn]);
+  const toggleCol = useCallback((id: string) => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      const cid = id as BoxesColumnId;
+      if (next.has(cid)) next.delete(cid);
+      else next.add(cid);
+      writeVisibleBoxesColumns(next);
+      return next;
+    });
+  }, []);
+  const resetCols = useCallback(() => {
+    const next = new Set(defaultVisibleBoxesColumns(showCompanyColumn));
+    writeVisibleBoxesColumns(next);
+    setVisibleCols(next);
+  }, [showCompanyColumn]);
+  const isCol = useCallback((id: BoxesColumnId) => visibleCols.has(id), [visibleCols]);
+  // Company column also requires the parent to allow all-companies mode.
+  const showCompany = showCompanyColumn && visibleCols.has("company");
+  // Rendered data columns (excludes fixed expand + checkbox + always-on Issues + actions) drive nested colSpan.
+  const renderedDataColCount = availableBoxesColumns(showCompanyColumn).filter((c) =>
+    c.id === "company" ? showCompany : visibleCols.has(c.id),
+  ).length;
+  // colSpan = expand + checkbox (2) + visible registry columns + always-on Issues (1) + actions (1).
+  const nestedColSpan = 2 + renderedDataColCount + 1 + 1;
+
   /** Live assigned count per package — matches accordion rows (source of truth vs denormalized `actual_item_count`). */
   const assignedByPackage = useMemo(() => {
     const m = new Map<string, number>();
@@ -7794,6 +7954,12 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
             <X className="h-3.5 w-3.5" />Clear
           </button>
         )}
+        <ReportColumnManager
+          available={availableBoxesColumns(showCompanyColumn)}
+          visible={visibleCols}
+          onToggle={toggleCol}
+          onReset={resetCols}
+        />
       </div>
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
@@ -7806,24 +7972,24 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
-                {showCompanyColumn && (
+                {showCompany && (
                   <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Company</th>
                 )}
-                <th className="px-4 py-3 text-left"><SortButton field="package_code" label="Box #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="carrier_tracking" label="Carrier / Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="px-4 py-3 text-left"><SortButton field="pkg_items_sort" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.expected} /></th>
-                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.scanned} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.missing} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_marked_missing" label="Marked Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.markedMissing} /></th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_slip_review" label="Slip Review" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.slipReview} /></th>
+                {isCol("box_number") && <th className="px-4 py-3 text-left"><SortButton field="package_code" label="Box #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("store") && <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("carrier_tracking") && <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="carrier_tracking" label="Carrier / Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("items") && <th className="px-4 py-3 text-left"><SortButton field="pkg_items_sort" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("expected") && <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.expected} /></th>}
+                {isCol("scanned") && <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.scanned} /></th>}
+                {isCol("missing") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.missing} /></th>}
+                {isCol("marked_missing") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_marked_missing" label="Marked Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.markedMissing} /></th>}
+                {isCol("slip_review") && <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_slip_review" label="Slip Review" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.slipReview} /></th>}
                 <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_issues" label="Issues" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.issues} /></th>
-                <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                {isCol("status") && <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("last_operator") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("last_activity") && <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("operator") && <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("date") && <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
                 <th className="px-3 py-3" />
               </tr>
             </thead>
@@ -7847,65 +8013,77 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                           <input type="checkbox" checked={selectedIds.has(p.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(p.id) : s.delete(p.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                         </div>
                       </td>
-                      {showCompanyColumn && (
+                      {showCompany && (
                         <td className={`hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold ${RT_COMPANY} md:table-cell`} title={organizationLabelById[p.organization_id] ?? p.organization_id}>
                           {organizationLabelById[p.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/80 dark:text-[#D6B76E]/70">Resolving…</span>}
                         </td>
                       )}
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <div className={`flex items-center gap-1.5 font-mono text-xs font-bold ${RT_PRIMARY}`}>
-                          <span>{p.package_code}</span>
-                          <InlineCopy value={p.package_code} label="Box #" onToast={onToast} stopPropagation />
-                        </div>
-                      </td>
-                      <td className="hidden px-4 py-3 md:table-cell">
-                        <StoreBadge name={p.stores?.name} platform={p.stores?.platform} fallback="Mixed / Unassigned" />
-                      </td>
-                      <td className="hidden px-4 py-3 sm:table-cell" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-col gap-0.5">
-                          {p.carrier_name && (
-                            <span className={`flex items-center gap-1 text-xs ${RT_SECONDARY}`}>
-                              <Truck className="h-3 w-3" />
-                              {p.carrier_name}
-                            </span>
-                          )}
-                          {p.tracking_number && (
-                            <span className={`flex items-center gap-1 font-mono text-[10px] ${RT_MUTED}`}>
-                              <span className="min-w-0 truncate">{p.tracking_number}</span>
-                              <InlineCopy value={p.tracking_number} label="Tracking #" onToast={onToast} stopPropagation />
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3"><div className="flex items-center gap-2"><span className={`text-sm font-bold ${RT_PRIMARY}`}>{assignedCount}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</span>{pct !== null && <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-[#E8E2D6] dark:bg-[#2E3740] sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-[#B08A3C] dark:bg-[#D6B76E]"}`} style={{ width: `${pct}%` }} /></div>}</div></td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.expected)}</td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.scanned)}</td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.missing)}</td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.markedMissing)}</td>
-                      <td className="hidden px-3 py-3 lg:table-cell">
-                        {scanCtx?.slipReview
-                          ? (
-                            <ScannerReportPill
-                              label={scanCtx.slipReview}
-                              kind={slipReviewPillKind(scanCtx.slipReview)}
-                            />
-                          )
-                          : <ScannerReportDash />}
-                      </td>
+                      {isCol("box_number") && (
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className={`flex items-center gap-1.5 font-mono text-xs font-bold ${RT_PRIMARY}`}>
+                            <span>{p.package_code}</span>
+                            <InlineCopy value={p.package_code} label="Box #" onToast={onToast} stopPropagation />
+                          </div>
+                        </td>
+                      )}
+                      {isCol("store") && (
+                        <td className="hidden px-4 py-3 md:table-cell">
+                          <StoreBadge name={p.stores?.name} platform={p.stores?.platform} fallback="Mixed / Unassigned" />
+                        </td>
+                      )}
+                      {isCol("carrier_tracking") && (
+                        <td className="hidden px-4 py-3 sm:table-cell" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-col gap-0.5">
+                            {p.carrier_name && (
+                              <span className={`flex items-center gap-1 text-xs ${RT_SECONDARY}`}>
+                                <Truck className="h-3 w-3" />
+                                {p.carrier_name}
+                              </span>
+                            )}
+                            {p.tracking_number && (
+                              <span className={`flex items-center gap-1 font-mono text-[10px] ${RT_MUTED}`}>
+                                <span className="min-w-0 truncate">{p.tracking_number}</span>
+                                <InlineCopy value={p.tracking_number} label="Tracking #" onToast={onToast} stopPropagation />
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                      {isCol("items") && <td className="px-4 py-3"><div className="flex items-center gap-2"><span className={`text-sm font-bold ${RT_PRIMARY}`}>{assignedCount}/{p.expected_item_count > 0 ? p.expected_item_count : "?"}</span>{pct !== null && <div className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-[#E8E2D6] dark:bg-[#2E3740] sm:block"><div className={`h-full rounded-full ${pct >= 100 ? "bg-emerald-500" : "bg-[#B08A3C] dark:bg-[#D6B76E]"}`} style={{ width: `${pct}%` }} /></div>}</div></td>}
+                      {isCol("expected") && <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.expected)}</td>}
+                      {isCol("scanned") && <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.scanned)}</td>}
+                      {isCol("missing") && <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.missing)}</td>}
+                      {isCol("marked_missing") && <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.markedMissing)}</td>}
+                      {isCol("slip_review") && (
+                        <td className="hidden px-3 py-3 lg:table-cell">
+                          {scanCtx?.slipReview
+                            ? (
+                              <ScannerReportPill
+                                label={scanCtx.slipReview}
+                                kind={slipReviewPillKind(scanCtx.slipReview)}
+                              />
+                            )
+                            : <ScannerReportDash />}
+                        </td>
+                      )}
                       <td className={`hidden px-3 py-3 lg:table-cell ${RT_PRIMARY}`}>
                         <ReportIssuesCell display={formatPackageIssuesDisplay(p, scanCtx)} />
                       </td>
-                      <td className="px-4 py-3"><PkgStatusBadge status={p.status} /></td>
-                      <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
-                        {scanCtx?.lastOperatorId
-                          ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pkgTableOperatorNames)
-                          : <ScannerReportDash />}
-                      </td>
-                      <td className={`hidden px-3 py-3 text-xs md:table-cell lg:table-cell ${RT_MUTED}`}>
-                        {scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : <ScannerReportDash />}
-                      </td>
-                      <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pkgTableOperatorNames)}</td>
-                      <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} md:table-cell`}>{fmt(p.created_at)}</td>
+                      {isCol("status") && <td className="px-4 py-3"><PkgStatusBadge status={p.status} /></td>}
+                      {isCol("last_operator") && (
+                        <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
+                          {scanCtx?.lastOperatorId
+                            ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pkgTableOperatorNames)
+                            : <ScannerReportDash />}
+                        </td>
+                      )}
+                      {isCol("last_activity") && (
+                        <td className={`hidden px-3 py-3 text-xs md:table-cell lg:table-cell ${RT_MUTED}`}>
+                          {scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : <ScannerReportDash />}
+                        </td>
+                      )}
+                      {isCol("operator") && <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pkgTableOperatorNames)}</td>}
+                      {isCol("date") && <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} md:table-cell`}>{fmt(p.created_at)}</td>}
                       <td className="px-3 py-3">
                         <RowActionMenu
                           onView={() => onRowClick(p)} onEdit={() => onRowEdit(p)}
@@ -7915,7 +8093,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
                     </tr>
                     {isExpanded && (
                       <tr className={RT_NESTED_ROW_BG}>
-                        <td colSpan={showCompanyColumn ? 19 : 18} className="px-6 py-3">
+                        <td colSpan={nestedColSpan} className="px-6 py-3">
                           {pkgItems.length === 0
                             ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No items scanned for this box yet.</p>
                             : (
@@ -8028,6 +8206,37 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
   /** Package rows expanded inside the pallet sub-table (second-level: items). */
   const [nestedPkgExpandedIds, setNestedPkgExpandedIds] = useState<Set<string>>(new Set());
   const PER = 25;
+
+  // ── Column manager (view settings) — persisted per tab in localStorage ──
+  const [visibleCols, setVisibleCols] = useState<Set<PalletsColumnId>>(
+    () => new Set(defaultVisiblePalletsColumns(showCompanyColumn)),
+  );
+  useEffect(() => {
+    setVisibleCols(new Set(readVisiblePalletsColumns(showCompanyColumn)));
+  }, [showCompanyColumn]);
+  const toggleCol = useCallback((id: string) => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      const cid = id as PalletsColumnId;
+      if (next.has(cid)) next.delete(cid);
+      else next.add(cid);
+      writeVisiblePalletsColumns(next);
+      return next;
+    });
+  }, []);
+  const resetCols = useCallback(() => {
+    const next = new Set(defaultVisiblePalletsColumns(showCompanyColumn));
+    writeVisiblePalletsColumns(next);
+    setVisibleCols(next);
+  }, [showCompanyColumn]);
+  const isCol = useCallback((id: PalletsColumnId) => visibleCols.has(id), [visibleCols]);
+  // Company column also requires the parent to allow all-companies mode.
+  const showCompany = showCompanyColumn && visibleCols.has("company");
+  // colSpan = expand + checkbox (2) + visible registry columns + actions (1).
+  const renderedDataColCount = availablePalletsColumns(showCompanyColumn).filter((c) =>
+    c.id === "company" ? showCompany : visibleCols.has(c.id),
+  ).length;
+  const nestedColSpan = 2 + renderedDataColCount + 1;
 
   const scannerIndex = useMemo(
     () => buildReturnsReportScannerIndex({ returns: allReturns, packages: allPackages, pallets }),
@@ -8192,6 +8401,12 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
             <X className="h-3.5 w-3.5" />Clear
           </button>
         )}
+        <ReportColumnManager
+          available={availablePalletsColumns(showCompanyColumn)}
+          visible={visibleCols}
+          onToggle={toggleCol}
+          onReset={resetCols}
+        />
       </div>
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
@@ -8204,28 +8419,30 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
-                {showCompanyColumn && (
+                {showCompany && (
                   <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Company</th>
                 )}
-                <th className="px-4 py-3 text-left"><SortButton field="pallet_number" label="Pallet #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="px-4 py-3 text-left">
-                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                    <SortButton field="rollup_pkgs" label="Boxes" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
-                    <span className="text-[10px] font-bold text-[#CFC6B6] dark:text-[#4E5862]">/</span>
-                    <SortButton field="rollup_items" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
-                  </div>
-                </th>
-                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_boxes" label="Boxes" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.expected} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.scanned} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.missing} /></th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_issues" label="Issues" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.issues} /></th>
-                <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                {isCol("pallet_number") && <th className="px-4 py-3 text-left"><SortButton field="pallet_number" label="Pallet #" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("store") && <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("boxes_items") && (
+                  <th className="px-4 py-3 text-left">
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                      <SortButton field="rollup_pkgs" label="Boxes" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
+                      <span className="text-[10px] font-bold text-[#CFC6B6] dark:text-[#4E5862]">/</span>
+                      <SortButton field="rollup_items" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
+                    </div>
+                  </th>
+                )}
+                {isCol("boxes_closed_total") && <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_boxes" label="Boxes" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("expected") && <th className={`hidden px-3 py-3 text-left sm:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_expected" label="Expected" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.expected} /></th>}
+                {isCol("scanned") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_scanned" label="Scanned" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.scanned} /></th>}
+                {isCol("missing") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_missing" label="Missing" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.missing} /></th>}
+                {isCol("issues") && <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_issues" label="Issues" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} help={RETURNS_REPORT_COLUMN_HELP.issues} /></th>}
+                {isCol("status") && <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("last_operator") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_operator" label="Last Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("last_activity") && <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}><SortButton field="scanner_last_activity" label="Last Activity" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("operator") && <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("date") && <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
                 <th className="px-3 py-3" />
               </tr>
             </thead>
@@ -8247,43 +8464,55 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                           <input type="checkbox" checked={selectedIds.has(p.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(p.id) : s.delete(p.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                         </div>
                       </td>
-                      {showCompanyColumn && (
+                      {showCompany && (
                         <td className={`hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold ${RT_COMPANY} md:table-cell`} title={organizationLabelById[p.organization_id] ?? p.organization_id}>
                           {organizationLabelById[p.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/80 dark:text-[#D6B76E]/70">Resolving…</span>}
                         </td>
                       )}
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <div className={`flex items-center gap-1.5 font-mono text-xs font-bold ${RT_PRIMARY}`}>
-                          <span>{p.pallet_number}</span>
-                          <InlineCopy value={p.pallet_number} label="Pallet #" onToast={onToast} stopPropagation />
-                        </div>
-                      </td>
-                      <td className="hidden px-4 py-3 md:table-cell">
-                        <StoreBadge name={p.stores?.name} platform={p.stores?.platform} fallback="Multi-Store" />
-                      </td>
-                      <td className="px-4 py-3"><span className={`font-bold ${RT_PRIMARY}`}>{p._rollupPkgs}</span><span className={`mx-1 ${RT_MUTED}`}>boxes</span><span className={`font-bold ${RT_SECONDARY}`}>{p._rollupItems}</span><span className={`ml-1 ${RT_MUTED}`}>items</span></td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>
-                        {scanCtx && scanCtx.boxesTotal > 0
-                          ? `${scanCtx.boxesClosed}/${scanCtx.boxesTotal}`
-                          : <ScannerReportDash />}
-                      </td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.expected)}</td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.scanned)}</td>
-                      <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.missing)}</td>
-                      <td className={`hidden px-3 py-3 lg:table-cell ${RT_PRIMARY}`}>
-                        <ReportIssuesCell display={formatPalletIssuesDisplay(scanCtx)} />
-                      </td>
-                      <td className="px-4 py-3"><PalletStatusBadge status={p.status} /></td>
-                      <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
-                        {scanCtx?.lastOperatorId
-                          ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pltTableOperatorNames)
-                          : <ScannerReportDash />}
-                      </td>
-                      <td className={`hidden px-3 py-3 text-xs lg:table-cell ${RT_MUTED}`}>
-                        {scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : <ScannerReportDash />}
-                      </td>
-                      <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pltTableOperatorNames)}</td>
-                      <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(p.created_at)}</td>
+                      {isCol("pallet_number") && (
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className={`flex items-center gap-1.5 font-mono text-xs font-bold ${RT_PRIMARY}`}>
+                            <span>{p.pallet_number}</span>
+                            <InlineCopy value={p.pallet_number} label="Pallet #" onToast={onToast} stopPropagation />
+                          </div>
+                        </td>
+                      )}
+                      {isCol("store") && (
+                        <td className="hidden px-4 py-3 md:table-cell">
+                          <StoreBadge name={p.stores?.name} platform={p.stores?.platform} fallback="Multi-Store" />
+                        </td>
+                      )}
+                      {isCol("boxes_items") && <td className="px-4 py-3"><span className={`font-bold ${RT_PRIMARY}`}>{p._rollupPkgs}</span><span className={`mx-1 ${RT_MUTED}`}>boxes</span><span className={`font-bold ${RT_SECONDARY}`}>{p._rollupItems}</span><span className={`ml-1 ${RT_MUTED}`}>items</span></td>}
+                      {isCol("boxes_closed_total") && (
+                        <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>
+                          {scanCtx && scanCtx.boxesTotal > 0
+                            ? `${scanCtx.boxesClosed}/${scanCtx.boxesTotal}`
+                            : <ScannerReportDash />}
+                        </td>
+                      )}
+                      {isCol("expected") && <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.expected)}</td>}
+                      {isCol("scanned") && <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.scanned)}</td>}
+                      {isCol("missing") && <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums md:table-cell ${RT_PRIMARY}`}>{formatReportCount(scanCtx?.missing)}</td>}
+                      {isCol("issues") && (
+                        <td className={`hidden px-3 py-3 lg:table-cell ${RT_PRIMARY}`}>
+                          <ReportIssuesCell display={formatPalletIssuesDisplay(scanCtx)} />
+                        </td>
+                      )}
+                      {isCol("status") && <td className="px-4 py-3"><PalletStatusBadge status={p.status} /></td>}
+                      {isCol("last_operator") && (
+                        <td className={`hidden px-3 py-3 text-xs capitalize md:table-cell ${RT_MUTED}`}>
+                          {scanCtx?.lastOperatorId
+                            ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pltTableOperatorNames)
+                            : <ScannerReportDash />}
+                        </td>
+                      )}
+                      {isCol("last_activity") && (
+                        <td className={`hidden px-3 py-3 text-xs lg:table-cell ${RT_MUTED}`}>
+                          {scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : <ScannerReportDash />}
+                        </td>
+                      )}
+                      {isCol("operator") && <td className={`hidden px-4 py-3 text-xs capitalize ${RT_MUTED} md:table-cell`}>{operatorDisplayLabel(p, pltTableOperatorNames)}</td>}
+                      {isCol("date") && <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(p.created_at)}</td>}
                       <td className="px-3 py-3">
                         <RowActionMenu
                           onView={() => onRowClick(p)} onEdit={() => onRowEdit(p)}
@@ -8293,7 +8522,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                     </tr>
                     {isExpanded && (
                       <tr className={RT_NESTED_ROW_BG}>
-                        <td colSpan={showCompanyColumn ? 17 : 16} className="px-6 py-3">
+                        <td colSpan={nestedColSpan} className="px-6 py-3">
                           {pltPackages.length === 0
                             ? <p className={`py-2 text-center text-xs ${RT_MUTED}`}>No boxes linked to this pallet yet.</p>
                             : (
