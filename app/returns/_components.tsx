@@ -7909,7 +7909,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
 
 // ─── Packages Data Table ───────────────────────────────────────────────────────
 
-export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, externalSearch = "", onToast }: {
+export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, externalSearch = "", storeFilter = "", storeOptions = [], onStoreFilterChange, onToast }: {
   packages: PackageRecord[]; returns?: ReturnRecord[]; pallets?: PalletRecord[];
   role: UserRole; actor: string;
   actorProfileId?: string | null;
@@ -7920,10 +7920,23 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   /** Called after bulk assign to pallet so parent state stays in sync with DB */
   onBulkPackagesUpdated?: (updated: PackageRecord[]) => void;
   externalSearch?: string;
+  /** Page-level store filter — display + clear only; filtering stays in `page.tsx`. */
+  storeFilter?: string;
+  storeOptions?: { id: string; name: string; platform: string }[];
+  onStoreFilterChange?: (storeId: string) => void;
   onToast?: (msg: string, kind?: ToastKind) => void;
 }) {
-  const [search, setSearch] = useState(""); const [statusF, setStatusF] = useState(""); const [carrierF, setCarrierF] = useState("");
+  const [search, setSearch] = useState(""); const [statusF, setStatusF] = useState("");
   const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState("");
+  // Advanced filters (client-side over already-loaded rows — no schema/query changes).
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [carrierF, setCarrierF] = useState("");
+  const [slipReviewF, setSlipReviewF] = useState("");       // "" | PackageSlipReviewLabel
+  const [hasMissingF, setHasMissingF] = useState("");       // "" | "yes" | "no"
+  const [hasMarkedMissingF, setHasMarkedMissingF] = useState(""); // "" | "yes" | "no"
+  const [hasIssuesF, setHasIssuesF] = useState("");         // "" | "yes" | "no"
+  const [operatorF, setOperatorF] = useState("");
+  const [expectedF, setExpectedF] = useState("");           // "" | "has" | "none"
   const [sortField, setSortField] = useState("created_at"); const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -8002,6 +8015,45 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     if (carrierF) d = d.filter((p) => p.carrier_name === carrierF);
     if (dateFrom) d = d.filter((p) => p.created_at >= dateFrom);
     if (dateTo)   d = d.filter((p) => p.created_at <= dateTo + "T23:59:59.999Z");
+    // ── Advanced filters (derived client-side from the scanner index already built above) ──
+    if (slipReviewF) {
+      d = d.filter((p) => (scannerIndex.packageById.get(p.id)?.slipReview ?? "") === slipReviewF);
+    }
+    if (hasMissingF) {
+      d = d.filter((p) => {
+        const has = (scannerIndex.packageById.get(p.id)?.missing ?? 0) > 0;
+        return hasMissingF === "yes" ? has : !has;
+      });
+    }
+    if (hasMarkedMissingF) {
+      d = d.filter((p) => {
+        const has = (scannerIndex.packageById.get(p.id)?.markedMissing ?? 0) > 0;
+        return hasMarkedMissingF === "yes" ? has : !has;
+      });
+    }
+    if (hasIssuesF) {
+      d = d.filter((p) => {
+        const has = derivePackageIssueLabels(p, scannerIndex.packageById.get(p.id)).length > 0;
+        return hasIssuesF === "yes" ? has : !has;
+      });
+    }
+    if (expectedF) {
+      d = d.filter((p) => {
+        const has = p.expected_item_count > 0;
+        return expectedF === "has" ? has : !has;
+      });
+    }
+    if (operatorF.trim()) {
+      const oq = operatorF.trim().toLowerCase();
+      d = d.filter((p) => {
+        const ctx = scannerIndex.packageById.get(p.id);
+        const own = operatorDisplayLabel(p, pkgTableOperatorNames).toLowerCase();
+        const last = ctx?.lastOperatorId
+          ? operatorDisplayLabel({ created_by: ctx.lastOperatorId }, pkgTableOperatorNames).toLowerCase()
+          : "";
+        return own.includes(oq) || last.includes(oq);
+      });
+    }
     d = d.map((p) => {
       const ctx = scannerIndex.packageById.get(p.id);
       const issueLabels = derivePackageIssueLabels(p, ctx);
@@ -8025,9 +8077,19 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
       return compareSortKeys(sortKeyPackage(a, sortField, pkgTableOperatorNames), sortKeyPackage(b, sortField, pkgTableOperatorNames), sortAsc);
     });
     return d;
-  }, [packages, search, externalSearch, statusF, carrierF, dateFrom, dateTo, sortField, sortAsc, assignedByPackage, pkgTableOperatorNames, scannerIndex]);
+  }, [packages, search, externalSearch, statusF, carrierF, dateFrom, dateTo, slipReviewF, hasMissingF, hasMarkedMissingF, hasIssuesF, expectedF, operatorF, sortField, sortAsc, assignedByPackage, pkgTableOperatorNames, scannerIndex]);
 
-  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || carrierF || dateFrom || dateTo);
+  const advancedFilterCount = [carrierF, slipReviewF, hasMissingF, hasMarkedMissingF, hasIssuesF, expectedF, operatorF.trim()].filter(Boolean).length;
+  const hasPrimaryFilters = !!(externalSearch.trim() || search || statusF || storeFilter || dateFrom || dateTo);
+  const hasActiveFilters = hasPrimaryFilters || advancedFilterCount > 0;
+
+  // Resets all primary + advanced filters. Company/org scope lives on the page (tenantQuery)
+  // and is intentionally preserved; the store filter is page-level state.
+  const clearAllFilters = useCallback(() => {
+    setSearch(""); setStatusF(""); onStoreFilterChange?.(""); setDateFrom(""); setDateTo("");
+    setCarrierF(""); setSlipReviewF(""); setHasMissingF(""); setHasMarkedMissingF(""); setHasIssuesF(""); setExpectedF(""); setOperatorF("");
+    setPage(1);
+  }, [onStoreFilterChange]);
 
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
@@ -8094,12 +8156,18 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
             {Object.entries(PKG_STATUS_CFG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <select
-            value={carrierF}
-            onChange={(e) => { setCarrierF(e.target.value); setPage(1); }}
+            value={storeFilter}
+            onChange={(e) => { onStoreFilterChange?.(e.target.value); setPage(1); }}
             className={`${INPUT_SM_DARK} h-10 w-full min-w-0`}
+            title="Filter by store"
+            aria-label="Filter by store"
           >
-            <option value="">All Carriers</option>
-            {usedCarriers.map((c) => <option key={c!} value={c!}>{c}</option>)}
+            <option value="">All Stores</option>
+            {storeOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}{s.platform ? ` (${s.platform})` : ""}
+              </option>
+            ))}
           </select>
           <div className="flex min-w-0 items-center gap-1.5">
             <Calendar className={`h-4 w-4 shrink-0 ${RT_MUTED}`} />
@@ -8120,12 +8188,25 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
             />
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((o) => !o)}
+          aria-expanded={advancedOpen}
+          className={`${RT_CLEAR_BTN} h-10 shrink-0`}
+          title="Advanced filters"
+        >
+          <Filter className="h-3.5 w-3.5" />
+          Advanced filters
+          {advancedFilterCount > 0 && (
+            <span className="ml-0.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#8A681F] px-1.5 text-[10px] font-bold text-white dark:bg-[#D6B76E] dark:text-[#1D242C]">
+              {advancedFilterCount}
+            </span>
+          )}
+          <ChevronDown className={`h-3.5 w-3.5 transition ${advancedOpen ? "rotate-180" : ""}`} />
+        </button>
         {hasActiveFilters && (
-          <button
-            onClick={() => { setSearch(""); setStatusF(""); setCarrierF(""); setDateFrom(""); setDateTo(""); setPage(1); }}
-            className={RT_CLEAR_BTN}
-          >
-            <X className="h-3.5 w-3.5" />Clear
+          <button onClick={clearAllFilters} className={RT_CLEAR_BTN}>
+            <X className="h-3.5 w-3.5" />Clear filters
           </button>
         )}
         <ReportColumnManager
@@ -8135,6 +8216,84 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
           onReset={resetCols}
         />
       </div>
+
+      {/* Advanced filters panel — applied together with the primary filters above. */}
+      {advancedOpen && (
+        <div className="rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFCF7] p-3 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C]">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#737C86] dark:text-[#7E8894]">
+              Advanced filters{advancedFilterCount > 0 ? ` · ${advancedFilterCount} active` : ""}
+            </p>
+            {advancedFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setCarrierF(""); setSlipReviewF(""); setHasMissingF(""); setHasMarkedMissingF(""); setHasIssuesF(""); setExpectedF(""); setOperatorF(""); setPage(1); }}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#8A681F] transition hover:bg-[#EFE6D2] dark:text-[#D6B76E] dark:hover:bg-[#2A2418]"
+                title="Reset advanced filters"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset advanced
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className={RT_ADV_LABEL}>
+              Slip review
+              <select value={slipReviewF} onChange={(e) => { setSlipReviewF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="Not uploaded">Not uploaded</option>
+                <option value="Needs review">Needs review</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Edited">Edited</option>
+                <option value="Unreadable">Unreadable</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Has missing
+              <select value={hasMissingF} onChange={(e) => { setHasMissingF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Has marked missing
+              <select value={hasMarkedMissingF} onChange={(e) => { setHasMarkedMissingF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Has issues
+              <select value={hasIssuesF} onChange={(e) => { setHasIssuesF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Carrier
+              <select value={carrierF} onChange={(e) => { setCarrierF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                {usedCarriers.map((c) => <option key={c!} value={c!}>{c}</option>)}
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Expected count
+              <select value={expectedF} onChange={(e) => { setExpectedF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">Any</option>
+                <option value="has">Has expected</option>
+                <option value="none">No expected</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Operator
+              <input value={operatorF} onChange={(e) => { setOperatorF(e.target.value); setPage(1); }} placeholder="Name…" className={`${INPUT_SM_DARK} h-10 w-full`} />
+            </label>
+          </div>
+        </div>
+      )}
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
           <table className="w-full min-w-[1280px] text-sm">
@@ -8372,6 +8531,13 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
 }) {
   const [search, setSearch] = useState(""); const [statusF, setStatusF] = useState("");
   const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState("");
+  // Advanced filters (client-side over already-loaded rows — no schema/query changes).
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [hasOpenBoxesF, setHasOpenBoxesF] = useState("");   // "" | "yes" | "no"
+  const [hasIssuesF, setHasIssuesF] = useState("");         // "" | "yes" | "no"
+  const [hasMissingF, setHasMissingF] = useState("");       // "" | "yes" | "no"
+  const [operatorF, setOperatorF] = useState("");
+  const [closedProgressF, setClosedProgressF] = useState(""); // "" | "complete" | "incomplete"
   const [sortField, setSortField] = useState("created_at"); const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -8464,13 +8630,62 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
     if (statusF)  d = d.filter((p) => p.status === statusF);
     if (dateFrom) d = d.filter((p) => p.created_at >= dateFrom);
     if (dateTo)   d = d.filter((p) => p.created_at <= dateTo + "T23:59:59.999Z");
+    // ── Advanced filters (derived client-side from the scanner index already built above) ──
+    if (hasOpenBoxesF) {
+      d = d.filter((p) => {
+        const ctx = scannerIndex.palletById.get(p.id);
+        const hasOpen = !!ctx && ctx.boxesTotal > 0 && ctx.boxesClosed < ctx.boxesTotal;
+        return hasOpenBoxesF === "yes" ? hasOpen : !hasOpen;
+      });
+    }
+    if (hasIssuesF) {
+      d = d.filter((p) => {
+        const has = (scannerIndex.palletById.get(p.id)?.issues ?? 0) > 0;
+        return hasIssuesF === "yes" ? has : !has;
+      });
+    }
+    if (hasMissingF) {
+      d = d.filter((p) => {
+        const has = (scannerIndex.palletById.get(p.id)?.missing ?? 0) > 0;
+        return hasMissingF === "yes" ? has : !has;
+      });
+    }
+    if (closedProgressF) {
+      d = d.filter((p) => {
+        const ctx = scannerIndex.palletById.get(p.id);
+        if (!ctx || ctx.boxesTotal <= 0) return false;
+        const complete = ctx.boxesClosed >= ctx.boxesTotal;
+        return closedProgressF === "complete" ? complete : !complete;
+      });
+    }
+    if (operatorF.trim()) {
+      const oq = operatorF.trim().toLowerCase();
+      d = d.filter((p) => {
+        const ctx = scannerIndex.palletById.get(p.id);
+        const own = operatorDisplayLabel(p, pltTableOperatorNames).toLowerCase();
+        const last = ctx?.lastOperatorId
+          ? operatorDisplayLabel({ created_by: ctx.lastOperatorId }, pltTableOperatorNames).toLowerCase()
+          : "";
+        return own.includes(oq) || last.includes(oq);
+      });
+    }
     d.sort((a, b) =>
       compareSortKeys(sortKeyPallet(a, sortField, pltTableOperatorNames), sortKeyPallet(b, sortField, pltTableOperatorNames), sortAsc),
     );
     return d;
-  }, [pallets, allPackages, allReturns, search, externalSearch, statusF, dateFrom, dateTo, sortField, sortAsc, pltTableOperatorNames, scannerIndex]);
+  }, [pallets, allPackages, allReturns, search, externalSearch, statusF, dateFrom, dateTo, hasOpenBoxesF, hasIssuesF, hasMissingF, closedProgressF, operatorF, sortField, sortAsc, pltTableOperatorNames, scannerIndex]);
 
-  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || storeFilter || dateFrom || dateTo);
+  const advancedFilterCount = [hasOpenBoxesF, hasIssuesF, hasMissingF, closedProgressF, operatorF.trim()].filter(Boolean).length;
+  const hasPrimaryFilters = !!(externalSearch.trim() || search || statusF || storeFilter || dateFrom || dateTo);
+  const hasActiveFilters = hasPrimaryFilters || advancedFilterCount > 0;
+
+  // Resets all primary + advanced filters. Company/org scope lives on the page (tenantQuery)
+  // and is intentionally preserved; the store filter is page-level state.
+  const clearAllFilters = useCallback(() => {
+    setSearch(""); setStatusF(""); onStoreFilterChange?.(""); setDateFrom(""); setDateTo("");
+    setHasOpenBoxesF(""); setHasIssuesF(""); setHasMissingF(""); setClosedProgressF(""); setOperatorF("");
+    setPage(1);
+  }, [onStoreFilterChange]);
 
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
@@ -8560,19 +8775,25 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
             />
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((o) => !o)}
+          aria-expanded={advancedOpen}
+          className={`${RT_CLEAR_BTN} h-10 shrink-0`}
+          title="Advanced filters"
+        >
+          <Filter className="h-3.5 w-3.5" />
+          Advanced filters
+          {advancedFilterCount > 0 && (
+            <span className="ml-0.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#8A681F] px-1.5 text-[10px] font-bold text-white dark:bg-[#D6B76E] dark:text-[#1D242C]">
+              {advancedFilterCount}
+            </span>
+          )}
+          <ChevronDown className={`h-3.5 w-3.5 transition ${advancedOpen ? "rotate-180" : ""}`} />
+        </button>
         {hasActiveFilters && (
-          <button
-            onClick={() => {
-              setSearch("");
-              setStatusF("");
-              onStoreFilterChange?.("");
-              setDateFrom("");
-              setDateTo("");
-              setPage(1);
-            }}
-            className={RT_CLEAR_BTN}
-          >
-            <X className="h-3.5 w-3.5" />Clear
+          <button onClick={clearAllFilters} className={RT_CLEAR_BTN}>
+            <X className="h-3.5 w-3.5" />Clear filters
           </button>
         )}
         <ReportColumnManager
@@ -8582,6 +8803,66 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
           onReset={resetCols}
         />
       </div>
+
+      {/* Advanced filters panel — applied together with the primary filters above. */}
+      {advancedOpen && (
+        <div className="rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFCF7] p-3 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C]">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#737C86] dark:text-[#7E8894]">
+              Advanced filters{advancedFilterCount > 0 ? ` · ${advancedFilterCount} active` : ""}
+            </p>
+            {advancedFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setHasOpenBoxesF(""); setHasIssuesF(""); setHasMissingF(""); setClosedProgressF(""); setOperatorF(""); setPage(1); }}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#8A681F] transition hover:bg-[#EFE6D2] dark:text-[#D6B76E] dark:hover:bg-[#2A2418]"
+                title="Reset advanced filters"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset advanced
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className={RT_ADV_LABEL}>
+              Has open boxes
+              <select value={hasOpenBoxesF} onChange={(e) => { setHasOpenBoxesF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Has issues
+              <select value={hasIssuesF} onChange={(e) => { setHasIssuesF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Has missing
+              <select value={hasMissingF} onChange={(e) => { setHasMissingF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Closed progress
+              <select value={closedProgressF} onChange={(e) => { setClosedProgressF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="complete">Complete</option>
+                <option value="incomplete">Incomplete</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Operator
+              <input value={operatorF} onChange={(e) => { setOperatorF(e.target.value); setPage(1); }} placeholder="Name…" className={`${INPUT_SM_DARK} h-10 w-full`} />
+            </label>
+          </div>
+        </div>
+      )}
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0 overflow-x-auto">
           <table className="w-full min-w-[1120px] text-sm">

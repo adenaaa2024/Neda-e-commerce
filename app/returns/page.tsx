@@ -645,7 +645,7 @@ export default function ReturnsPage() {
             </label>
           ) : null}
 
-          {showStoreFilter && activeTab !== "pallets" ? (
+          {showStoreFilter && activeTab === "items" ? (
             <label className="flex items-center gap-2 text-xs font-medium text-[#4C5661] dark:text-[#B8C1CB]">
               <Store className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="whitespace-nowrap">Store</span>
@@ -758,6 +758,9 @@ export default function ReturnsPage() {
                   showCompanyColumn={showCompanyColumn}
                   organizationLabelById={organizationLabelById}
                   externalSearch={globalSearchQuery}
+                  storeFilter={storeFilter}
+                  storeOptions={storeOptions}
+                  onStoreFilterChange={setStoreFilter}
                   onToast={showToast}
                   onRowClick={(p) => openDrawer({ type: "package", record: p })}
                   onRowEdit={(p)  => openDrawer({ type: "package", record: p })}
