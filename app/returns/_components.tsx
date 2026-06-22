@@ -7,7 +7,7 @@ import Link from "next/link";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, BadgeInfo, Barcode, Boxes, Calendar, CalendarX2,
   Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, CircleDot, ClipboardCheck,
-  Clock, Copy, ExternalLink, Eye, FileImage, FileText, Loader2, Minus, MoreHorizontal, Package2, Store,
+  Clock, Copy, ExternalLink, Eye, FileImage, FileText, Filter, Loader2, Minus, MoreHorizontal, Package2, Store,
   PackageCheck, PackageX, Pencil, Plus, QrCode, RotateCcw, Save, ScanLine, Search,
   ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, Tag, Trash2, Truck, User, X, XCircle, ZoomIn,
 } from "lucide-react";
@@ -112,10 +112,13 @@ import {
 } from "../../lib/returns-pallets-columns";
 import {
   getReturnPhotoEvidenceUrls,
+  hasReturnPhotoEvidenceCounts,
+  hasReturnPhotoEvidenceUrlSlots,
   mergeReturnPhotoEvidence,
   photoEvidenceCategoryCounts,
   photoEvidenceNumericTotal,
 } from "../../lib/return-photo-evidence";
+import { mapRowToProductLinkageDisplayContract } from "../../lib/product-linkage-display-contract";
 import { listStores } from "../settings/adapters/actions";
 import { isUuidString, uuidFkInvalidMessage } from "../../lib/uuid";
 import { isAdminRole, type UserRole } from "../../components/UserRoleContext";
@@ -416,6 +419,7 @@ const RT_NESTED_TH = "font-bold uppercase tracking-wide text-[#4C5661] dark:text
 const RT_PAGINATION_BTN = `flex h-9 items-center gap-1 rounded-xl border ${RT_BORDER} bg-[#FFFFFF] px-3 text-sm font-medium text-[#4C5661] hover:bg-[#F8F6F1] disabled:opacity-40 dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]`;
 const RT_EXPAND_BTN = "flex h-6 w-6 items-center justify-center rounded-lg text-[#737C86] hover:bg-[#F8F6F1] hover:text-[#4C5661] dark:text-[#B8C1CB] dark:hover:bg-[#232C35] dark:hover:text-[#F7F3EA]";
 const RT_CLEAR_BTN = `flex h-10 items-center gap-1 rounded-xl border ${RT_BORDER} bg-[#FFFFFF] px-3 text-xs font-medium text-[#4C5661] hover:bg-[#F8F6F1] dark:bg-[#1D242C] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]`;
+const RT_ADV_LABEL = "flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-[#737C86] dark:text-[#7E8894]";
 export const BTN_PRIMARY = "admin-btn-primary flex h-14 w-full active:scale-[0.98] disabled:opacity-50";
 /** Primary actions in drawer/modal footers — avoids `w-full` collapsing in flex layouts. */
 export const BTN_PRIMARY_INLINE = "admin-btn-primary inline-flex h-14 shrink-0 min-w-[12rem] px-6 active:scale-[0.98] disabled:opacity-50";
@@ -7349,6 +7353,16 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
   const fefo_warning  = fefoSettings?.fefo_warning_days  ?? 90;
   const [search, setSearch] = useState(""); const [statusF, setStatusF] = useState(""); const [marketF, setMarketF] = useState("");
   const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState("");
+  // Advanced filters (client-side over already-loaded rows — no schema/query changes).
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [productLinkF, setProductLinkF] = useState(""); // "" | "linked" | "unlinked"
+  const [scanSourceF, setScanSourceF] = useState("");   // "" | ItemScanSourceLabel
+  const [exceptionF, setExceptionF] = useState("");     // "" | ItemExceptionBadgeLabel | "Orphaned"
+  const [conditionF, setConditionF] = useState("");     // "" | condition key
+  const [hasPhotoF, setHasPhotoF] = useState("");       // "" | "yes" | "no"
+  const [boxF, setBoxF] = useState("");
+  const [palletF, setPalletF] = useState("");
+  const [operatorF, setOperatorF] = useState("");
   const [sortField, setSortField] = useState("created_at"); const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -7423,6 +7437,58 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
     if (marketF)  d = d.filter((r) => r.marketplace === marketF);
     if (dateFrom) d = d.filter((r) => r.created_at >= dateFrom);
     if (dateTo)   d = d.filter((r) => r.created_at <= dateTo + "T23:59:59.999Z");
+    // ── Advanced filters (derived client-side from already-loaded payloads) ──
+    if (productLinkF) {
+      d = d.filter((r) => {
+        const resolved = mapRowToProductLinkageDisplayContract({
+          source_table: "return_items",
+          source_row_id: r.id,
+          row: r as unknown as Record<string, unknown>,
+        }).is_resolved;
+        return productLinkF === "linked" ? resolved : !resolved;
+      });
+    }
+    if (scanSourceF) {
+      d = d.filter((r) => (scannerIndex.itemByReturnId.get(r.id)?.scanSource ?? "") === scanSourceF);
+    }
+    if (exceptionF) {
+      d = d.filter((r) =>
+        exceptionF === "Orphaned"
+          ? !r.package_id
+          : (scannerIndex.itemByReturnId.get(r.id)?.exceptionBadge ?? "") === exceptionF,
+      );
+    }
+    if (conditionF) d = d.filter((r) => (r.conditions ?? []).includes(conditionF));
+    if (hasPhotoF) {
+      d = d.filter((r) => {
+        const has =
+          hasReturnPhotoEvidenceUrlSlots(r.photo_evidence) ||
+          hasReturnPhotoEvidenceCounts(r.photo_evidence);
+        return hasPhotoF === "yes" ? has : !has;
+      });
+    }
+    if (boxF.trim()) {
+      const bq = boxF.trim().toLowerCase();
+      d = d.filter((r) => {
+        const code = scannerIndex.itemByReturnId.get(r.id)?.boxCode
+          ?? (r.package_id ? pkgMap.get(r.package_id)?.package_code : null)
+          ?? "";
+        return code.toLowerCase().includes(bq);
+      });
+    }
+    if (palletF.trim()) {
+      const pq = palletF.trim().toLowerCase();
+      d = d.filter((r) => {
+        const num = scannerIndex.itemByReturnId.get(r.id)?.palletNumber
+          ?? (r.pallet_id ? pltMap.get(r.pallet_id)?.pallet_number : null)
+          ?? "";
+        return num.toLowerCase().includes(pq);
+      });
+    }
+    if (operatorF.trim()) {
+      const oq = operatorF.trim().toLowerCase();
+      d = d.filter((r) => operatorDisplayLabel(r, itemTableOperatorNames).toLowerCase().includes(oq));
+    }
     d = d.map((r) => {
       const ctx = scannerIndex.itemByReturnId.get(r.id);
       return Object.assign(r, {
@@ -7438,9 +7504,20 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
       ),
     );
     return d;
-  }, [items, search, externalSearch, statusF, marketF, dateFrom, dateTo, sortField, sortAsc, pkgMap, pltMap, itemTableOperatorNames, scannerIndex]);
+  }, [items, search, externalSearch, statusF, marketF, dateFrom, dateTo, productLinkF, scanSourceF, exceptionF, conditionF, hasPhotoF, boxF, palletF, operatorF, sortField, sortAsc, pkgMap, pltMap, itemTableOperatorNames, scannerIndex]);
 
-  const hasActiveFilters = !!(externalSearch.trim() || search || statusF || marketF || dateFrom || dateTo);
+  const advancedFilterCount = [productLinkF, scanSourceF, exceptionF, conditionF, hasPhotoF, boxF.trim(), palletF.trim(), operatorF.trim()].filter(Boolean).length;
+  const hasPrimaryFilters = !!(externalSearch.trim() || search || statusF || marketF || dateFrom || dateTo);
+  const hasActiveFilters = hasPrimaryFilters || advancedFilterCount > 0;
+
+  // Resets all primary + advanced filters. Company/org scope lives on the page (tenantQuery)
+  // and is intentionally preserved.
+  const clearAllFilters = useCallback(() => {
+    setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo("");
+    setProductLinkF(""); setScanSourceF(""); setExceptionF(""); setConditionF("");
+    setHasPhotoF(""); setBoxF(""); setPalletF(""); setOperatorF("");
+    setPage(1);
+  }, []);
 
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
@@ -7507,7 +7584,23 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
             <span className="text-xs text-[#737C86] dark:text-[#7E8894]">–</span>
             <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-[150px]`} title="To date" />
         </div>
-        {(search || statusF || marketF || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo(""); setPage(1); }} className={RT_CLEAR_BTN}><X className="h-3.5 w-3.5" />Clear</button>}
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((o) => !o)}
+          aria-expanded={advancedOpen}
+          className={`${RT_CLEAR_BTN} h-10 shrink-0`}
+          title="Advanced filters"
+        >
+          <Filter className="h-3.5 w-3.5" />
+          Advanced filters
+          {advancedFilterCount > 0 && (
+            <span className="ml-0.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#8A681F] px-1.5 text-[10px] font-bold text-white dark:bg-[#D6B76E] dark:text-[#1D242C]">
+              {advancedFilterCount}
+            </span>
+          )}
+          <ChevronDown className={`h-3.5 w-3.5 transition ${advancedOpen ? "rotate-180" : ""}`} />
+        </button>
+        {hasActiveFilters && <button onClick={clearAllFilters} className={RT_CLEAR_BTN}><X className="h-3.5 w-3.5" />Clear filters</button>}
         <ItemsColumnManager
           allCompanies={showCompanyColumn}
           visible={visibleCols}
@@ -7515,6 +7608,87 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           onReset={resetCols}
         />
       </div>
+
+      {/* Advanced filters panel — applied together with the primary filters above. */}
+      {advancedOpen && (
+        <div className="rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFCF7] p-3 dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C]">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#737C86] dark:text-[#7E8894]">
+              Advanced filters{advancedFilterCount > 0 ? ` · ${advancedFilterCount} active` : ""}
+            </p>
+            {advancedFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setProductLinkF(""); setScanSourceF(""); setExceptionF(""); setConditionF(""); setHasPhotoF(""); setBoxF(""); setPalletF(""); setOperatorF(""); setPage(1); }}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#8A681F] transition hover:bg-[#EFE6D2] dark:text-[#D6B76E] dark:hover:bg-[#2A2418]"
+                title="Reset advanced filters"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset advanced
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className={RT_ADV_LABEL}>
+              Product link
+              <select value={productLinkF} onChange={(e) => { setProductLinkF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="linked">Linked</option>
+                <option value="unlinked">Unlinked</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Scan source
+              <select value={scanSourceF} onChange={(e) => { setScanSourceF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="Scanner">Scanner</option>
+                <option value="Manual">Manual</option>
+                <option value="Packing Slip">Packing Slip</option>
+                <option value="Expected">Expected</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Exception
+              <select value={exceptionF} onChange={(e) => { setExceptionF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="Missing">Missing</option>
+                <option value="Over">Over</option>
+                <option value="Only Slip">Only Slip</option>
+                <option value="Only Shipment">Only Shipment</option>
+                <option value="Orphaned">Orphaned / Loose</option>
+                <option value="Voided">Voided</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Condition
+              <select value={conditionF} onChange={(e) => { setConditionF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                {Object.entries(CONDITION_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Has photo
+              <select value={hasPhotoF} onChange={(e) => { setHasPhotoF(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-full`}>
+                <option value="">All</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Box #
+              <input value={boxF} onChange={(e) => { setBoxF(e.target.value); setPage(1); }} placeholder="e.g. BOX-001" className={`${INPUT_SM_DARK} h-10 w-full`} />
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Pallet #
+              <input value={palletF} onChange={(e) => { setPalletF(e.target.value); setPage(1); }} placeholder="e.g. PLT-001" className={`${INPUT_SM_DARK} h-10 w-full`} />
+            </label>
+            <label className={RT_ADV_LABEL}>
+              Operator
+              <input value={operatorF} onChange={(e) => { setOperatorF(e.target.value); setPage(1); }} placeholder="Name…" className={`${INPUT_SM_DARK} h-10 w-full`} />
+            </label>
+          </div>
+        </div>
+      )}
 
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0">
