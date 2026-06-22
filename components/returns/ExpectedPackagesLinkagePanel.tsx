@@ -1,10 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Package2, Search } from "lucide-react";
+import { Loader2, Package2, Search } from "lucide-react";
 
 import { fetchExpectedPackagesNedaRead } from "@/app/returns/expected-packages-linkage-actions";
 import type { ReturnRecord } from "@/app/returns/returns-action-types";
+import {
+  ExpectedScannedProductCell,
+  ExpectedScannedStatusBadge,
+  deriveExpectedScannedRowStatus,
+  expectedScannedRowBackgroundClass,
+  operationalFieldsFromExpectedPackageRow,
+} from "@/components/returns/expected-scanned-row-ui";
 import { ProductLinkageDisplayBlock } from "@/components/product-linkage/ProductLinkageDisplayBlock";
 import type { NedaExpectedPackageReadRow } from "@/lib/expected-packages-neda-read-contract";
 import {
@@ -32,6 +39,8 @@ type Props = {
   scannedItems?: ReturnRecord[];
   showFilters?: boolean;
   compact?: boolean;
+  /** When true, parent section owns the heading — hide duplicate panel chrome. */
+  embedded?: boolean;
   className?: string;
   onLoaded?: (rowCount: number) => void;
 };
@@ -64,6 +73,7 @@ export function ExpectedPackagesLinkagePanel({
   scannedItems,
   showFilters = false,
   compact = false,
+  embedded = false,
   className = "",
   onLoaded,
 }: Props) {
@@ -145,8 +155,7 @@ export function ExpectedPackagesLinkagePanel({
       rows.map((row) => {
         const matched = scanned.filter((it) => itemMatchesExpectedPackage(it, row));
         const need = row.expected_quantity;
-        const isMatch = matched.length >= need && need > 0;
-        return { row, matched, need, isMatch };
+        return { row, matched, need };
       }),
     [rows, scanned],
   );
@@ -208,22 +217,24 @@ export function ExpectedPackagesLinkagePanel({
 
       {rows.length > 0 ? (
         <div>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-              <Package2 className="h-3 w-3" />
-              Expected boxes
-            </span>
-            {readiness ? (
-              <span className="text-[10px] font-semibold text-muted-foreground">Linkage {readiness}</span>
-            ) : null}
-          </div>
+          {!embedded ? (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <Package2 className="h-3 w-3" />
+                Expected boxes
+              </span>
+              {readiness ? (
+                <span className="text-[10px] font-semibold text-muted-foreground">Linkage {readiness}</span>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="overflow-hidden rounded-2xl border border-border">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
                   <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">
-                    Product / identifiers
+                    {embedded ? "Product" : "Product / identifiers"}
                   </th>
                   <th className="px-3 py-2 text-center font-bold uppercase tracking-wide text-slate-400">
                     Expected
@@ -237,30 +248,43 @@ export function ExpectedPackagesLinkagePanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {tableRows.map(({ row, matched, need, isMatch }) => (
+                {tableRows.map(({ row, matched, need }) => {
+                  const scannedQty = scanned.length > 0 ? matched.length : row.scanned_quantity;
+                  const lineStatus = deriveExpectedScannedRowStatus(need, scannedQty);
+                  const productFields = embedded
+                    ? operationalFieldsFromExpectedPackageRow(row)
+                    : null;
+                  return (
                   <tr
                     key={row.expected_package_id}
                     className={
-                      isMatch
-                        ? "bg-emerald-50/70 dark:bg-emerald-950/20"
-                        : "bg-rose-50/50 dark:bg-rose-950/15"
+                      embedded ? expectedScannedRowBackgroundClass(lineStatus) : undefined
                     }
                   >
-                    <td className="px-3 py-2.5 align-top">
-                      <p className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                        {row.sku || row.fnsku || "—"}
-                      </p>
-                      <div className="mt-1.5">
-                        <ProductLinkageDisplayBlock
-                          linkage={row.product_linkage}
-                          organizationId={organizationId}
-                          compact={compact}
-                          showPimLink={!compact}
-                        />
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-center font-bold">{need}</td>
-                    <td className="px-3 py-2.5 text-center font-bold">
+                    {embedded && productFields ? (
+                      <ExpectedScannedProductCell
+                        title={productFields.title}
+                        fnsku={productFields.fnsku}
+                        secondaryLabel={productFields.secondaryLabel}
+                        showLinkedBadge={productFields.showLinkedBadge}
+                      />
+                    ) : (
+                      <td className="px-3 py-2.5 align-top">
+                        <p className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                          {row.sku || row.fnsku || "—"}
+                        </p>
+                        <div className="mt-1.5">
+                          <ProductLinkageDisplayBlock
+                            linkage={row.product_linkage}
+                            organizationId={organizationId}
+                            compact={compact}
+                            showPimLink={!compact}
+                          />
+                        </div>
+                      </td>
+                    )}
+                    <td className="px-3 py-2.5 text-center font-bold tabular-nums">{need}</td>
+                    <td className="px-3 py-2.5 text-center font-bold tabular-nums">
                       {scanned.length > 0 ? (
                         matched.length > 0 ? (
                           <span className="text-emerald-600">{matched.length}</span>
@@ -272,17 +296,10 @@ export function ExpectedPackagesLinkagePanel({
                       )}
                     </td>
                     <td className="px-3 py-2.5 align-top">
-                      {scanned.length > 0 ? (
-                        isMatch ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Match
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
-                            Missing
-                          </span>
-                        )
+                      {embedded ? (
+                        <ExpectedScannedStatusBadge status={lineStatus} />
+                      ) : scanned.length > 0 ? (
+                        <ExpectedScannedStatusBadge status={lineStatus} />
                       ) : (
                         <span className="text-[10px] font-semibold text-muted-foreground">
                           {VARIANCE_LABEL[row.product_comparison.status] ??
@@ -292,7 +309,8 @@ export function ExpectedPackagesLinkagePanel({
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

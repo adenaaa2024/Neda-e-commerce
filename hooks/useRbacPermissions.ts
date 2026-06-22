@@ -15,6 +15,7 @@ import {
   useUserRole,
   ROLE_HIERARCHY,
   INTERNAL_DEV_BADGE_ROLE_KEYS,
+  INTERNAL_STAFF_ROLE_KEYS,
   type UserRole,
 } from "../components/UserRoleContext";
 import { canManagePlatformAccessCatalog } from "../lib/platform-access-management";
@@ -65,6 +66,12 @@ export type RbacPermissions = {
    * Internal technical catalog roles; see implementation.
    */
   canSeeTechDebug:       boolean;
+
+  /**
+   * Returns box drawer: `v_inventory_status` linkage table (Advanced inventory status).
+   * Super Admin always; MENORIX/root internal catalog roles when in platform shell.
+   */
+  canSeeAdvancedInventoryStatus: boolean;
 
   // ── WMS (all roles; ONLY section shown to operator) ───────
   canSeeWmsTools:        boolean;
@@ -155,6 +162,14 @@ export function useRbacPermissions(): RbacPermissions {
       canSeeTechDebug:
         isPlatformShellView
         && (role === "super_admin" || INTERNAL_DEV_BADGE_ROLE_KEYS.has(ck)),
+
+      // Box drawer v_inventory_status — signed-in actor only (not “view as”).
+      canSeeAdvancedInventoryStatus:
+        actorNorm === "super_admin"
+        || (
+          isPlatformShellView
+          && (INTERNAL_STAFF_ROLE_KEYS.has(actorCk) || actorCk === "system_employee")
+        ),
 
       // WMS: available to all roles; operators see only this section
       canSeeWmsTools:       true,
